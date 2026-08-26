@@ -193,8 +193,22 @@ suite("test_timestamp_ns_partition_bucket") {
         insert into datetimev2_cast_timestamp_ns_prune values
         (1, '2024-01-01 00:00:00.000001'),
         (2, '2024-01-02 00:00:00.000002'),
-        (3, '2024-01-03 00:00:00.000003')
+        (3, '2024-01-03 00:00:00.000003'),
+        (4, '9999-12-31 23:59:59.999999')
     """
+
+    // Strict casts still fail when the out-of-range partition is scanned directly. Partition
+    // pruning may skip that failure when a necessary DATETIMEV2 predicate excludes the partition.
+    sql "set enable_strict_cast = true"
+    test {
+        sql """
+            select id, cast(dt as timestamp_ns)
+            from datetimev2_cast_timestamp_ns_prune partition(p3)
+            where id = 4
+            order by id
+        """
+        exception "TIMESTAMP_NS overflow"
+    }
     explain {
         sql """
             select id from datetimev2_cast_timestamp_ns_prune
@@ -204,11 +218,26 @@ suite("test_timestamp_ns_partition_bucket") {
         """
         contains "partitions=2/3 (p1,p2)"
     }
+    // The query executes in strict mode without evaluating the overflow in p3.
     order_qt_datetimev2_cast_timestamp_ns_aligned """
         select id from datetimev2_cast_timestamp_ns_prune
         where cast(dt as timestamp_ns) in (
             cast('2024-01-01 00:00:00.000001000' as timestamp_ns),
             cast('2024-01-02 00:00:00.000002000' as timestamp_ns))
+        order by id
+    """
+    explain {
+        sql """
+            select id from datetimev2_cast_timestamp_ns_prune
+            where cast(dt as timestamp_ns) =
+                  cast('2024-01-01 00:00:00.000001000' as timestamp_ns)
+        """
+        contains "partitions=1/3 (p1)"
+    }
+    sql """
+        select id from datetimev2_cast_timestamp_ns_prune
+        where cast(dt as timestamp_ns) =
+              cast('2024-01-01 00:00:00.000001000' as timestamp_ns)
         order by id
     """
     explain {
@@ -223,5 +252,46 @@ suite("test_timestamp_ns_partition_bucket") {
         select id from datetimev2_cast_timestamp_ns_prune
         where cast(dt as timestamp_ns) =
               cast('2024-01-02 00:00:00.000002001' as timestamp_ns)
+    """
+    explain {
+        sql """
+            select id from datetimev2_cast_timestamp_ns_prune
+            where cast(dt as timestamp_ns) in (
+                cast('2024-01-01 00:00:00.000001001' as timestamp_ns),
+                cast('2024-01-02 00:00:00.000002001' as timestamp_ns))
+        """
+        contains "VEMPTYSET"
+    }
+    sql """
+        select id from datetimev2_cast_timestamp_ns_prune
+        where cast(dt as timestamp_ns) in (
+            cast('2024-01-01 00:00:00.000001001' as timestamp_ns),
+            cast('2024-01-02 00:00:00.000002001' as timestamp_ns))
+        order by id
+    """
+
+    // Mixed-type coercion creates an internally strict cast even when the session is non-strict.
+    // It must fail when evaluated, while the same comparison may prune the out-of-range partition.
+    sql "set enable_strict_cast = false"
+    test {
+        sql """
+            select id, dt = cast('2024-01-01 00:00:00.000001000' as timestamp_ns)
+            from datetimev2_cast_timestamp_ns_prune partition(p3)
+            where id = 4
+            order by id
+        """
+        exception "TIMESTAMP_NS overflow"
+    }
+    explain {
+        sql """
+            select id from datetimev2_cast_timestamp_ns_prune
+            where dt = cast('2024-01-01 00:00:00.000001000' as timestamp_ns)
+        """
+        contains "partitions=1/3 (p1)"
+    }
+    sql """
+        select id from datetimev2_cast_timestamp_ns_prune
+        where dt = cast('2024-01-01 00:00:00.000001000' as timestamp_ns)
+        order by id
     """
 }
