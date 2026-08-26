@@ -61,7 +61,9 @@ PAIMON_BUILD_SCHEMA_VERSION="1"
 # mandatory before reuse. Delete the lists once master has published a prebuilt that
 # carries the semantic marker itself.
 ARROW_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT="ab79ab0bbfbf93f9860050fb751b20fee9e40d96"
-PAIMON_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT="cb82e41ba46f534e611cdd52e66b53c227d49bf8"
+# Dependency ordering does not change the installed Paimon artifacts, so existing
+# complete prebuilts remain compatible with the corrected clean-build graph.
+PAIMON_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT="fe08a2f6c995dd469baa774245dc7edb1475b435"
 ARROW_LEGACY_BUILD_FINGERPRINTS=(
     # published 2026-08-19, master after apache/doris#66842
     8356a3a464b93f3a59a6bdae6a51258947ab35d2
