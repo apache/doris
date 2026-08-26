@@ -121,6 +121,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -183,6 +184,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     @SerializedName(value = "itp", alternate = {"idToPartition"})
     @Getter
     protected ConcurrentHashMap<Long, Partition> idToPartition = new ConcurrentHashMap<>();
+    // Incremented only when the formal partition id set changes. Prepared short-circuit point query cache uses this
+    // to invalidate stale partition pruning metadata without reacting to ordinary data writes. This is transient and
+    // rebuilt from zero after deserialization because prepared statement cache is also in-memory.
+    private transient AtomicLong partitionTopologyVersion = new AtomicLong(0L);
     // handled in postgsonprocess
     @Getter
     protected Map<String, Partition> nameToPartition = Maps.newTreeMap();
@@ -1286,8 +1291,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public void addPartition(Partition partition) {
-        idToPartition.put(partition.getId(), partition);
+        Partition previousPartition = idToPartition.put(partition.getId(), partition);
         nameToPartition.put(partition.getName(), partition);
+        if (previousPartition == null) {
+            bumpPartitionTopologyVersion();
+        }
     }
 
     // This is a private method.
@@ -1303,6 +1311,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (partition != null) {
             idToPartition.remove(partition.getId());
             nameToPartition.remove(partitionName);
+            bumpPartitionTopologyVersion();
             RecyclePartitionParam recyclePartitionParam = new RecyclePartitionParam();
             fillInfo(partition, recyclePartitionParam);
             dropPartitionCommon(dbId, isForceDrop, recyclePartitionParam, partition, reserveTablets);
@@ -1586,6 +1595,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public List<Long> getPartitionIds() {
         return new ArrayList<>(idToPartition.keySet());
+    }
+
+    public long getPartitionTopologyVersion() {
+        return partitionTopologyVersion.get();
+    }
+
+    private void bumpPartitionTopologyVersion() {
+        partitionTopologyVersion.incrementAndGet();
     }
 
     public Set<String> getCopiedBfColumns() {
@@ -2018,6 +2035,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     @Override
     public void gsonPostProcess() throws IOException {
+        partitionTopologyVersion = new AtomicLong(0L);
 
         // HACK: the index id in MaterializedIndexMeta is not equals to the index id
         // saved in OlapTable, because the table restore from snapshot is not reset
@@ -2172,6 +2190,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
         idToPartition.put(newPartition.getId(), newPartition);
         nameToPartition.put(newPartition.getName(), newPartition);
+        bumpPartitionTopologyVersion();
 
         DataProperty dataProperty = partitionInfo.getDataProperty(oldPartition.getId());
         ReplicaAllocation replicaAlloc = partitionInfo.getReplicaAllocation(oldPartition.getId());
