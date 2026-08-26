@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -109,6 +110,44 @@ class HudiBatchFsViewOwnerTest {
             owner.close();
 
             Mockito.verify(assignment).stop();
+            Assertions.assertTrue(interrupted.await(3, TimeUnit.SECONDS));
+            Mockito.verify(lease, Mockito.never()).close();
+            release.countDown();
+            Mockito.verify(lease, Mockito.timeout(3000)).close();
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void assignmentStopInterruptsStartedTaskAndRetainsLeaseUntilTerminal() throws Exception {
+        SplitAssignment assignment = new SplitAssignment(
+                null, null, null, Collections.emptyMap(), Collections.emptyList(), false);
+        HudiFsViewCacheValue.Lease lease = Mockito.mock(HudiFsViewCacheValue.Lease.class);
+        HudiScanNode.BatchFsViewOwner owner = new HudiScanNode.BatchFsViewOwner(assignment, lease);
+        assignment.addCloseable(owner);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch interrupted = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        HudiScanNode.TerminalTask task = new HudiScanNode.TerminalTask(() -> {
+            started.countDown();
+            while (release.getCount() > 0) {
+                try {
+                    release.await(3, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    interrupted.countDown();
+                }
+            }
+        }, owner::finish);
+        owner.track(task);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            executor.execute(task);
+            Assertions.assertTrue(started.await(3, TimeUnit.SECONDS));
+
+            assignment.stop();
+
             Assertions.assertTrue(interrupted.await(3, TimeUnit.SECONDS));
             Mockito.verify(lease, Mockito.never()).close();
             release.countDown();

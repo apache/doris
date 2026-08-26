@@ -662,6 +662,7 @@ public class HudiScanNode extends HiveScanNode {
         }
 
         BatchFsViewOwner finalBatchOwner = batchOwner;
+        splitAssignment.addCloseable(finalBatchOwner);
         AtomicInteger pendingTasks = new AtomicInteger(1); // producer reference
         Runnable taskFinished = () -> {
             if (pendingTasks.decrementAndGet() == 0) {
@@ -842,16 +843,16 @@ public class HudiScanNode extends HiveScanNode {
 
         @Override
         public void close() {
-            if (!finished.get()) {
-                stopping.set(true);
-                try {
-                    splitAssignment.stop();
-                } catch (RuntimeException e) {
-                    tasks.forEach(TerminalTask::requestStop);
-                    throw e;
-                }
-                tasks.forEach(TerminalTask::requestStop);
+            if (finished.get() || !stopping.compareAndSet(false, true)) {
+                return;
             }
+            try {
+                splitAssignment.stop();
+            } catch (RuntimeException e) {
+                tasks.forEach(TerminalTask::requestStop);
+                throw e;
+            }
+            tasks.forEach(TerminalTask::requestStop);
             // Already-started filesystem calls may be blocked in storage code that does not respond to
             // interruption. Their TerminalTask.done callbacks retain exact task accounting and eventually call
             // finish(), which releases the fs-view lease only after the last task exits. Cancellation must return
