@@ -142,11 +142,14 @@ public:
                                                   int64_t tablet_id);
     Status save_meta(DataDir* data_dir);
 
-    void serialize(std::string* meta_binary);
-    Status deserialize(std::string_view meta_binary);
-    void init_from_pb(const TabletMetaPB& tablet_meta_pb);
+    void serialize(std::string* meta_binary, bool skip_schema = false);
+    Status deserialize(DataDir* data_dir, std::string_view meta_binary);
+    Status deserialize(std::string_view meta_binary) { return deserialize(nullptr, meta_binary); }
+    void init_from_pb(const TabletMetaPB& tablet_meta_pb,
+                      const std::map<int32_t, std::string>* version_to_schema = nullptr);
 
-    void to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_meta);
+    void to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_meta,
+                    bool skip_schema = false);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
     size_t tablet_columns_num() const { return _schema->num_columns(); }
 
@@ -332,6 +335,10 @@ public:
 
     int64_t avg_rs_meta_serialize_size() const { return _avg_rs_meta_serialize_size; }
 
+    bool tablet_schema_saved() const { return _tablet_schema_saved.load(); }
+
+    void set_tablet_schema_saved(bool schema_saved) { _tablet_schema_saved.store(schema_saved); }
+
     EncryptionAlgorithmPB encryption_algorithm() const { return _encryption_algorithm; }
 
 private:
@@ -394,6 +401,8 @@ private:
     int32_t _vertical_compaction_num_columns_per_group = 5;
 
     int64_t _avg_rs_meta_serialize_size = 0;
+
+    std::atomic_bool _tablet_schema_saved = false;
 
     // cloud
     int64_t _ttl_seconds = 0;

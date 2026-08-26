@@ -805,6 +805,7 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, const TabletMetaPB& in) 
     if (in.has_inverted_index_storage_format()) {
         out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     }
+    out->set_tablet_schema_saved(in.tablet_schema_saved());
 }
 
 void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
@@ -893,6 +894,7 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
     if (in.has_inverted_index_storage_format()) {
         out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     }
+    out->set_tablet_schema_saved(in.tablet_schema_saved());
 }
 
 TabletMetaPB cloud_tablet_meta_to_doris(const TabletMetaCloudPB& in) {
@@ -988,6 +990,7 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
     if (in.has_inverted_index_storage_format()) {
         out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     }
+    out->set_tablet_schema_saved(in.tablet_schema_saved());
 }
 
 void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
@@ -1076,6 +1079,7 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
     if (in.has_inverted_index_storage_format()) {
         out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     }
+    out->set_tablet_schema_saved(in.tablet_schema_saved());
 }
 
 } // namespace doris::cloud

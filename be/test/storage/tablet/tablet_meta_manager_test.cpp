@@ -17,6 +17,7 @@
 
 #include "storage/tablet/tablet_meta_manager.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
@@ -33,6 +34,9 @@
 
 #include "gtest/gtest_pred_impl.h"
 #include "storage/data_dir.h"
+#include "storage/olap_define.h"
+#include "storage/olap_meta.h"
+#include "storage/rowset/rowset_meta_manager.h"
 #include "storage/storage_engine.h"
 using std::string;
 
@@ -86,14 +90,64 @@ TEST_F(TabletMetaManagerTest, TestSaveAndGetAndRemove) {
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     Status s = tablet_meta->deserialize(meta_binary);
     EXPECT_EQ(Status::OK(), s);
+    TabletSchemaPB rowset_schema_pb;
+    tablet_meta->tablet_schema()->to_schema_pb(&rowset_schema_pb);
+    rowset_schema_pb.set_schema_version(7);
+    auto rowset_schema = std::make_shared<TabletSchema>();
+    rowset_schema->init_from_pb(rowset_schema_pb);
+    for (auto& [_, rowset_meta] : tablet_meta->all_mutable_rs_metas()) {
+        rowset_meta->set_tablet_schema(rowset_schema);
+    }
 
     s = TabletMetaManager::save(_data_dir, tablet_id, schema_hash, tablet_meta);
     EXPECT_EQ(Status::OK(), s);
+
+    std::string stored_meta_binary;
+    s = _data_dir->get_meta()->get(META_COLUMN_FAMILY_INDEX,
+                                   fmt::format("{}{}_{}", HEADER_PREFIX, tablet_id, schema_hash),
+                                   &stored_meta_binary);
+    ASSERT_EQ(Status::OK(), s);
+    TabletMetaPB stored_meta_pb;
+    ASSERT_TRUE(stored_meta_pb.ParseFromString(stored_meta_binary));
+    EXPECT_TRUE(stored_meta_pb.tablet_schema_saved());
+    EXPECT_FALSE(stored_meta_pb.has_schema());
+    for (const auto& rowset_meta_pb : stored_meta_pb.rs_metas()) {
+        EXPECT_FALSE(rowset_meta_pb.has_tablet_schema());
+        EXPECT_TRUE(rowset_meta_pb.has_schema_version());
+    }
+
+    std::string stored_tablet_schema;
+    EXPECT_EQ(Status::OK(), TabletMetaManager::get_schema(_data_dir, tablet_id, schema_hash,
+                                                          &stored_tablet_schema));
+    std::string stored_rowset_schema;
+    EXPECT_EQ(Status::OK(),
+              RowsetMetaManager::get_rowset_schema(
+                      _data_dir->get_meta(), tablet_id, tablet_meta->tablet_uid(), schema_hash,
+                      rowset_schema->schema_version(), &stored_rowset_schema));
+
+    TabletMetaSharedPtr separated_meta(new TabletMeta());
+    ASSERT_EQ(Status::OK(),
+              TabletMetaManager::get_meta(_data_dir, tablet_id, schema_hash, separated_meta));
+    for (const auto& [_, rowset_meta] : separated_meta->all_rs_metas()) {
+        EXPECT_NE(nullptr, rowset_meta->tablet_schema());
+        EXPECT_EQ(7, rowset_meta->tablet_schema()->schema_version());
+    }
+
     std::string json_meta_read;
     s = TabletMetaManager::get_json_meta(_data_dir, tablet_id, schema_hash, &json_meta_read);
     EXPECT_EQ(Status::OK(), s);
     // FIXME(Drogon): adapt for BinlogConfig default
     // EXPECT_EQ(_json_header, json_meta_read);
+
+    const std::string rowset_schema_key =
+            fmt::format("{}{}_{}_{}", ROWSET_SCHEMA_PREFIX, tablet_meta->tablet_uid().to_string(),
+                        schema_hash, rowset_schema->schema_version());
+    ASSERT_EQ(Status::OK(),
+              _data_dir->get_meta()->remove(META_COLUMN_FAMILY_INDEX, rowset_schema_key));
+    TabletMetaSharedPtr incomplete_meta(new TabletMeta());
+    EXPECT_FALSE(
+            TabletMetaManager::get_meta(_data_dir, tablet_id, schema_hash, incomplete_meta).ok());
+
     s = TabletMetaManager::remove(_data_dir, tablet_id, schema_hash);
     EXPECT_EQ(Status::OK(), s);
     TabletMetaSharedPtr meta_read(new TabletMeta());

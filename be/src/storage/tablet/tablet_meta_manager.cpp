@@ -28,6 +28,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "common/check.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "json2pb/json_to_pb.h"
@@ -35,6 +36,7 @@
 #include "storage/data_dir.h"
 #include "storage/olap_define.h"
 #include "storage/olap_meta.h"
+#include "storage/rowset/rowset_meta_manager.h"
 #include "storage/utils.h"
 
 namespace rocksdb {
@@ -68,7 +70,7 @@ Status TabletMetaManager::get_meta(DataDir* store, TTabletId tablet_id, TSchemaH
                      << " failed.";
         return s;
     }
-    return tablet_meta->deserialize(value);
+    return tablet_meta->deserialize(store, value);
 }
 
 Status TabletMetaManager::get_json_meta(DataDir* store, TTabletId tablet_id,
@@ -89,9 +91,30 @@ Status TabletMetaManager::get_json_meta(DataDir* store, TTabletId tablet_id,
 // 2. save to local meta store
 Status TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
                                TabletMetaSharedPtr tablet_meta, std::string_view header_prefix) {
+    for (const auto& [_, rowset_meta] : tablet_meta->all_rs_metas()) {
+        DORIS_CHECK(rowset_meta->tablet_schema() != nullptr);
+        RETURN_IF_ERROR(RowsetMetaManager::save_schema(store->get_meta(), tablet_id,
+                                                       tablet_meta->tablet_uid(), schema_hash,
+                                                       rowset_meta->tablet_schema()));
+    }
+    for (const auto& [_, rowset_meta] : tablet_meta->all_stale_rs_metas()) {
+        DORIS_CHECK(rowset_meta->tablet_schema() != nullptr);
+        RETURN_IF_ERROR(RowsetMetaManager::save_schema(store->get_meta(), tablet_id,
+                                                       tablet_meta->tablet_uid(), schema_hash,
+                                                       rowset_meta->tablet_schema()));
+    }
+
+    if (!tablet_meta->tablet_schema_saved()) {
+        TabletSchemaPB schema_pb;
+        tablet_meta->tablet_schema()->to_schema_pb(&schema_pb);
+        RETURN_IF_ERROR(save_schema(store, tablet_id, schema_hash,
+                                    TabletSchema::deterministic_string_serialize(schema_pb)));
+        tablet_meta->set_tablet_schema_saved(true);
+    }
+
     std::string key = fmt::format("{}{}_{}", header_prefix, tablet_id, schema_hash);
     std::string value;
-    tablet_meta->serialize(&value);
+    tablet_meta->serialize(&value, true);
     if (tablet_meta->partition_id() <= 0) {
         LOG(WARNING) << "invalid partition id " << tablet_meta->partition_id() << " tablet "
                      << tablet_meta->tablet_id();
@@ -114,6 +137,34 @@ Status TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash 
     return meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
 }
 
+Status TabletMetaManager::save_schema(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
+                                      const std::string& schema_binary) {
+    std::string key = fmt::format("{}{}_{}", TABLET_SCHEMA_PREFIX, tablet_id, schema_hash);
+    return store->get_meta()->put(META_COLUMN_FAMILY_INDEX, key, schema_binary);
+}
+
+Status TabletMetaManager::get_schema(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
+                                     std::string* schema_binary) {
+    std::string key = fmt::format("{}{}_{}", TABLET_SCHEMA_PREFIX, tablet_id, schema_hash);
+    Status status = store->get_meta()->get(META_COLUMN_FAMILY_INDEX, key, schema_binary);
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to get tablet schema. tablet=" << tablet_id << ", key=" << key
+                     << ", status=" << status;
+    }
+    return status;
+}
+
+Status TabletMetaManager::remove_schema(DataDir* store, TTabletId tablet_id,
+                                        TSchemaHash schema_hash) {
+    const std::string key = fmt::format("{}{}_{}", TABLET_SCHEMA_PREFIX, tablet_id, schema_hash);
+    Status status = store->get_meta()->remove(META_COLUMN_FAMILY_INDEX, key);
+    if (!status.ok() && !status.is<META_KEY_NOT_FOUND>()) {
+        LOG(WARNING) << "failed to remove tablet schema. tablet=" << tablet_id << ", key=" << key
+                     << ", status=" << status;
+    }
+    return status;
+}
+
 // TODO(ygl):
 // 1. remove load data first
 // 2. remove from load meta store using term if term > 0
@@ -123,6 +174,12 @@ Status TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchemaHas
     OlapMeta* meta = store->get_meta();
     Status res = meta->remove(META_COLUMN_FAMILY_INDEX, key);
     VLOG_NOTICE << "remove tablet_meta, key:" << key << ", res:" << res;
+    if (res.ok() && header_prefix == HEADER_PREFIX) {
+        Status schema_status = remove_schema(store, tablet_id, schema_hash);
+        if (!schema_status.ok() && !schema_status.is<META_KEY_NOT_FOUND>()) {
+            return schema_status;
+        }
+    }
     return res;
 }
 

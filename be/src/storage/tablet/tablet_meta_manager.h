@@ -53,6 +53,12 @@ public:
                        const std::string& meta_binary,
                        std::string_view header_prefix = HEADER_PREFIX);
 
+    static Status save_schema(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
+                              const std::string& schema_binary);
+    static Status get_schema(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
+                             std::string* schema_binary);
+    static Status remove_schema(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash);
+
     static Status remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
                          std::string_view header_prefix = HEADER_PREFIX);
 

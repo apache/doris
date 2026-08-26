@@ -361,7 +361,7 @@ Status DataDir::load() {
     auto load_rowset_func = [&dir_rowset_metas, this](TabletUid tablet_uid, RowsetId rowset_id,
                                                       std::string_view meta_str) -> bool {
         RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
-        bool parsed = rowset_meta->init(meta_str);
+        bool parsed = rowset_meta->init(meta_str, _meta);
         if (!parsed) {
             LOG(WARNING) << "parse rowset meta string failed for rowset_id:" << rowset_id;
             // return false will break meta iterator, return true to skip this error
@@ -599,11 +599,10 @@ Status DataDir::load() {
         }
 
         std::optional<BinlogFormatPB> binlog_format = std::nullopt;
-        std::optional<RowsetMetaPB> attach_row_binlog_rowset_meta;
+        const RowsetMeta* attach_row_binlog_rowset_meta = nullptr;
         if (attach_row_binlog.rowset != nullptr) {
             binlog_format = BinlogFormatPB::ROW;
-            attach_row_binlog_rowset_meta =
-                    attach_row_binlog.rowset->rowset_meta()->get_rowset_pb();
+            attach_row_binlog_rowset_meta = attach_row_binlog.rowset->rowset_meta().get();
         }
 
         std::string attach_binlog_rowset_id =
@@ -615,10 +614,9 @@ Status DataDir::load() {
             rowset_meta->tablet_uid() == tablet->tablet_uid()) {
             if (!rowset_meta->tablet_schema()) {
                 rowset_meta->set_tablet_schema(tablet->tablet_schema());
-                RETURN_IF_ERROR(RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(),
-                                                        rowset_meta->rowset_id(),
-                                                        rowset_meta->get_rowset_pb(), binlog_format,
-                                                        attach_row_binlog_rowset_meta));
+                RETURN_IF_ERROR(RowsetMetaManager::save(
+                        _meta, rowset_meta->tablet_uid(), rowset_meta->rowset_id(), *rowset_meta,
+                        binlog_format, attach_row_binlog_rowset_meta));
             }
             std::vector<RowsetId> rowset_ids {rowset_meta->rowset_id()};
             if (attach_row_binlog.rowset != nullptr) {
@@ -654,10 +652,10 @@ Status DataDir::load() {
                    rowset_meta->tablet_uid() == tablet->tablet_uid()) {
             if (!rowset_meta->tablet_schema()) {
                 rowset_meta->set_tablet_schema(tablet->tablet_schema());
-                RETURN_IF_ERROR(RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(),
-                                                        rowset_meta->rowset_id(),
-                                                        rowset_meta->get_rowset_pb(), binlog_format,
-                                                        attach_row_binlog_rowset_meta));
+                rowset_meta->set_persist_schema(true);
+                RETURN_IF_ERROR(RowsetMetaManager::save(
+                        _meta, rowset_meta->tablet_uid(), rowset_meta->rowset_id(), *rowset_meta,
+                        binlog_format, attach_row_binlog_rowset_meta));
             }
             Status publish_status = tablet->add_rowset(rowset);
             if (!publish_status && !publish_status.is<PUSH_VERSION_ALREADY_EXIST>()) {

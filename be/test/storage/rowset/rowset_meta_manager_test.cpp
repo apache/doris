@@ -28,8 +28,8 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <new>
-#include <set>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -37,10 +37,12 @@
 #include "common/config.h"
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/exec_env.h"
+#include "storage/binlog.h"
 #include "storage/olap_define.h"
 #include "storage/olap_meta.h"
 #include "storage/options.h"
 #include "storage/storage_engine.h"
+#include "storage/tablet/tablet_schema.h"
 #include "util/uid_util.h"
 
 using ::testing::_;
@@ -84,6 +86,30 @@ public:
     }
 
 protected:
+    TabletSchemaSPtr create_tablet_schema(bool with_variant = false, int32_t schema_version = 1) {
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(KeysType::DUP_KEYS);
+        schema_pb.set_schema_version(schema_version);
+
+        auto* key_column = schema_pb.add_column();
+        key_column->set_unique_id(0);
+        key_column->set_name("k");
+        key_column->set_type("INT");
+        key_column->set_is_key(true);
+        key_column->set_is_nullable(false);
+
+        auto* value_column = schema_pb.add_column();
+        value_column->set_unique_id(1);
+        value_column->set_name("v");
+        value_column->set_type(with_variant ? "VARIANT" : "INT");
+        value_column->set_is_key(false);
+        value_column->set_is_nullable(true);
+
+        auto schema = std::make_shared<TabletSchema>();
+        schema->init_from_pb(schema_pb);
+        return schema;
+    }
+
     RowsetMetaSharedPtr create_rowset_meta(int64_t rowset_id, RowsetStatePB state, Version version,
                                            bool is_row_binlog = false) {
         auto rowset_meta = std::make_shared<RowsetMeta>();
@@ -94,18 +120,11 @@ protected:
         rowset_meta->set_tablet_uid(_tablet_uid);
         rowset_meta->set_rowset_state(state);
         rowset_meta->set_version(version);
+        rowset_meta->set_tablet_schema(create_tablet_schema());
         if (is_row_binlog) {
             rowset_meta->mark_row_binlog();
         }
         return rowset_meta;
-    }
-
-    RowsetMetaPB to_rowset_meta_pb(const RowsetMetaSharedPtr& rowset_meta) {
-        std::string serialized;
-        EXPECT_TRUE(rowset_meta->serialize(&serialized));
-        RowsetMetaPB rowset_meta_pb;
-        EXPECT_TRUE(rowset_meta_pb.ParseFromString(serialized));
-        return rowset_meta_pb;
     }
 
     OlapMeta* meta() { return _meta; }
@@ -123,8 +142,8 @@ TEST_F(RowsetMetaManagerTest, SaveAndLoad) {
             create_rowset_meta(20001, RowsetStatePB::COMMITTED, Version {7, 7}, true);
 
     auto st = RowsetMetaManager::save(meta(), tablet_uid(), base_rowset_meta->rowset_id(),
-                                      to_rowset_meta_pb(base_rowset_meta), BinlogFormatPB::ROW,
-                                      to_rowset_meta_pb(attach_rowset_meta));
+                                      *base_rowset_meta, BinlogFormatPB::ROW,
+                                      attach_rowset_meta.get());
     ASSERT_TRUE(st.ok()) << st;
 
     RowsetMetaSharedPtr loaded_base_meta = std::make_shared<RowsetMeta>();
@@ -145,14 +164,41 @@ TEST_F(RowsetMetaManagerTest, SaveAndLoad) {
     EXPECT_TRUE(loaded_attach_meta->is_row_binlog());
 }
 
+TEST_F(RowsetMetaManagerTest, VariantSchemaRemainsInline) {
+    auto rowset_meta = create_rowset_meta(20002, RowsetStatePB::VISIBLE, Version {8, 8});
+    rowset_meta->set_tablet_schema(create_tablet_schema(true, 10));
+
+    RowsetMetaPB rowset_meta_pb = rowset_meta->get_rowset_pb(true);
+    EXPECT_TRUE(rowset_meta_pb.has_tablet_schema());
+    EXPECT_TRUE(rowset_meta_pb.has_variant_type_in_schema());
+    EXPECT_EQ(rowset_meta_pb.schema_version(), 10);
+}
+
+TEST_F(RowsetMetaManagerTest, VariantSchemaIsNotPersistedSeparately) {
+    auto rowset_meta = create_rowset_meta(20003, RowsetStatePB::VISIBLE, Version {9, 9});
+    rowset_meta->set_tablet_schema(create_tablet_schema(true, 11));
+
+    auto st = RowsetMetaManager::save(meta(), tablet_uid(), rowset_meta->rowset_id(), *rowset_meta);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_FALSE(RowsetMetaManager::schema_exists(meta(), tablet_uid(),
+                                                  rowset_meta->tablet_schema_hash(), 11));
+
+    RowsetMetaSharedPtr loaded_rowset_meta = std::make_shared<RowsetMeta>();
+    st = RowsetMetaManager::get_rowset_meta(meta(), tablet_uid(), rowset_meta->rowset_id(),
+                                            loaded_rowset_meta);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(loaded_rowset_meta->tablet_schema(), nullptr);
+    EXPECT_EQ(loaded_rowset_meta->tablet_schema()->num_variant_columns(), 1U);
+}
+
 TEST_F(RowsetMetaManagerTest, Remove) {
     auto base_rowset_meta = create_rowset_meta(20010, RowsetStatePB::VISIBLE, Version {9, 9});
     auto attach_rowset_meta =
             create_rowset_meta(20011, RowsetStatePB::VISIBLE, Version {9, 9}, true);
 
     auto st = RowsetMetaManager::save(meta(), tablet_uid(), base_rowset_meta->rowset_id(),
-                                      to_rowset_meta_pb(base_rowset_meta), BinlogFormatPB::ROW,
-                                      to_rowset_meta_pb(attach_rowset_meta));
+                                      *base_rowset_meta, BinlogFormatPB::ROW,
+                                      attach_rowset_meta.get());
     ASSERT_TRUE(st.ok()) << st;
 
     st = RowsetMetaManager::exists(meta(), tablet_uid(), attach_rowset_meta->rowset_id());
@@ -167,14 +213,66 @@ TEST_F(RowsetMetaManagerTest, Remove) {
     auto attach_rowset_meta_2 =
             create_rowset_meta(20013, RowsetStatePB::VISIBLE, Version {10, 10}, true);
     st = RowsetMetaManager::save(meta(), tablet_uid(), base_rowset_meta_2->rowset_id(),
-                                 to_rowset_meta_pb(base_rowset_meta_2), BinlogFormatPB::ROW,
-                                 to_rowset_meta_pb(attach_rowset_meta_2));
+                                 *base_rowset_meta_2, BinlogFormatPB::ROW,
+                                 attach_rowset_meta_2.get());
     ASSERT_TRUE(st.ok()) << st;
 
     st = RowsetMetaManager::remove(meta(), tablet_uid(), attach_rowset_meta_2->rowset_id());
     ASSERT_TRUE(st.ok()) << st;
     EXPECT_TRUE(RowsetMetaManager::exists(meta(), tablet_uid(), attach_rowset_meta_2->rowset_id())
                         .is<ErrorCode::META_KEY_NOT_FOUND>());
+}
+
+TEST_F(RowsetMetaManagerTest, CcrBinlogDataAddsSchemaOnExport) {
+    auto rowset_meta = create_rowset_meta(20014, RowsetStatePB::VISIBLE, Version {11, 11});
+    ASSERT_TRUE(RowsetMetaManager::save(meta(), tablet_uid(), rowset_meta->rowset_id(),
+                                        *rowset_meta, BinlogFormatPB::STATEMENT_AND_SNAPSHOT)
+                        .ok());
+
+    const std::string binlog_data_key =
+            make_binlog_data_key(tablet_uid(), 11, rowset_meta->rowset_id());
+    std::string stored_binlog_data;
+    ASSERT_TRUE(meta()->get(META_COLUMN_FAMILY_INDEX, binlog_data_key, &stored_binlog_data).ok());
+    RowsetMetaPB stored_binlog_rowset_meta_pb;
+    ASSERT_TRUE(stored_binlog_rowset_meta_pb.ParseFromString(stored_binlog_data));
+    EXPECT_FALSE(stored_binlog_rowset_meta_pb.has_tablet_schema());
+
+    ASSERT_TRUE(RowsetMetaManager::remove(meta(), tablet_uid(), rowset_meta->rowset_id()).ok());
+    std::string binlog_data = RowsetMetaManager::get_rowset_binlog_meta(
+            meta(), tablet_uid(), "11", rowset_meta->rowset_id().to_string());
+    RowsetMetaPB binlog_rowset_meta_pb;
+    ASSERT_TRUE(binlog_rowset_meta_pb.ParseFromString(binlog_data));
+    EXPECT_TRUE(binlog_rowset_meta_pb.has_tablet_schema());
+
+    RowsetBinlogMetasPB binlog_metas_pb;
+    ASSERT_TRUE(
+            RowsetMetaManager::get_rowset_binlog_metas(meta(), tablet_uid(), {11}, &binlog_metas_pb)
+                    .ok());
+    ASSERT_EQ(binlog_metas_pb.rowset_binlog_metas_size(), 1);
+    RowsetMetaPB snapshot_binlog_rowset_meta_pb;
+    ASSERT_TRUE(snapshot_binlog_rowset_meta_pb.ParseFromString(
+            binlog_metas_pb.rowset_binlog_metas(0).data()));
+    EXPECT_TRUE(snapshot_binlog_rowset_meta_pb.has_tablet_schema());
+}
+
+TEST_F(RowsetMetaManagerTest, RemoveSchemas) {
+    auto rowset_meta = create_rowset_meta(20020, RowsetStatePB::VISIBLE, Version {11, 11});
+    const auto tablet_id = rowset_meta->tablet_id();
+    const auto schema_hash = rowset_meta->tablet_schema_hash();
+    for (int32_t schema_version : {1, 2, 3}) {
+        auto tablet_schema = std::make_shared<TabletSchema>();
+        tablet_schema->copy_from(*rowset_meta->tablet_schema());
+        tablet_schema->set_schema_version(schema_version);
+        ASSERT_TRUE(RowsetMetaManager::save_schema(meta(), tablet_id, tablet_uid(), schema_hash,
+                                                   tablet_schema)
+                            .ok());
+    }
+
+    ASSERT_TRUE(
+            RowsetMetaManager::remove_schemas(meta(), tablet_id, tablet_uid(), schema_hash).ok());
+    EXPECT_FALSE(RowsetMetaManager::schema_exists(meta(), tablet_uid(), schema_hash, 1));
+    EXPECT_FALSE(RowsetMetaManager::schema_exists(meta(), tablet_uid(), schema_hash, 2));
+    EXPECT_FALSE(RowsetMetaManager::schema_exists(meta(), tablet_uid(), schema_hash, 3));
 }
 
 } // namespace doris

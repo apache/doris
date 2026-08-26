@@ -128,7 +128,8 @@ public:
     //   where we should change tablet status from shutdown back to running
     Status load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id, TSchemaHash schema_hash,
                                  std::string_view header, bool update_meta, bool force = false,
-                                 bool restore = false, bool check_path = true);
+                                 bool restore = false, bool check_path = true,
+                                 bool need_persist_schema = false);
 
     Status load_tablet_from_dir(DataDir* data_dir, TTabletId tablet_id, SchemaHash schema_hash,
                                 const std::string& schema_hash_path, bool force = false,

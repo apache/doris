@@ -25,6 +25,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <new>
 #include <string>
 
@@ -33,6 +34,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "storage/olap_common.h"
 #include "storage/olap_meta.h"
+#include "storage/tablet/tablet_schema.h"
 
 using ::testing::_;
 using ::testing::Return;

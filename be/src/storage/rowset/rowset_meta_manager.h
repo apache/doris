@@ -24,7 +24,6 @@
 #include <functional>
 #include <map>
 #include <optional>
-#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -56,21 +55,20 @@ public:
 
     static Status get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
                                   RowsetMetaSharedPtr rowset_meta);
-    // TODO(Drogon): refactor save && _save_with_binlog to one, adapt to ut temperately
-    static Status save(
-            OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
-            const RowsetMetaPB& rowset_meta_pb,
-            std::optional<BinlogFormatPB> binlog_format = std::nullopt,
-            const std::optional<RowsetMetaPB>& attach_row_binlog_rowset_meta = std::nullopt);
-
-    // STATEMENT_AND_SNAPSHOT
     static Status save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
-                       const RowsetMetaPB& rowset_meta_pb, bool enable_binlog) {
-        return save(meta, tablet_uid, rowset_id, rowset_meta_pb,
-                    enable_binlog
-                            ? std::optional<BinlogFormatPB>(BinlogFormatPB::STATEMENT_AND_SNAPSHOT)
-                            : std::nullopt);
-    }
+                       const RowsetMeta& rowset_meta,
+                       std::optional<BinlogFormatPB> binlog_format = std::nullopt,
+                       const RowsetMeta* attach_row_binlog_rowset_meta = nullptr);
+
+    static bool schema_exists(OlapMeta* meta, TabletUid tablet_uid, int32_t schema_hash,
+                              int32_t schema_version);
+    static Status save_schema(OlapMeta* meta, TTabletId tablet_id, TabletUid tablet_uid,
+                              int32_t schema_hash, const TabletSchemaSPtr& schema);
+    static Status get_rowset_schema(OlapMeta* meta, TTabletId tablet_id, TabletUid tablet_uid,
+                                    int32_t schema_hash, int32_t schema_version,
+                                    std::string* binary_rowset_schema);
+    static Status remove_schemas(OlapMeta* meta, TTabletId tablet_id, TabletUid tablet_uid,
+                                 int32_t schema_hash);
 
     static std::vector<std::string> get_binlog_filenames(OlapMeta* meta, TabletUid tablet_uid,
                                                          std::string_view binlog_version,
@@ -124,6 +122,8 @@ private:
                                         const RowsetId& rowset_id,
                                         const RowsetMetaPB& rowset_meta_pb,
                                         const RowsetMetaPB& attach_row_binlog_rowset_meta);
+    static Status _get_binlog_data_with_schema(OlapMeta* meta, const std::string& binlog_data_key,
+                                               std::string* binlog_data);
     static Status _get_rowset_binlog_metas(OlapMeta* meta, const TabletUid tablet_uid,
                                            const std::vector<int64_t>& binlog_versions,
                                            RowsetBinlogMetasPB* metas_pb);

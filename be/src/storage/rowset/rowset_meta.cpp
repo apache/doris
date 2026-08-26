@@ -39,6 +39,7 @@
 #include "json2pb/pb_to_json.h"
 #include "runtime/exec_env.h"
 #include "storage/olap_common.h"
+#include "storage/rowset/rowset_meta_manager.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/base_tablet.h"
 #include "storage/tablet/tablet_fwd.h"
@@ -54,8 +55,8 @@ RowsetMeta::~RowsetMeta() {
     }
 }
 
-bool RowsetMeta::init(std::string_view pb_rowset_meta) {
-    bool ret = _deserialize_from_pb(pb_rowset_meta);
+bool RowsetMeta::init(std::string_view pb_rowset_meta, OlapMeta* meta) {
+    bool ret = _deserialize_from_pb(pb_rowset_meta, meta);
     if (!ret) {
         return false;
     }
@@ -69,9 +70,19 @@ bool RowsetMeta::init(const RowsetMeta* rowset_meta) {
     return init_from_pb(rowset_meta_pb);
 }
 
-bool RowsetMeta::init_from_pb(const RowsetMetaPB& rowset_meta_pb) {
+bool RowsetMeta::init_from_pb(const RowsetMetaPB& rowset_meta_pb,
+                              const std::map<int32_t, std::string>* version_to_schema) {
     if (rowset_meta_pb.has_tablet_schema()) {
         set_tablet_schema(rowset_meta_pb.tablet_schema());
+    } else if (version_to_schema != nullptr && rowset_meta_pb.has_schema_version()) {
+        auto schema_it = version_to_schema->find(rowset_meta_pb.schema_version());
+        if (schema_it == version_to_schema->end()) {
+            LOG(WARNING) << "no rowset schema available. tablet_id=" << rowset_meta_pb.tablet_id()
+                         << ", schema_version=" << rowset_meta_pb.schema_version()
+                         << ", rowset_id=" << rowset_meta_pb.rowset_id_v2();
+            return false;
+        }
+        _set_tablet_schema_from_binary(schema_it->second);
     }
     // Release ownership of TabletSchemaPB from `rowset_meta_pb` and then set it back to `rowset_meta_pb`,
     // this won't break const semantics of `rowset_meta_pb`, because `rowset_meta_pb` is not changed
@@ -206,9 +217,12 @@ void RowsetMeta::to_rowset_pb(RowsetMetaPB* rs_meta_pb, bool skip_schema) const 
     *rs_meta_pb = _rowset_meta_pb;
     if (_schema) [[likely]] {
         rs_meta_pb->set_schema_version(_schema->schema_version());
-        if (!skip_schema) {
-            // For cloud, separate tablet schema from rowset meta to reduce persistent size.
+        // Variant rowsets with the same schema version may contain different extracted columns,
+        // so their schemas cannot be shared by schema version.
+        if (!skip_schema || has_variant_type_in_schema()) {
             _schema->to_schema_pb(rs_meta_pb->mutable_tablet_schema());
+        } else {
+            rs_meta_pb->clear_tablet_schema();
         }
     }
     rs_meta_pb->set_has_variant_type_in_schema(has_variant_type_in_schema());
@@ -221,25 +235,23 @@ RowsetMetaPB RowsetMeta::get_rowset_pb(bool skip_schema) const {
 }
 
 void RowsetMeta::set_tablet_schema(const TabletSchemaSPtr& tablet_schema) {
-    if (_handle) {
-        TabletSchemaCache::instance()->release(_handle);
-    }
-    auto pair = TabletSchemaCache::instance()->insert(tablet_schema->to_key());
-    _handle = pair.first;
-    _schema = pair.second;
+    _set_tablet_schema_from_binary(tablet_schema->to_key());
 }
 
 void RowsetMeta::set_tablet_schema(const TabletSchemaPB& tablet_schema) {
+    _set_tablet_schema_from_binary(TabletSchema::deterministic_string_serialize(tablet_schema));
+}
+
+void RowsetMeta::_set_tablet_schema_from_binary(const std::string& schema_binary) {
     if (_handle) {
         TabletSchemaCache::instance()->release(_handle);
     }
-    auto pair = TabletSchemaCache::instance()->insert(
-            TabletSchema::deterministic_string_serialize(tablet_schema));
+    auto pair = TabletSchemaCache::instance()->insert(schema_binary);
     _handle = pair.first;
     _schema = pair.second;
 }
 
-bool RowsetMeta::_deserialize_from_pb(std::string_view value) {
+bool RowsetMeta::_deserialize_from_pb(std::string_view value, OlapMeta* meta) {
     if (!_rowset_meta_pb.ParseFromArray(value.data(), cast_set<int32_t>(value.size()))) {
         _rowset_meta_pb.Clear();
         return false;
@@ -247,6 +259,16 @@ bool RowsetMeta::_deserialize_from_pb(std::string_view value) {
     if (_rowset_meta_pb.has_tablet_schema()) {
         set_tablet_schema(_rowset_meta_pb.tablet_schema());
         _rowset_meta_pb.set_allocated_tablet_schema(nullptr);
+    } else if (meta != nullptr && _rowset_meta_pb.has_schema_version()) {
+        std::string schema_binary;
+        Status status = RowsetMetaManager::get_rowset_schema(
+                meta, _rowset_meta_pb.tablet_id(), TabletUid(_rowset_meta_pb.tablet_uid()),
+                _rowset_meta_pb.tablet_schema_hash(), _rowset_meta_pb.schema_version(),
+                &schema_binary);
+        if (!status.ok()) {
+            return false;
+        }
+        _set_tablet_schema_from_binary(schema_binary);
     }
     return true;
 }
@@ -257,6 +279,7 @@ bool RowsetMeta::_serialize_to_pb(std::string* value) {
     }
     RowsetMetaPB rowset_meta_pb = _rowset_meta_pb;
     if (_schema) {
+        rowset_meta_pb.set_schema_version(_schema->schema_version());
         _schema->to_schema_pb(rowset_meta_pb.mutable_tablet_schema());
     }
     return rowset_meta_pb.SerializeToString(value);

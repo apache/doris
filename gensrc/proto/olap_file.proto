@@ -731,6 +731,8 @@ message TabletMetaPB {
     optional TabletRolePB tablet_role = 36 [default = TABLET_ROLE_DATA];
     // Used by a base tablet to find its paired row-binlog tablet.
     optional int64 binlog_tablet_id = 37;
+    // Whether tablet schema has been persisted separately from tablet meta.
+    optional bool tablet_schema_saved = 99 [default = false];
 
     // For cloud
     optional int64 index_id = 1000;
@@ -795,6 +797,8 @@ message TabletMetaCloudPB {
     optional TabletRolePB tablet_role = 41 [default = TABLET_ROLE_DATA];
     // Used by a base tablet to find its paired row-binlog tablet.
     optional int64 binlog_tablet_id = 42;
+    // Whether tablet schema has been persisted separately from tablet meta.
+    optional bool tablet_schema_saved = 99 [default = false];
 
     // Use for selectdb-cloud
     optional string table_name = 101;

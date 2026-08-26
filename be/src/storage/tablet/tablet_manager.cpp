@@ -32,6 +32,7 @@
 #include <mutex>
 #include <optional>
 #include <ostream>
+#include <set>
 #include <string_view>
 
 #include "absl/strings/substitute.h"
@@ -442,6 +443,8 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
     } else {
         tablet->delete_all_files();
         static_cast<void>(TabletMetaManager::remove(data_dir, new_tablet_id, new_schema_hash));
+        static_cast<void>(RowsetMetaManager::remove_schemas(data_dir->get_meta(), new_tablet_id,
+                                                            tablet->tablet_uid(), new_schema_hash));
         COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "RemoveTabletFiles", parent_timer_name),
                        static_cast<int64_t>(watch.reset()));
     }
@@ -883,9 +886,9 @@ std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compact
 Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
                                             TSchemaHash schema_hash, std::string_view meta_binary,
                                             bool update_meta, bool force, bool restore,
-                                            bool check_path) {
+                                            bool check_path, bool need_persist_schema) {
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
-    Status status = tablet_meta->deserialize(meta_binary);
+    Status status = tablet_meta->deserialize(data_dir, meta_binary);
     if (!status.ok()) {
         return Status::Error<HEADER_PB_PARSE_FAILED>(
                 "fail to load tablet because can not parse meta_binary string. tablet_id={}, "
@@ -956,6 +959,12 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
     RETURN_NOT_OK_STATUS_WITH_WARN(
             tablet->init(), absl::Substitute("tablet init failed. tablet=$0", tablet->tablet_id()));
 
+    // Clone and restore replace the tablet uid. Backfill schemas missing from legacy rowset metas
+    // before _add_tablet_unlocked() persists them under the new uid via TabletMeta::_save_meta().
+    if (need_persist_schema) {
+        static_cast<void>(tablet->set_tablet_schema_into_rowset_meta());
+    }
+
     RuntimeProfile profile("CreateTablet");
     std::lock_guard<std::shared_mutex> wrlock(_get_tablets_shard_lock(tablet_id));
     RETURN_NOT_OK_STATUS_WITH_WARN(
@@ -989,6 +998,10 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     if (!tablet_meta->create_from_file(header_path).ok()) {
         return Status::Error<ENGINE_LOAD_INDEX_TABLE_ERROR>(
                 "fail to load tablet_meta. file_path={}", header_path);
+    }
+    if (tablet_meta->tablet_schema_saved()) {
+        return Status::Error<ENGINE_LOAD_INDEX_TABLE_ERROR>(
+                "tablet header is not self-contained. tablet={}", tablet_id);
     }
     TabletUid tablet_uid = TabletUid::gen_uid();
 
@@ -1054,10 +1067,10 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     // should change tablet uid when tablet object changed
     tablet_meta->set_tablet_uid(std::move(tablet_uid));
     std::string meta_binary;
-    tablet_meta->serialize(&meta_binary);
+    tablet_meta->serialize(&meta_binary, false);
     RETURN_NOT_OK_STATUS_WITH_WARN(
             load_tablet_from_meta(store, tablet_id, schema_hash, meta_binary, true, force, restore,
-                                  true),
+                                  true, true),
             absl::Substitute("fail to load tablet. header_path=$0", header_path));
 
     return Status::OK();
@@ -1236,6 +1249,27 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
     RETURN_IF_ERROR(register_transition_tablet(tablet->tablet_id(), "move to trash"));
     Defer defer {[&]() { unregister_transition_tablet(tablet->tablet_id(), "move to trash"); }};
 
+    auto remove_rowset_schemas = [&tablet]() {
+        Status status = RowsetMetaManager::remove_schemas(tablet->data_dir()->get_meta(),
+                                                          tablet->tablet_id(), tablet->tablet_uid(),
+                                                          tablet->schema_hash());
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to remove rowset schemas while dropping tablet. tablet="
+                         << tablet->tablet_id() << ", tablet_uid=" << tablet->tablet_uid()
+                         << ", status=" << status;
+            return false;
+        }
+        return true;
+    };
+    auto remove_separated_schemas = [&tablet, &remove_rowset_schemas]() {
+        Status status = TabletMetaManager::remove_schema(tablet->data_dir(), tablet->tablet_id(),
+                                                         tablet->schema_hash());
+        if (!status.ok() && !status.is<META_KEY_NOT_FOUND>()) {
+            return false;
+        }
+        return remove_rowset_schemas();
+    };
+
     TabletSharedPtr tablet_in_not_shutdown = get_tablet(tablet->tablet_id());
     if (tablet_in_not_shutdown) {
         TSchemaHash schema_hash_not_shutdown = tablet_in_not_shutdown->schema_hash();
@@ -1249,14 +1283,17 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
                           << tablet_in_not_shutdown->tablet_id()
                           << ", mem manager tablet path=" << tablet_in_not_shutdown->tablet_path()
                           << ", shutdown tablet path=" << tablet->tablet_path();
-                return tablet->data_dir()->move_to_trash(tablet->tablet_path());
+                if (!tablet->data_dir()->move_to_trash(tablet->tablet_path())) {
+                    return false;
+                }
             } else {
                 LOG(INFO) << "tablet path eq shutdown tablet path, not move to trash, tablet_id="
                           << tablet_in_not_shutdown->tablet_id()
                           << ", mem manager tablet path=" << tablet_in_not_shutdown->tablet_path()
                           << ", shutdown tablet path=" << tablet->tablet_path();
-                return true;
             }
+            return tablet_in_not_shutdown->tablet_uid() == tablet->tablet_uid() ||
+                   remove_rowset_schemas();
         }
     }
 
@@ -1272,7 +1309,7 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
                          << " schema hash = " << tablet_meta->schema_hash()
                          << " old tablet_uid=" << tablet->tablet_uid()
                          << " cur tablet_uid=" << tablet_meta->tablet_uid();
-            return true;
+            return tablet_meta->tablet_uid() == tablet->tablet_uid() || remove_rowset_schemas();
         }
 
         tablet->clear_cache();
@@ -1313,6 +1350,10 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
                          << ", tablet_uid=" << tablet_meta->tablet_uid() << ", error=" << remove_st;
             return false;
         }
+
+        if (!remove_rowset_schemas()) {
+            return false;
+        }
         LOG(INFO) << "successfully move tablet to trash. "
                   << "tablet_id=" << tablet->tablet_id()
                   << ", schema_hash=" << tablet->schema_hash() << ", tablet_path=" << tablet_path;
@@ -1334,7 +1375,7 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
                           << ", delete tablet_path=" << tablet_path;
                 RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_path));
                 RETURN_IF_ERROR(DataDir::delete_tablet_parent_path_if_empty(tablet_path));
-                return true;
+                return remove_separated_schemas();
             }
             LOG(WARNING) << "errors while load meta from store, skip this tablet. "
                          << "tablet_id=" << tablet->tablet_id()
@@ -1345,7 +1386,7 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
                       << "tablet_id=" << tablet->tablet_id()
                       << ", schema_hash=" << tablet->schema_hash()
                       << ", tablet_path=" << tablet_path;
-            return true;
+            return !check_st.is<META_KEY_NOT_FOUND>() || remove_separated_schemas();
         }
     }
 }
