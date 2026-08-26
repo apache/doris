@@ -32,7 +32,6 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -82,11 +81,10 @@ public class MapApply extends ScalarFunction
             throw invalidReturnType();
         }
         MapType inputMapType = (MapType) getArgument(0).getDataType();
-        StructType resolvedStructType = resolveNullFieldTypes(structType, inputMapType);
-        List<StructField> fields = resolvedStructType.getFields();
+        List<StructField> fields = structType.getFields();
         MapType resultType = MapType.of(fields.get(0).getDataType(), fields.get(1).getDataType());
         resultType.validateDataType();
-        return FunctionSignature.ret(resultType).args(inputMapType, ArrayType.of(resolvedStructType));
+        return FunctionSignature.ret(resultType).args(inputMapType, mappedEntriesType);
     }
 
     @Override
@@ -108,11 +106,11 @@ public class MapApply extends ScalarFunction
     private static MapLambdaFunctionUtils.RewrittenMapLambda validateAndRewrite(Lambda lambda) {
         MapLambdaFunctionUtils.RewrittenMapLambda rewrittenLambda = MapLambdaFunctionUtils.rewrite(
                 lambda, (body, key, value, entry) -> body);
-        validateLambdaReturn(lambda, (MapType) rewrittenLambda.getMapExpression().getDataType());
+        validateLambdaReturn(lambda);
         return rewrittenLambda;
     }
 
-    private static void validateLambdaReturn(Lambda lambda, MapType inputMapType) {
+    private static void validateLambdaReturn(Lambda lambda) {
         Expression lambdaBody = lambda.getLambdaFunction();
         if (!(lambdaBody.getDataType() instanceof StructType)
                 || ((StructType) lambdaBody.getDataType()).getFields().size() != 2
@@ -120,24 +118,8 @@ public class MapApply extends ScalarFunction
             throw invalidReturnType();
         }
         StructType structType = (StructType) lambdaBody.getDataType();
-        StructType resolvedStructType = resolveNullFieldTypes(structType, inputMapType);
-        MapType.of(resolvedStructType.getFields().get(0).getDataType(),
-                resolvedStructType.getFields().get(1).getDataType()).validateDataType();
-    }
-
-    // Resolve only untyped fields in the two-field struct returned by the lambda. For
-    // map_apply((k, v) -> struct(cast(k as bigint), []), map(1, [10])), the result is
-    // MAP<BIGINT, ARRAY<TINYINT>>. Keep the explicit BIGINT type and infer only the empty array
-    // from the input value type.
-    private static StructType resolveNullFieldTypes(StructType structType, MapType inputMapType) {
         List<StructField> fields = structType.getFields();
-        StructField keyField = fields.get(0);
-        StructField valueField = fields.get(1);
-        keyField = keyField.withDataType(MapLambdaFunctionUtils.mergeNestedNullTypes(
-                keyField.getDataType(), inputMapType.getKeyType()));
-        valueField = valueField.withDataType(MapLambdaFunctionUtils.mergeNestedNullTypes(
-                valueField.getDataType(), inputMapType.getValueType()));
-        return new StructType(ImmutableList.of(keyField, valueField));
+        MapType.of(fields.get(0).getDataType(), fields.get(1).getDataType()).validateDataType();
     }
 
     private static AnalysisException invalidReturnType() {

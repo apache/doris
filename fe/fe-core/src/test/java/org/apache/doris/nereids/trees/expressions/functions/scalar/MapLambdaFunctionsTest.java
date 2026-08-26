@@ -37,7 +37,6 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.SmallIntType;
-import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.utframe.TestWithFeService;
@@ -120,78 +119,6 @@ public class MapLambdaFunctionsTest extends TestWithFeService {
         Expression mapAll = analyze("map_all((k, v) -> v > 10, map(1, 10, 2, 20))");
         Assertions.assertTrue(mapAll instanceof ArrayMatchAll);
         assertMapEntryArray(mapAll.child(0));
-    }
-
-    @Test
-    public void testPureNullLambdaReturnUsesInputMapType() {
-        MapType inputMapType = MapType.of(TinyIntType.INSTANCE, TinyIntType.INSTANCE);
-
-        Expression transformValues = analyze(
-                "transform_values((k, v) -> null, map(1, 10))");
-        Assertions.assertEquals(inputMapType, transformValues.getDataType());
-        Assertions.assertEquals(TinyIntType.INSTANCE,
-                mappedEntryType(transformValues).getFields().get(1).getDataType());
-
-        Expression transformKeys = analyze(
-                "transform_keys((k, v) -> null, map(1, 10))");
-        Assertions.assertEquals(inputMapType, transformKeys.getDataType());
-        Assertions.assertEquals(TinyIntType.INSTANCE,
-                mappedEntryType(transformKeys).getFields().get(0).getDataType());
-
-        Expression mapApply = analyze(
-                "map_apply((k, v) -> struct(k, null), map(1, 10))");
-        Assertions.assertEquals(inputMapType, mapApply.getDataType());
-        StructType mappedEntryType = mappedEntryType(mapApply);
-        Assertions.assertEquals(TinyIntType.INSTANCE,
-                mappedEntryType.getFields().get(0).getDataType());
-        Assertions.assertEquals(TinyIntType.INSTANCE,
-                mappedEntryType.getFields().get(1).getDataType());
-
-        Expression mapApplyNullKey = analyze(
-                "map_apply((k, v) -> struct(null, v), map(1, 10))");
-        Assertions.assertEquals(inputMapType, mapApplyNullKey.getDataType());
-    }
-
-    @Test
-    public void testNestedNullLambdaReturnUsesInputMapType() {
-        ArrayType tinyIntArrayType = ArrayType.of(TinyIntType.INSTANCE);
-        MapType arrayValueMapType = MapType.of(TinyIntType.INSTANCE, tinyIntArrayType);
-
-        Expression transformArrayValues = analyze(
-                "transform_values((k, v) -> [], map(1, [10]))");
-        Assertions.assertEquals(arrayValueMapType, transformArrayValues.getDataType());
-        Assertions.assertEquals(tinyIntArrayType,
-                mappedEntryType(transformArrayValues).getFields().get(1).getDataType());
-
-        Expression mapApplyArrayValue = analyze(
-                "map_apply((k, v) -> struct(k, []), map(1, [10]))");
-        Assertions.assertEquals(arrayValueMapType, mapApplyArrayValue.getDataType());
-
-        MapType nestedMapType = MapType.of(
-                TinyIntType.INSTANCE, MapType.of(TinyIntType.INSTANCE, TinyIntType.INSTANCE));
-        Expression transformMapValues = analyze(
-                "transform_values((k, v) -> map(), map(1, map(2, 20)))");
-        Assertions.assertEquals(nestedMapType, transformMapValues.getDataType());
-
-        Expression transformStructValues = analyze(
-                "transform_values((k, v) -> struct(null, []), "
-                        + "map(1, struct(10, [20])))");
-        StructType transformStructType = (StructType)
-                ((MapType) transformStructValues.getDataType()).getValueType();
-        Assertions.assertEquals(TinyIntType.INSTANCE,
-                transformStructType.getFields().get(0).getDataType());
-        Assertions.assertEquals(tinyIntArrayType,
-                transformStructType.getFields().get(1).getDataType());
-
-        Expression mapApplyStructValue = analyze(
-                "map_apply((k, v) -> struct(k, struct(null, [])), "
-                        + "map(1, struct(10, [20])))");
-        StructType mapApplyStructType = (StructType)
-                ((MapType) mapApplyStructValue.getDataType()).getValueType();
-        Assertions.assertEquals(TinyIntType.INSTANCE,
-                mapApplyStructType.getFields().get(0).getDataType());
-        Assertions.assertEquals(tinyIntArrayType,
-                mapApplyStructType.getFields().get(1).getDataType());
     }
 
     @Test
@@ -349,10 +276,6 @@ public class MapLambdaFunctionsTest extends TestWithFeService {
         Assertions.assertTrue(arrayMap.<MapValues>collect(child -> child instanceof MapValues).isEmpty());
 
         Assertions.assertTrue(arrayMap.withChildren(arrayMap.children()) instanceof ArrayMap);
-    }
-
-    private StructType mappedEntryType(Expression mapExpression) {
-        return (StructType) ((ArrayType) mapExpression.child(0).getDataType()).getItemType();
     }
 
 }

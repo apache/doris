@@ -31,7 +31,6 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -76,13 +75,10 @@ public class TransformValues extends ScalarFunction
         ArrayType mappedEntriesType = (ArrayType) getArgument(1).getDataType();
         StructType entryType = (StructType) mappedEntriesType.getItemType();
         List<StructField> fields = entryType.getFields();
-        DataType resultValueType = MapLambdaFunctionUtils.mergeNestedNullTypes(
-                fields.get(1).getDataType(), inputMapType.getValueType());
-        StructType resolvedEntryType = new StructType(ImmutableList.of(
-                fields.get(0), fields.get(1).withDataType(resultValueType)));
+        DataType resultValueType = fields.get(1).getDataType();
         MapType resultType = MapType.of(inputMapType.getKeyType(), resultValueType);
         resultType.validateDataType();
-        return FunctionSignature.ret(resultType).args(inputMapType, ArrayType.of(resolvedEntryType));
+        return FunctionSignature.ret(resultType).args(inputMapType, mappedEntriesType);
     }
 
     @Override
