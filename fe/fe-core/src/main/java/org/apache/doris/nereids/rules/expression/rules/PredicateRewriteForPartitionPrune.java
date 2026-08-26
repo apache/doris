@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -45,11 +46,22 @@ import java.util.Optional;
  rewrite predicate for partition prune
  */
 public class PredicateRewriteForPartitionPrune
-        extends DefaultExpressionRewriter<CascadesContext> {
+        extends DefaultExpressionRewriter<PredicateRewriteForPartitionPrune.RewriteContext> {
     public static Expression rewrite(Expression expression,
                                      CascadesContext cascadesContext) {
         PredicateRewriteForPartitionPrune rewriter = new PredicateRewriteForPartitionPrune();
-        return expression.accept(rewriter, cascadesContext);
+        return expression.accept(rewriter, RewriteContext.ALLOW_CAST_REWRITE);
+    }
+
+    // DTV2-to-TIMESTAMP_NS rewrites preserve the set of TRUE rows, but can turn NULL into FALSE.
+    // That is sufficient for a positive filter and its AND/OR children, but not below expressions
+    // such as IS NULL, NOT, or COALESCE that can observe or invert the three-valued result.
+    @Override
+    public Expression visit(Expression expression, RewriteContext context) {
+        RewriteContext childrenContext = context.allowCastRewrite
+                && (expression instanceof And || expression instanceof Or)
+                ? context : RewriteContext.DISALLOW_CAST_REWRITE;
+        return super.visit(expression, childrenContext);
     }
 
     /* F: a DateTime, DateTimeV2, or TimeStampNs column
@@ -58,8 +70,8 @@ public class PredicateRewriteForPartitionPrune
      *              or (2020-01-02 24:00:00 >= F >= 2020-01-02 00:00:00)
      */
     @Override
-    public Expression visitInPredicate(InPredicate in, CascadesContext context) {
-        if (isDateTimeV2ToTimeStampNsCast(in.getCompareExpr())) {
+    public Expression visitInPredicate(InPredicate in, RewriteContext context) {
+        if (context.allowCastRewrite && isDateTimeV2ToTimeStampNsCast(in.getCompareExpr())) {
             Cast cast = (Cast) in.getCompareExpr();
             DateTimeV2Type sourceType = (DateTimeV2Type) cast.child().getDataType();
             List<Expression> children = new ArrayList<>();
@@ -129,8 +141,8 @@ public class PredicateRewriteForPartitionPrune
     }
 
     @Override
-    public Expression visitEqualTo(EqualTo equalTo, CascadesContext context) {
-        if (isDateTimeV2ToTimeStampNsCast(equalTo.left())
+    public Expression visitEqualTo(EqualTo equalTo, RewriteContext context) {
+        if (context.allowCastRewrite && isDateTimeV2ToTimeStampNsCast(equalTo.left())
                 && equalTo.right() instanceof TimeStampNsLiteral) {
             Cast cast = (Cast) equalTo.left();
             DateTimeV2Type sourceType = (DateTimeV2Type) cast.child().getDataType();
@@ -179,6 +191,17 @@ public class PredicateRewriteForPartitionPrune
                 date.getYear(), date.getMonth(), date.getDay());
         return Optional.of(new And(new GreaterThanEqual(dateChild, begin),
                 new LessThanEqual(dateChild, end)));
+    }
+
+    private static final class RewriteContext {
+        private static final RewriteContext ALLOW_CAST_REWRITE = new RewriteContext(true);
+        private static final RewriteContext DISALLOW_CAST_REWRITE = new RewriteContext(false);
+
+        private final boolean allowCastRewrite;
+
+        private RewriteContext(boolean allowCastRewrite) {
+            this.allowCastRewrite = allowCastRewrite;
+        }
     }
 
 }
