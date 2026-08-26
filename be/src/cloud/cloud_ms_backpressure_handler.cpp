@@ -268,20 +268,28 @@ size_t TableRpcQpsRegistry::cleanup_inactive_tables() {
         }
     }
 
-    size_t removed = 0;
-    std::unique_lock lock(_mutex);
-    for (size_t idx = 0; idx < static_cast<size_t>(LoadRelatedRpc::COUNT); ++idx) {
-        auto& counter_map = _counters[idx];
-        for (int64_t table_id : candidates[idx]) {
-            auto it = counter_map.find(table_id);
-            if (it != counter_map.end() &&
-                it->second->last_record_time_us() <= inactive_before_us) {
-                counter_map.erase(it);
-                ++removed;
+    size_t candidate_count = 0;
+    for (const auto& rpc_candidates : candidates) {
+        candidate_count += rpc_candidates.size();
+    }
+
+    std::vector<std::unique_ptr<TableRpcQpsCounter>> counters_to_destroy;
+    counters_to_destroy.reserve(candidate_count);
+    {
+        std::unique_lock lock(_mutex);
+        for (size_t idx = 0; idx < static_cast<size_t>(LoadRelatedRpc::COUNT); ++idx) {
+            auto& counter_map = _counters[idx];
+            for (int64_t table_id : candidates[idx]) {
+                auto it = counter_map.find(table_id);
+                if (it != counter_map.end() &&
+                    it->second->last_record_time_us() <= inactive_before_us) {
+                    counters_to_destroy.push_back(std::move(it->second));
+                    counter_map.erase(it);
+                }
             }
         }
     }
-    return removed;
+    return counters_to_destroy.size();
 }
 
 size_t TableRpcQpsRegistry::get_tracked_table_count(LoadRelatedRpc rpc_type) const {
