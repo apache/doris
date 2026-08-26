@@ -79,17 +79,18 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     public TRoutineLoadTask createRoutineLoadTask() throws UserException {
         KafkaRoutineLoadJob routineLoadJob = (KafkaRoutineLoadJob) routineLoadManager.getJob(jobId);
 
-        // The groups can be dropped and the owner's privileges revoked while the job runs, so the
-        // binding is re-checked before every task rather than only at create time. Throwing here
-        // lets RoutineLoadTaskScheduler stop the job with the real reason instead of letting it fail
-        // later with something unrelated, such as "no available BE found".
+        // The group can be dropped and the owner's privileges revoked while the job runs, so the
+        // declared compute group is re-checked before every task rather than only at create time.
+        // Throwing here lets RoutineLoadTaskScheduler stop the job with the real reason instead of
+        // letting it fail later with something unrelated, such as "no available BE found".
         //
         // Only the explicitly declared compute group is re-checked. A job that declared none is
         // bound to whatever cluster its creating session happened to be on, which the user never
         // chose, so putting that implicit binding under a new privilege check would start pausing
-        // jobs that predate this feature.
-        ComputeGroupBindingUtil.checkBindingBeforeTask(routineLoadJob.getUserIdentity(),
-                routineLoadJob.getDeclaredComputeGroup(), routineLoadJob.getWorkloadGroup());
+        // jobs that predate this feature. The workload group is not checked here: it is resolved
+        // below through WorkloadGroupMgr#getWorkloadGroup, which already checks it.
+        ComputeGroupBindingUtil.checkComputeGroupBeforeTask(routineLoadJob.getUserIdentity(),
+                routineLoadJob.getDeclaredComputeGroup());
 
         // init tRoutineLoadTask and create plan fragment
         TRoutineLoadTask tRoutineLoadTask = new TRoutineLoadTask();

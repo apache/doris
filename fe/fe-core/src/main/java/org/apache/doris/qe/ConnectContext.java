@@ -1449,6 +1449,11 @@ public class ConnectContext {
     }
 
     public void setCloudCluster(String cluster) {
+        // A compute group only exists in cloud mode. Swallowing the call here instead of making
+        // every caller wrap it in `if (Config.isCloudMode())` keeps that check in one place.
+        if (!Config.isCloudMode()) {
+            return;
+        }
         this.getSessionVariable().setCloudCluster(cluster);
     }
 

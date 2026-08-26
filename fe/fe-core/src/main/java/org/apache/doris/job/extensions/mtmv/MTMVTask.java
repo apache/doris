@@ -337,7 +337,7 @@ public class MTMVTask extends AbstractTask {
         try {
             setComputeGroup(ctx);
             recordComputeGroup(ctx);
-            checkBindingBeforeTask(ctx);
+            checkComputeGroupBeforeTask(ctx);
             installTaskSnapshots(statementContext);
             TUniqueId queryId = generateQueryId();
             lastQueryId = DebugUtil.printId(queryId);
@@ -409,9 +409,6 @@ public class MTMVTask extends AbstractTask {
     }
 
     private void setComputeGroup(ConnectContext ctx) {
-        if (!Config.isCloudMode()) {
-            return;
-        }
         // A compute group declared on the MV pins every refresh, automatic or manual, to that group.
         // Only when the MV declares nothing does a manual REFRESH keep borrowing the session's group,
         // which is the behaviour every existing MV keeps.
@@ -423,23 +420,23 @@ public class MTMVTask extends AbstractTask {
     }
 
     /**
-     * Re-checks the binding before the refresh runs: the groups can be dropped and privileges
-     * revoked while the MV exists, and without this the refresh would fail later with an unrelated
-     * message.
+     * Re-checks the declared compute group before the refresh runs: it can be dropped and its
+     * privileges revoked while the MV exists, and without this the refresh would fail later with an
+     * unrelated message.
      *
      * <p>The identity used here is whatever the refresh actually runs as, which today is the
      * hardcoded {@code admin} (see {@link MTMVPlanUtil#createBasicMvContext}). That makes the
      * privilege half of the check always pass; the existence half is what has teeth right now. Once
      * an MV carries a real owner, passing that owner here is the only change needed.
      */
-    private void checkBindingBeforeTask(ConnectContext ctx) throws UserException {
+    private void checkComputeGroupBeforeTask(ConnectContext ctx) throws UserException {
         if (mtmv == null) {
             return;
         }
         // Only the explicitly declared compute group is re-checked; an MV that declares none borrows
         // the session's group, which the user never chose for it.
-        ComputeGroupBindingUtil.checkBindingBeforeTask(ctx.getCurrentUserIdentity(),
-                mtmv.getComputeGroup().orElse(null), mtmv.getWorkloadGroup().orElse(null));
+        ComputeGroupBindingUtil.checkComputeGroupBeforeTask(ctx.getCurrentUserIdentity(),
+                mtmv.getComputeGroup().orElse(null));
     }
 
     private void recordComputeGroup(ConnectContext ctx) {

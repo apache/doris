@@ -32,11 +32,11 @@ import org.apache.commons.lang3.StringUtils;
  * Validation for the {@code compute_group} property that can be declared on background jobs
  * (routine load / async materialized view).
  *
- * <p>This is a transitional binding: it only adds the ability to <b>declare</b> a compute group,
- * it does not change how the group is resolved, checked at runtime, or how failures are handled.
- * The property name and its value space are intentionally identical to the final
- * {@code (owner, compute_group, workload_group)} design, so that metadata written by this version
- * can be read as an explicit "pin" by later versions without any conversion.
+ * <p>This is a transitional binding: it adds the ability to <b>declare</b> a compute group, and
+ * re-checks that declaration before every task, but does not change how the group is resolved for
+ * jobs that declare none. The property name and its value space are intentionally identical to the
+ * final {@code (owner, compute_group, workload_group)} design, so that metadata written by this
+ * version can be read as an explicit "pin" by later versions without any conversion.
  *
  * <p>Two values are rejected on purpose:
  * <ul>
@@ -102,9 +102,9 @@ public class ComputeGroupBindingUtil {
     }
 
     /**
-     * Re-checks a job's binding before each of its tasks runs.
+     * Re-checks the compute group a job declared, before each of its tasks runs.
      *
-     * <p>Creation-time validation alone is not enough: the groups can be dropped and the owner's
+     * <p>Creation-time validation alone is not enough: the group can be dropped and the owner's
      * privileges can be revoked while the job keeps running, and without this check the task would
      * silently keep using a group its owner is no longer entitled to, or fail much later with an
      * unrelated message such as "no available BE found".
@@ -112,53 +112,39 @@ public class ComputeGroupBindingUtil {
      * <p>Everything is checked against {@code owner}, the identity the task actually runs as, not
      * against whoever created or last altered the job.
      *
+     * <p>The workload group is deliberately out of scope here. Both callers resolve it a little
+     * later through {@code WorkloadGroupMgr#getWorkloadGroup(ConnectContext)} - routine load in
+     * {@code KafkaTaskInfo#createRoutineLoadTask}, an MV refresh in the coordinator - and that
+     * already runs the same USAGE check against the same owner and the same existence check in the
+     * same compute group namespace.
+     *
      * @param owner the identity the task runs as
-     * @param computeGroup the compute group the task will run in, already resolved; empty means the
-     *        job is not bound to a named compute group and there is nothing to check
-     * @param workloadGroup the workload group declared on the job, empty when none was declared
+     * @param computeGroup the compute group declared on the job; empty means the job declared none
+     *        and there is nothing to re-check
      */
-    public static void checkBindingBeforeTask(UserIdentity owner, String computeGroup, String workloadGroup)
+    public static void checkComputeGroupBeforeTask(UserIdentity owner, String computeGroup)
             throws UserException {
         if (owner == null) {
             // Jobs created before the owner was persisted; nothing to check them against.
             return;
         }
 
-        boolean computeGroupBound = Config.isCloudMode() && !StringUtils.isEmpty(computeGroup);
-        if (computeGroupBound) {
-            // Deliberately not ComputeGroupMgr.getComputeGroupByName() for the existence check: when
-            // the group is missing that builds a hint message from the thread-local ConnectContext,
-            // and the callers here are background threads that do not have one.
-            if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames()
-                    .contains(computeGroup)) {
-                throw new UserException("Compute group '" + computeGroup + "' not found.");
-            }
-
-            if (!Env.getCurrentEnv().getAccessManager().checkCloudPriv(owner, computeGroup,
-                    PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
-                throw new UserException("USAGE denied to user '" + owner.getQualifiedUser()
-                        + "' for compute group '" + computeGroup + "'");
-            }
-        }
-
-        if (!Config.enable_workload_group || StringUtils.isEmpty(workloadGroup)) {
+        if (!Config.isCloudMode() || StringUtils.isEmpty(computeGroup)) {
             return;
         }
 
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkWorkloadGroupPriv(owner, workloadGroup, PrivPredicate.USAGE)) {
-            throw new UserException("USAGE denied to user '" + owner.getQualifiedUser()
-                    + "' for workload group '" + workloadGroup + "'");
+        // Deliberately not ComputeGroupMgr.getComputeGroupByName() for the existence check: when
+        // the group is missing that builds a hint message from the thread-local ConnectContext,
+        // and the callers here are background threads that do not have one.
+        if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames()
+                .contains(computeGroup)) {
+            throw new UserException("Compute group '" + computeGroup + "' not found.");
         }
 
-        // A workload group lives in the namespace of a compute group, so it can only be looked up
-        // once the compute group is known. Without one there is nothing to resolve it against.
-        // Safe to resolve here: existence was confirmed above, so the hint-message path that needs a
-        // ConnectContext cannot be reached.
-        if (computeGroupBound) {
-            // Throws when the workload group no longer exists under that compute group.
-            Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(computeGroup)
-                    .getWorkloadGroup(workloadGroup, Env.getCurrentEnv().getWorkloadGroupMgr());
+        if (!Env.getCurrentEnv().getAccessManager().checkCloudPriv(owner, computeGroup,
+                PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+            throw new UserException("USAGE denied to user '" + owner.getQualifiedUser()
+                    + "' for compute group '" + computeGroup + "'");
         }
     }
 }

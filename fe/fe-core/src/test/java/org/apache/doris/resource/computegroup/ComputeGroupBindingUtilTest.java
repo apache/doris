@@ -155,20 +155,20 @@ public class ComputeGroupBindingUtilTest {
         Assert.assertFalse(e.getMessage(), e.getMessage().contains("not found"));
     }
 
-    // ---- checkBindingBeforeTask: re-checked before every task, against the job's owner ----
+    // ---- checkComputeGroupBeforeTask: re-checked before every task, against the job's owner ----
 
     // Jobs created before the owner was persisted have nothing to check against.
     @Test
     public void testRuntimeCheckSkippedWhenOwnerUnknown() throws UserException {
         enterCloudMode(false, Lists.newArrayList());
-        ComputeGroupBindingUtil.checkBindingBeforeTask(null, "cg_gone", "wg_gone");
+        ComputeGroupBindingUtil.checkComputeGroupBeforeTask(null, "cg_gone");
     }
 
     // Nothing is bound, so there is nothing to re-check.
     @Test
     public void testRuntimeCheckSkippedWhenNothingBound() throws UserException {
         enterCloudMode(false, Lists.newArrayList());
-        ComputeGroupBindingUtil.checkBindingBeforeTask(UserIdentity.ADMIN, null, null);
+        ComputeGroupBindingUtil.checkComputeGroupBeforeTask(UserIdentity.ADMIN, null);
     }
 
     // The compute group was dropped while the job kept running.
@@ -181,7 +181,7 @@ public class ComputeGroupBindingUtilTest {
         enterCloudMode(true, Lists.newArrayList());
         ConnectContext.remove();
         UserException e = Assert.assertThrows(UserException.class,
-                () -> ComputeGroupBindingUtil.checkBindingBeforeTask(UserIdentity.ADMIN, "cg_gone", null));
+                () -> ComputeGroupBindingUtil.checkComputeGroupBeforeTask(UserIdentity.ADMIN, "cg_gone"));
         Assert.assertTrue(e.getMessage(), e.getMessage().contains("not found"));
     }
 
@@ -191,16 +191,16 @@ public class ComputeGroupBindingUtilTest {
     public void testRuntimeCheckFailsWhenComputeGroupUsageRevoked() {
         enterCloudMode(false, Lists.newArrayList(CG_OK));
         UserException e = Assert.assertThrows(UserException.class,
-                () -> ComputeGroupBindingUtil.checkBindingBeforeTask(UserIdentity.ADMIN, CG_OK, null));
+                () -> ComputeGroupBindingUtil.checkComputeGroupBeforeTask(UserIdentity.ADMIN, CG_OK));
         Assert.assertTrue(e.getMessage(), e.getMessage().contains("compute group"));
     }
 
-    // Non-cloud has no named compute group, so the compute group half is skipped entirely.
+    // Non-cloud has no named compute group, so the check is skipped entirely.
     @Test
     public void testRuntimeCheckSkipsComputeGroupInNonCloudMode() throws UserException {
         Config.deploy_mode = "";
         Config.cloud_unique_id = "";
-        ComputeGroupBindingUtil.checkBindingBeforeTask(UserIdentity.ADMIN, "cg_gone", null);
+        ComputeGroupBindingUtil.checkComputeGroupBeforeTask(UserIdentity.ADMIN, "cg_gone");
     }
 
     private static class TestCloudSystemInfoService extends CloudSystemInfoService {
