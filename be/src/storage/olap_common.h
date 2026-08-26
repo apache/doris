@@ -382,7 +382,6 @@ struct OlapReaderStatistics {
 
     int64_t tablet_reader_init_timer_ns = 0;
     int64_t tablet_reader_capture_rs_readers_timer_ns = 0;
-    int64_t tablet_reader_init_return_columns_timer_ns = 0;
     int64_t tablet_reader_init_keys_param_timer_ns = 0;
     int64_t tablet_reader_init_orderby_keys_param_timer_ns = 0;
     int64_t tablet_reader_init_conditions_param_timer_ns = 0;
@@ -397,7 +396,7 @@ struct OlapReaderStatistics {
     int64_t rowset_reader_load_segments_timer_ns = 0;
 
     int64_t segment_iterator_init_timer_ns = 0;
-    int64_t segment_iterator_init_return_column_iterators_timer_ns = 0;
+    int64_t segment_iterator_init_column_iterators_timer_ns = 0;
     int64_t segment_iterator_init_index_iterators_timer_ns = 0;
     int64_t segment_iterator_init_segment_prefetchers_timer_ns = 0;
 

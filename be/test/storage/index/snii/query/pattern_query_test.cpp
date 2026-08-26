@@ -197,6 +197,51 @@ TEST(SniiPatternQuery, WildcardMatchesOracle) {
     std::remove(path.c_str());
 }
 
+TEST(SniiPatternQuery, WildcardQuestionMarkMatchesUtf8CodePoint) {
+    Corpus corpus;
+    corpus.doc_count = 5;
+    corpus.docs = {{"a猫b"}, {"a🔥b"}, {"a猫猫b"}, {"aéb"}, {"ascii"}};
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader file;
+    SniiSegmentReader segment;
+    LogicalIndexReader idx = OpenIndex(&file, &segment, path);
+
+    std::vector<uint32_t> got;
+    ASSERT_TRUE(query::wildcard_query(idx, "a?b", &got).ok());
+    EXPECT_EQ(got, (std::vector<uint32_t> {0, 1, 3}));
+
+    ASSERT_TRUE(query::wildcard_query(idx, "a??b", &got).ok());
+    EXPECT_EQ(got, (std::vector<uint32_t> {2}));
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiPatternQuery, MalformedKeywordTermsRetainByteCompatibleWildcardMatching) {
+    Corpus corpus;
+    corpus.doc_count = 3;
+    corpus.docs = {{std::string("a\xFF", 2)}, {"ab"}, {"zz"}};
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader file;
+    SniiSegmentReader segment;
+    LogicalIndexReader idx = OpenIndex(&file, &segment, path);
+
+    std::vector<uint32_t> got;
+    ASSERT_TRUE(query::wildcard_query(idx, "a*", &got).ok());
+    EXPECT_EQ(got, (std::vector<uint32_t> {0, 1}));
+
+    ASSERT_TRUE(query::wildcard_query(idx, "**", &got).ok());
+    EXPECT_EQ(got, (std::vector<uint32_t> {0, 1, 2}));
+
+    ASSERT_TRUE(query::wildcard_query(idx, "*", &got).ok());
+    EXPECT_EQ(got, (std::vector<uint32_t> {0, 1, 2}));
+
+    std::remove(path.c_str());
+}
+
 TEST(SniiPatternQuery, RegexpMatchesOracle) {
     const Corpus corpus = BuildMixedCorpus();
     const std::string path = TempPath();

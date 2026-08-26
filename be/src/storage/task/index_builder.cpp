@@ -30,6 +30,7 @@
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/schema.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
@@ -683,8 +684,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             OlapReaderStatistics stats;
             read_options.stats = &stats;
             read_options.tablet_schema = output_rowset_schema;
-            std::shared_ptr<Schema> schema =
-                    std::make_shared<Schema>(output_rowset_schema->columns(), return_columns);
+            auto schema = std::make_shared<ReadSchema>(
+                    project_columns_by_ordinal(output_rowset_schema->columns(), return_columns));
             std::unique_ptr<RowwiseIterator> iter;
             auto res = seg_ptr->new_iterator(schema, read_options, &iter);
             DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset_create_iterator_error", {
@@ -697,7 +698,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 return Status::Error<ErrorCode::ROWSET_READER_INIT>(res.to_string());
             }
 
-            auto block = Block::create_unique(output_rowset_schema->create_block(return_columns));
+            auto block = Block::create_unique(schema->create_read_block());
             while (true) {
                 auto status = iter->next_batch(block.get());
                 DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset_iterator_next_batch_error", {
@@ -919,12 +920,12 @@ Status IndexBuilder::_build_snii_indexes_for_segment(const TabletSchemaSPtr& out
     OlapReaderStatistics stats;
     read_options.stats = &stats;
     read_options.tablet_schema = output_rowset_schema;
-    std::shared_ptr<Schema> schema =
-            std::make_shared<Schema>(output_rowset_schema->columns(), return_columns);
+    auto schema = std::make_shared<ReadSchema>(
+            project_columns_by_ordinal(output_rowset_schema->columns(), return_columns));
     std::unique_ptr<RowwiseIterator> iter;
     RETURN_IF_ERROR(seg_ptr->new_iterator(schema, read_options, &iter));
 
-    auto block = Block::create_unique(output_rowset_schema->create_block(return_columns));
+    auto block = Block::create_unique(schema->create_read_block());
     while (true) {
         Status status = iter->next_batch(block.get());
         if (!status.ok()) {

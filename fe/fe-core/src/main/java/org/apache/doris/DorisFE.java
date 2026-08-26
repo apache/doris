@@ -23,6 +23,7 @@ import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.InvertedIndexStorageFormatValidator;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Log4jConfig;
 import org.apache.doris.common.LogUtils;
@@ -149,6 +150,10 @@ public class DorisFE {
             // Must init custom config after init config, separately.
             // Because the path of custom config file is defined in fe.conf
             config.initCustom(Config.custom_config_dir + "/fe_custom.conf");
+            // inverted_index_storage_format's runtime callback is not invoked while parsing
+            // fe.conf/fe_custom.conf, so validate the loaded value here after both files are loaded
+            // and merged, to reject a "V1" left over in the config files at startup.
+            InvertedIndexStorageFormatValidator.rejectStartupV1(Config.inverted_index_storage_format);
 
             // The command line value overrides fe.conf, so this can only run once Config is loaded.
             resolveLocalResourceGroup(commandLine);

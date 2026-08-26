@@ -86,6 +86,7 @@ struct FieldReaderBinding {
     std::map<std::string, std::string> index_properties;
     std::string binding_key;
     std::string analyzer_key;
+    InvertedIndexAnalyzerCtxSPtr analyzer_context;
     SearchFieldBindingState state = SearchFieldBindingState::MISSING_IN_SEGMENT;
     SearchFieldExecutionMode execution_mode = SearchFieldExecutionMode::UNBOUND;
 
@@ -111,6 +112,10 @@ public:
 
     Status resolve(const std::string& field_name, InvertedIndexQueryType query_type,
                    FieldReaderBinding* binding);
+
+    Status resolve_with_analyzer_context(const std::string& field_name,
+                                         InvertedIndexQueryType query_type,
+                                         FieldReaderBinding* binding);
 
     bool is_variant_subcolumn(const std::string& field_name) const {
         return _variant_subcolumn_fields.count(field_name) > 0;

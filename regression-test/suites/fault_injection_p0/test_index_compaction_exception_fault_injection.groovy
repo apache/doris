@@ -285,7 +285,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
                 DISTRIBUTED BY HASH(`id`) BUCKETS 1
                 PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
-                "inverted_index_storage_format" = "V1",
+                "inverted_index_storage_format" = "V2",
                 "disable_auto_compaction" = "true"
                 );
             """

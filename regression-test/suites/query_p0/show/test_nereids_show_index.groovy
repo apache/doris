@@ -32,7 +32,7 @@ suite("test_nereids_show_index") {
             INDEX idx_note1 (`note`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V1" );
+        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V2" );
         """
     sql """
         CREATE TABLE IF NOT EXISTS test_show_index.test_show_index_tbl2 (
@@ -46,7 +46,7 @@ suite("test_nereids_show_index") {
             INDEX idx_note2 (`note`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V1" );
+        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V2" );
         """
 
     checkNereidsExecute("show index from test_show_index.test_show_index_tbl2;")

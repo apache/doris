@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -50,11 +51,13 @@ public class IndexDefinition {
     public static final int MAX_NGRAM_SIZE = 255;
     public static final int MIN_BF_SIZE = 64;
     public static final int MAX_BF_SIZE = 65535;
-
     public static final String NGRAM_SIZE_KEY = "gram_size";
     public static final String NGRAM_BF_SIZE_KEY = "bf_size";
     public static final String DEFAULT_NGRAM_SIZE = "2";
     public static final String DEFAULT_NGRAM_BF_SIZE = "256";
+    private static final double MIN_BF_FPP = 0.0001;
+    private static final double MAX_BF_FPP = 0.05;
+
     private final String name;
     private final List<String> cols;
     private final String comment;
@@ -82,6 +85,10 @@ public class IndexDefinition {
             switch (indexTypeName) {
                 case "INVERTED": {
                     this.indexType = IndexType.INVERTED;
+                    break;
+                }
+                case "BLOOMFILTER": {
+                    this.indexType = IndexType.BLOOMFILTER;
                     break;
                 }
                 case "NGRAM_BF": {
@@ -230,8 +237,8 @@ public class IndexDefinition {
                     (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1
                         || invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.DEFAULT)
                             && (Config.isCloudMode() || !Config.enable_inverted_index_v1_for_variant);
-
-            if (colType.isVariantType() && notSupportInvertedIndexForVariant) {
+            // Bloom filter support variant type, so skip the check for bloom filter index.
+            if (indexType != IndexType.BLOOMFILTER && colType.isVariantType() && notSupportInvertedIndexForVariant) {
                 throw new AnalysisException(colType + " is not supported in inverted index format V1,"
                         + "Please set properties(\"inverted_index_storage_format\"= \"v2\"),"
                         + "or upgrade to a newer version");
@@ -274,6 +281,13 @@ public class IndexDefinition {
                 } catch (Exception ex) {
                     throw new AnalysisException("invalid ngram bf index params:" + ex.getMessage(), ex);
                 }
+            } else if (indexType == IndexType.BLOOMFILTER) {
+                Column bfColumn = new Column(indexColName, column.getType().toCatalogDataType());
+                if (!bfColumn.isSupportBloomFilter()) {
+                    throw new AnalysisException(colType + " is not supported in bloom filter index. "
+                            + "invalid column: " + indexColName);
+                }
+                validateBloomFilterProperties();
             }
         } else {
             throw new AnalysisException("Unsupported index type: " + indexType);
@@ -347,8 +361,8 @@ public class IndexDefinition {
                     (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1
                     || invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.DEFAULT)
                     && (Config.isCloudMode() || !Config.enable_inverted_index_v1_for_variant);
-
-            if (colType.isVariantType() && notSupportInvertedIndexForVariant) {
+            // Bloom filter support variant type, so skip the check for bloom filter index.
+            if (indexType != IndexType.BLOOMFILTER && colType.isVariantType() && notSupportInvertedIndexForVariant) {
                 throw new AnalysisException(colType + " is not supported in inverted index format V1,"
                         + "Please set properties(\"inverted_index_storage_format\"= \"v2\"),"
                         + "or upgrade to a newer version");
@@ -387,6 +401,12 @@ public class IndexDefinition {
 
                 parseAndValidateProperty(properties, NGRAM_SIZE_KEY, MIN_NGRAM_SIZE, MAX_NGRAM_SIZE);
                 parseAndValidateProperty(properties, NGRAM_BF_SIZE_KEY, MIN_BF_SIZE, MAX_BF_SIZE);
+            } else if (indexType == IndexType.BLOOMFILTER) {
+                if (!column.isSupportBloomFilter()) {
+                    throw new AnalysisException(colType + " is not supported in bloom filter index. "
+                            + "invalid column: " + indexColName);
+                }
+                validateBloomFilterProperties();
             }
         } else {
             throw new AnalysisException("Unsupported index type: " + indexType);
@@ -400,7 +420,8 @@ public class IndexDefinition {
         if (partitionNames != null) {
             partitionNames.validate();
         }
-        if (isBuildDeferred && (indexType == IndexType.INVERTED || indexType == IndexType.NGRAM_BF)) {
+        if (isBuildDeferred && (indexType == IndexType.INVERTED || indexType == IndexType.NGRAM_BF
+                || indexType == IndexType.BLOOMFILTER)) {
             if (Strings.isNullOrEmpty(name)) {
                 throw new AnalysisException("index name cannot be blank.");
             }
@@ -416,7 +437,7 @@ public class IndexDefinition {
         }
 
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED
-                || indexType == IndexType.NGRAM_BF) {
+                || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF) {
             if (cols == null || cols.size() != 1) {
                 throw new AnalysisException(
                         indexType.toString() + " index can only apply to a single column.");
@@ -514,6 +535,26 @@ public class IndexDefinition {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    private void validateBloomFilterProperties() {
+        if (properties.isEmpty()) {
+            return;
+        }
+
+        if (properties.size() != 1 || !properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_FPP)) {
+            throw new AnalysisException("BLOOMFILTER index only supports property bloom_filter_fpp");
+        }
+
+        String fpp = properties.get(PropertyAnalyzer.PROPERTIES_BF_FPP);
+        try {
+            double fppValue = Double.parseDouble(fpp);
+            if (!Double.isFinite(fppValue) || fppValue < MIN_BF_FPP || fppValue > MAX_BF_FPP) {
+                throw new AnalysisException("Bloom filter fpp should in [" + MIN_BF_FPP + ", " + MAX_BF_FPP + "]");
+            }
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Bloom filter fpp is not Double", e);
+        }
     }
 
     public boolean isAnnIndex() {

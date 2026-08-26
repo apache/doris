@@ -17,12 +17,12 @@
 
 // T08 -- wildcard matcher scratch reuse.
 //
-// Proves the request-scoped internal::WildcardMatcher (a) matches bit-for-bit
-// identically to the former per-call DP in wildcard_query.cpp, and (b) reuses its
-// two DP scratch rows across every visited term so a whole-dictionary scan
-// performs O(1) heap allocations (<= 2) instead of O(2N). A header-only
-// CountingAllocator gives the deterministic allocation counts; a byte-for-byte
-// copy of the original DP serves as the equivalence oracle.
+// Proves the request-scoped internal::WildcardMatcher preserves the former ASCII
+// behavior while matching UTF-8 code points, and reuses its two DP scratch rows
+// across every visited term so a whole-dictionary scan performs O(1) heap
+// allocations (<= 2) instead of O(2N). A header-only CountingAllocator gives the
+// deterministic allocation counts; a byte-for-byte copy of the original DP
+// serves as the ASCII equivalence oracle.
 
 #include <gtest/gtest.h>
 
@@ -155,7 +155,7 @@ std::vector<std::string> make_varied_length_terms(size_t count, size_t max_len) 
     return terms;
 }
 
-// W-EQ-DP: the optimized matcher reproduces the reference DP bit-for-bit over an
+// W-EQ-DP: the optimized matcher reproduces the reference DP for ASCII over an
 // exhaustive small-alphabet battery (covers "", leading/trailing '*'/'?',
 // consecutive "**", '?' interplay) plus realistic dictionary patterns/terms. One
 // matcher is reused across all terms of a pattern, so this also proves scratch
@@ -212,12 +212,69 @@ TEST(SniiWildcardQueryTest, StarMatchesEverything) {
     EXPECT_TRUE(matcher("xyz"));
 }
 
-// W-QMARK: "?" matches exactly one byte.
-TEST(SniiWildcardQueryTest, QuestionMarkMatchesExactlyOneByte) {
+// W-QMARK: "?" matches exactly one UTF-8 code point.
+TEST(SniiWildcardQueryTest, QuestionMarkMatchesExactlyOneUtf8CodePoint) {
     internal::WildcardMatcher<> matcher("?");
     EXPECT_FALSE(matcher(""));
     EXPECT_TRUE(matcher("a"));
+    EXPECT_TRUE(matcher("猫"));
+    EXPECT_TRUE(matcher("🔥"));
     EXPECT_FALSE(matcher("ab"));
+
+    internal::WildcardMatcher<> surrounded("a?b");
+    EXPECT_TRUE(surrounded("a猫b"));
+    EXPECT_TRUE(surrounded("a🔥b"));
+    EXPECT_FALSE(surrounded("a猫猫b"));
+
+    internal::WildcardMatcher<> three("a???b");
+    EXPECT_FALSE(three("a猫b"));
+    EXPECT_TRUE(three("a猫🔥éb"));
+
+    internal::WildcardMatcher<> star_then_two("a*??b");
+    EXPECT_FALSE(star_then_two("a猫b"));
+    EXPECT_TRUE(star_then_two("a猫🔥b"));
+}
+
+// W-UTF8-LITERAL: non-ASCII literals are compared as complete code points.
+TEST(SniiWildcardQueryTest, Utf8LiteralsMatchCompleteCodePoints) {
+    internal::WildcardMatcher<> matcher("猫?火");
+    EXPECT_TRUE(matcher("猫🔥火"));
+    EXPECT_FALSE(matcher("猫🔥🔥火"));
+    EXPECT_FALSE(matcher("狗🔥火"));
+}
+
+// W-INVALID-UTF8: patterns remain strict UTF-8, while malformed raw keyword
+// terms retain the byte-wise semantics used before code-point matching.
+TEST(SniiWildcardQueryTest, MalformedTermsRetainByteCompatibleMatching) {
+    const std::string invalid_lead("\xff", 1);
+    const std::string truncated("\xe7\x8c", 2);
+    const std::string invalid_continuation("\xe7x\xab", 3);
+
+    internal::WildcardMatcher<> any("*");
+    EXPECT_TRUE(any(invalid_lead));
+    EXPECT_TRUE(any(truncated));
+    EXPECT_TRUE(any(invalid_continuation));
+
+    internal::WildcardMatcher<> two_bytes("??");
+    EXPECT_FALSE(two_bytes(invalid_lead));
+    EXPECT_TRUE(two_bytes(truncated));
+    EXPECT_FALSE(two_bytes(invalid_continuation));
+
+    internal::WildcardMatcher<> invalid_pattern(invalid_lead);
+    EXPECT_FALSE(invalid_pattern(invalid_lead));
+    EXPECT_FALSE(invalid_pattern("猫"));
+}
+
+TEST(SniiWildcardQueryTest, InvalidUtf8PatternReturnsInvalidArgument) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader));
+
+    const std::string invalid_pattern("\xff*", 2);
+    std::vector<uint32_t> docids;
+    EXPECT_TRUE(wildcard_query(index_reader, invalid_pattern, &docids)
+                        .is<doris::ErrorCode::INVALID_ARGUMENT>());
 }
 
 // W-CONSEC-STAR: consecutive '*' degrade gracefully.

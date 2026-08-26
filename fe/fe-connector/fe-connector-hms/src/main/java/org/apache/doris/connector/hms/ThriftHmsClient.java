@@ -137,7 +137,8 @@ public class ThriftHmsClient implements HmsClient {
     ThriftHmsClient(HmsClientConfig config, AuthAction authAction,
             MetaStoreClientProvider clientProvider,
             HmsTypeMapping.Options typeMappingOptions) {
-        this.hiveConf = HmsConfHelper.createHiveConf(config.getProperties());
+        this.hiveConf = HmsConfHelper.createHiveConfWithResources(
+                config.getConfResources(), config.getProperties());
         this.authAction = authAction != null ? authAction : Callable::call;
         this.clientProvider = clientProvider;
         this.typeMappingOptions = typeMappingOptions;

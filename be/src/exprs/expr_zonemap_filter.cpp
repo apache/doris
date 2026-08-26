@@ -25,11 +25,13 @@
 #include <utility>
 
 #include "common/check.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/string_ref.h"
 #include "exprs/hybrid_set.h"
+#include "exprs/hybrid_set_min_max.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
@@ -39,8 +41,6 @@
 
 namespace doris::expr_zonemap {
 namespace {
-
-constexpr size_t kInZoneMapPointCheckThreshold = 64;
 
 std::optional<std::pair<Field, DataTypePtr>> field_from_literal_expr(const VExprSPtr& expr) {
     auto literal = std::dynamic_pointer_cast<VLiteral>(expr);
@@ -77,10 +77,6 @@ std::optional<int32_t> struct_field_ordinal(const Field& field) {
         return std::nullopt;
     }
     return static_cast<int32_t>(ordinal - 1);
-}
-
-bool value_in_range(const Field& value, const Field& min_value, const Field& max_value) {
-    return value >= min_value && value <= max_value;
 }
 
 bool dictionary_contains(const DictionaryEvalContext::SlotDictionary& dictionary,
@@ -194,42 +190,29 @@ TExprNode create_texpr_node_from_hybrid_set_value(const void* data, const Primit
     return create_texpr_node_from(data, type, precision, scale);
 }
 
-Status materialize_hybrid_set_for_zonemap_filter(HybridSetBase& set, const DataTypePtr& data_type,
-                                                 InZonemapMaterializedSet* result) {
-    DORIS_CHECK(result != nullptr);
+void get_hybrid_set_min_max_for_zonemap_filter(const std::shared_ptr<HybridSetBase>& set,
+                                               const DataTypePtr& data_type,
+                                               InZonemapMinMax& result) {
+    DORIS_CHECK(set != nullptr);
     DORIS_CHECK(data_type != nullptr);
     const auto value_type = remove_nullable(data_type);
     DORIS_CHECK(value_type != nullptr);
 
-    result->contains_null = set.contain_null();
-    result->contains_nan = false;
-    result->values.clear();
-    result->min_value = Field();
-    result->max_value = Field();
-
-    auto* iterator = set.begin();
-    while (iterator->has_next()) {
-        const void* value = iterator->get_value();
-        if (value != nullptr) {
-            TExprNode literal_node = create_texpr_node_from_hybrid_set_value(
-                    value, value_type->get_primitive_type(), value_type->get_precision(),
-                    value_type->get_scale());
-            auto literal = VLiteral::create_shared(literal_node);
-            Field field;
-            literal->get_column_ptr()->get(0, field);
-            result->contains_nan |= field.is_nan();
-            result->values.emplace_back(std::move(field));
+    set->get_min_max(result.min_value, result.max_value, result.contains_nan);
+    const auto value_count = set->size();
+    DORIS_CHECK_EQ(result.min_value.is_null(), result.max_value.is_null());
+    if (result.min_value.is_null()) {
+        if (value_count != 0) {
+            DORIS_CHECK(result.contains_nan);
+            DORIS_CHECK(is_float_or_double(value_type->get_primitive_type()));
         }
-        iterator->next();
+        return;
     }
-
-    if (!result->values.empty()) {
-        auto minmax = std::ranges::minmax_element(
-                result->values, [](const Field& lhs, const Field& rhs) { return lhs < rhs; });
-        result->min_value = *minmax.min;
-        result->max_value = *minmax.max;
-    }
-    return Status::OK();
+    DORIS_CHECK_NE(value_count, 0);
+    DORIS_CHECK(
+            field_types_compatible(result.min_value.get_type(), value_type->get_primitive_type()));
+    DORIS_CHECK(
+            field_types_compatible(result.max_value.get_type(), value_type->get_primitive_type()));
 }
 
 std::optional<SlotLiteral> extract_slot_and_literal(const VExprSPtrs& args) {
@@ -415,25 +398,25 @@ ZoneMapFilterResult eval_null_zonemap(const ZoneMapEvalContext& ctx, const VExpr
     return zone_map.has_not_null ? ZoneMapFilterResult::kMayMatch : ZoneMapFilterResult::kNoMatch;
 }
 
+// Keep the conservative fallback checks together so their evaluation order remains explicit.
+// NOLINTNEXTLINE(readability-function-size)
 ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSPtr& slot_expr,
-                                    bool is_not_in, const std::vector<Field>& values,
-                                    bool contains_nan, const Field& min_value,
-                                    const Field& max_value) {
+                                    bool is_not_in, const InZonemapMinMax& values,
+                                    const HybridSetBase& set) {
     auto slot = std::dynamic_pointer_cast<VSlotRef>(slot_expr);
     DORIS_CHECK(slot != nullptr);
+    // NOT IN with a NULL literal is UNKNOWN for every non-null value. Zone maps do not retain
+    // enough row-level information to recover a match in that case.
+    if (is_not_in && set.contain_null()) {
+        return ZoneMapFilterResult::kNoMatch;
+    }
     // Empty IN has no candidate values, while NOT IN with an empty set cannot filter anything.
-    if (values.empty()) {
+    if (set.size() == 0) { // NOLINT(readability-container-size-empty)
         return is_not_in ? ZoneMapFilterResult::kMayMatch : ZoneMapFilterResult::kNoMatch;
     }
 
-    // The caller has materialized the IN set and precomputed its non-null min/max. They must match
-    // the expression slot type before being compared with storage zone-map statistics.
-    DORIS_CHECK(!min_value.is_null());
-    DORIS_CHECK(!max_value.is_null());
     auto data_type = remove_nullable(slot->data_type());
     DORIS_CHECK(data_type != nullptr);
-    DORIS_CHECK(field_types_compatible(min_value.get_type(), data_type->get_primitive_type()));
-    DORIS_CHECK(field_types_compatible(max_value.get_type(), data_type->get_primitive_type()));
 
     // Re-check against the reader-schema type and the available zone map. Missing or unsupported
     // metadata must conservatively fall back to may-match.
@@ -452,7 +435,7 @@ ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSP
     }
 
     if (ctx.floating_nan_count_unknown(slot->column_id()) &&
-        ((!is_not_in && contains_nan) || (is_not_in && !contains_nan))) {
+        ((!is_not_in && values.contains_nan) || (is_not_in && !values.contains_nan))) {
         // Hidden Parquet NaNs can satisfy IN only when queried, and NOT IN only when omitted.
         return unsupported_zonemap_filter(ctx);
     }
@@ -461,43 +444,55 @@ ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSP
         return unsupported_zonemap_filter(ctx);
     }
 
+    // A non-empty set without ordered bounds contains only NaN values. Once the reader proves the
+    // data has no hidden NaNs, such an IN cannot match while NOT IN remains conservative.
+    if (values.min_value.is_null() || values.max_value.is_null()) {
+        DORIS_CHECK(values.contains_nan);
+        DORIS_CHECK(values.min_value.is_null());
+        DORIS_CHECK(values.max_value.is_null());
+        return is_not_in ? ZoneMapFilterResult::kMayMatch : ZoneMapFilterResult::kNoMatch;
+    }
+
+    // The caller has precomputed the IN set's owning non-NaN min/max. They must match the expression
+    // slot type before being compared with storage zone-map statistics.
+    DORIS_CHECK(
+            field_types_compatible(values.min_value.get_type(), data_type->get_primitive_type()));
+    DORIS_CHECK(
+            field_types_compatible(values.max_value.get_type(), data_type->get_primitive_type()));
+
     if (is_not_in) {
         // NOT IN can only prune when the whole zone contains exactly one non-null value and that
         // value is excluded by the set. Wider ranges may contain values that are not filtered.
         if (zone_map.min_value == zone_map.max_value) {
-            const bool only_value_is_filtered = std::ranges::any_of(
-                    values, [&](const Field& value) { return value == zone_map.min_value; });
+            const bool only_value_is_filtered = set.find(zone_map.min_value);
             return only_value_is_filtered ? ZoneMapFilterResult::kNoMatch
                                           : ZoneMapFilterResult::kMayMatch;
         }
         return ZoneMapFilterResult::kMayMatch;
     }
 
-    // First use the materialized IN-set min/max to rule out disjoint zone-map ranges.
-    if (zone_map.max_value < min_value || zone_map.min_value > max_value) {
+    // First use the IN-set min/max to rule out disjoint zone-map ranges.
+    if (zone_map.max_value < values.min_value || zone_map.min_value > values.max_value) {
         return ZoneMapFilterResult::kNoMatch;
     }
 
-    // For large IN sets, avoid checking every point on the scan hot path. The range overlap above
-    // is only a coarse may-match signal.
-    if (values.size() > kInZoneMapPointCheckThreshold) {
+    // For large IN sets and dense-domain containers, avoid exact checks on the scan hot path.
+    if (set.size() > config::in_zonemap_point_check_threshold) {
         ++ctx.stats.in_zonemap_range_only_count;
         return ZoneMapFilterResult::kMayMatch;
     }
 
-    // For small IN sets, verify whether any candidate value can fall into the zone-map range.
+    // Convert the two zone-map bounds to the HybridSet's native type once, then compare them
+    // directly with the typed set values without retaining a Field copy of every IN candidate.
     ++ctx.stats.in_zonemap_point_check_count;
-    for (const auto& value : values) {
-        if (value_in_range(value, zone_map.min_value, zone_map.max_value)) {
-            return ZoneMapFilterResult::kMayMatch;
-        }
-    }
-    return ZoneMapFilterResult::kNoMatch;
+    return set.contains_any_in_range(zone_map.min_value, zone_map.max_value)
+                   ? ZoneMapFilterResult::kMayMatch
+                   : ZoneMapFilterResult::kNoMatch;
 }
 
 ZoneMapFilterResult eval_eq_dictionary(const DictionaryEvalContext& ctx,
                                        const SlotLiteral& slot_literal) {
-    auto dictionary = ctx.slot(slot_literal.slot_index);
+    const auto* dictionary = ctx.slot(slot_literal.slot_index);
     if (dictionary == nullptr || dictionary->data_type == nullptr) {
         return ZoneMapFilterResult::kUnsupported;
     }
@@ -510,22 +505,24 @@ ZoneMapFilterResult eval_eq_dictionary(const DictionaryEvalContext& ctx,
 }
 
 ZoneMapFilterResult eval_in_dictionary(const DictionaryEvalContext& ctx, const VExprSPtr& slot_expr,
-                                       bool is_not_in, const std::vector<Field>& values) {
+                                       bool is_not_in, const HybridSetBase& values) {
     if (is_not_in) {
         return ZoneMapFilterResult::kUnsupported;
     }
     auto slot = std::dynamic_pointer_cast<VSlotRef>(slot_expr);
     DORIS_CHECK(slot != nullptr);
-    auto dictionary = ctx.slot(slot->column_id());
+    const auto* dictionary = ctx.slot(slot->column_id());
     if (dictionary == nullptr || dictionary->data_type == nullptr) {
         return ZoneMapFilterResult::kUnsupported;
     }
     DORIS_CHECK(data_types_compatible(dictionary->data_type, slot->data_type()));
-    if (values.empty()) {
+    // HybridSetBase::empty() also treats a NULL literal as non-empty, but dictionary pruning needs
+    // to know whether there are any non-NULL candidates.
+    if (values.size() == 0) { // NOLINT(readability-container-size-empty)
         return ZoneMapFilterResult::kNoMatch;
     }
-    for (const auto& value : values) {
-        if (!value.is_null() && dictionary_contains(*dictionary, value)) {
+    for (const auto& value : dictionary->values) {
+        if (!value.is_null() && values.find(value)) {
             return ZoneMapFilterResult::kMayMatch;
         }
     }
@@ -534,7 +531,7 @@ ZoneMapFilterResult eval_in_dictionary(const DictionaryEvalContext& ctx, const V
 
 ZoneMapFilterResult eval_eq_bloom_filter(const BloomFilterEvalContext& ctx,
                                          const SlotLiteral& slot_literal) {
-    auto slot_filter = ctx.slot(slot_literal.slot_index);
+    const auto* slot_filter = ctx.slot(slot_literal.slot_index);
     if (slot_filter == nullptr || slot_filter->data_type == nullptr ||
         slot_filter->bloom_filter == nullptr) {
         return ZoneMapFilterResult::kUnsupported;
@@ -550,27 +547,58 @@ ZoneMapFilterResult eval_eq_bloom_filter(const BloomFilterEvalContext& ctx,
 
 ZoneMapFilterResult eval_in_bloom_filter(const BloomFilterEvalContext& ctx,
                                          const VExprSPtr& slot_expr, bool is_not_in,
-                                         const std::vector<Field>& values) {
+                                         const HybridSetBase& values) {
     if (is_not_in) {
         return ZoneMapFilterResult::kUnsupported;
     }
     auto probe = extract_bloom_filter_probe(slot_expr);
     DORIS_CHECK(probe.has_value());
-    auto slot_filter = ctx.slot(probe->slot_index);
+    const auto* slot_filter = ctx.slot(probe->slot_index);
     if (slot_filter == nullptr || slot_filter->data_type == nullptr ||
         slot_filter->bloom_filter == nullptr) {
         return ZoneMapFilterResult::kUnsupported;
     }
     DORIS_CHECK(data_types_compatible(slot_filter->data_type, probe->value_type));
-    if (values.empty()) {
+    if (values.size() == 0) { // NOLINT(readability-container-size-empty)
         return ZoneMapFilterResult::kNoMatch;
     }
-    for (const auto& value : values) {
-        if (!value.is_null() && bloom_filter_may_contain(*slot_filter, value)) {
-            return ZoneMapFilterResult::kMayMatch;
-        }
+    const auto value_type = remove_nullable(slot_filter->data_type)->get_primitive_type();
+    switch (value_type) {
+    case TYPE_BOOLEAN:
+    case TYPE_INT:
+    case TYPE_BIGINT:
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+    case TYPE_STRING:
+        return values.any_match_raw(value_type,
+                                    [slot_filter](const char* data, size_t size) {
+                                        return slot_filter->bloom_filter->test_bytes(data, size);
+                                    })
+                       ? ZoneMapFilterResult::kMayMatch
+                       : ZoneMapFilterResult::kNoMatch;
+    case TYPE_FLOAT:
+        return values.any_match_raw(value_type,
+                                    [slot_filter](const char* data, size_t size) {
+                                        DORIS_CHECK_EQ(size, sizeof(float));
+                                        const auto value = *reinterpret_cast<const float*>(data);
+                                        return floating_point_bloom_filter_may_contain(
+                                                *slot_filter->bloom_filter, value);
+                                    })
+                       ? ZoneMapFilterResult::kMayMatch
+                       : ZoneMapFilterResult::kNoMatch;
+    case TYPE_DOUBLE:
+        return values.any_match_raw(value_type,
+                                    [slot_filter](const char* data, size_t size) {
+                                        DORIS_CHECK_EQ(size, sizeof(double));
+                                        const auto value = *reinterpret_cast<const double*>(data);
+                                        return floating_point_bloom_filter_may_contain(
+                                                *slot_filter->bloom_filter, value);
+                                    })
+                       ? ZoneMapFilterResult::kMayMatch
+                       : ZoneMapFilterResult::kNoMatch;
+    default:
+        return ZoneMapFilterResult::kMayMatch;
     }
-    return ZoneMapFilterResult::kNoMatch;
 }
 
 // Return the only slot ordinal referenced by a zonemap-evaluable expression. A negative result is

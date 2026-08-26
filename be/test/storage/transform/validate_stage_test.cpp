@@ -227,7 +227,7 @@ TEST_F(ValidateStageTest, V1_DirectAcceptsGoodWidth) {
     auto chain = build_transform_chain(c);
     TransformExecContext ctx = exec_ctx(schema, &c);
 
-    Block block = schema->create_block(); // full width, 0 rows
+    Block block = schema->create_storage_block(); // full width, 0 rows
     EXPECT_TRUE(chain.apply(ctx, &block).ok());
 }
 
@@ -238,7 +238,7 @@ TEST_F(ValidateStageTest, V2_DirectRejectsBadWidth) {
     auto chain = build_transform_chain(c);
     TransformExecContext ctx = exec_ctx(schema, &c);
 
-    Block block = schema->create_block_by_cids({0}); // 1 column != num_columns(3)
+    Block block = schema->create_storage_block({0}); // 1 column != num_columns(3)
     auto st = chain.apply(ctx, &block);
     EXPECT_FALSE(st.ok());
     EXPECT_EQ(st.code(), ErrorCode::INVALID_ARGUMENT) << st;
@@ -262,7 +262,7 @@ TEST_F(ValidateStageTest, V3_PartialUpdateRejectsNoTabletContext) {
     ctx.tablet = nullptr; // no tablet context
     ctx.mow_context = nullptr;
 
-    Block block = schema->create_block_by_cids({0});
+    Block block = schema->create_storage_block({0});
     block.get_by_position(0).column->assert_mutable()->insert_default();
     auto st = chain.apply(ctx, &block);
     EXPECT_FALSE(st.ok());
@@ -298,7 +298,7 @@ TEST_F(ValidateStageTest, V4_PartialUpdateRejectsWithoutSegmentId) {
     ctx.rowset_ctx = &rwc;
     ctx.segment_id = -1; // add_block seam: no segment id
 
-    Block block = schema->create_block_by_cids({0});
+    Block block = schema->create_storage_block({0});
     IColumn* kc = block.get_by_position(0).column->assert_mutable().get();
     int32_t k = 1;
     kc->insert_data(reinterpret_cast<const char*>(&k), sizeof(int32_t));
@@ -343,7 +343,7 @@ TEST_F(ValidateStageTest, V5_FixedPartialUpdateAcceptsNarrowWidth) {
     ctx.rowset_id = new_rsid;
     ctx.segment_id = 0;
 
-    Block block = schema->create_block_by_cids({0}); // narrow: key only, in [1, 3)
+    Block block = schema->create_storage_block({0}); // narrow: key only, in [1, 3)
     IColumn* kc = block.get_by_position(0).column->assert_mutable().get();
     for (int32_t k : {1, 3}) {
         kc->insert_data(reinterpret_cast<const char*>(&k), sizeof(int32_t));
@@ -399,7 +399,7 @@ TEST_F(ValidateStageTest, V6V7_FixedPartialUpdateRejectsBadWidth) {
     // V6 too wide: full width (3 == num_columns) is not a partial update block.
     {
         TransformExecContext ctx = make_ctx();
-        Block block = schema->create_block();
+        Block block = schema->create_storage_block();
         auto st = chain.apply(ctx, &block);
         EXPECT_FALSE(st.ok());
         EXPECT_EQ(st.code(), ErrorCode::INVALID_ARGUMENT) << st;
@@ -409,7 +409,7 @@ TEST_F(ValidateStageTest, V6V7_FixedPartialUpdateRejectsBadWidth) {
     // V7 too narrow: fewer columns than the key (0 < 1 key column).
     {
         TransformExecContext ctx = make_ctx();
-        Block block = schema->create_block_by_cids({});
+        Block block = schema->create_storage_block({});
         auto st = chain.apply(ctx, &block);
         EXPECT_FALSE(st.ok());
         EXPECT_EQ(st.code(), ErrorCode::INVALID_ARGUMENT) << st;
@@ -437,7 +437,7 @@ TEST_F(ValidateStageTest, V8_FlexiblePartialUpdateRejectsBadWidth) {
     ctx.mow_context = mow;
     ctx.partial_update_info = pui;
 
-    Block block = schema->create_block_by_cids({0}); // 1 col != num_columns(4)
+    Block block = schema->create_storage_block({0}); // 1 col != num_columns(4)
     auto st = chain.apply(ctx, &block);
     EXPECT_FALSE(st.ok());
     EXPECT_EQ(st.code(), ErrorCode::INVALID_ARGUMENT) << st;
@@ -465,14 +465,14 @@ TEST_F(ValidateStageTest, V9_TransientPartialUpdateValidatedAsDirect) {
     {
         TransformExecContext ctx = exec_ctx(schema, &rwc);
         ctx.partial_update_info = pui;
-        Block block = schema->create_block(); // 3 cols == num_columns
+        Block block = schema->create_storage_block(); // 3 cols == num_columns
         EXPECT_TRUE(chain.apply(ctx, &block).ok());
     }
     // a narrow block is rejected with the non-PU width error -- not the PU one
     {
         TransformExecContext ctx = exec_ctx(schema, &rwc);
         ctx.partial_update_info = pui;
-        Block block = schema->create_block_by_cids({0}); // 1 col != num_columns(3)
+        Block block = schema->create_storage_block({0}); // 1 col != num_columns(3)
         auto st = chain.apply(ctx, &block);
         EXPECT_FALSE(st.ok());
         EXPECT_EQ(st.code(), ErrorCode::INVALID_ARGUMENT) << st;
@@ -494,7 +494,7 @@ TEST_F(ValidateStageTest, FlushSeamRejectsBeforeCreatingAWriter) {
     InvertedIndexFileCollection index_files;
     SegmentFlusher flusher(rwc, segment_files, index_files);
 
-    Block block = schema->create_block_by_cids({0}); // 1 column != num_columns(3)
+    Block block = schema->create_storage_block({0}); // 1 column != num_columns(3)
     block.get_by_position(0).column->assert_mutable()->insert_default();
     auto st = flusher.flush_single_block(&block, /*segment_id=*/0);
     EXPECT_FALSE(st.ok());

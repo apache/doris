@@ -104,6 +104,8 @@ add_executable(util_test util_test.cpp)
 
 add_executable(network_util_test network_util_test.cpp)
 
+add_executable(cloud_server_starter_factory_test cloud_server_starter_factory_test.cpp)
+
 set(TLS_UT_TARGETS)
 if (ENABLE_TLS)
     file(GLOB_RECURSE TLS_UT_FILES CONFIGURE_DEPENDS
@@ -183,6 +185,8 @@ target_link_libraries(stopwatch_test ${TEST_LINK_LIBS})
 target_link_libraries(util_test ${TEST_LINK_LIBS})
 
 target_link_libraries(network_util_test ${TEST_LINK_LIBS})
+
+target_link_libraries(cloud_server_starter_factory_test ${TEST_LINK_LIBS})
 
 foreach(TLS_UT_TARGET ${TLS_UT_TARGETS})
     target_link_libraries(${TLS_UT_TARGET} ${TEST_LINK_LIBS})

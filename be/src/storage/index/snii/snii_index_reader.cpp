@@ -642,6 +642,12 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     const bool common_grams_query_eligible = common_grams_phrase_shape && !actual_similarity;
     const bool raw_pattern_query = query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY ||
                                    query_type == InvertedIndexQueryType::WILDCARD_QUERY;
+    // A physical keyword-lane index has no analyzer contract for the open below to validate:
+    // SniiIndexColumnWriter::init() refuses a CommonGrams metadata seed whenever should_analyzer()
+    // is false, so such a segment can never carry gram terms. Key this on the writer-side
+    // predicate itself rather than on the reader type it happens to select.
+    const bool keyword_lane_query =
+            !inverted_index::InvertedIndexAnalyzer::should_analyzer(_index_meta.properties());
     // Lucene-style CommonGrams: the plan decision is local to the segment and query. Snapshot the
     // switch once so this query's plan and cache identity use the same mode.
     const bool common_grams_query_plan_enabled = config::enable_common_grams_query_plan;
@@ -656,11 +662,11 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
                ctx->has_complete_common_grams_identity();
     };
     const bool safety_requires_plain = !common_grams_query_plan_enabled;
-    // The raw cache key cannot prove whether the immutable segment analyzer has CommonGrams until
-    // its metadata is open. Delay every eligible forced-plain lookup, then restore ordinary cache
-    // access below only for a segment that cannot contain gram terms.
-    const bool initial_force_plain = common_grams_query_eligible && safety_requires_plain;
-    const bool initial_allow_result_cache = !actual_similarity && !initial_force_plain;
+    // An analyzed raw query can only share a cached result after the immutable segment analyzer
+    // contract has been validated below. Patterns and the keyword lane are analyzer-independent
+    // and can still use the cache before opening the logical reader.
+    const bool initial_allow_result_cache =
+            !actual_similarity && (raw_pattern_query || keyword_lane_query);
     const bool defer_result_cache_lookup = !actual_similarity && !initial_allow_result_cache;
     const InvertedIndexRawQuerySemantic raw_semantic {
             .raw_query_bytes = search_str,
@@ -1048,6 +1054,8 @@ Status SniiIndexReader::_compute_query_bitmap(const IndexQueryContextPtr& contex
 }
 #endif
 
+// Keep the complete count-only eligibility and null-safe fabrication contract in one linear path.
+// NOLINTNEXTLINE(readability-function-size)
 Status SniiIndexReader::_try_count_only_fastpath(
         const IndexQueryContextPtr& context, InvertedIndexQueryType query_type,
         const InvertedIndexQueryInfo& query_info, const std::vector<std::string>& terms,
@@ -1082,6 +1090,30 @@ Status SniiIndexReader::_try_count_only_fastpath(
                                             &logical_reader));
     }
 
+    // ARRAY columns: df is NOT null-free, so nothing below may fabricate from it.
+    // ArrayColumnWriter::append_nullable hands add_array_values() every row of the
+    // batch -- the offsets come from the nested ColumnArray, and
+    // OlapColumnDataConvertorArray::convert_to_olap reads them without ever
+    // consulting the outer null map -- and the add_array_nulls() that follows only
+    // RECORDS the null row ids, it never retracts the tokens already emitted for
+    // them. A nullable array whose nested payload survives under the null map does
+    // occur: PreparedFunctionImpl::default_implementation_for_nulls documents that
+    // nested columns keep "arbitrary values in rows corresponding to NULL value",
+    // and need_replace_null_data_to_default() is false by default, so e.g.
+    // array_concat(arr, nullable_arr) writes arr's tokens on a NULL row. That row
+    // then sits in a posting and is counted by df. The decode path stays correct --
+    // mask_out_null subtracts it -- but the fabrication below deliberately places
+    // its ids OFF the null rows, so the same subtraction removes nothing and the
+    // count comes out too high. CLucene writes arrays identically
+    // (InvertedIndexColumnWriter::add_array_nulls only touches _null_bitmap), so
+    // this cannot be repaired from the reader side; decline whenever this segment
+    // has a null bitmap at all. Scalars are unaffected: ScalarColumnWriter::
+    // append_nullable splits the batch into runs and sends null runs to
+    // append_nulls(), which emits no tokens.
+    if (_column_is_array && logical_reader->section_refs().null_bitmap.length > 0) {
+        return Status::OK();
+    }
+
     std::string physical_term_scratch;
     std::string_view physical_term;
     bool representable = false;
@@ -1094,11 +1126,35 @@ Status SniiIndexReader::_try_count_only_fastpath(
         RETURN_IF_ERROR(
                 ::doris::snii::query::count_only_term_df(*logical_reader, physical_term, &count));
     }
+    // df bounds the fabricated bitmap, so it has to be inside a document domain
+    // that is itself real. Two steps, because they fail differently.
+    const auto& stats = logical_reader->stats();
+    if (count > stats.doc_count || count > stats.indexed_doc_count) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "SNII count fast path: term df {} exceeds document domain (doc count {}, "
+                "indexed doc count {})",
+                count, stats.doc_count, stats.indexed_doc_count);
+    }
+    // Both limits above are CRC-valid fields of the SAME image as df, so an image
+    // whose stats were inflated together with df clears them: on a real 10-row
+    // segment, df = doc_count = indexed_doc_count = 100 fabricates 100 ids, and
+    // SegmentIterator -- which seeds _row_bitmap with [0, num_rows) and intersects
+    // -- silently reports 10. The segment's own row count is the one bound the
+    // image cannot move. One-sided on purpose: an index covering FEWER rows than
+    // the segment still fabricates ids inside [0, num_rows), so only an oversized
+    // domain is corruption. This mirrors the equality SniiSegmentReader::
+    // load_inherited_index already demands of a rewrite.
+    if (stats.doc_count > _rows_of_segment) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "SNII count fast path: index doc count {} exceeds the segment row count {}",
+                stats.doc_count, _rows_of_segment);
+    }
 
-    // Null handling. df is the exact match count REGARDLESS of nulls: the
-    // writer adds no tokens for a null doc (scalar add_nulls; a NULL array row
-    // is an empty range), so postings -- and therefore df -- never include
-    // null rows, exactly matching MATCH's "null never matches" semantics. The
+    // Null handling. df is the exact match count REGARDLESS of nulls: the writer
+    // adds no tokens for a null doc (scalar add_nulls; ARRAY columns cannot reach
+    // this point on a segment with nulls, see the guard above), so postings -- and
+    // therefore df -- never include null rows, exactly matching MATCH's "null never
+    // matches" semantics. The
     // fabricated bitmap however flows through FunctionMatchBase ->
     // InvertedIndexResultBitmap::mask_out_null, which subtracts the segment's
     // REAL null bitmap from it; a dense [0, df) range colliding with null row
