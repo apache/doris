@@ -166,7 +166,6 @@ public class IcebergMetadataOpTest {
         List<String> supportedCatalogTypes = Arrays.asList(
                 IcebergExternalCatalog.ICEBERG_HMS,
                 IcebergExternalCatalog.ICEBERG_JDBC,
-                IcebergExternalCatalog.ICEBERG_REST,
                 IcebergExternalCatalog.ICEBERG_GLUE);
         for (String catalogType : supportedCatalogTypes) {
             String dbName = catalogType + "_db";
@@ -191,6 +190,7 @@ public class IcebergMetadataOpTest {
     public void testCreateDatabaseWithPropertiesForUnsupportedCatalogs() {
         List<String> unsupportedCatalogTypes = Arrays.asList(
                 IcebergExternalCatalog.ICEBERG_HADOOP,
+                IcebergExternalCatalog.ICEBERG_REST,
                 IcebergExternalCatalog.ICEBERG_DLF,
                 IcebergExternalCatalog.ICEBERG_S3_TABLES);
         for (String catalogType : unsupportedCatalogTypes) {

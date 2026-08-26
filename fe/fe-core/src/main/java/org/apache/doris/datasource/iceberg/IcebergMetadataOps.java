@@ -262,7 +262,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     private boolean supportsDatabaseProperties(String catalogType) {
         return IcebergExternalCatalog.ICEBERG_HMS.equals(catalogType)
                 || IcebergExternalCatalog.ICEBERG_JDBC.equals(catalogType)
-                || IcebergExternalCatalog.ICEBERG_REST.equals(catalogType)
                 || IcebergExternalCatalog.ICEBERG_GLUE.equals(catalogType);
     }
 
