@@ -3406,6 +3406,9 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
             ColumnPtr result_column;
             RETURN_IF_ERROR(column_expr->execute(block, result_column));
 
+            // The materialized value is cached in the block and later consumed as the slot's
+            // concrete column type, so do not let a ColumnConst cross this boundary.
+            result_column = result_column->convert_to_full_column_if_const();
             block->replace_by_position(idx_in_block, std::move(result_column));
             if (block->get_by_position(idx_in_block).column->size() == 0) {
                 LOG_WARNING("Result of expr column {} is empty. cid {}, idx_in_block {}",
