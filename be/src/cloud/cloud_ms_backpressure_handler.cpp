@@ -35,7 +35,7 @@ namespace doris::cloud {
 namespace {
 
 constexpr std::chrono::milliseconds kQpsRegistryCleanupInterval = std::chrono::minutes(1);
-constexpr std::chrono::milliseconds kQpsRegistryMinInactiveTimeout = std::chrono::minutes(1);
+constexpr std::chrono::milliseconds kQpsRegistryMinInactiveTimeout = std::chrono::minutes(10);
 
 std::chrono::milliseconds qps_registry_inactive_timeout() {
     return std::max(kQpsRegistryMinInactiveTimeout,
