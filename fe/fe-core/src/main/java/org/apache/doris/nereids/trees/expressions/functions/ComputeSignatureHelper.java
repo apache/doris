@@ -56,7 +56,6 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
-import java.util.stream.Collectors;
 
 /** ComputeSignatureHelper */
 public class ComputeSignatureHelper {
@@ -567,51 +566,119 @@ public class ComputeSignatureHelper {
 
     private static FunctionSignature defaultDecimalV3PrecisionPromotion(
             FunctionSignature signature, List<Expression> arguments) {
-        DecimalV3Type finalType = null;
+        // The wider type across all decimal slots, used for decimal slots whose argument
+        // type is unknown (NULL) and for the placeholder return type.
+        DecimalV3Type widerType = null;
         for (int i = 0; i < arguments.size(); i++) {
-            DataType targetType;
-            if (i >= signature.argumentsTypes.size()) {
-                Preconditions.checkState(signature.getVarArgType().isPresent(),
-                        "argument size larger than signature");
-                targetType = signature.getVarArgType().get();
-            } else {
-                targetType = signature.getArgType(i);
-            }
+            DataType targetType = getSignatureArgumentType(signature, i);
             List<DataType> argTypes = extractArgumentTypeBySignature(DecimalV3Type.class, targetType,
                     arguments.get(i).getDataType());
-            if (argTypes.isEmpty()) {
-                continue;
-            }
-
             for (DataType argType : argTypes) {
-                Expression arg = arguments.get(i);
-                DecimalV3Type decimalV3Type;
-                if (arg.isLiteral() && arg.getDataType().isIntegralType()) {
-                    // create decimalV3 with minimum scale enough to hold the integral literal
-                    decimalV3Type = DecimalV3Type.createDecimalV3Type(new BigDecimal(((Literal) arg).getStringValue()));
+                DecimalV3Type decimalV3Type = promotedDecimalV3Type(arguments.get(i), argType);
+                if (widerType == null) {
+                    widerType = decimalV3Type;
                 } else {
-                    decimalV3Type = DecimalV3Type.forType(argType);
-                }
-                if (finalType == null) {
-                    finalType = decimalV3Type;
-                } else {
-                    finalType = (DecimalV3Type) DecimalV3Type.widerDecimalV3Type(finalType, decimalV3Type, false);
+                    widerType = (DecimalV3Type) DecimalV3Type.widerDecimalV3Type(widerType, decimalV3Type, false);
                 }
             }
         }
-        DecimalV3Type argType = finalType;
-        if (finalType == null) {
+        if (widerType == null) {
             return signature;
         }
-        List<DataType> newArgTypes = signature.argumentsTypes.stream()
-                .map(at -> TypeCoercionUtils.replaceDecimalV3WithTarget(at, argType))
-                .collect(Collectors.toList());
+
+        // Promote each decimal slot independently. Decimal slots inside a complex type
+        // (e.g. the key and the value of a MAP) are independent type variables and must
+        // keep their own precision/scale instead of being merged into one wider type,
+        // otherwise widening one slot may overflow another slot (e.g. a big integral key).
+        List<DataType> newArgTypes = Lists.newArrayListWithCapacity(signature.argumentsTypes.size());
+        for (int i = 0; i < signature.argumentsTypes.size(); i++) {
+            DataType sigType = signature.argumentsTypes.get(i);
+            if (signature.hasVarArgs && i == signature.argumentsTypes.size() - 1) {
+                // keep the previous behavior for the vararg slot
+                newArgTypes.add(TypeCoercionUtils.replaceDecimalV3WithTarget(sigType, widerType));
+            } else {
+                newArgTypes.add(promoteDecimalV3Slot(sigType, arguments.get(i).getDataType(),
+                        arguments.get(i), widerType));
+            }
+        }
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
         if (signature.returnType instanceof DecimalV3Type
                 && ((DecimalV3Type) signature.returnType).getPrecision() <= 0) {
-            signature = signature.withReturnType(argType);
+            signature = signature.withReturnType(widerType);
         }
         return signature;
+    }
+
+    private static DataType getSignatureArgumentType(FunctionSignature signature, int index) {
+        if (index >= signature.argumentsTypes.size()) {
+            Preconditions.checkState(signature.getVarArgType().isPresent(),
+                    "argument size larger than signature");
+            return signature.getVarArgType().get();
+        }
+        return signature.getArgType(index);
+    }
+
+    /**
+     * Compute the promoted DecimalV3Type for one decimal slot from its argument type.
+     */
+    private static DecimalV3Type promotedDecimalV3Type(Expression arg, DataType argType) {
+        if (arg.isLiteral() && arg.getDataType().isIntegralType()) {
+            // create decimalV3 with minimum scale enough to hold the integral literal
+            return DecimalV3Type.createDecimalV3Type(new BigDecimal(((Literal) arg).getStringValue()));
+        }
+        return DecimalV3Type.forType(argType);
+    }
+
+    /**
+     * Replace every decimal slot in {@code sigType} with its own promoted type, keeping
+     * the slots inside MAP (and the item of ARRAY) independent from each other instead of
+     * merging them into one type. {@code argType} is the corresponding argument type used
+     * to derive the promoted type of each slot.
+     */
+    private static DataType promoteDecimalV3Slot(DataType sigType, DataType argType, Expression arg,
+            DecimalV3Type widerType) {
+        if (sigType instanceof DecimalV3Type) {
+            DecimalV3Type decimalV3Type = (DecimalV3Type) sigType;
+            if (argType instanceof NullType) {
+                // no concrete type information, fall back to the wider type of all decimal slots
+                return widerType;
+            }
+            DecimalV3Type promoted = promotedDecimalV3Type(arg, argType);
+            if (decimalV3Type.getPrecision() > 0) {
+                // the signature already carries a resolved type (e.g. from AnyDataType),
+                // keep at least that type and widen it if the argument requires a wider one
+                return (DecimalV3Type) DecimalV3Type.widerDecimalV3Type(decimalV3Type, promoted, false);
+            }
+            return promoted;
+        } else if (sigType instanceof ArrayType) {
+            DataType itemArgType;
+            if (argType instanceof ArrayType) {
+                itemArgType = ((ArrayType) argType).getItemType();
+            } else if (argType instanceof NullType) {
+                itemArgType = argType;
+            } else {
+                return sigType;
+            }
+            return ArrayType.of(
+                    promoteDecimalV3Slot(((ArrayType) sigType).getItemType(), itemArgType, arg, widerType));
+        } else if (sigType instanceof MapType) {
+            MapType mapType = (MapType) sigType;
+            if (argType instanceof MapType) {
+                MapType argMapType = (MapType) argType;
+                return MapType.of(
+                        promoteDecimalV3Slot(mapType.getKeyType(), argMapType.getKeyType(), arg, widerType),
+                        promoteDecimalV3Slot(mapType.getValueType(), argMapType.getValueType(), arg, widerType));
+            } else if (argType instanceof NullType) {
+                return MapType.of(
+                        promoteDecimalV3Slot(mapType.getKeyType(), argType, arg, widerType),
+                        promoteDecimalV3Slot(mapType.getValueType(), argType, arg, widerType));
+            }
+            return sigType;
+        } else if (sigType instanceof StructType) {
+            // struct type is not supported by the type extraction yet, keep it unchanged
+            return sigType;
+        }
+        return sigType;
     }
 
     private static List<DataType> extractArgumentTypeBySignature(Class<? extends DataType> targetType,

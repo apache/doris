@@ -327,12 +327,14 @@ public class ComputeSignatureHelperTest {
                 new ArrayLiteral(Lists.newArrayList(new IntegerLiteral(0))));
         signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
         Assertions.assertTrue(signature.getArgType(0) instanceof ArrayType);
-        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(7, 4),
+        // each decimal slot is promoted by its own argument type instead of the wider type
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(5, 4),
                 ((ArrayType) signature.getArgType(0)).getItemType());
         Assertions.assertTrue(signature.getArgType(1) instanceof ArrayType);
+        // null argument falls back to the wider type of all concrete decimal slots
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(7, 4),
                 ((ArrayType) signature.getArgType(1)).getItemType());
-        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(7, 4),
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(6, 3),
                 signature.getArgType(2));
         Assertions.assertTrue(signature.getArgType(4) instanceof ArrayType);
         Assertions.assertEquals(IntegerType.INSTANCE,
@@ -352,17 +354,35 @@ public class ComputeSignatureHelperTest {
                 new DecimalV3Literal(new BigDecimal("123.123")));
         signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
         Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
-        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(8, 5),
+        // key and value are independent decimal slots and keep their own precision/scale
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(5, 4),
                 ((MapType) signature.getArgType(0)).getKeyType());
-        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(8, 5),
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(7, 5),
                 ((MapType) signature.getArgType(0)).getValueType());
         Assertions.assertTrue(signature.getArgType(1) instanceof MapType);
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(8, 5),
                 ((MapType) signature.getArgType(1)).getKeyType());
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(8, 5),
                 ((MapType) signature.getArgType(1)).getValueType());
-        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(8, 5),
+        // each decimal slot is promoted by its own argument type instead of the wider type
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(6, 3),
                 signature.getArgType(2));
+    }
+
+    @Test
+    void testMapDecimalV3ComputePrecisionKeepKeyValueIndependent() {
+        FunctionSignature signature = FunctionSignature.ret(ArrayType.of(DecimalV3Type.WILDCARD))
+                .args(MapType.of(DecimalV3Type.WILDCARD, DecimalV3Type.WILDCARD));
+        Map<Literal, Literal> map = Maps.newLinkedHashMap();
+        map.put(new DecimalV3Literal(new BigDecimal("12345678901234567890")),
+                new DecimalV3Literal(new BigDecimal("0.125000000000000000")));
+        List<Expression> arguments = Lists.newArrayList(new MapLiteral(map));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
+        Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(20, 0),
+                ((MapType) signature.getArgType(0)).getKeyType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(18, 18),
+                ((MapType) signature.getArgType(0)).getValueType());
     }
 
     @Test
