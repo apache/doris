@@ -214,4 +214,16 @@ class InsertIntoTableCommandTest {
         Assertions.assertFalse(nonPlugin,
                 "a non-plugin table type must NOT be treated as write-branch capable");
     }
+
+    @Test
+    void testExternalDmlAuditClassificationUsesResolvedExecutor() {
+        Assertions.assertTrue(InsertIntoTableCommand.needsExternalDmlAuditBarrier(
+                Mockito.mock(BaseExternalTableInsertExecutor.class)));
+        Assertions.assertTrue(InsertIntoTableCommand.needsExternalDmlAuditBarrier(
+                Mockito.mock(RemoteOlapInsertExecutor.class)));
+        Assertions.assertFalse(InsertIntoTableCommand.needsExternalDmlAuditBarrier(
+                Mockito.mock(OlapInsertExecutor.class)));
+        Assertions.assertFalse(InsertIntoTableCommand.needsExternalDmlAuditBarrier(
+                Mockito.mock(BlackholeInsertExecutor.class)));
+    }
 }
