@@ -208,9 +208,7 @@ suite("test_mow_compaction_and_read_stale", "nonConcurrent") {
     String tablet_id = tablet.TabletId
 
     GetDebugPoint().clearDebugPointsForAllBEs()
-    get_be_param("compaction_promotion_version_count")
     get_be_param("tablet_rowset_stale_sweep_time_sec")
-    set_be_param("compaction_promotion_version_count", "5")
     set_be_param("tablet_rowset_stale_sweep_time_sec", "0")
 
     try {
@@ -308,7 +306,6 @@ suite("test_mow_compaction_and_read_stale", "nonConcurrent") {
         assertTrue(is_local_dm_deleted, "delete bitmap of compaction2 stale rowsets are not deleted")
         order_qt_sql5 "select * from ${testTable}"
     } finally {
-        reset_be_param("compaction_promotion_version_count")
         reset_be_param("tablet_rowset_stale_sweep_time_sec")
         GetDebugPoint().clearDebugPointsForAllBEs()
     }

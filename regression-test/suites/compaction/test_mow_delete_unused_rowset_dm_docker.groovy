@@ -28,7 +28,6 @@ suite("test_mow_delete_unused_rowset_dm_docker", "docker") {
     options.enableDebugPoints()
     options.feConfigs.add("enable_workload_group=false")
     // beConfigs
-    options.beConfigs.add('compaction_promotion_version_count=5')
     options.beConfigs.add('tablet_rowset_stale_sweep_time_sec=0')
     options.beConfigs.add('enable_mow_verbose_log=true')
     options.beConfigs.add('enable_java_support=false')

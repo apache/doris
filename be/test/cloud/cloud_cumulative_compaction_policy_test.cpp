@@ -213,6 +213,19 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, new_cumulative_point) {
 }
 
 TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       new_cumulative_point_does_not_promote_small_mow_rowset_by_version_count) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    tablet._tablet_meta->_enable_unique_key_merge_on_write = true;
+    tablet._base_size = kGiB;
+
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    RowsetSharedPtr output_rowset = create_rowset(Version(2, 1003), 1, false, kMiB);
+    Version last_delete_version {-1, -1};
+
+    EXPECT_EQ(2, policy.new_cumulative_point(&tablet, output_rowset, last_delete_version, 2));
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
        pick_input_rowsets_notready_keeps_latest_versions) {
     auto base_rowset = create_rowset(Version(0, 1), 1, false, kGiB);
     ASSERT_NE(nullptr, base_rowset);

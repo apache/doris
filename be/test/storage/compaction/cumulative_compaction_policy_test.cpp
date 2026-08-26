@@ -1239,6 +1239,29 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy,
 }
 
 TEST_F(TestSizeBasedCumulativeCompactionPolicy,
+       update_cumulative_point_does_not_promote_small_mow_rowset_by_version_count) {
+    _tablet_meta->set_enable_unique_key_merge_on_write(true);
+    TabletSharedPtr tablet(
+            new Tablet(_engine, _tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    ASSERT_TRUE(tablet->init().ok());
+    tablet->set_cumulative_layer_point(1);
+    tablet->set_cumulative_promotion_size(64L * kMiB);
+
+    RowsetMetaSharedPtr output_meta(new RowsetMeta());
+    init_rs_meta(output_meta, 1, 1002);
+    output_meta->set_total_disk_size(kMiB);
+    RowsetSharedPtr output_rowset;
+    ASSERT_TRUE(RowsetFactory::create_rowset(nullptr, "", output_meta, &output_rowset).ok());
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    tablet->_cumulative_compaction_policy->update_cumulative_point(
+            tablet.get(), input_rowsets, output_rowset, last_delete_version);
+
+    EXPECT_EQ(1, tablet->cumulative_layer_point());
+}
+
+TEST_F(TestSizeBasedCumulativeCompactionPolicy,
        pick_input_rowsets_large_head_single_overlapping_tail_selected) {
     std::vector<RowsetMetaSharedPtr> rs_metas;
 
