@@ -78,7 +78,9 @@ public class LanceExternalCatalog extends ExternalCatalog {
     private static final long ALLOCATOR_LIMIT = 256L * 1024 * 1024;
     private static final int MAX_PROVIDER_MESSAGE_BYTES = 1024;
     private static final String[] RUNTIME_SENSITIVE_OPTION_KEYS = {
-            "aws_access_key_id", "aws_secret_access_key", "aws_session_token"
+            "aws_access_key_id", "aws_secret_access_key", "aws_session_token",
+            "oss_access_key_id", "oss_secret_access_key", "oss_security_token",
+            "access_key_id", "access_key_secret", "security_token"
     };
 
     private transient LanceNamespace namespace;

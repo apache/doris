@@ -32,6 +32,7 @@ import java.util.TreeSet;
 public class LanceStorageOptionsTest {
 
     private static final String S3_URI = "s3://warehouse/table.lance";
+    private static final String OSS_URI = "oss://warehouse/table.lance";
 
     /**
      * Parsed by Doris exactly as a real catalog would, so these fixtures also have to satisfy its
@@ -58,6 +59,16 @@ public class LanceStorageOptionsTest {
 
     private static List<StorageProperties> minioCatalog() {
         return createAll(minioProperties());
+    }
+
+    private static Map<String, String> ossProperties() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("fs.oss.support", "true");
+        properties.put("oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com");
+        properties.put("oss.region", "cn-hangzhou");
+        properties.put("oss.access_key", "oss-ak");
+        properties.put("oss.secret_key", "oss-sk");
+        return properties;
     }
 
     @Test
@@ -98,6 +109,95 @@ public class LanceStorageOptionsTest {
         // allow_http only makes sense for a plain-HTTP endpoint.
         Assertions.assertNull(options.get("allow_http"));
         Assertions.assertEquals("https://s3.amazonaws.com", options.get("aws_endpoint"));
+    }
+
+    @Test
+    public void testOssCatalogPropertiesMapToThePublicSpelling() {
+        Map<String, String> properties = ossProperties();
+        properties.put("oss.session_token", "oss-token");
+
+        Map<String, String> options = LanceStorageOptions.forUri(
+                OSS_URI, createAll(properties));
+
+        Assertions.assertEquals("https://oss-cn-hangzhou.aliyuncs.com",
+                options.get("oss_endpoint"));
+        Assertions.assertEquals("oss-ak", options.get("oss_access_key_id"));
+        Assertions.assertEquals("oss-sk", options.get("oss_secret_access_key"));
+        Assertions.assertEquals("cn-hangzhou", options.get("oss_region"));
+        Assertions.assertEquals("oss-token", options.get("oss_security_token"));
+        Assertions.assertEquals(
+                new TreeSet<>(Arrays.asList("oss_endpoint", "oss_access_key_id",
+                        "oss_secret_access_key", "oss_region", "oss_security_token")),
+                new TreeSet<>(options.keySet()));
+    }
+
+    @Test
+    public void testOssAnonymousAccessEmitsNoCredentials() {
+        Map<String, String> properties = ossProperties();
+        properties.remove("oss.access_key");
+        properties.remove("oss.secret_key");
+
+        Map<String, String> options = LanceStorageOptions.forUri(
+                OSS_URI, createAll(properties));
+
+        Assertions.assertEquals("https://oss-cn-hangzhou.aliyuncs.com",
+                options.get("oss_endpoint"));
+        Assertions.assertEquals("cn-hangzhou", options.get("oss_region"));
+        Assertions.assertNull(options.get("oss_access_key_id"));
+        Assertions.assertNull(options.get("oss_secret_access_key"));
+        Assertions.assertNull(options.get("oss_security_token"));
+    }
+
+    @Test
+    public void testVendedOssOptionsSupersedeTheCatalog() {
+        Map<String, String> properties = ossProperties();
+        properties.put("oss.session_token", "static-token");
+        Map<String, String> vended = new HashMap<>();
+        vended.put("endpoint", "https://oss-cn-shanghai.aliyuncs.com");
+        vended.put("access_key_id", "vended-ak");
+        vended.put("access_key_secret", "vended-sk");
+        vended.put("region", "cn-shanghai");
+        vended.put("security_token", "vended-token");
+
+        Map<String, String> merged = LanceStorageOptions.forVendedTable(
+                OSS_URI, createAll(properties), vended);
+
+        Assertions.assertEquals("https://oss-cn-shanghai.aliyuncs.com",
+                merged.get("oss_endpoint"));
+        Assertions.assertEquals("vended-ak", merged.get("oss_access_key_id"));
+        Assertions.assertEquals("vended-sk", merged.get("oss_secret_access_key"));
+        Assertions.assertEquals("cn-shanghai", merged.get("oss_region"));
+        Assertions.assertEquals("vended-token", merged.get("oss_security_token"));
+        for (String alias : vended.keySet()) {
+            Assertions.assertNull(merged.get(alias), alias + " must not survive beside its twin");
+        }
+    }
+
+    @Test
+    public void testOssAliasesCollapseAndConflictsAreRejected() {
+        Map<String, String> agreeing = new HashMap<>();
+        agreeing.put("access_key_secret", "same");
+        agreeing.put("oss_secret_access_key", "same");
+        Assertions.assertEquals("same", LanceStorageOptions.forVendedTable(
+                OSS_URI, Collections.emptyList(), agreeing).get("oss_secret_access_key"));
+
+        Map<String, String> conflicting = new HashMap<>();
+        conflicting.put("endpoint", "https://one.example.com");
+        conflicting.put("oss_endpoint", "https://another.example.com");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> LanceStorageOptions
+                .forVendedTable(OSS_URI, Collections.emptyList(), conflicting));
+    }
+
+    @Test
+    public void testUnknownVendedOssOptionsPassThrough() {
+        Map<String, String> vended = new HashMap<>();
+        vended.put("role_arn", "acs:ram::123456789:role/lance");
+        vended.put("allow_anonymous", "true");
+
+        Map<String, String> merged = LanceStorageOptions.forVendedTable(
+                OSS_URI, Collections.emptyList(), vended);
+
+        Assertions.assertEquals(vended, merged);
     }
 
     /**
@@ -172,9 +272,8 @@ public class LanceStorageOptionsTest {
 
     /**
      * The regression that motivated all of this: object_store's Azure parser reads
-     * {@code endpoint} but not {@code aws_endpoint}, and Lance's OSS provider requires
-     * {@code endpoint} and reads {@code access_key_id}. Rewriting those onto the S3 spellings
-     * leaves the dataset unreachable, so a non-S3 dataset must come through untouched.
+     * {@code endpoint} but not {@code aws_endpoint}. Rewriting it onto the S3 spelling leaves the
+     * dataset unreachable, so a provider with no Doris adapter must come through untouched.
      */
     @Test
     public void testNonS3DatasetsAreNeverRewritten() {
@@ -184,7 +283,7 @@ public class LanceStorageOptionsTest {
         vended.put("secret_access_key", "vended-sk");
 
         for (String uri : new String[] {"az://container/table.lance", "abfss://fs@acct/table",
-                "oss://bucket/table.lance", "gs://bucket/table.lance", "cos://bucket/table",
+                "gs://bucket/table.lance", "cos://bucket/table",
                 "file:///tmp/table.lance"}) {
             Map<String, String> merged =
                     LanceStorageOptions.forVendedTable(uri, minioCatalog(), vended);
@@ -207,7 +306,7 @@ public class LanceStorageOptionsTest {
         }
     }
 
-    /** Doris has no Lance vocabulary for a non-S3 provider yet, so it contributes none. */
+    /** A provider never receives another provider's static configuration. */
     @Test
     public void testCatalogPropertiesAreNotAppliedToANonS3Dataset() {
         Map<String, String> merged = LanceStorageOptions.forUri(

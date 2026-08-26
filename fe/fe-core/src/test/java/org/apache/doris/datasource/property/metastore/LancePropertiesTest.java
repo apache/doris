@@ -43,6 +43,21 @@ public class LancePropertiesTest {
     }
 
     @Test
+    public void testOssFilesystemProperties() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "lance");
+        properties.put(LanceFileSystemMetastoreProperties.WAREHOUSE,
+                "oss://bucket/lance");
+
+        AbstractLanceProperties lanceProperties =
+                (AbstractLanceProperties) MetastoreProperties.create(properties);
+
+        Assertions.assertInstanceOf(LanceFileSystemMetastoreProperties.class, lanceProperties);
+        Assertions.assertEquals("oss://bucket/lance",
+                ((LanceFileSystemMetastoreProperties) lanceProperties).getWarehouse());
+    }
+
+    @Test
     public void testRestProperties() throws Exception {
         Map<String, String> properties = new HashMap<>();
         properties.put("type", "lance");
