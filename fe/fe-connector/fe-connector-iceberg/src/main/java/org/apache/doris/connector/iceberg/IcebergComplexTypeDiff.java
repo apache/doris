@@ -172,10 +172,11 @@ public final class IcebergComplexTypeDiff {
             Types.NestedField oldField = oldFields.get(i);
             Types.NestedField newField = newFields.get(i);
             String fieldPath = path + "." + oldField.name();
-            existingNames.add(oldField.name());
+            existingNames.add(oldField.name().toLowerCase(Locale.ROOT));
 
-            // Legacy ColumnType rule: existing fields are matched by position and may not be renamed.
-            if (!oldField.name().equals(newField.name())) {
+            // A full-type MODIFY is case-insensitive and must preserve existing Iceberg spelling; only the
+            // dedicated RENAME operation is allowed to change a field name.
+            if (!oldField.name().equalsIgnoreCase(newField.name())) {
                 throw new DorisConnectorException("Cannot rename struct field from '" + oldField.name()
                         + "' to '" + newField.name() + "'");
             }
@@ -216,7 +217,7 @@ public final class IcebergComplexTypeDiff {
         // Append the new fields (legacy parity: must be nullable and not clash with an existing name).
         for (int i = oldFields.size(); i < newFields.size(); i++) {
             Types.NestedField newField = newFields.get(i);
-            if (existingNames.contains(newField.name())) {
+            if (!existingNames.add(newField.name().toLowerCase(Locale.ROOT))) {
                 throw new DorisConnectorException("Added struct field '" + newField.name()
                         + "' conflicts with existing field");
             }

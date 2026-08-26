@@ -53,6 +53,16 @@ public class StructField {
         this(name, name, dataType, nullable, comment, commentSpecified);
     }
 
+    /**
+     * Creates a field with separate names for case-insensitive runtime lookup and external schema spelling.
+     *
+     * @param name field name normalized internally for runtime lookup
+     * @param originalName field spelling preserved for external schema metadata
+     * @param dataType field data type
+     * @param nullable whether the field accepts null values
+     * @param comment field comment
+     * @param commentSpecified whether the comment was explicitly specified
+     */
     public StructField(String name, String originalName, DataType dataType, boolean nullable, String comment,
             boolean commentSpecified) {
         this.name = Objects.requireNonNull(name, "name should not be null").toLowerCase();
