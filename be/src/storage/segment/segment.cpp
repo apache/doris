@@ -793,6 +793,13 @@ DataTypePtr Segment::get_data_type_of(const TabletColumn& read_column, const Dat
         return DataTypeFactory::instance().create_data_type(read_column);
     }
 
+    // A historical rowset schema can omit a variant root that is still present in the segment
+    // footer. Preserve the schema-change fallback instead of trying to infer a path type from a
+    // reader that the rowset schema does not admit.
+    if (!_tablet_schema->has_column_unique_id(unique_id)) {
+        return DataTypeFactory::instance().create_data_type(read_column);
+    }
+
     std::shared_ptr<ColumnReader> v_reader;
     OlapReaderStatistics tmp_stats;
     auto* stats = read_options.stats == nullptr ? &tmp_stats : read_options.stats;
@@ -917,6 +924,13 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
         }
     }
 
+    // The rowset schema may omit a column that is still present in an old segment footer.
+    // Keep read-time constant columns on their existing path.
+    if (!_tablet_schema->has_column_unique_id(unique_id) && !const_value.has_value()) {
+        RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
+        return Status::OK();
+    }
+
     // init iterator by unique id
     std::shared_ptr<ColumnReader> reader;
     RETURN_IF_ERROR(get_column_reader(unique_id, &reader, opt->stats, &opt->io_ctx,
@@ -975,7 +989,7 @@ Status Segment::get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>
     RETURN_IF_ERROR(_create_column_meta_once(stats, source_io_ctx));
     SCOPED_RAW_TIMER(&stats->segment_create_column_readers_timer_ns);
     // The column is not in this segment, return nullptr
-    if (!_tablet_schema->has_column_unique_id(col_uid)) {
+    if (!_tablet_schema->has_column_unique_id(col_uid) && !const_value.has_value()) {
         *column_reader = nullptr;
         return Status::Error<ErrorCode::NOT_FOUND, false>("column not found in segment, col_uid={}",
                                                           col_uid);
@@ -1001,7 +1015,7 @@ Status Segment::get_column_reader(const TabletColumn& col,
     SCOPED_RAW_TIMER(&stats->segment_create_column_readers_timer_ns);
     int col_uid = col.unique_id() >= 0 ? col.unique_id() : col.parent_unique_id();
     // The column is not in this segment, return nullptr
-    if (!_tablet_schema->has_column_unique_id(col_uid)) {
+    if (!_tablet_schema->has_column_unique_id(col_uid) && !const_value.has_value()) {
         *column_reader = nullptr;
         return Status::Error<ErrorCode::NOT_FOUND, false>("column not found in segment, col_uid={}",
                                                           col_uid);

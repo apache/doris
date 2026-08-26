@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "core/assert_cast.h"
+#include "core/block/block.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/field.h"
@@ -38,6 +39,7 @@
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/comparison_predicate.h"
 #include "storage/row_cursor.h"
+#include "storage/segment/column_reader.h"
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_iterator.h"
@@ -118,6 +120,16 @@ std::shared_ptr<AndBlockColumnPredicate> make_commit_tso_gt_predicate(int32_t co
     auto predicates = AndBlockColumnPredicate::create_shared();
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<TYPE_BIGINT, PredicateType::GT>(
+                    column_id, COMMIT_TSO_COL, Field::create_field<TYPE_BIGINT>(value)));
+    predicates->add_column_predicate(SingleColumnBlockPredicate::create_unique(pred));
+    return predicates;
+}
+
+std::shared_ptr<AndBlockColumnPredicate> make_commit_tso_lt_predicate(int32_t column_id,
+                                                                      int64_t value) {
+    auto predicates = AndBlockColumnPredicate::create_shared();
+    std::shared_ptr<ColumnPredicate> pred(
+            new ComparisonPredicateBase<TYPE_BIGINT, PredicateType::LT>(
                     column_id, COMMIT_TSO_COL, Field::create_field<TYPE_BIGINT>(value)));
     predicates->add_column_predicate(SingleColumnBlockPredicate::create_unique(pred));
     return predicates;
@@ -218,6 +230,46 @@ protected:
                            segment);
         ASSERT_TRUE(st.ok()) << st;
         ASSERT_EQ(kCommitTsoRows, (*segment)->num_rows());
+    }
+
+    void build_segment_with_rowset_schema(const TabletSchemaSPtr& writer_schema,
+                                          const TabletSchemaSPtr& rowset_schema,
+                                          std::shared_ptr<Segment>* segment) {
+        const auto path = std::string(kTestDir) + "/schema_evolution_segment.dat";
+        auto fs = io::global_local_filesystem();
+        io::FileWriterPtr file_writer;
+        auto st = fs->create_file(path, &file_writer);
+        ASSERT_TRUE(st.ok()) << st;
+
+        SegmentWriterOptions opts;
+        opts.num_rows_per_block = 1024;
+        TestSegmentWriter writer(file_writer.get(), 0, writer_schema, nullptr, nullptr, opts,
+                                 nullptr);
+        st = writer.init();
+        ASSERT_TRUE(st.ok()) << st;
+
+        RowCursor row;
+        std::vector<Field> fields(writer_schema->num_columns(), Field(PrimitiveType::TYPE_NULL));
+        st = row.init_scan_key(writer_schema, std::move(fields));
+        ASSERT_TRUE(st.ok()) << st;
+        row.mutable_field(0) = int_field(1);
+        row.mutable_field(1) = writer_schema->column(1).type() == FieldType::OLAP_FIELD_TYPE_BIGINT
+                                       ? Field::create_field<TYPE_BIGINT>(0)
+                                       : int_field(42);
+        st = writer.append_row(row);
+        ASSERT_TRUE(st.ok()) << st;
+
+        uint64_t file_size = 0;
+        uint64_t index_size = 0;
+        st = writer.finalize(&file_size, &index_size);
+        ASSERT_TRUE(st.ok()) << st;
+        st = file_writer->close();
+        ASSERT_TRUE(st.ok()) << st;
+
+        st = Segment::open(fs, path, 100, 0, kRowsetId, rowset_schema, io::FileReaderOptions {},
+                           segment);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(1, (*segment)->num_rows());
     }
 
     void prepare_expr_context(const VExprContextSPtr& expr_ctx) {
@@ -338,6 +390,117 @@ TEST_F(SegmentIteratorExprZonemapTest, NewColumnIteratorReadsCommitTsoFromReadOp
     for (size_t i = 0; i < dst->size(); ++i) {
         EXPECT_EQ(kCommitTso, col->get_element(i));
     }
+}
+
+TEST_F(SegmentIteratorExprZonemapTest,
+       NewColumnIteratorUsesDefaultForFooterColumnMissingFromRowsetSchema) {
+    auto writer_schema = std::make_shared<TabletSchema>();
+    writer_schema->append_column(*create_int_key(0, false));
+    writer_schema->append_column(
+            *create_int_value(1, FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, true, "7"));
+    writer_schema->set_storage_page_size(4096);
+
+    auto rowset_schema = std::make_shared<TabletSchema>();
+    rowset_schema->append_column(*create_int_key(0, false));
+    rowset_schema->set_storage_page_size(4096);
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(
+            build_segment_with_rowset_schema(writer_schema, rowset_schema, &segment));
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.tablet_schema = writer_schema;
+
+    ColumnIteratorUPtr iter;
+    auto st = segment->new_column_iterator(writer_schema->column(1), &iter, &read_options);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, iter);
+    EXPECT_NE(nullptr, dynamic_cast<DefaultValueColumnIterator*>(iter.get()));
+
+    MutableColumnPtr dst = ColumnVector<TYPE_INT>::create();
+    size_t rows = 1;
+    bool has_null = true;
+    ASSERT_TRUE(iter->next_batch(&rows, dst, &has_null).ok());
+    ASSERT_FALSE(has_null);
+    ASSERT_EQ(1, dst->size());
+    EXPECT_EQ(7, assert_cast<const ColumnInt32&>(*dst).get_element(0));
+}
+
+TEST_F(SegmentIteratorExprZonemapTest,
+       NewIteratorUsesDefaultForFooterColumnMissingFromRowsetSchema) {
+    auto writer_schema = std::make_shared<TabletSchema>();
+    writer_schema->append_column(*create_int_key(0, false));
+    writer_schema->append_column(
+            *create_int_value(1, FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, true, "7"));
+    writer_schema->set_storage_page_size(4096);
+
+    auto rowset_schema = std::make_shared<TabletSchema>();
+    rowset_schema->append_column(*create_int_key(0, false));
+    rowset_schema->set_storage_page_size(4096);
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(
+            build_segment_with_rowset_schema(writer_schema, rowset_schema, &segment));
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.tablet_schema = writer_schema;
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+
+    auto read_schema = make_read_schema(writer_schema);
+    std::unique_ptr<RowwiseIterator> row_iter;
+    auto st = segment->new_iterator(read_schema, read_options, &row_iter);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, row_iter);
+
+    Block block = read_schema->create_read_block();
+    st = row_iter->next_batch(&block);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(1, block.rows());
+}
+
+TEST_F(SegmentIteratorExprZonemapTest,
+       NewColumnIteratorUsesCommitTsoForFooterColumnMissingFromRowsetSchema) {
+    constexpr int64_t kCommitTso = 466872251335573505L;
+    auto writer_schema = make_commit_tso_tablet_schema();
+
+    auto rowset_schema = std::make_shared<TabletSchema>();
+    rowset_schema->append_column(*create_int_key(0, false));
+    rowset_schema->set_storage_page_size(4096);
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(
+            build_segment_with_rowset_schema(writer_schema, rowset_schema, &segment));
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.tablet_schema = writer_schema;
+    read_options.version = Version(7, 7);
+    read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+
+    auto read_schema = make_read_schema(writer_schema);
+    read_options.col_id_to_predicates.emplace(1, make_commit_tso_lt_predicate(1, kCommitTso));
+    std::unique_ptr<RowwiseIterator> row_iter;
+    auto st = segment->new_iterator(read_schema, read_options, &row_iter);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, row_iter);
+    EXPECT_TRUE(row_iter->empty());
+
+    ColumnIteratorUPtr column_iter;
+    st = segment->new_column_iterator(writer_schema->column(1), &column_iter, &read_options);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, column_iter);
+    EXPECT_NE(nullptr, dynamic_cast<ConstantColumnIterator*>(column_iter.get()));
+
+    MutableColumnPtr dst = ColumnVector<TYPE_BIGINT>::create();
+    size_t rows = 1;
+    bool has_null = true;
+    ASSERT_TRUE(column_iter->next_batch(&rows, dst, &has_null).ok());
+    ASSERT_FALSE(has_null);
+    ASSERT_EQ(1, dst->size());
+    EXPECT_EQ(kCommitTso, assert_cast<const ColumnInt64&>(*dst).get_element(0));
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesCommitTsoByReadOptionValue) {
