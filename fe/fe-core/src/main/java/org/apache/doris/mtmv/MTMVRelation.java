@@ -17,6 +17,9 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
@@ -104,6 +107,12 @@ public class MTMVRelation implements GsonPostProcessable {
         compatible(catalogMgr, baseTables);
         compatible(catalogMgr, baseViews);
         compatible(catalogMgr, baseTablesOneLevel);
+        addStreamBaseTables(baseTables);
+        if (CollectionUtils.isEmpty(baseTablesOneLevelAndFromView)) {
+            // Preserve the existing fallback for older images in a separate set before adding implicit stream bases.
+            baseTablesOneLevelAndFromView = new HashSet<>(getBaseTablesOneLevel());
+        }
+        addStreamBaseTables(baseTablesOneLevelAndFromView);
     }
 
     private void compatible(CatalogMgr catalogMgr, Set<BaseTableInfo> infos) throws Exception {
@@ -113,5 +122,40 @@ public class MTMVRelation implements GsonPostProcessable {
         for (BaseTableInfo baseTableInfo : infos) {
             baseTableInfo.compatible(catalogMgr);
         }
+    }
+
+    private void addStreamBaseTables(Set<BaseTableInfo> infos) throws Exception {
+        if (CollectionUtils.isEmpty(infos)) {
+            return;
+        }
+        // Older images may contain only the stream relation; add its stable base so freshness and invalidation survive
+        // an upgrade without inventing a historical snapshot for the newly discovered dependency.
+        for (BaseTableInfo info : new HashSet<>(infos)) {
+            if (!info.isInternalTable()) {
+                continue;
+            }
+
+            // Recovery does not rerun MTMV compatibility, so an unresolved relation must not complete migration.
+            TableIf currentTable = MTMVUtil.getTable(info);
+            // A same-name object with a different ID represents different data. Accepting it would let a replacement
+            // table, view, or stream reuse snapshots produced from the persisted relation.
+            if (currentTable.getId() != info.getTableId()) {
+                throw new AnalysisException("MTMV relation identity changed during compatibility: " + info);
+            }
+            addStreamBaseTable(infos, info, currentTable);
+        }
+    }
+
+    private void addStreamBaseTable(Set<BaseTableInfo> infos, BaseTableInfo streamInfo, TableIf table)
+            throws AnalysisException {
+        if (!(table instanceof BaseTableStream)) {
+            return;
+        }
+        TableIf baseTable = ((BaseTableStream) table).getBaseTableNullable();
+        if (baseTable == null) {
+            throw new AnalysisException(
+                    "Failed to resolve stream base table during MTMV compatibility: " + streamInfo);
+        }
+        infos.add(new BaseTableInfo(baseTable));
     }
 }

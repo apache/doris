@@ -4595,12 +4595,7 @@ public class Env {
 
             sb.append("CREATE STREAM ");
             sb.append('`').append(table.getName()).append('`').append('\n');
-            TableIf baseTable = stream.getBaseTableNullable();
-            if (baseTable != null) {
-                sb.append("ON TABLE ").append(baseTable.getNameWithFullQualifiers());
-            } else {
-                sb.append("ON TABLE ").append("UNKNOWN");
-            }
+            sb.append("ON TABLE ").append(String.join(".", stream.getBaseTableFullQualifiers()));
             // (COMMENT STRING_LITERAL)?
             addTableComment(table, sb);
             // properties=propertyClause?

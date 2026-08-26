@@ -111,7 +111,7 @@ public class TableStreamBaseTableInfo {
                 }
             }
         }
-        LOG.warn("invalid base table: {}", this);
+        LOG.debug("invalid base table: {}", this);
         return null;
     }
 

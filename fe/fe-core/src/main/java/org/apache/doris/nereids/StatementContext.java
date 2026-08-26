@@ -219,6 +219,9 @@ public class StatementContext implements Closeable {
 
     // tables in this query directly
     private final Map<List<String>, TableIf> tables = Maps.newHashMap();
+    // Underlying tables resolved while collecting explicit relations. They are not independently named by SQL, so
+    // keep them out of the qualifier-keyed relation maps and reuse the same snapshot through planning.
+    private final Set<TableIf> implicitTableDependencies = Sets.newIdentityHashSet();
     // onelevel tables in this query directly,
     // if
     // create v1 as select * from t1
@@ -440,6 +443,14 @@ public class StatementContext implements Closeable {
 
     public Map<List<String>, TableIf> getTables() {
         return tables;
+    }
+
+    public void addImplicitTableDependency(TableIf table) {
+        implicitTableDependencies.add(table);
+    }
+
+    public Set<TableIf> getImplicitTableDependencies() {
+        return implicitTableDependencies;
     }
 
     public Map<List<String>, TableIf> getOneLevelTables() {
@@ -959,16 +970,20 @@ public class StatementContext implements Closeable {
      */
     public synchronized void lock() {
         if (!needLockTables
-                || (tables.isEmpty() && mtmvRelatedTables.isEmpty() && insertTargetTables.isEmpty())
+                || (tables.isEmpty() && mtmvRelatedTables.isEmpty() && insertTargetTables.isEmpty()
+                        && implicitTableDependencies.isEmpty())
                 || !plannerResources.isEmpty()) {
             return;
         }
+        // The same object can be both an explicit relation and an implicit dependency; lock it only once.
+        Set<TableIf> tablesToLock = Sets.newIdentityHashSet();
+        tablesToLock.addAll(tables.values());
+        tablesToLock.addAll(mtmvRelatedTables.values());
+        tablesToLock.addAll(insertTargetTables.values());
+        tablesToLock.addAll(implicitTableDependencies);
         PriorityQueue<TableIf> tableIfs = new PriorityQueue<>(
-                tables.size() + mtmvRelatedTables.size() + insertTargetTables.size(),
-                Comparator.comparing(TableIf::getId));
-        tableIfs.addAll(tables.values());
-        tableIfs.addAll(mtmvRelatedTables.values());
-        tableIfs.addAll(insertTargetTables.values());
+                tablesToLock.size(), Comparator.comparing(TableIf::getId));
+        tableIfs.addAll(tablesToLock);
         while (!tableIfs.isEmpty()) {
             TableIf tableIf = tableIfs.poll();
             if (!tableIf.needReadLockWhenPlan()) {
@@ -1276,7 +1291,8 @@ public class StatementContext implements Closeable {
     public boolean hasAnyPlanReadLockTable() {
         return containsPlanReadLockTable(tables.values())
                 || containsPlanReadLockTable(mtmvRelatedTables.values())
-                || containsPlanReadLockTable(insertTargetTables.values());
+                || containsPlanReadLockTable(insertTargetTables.values())
+                || containsPlanReadLockTable(implicitTableDependencies);
     }
 
     public Optional<ExternalMetadataPreloadResult> getExternalMetadataPreloadResult() {

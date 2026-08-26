@@ -18,6 +18,8 @@
 package org.apache.doris.catalog.stream;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
@@ -37,6 +39,8 @@ import java.util.List;
 import java.util.Map;
 
 public abstract class BaseTableStream extends Table {
+    private static final String BASE_TABLE_NOT_FOUND_STALE_REASON = "Base table does not exist";
+
     public enum StreamScanType {
         APPEND_ONLY,
         MIN_DELTA,
@@ -113,10 +117,33 @@ public abstract class BaseTableStream extends Table {
     }
 
     public TableIf getBaseTableNullable() {
-        if (baseTable == null) {
-            baseTable = baseTableInfo.getTableNullable();
+        TableIf cachedBaseTable = baseTable;
+        if (isBaseTableAvailable(cachedBaseTable)) {
+            return cachedBaseTable;
         }
-        return baseTable;
+        if (cachedBaseTable != null) {
+            baseTable = null;
+        }
+        TableIf resolvedBaseTable = baseTableInfo.getTableNullable();
+        if (!isBaseTableAvailable(resolvedBaseTable)) {
+            return null;
+        }
+        baseTable = resolvedBaseTable;
+        return resolvedBaseTable;
+    }
+
+    private boolean isBaseTableAvailable(TableIf candidate) {
+        if (candidate == null || candidate instanceof Table && ((Table) candidate).isDropped) {
+            return false;
+        }
+        if (!baseTableInfo.isInternalTable()) {
+            return true;
+        }
+        // Table recovery publishes into database maps before clearing the table flag, while database recovery clears
+        // member-table flags before publishing the database. Require both catalog mappings to reject either window.
+        Database database = Env.getCurrentInternalCatalog().getDbNullable(baseTableInfo.getDbId());
+        return database != null && !database.isDropped()
+                && database.getTable(baseTableInfo.getTableId()).orElse(null) == candidate;
     }
 
     public void setProperties(Map<String, String> properties) throws org.apache.doris.common.AnalysisException {
@@ -139,7 +166,11 @@ public abstract class BaseTableStream extends Table {
     }
 
     public boolean isDisabled() {
-        return disabled;
+        return isDisabled(getBaseTableNullable());
+    }
+
+    boolean isDisabled(TableIf availableBaseTable) {
+        return disabled || availableBaseTable == null;
     }
 
     public void setDisabled(boolean disabled) {
@@ -147,7 +178,11 @@ public abstract class BaseTableStream extends Table {
     }
 
     public boolean isStale() {
-        return stale;
+        return isStale(getBaseTableNullable());
+    }
+
+    boolean isStale(TableIf availableBaseTable) {
+        return stale || availableBaseTable == null;
     }
 
     public void setStale(boolean stale) {
@@ -155,7 +190,11 @@ public abstract class BaseTableStream extends Table {
     }
 
     public String getStaleReason() {
-        return staleReason;
+        return getStaleReason(getBaseTableNullable());
+    }
+
+    String getStaleReason(TableIf availableBaseTable) {
+        return availableBaseTable == null ? BASE_TABLE_NOT_FOUND_STALE_REASON : staleReason;
     }
 
     public void setStaleReason(String staleReason) {
@@ -198,7 +237,23 @@ public abstract class BaseTableStream extends Table {
     }
 
     public List<String> getBaseTableFullQualifiers() {
-        return baseTableInfo.getFullQualifiers();
+        return getBaseTableFullQualifiers(getBaseTableNullable());
+    }
+
+    List<String> getBaseTableFullQualifiers(TableIf availableBaseTable) {
+        TableIf displayBaseTable = availableBaseTable;
+        if (displayBaseTable == null && baseTableInfo.isInternalTable()) {
+            displayBaseTable = Env.getCurrentRecycleBin().getRecycledTableNullable(
+                    baseTableInfo.getDbId(), baseTableInfo.getTableId());
+        }
+        if (baseTableInfo.isInternalTable()) {
+            return ImmutableList.of(
+                    baseTableInfo.getCtlName(),
+                    Env.getCurrentInternalCatalog().getDb(baseTableInfo.getDbId())
+                            .map(db -> db.getFullName()).orElse(baseTableInfo.getDbName()),
+                    displayBaseTable == null ? baseTableInfo.getTableName() : displayBaseTable.getName());
+        }
+        return displayBaseTable == null ? baseTableInfo.getFullQualifiers() : displayBaseTable.getFullQualifiers();
     }
 
     public TableStreamBaseTableInfo getBaseTableInfo() {
