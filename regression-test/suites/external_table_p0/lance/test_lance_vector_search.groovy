@@ -124,11 +124,12 @@ suite("test_lance_vector_search", "p0,external") {
             FROM `${catalogName}`.`doris`.`vs_ivf_pq_f32`
         """
 
-        // EXPLAIN reports the distance metric, fixed snapshot and Doris physical split plan, while
-        // lance-c does not expose its selected index at runtime.
+        // EXPLAIN reports the searched vector column, distance metric, fixed snapshot and Doris
+        // physical split plan, while lance-c does not expose its selected index at runtime.
         explain {
             sql("""SELECT row_id, label, _distance FROM ${indexedTopFive} ORDER BY _distance, row_id""")
             contains "externalSearchType=VECTOR"
+            contains "lanceVectorColumn=embedding"
             contains "lanceMetric=l2"
             contains "lanceVersion="
             contains "lanceSearchFragments=2"

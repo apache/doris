@@ -34,7 +34,6 @@
 
 struct LanceBatch;
 struct LanceDataset;
-struct LanceScanStatistics;
 struct LanceScanner;
 
 namespace arrow {
@@ -89,7 +88,9 @@ private:
     Status _open_dataset(const DatasetKey& key);
     Status _open_scanner(const TFileRangeDesc& range);
     Status _configure_vector_search(LanceScanner* scanner) const;
-    static void _collect_scan_statistics(void* callback_ctx, const LanceScanStatistics* statistics);
+    // Keep lance-c's anonymous statistics typedef out of this header. _open_scanner installs the
+    // strongly typed C callback adapter before forwarding the borrowed value here.
+    static void _collect_scan_statistics(void* callback_ctx, const void* opaque_statistics);
     void _close_scanner();
     void _close_dataset();
     Status _fill_block_from_lance_batch(LanceBatch* batch, Block* block, size_t* rows);

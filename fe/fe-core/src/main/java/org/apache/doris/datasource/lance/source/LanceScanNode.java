@@ -435,6 +435,7 @@ public class LanceScanNode extends FileQueryScanNode {
         if (isExternalSearch()) {
             TVectorSearchParams vector = externalSearchRequest.getSearchQuery().getVectorSearch();
             result.append(prefix).append("externalSearchType=VECTOR\n");
+            result.append(prefix).append("lanceVectorColumn=").append(vector.getColumn()).append("\n");
             result.append(prefix).append("lanceMetric=")
                     .append(vector.isSetMetric() ? metricName(vector.getMetric()) : "default")
                     .append("\n");
