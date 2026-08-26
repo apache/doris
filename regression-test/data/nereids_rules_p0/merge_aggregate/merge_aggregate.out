@@ -117,7 +117,8 @@ PhysicalResultSink
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
 ----------hashAgg[GLOBAL]
-------------PhysicalOlapScan[mal_test1]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------PhysicalOlapScan[mal_test1]
 
 -- !inner_agg_has_distinct_same_keys_shape --
 PhysicalResultSink
@@ -126,7 +127,8 @@ PhysicalResultSink
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
 ----------hashAgg[GLOBAL]
-------------PhysicalOlapScan[mal_test1]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------PhysicalOlapScan[mal_test1]
 
 -- !middle_project_has_expression_cannot_merge_shape1 --
 PhysicalResultSink
@@ -139,8 +141,9 @@ PhysicalResultSink
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[mal_test1]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[mal_test1]
 
 -- !middle_project_has_expression_cannot_merge_shape2 --
 PhysicalResultSink
@@ -153,7 +156,8 @@ PhysicalResultSink
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
---------------------PhysicalOlapScan[mal_test1]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------PhysicalOlapScan[mal_test1]
 
 -- !maxGroupKey_minGroupKey_sumGroupKey_cannot_merge_shape --
 PhysicalResultSink
@@ -163,8 +167,9 @@ PhysicalResultSink
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[LOCAL]
 ------------hashAgg[GLOBAL]
---------------PhysicalProject
-----------------PhysicalOlapScan[mal_test1]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------PhysicalProject
+------------------PhysicalOlapScan[mal_test1]
 
 -- !maxMin_cannot_merge_shape --
 PhysicalResultSink
@@ -175,7 +180,8 @@ PhysicalResultSink
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashAgg[GLOBAL]
-----------------PhysicalOlapScan[mal_test1]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalOlapScan[mal_test1]
 
 -- !group_key_not_contain_cannot_merge_shape --
 PhysicalResultSink
@@ -186,7 +192,8 @@ PhysicalResultSink
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashAgg[GLOBAL]
-----------------PhysicalOlapScan[mal_test1]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalOlapScan[mal_test1]
 
 -- !outer_agg_has_distinct_cannot_merge_shape --
 PhysicalResultSink
@@ -199,7 +206,8 @@ PhysicalResultSink
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
---------------------PhysicalOlapScan[mal_test1]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------PhysicalOlapScan[mal_test1]
 
 -- !inner_agg_has_distinct_cannot_merge_shape --
 PhysicalResultSink
@@ -212,7 +220,8 @@ PhysicalResultSink
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
---------------------PhysicalOlapScan[mal_test1]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------PhysicalOlapScan[mal_test1]
 
 -- !agg_with_expr_cannot_merge_shape1 --
 PhysicalResultSink
@@ -225,8 +234,9 @@ PhysicalResultSink
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[mal_test1]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[mal_test1]
 
 -- !agg_with_expr_cannot_merge_shape2 --
 PhysicalResultSink
@@ -239,8 +249,9 @@ PhysicalResultSink
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[mal_test1]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[mal_test1]
 
 -- !test_has_project_distinct_cant_transform --
 1

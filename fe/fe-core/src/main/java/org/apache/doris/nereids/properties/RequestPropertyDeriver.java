@@ -25,7 +25,6 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
-import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -33,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
@@ -71,16 +71,12 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -464,39 +460,89 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
             return null;
         } else if (agg.getAggPhase().isGlobal()) {
-            // partition expressions already set by rule
-            if (agg.getPartitionExpressions().isPresent() && !agg.getPartitionExpressions().get().isEmpty()) {
-                addRequestPropertyToChildren(
-                        PhysicalProperties.createHash(agg.getPartitionExpressions().get(), ShuffleType.REQUIRE));
-                return null;
-            }
             if (agg.getGroupByExpressions().isEmpty()) {
-                addRequestPropertyToChildren(PhysicalProperties.GATHER);
+                if (agg.getPartitionExpressions().isPresent()
+                        && !agg.getPartitionExpressions().get().isEmpty()) {
+                    addRequestPropertyToChildren(PhysicalProperties.createHash(
+                            agg.getPartitionExpressions().get(), ShuffleType.REQUIRE));
+                } else {
+                    addRequestPropertyToChildren(PhysicalProperties.GATHER);
+                }
                 return null;
             }
-            List<ExprId> groupByExprIds = agg.getGroupByExpressions().stream()
-                    .filter(SlotReference.class::isInstance)
-                    .map(SlotReference.class::cast)
-                    .map(SlotReference::getExprId)
-                    .collect(Collectors.toList());
+            List<ExprId> groupByExprIds = new ArrayList<>();
+            Map<ExprId, Expression> groupByExprIdToExpr = Maps.newHashMap();
+            Map<ExprId, Slot> childOutputByExprId = Maps.newHashMap();
+            for (Slot childOutput : agg.child().getOutput()) {
+                childOutputByExprId.put(childOutput.getExprId(), childOutput);
+            }
+            for (Expression groupByExpr : agg.getGroupByExpressions()) {
+                if (groupByExpr instanceof SlotReference) {
+                    ExprId groupByExprId = ((SlotReference) groupByExpr).getExprId();
+                    Slot childOutput = childOutputByExprId.get(groupByExprId);
+                    Preconditions.checkState(childOutput != null,
+                            "Aggregate group-by slot %s is not produced by its child", groupByExprId);
+                    if (!groupByExprIdToExpr.containsKey(groupByExprId)) {
+                        groupByExprIds.add(groupByExprId);
+                        groupByExprIdToExpr.put(groupByExprId, childOutput);
+                    }
+                }
+            }
+            // Explicit partition expressions are part of the aggregate-stage contract. For an ordinary GLOBAL
+            // aggregate, validate a reduced set before using it; DISTINCT_GLOBAL keeps the split rule's choice.
+            if (agg.getPartitionExpressions().isPresent() && !agg.getPartitionExpressions().get().isEmpty()) {
+                List<Expression> partitionExpressions = agg.getPartitionExpressions().get();
+                Map<ExprId, Expression> partitionExpressionsFromChild = Maps.newLinkedHashMap();
+                for (Expression partitionExpression : partitionExpressions) {
+                    if (!(partitionExpression instanceof SlotReference)) {
+                        addRequestPropertyToChildren(
+                                PhysicalProperties.createHash(partitionExpressions, ShuffleType.REQUIRE));
+                        return null;
+                    }
+                    ExprId partitionExprId = ((SlotReference) partitionExpression).getExprId();
+                    Expression childOutput = groupByExprIdToExpr.get(partitionExprId);
+                    if (childOutput == null) {
+                        addRequestPropertyToChildren(
+                                PhysicalProperties.createHash(partitionExpressions, ShuffleType.REQUIRE));
+                        return null;
+                    }
+                    partitionExpressionsFromChild.putIfAbsent(partitionExprId, childOutput);
+                }
+                List<Expression> uniquePartitionExpressions = new ArrayList<>(partitionExpressionsFromChild.values());
+                // DISTINCT_GLOBAL partition expressions are chosen by the multi-phase split rule.
+                // Keep that stage requirement here; post-pruning may still reduce the exchange safely.
+                if (agg.getAggPhase() == AggPhase.GLOBAL
+                        && uniquePartitionExpressions.size() < groupByExprIds.size()
+                        && !areShuffleKeysSafeForPruning(uniquePartitionExpressions, agg, context)) {
+                    addRequestPropertyToChildren(
+                            PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
+                } else {
+                    addRequestPropertyToChildren(
+                            PhysicalProperties.createHash(uniquePartitionExpressions, ShuffleType.REQUIRE));
+                }
+                return null;
+            }
             DistributionSpec parentDist = requestPropertyFromParent.getDistributionSpec();
             if (parentDist instanceof DistributionSpecHash) {
                 DistributionSpecHash distributionRequestFromParent = (DistributionSpecHash) parentDist;
                 List<ExprId> parentHashExprIds = distributionRequestFromParent.getOrderedShuffledColumns();
-                Set<ExprId> intersectIdSet = Sets.intersection(new HashSet<>(parentHashExprIds),
-                        new HashSet<>(groupByExprIds));
-                if (!intersectIdSet.isEmpty() && intersectIdSet.size() < groupByExprIds.size()) {
-                    List<ExprId> intersectIdList = new ArrayList<>();
-                    for (ExprId exprId : parentHashExprIds) {
-                        if (!intersectIdSet.contains(exprId)) {
-                            continue;
-                        }
-                        intersectIdList.add(exprId);
+                List<ExprId> parentHashExprIdsInGroupBy = new ArrayList<>();
+                List<Expression> parentHashExprsInGroupBy = new ArrayList<>();
+                for (ExprId parentHashExprId : parentHashExprIds) {
+                    Expression parentHashExpr = groupByExprIdToExpr.get(parentHashExprId);
+                    if (parentHashExpr == null) {
+                        continue;
                     }
-                    if (shouldUseParent(intersectIdList, agg, context)) {
-                        addRequestPropertyToChildren(
-                                PhysicalProperties.createHash(intersectIdList, ShuffleType.REQUIRE));
+                    if (!parentHashExprIdsInGroupBy.contains(parentHashExprId)) {
+                        parentHashExprIdsInGroupBy.add(parentHashExprId);
+                        parentHashExprsInGroupBy.add(parentHashExpr);
                     }
+                }
+                if (!parentHashExprIdsInGroupBy.isEmpty()
+                        && parentHashExprIdsInGroupBy.size() < groupByExprIds.size()
+                        && shouldUseParent(parentHashExprsInGroupBy, agg, context)) {
+                    addRequestPropertyToChildren(
+                            PhysicalProperties.createHash(parentHashExprIdsInGroupBy, ShuffleType.REQUIRE));
                 }
             }
             addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
@@ -504,38 +550,37 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         return null;
     }
 
-    private boolean shouldUseParent(List<ExprId> parentHashExprIds, PhysicalHashAggregate<? extends Plan> agg,
+    private boolean shouldUseParent(List<Expression> parentHashExprs, PhysicalHashAggregate<? extends Plan> agg,
             PlanContext context) {
         if (!context.getConnectContext().getSessionVariable().aggShuffleUseParentKey) {
             return false;
         }
         Optional<GroupExpression> groupExpression = agg.getGroupExpression();
-        if (!groupExpression.isPresent()) {
-            return true;
-        }
-        if (agg.hasSourceRepeat()) {
+        if (!groupExpression.isPresent() || agg.hasSourceRepeat()) {
             return false;
         }
         Statistics aggChildStats = groupExpression.get().childStatistics(0);
         if (aggChildStats == null) {
-            return true;
+            return false;
         }
-        List<Slot> aggChildOutput = agg.child().getOutput();
-        Map<ExprId, Slot> exprIdSlotMap = new HashMap<>();
-        for (Slot slot : aggChildOutput) {
-            exprIdSlotMap.put(slot.getExprId(), slot);
+        int instanceNum = AggregateUtils.estimateExecutionInstanceNum(context.getConnectContext());
+        return ShuffleKeyPruneUtils.isSafeForParentShuffleReuse(
+                parentHashExprs, aggChildStats, instanceNum);
+    }
+
+    private boolean areShuffleKeysSafeForPruning(List<Expression> shuffleKeys,
+            PhysicalHashAggregate<? extends Plan> agg, PlanContext context) {
+        Optional<GroupExpression> groupExpression = agg.getGroupExpression();
+        if (!groupExpression.isPresent()) {
+            return false;
         }
-        List<Expression> parentHashExprs = new ArrayList<>(parentHashExprIds.size());
-        for (ExprId exprId : parentHashExprIds) {
-            if (exprIdSlotMap.containsKey(exprId)) {
-                parentHashExprs.add(exprIdSlotMap.get(exprId));
-            }
+        Statistics aggChildStats = groupExpression.get().childStatistics(0);
+        if (aggChildStats == null) {
+            return false;
         }
-        if (AggregateUtils.hasUnknownStatistics(parentHashExprs, aggChildStats)) {
-            return true;
-        }
-        double combinedNdv = StatsCalculator.estimateGroupByRowCount(parentHashExprs, aggChildStats);
-        return combinedNdv > AggregateUtils.LOW_NDV_THRESHOLD;
+        int instanceNum = AggregateUtils.estimateExecutionInstanceNum(context.getConnectContext());
+        return ShuffleKeyPruneUtils.isSafeForShuffleKeyPruning(
+                shuffleKeys, aggChildStats, instanceNum);
     }
 
     /**

@@ -234,4 +234,100 @@ suite("bucketed_hash_agg") {
         notContains("BUCKETED AGGREGATE")
     }
     sql(groupConcatWithOrder)
+
+    // Test 7 forces one-phase aggregation. Restore automatic phase selection
+    // before exercising the DISTINCT-splitting and shuffle-pruning cases below.
+    sql "set agg_phase=0"
+
+    // A mixed DISTINCT plan can contain a GLOBAL/INPUT_TO_RESULT node whose
+    // non-distinct aggregate still produces a serialized buffer. It must stay
+    // on the regular aggregation path instead of being fused as bucketed.
+    sql "set parallel_pipeline_task_num=1"
+    explain {
+        sql "SELECT COUNT(DISTINCT id), AVG(val) FROM bucketed_agg_reg_test;"
+        notContains("BUCKETED AGGREGATE")
+    }
+    order_qt_mixed_distinct_avg_result """
+    SELECT COUNT(DISTINCT id), AVG(val) FROM bucketed_agg_reg_test;
+    """
+
+    // The retained shuffle key below is val. Repeating val across different grp
+    // values, and repeating one complete (grp, val) key, proves that bucketed
+    // execution still groups by the complete key list.
+    sql """
+        INSERT INTO bucketed_agg_reg_test VALUES
+        (1, 'a', 200),
+        (1, 'a', 200),
+        (2, 'a', 200),
+        (1, 'b', 200);
+    """
+
+    // Post-pruning may reduce an aggregate exchange to a safe subset. Bucketed
+    // fusion still hashes raw rows by the complete GROUP BY list, so the plan
+    // remains eligible after that reduction.
+    sql "set parallel_pipeline_task_num=2"
+    sql "set enable_parallel_result_sink=true"
+    sql "set enable_shuffle_key_prune=true"
+    sql "set detail_shape_nodes='PhysicalDistribute'"
+    sql """
+        ALTER TABLE bucketed_agg_reg_test MODIFY COLUMN grp SET STATS (
+            'row_count'='100000', 'ndv'='3', 'min_value'='a', 'max_value'='c',
+            'avg_size'='1', 'max_size'='1', 'hot_values'='');
+    """
+    sql """
+        ALTER TABLE bucketed_agg_reg_test MODIFY COLUMN val SET STATS (
+            'row_count'='100000', 'ndv'='10000', 'min_value'='1', 'max_value'='10000',
+            'avg_size'='8', 'max_size'='8', 'hot_values'='');
+    """
+    String prunedBucketedQuery = """
+        SELECT grp, val, COUNT(*)
+        FROM bucketed_agg_reg_test
+        GROUP BY grp, val
+    """
+    explain {
+        sql "shape plan ${prunedBucketedQuery}"
+        contains("Hash Columns:[val]")
+        notContains("Hash Columns:[grp, val]")
+    }
+    explain {
+        sql("${prunedBucketedQuery}")
+        contains("BUCKETED AGGREGATE")
+    }
+    order_qt_pruned_bucketed_result """
+        ${prunedBucketedQuery}
+        ORDER BY grp, val;
+    """
+
+    // The parent requires [grp, val], which is unrelated to the scan's natural id
+    // distribution. Post-pruning may safely reduce that exchange to [val], but it
+    // remains part of the aggregate's output contract and must not be consumed by
+    // bucketed fusion. Disable local shuffle to exercise that contract directly.
+    sql """
+        ALTER TABLE bucketed_agg_reg_test MODIFY COLUMN grp SET STATS (
+            'row_count'='100000', 'ndv'='10000', 'min_value'='a', 'max_value'='c',
+            'avg_size'='1', 'max_size'='1', 'hot_values'='');
+    """
+    sql "set enable_local_shuffle=false"
+    String bucketedParentQuery = """
+        SELECT grp, val, id, cnt,
+               SUM(cnt) OVER (PARTITION BY grp, val) AS partition_count
+        FROM (
+            SELECT grp, val, id, COUNT(*) AS cnt
+            FROM bucketed_agg_reg_test
+            GROUP BY grp, val, id
+        ) grouped
+    """
+    qt_pruned_bucketed_parent_shape """
+        EXPLAIN SHAPE PLAN
+        ${bucketedParentQuery}
+        ORDER BY grp, val, id;
+    """
+    explain {
+        sql("${bucketedParentQuery} ORDER BY grp, val, id")
+        notContains("BUCKETED AGGREGATE")
+    }
+    order_qt_pruned_bucketed_parent_result """
+        ${bucketedParentQuery}
+        ORDER BY grp, val, id;
+    """
 }

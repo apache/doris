@@ -19,7 +19,9 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
+import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.ShuffleKeyPruneUtils;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -54,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnary;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
@@ -329,10 +332,16 @@ public class ShuffleKeyPruner extends PlanPostProcessor {
                 || !(rightDist.getDistributionSpec() instanceof DistributionSpecHash)) {
             return Optional.empty();
         }
-        Statistics leftStats = statisticsForShuffleKeyPruneBelowDistribute(leftDist);
-        Statistics rightStats = statisticsForShuffleKeyPruneBelowDistribute(rightDist);
+        // Evaluate the rows that actually enter each exchange. In particular, do not look through
+        // a local aggregate and then re-prune a GlobalAgg exchange that the property phase kept intact.
+        Statistics leftStats = leftDist.getStats();
+        Statistics rightStats = rightDist.getStats();
         DistributionSpecHash leftSpec = (DistributionSpecHash) leftDist.getDistributionSpec();
         DistributionSpecHash rightSpec = (DistributionSpecHash) rightDist.getDistributionSpec();
+        if (isEnforcedOverStrictShuffleSubset(leftDist, leftSpec)
+                || isEnforcedOverStrictShuffleSubset(rightDist, rightSpec)) {
+            return Optional.empty();
+        }
         Optional<Pair<List<ExprId>, List<ExprId>>> optimal =
                 ShuffleKeyPruneUtils.tryFindOptimalShuffleKeyForJoinWithDistributeColumns(
                         cascadesContext.getConnectContext(),
@@ -411,23 +420,6 @@ public class ShuffleKeyPruner extends PlanPostProcessor {
         return rewritten.copyStatsAndGroupIdFrom((AbstractPhysicalPlan) agg);
     }
 
-    /**
-     * Statistics below a shuffle {@link PhysicalDistribute}, aligned with {@link #tryPruneGlobalAgg} for
-     * column balance / NDV when the child is local agg or otherwise.
-     */
-    private static Statistics statisticsForShuffleKeyPruneBelowDistribute(PhysicalDistribute<Plan> dist) {
-        if (dist.child() instanceof PhysicalHashAggregate) {
-            PhysicalHashAggregate<Plan> childAgg = (PhysicalHashAggregate<Plan>) dist.child();
-            if (childAgg.getAggPhase().isLocal()) {
-                return childAgg.child().getStats();
-            } else {
-                return childAgg.getStats();
-            }
-        } else {
-            return dist.child().getStats();
-        }
-    }
-
     private static PhysicalHashAggregate<? extends Plan> tryPruneGlobalAgg(PhysicalHashAggregate<? extends Plan> agg,
             CascadesContext cascadesContext) {
         if (!(agg.child() instanceof PhysicalDistribute)) {
@@ -441,7 +433,14 @@ public class ShuffleKeyPruner extends PlanPostProcessor {
             return agg;
         }
         DistributionSpecHash hashSpec = (DistributionSpecHash) dist.getDistributionSpec();
-        Statistics childStats = statisticsForShuffleKeyPruneBelowDistribute(dist);
+        if (isEnforcedOverStrictShuffleSubset(dist, hashSpec)) {
+            return agg;
+        }
+        // Use the exchange-input statistics used during aggregate costing; do not look through a local agg.
+        Statistics childStats = dist.getStats();
+        if (childStats == null) {
+            return agg;
+        }
 
         List<Expression> evalExprs;
         if (agg.getPartitionExpressions().isPresent() && !agg.getPartitionExpressions().get().isEmpty()) {
@@ -482,14 +481,33 @@ public class ShuffleKeyPruner extends PlanPostProcessor {
             return agg;
         }
         DistributionSpecHash newSpec = hashSpec.withShuffleExprs(newIds);
-        Plan replaced = rebuildDistribute(dist, newSpec, dist.child());
+        PhysicalDistribute<Plan> replaced = rebuildDistribute(dist, newSpec, dist.child());
+        if (dist.isPrunedFromFullAggregateKeys()
+                || AggregateUtils.isFullAggregateShuffle(agg, hashSpec)) {
+            replaced = replaced.withPrunedFromFullAggregateKeys();
+        }
         PhysicalHashAggregate<Plan> rewritten = asAgg(agg.withChildren(ImmutableList.of(replaced)));
         return (PhysicalHashAggregate<Plan>) rewritten.copyStatsAndGroupIdFrom(agg);
     }
 
-    private static DistributionSpecHash sliceHashSpec(DistributionSpecHash origin, List<ExprId> newOrderedKeys) {
-        return new DistributionSpecHash(newOrderedKeys, origin.getShuffleType(),
-                origin.getTableId(), origin.getSelectedIndexId(), origin.getPartitionIds());
+    /**
+     * Regulator can insert a full exchange because the input's satisfying strict subset is unsafe.
+     * The enforced spec no longer carries the input hash equivalence components, so pruning it again
+     * here could undo that decision using a more optimistic equivalent Slot.
+     */
+    private static boolean isEnforcedOverStrictShuffleSubset(
+            PhysicalDistribute<Plan> dist, DistributionSpecHash enforcedHashSpec) {
+        DistributionSpec inputDistribution = ((AbstractPhysicalPlan) dist.child())
+                .getPhysicalProperties().getDistributionSpec();
+        if (!(inputDistribution instanceof DistributionSpecHash)) {
+            return false;
+        }
+        DistributionSpecHash inputHashSpec = (DistributionSpecHash) inputDistribution;
+        DistributionSpecHash fullRequirement = new DistributionSpecHash(
+                enforcedHashSpec.getOrderedShuffledColumns(), ShuffleType.REQUIRE);
+        return inputHashSpec.satisfy(fullRequirement)
+                && ShuffleKeyPruneUtils.getIndependentShuffleDimensions(inputHashSpec).size()
+                < ShuffleKeyPruneUtils.getIndependentShuffleDimensions(enforcedHashSpec).size();
     }
 
     private static PhysicalDistribute<Plan> rebuildDistribute(PhysicalDistribute<Plan> origin,

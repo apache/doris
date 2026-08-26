@@ -41,6 +41,8 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TStorageType;
 
@@ -432,6 +434,27 @@ class StatisticsUtilTest {
             Assertions.assertEquals("1234", entry.getKey().getStringValue());
             Assertions.assertEquals("0.34", entry.getValue().toString());
         }
+    }
+
+    @Test
+    void testBalancedAllowUnknownHotValuesStillChecksNullBucket() {
+        double rowCount = 2_870_000_000D;
+        ColumnStatistic joinDerivedColumn = new ColumnStatisticBuilder(rowCount)
+                .setNdv(10_000_000)
+                .setNumNulls(67_000_000)
+                .build();
+
+        Assertions.assertFalse(StatisticsUtil.isBalanced(
+                joinDerivedColumn, 100, 0.05, rowCount));
+        Assertions.assertTrue(StatisticsUtil.isBalancedAllowUnknownHotValues(
+                joinDerivedColumn, 100, 0.05, rowCount));
+
+        ColumnStatistic nullSkewColumn = new ColumnStatisticBuilder(rowCount)
+                .setNdv(10_000_000)
+                .setNumNulls(rowCount * 0.1)
+                .build();
+        Assertions.assertFalse(StatisticsUtil.isBalancedAllowUnknownHotValues(
+                nullSkewColumn, 100, 0.05, rowCount));
     }
 
     @Test

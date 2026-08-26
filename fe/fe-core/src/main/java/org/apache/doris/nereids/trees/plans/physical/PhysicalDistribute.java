@@ -52,23 +52,44 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
     // downstream's required physical property(i.e. target distribution spec)
     protected DistributionSpec distributionSpec;
 
+    /**
+     * Whether post-processing reduced this exchange from all normalized group-by keys of its parent aggregate.
+     * The translator may remove only such a reduced exchange when building a bucketed aggregate; an exchange
+     * that was already a parent-required subset must remain because its distribution can be part of the parent's
+     * physical-property contract.
+     */
+    private final boolean prunedFromFullAggregateKeys;
+
     // the upstream's physical property saves in base class
     public PhysicalDistribute(DistributionSpec spec, CHILD_TYPE child) {
-        this(spec, Optional.empty(), child.getLogicalProperties(), child);
+        this(spec, Optional.empty(), child.getLogicalProperties(), false, child);
     }
 
     public PhysicalDistribute(DistributionSpec spec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
+        this(spec, groupExpression, logicalProperties, false, child);
+    }
+
+    private PhysicalDistribute(DistributionSpec spec, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, boolean prunedFromFullAggregateKeys, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_DISTRIBUTE, groupExpression, logicalProperties, child);
         this.distributionSpec = spec;
+        this.prunedFromFullAggregateKeys = prunedFromFullAggregateKeys;
     }
 
     public PhysicalDistribute(DistributionSpec spec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             Statistics statistics, CHILD_TYPE child) {
+        this(spec, groupExpression, logicalProperties, physicalProperties, statistics, false, child);
+    }
+
+    private PhysicalDistribute(DistributionSpec spec, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
+            Statistics statistics, boolean prunedFromFullAggregateKeys, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_DISTRIBUTE, groupExpression, logicalProperties, physicalProperties, statistics,
                 child);
         this.distributionSpec = spec;
+        this.prunedFromFullAggregateKeys = prunedFromFullAggregateKeys;
     }
 
     @Override
@@ -92,6 +113,15 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
         return distributionSpec;
     }
 
+    public boolean isPrunedFromFullAggregateKeys() {
+        return prunedFromFullAggregateKeys;
+    }
+
+    public PhysicalDistribute<CHILD_TYPE> withPrunedFromFullAggregateKeys() {
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalDistribute<>(distributionSpec, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, true, child()));
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitPhysicalDistribute(this, context);
@@ -106,13 +136,13 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
     public PhysicalDistribute<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalDistribute<>(distributionSpec, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statistics, children.get(0)));
+                getLogicalProperties(), physicalProperties, statistics, prunedFromFullAggregateKeys, children.get(0)));
     }
 
     @Override
     public PhysicalDistribute<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalDistribute<>(distributionSpec, groupExpression,
-                getLogicalProperties(), child()));
+                getLogicalProperties(), prunedFromFullAggregateKeys, child()));
     }
 
     @Override
@@ -120,14 +150,14 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalDistribute<>(distributionSpec, groupExpression,
-                logicalProperties.get(), children.get(0)));
+                logicalProperties.get(), prunedFromFullAggregateKeys, children.get(0)));
     }
 
     @Override
     public PhysicalDistribute<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalDistribute<>(distributionSpec, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, child()));
+                getLogicalProperties(), physicalProperties, statistics, prunedFromFullAggregateKeys, child()));
     }
 
     @Override
@@ -138,7 +168,7 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
     @Override
     public PhysicalDistribute<CHILD_TYPE> resetLogicalProperties() {
         return new PhysicalDistribute<>(distributionSpec, groupExpression,
-                null, physicalProperties, statistics, child());
+                null, physicalProperties, statistics, prunedFromFullAggregateKeys, child());
     }
 
     @Override

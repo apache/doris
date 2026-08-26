@@ -3296,26 +3296,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      */
     private boolean shouldUseBucketedFusion(PhysicalHashAggregate<? extends Plan> aggregate,
             PlanTranslatorContext context) {
-        // Shared eligibility: session var, single-BE, GROUP BY, smooth upgrade
-        if (!AggregateUtils.isBucketedHashAggEnabled(aggregate.getGroupByExpressions().size())) {
-            return false;
-        }
-        // Must be one-phase: GLOBAL + INPUT_TO_RESULT
-        if (aggregate.getAggPhase() != AggPhase.GLOBAL
-                || aggregate.getAggMode() != AggMode.INPUT_TO_RESULT) {
-            return false;
-        }
-        // BucketedAggregationNode always finalizes into the output tuple slot
-        // types (need_finalize=true, isPartial=false), so fusing an aggregate
-        // whose functions produce buffers (partial) would fail the BE
-        // result-type check: the slot type of a buffer-producing function is
-        // Varchar while the function's final return type (e.g. DOUBLE for
-        // stddev) is what insert_result_into writes. The one-phase GLOBAL
-        // dedup aggregate of a 3-phase DISTINCT plan has exactly this shape —
-        // the node itself is INPUT_TO_RESULT but its non-distinct functions
-        // run in INPUT_TO_BUFFER mode — and must stay on the regular
-        // AggregationNode path, which serializes when isPartial.
-        if (containsPartialAggFunction(aggregate)) {
+        if (!AggregateUtils.isFullyFinalizedOnePhaseAgg(aggregate)
+                || !AggregateUtils.isBucketedHashAggEnabled(aggregate.getGroupByExpressions().size())) {
             return false;
         }
         // Exclude one-phase-only aggregates (e.g. GROUP_CONCAT with ORDER BY).
@@ -3333,6 +3315,29 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // Child must be PhysicalDistribute with hash distribution matching group keys
         Plan child = aggregate.child(0);
         if (!(child instanceof PhysicalDistribute)) {
+            return false;
+        }
+        DistributionSpec distSpec = ((PhysicalDistribute<?>) child).getDistributionSpec();
+        if (!(distSpec instanceof DistributionSpecHash)) {
+            return false;
+        }
+        PhysicalDistribute<?> distribute = (PhysicalDistribute<?>) child;
+        DistributionSpecHash hashSpec = (DistributionSpecHash) distSpec;
+        List<ExprId> groupByKeys = aggregate.getGroupByExpressions().stream()
+                .filter(SlotReference.class::isInstance)
+                .map(SlotReference.class::cast)
+                .map(SlotReference::getExprId)
+                .distinct()
+                .collect(Collectors.toList());
+        if (!hashSpec.satisfy(new DistributionSpecHash(
+                groupByKeys, DistributionSpecHash.ShuffleType.REQUIRE))) {
+            return false;
+        }
+        // A strict subset is removable only when ShuffleKeyPruner created it from
+        // a full aggregate exchange. Parent-derived subset exchanges may be part
+        // of the aggregate's advertised output distribution and must remain.
+        if (!AggregateUtils.isFullAggregateShuffle(aggregate, hashSpec)
+                && !distribute.isPrunedFromFullAggregateKeys()) {
             return false;
         }
         // Bucketed fusion bypasses the distribute/exchange and builds directly on the
@@ -3361,17 +3366,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (context.isInFragmentMergeChild()) {
             return false;
         }
-        DistributionSpec distSpec = ((PhysicalDistribute<?>) child).getDistributionSpec();
-        if (!(distSpec instanceof DistributionSpecHash)) {
-            return false;
-        }
-        List<ExprId> distKeys = ((DistributionSpecHash) distSpec).getOrderedShuffledColumns();
-        List<ExprId> groupByKeys = aggregate.getGroupByExpressions().stream()
-                .filter(SlotReference.class::isInstance)
-                .map(SlotReference.class::cast)
-                .map(SlotReference::getExprId)
-                .collect(Collectors.toList());
-        return distKeys.equals(groupByKeys);
+        return true;
     }
 
     /** Returns true if the plan subtree contains a physical CTE consumer. */
@@ -3445,34 +3440,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
         return true;
-    }
-
-    /**
-     * Check whether the aggregate's output contains any buffer-producing
-     * (partial) aggregate function, i.e. an AggregateExpression in a mode with
-     * productAggregateBuffer=true. BucketedAggregationNode cannot carry such
-     * functions: it always finalizes into the output tuple slot types, while a
-     * buffer-producing function's slot type is the serialized Varchar type
-     * (AggregateExpression.getDataType) — writing the final result (e.g. DOUBLE
-     * for stddev) into that String column fails the BE result-type check.
-     */
-    private boolean containsPartialAggFunction(PhysicalHashAggregate<? extends Plan> aggregate) {
-        for (NamedExpression o : aggregate.getOutputExpressions()) {
-            AtomicBoolean foundPartial = new AtomicBoolean(false);
-            o.foreach(c -> {
-                if (c instanceof AggregateExpression) {
-                    if (((AggregateExpression) c).getAggregateParam().aggMode.productAggregateBuffer) {
-                        foundPartial.set(true);
-                    }
-                    return true;
-                }
-                return false;
-            });
-            if (foundPartial.get()) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**

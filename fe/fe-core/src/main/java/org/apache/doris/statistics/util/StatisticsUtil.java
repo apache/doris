@@ -1074,24 +1074,37 @@ public class StatisticsUtil {
     }
 
     /**
-     * Check if column has significant hot values (any value with ratio >= minRatio).
-     * Used by shuffle key prune and skew detection rules.
-     * Returns false when hotValues is null (not collected) or empty (collected but no hot values).
+     * Check whether a column has a significant NULL bucket or non-NULL hot value.
+     * Unknown non-NULL hot-value statistics are rejected only when {@code rejectUnknownHotValues} is true;
+     * the known NULL ratio is always checked.
      */
     public static boolean hasSignificantHotValues(ColumnStatistic columnStatistic, double minRatio, double rowCount,
-            boolean strictWhenHotValueUnknow) {
+            boolean rejectUnknownHotValues) {
+        if (columnStatistic.numNulls / rowCount > minRatio) {
+            return true;
+        }
         Map<Literal, Float> hotValues = columnStatistic.getHotValues();
         if (hotValues == null) {
-            return strictWhenHotValueUnknow;
+            return rejectUnknownHotValues;
         }
-        return columnStatistic.numNulls / rowCount > minRatio
-                || hotValues.values().stream().anyMatch(ratio -> ratio >= minRatio);
+        return hotValues.values().stream().anyMatch(ratio -> ratio >= minRatio);
     }
 
     public static boolean isBalanced(ColumnStatistic columnStatistic, int instanceNum, double minRatio,
             double rowCount) {
-        double ndv = columnStatistic.ndv;
-        return ndv > instanceNum * AggregateUtils.NDV_INSTANCE_BALANCE_MULTIPLIER
-                && !hasSignificantHotValues(columnStatistic, minRatio, rowCount, true);
+        return isBalanced(columnStatistic, instanceNum, minRatio, rowCount, true);
+    }
+
+    /** Whether a column is balanced when non-NULL hot-value statistics are unavailable. */
+    public static boolean isBalancedAllowUnknownHotValues(ColumnStatistic columnStatistic, int instanceNum,
+            double minRatio, double rowCount) {
+        return isBalanced(columnStatistic, instanceNum, minRatio, rowCount, false);
+    }
+
+    private static boolean isBalanced(ColumnStatistic columnStatistic, int instanceNum, double minRatio,
+            double rowCount, boolean rejectUnknownHotValues) {
+        return columnStatistic.ndv > (long) instanceNum * AggregateUtils.NDV_INSTANCE_BALANCE_MULTIPLIER
+                && !hasSignificantHotValues(
+                        columnStatistic, minRatio, rowCount, rejectUnknownHotValues);
     }
 }

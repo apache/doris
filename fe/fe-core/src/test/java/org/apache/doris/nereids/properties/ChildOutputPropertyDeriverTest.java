@@ -26,6 +26,7 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -34,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AggMode;
@@ -752,6 +754,53 @@ class ChildOutputPropertyDeriverTest {
         Assertions.assertEquals(Lists.newArrayList(partition).stream()
                         .map(SlotReference::getExprId).collect(Collectors.toList()),
                 actual.getOrderedShuffledColumns());
+    }
+
+    @Test
+    void testDistinctGlobalDoesNotAdvertiseBucketedFusionOutput() {
+        ConnectContext.get().getSessionVariable().setBeNumberForTest(1);
+        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
+                Lists.newArrayList(key),
+                Lists.newArrayList(key),
+                new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.INPUT_TO_RESULT),
+                true,
+                logicalProperties,
+                false,
+                groupPlan
+        );
+        GroupExpression groupExpression = new GroupExpression(aggregate);
+        new Group(null, groupExpression, null);
+        DistributionSpecHash childHash = new DistributionSpecHash(
+                Lists.newArrayList(key.getExprId()), ShuffleType.REQUIRE);
+        PhysicalProperties child = PhysicalProperties.createHash(childHash);
+
+        PhysicalProperties result = new ChildOutputPropertyDeriver(Lists.newArrayList(child))
+                .getOutputProperties(null, groupExpression);
+
+        Assertions.assertEquals(childHash, result.getDistributionSpec());
+    }
+
+    @Test
+    void testMixedModeGlobalDoesNotAdvertiseBucketedFusionOutput() {
+        ConnectContext.get().getSessionVariable().setBeNumberForTest(1);
+        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
+        Alias partialAvg = new Alias(new AggregateExpression(
+                new Avg(key), new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_BUFFER)));
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
+                Lists.newArrayList(key), Lists.newArrayList(key, partialAvg),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT),
+                true, logicalProperties, false, groupPlan);
+        GroupExpression groupExpression = new GroupExpression(aggregate);
+        new Group(null, groupExpression, null);
+        DistributionSpecHash childHash = new DistributionSpecHash(
+                Lists.newArrayList(key.getExprId()), ShuffleType.REQUIRE);
+        PhysicalProperties child = PhysicalProperties.createHash(childHash);
+
+        PhysicalProperties result = new ChildOutputPropertyDeriver(Lists.newArrayList(child))
+                .getOutputProperties(null, groupExpression);
+
+        Assertions.assertEquals(childHash, result.getDistributionSpec());
     }
 
     @Test
