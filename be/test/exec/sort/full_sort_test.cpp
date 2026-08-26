@@ -91,7 +91,9 @@ TEST_F(FullSorterTest, test_full_sorter2) {
         EXPECT_TRUE(sorter->append_block(&block).ok());
     }
 
-    std::cout << sorter->get_reserve_mem_size(&_state, false) << std::endl;
+    size_t non_eos_reserve_size = sorter->get_reserve_mem_size(&_state, false);
+    size_t eos_reserve_size = sorter->get_reserve_mem_size(&_state, true);
+    EXPECT_GT(eos_reserve_size, non_eos_reserve_size);
 }
 
 TEST_F(FullSorterTest, test_full_sorter3) {

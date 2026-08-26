@@ -40,10 +40,8 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 VIcebergTableWriter::VIcebergTableWriter(const TDataSink& t_sink,
-                                         const VExprContextSPtrs& output_expr_ctxs,
-                                         std::shared_ptr<Dependency> dep,
-                                         std::shared_ptr<Dependency> fin_dep)
-        : AsyncResultWriter(output_expr_ctxs, dep, fin_dep), _t_sink(t_sink) {
+                                         const VExprContextSPtrs& output_expr_ctxs)
+        : _vec_output_expr_ctxs(output_expr_ctxs), _t_sink(t_sink) {
     DCHECK(_t_sink.__isset.iceberg_table_sink);
 }
 
@@ -219,6 +217,34 @@ Status VIcebergTableWriter::write_prepared_block(Block& block) {
         return Status::OK();
     }
     return _write_prepared_block(block);
+}
+
+size_t VIcebergTableWriter::get_reserve_mem_size(RuntimeState* state, bool eos) const {
+    size_t reserve_size = state->minimum_operator_memory_required_bytes();
+    if (!eos) {
+        auto current_writer = _current_writer.load();
+        if (!current_writer) {
+            return reserve_size;
+        }
+        auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
+        DORIS_CHECK(sort_writer != nullptr);
+        return std::max(reserve_size, sort_writer->get_reserve_mem_size(state, false));
+    }
+
+    auto partition_writer_snapshot = std::make_shared<PartitionWriterSnapshot>();
+    partition_writer_snapshot->reserve(_partitions_to_writers.size());
+    // close() finalizes partition writers sequentially, so reserve the largest close peak rather
+    // than the sum. Publish the same owning set for workload accounting/revoke if reservation
+    // fails. The admission floor covers a first non-empty EOS before its first writer exists.
+    for (const auto& [_, writer] : _partitions_to_writers) {
+        auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(writer.get());
+        DORIS_CHECK(sort_writer != nullptr);
+        partition_writer_snapshot->emplace_back(
+                std::static_pointer_cast<VIcebergSortWriter>(writer));
+        reserve_size = std::max(reserve_size, sort_writer->get_reserve_mem_size(state, true));
+    }
+    _partition_writer_snapshot.store(std::move(partition_writer_snapshot));
+    return reserve_size;
 }
 
 Status VIcebergTableWriter::_process_row_lineage_columns(Block& block) {
@@ -475,6 +501,7 @@ Status VIcebergTableWriter::close(Status status) {
             }
         }
         _partitions_to_writers.clear();
+        _partition_writer_snapshot.store(std::make_shared<PartitionWriterSnapshot>());
     }
     if (status.ok()) {
         SCOPED_TIMER(_operator_profile->total_time_counter());
