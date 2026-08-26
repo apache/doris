@@ -35,6 +35,18 @@ true
 -- !field_decimal --
 1
 
+-- !map_values_nested_array --
+[[0.123456789012345678]]
+
+-- !map_keys_nested_array --
+[12345678901234567890123456789012345678]
+
+-- !map_values_nested_map --
+[{1234567.89:12.34}]
+
+-- !map_keys_nested_map --
+[12345678901234567890123456789012345678]
+
 -- !basic_decimal256 --
 123.456	123.46
 
