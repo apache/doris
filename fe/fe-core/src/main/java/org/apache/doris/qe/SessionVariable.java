@@ -882,6 +882,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_INVERTED_INDEX_SEARCHER_CACHE = "enable_inverted_index_searcher_cache";
     public static final String ENABLE_INVERTED_INDEX_QUERY_CACHE = "enable_inverted_index_query_cache";
     public static final String ENABLE_ANN_INDEX_RESULT_CACHE = "enable_ann_index_result_cache";
+    public static final String ENABLE_ANN_TOPN_PREDICATE_PREFILTER = "enable_ann_topn_predicate_prefilter";
 
     public static final String IN_LIST_VALUE_COUNT_THRESHOLD = "in_list_value_count_threshold";
 
@@ -3359,6 +3360,13 @@ public class SessionVariable implements Serializable, Writable {
             + "cache the results of ANN index queries.")
     public boolean enableAnnIndexResultCache = true;
 
+    @VarAttrDef.VarAttr(name = ENABLE_ANN_TOPN_PREDICATE_PREFILTER, needForward = true,
+            affectQueryResultInExecution = true,
+            description = "When enabled, an ANN TopN query that carries a column predicate pre-filters the "
+                    + "predicate into a candidate bitmap fed to the ANN index (IDSelector), instead of falling "
+                    + "back to a brute-force distance scan.")
+    public boolean enableAnnTopnPredicatePrefilter = true;
+
     @VarAttrDef.VarAttr(name = IN_LIST_VALUE_COUNT_THRESHOLD, description = "When the number of values in the IN "
             + "condition exceeds this threshold,"
             + " fast_execute will not be used.", affectQueryResultInExecution = true)
@@ -3470,31 +3478,34 @@ public class SessionVariable implements Serializable, Writable {
             + "when disabled rebuild indexes for all data")
     public boolean enableAddIndexForNewData = false;
 
-    @VarAttrDef.VarAttr(name = HNSW_EF_SEARCH, needForward = true,
+    @VarAttrDef.VarAttr(name = HNSW_EF_SEARCH, needForward = true, affectQueryResultInExecution = true,
             checker = "checkHnswEfSearch",
             description = "HNSW index EF search parameter, controls the precision and speed of the search")
     public int hnswEFSearch = 32;
 
     @VarAttrDef.VarAttr(name = HNSW_CHECK_RELATIVE_DISTANCE, needForward = true,
+            affectQueryResultInExecution = true,
             description = "Enable relative distance checking to improve HNSW search accuracy")
     public boolean hnswCheckRelativeDistance = true;
 
-    @VarAttrDef.VarAttr(name = HNSW_BOUNDED_QUEUE, needForward = true,
+    @VarAttrDef.VarAttr(name = HNSW_BOUNDED_QUEUE, needForward = true, affectQueryResultInExecution = true,
             description = "Whether to use a bounded priority queue to optimize HNSW search performance")
     public boolean hnswBoundedQueue = true;
 
-    @VarAttrDef.VarAttr(name = IVF_NPROBE, needForward = true,
+    @VarAttrDef.VarAttr(name = IVF_NPROBE, needForward = true, affectQueryResultInExecution = true,
             checker = "checkIvfNprobe",
             description = "IVF index nprobe parameter, controls the number of clusters to search")
     public int ivfNprobe = 32;
 
     @VarAttrDef.VarAttr(name = ANN_INDEX_CANDIDATE_ROWS_THRESHOLD, needForward = true,
+            affectQueryResultInExecution = true,
             checker = "checkAnnIndexCandidateRowsThreshold",
             description = "Skip ANN index when candidate rows before ANN search are less "
                     + "than this threshold. 0 disables the absolute row threshold")
     public long annIndexCandidateRowsThreshold = 0;
 
     @VarAttrDef.VarAttr(name = ANN_INDEX_CANDIDATE_ROWS_PERCENT_THRESHOLD, needForward = true,
+            affectQueryResultInExecution = true,
             checker = "checkAnnIndexCandidateRowsPercentThreshold",
             description = "Skip ANN index when candidate row ratio before ANN search is less "
                     + "than this threshold")
@@ -5650,6 +5661,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableInvertedIndexSearcherCache(enableInvertedIndexSearcherCache);
         tResult.setEnableInvertedIndexQueryCache(enableInvertedIndexQueryCache);
         tResult.setEnableAnnIndexResultCache(enableAnnIndexResultCache);
+        tResult.setEnableAnnTopnPredicatePrefilter(enableAnnTopnPredicatePrefilter);
         tResult.setHiveOrcUseColumnNames(hiveOrcUseColumnNames);
         tResult.setHiveParquetUseColumnNames(hiveParquetUseColumnNames);
         tResult.setQuerySlotCount(wgQuerySlotCount);
