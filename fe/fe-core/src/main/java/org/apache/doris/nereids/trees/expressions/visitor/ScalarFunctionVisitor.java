@@ -403,6 +403,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364V2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3U128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3U64V2;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NanoSecondsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NanoSecondsDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NanoSecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nanosecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NgramSearch;
@@ -1350,6 +1354,14 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(microsecondsAdd, context);
     }
 
+    default R visitNanoSecondsSub(NanoSecondsSub nanosecondsSub, C context) {
+        return visitScalarFunction(nanosecondsSub, context);
+    }
+
+    default R visitNanoSecondsAdd(NanoSecondsAdd nanosecondsAdd, C context) {
+        return visitScalarFunction(nanosecondsAdd, context);
+    }
+
     default R visitMonthsAdd(MonthsAdd monthsAdd, C context) {
         return visitScalarFunction(monthsAdd, context);
     }
@@ -1958,6 +1970,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(microsecond, context);
     }
 
+    default R visitNanosecond(Nanosecond nanosecond, C context) {
+        return visitScalarFunction(nanosecond, context);
+    }
+
     default R visitMinute(Minute minute, C context) {
         return visitScalarFunction(minute, context);
     }
@@ -2300,6 +2316,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMicroSecondsDiff(MicroSecondsDiff microSecondsDiff, C context) {
         return visitScalarFunction(microSecondsDiff, context);
+    }
+
+    default R visitNanoSecondsDiff(NanoSecondsDiff nanoSecondsDiff, C context) {
+        return visitScalarFunction(nanoSecondsDiff, context);
     }
 
     default R visitSign(Sign sign, C context) {

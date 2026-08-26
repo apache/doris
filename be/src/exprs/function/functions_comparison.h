@@ -41,6 +41,7 @@
 #include "core/decimal_comparison.h"
 #include "core/field.h"
 #include "core/memcmp_small.h"
+#include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/function.h"
@@ -636,30 +637,80 @@ private:
         return Status::OK();
     }
 
-    template <bool timestamp_ns_on_left>
-    Status execute_timestamp_ns_datetime_v2(Block& block, uint32_t result,
-                                            const ColumnPtr& left_column,
-                                            const ColumnPtr& right_column,
-                                            size_t input_rows_count) const {
+    template <typename TemporalValue>
+    static int compare_timestamp_ns_with_temporal(const TimeStampNsValue& timestamp,
+                                                  const TemporalValue& temporal) {
+        const auto timestamp_datetime = timestamp.to_datetime();
+        const auto compare_part = [](auto left, auto right) {
+            if (left < right) {
+                return -1;
+            }
+            if (left > right) {
+                return 1;
+            }
+            return 0;
+        };
+        int comparison = compare_part(timestamp_datetime.year(), temporal.year());
+        if (comparison == 0) {
+            comparison = compare_part(timestamp_datetime.month(), temporal.month());
+        }
+        if (comparison == 0) {
+            comparison = compare_part(timestamp_datetime.day(), temporal.day());
+        }
+        if (comparison == 0) {
+            comparison = compare_part(timestamp_datetime.hour(), temporal.hour());
+        }
+        if (comparison == 0) {
+            comparison = compare_part(timestamp_datetime.minute(), temporal.minute());
+        }
+        if (comparison == 0) {
+            comparison = compare_part(timestamp_datetime.second(), temporal.second());
+        }
+        if (comparison == 0) {
+            comparison = compare_part(timestamp.nanosecond(), temporal.microsecond() * 1000);
+        }
+        return comparison;
+    }
+
+    template <PrimitiveType TemporalPType, bool timestamp_ns_on_left>
+    Status execute_timestamp_ns_temporal(FunctionContext* context, Block& block, uint32_t result,
+                                         const ColumnPtr& left_column,
+                                         const ColumnPtr& right_column,
+                                         const DataTypePtr& temporal_type,
+                                         size_t input_rows_count) const {
+        static_assert(TemporalPType == TYPE_DATE || TemporalPType == TYPE_DATEV2 ||
+                      TemporalPType == TYPE_DATETIME || TemporalPType == TYPE_DATETIMEV2 ||
+                      TemporalPType == TYPE_TIMESTAMPTZ);
         const auto& timestamp_column = timestamp_ns_on_left ? left_column : right_column;
-        const auto& datetime_column = timestamp_ns_on_left ? right_column : left_column;
+        const auto& temporal_column = timestamp_ns_on_left ? right_column : left_column;
         auto [timestamp_unpacked, timestamp_is_const] = unpack_if_const(timestamp_column);
-        auto [datetime_unpacked, datetime_is_const] = unpack_if_const(datetime_column);
+        auto [temporal_unpacked, temporal_is_const] = unpack_if_const(temporal_column);
         const auto& timestamps =
                 assert_cast<const ColumnTimeStampNs&>(*timestamp_unpacked).get_data();
-        const auto& datetimes = assert_cast<const ColumnDateTimeV2&>(*datetime_unpacked).get_data();
+        using TemporalColumn = typename PrimitiveTypeTraits<TemporalPType>::ColumnType;
+        using TemporalValue = typename PrimitiveTypeTraits<TemporalPType>::CppType;
+        const auto& temporals = assert_cast<const TemporalColumn&>(*temporal_unpacked).get_data();
 
         auto result_column = ColumnUInt8::create(input_rows_count);
         auto& result_data = result_column->get_data();
         for (size_t row = 0; row < input_rows_count; ++row) {
             const auto& timestamp = timestamps[timestamp_is_const ? 0 : row];
-            const auto datetime = datetimes[datetime_is_const ? 0 : row];
-            const auto timestamp_as_datetime = timestamp.to_datetime();
-            int comparison = 0;
-            if (timestamp_as_datetime < datetime) {
-                comparison = -1;
-            } else if (timestamp_as_datetime > datetime || timestamp.nanosecond_remainder()) {
-                comparison = 1;
+            const auto& temporal =
+                    reinterpret_cast<const TemporalValue&>(temporals[temporal_is_const ? 0 : row]);
+            int comparison;
+            if constexpr (TemporalPType == TYPE_TIMESTAMPTZ) {
+                DateV2Value<DateTimeV2ValueType> local_datetime;
+                const auto scale = temporal_type->get_scale();
+                if (!temporal.to_datetime(local_datetime, context->state()->timezone_obj(), scale,
+                                          scale)) [[unlikely]] {
+                    return Status::InvalidArgument(
+                            "can not compare timestamptz {} with TIMESTAMP_NS in timezone {}",
+                            temporal.to_string(context->state()->timezone_obj(), scale),
+                            context->state()->timezone());
+                }
+                comparison = compare_timestamp_ns_with_temporal(timestamp, local_datetime);
+            } else {
+                comparison = compare_timestamp_ns_with_temporal(timestamp, temporal);
             }
             if constexpr (!timestamp_ns_on_left) {
                 comparison = -comparison;
@@ -788,6 +839,9 @@ public:
         return Status::OK();
     }
 
+    // Keep all primitive-type pairs in one dispatch point so every comparison operator shares the
+    // same mixed TIMESTAMP_NS semantics.
+    // NOLINTNEXTLINE(readability-function-size)
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const auto& col_with_type_and_name_left = block.get_by_position(arguments[0]);
@@ -801,16 +855,26 @@ public:
         const DataTypePtr& left_type = col_with_type_and_name_left.type;
         const DataTypePtr& right_type = col_with_type_and_name_right.type;
 
-        if (left_type->get_primitive_type() == TYPE_TIMESTAMP_NS &&
-            right_type->get_primitive_type() == TYPE_DATETIMEV2) {
-            return execute_timestamp_ns_datetime_v2<true>(block, result, col_left_ptr,
-                                                          col_right_ptr, input_rows_count);
-        }
-        if (left_type->get_primitive_type() == TYPE_DATETIMEV2 &&
-            right_type->get_primitive_type() == TYPE_TIMESTAMP_NS) {
-            return execute_timestamp_ns_datetime_v2<false>(block, result, col_left_ptr,
-                                                           col_right_ptr, input_rows_count);
-        }
+#define EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE)                                             \
+    if (left_type->get_primitive_type() == TYPE_TIMESTAMP_NS &&                                    \
+        right_type->get_primitive_type() == TYPE) {                                                \
+        return execute_timestamp_ns_temporal<TYPE, true>(context, block, result, col_left_ptr,     \
+                                                         col_right_ptr, right_type,                \
+                                                         input_rows_count);                        \
+    }                                                                                              \
+    if (left_type->get_primitive_type() == TYPE &&                                                 \
+        right_type->get_primitive_type() == TYPE_TIMESTAMP_NS) {                                   \
+        return execute_timestamp_ns_temporal<TYPE, false>(                                         \
+                context, block, result, col_left_ptr, col_right_ptr, left_type, input_rows_count); \
+    }
+
+        EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE_DATE)
+        EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE_DATEV2)
+        EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE_DATETIME)
+        EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE_DATETIMEV2)
+        EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE_TIMESTAMPTZ)
+
+#undef EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON
 
         /// The case when arguments are the same (tautological comparison). Return constant.
         /// NOTE: Nullable types are special case. (BTW, this function use default implementation for Nullable, so Nullable types cannot be here. Check just in case.)

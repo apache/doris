@@ -1397,10 +1397,18 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 DateTimeArithmetic.secondsAdd(beforeEpoch, new BigIntLiteral(1)).toSql());
         Assertions.assertEquals("'1970-01-01 00:00:00.000000999'",
                 DateTimeArithmetic.microSecondsAdd(beforeEpoch, new BigIntLiteral(1)).toSql());
+        Assertions.assertEquals("'1970-01-01 00:00:00.000000000'",
+                DateTimeArithmetic.nanoSecondsAdd(beforeEpoch, new BigIntLiteral(1)).toSql());
+        Assertions.assertEquals("'1969-12-31 23:59:59.999999999'",
+                DateTimeArithmetic.nanoSecondsSub(epoch, new BigIntLiteral(1)).toSql());
+        Assertions.assertEquals("'1970-01-01 00:00:00.000000000'",
+                DateTimeArithmetic.nanoSecondsSub(
+                        TimeStampNsLiteral.getMinValue(), new BigIntLiteral(Long.MIN_VALUE)).toSql());
         Assertions.assertEquals("'2024-03-01 12:34:56.123456789'",
                 DateTimeArithmetic.daysAdd(normal, new IntegerLiteral(1)).toSql());
         Assertions.assertEquals("2024", DateTimeExtractAndTransform.year(normal).toSql());
         Assertions.assertEquals("123456", DateTimeExtractAndTransform.microsecond(normal).toSql());
+        Assertions.assertEquals("123456789", DateTimeExtractAndTransform.nanosecond(normal).toSql());
         Assertions.assertEquals("'2024-02-29 12:34:56.123456'", DateTimeExtractAndTransform
                 .dateFormat(normal, new VarcharLiteral("%Y-%m-%d %H:%i:%s.%f")).toSql());
         Assertions.assertEquals("'2024-02-29 12:34:56.000000000'", DateTimeExtractAndTransform
@@ -1408,6 +1416,12 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
         Assertions.assertEquals("1", DateTimeExtractAndTransform.microsecondsDiff(
                 new TimeStampNsLiteral("1970-01-01 00:00:00.000001999"), epoch).toSql());
+        Assertions.assertEquals("2", DateTimeExtractAndTransform.nanosecondsDiff(
+                new TimeStampNsLiteral("1970-01-01 00:00:00.000000001"), beforeEpoch).toSql());
+        Assertions.assertEquals(Long.toString(Long.MAX_VALUE), DateTimeExtractAndTransform.nanosecondsDiff(
+                TimeStampNsLiteral.getMaxValue(), epoch).toSql());
+        Assertions.assertEquals(Long.toString(Long.MIN_VALUE), DateTimeExtractAndTransform.nanosecondsDiff(
+                TimeStampNsLiteral.getMinValue(), epoch).toSql());
         Assertions.assertEquals("-1", DateTimeExtractAndTransform.microsecondsDiff(
                 epoch, new TimeStampNsLiteral("1970-01-01 00:00:00.000001999")).toSql());
         Assertions.assertEquals("1", DateTimeExtractAndTransform.secondsDiff(
@@ -1447,6 +1461,15 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals("'2024-02-29 12:35:00.000000000'",
                 TimeRoundSeries.minuteCeilTimeStampNs(normal).toSql());
 
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeArithmetic.nanoSecondsSub(
+                        TimeStampNsLiteral.getMinValue(), new BigIntLiteral(1)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeArithmetic.nanoSecondsAdd(
+                        TimeStampNsLiteral.getMaxValue(), new BigIntLiteral(1)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.nanosecondsDiff(
+                        TimeStampNsLiteral.getMaxValue(), TimeStampNsLiteral.getMinValue()));
         Assertions.assertThrows(AnalysisException.class,
                 () -> DateTimeArithmetic.microSecondsSub(TimeStampNsLiteral.getMinValue(), new BigIntLiteral(1)));
         Assertions.assertThrows(AnalysisException.class,

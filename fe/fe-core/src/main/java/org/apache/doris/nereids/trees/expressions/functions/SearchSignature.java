@@ -275,9 +275,10 @@ public class SearchSignature {
             if (hasTimeStampNsArgument && hasTimeStampNsCompatibleDateTimeArgument && hasDateLikeSignature
                     && (realType.isTimeStampNsType() || realType.isDateTimeType()
                             || realType.isDateTimeV2Type() || realType.isTimeStampTzType())
-                    && sigArgType.isDateLikeType() && !sigArgType.isTimeStampNsType()) {
-                // Mixed DATETIME-family arguments use the TIMESTAMP_NS overload consistently,
-                // including functions that also expose exact mixed physical-type signatures.
+                    && sigArgType.isDateLikeType() && !sigArgType.isTimeStampNsType()
+                    && !(computeSignature instanceof SupportsMixedTimeStampNsDateTime)) {
+                // Functions that need a common temporal type use the TIMESTAMP_NS overload.
+                // Functions without a common temporal result opt in to mixed physical signatures.
                 return Pair.of(false, Pair.of(stringLiteralCoersionCount, timeZoneCoersionScore));
             }
             if (sigArgType.isTimeStampNsType() && !hasTimeStampNsArgument) {

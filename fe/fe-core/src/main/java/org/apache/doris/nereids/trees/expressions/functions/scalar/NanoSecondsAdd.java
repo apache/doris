@@ -19,58 +19,41 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.DateDiffMonotonic;
+import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
-import org.apache.doris.nereids.trees.expressions.functions.SupportsMixedTimeStampNsDateTime;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
-import org.apache.doris.nereids.types.TimeStampTzType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-/**
- * ScalarFunction 'quarters_diff'.
- */
-public class QuartersDiff extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
-        PropagateNullable, DateDiffMonotonic, SupportsMixedTimeStampNsDateTime {
+/** ScalarFunction 'nanoseconds_add'. */
+public class NanoSecondsAdd extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
+        PropagateNullable, DateAddSubMonotonic {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE)
-                    .args(TimeStampNsType.INSTANCE, DateTimeV2Type.WILDCARD),
-            FunctionSignature.ret(BigIntType.INSTANCE)
-                    .args(DateTimeV2Type.WILDCARD, TimeStampNsType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE)
-                    .args(TimeStampTzType.WILDCARD, TimeStampTzType.WILDCARD),
-            FunctionSignature.ret(BigIntType.INSTANCE)
-                    .args(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE)
-                    .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE)
+            FunctionSignature.ret(TimeStampNsType.INSTANCE)
+                    .args(TimeStampNsType.INSTANCE, BigIntType.INSTANCE)
     );
 
-    /**
-     * constructor with 2 arguments.
-     */
-    public QuartersDiff(Expression arg0, Expression arg1) {
-        super("quarters_diff", arg0, arg1);
+    public NanoSecondsAdd(Expression arg0, Expression arg1) {
+        super("nanoseconds_add", arg0, arg1);
     }
 
-    /**
-     * withChildren.
-     */
+    /** Constructor for withChildren and signature reuse. */
+    private NanoSecondsAdd(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
-    public QuartersDiff withChildren(List<Expression> children) {
+    public NanoSecondsAdd withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new QuartersDiff(children.get(0), children.get(1));
+        return new NanoSecondsAdd(getFunctionParams(children));
     }
 
     @Override
@@ -80,15 +63,11 @@ public class QuartersDiff extends ScalarFunction implements BinaryExpression, Ex
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitQuartersDiff(this, context);
+        return visitor.visitNanoSecondsAdd(this, context);
     }
 
     @Override
     public Expression withConstantArgs(Expression literal) {
-        if (child(1) instanceof Literal) {
-            return new QuartersDiff(literal, child(1));
-        } else {
-            return new QuartersDiff(child(0), literal);
-        }
+        return new NanoSecondsAdd(literal, child(1));
     }
 }
