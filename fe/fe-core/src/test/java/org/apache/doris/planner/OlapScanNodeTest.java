@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.LocalTablet;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionKey;
@@ -60,7 +61,6 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -70,14 +70,21 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class OlapScanNodeTest {
+    private MaterializedIndex createMaterializedIndex(List<Long> tabletIds) {
+        MaterializedIndex index = new MaterializedIndex();
+        List<Tablet> tablets = Lists.newArrayListWithExpectedSize(tabletIds.size());
+        for (Long tabletId : tabletIds) {
+            tablets.add(new LocalTablet(tabletId));
+        }
+        index.appendTablets(tablets);
+        return index;
+    }
+
     // columnA in (1) hashmode=3
     @Test
     public void testHashDistributionOneUser() throws AnalysisException {
 
-        List<Long> partitions = new ArrayList<>();
-        partitions.add(new Long(0));
-        partitions.add(new Long(1));
-        partitions.add(new Long(2));
+        List<Long> tabletIds = Lists.newArrayList(0L, 1L, 2L);
 
 
         List<Column> columns = Lists.newArrayList();
@@ -97,7 +104,7 @@ public class OlapScanNodeTest {
 
         DistributionPruner partitionPruner  = new HashDistributionPruner(
                 null,
-                partitions,
+                createMaterializedIndex(tabletIds),
                 columns,
                 filterMap,
                 3,
@@ -115,10 +122,7 @@ public class OlapScanNodeTest {
     @Test
     public void testHashPartitionManyUser() throws AnalysisException {
 
-        List<Long> partitions = new ArrayList<>();
-        partitions.add(new Long(0));
-        partitions.add(new Long(1));
-        partitions.add(new Long(2));
+        List<Long> tabletIds = Lists.newArrayList(0L, 1L, 2L);
 
         List<Column> columns = Lists.newArrayList();
         columns.add(new Column("columnA", PrimitiveType.BIGINT));
@@ -142,7 +146,7 @@ public class OlapScanNodeTest {
 
         DistributionPruner partitionPruner  = new HashDistributionPruner(
                 null,
-                partitions,
+                createMaterializedIndex(tabletIds),
                 columns,
                 filterMap,
                 3,
