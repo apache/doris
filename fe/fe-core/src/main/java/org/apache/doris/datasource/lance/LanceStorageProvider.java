@@ -52,8 +52,8 @@ public interface LanceStorageProvider {
      * and flattens every configured storage into one namespace where two S3-compatible ones would
      * silently overwrite each other.
      *
-     * <p>Empty when the list holds nothing this provider can read, which is every provider but S3
-     * today - those datasets are reachable only through what a namespace vends.
+     * <p>Empty when the list holds nothing this provider can read. Providers without a Doris
+     * adapter are reachable only through what a namespace vends.
      */
     Map<String, String> fromDorisProperties(List<StorageProperties> storageProperties);
 
@@ -70,8 +70,14 @@ public interface LanceStorageProvider {
 
     /** The provider Lance will route this dataset to. */
     static LanceStorageProvider forDataset(String datasetUri) {
-        return S3_SCHEMES.contains(schemeOf(datasetUri))
-                ? LanceS3StorageProvider.INSTANCE : LancePassThroughStorageProvider.INSTANCE;
+        String scheme = schemeOf(datasetUri);
+        if (S3_SCHEMES.contains(scheme)) {
+            return LanceS3StorageProvider.INSTANCE;
+        }
+        if ("oss".equals(scheme)) {
+            return LanceOssStorageProvider.INSTANCE;
+        }
+        return LancePassThroughStorageProvider.INSTANCE;
     }
 
     static String schemeOf(String datasetUri) {

@@ -37,7 +37,7 @@ public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties 
     @ConnectorProperty(
             names = {WAREHOUSE},
             required = false,
-            description = "The local, file, or S3 warehouse containing Lance datasets."
+            description = "The local, file, S3, or OSS warehouse containing Lance datasets."
     )
     private String warehouse;
 
@@ -102,9 +102,9 @@ public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties 
             return;
         }
         String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
-        if (!"file".equals(scheme) && !"s3".equals(scheme)) {
+        if (!"file".equals(scheme) && !"s3".equals(scheme) && !"oss".equals(scheme)) {
             throw new IllegalArgumentException("Unsupported Lance filesystem warehouse scheme '" + scheme
-                    + "'; first phase supports local/file and s3");
+                    + "'; supported schemes are local/file, s3, and oss");
         }
     }
 }
