@@ -53,6 +53,14 @@ void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
         init_ordered_sloppy_phrase_matcher(query_info, is_similarity);
     }
 
+    // Two-phase evaluation with a pushed-down candidate set: the candidate
+    // bitmap joins the leapfrog intersection (restricting doc-list walking and
+    // position verification to candidates) but never a matcher's postings, so
+    // phrase semantics stay with the real term iterators.
+    if (_context->candidate_rows != nullptr) {
+        _iterators.emplace_back(std::make_shared<RoaringDocIdIterator>(_context->candidate_rows));
+    }
+
     std::sort(_iterators.begin(), _iterators.end(), [](const DISI& a, const DISI& b) {
         int64_t freq1 = visit_node(a, DocFreq {});
         int64_t freq2 = visit_node(b, DocFreq {});
