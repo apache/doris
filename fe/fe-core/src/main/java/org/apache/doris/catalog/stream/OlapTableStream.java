@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -30,6 +31,7 @@ import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -58,17 +60,15 @@ public class OlapTableStream extends BaseTableStream {
         super();
     }
 
-    public OlapTableStream(long id, String streamName, List<Column> fullSchema, TableIf baseTable) {
-        super(id, streamName, fullSchema, baseTable);
-        Preconditions.checkArgument(baseTable instanceof OlapTable);
+    public OlapTableStream(long id, String streamName, TableIf baseTable) {
+        super(id, streamName, baseTable);
         this.partitionOffset = new HashMap<>();
         this.partitionConsumptionTime = new HashMap<>();
         this.historicalPartitionTSO = new HashMap<>();
-        this.baseTable = baseTable;
     }
 
-    public OlapTableStream(String streamName, List<Column> fullSchema, TableIf baseTable) {
-        this(-1, streamName, fullSchema, baseTable);
+    public OlapTableStream(String streamName, TableIf baseTable) {
+        this(-1, streamName, baseTable);
     }
 
     @Override
@@ -85,6 +85,36 @@ public class OlapTableStream extends BaseTableStream {
         return (OlapTable) baseTable;
     }
 
+    @Override
+    protected List<Column> generateDynamicSchema() {
+        OlapTable baseTable = getBaseTableNullable();
+        if (baseTable == null) {
+            return ImmutableList.of();
+        }
+        ImmutableList.Builder<Column> builder = ImmutableList.builder();
+        // inherit base table's visible columns
+        for (Column column : baseTable.getBaseSchema()) {
+            if (column.isVisible()) {
+                builder.add(column);
+            }
+        }
+        // extra stream columns
+        Column sequenceColumn = new Column(Column.STREAM_SEQ_COL, Type.BIGINT);
+        sequenceColumn.setIsVisible(false);
+        builder.add(sequenceColumn);
+        Column changeTypeColumn = new Column(Column.STREAM_CHANGE_TYPE_COL, Type.VARCHAR);
+        changeTypeColumn.setIsVisible(false);
+        builder.add(changeTypeColumn);
+        // Only expose stream LSN when the base table stores row LSN, e.g. dup table with binlog.
+        if (baseTable instanceof OlapTable
+                && baseTable.hasRowLsnColumn()) {
+            Column lsnColumn = new Column(Column.STREAM_LSN_COL, Type.BIGINT);
+            lsnColumn.setIsVisible(false);
+            builder.add(changeTypeColumn);
+        }
+        return builder.build();
+    }
+
     // used for init, should inside base table read lock
     @Override
     public void setProperties(Map<String, String> properties) throws AnalysisException {
@@ -99,12 +129,16 @@ public class OlapTableStream extends BaseTableStream {
 
     private void initializeLocalOffsets() {
         // set offset according to baseTable
+        OlapTable baseTable = getBaseTableNullable();
+        if (baseTable == null) {
+            return;
+        }
         if (!showInitialRows) {
             // set partition offset
-            ((OlapTable) baseTable).getPartitions()
+            (baseTable).getPartitions()
                     .forEach(p -> partitionOffset.put(p.getId(), p.getTso()));
         } else {
-            ((OlapTable) baseTable).getPartitions()
+            (baseTable).getPartitions()
                     .stream()
                     .filter(p -> p.getVisibleVersion() > Partition.PARTITION_INIT_VERSION)
                     .forEach(p -> {
