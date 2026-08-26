@@ -1244,11 +1244,13 @@ Status SegmentIterator::_apply_index_expr() {
     // Consumed conjuncts are erased only after the ANN pass below, which
     // iterates the same list.
     std::vector<const VExprContext*> consumed_by_index;
+    bool bitmap_exhausted = false;
     size_t considered_conjuncts = 0;
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
         if (_row_bitmap.isEmpty()) {
             _opts.stats->inverted_index_conjuncts_short_circuited +=
                     _common_expr_ctxs_push_down.size() - considered_conjuncts;
+            bitmap_exhausted = true;
             break;
         }
         ++considered_conjuncts;
@@ -1324,7 +1326,14 @@ Status SegmentIterator::_apply_index_expr() {
         _opts.stats->ann_index_range_cache_hits += ann_index_stats.range_cache_hits.value();
     }
 
-    if (!consumed_by_index.empty()) {
+    if (bitmap_exhausted) {
+        // Zero surviving rows satisfy every remaining conjunct, so the whole
+        // list is consumed -- mirroring the column-predicate short circuit.
+        // This keeps the "all conditions consumed by the index" contract and
+        // leaves the condition-cache digest valid: an empty result is correct
+        // for the full conjunction.
+        _common_expr_ctxs_push_down.clear();
+    } else if (!consumed_by_index.empty()) {
         std::erase_if(_common_expr_ctxs_push_down, [&](const VExprContextSPtr& ctx) {
             return std::find(consumed_by_index.begin(), consumed_by_index.end(), ctx.get()) !=
                    consumed_by_index.end();

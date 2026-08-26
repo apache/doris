@@ -155,9 +155,12 @@ protected:
 };
 
 // Once an earlier conjunct's index result empties the row bitmap, remaining
-// conjuncts must not be evaluated against the index. The skipped conjunct
-// stays pushed down so the normal row-level path still owns its semantics
-// (over zero rows).
+// conjuncts must not be evaluated against the index. With zero surviving
+// rows every remaining conjunct is trivially satisfied, so the whole
+// pushed-down list is consumed -- mirroring the column-predicate path and
+// keeping both the "all conditions consumed" contract (debug point
+// segment_iterator.apply_inverted_index) and the condition-cache digest
+// intact.
 TEST_F(SegmentIteratorConjunctShortCircuitTest, empty_bitmap_short_circuits_remaining) {
     _iter->_row_bitmap.addRange(0, 100);
 
@@ -174,10 +177,9 @@ TEST_F(SegmentIteratorConjunctShortCircuitTest, empty_bitmap_short_circuits_rema
     // ... so the expensive conjunct is never evaluated against the index ...
     EXPECT_EQ(empty_expr->eval_count(), 1);
     EXPECT_EQ(expensive_expr->eval_count(), 0);
-    // ... and it stays pushed down for the (now zero-row) row-level path,
-    // while the consumed conjunct is removed.
-    ASSERT_EQ(_iter->_common_expr_ctxs_push_down.size(), 1);
-    EXPECT_EQ(_iter->_common_expr_ctxs_push_down[0].get(), expensive_ctx.get());
+    // ... and the whole list is consumed: zero surviving rows satisfy every
+    // remaining conjunct, exactly like the column-predicate short circuit.
+    EXPECT_TRUE(_iter->_common_expr_ctxs_push_down.empty());
     // The skip is visible in reader statistics (profile:
     // InvertedIndexConjunctsShortCircuited).
     EXPECT_EQ(_stats.inverted_index_conjuncts_short_circuited, 1);
