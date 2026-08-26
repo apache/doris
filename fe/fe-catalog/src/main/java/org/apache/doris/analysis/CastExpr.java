@@ -29,6 +29,9 @@ public class CastExpr extends Expr {
     @SerializedName("ii")
     protected boolean isImplicit;
 
+    @SerializedName("isc")
+    protected boolean isStrict;
+
     // True if this cast does not change the type.
     @SerializedName("noOp")
     protected boolean noOp = false;
@@ -62,6 +65,7 @@ public class CastExpr extends Expr {
     protected CastExpr(CastExpr other) {
         super(other);
         isImplicit = other.isImplicit;
+        isStrict = other.isStrict;
         noOp = other.noOp;
     }
 
@@ -81,6 +85,14 @@ public class CastExpr extends Expr {
 
     public void setImplicit(boolean implicit) {
         isImplicit = implicit;
+    }
+
+    public boolean isStrict() {
+        return isStrict;
+    }
+
+    public void setStrict(boolean strict) {
+        isStrict = strict;
     }
 
     public boolean isNoOp() {
