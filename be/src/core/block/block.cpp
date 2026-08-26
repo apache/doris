@@ -119,6 +119,20 @@ MutableColumnPtr scoped_mutate_column(ColumnPtr& column, const DataTypePtr& type
     return mutable_column;
 }
 
+Status check_column_meta_compatibility(const PColumnMeta& column_meta, int be_exec_version) {
+    if (column_meta.type() == PGenericType::TIMESTAMP_NS &&
+        be_exec_version < SUPPORT_TIMESTAMP_NS_VERSION) {
+        return Status::NotSupported(
+                "TIMESTAMP_NS requires be_exec_version {} or newer for PBlock exchange, but "
+                "received {}",
+                SUPPORT_TIMESTAMP_NS_VERSION, be_exec_version);
+    }
+    for (const auto& child : column_meta.children()) {
+        RETURN_IF_ERROR(check_column_meta_compatibility(child, be_exec_version));
+    }
+    return Status::OK();
+}
+
 } // namespace
 
 Block::Block(std::initializer_list<ColumnWithTypeAndName> il) : data {il} {}
@@ -149,6 +163,9 @@ Status Block::deserialize(const PBlock& pblock, size_t* uncompressed_bytes,
     swap(Block());
     int be_exec_version = pblock.has_be_exec_version() ? pblock.be_exec_version() : 0;
     RETURN_IF_ERROR(BeExecVersionManager::check_be_exec_version(be_exec_version));
+    for (const auto& column_meta : pblock.column_metas()) {
+        RETURN_IF_ERROR(check_column_meta_compatibility(column_meta, be_exec_version));
+    }
 
     const char* buf = nullptr;
     std::string compression_scratch;
@@ -1043,9 +1060,12 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     size_t content_uncompressed_size = 0;
     RETURN_IF_CATCH_EXCEPTION({
         for (const auto& c : *this) {
+            PColumnMeta column_meta;
+            c.to_pb_column_meta(&column_meta);
+            DCHECK(column_meta.type() != PGenericType::UNKNOWN) << " forget to set pb type";
+            RETURN_IF_ERROR(check_column_meta_compatibility(column_meta, be_exec_version));
             PColumnMeta* pcm = pblock->add_column_metas();
-            c.to_pb_column_meta(pcm);
-            DCHECK(pcm->type() != PGenericType::UNKNOWN) << " forget to set pb type";
+            pcm->Swap(&column_meta);
             // get serialized size
             content_uncompressed_size += c.type->get_uncompressed_serialized_bytes(
                     *(c.column), pblock->be_exec_version());
