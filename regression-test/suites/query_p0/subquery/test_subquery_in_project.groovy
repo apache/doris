@@ -138,6 +138,30 @@ suite("test_subquery_in_project") {
         select sum(age + (select sum(age) from test_sql)) from test_sql group by dt, age order by 1;
     """
 
+    // two layered correlated predicates in one IN subquery: r.r1 = l.x (inner) and q.r2 = l.x
+    // (outer). both must survive into the final semi join, otherwise the finite right side
+    // (r1, r2) in {(0,2),(2,0)} has no row with r1 = x and r2 = x and the wrong result (TRUE)
+    // is silently produced. see the correlation filter merge fix in UnCorrelatedApplyFilter /
+    // UnCorrelatedApplyProjectFilter / UnCorrelatedApplyAggregateFilter.
+    qt_sql21 """
+        SELECT l.x,
+               l.x IN (
+                 SELECT q.r1
+                 FROM (
+                   SELECT r.r1, r.r2
+                   FROM (
+                     SELECT 0 AS r1, 2 AS r2
+                     UNION ALL
+                     SELECT 2 AS r1, 0 AS r2
+                   ) r
+                   WHERE r.r1 = l.x
+                 ) q
+                 WHERE q.r2 = l.x
+               ) AS pred
+        FROM (SELECT 0 AS x UNION ALL SELECT 2) l
+        ORDER BY x;
+    """
+
     sql """drop table if exists test_sql;"""
 
     sql """drop table if exists markjoin_t1;"""

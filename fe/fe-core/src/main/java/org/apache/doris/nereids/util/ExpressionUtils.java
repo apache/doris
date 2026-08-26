@@ -228,6 +228,27 @@ public class ExpressionUtils {
     }
 
     /**
+     * Merge newly extracted correlated predicates into an existing correlation filter of an
+     * apply. the same apply can be rewritten multiple times (e.g. two nested correlated
+     * filters), and each rule application pulls a new correlated predicate into the apply.
+     * the existing correlation filter must be kept and AND-ed with the new predicates,
+     * otherwise the previously extracted predicates are silently dropped and never appear in
+     * the final join condition.
+     *
+     * @param existingCorrelationFilter the correlation filter accumulated on the apply
+     * @param correlatedPredicates the newly extracted correlated predicates
+     * @return the merged correlation filter
+     */
+    public static Optional<Expression> mergeCorrelationFilter(
+            Optional<Expression> existingCorrelationFilter, List<Expression> correlatedPredicates) {
+        List<Expression> allCorrelatedPredicates = new ArrayList<>();
+        existingCorrelationFilter.ifPresent(filter -> allCorrelatedPredicates.addAll(
+                ExpressionUtils.extractConjunction(filter)));
+        allCorrelatedPredicates.addAll(correlatedPredicates);
+        return optionalAnd(allCorrelatedPredicates);
+    }
+
+    /**
      * Rebuild expression tree and refresh BoundFunction signatures.
      * If an expression is a BoundFunction, recreate it with rebuilt children and
      * reset its signature.
