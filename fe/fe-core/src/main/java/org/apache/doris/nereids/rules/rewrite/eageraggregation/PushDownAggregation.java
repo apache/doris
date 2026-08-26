@@ -127,7 +127,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
         if (connectContext.getSessionVariable().isDisableJoinReorder()
                 || jobContext.getCascadesContext().isLeadingDisableJoinReorder()
-                || connectContext.getSessionVariable().disableJoinReorderBeforeEagerAgg) {
+                || !connectContext.getSessionVariable().enableJoinReorderBeforeEagerAgg) {
             return plan;
         }
         long startNanos = System.nanoTime();

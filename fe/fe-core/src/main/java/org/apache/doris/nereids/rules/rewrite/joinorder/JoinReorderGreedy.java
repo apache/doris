@@ -52,11 +52,11 @@ public class JoinReorderGreedy extends JoinOrder {
     public List<Plan> getResult() {
         BitSet bitSet = new BitSet();
         bitSet.set(0, atomSize);
-        GroupInfo bestExpr = bitSetToGroupInfo.get(bitSet);
-        if (bestExpr == null) {
+        GroupInfo group = bitSetToGroupInfo.get(bitSet);
+        if (group == null) {
             return ImmutableList.of();
         }
-        return ImmutableList.of(bestExpr.bestExprInfo.expr);
+        return ImmutableList.of(group.bestPlanInfo.plan);
     }
 
     private void searchBushyJoinOrders(int curJoinLevel) {
@@ -99,14 +99,14 @@ public class JoinReorderGreedy extends JoinOrder {
 
     private GroupInfo getBestGroupInfo(List<GroupInfo> groupInfos) {
         double bestCost = Double.MAX_VALUE;
-        GroupInfo bestExpr = null;
+        GroupInfo bestPlan = null;
         for (GroupInfo groupInfo : groupInfos) {
-            if (groupInfo.bestExprInfo.cost < bestCost) {
-                bestExpr = groupInfo;
-                bestCost = groupInfo.bestExprInfo.cost;
+            if (groupInfo.bestPlanInfo.cost < bestCost) {
+                bestPlan = groupInfo;
+                bestCost = groupInfo.bestPlanInfo.cost;
             }
         }
-        return bestExpr;
+        return bestPlan;
     }
 
     private void searchJoinOrders(int leftLevel, int rightLevel, boolean isSearchBushyJoin) {
@@ -125,36 +125,36 @@ public class JoinReorderGreedy extends JoinOrder {
                     continue;
                 }
 
-                Optional<ExpressionInfo> joinExpr = buildJoinExpr(leftGroup, rightGroup);
-                if (!joinExpr.isPresent()) {
+                Optional<PlanInfo> join = buildJoin(leftGroup, rightGroup);
+                if (!join.isPresent()) {
                     continue;
                 }
-                joinExpr.get().expr.accept(new StatsDerive(false), new DeriveContext());
+                join.get().plan.accept(new StatsDerive(false), new DeriveContext());
 
                 BitSet joinBitSet = new BitSet();
                 joinBitSet.or(leftBitset);
                 joinBitSet.or(rightBitset);
 
-                computeCost(joinExpr.get());
-                getOrCreateGroupInfo(curLevel, joinBitSet, joinExpr.get());
+                computeCost(join.get());
+                getOrCreateGroupInfo(curLevel, joinBitSet, join.get());
             }
         }
     }
 
-    protected Optional<ExpressionInfo> buildJoinExpr(GroupInfo leftGroup, GroupInfo rightGroup) {
+    protected Optional<PlanInfo> buildJoin(GroupInfo leftGroup, GroupInfo rightGroup) {
         List<Expression> onPredicates = buildInnerJoinPredicate(leftGroup.atoms, rightGroup.atoms);
-        ExpressionInfo leftExprInfo = leftGroup.bestExprInfo;
-        ExpressionInfo rightExprInfo = rightGroup.bestExprInfo;
+        PlanInfo leftPlanInfo = leftGroup.bestPlanInfo;
+        PlanInfo rightPlanInfo = rightGroup.bestPlanInfo;
         Plan leftChildPlan;
         Plan rightChildPlan;
         boolean needReverse = false;
-        if (leftExprInfo.rowCount < rightExprInfo.rowCount) {
+        if (leftPlanInfo.rowCount < rightPlanInfo.rowCount) {
             needReverse = true;
-            leftChildPlan = rightExprInfo.expr;
-            rightChildPlan = leftExprInfo.expr;
+            leftChildPlan = rightPlanInfo.plan;
+            rightChildPlan = leftPlanInfo.plan;
         } else {
-            leftChildPlan = leftExprInfo.expr;
-            rightChildPlan = rightExprInfo.expr;
+            leftChildPlan = leftPlanInfo.plan;
+            rightChildPlan = rightPlanInfo.plan;
         }
         LogicalJoin<Plan, Plan> join;
         if (onPredicates.isEmpty()) {
@@ -166,12 +166,12 @@ public class JoinReorderGreedy extends JoinOrder {
             join = new LogicalJoin(JoinType.INNER_JOIN, pair.first, pair.second, leftChildPlan, rightChildPlan,
                     new JoinReorderContext());
         }
-        return Optional.of(needReverse ? new ExpressionInfo(join, rightGroup, leftGroup)
-                : new ExpressionInfo(join, leftGroup, rightGroup));
+        return Optional.of(needReverse ? new PlanInfo(join, rightGroup, leftGroup)
+                : new PlanInfo(join, leftGroup, rightGroup));
     }
 
     protected void getOrCreateGroupInfo(JoinLevel joinLevel, BitSet atoms,
-            ExpressionInfo exprInfo) {
+            PlanInfo planInfo) {
         GroupInfo groupInfo;
         if (bitSetToGroupInfo.containsKey(atoms)) {
             groupInfo = bitSetToGroupInfo.get(atoms);
@@ -183,17 +183,17 @@ public class JoinReorderGreedy extends JoinOrder {
             }
         }
 
-        if (groupInfo.bestExprInfo == null || groupInfo.bestExprInfo != exprInfo) {
-            addExprToGroup(groupInfo, exprInfo);
+        if (groupInfo.bestPlanInfo == null || groupInfo.bestPlanInfo != planInfo) {
+            addPlanToGroup(groupInfo, planInfo);
         }
     }
 
-    protected void addExprToGroup(GroupInfo groupInfo, ExpressionInfo expr) {
-        Preconditions.checkState(expr.cost != -1);
-        double cost = expr.cost;
-        if (cost < groupInfo.lowestExprCost) {
-            groupInfo.bestExprInfo = expr;
-            groupInfo.lowestExprCost = cost;
+    protected void addPlanToGroup(GroupInfo groupInfo, PlanInfo plan) {
+        Preconditions.checkState(plan.cost != -1);
+        double cost = plan.cost;
+        if (cost < groupInfo.lowestPlanCost) {
+            groupInfo.bestPlanInfo = plan;
+            groupInfo.lowestPlanCost = cost;
         }
     }
 }
