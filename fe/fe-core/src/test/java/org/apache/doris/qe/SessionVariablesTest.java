@@ -196,6 +196,19 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testFileScannerV2StaysEnabledInFuzzyMode() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+        Assertions.assertTrue(sessionVar.enableFileScannerV2);
+
+        Field field = SessionVariable.class.getDeclaredField("enableFileScannerV2");
+        VariableMgr.VarAttr varAttr = field.getAnnotation(VariableMgr.VarAttr.class);
+        Assertions.assertFalse(varAttr.fuzzy());
+
+        sessionVar.initFuzzyModeVariables();
+        Assertions.assertTrue(sessionVar.enableFileScannerV2);
+    }
+
+    @Test
     public void testForceEagerAggHintParseWhenSetSessionVariable() throws Exception {
         SessionVariable sessionVar = new SessionVariable();
 
