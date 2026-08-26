@@ -37,5 +37,10 @@ p22620411000000	[('2262-04-11 00:00:00.000000000'), (MAXVALUE))
 1
 2
 
+-- !datetimev2_cast_timestamp_ns_eq --
+1
+
 -- !datetimev2_cast_timestamp_ns_unreachable --
+
+-- !datetimev2_cast_timestamp_ns_unreachable_in --
 
