@@ -179,8 +179,7 @@ public:
     MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
              bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
-             const std::shared_ptr<ResourceContext>& resource_ctx,
-             bool need_lsn = false);
+             const std::shared_ptr<ResourceContext>& resource_ctx, bool need_lsn = false);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet_id; }
@@ -197,9 +196,7 @@ public:
 
     Status to_block(std::unique_ptr<Block>* res);
 
-    ConstAllocatedLsnVectorSharedPtr allocated_lsns() const {
-        return _output_allocated_lsns;
-    }
+    ConstAllocatedLsnVectorSharedPtr allocated_lsns() const { return _output_allocated_lsns; }
 
     bool empty() const { return _input_mutable_block.rows() == 0; }
 

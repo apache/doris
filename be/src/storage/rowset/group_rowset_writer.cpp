@@ -38,8 +38,7 @@ Status GroupRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
 
     _context = rowset_writer_context;
     auto& data_ctx = const_cast<RowsetWriterContext&>(_txn_rowset_writer->context());
-    auto& row_binlog_ctx =
-            const_cast<RowsetWriterContext&>(_row_binlog_rowset_writer->context());
+    auto& row_binlog_ctx = const_cast<RowsetWriterContext&>(_row_binlog_rowset_writer->context());
     _context._need_allocate_lsn =
             data_ctx.need_allocated_lsn() || row_binlog_ctx.need_allocated_lsn();
     if (_context.need_allocated_lsn()) {

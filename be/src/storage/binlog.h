@@ -32,7 +32,7 @@
 #include "common/status.h"
 #include "exec/sink/autoinc_buffer.h"
 #include "storage/olap_common.h"
-#include "storage/olap_define.h"          // DataWriteType
+#include "storage/olap_define.h" // DataWriteType
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/tablet/tablet_fwd.h"    // BaseTabletSPtr
 #include "storage/tablet/tablet_schema.h" // TabletSchemaSPtr
@@ -160,8 +160,7 @@ namespace segment_v2 {
 
 class SegmentAllocatedLsnMap {
 public:
-    void insert_segment_allocated_lsns(int64_t seg_id,
-                                       ConstAllocatedLsnVectorSharedPtr lsn_ids) {
+    void insert_segment_allocated_lsns(int64_t seg_id, ConstAllocatedLsnVectorSharedPtr lsn_ids) {
         std::lock_guard<std::mutex> l(_mutex);
         _seg_id_to_lsn_ids.emplace(seg_id, std::move(lsn_ids));
     }

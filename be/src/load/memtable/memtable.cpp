@@ -456,7 +456,7 @@ Status MemTable::_sort_by_cluster_keys() {
     for (size_t i = 0; i < mutable_block.rows(); i++) {
         row_in_blocks.emplace_back(
                 _need_lsn ? std::make_shared<RowInBlock>(i, (*_output_allocated_lsns)[i])
-                                     : std::make_shared<RowInBlock>(i));
+                          : std::make_shared<RowInBlock>(i));
     }
     if (_need_lsn) {
         _output_allocated_lsns = std::make_shared<std::vector<int64_t>>();

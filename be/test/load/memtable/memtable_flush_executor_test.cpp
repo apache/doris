@@ -65,9 +65,9 @@ public:
 
     Status init(const RowsetWriterContext& ctx) override {
         _context = ctx;
-        _context._need_allocate_lsn =
-                _context.write_binlog_opt().enable ||
-                (_context.tablet_schema != nullptr && _context.tablet_schema->row_lsn_col_idx() >= 0);
+        _context._need_allocate_lsn = _context.write_binlog_opt().enable ||
+                                      (_context.tablet_schema != nullptr &&
+                                       _context.tablet_schema->row_lsn_col_idx() >= 0);
         return Status::OK();
     }
 

@@ -298,8 +298,8 @@ protected:
         lsn_buffer->append_range_for_test(1000, num_rows);
         std::vector<int64_t> allocated_lsns;
         RETURN_IF_ERROR(allocate_lsn(lsn_buffer, num_rows, allocated_lsns));
-        auto lsn_ids =
-                std::make_shared<std::vector<int64_t>>(allocated_lsns.begin(), allocated_lsns.end());
+        auto lsn_ids = std::make_shared<std::vector<int64_t>>(allocated_lsns.begin(),
+                                                              allocated_lsns.end());
 
         auto row_binlog_writer_res =
                 _row_binlog_tablet->create_rowset_writer(row_binlog_context, false);
