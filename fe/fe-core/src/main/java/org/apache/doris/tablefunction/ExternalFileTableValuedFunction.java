@@ -82,6 +82,7 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TLanceFileDesc;
+import org.apache.doris.thrift.TLanceScanParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
@@ -541,7 +542,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             Map<String, String> lanceStorageOptions = LanceStorageOptions.forUri(
                     filePath, Collections.singletonList(storageProperties));
             if (!lanceStorageOptions.isEmpty()) {
-                fileScanRangeParams.setLanceStorageOptions(lanceStorageOptions);
+                fileScanRangeParams.setLanceScanParams(
+                        new TLanceScanParams().setLanceStorageOptions(lanceStorageOptions));
             }
         }
         fileScanRangeParams.setFileAttributes(getFileAttributes());

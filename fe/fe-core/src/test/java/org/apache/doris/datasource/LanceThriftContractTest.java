@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TLanceFileDesc;
+import org.apache.doris.thrift.TLanceScanParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.thrift.TDeserializer;
@@ -92,7 +93,8 @@ public class LanceThriftContractTest {
 
         TFileScanRangeParams source = new TFileScanRangeParams()
                 .setFormatType(TFileFormatType.FORMAT_LANCE)
-                .setLanceStorageOptions(storageOptions);
+                .setLanceScanParams(
+                        new TLanceScanParams().setLanceStorageOptions(storageOptions));
 
         TSerializer serializer = new TSerializer(new TCompactProtocol.Factory());
         byte[] bytes = serializer.serialize(source);
@@ -102,8 +104,10 @@ public class LanceThriftContractTest {
 
         // Whatever the namespace vended has to reach lance-c unchanged, including keys Doris
         // itself assigns no meaning to.
-        Assert.assertTrue(restored.isSetLanceStorageOptions());
-        Assert.assertEquals(storageOptions, restored.getLanceStorageOptions());
+        Assert.assertTrue(restored.isSetLanceScanParams());
+        Assert.assertTrue(restored.getLanceScanParams().isSetLanceStorageOptions());
+        Assert.assertEquals(storageOptions,
+                restored.getLanceScanParams().getLanceStorageOptions());
     }
 
     @Test
@@ -118,6 +122,6 @@ public class LanceThriftContractTest {
         new TDeserializer(new TCompactProtocol.Factory()).deserialize(restored, bytes);
 
         // A local dataset needs no storage configuration at all.
-        Assert.assertFalse(restored.isSetLanceStorageOptions());
+        Assert.assertFalse(restored.isSetLanceScanParams());
     }
 }
