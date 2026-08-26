@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cassert>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -837,18 +838,10 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                 // Candidate-pushdown handshake: while index conditions are
                 // evaluated, expose the current candidate bitmap so index
                 // queries can restrict themselves to it (two-phase
-                // evaluation). Only engaged when the candidate set is small
-                // enough for the restriction to pay off; results produced
-                // under it are partial and skip the query cache. _row_bitmap
-                // only shrinks during the applies below, so restricting to
-                // its current state stays correct for every later conjunct.
-                double candidate_ratio = config::inverted_index_candidate_pushdown_ratio;
-                if (candidate_ratio > 0 &&
-                    _row_bitmap.cardinality() <
-                            static_cast<uint64_t>(static_cast<double>(num_rows()) *
-                                                  candidate_ratio)) {
-                    _index_query_context->candidate_rows = &_row_bitmap;
-                }
+                // evaluation). _row_bitmap only shrinks during the applies
+                // below, so restricting to its current state stays correct
+                // for every later conjunct.
+                _refresh_candidate_pushdown();
             }
             DEFER({
                 _capture_count_fastpath_hit();
@@ -860,6 +853,10 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
             if (has_index_in_iterators()) {
                 RETURN_IF_ERROR(_apply_inverted_index());
             }
+            // The column predicates above may have shrunk the bitmap across
+            // the engage threshold; refresh the handshake at this conjunct
+            // boundary so the expression conjuncts below still benefit.
+            _refresh_candidate_pushdown();
             // Always apply expr-level index (e.g., search expressions) if we have common_expr_pushdown
             // This allows search expressions with variant subcolumns to be evaluated even when
             // the segment doesn't have all subcolumns
@@ -1251,6 +1248,24 @@ bool SegmentIterator::_check_apply_by_inverted_index(std::shared_ptr<ColumnPredi
 }
 
 // TODO: optimization when all expr can not evaluate by inverted/ann index,
+void SegmentIterator::_refresh_candidate_pushdown() {
+    if (_index_query_context == nullptr || _index_query_context->candidate_rows != nullptr) {
+        return;
+    }
+    // Guard the domain before the multiply: a non-finite or out-of-range
+    // configured ratio must never reach the floating-to-integer conversion
+    // (undefined behavior), even if a runtime config update transiently
+    // publishes a value the validator rejects.
+    double candidate_ratio = config::inverted_index_candidate_pushdown_ratio;
+    if (!std::isfinite(candidate_ratio) || candidate_ratio <= 0 || candidate_ratio > 1) {
+        return;
+    }
+    if (_row_bitmap.cardinality() <
+        static_cast<uint64_t>(static_cast<double>(num_rows()) * candidate_ratio)) {
+        _index_query_context->candidate_rows = &_row_bitmap;
+    }
+}
+
 Status SegmentIterator::_apply_index_expr() {
     bool enable_ann_index_result_cache =
             !_opts.runtime_state ||
