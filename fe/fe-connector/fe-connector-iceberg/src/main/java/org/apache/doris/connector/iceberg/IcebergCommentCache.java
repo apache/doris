@@ -47,7 +47,7 @@ import java.util.function.Supplier;
  * credential. A comment changes only via external DDL, picked up through the REFRESH invalidate hooks. TTL is
  * {@code meta.cache.iceberg.table.ttl-second}; {@code <= 0} disables (read live), so a no-cache catalog serves a
  * fresh comment even when this object is built. Backed identically to {@link IcebergTableCache}: a contextual,
- * access-TTL {@link MetaCacheEntry} with manual miss-load, so the remote load runs OUTSIDE Caffeine's compute
+ * access-TTL {@link MetaCache} with manual miss-load, so the remote load runs OUTSIDE Caffeine's compute
  * lock and its exception (e.g. the view-handle {@code NoSuchTableException}) propagates verbatim and a failed
  * load is not cached. Lives on the long-lived per-catalog {@link IcebergConnector}; a REFRESH CATALOG rebuilds it.
  */

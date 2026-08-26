@@ -49,7 +49,7 @@ import java.util.function.Supplier;
  * names, values, transforms, timestamps, snapshot ids) and carries no {@code FileIO} / credential, so it is
  * safe to share across users and is built unconditionally (only the TTL knob disables it).
  *
- * <p>Backed identically to {@link IcebergLatestSnapshotCache}: a contextual, access-TTL {@link MetaCacheEntry}
+ * <p>Backed identically to {@link IcebergLatestSnapshotCache}: a contextual, access-TTL {@link MetaCache}
  * with manual miss-load, so the scan runs OUTSIDE Caffeine's compute lock and its exception (e.g. the
  * dropped-partition-source-column {@link org.apache.iceberg.exceptions.ValidationException} that
  * {@code listPartitions} degrades on) propagates verbatim and a failed scan is not cached. TTL is

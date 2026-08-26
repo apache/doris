@@ -17,7 +17,14 @@
 
 package org.apache.doris.connector.cache;
 
-/** Caffeine-free callback invoked after one metadata-cache value is removed. */
+/**
+ * Caffeine-free callback invoked when one value stops being owned by the metadata cache.
+ *
+ * <p>This includes eviction/invalidation as well as a disabled-cache load or a load/refresh whose publication is
+ * rejected by a concurrent invalidation. In the latter cases the value was never visible through the cache, and
+ * the callback receives {@link MetaCacheRemovalReason#EXPLICIT} so resource-owning values can release the cache
+ * reference they reserved before attempting publication.
+ */
 @FunctionalInterface
 public interface MetaCacheRemovalListener<K, V> {
     void onRemoval(K key, V value, MetaCacheRemovalReason reason);

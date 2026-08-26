@@ -165,14 +165,18 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             V loaded = loadAndRecord(key, loadFunction);
             if (loaded != null) {
                 AtomicBoolean commitInvoked = new AtomicBoolean(false);
-                coordinator.accept(loaded, beforePublication -> {
-                    if (!commitInvoked.compareAndSet(false, true)) {
-                        throw new IllegalStateException("Metadata cache publication callback was invoked twice");
+                try {
+                    coordinator.accept(loaded, beforePublication -> {
+                        if (!commitInvoked.compareAndSet(false, true)) {
+                            throw new IllegalStateException("Metadata cache publication callback was invoked twice");
+                        }
+                        Objects.requireNonNull(beforePublication, "beforePublication can not be null").run();
+                    });
+                    if (!commitInvoked.get()) {
+                        throw new IllegalStateException("Metadata cache publication callback was not invoked");
                     }
-                    Objects.requireNonNull(beforePublication, "beforePublication can not be null").run();
-                });
-                if (!commitInvoked.get()) {
-                    throw new IllegalStateException("Metadata cache publication callback was not invoked");
+                } finally {
+                    notifyUnpublishedRemoval(key, loaded);
                 }
             }
             return loaded;
@@ -211,14 +215,22 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                 V loaded = loadAndRecord(key, loadFunction);
                 if (loaded != null) {
                     AtomicBoolean commitInvoked = new AtomicBoolean(false);
-                    coordinator.accept(loaded, beforePublication -> {
-                        if (!commitInvoked.compareAndSet(false, true)) {
-                            throw new IllegalStateException("Metadata cache publication callback was invoked twice");
+                    AtomicBoolean retained = new AtomicBoolean(false);
+                    try {
+                        coordinator.accept(loaded, beforePublication -> {
+                            if (!commitInvoked.compareAndSet(false, true)) {
+                                throw new IllegalStateException(
+                                        "Metadata cache publication callback was invoked twice");
+                            }
+                            retained.set(commitLoaded(lease, key, loaded, beforePublication));
+                        });
+                        if (!commitInvoked.get()) {
+                            throw new IllegalStateException("Metadata cache publication callback was not invoked");
                         }
-                        commitLoaded(lease, key, loaded, beforePublication);
-                    });
-                    if (!commitInvoked.get()) {
-                        throw new IllegalStateException("Metadata cache publication callback was not invoked");
+                    } finally {
+                        if (!retained.get()) {
+                            notifyUnpublishedRemoval(key, loaded);
+                        }
                     }
                 }
                 ownLoad.complete(loaded);
@@ -568,7 +580,14 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                     }
                     V refreshed = loadAndRecord(key, loader);
                     if (refreshed != null) {
-                        replaceRefreshExpected(lease, key, current, refreshed);
+                        boolean retained = false;
+                        try {
+                            retained = replaceRefreshExpected(lease, key, current, refreshed);
+                        } finally {
+                            if (!retained) {
+                                notifyUnpublishedRemoval(key, refreshed);
+                            }
+                        }
                     }
                 } catch (RuntimeException | Error throwable) {
                     LOG.warn("Scoped metadata cache refresh failed", throwable);
@@ -783,6 +802,17 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         registry.unregister(versioned.address, versioned, versioned.scopeSnapshot);
         versioned.keyNode.registration.compareAndSet(versioned, null);
         tryPruneKey(key, versioned.keyNode);
+    }
+
+    private void notifyUnpublishedRemoval(K key, V value) {
+        if (beforeRemoval == null) {
+            return;
+        }
+        try {
+            beforeRemoval.onRemoval(key, value, RemovalCause.EXPLICIT);
+        } catch (Throwable t) {
+            LOG.warn("Scoped metadata cache removal callback failed", t);
+        }
     }
 
     private static final class RemovalDeferral<K, V> {

@@ -47,7 +47,7 @@ import java.util.function.Supplier;
 /**
  * Per-catalog cache of an iceberg manifest's parsed files, keyed by {@link IcebergManifestEntryKey}
  * (manifest path + content). Ported from the legacy fe-core {@code IcebergExternalMetaCache} manifest entry +
- * {@code IcebergManifestCacheLoader}, now backed by the shared {@link MetaCacheEntry} framework
+ * {@code IcebergManifestCacheLoader}, now backed by the shared {@link MetaCache} framework
  * (independent-copy meta-cache migration).
  *
  * <p>Consumed by {@link IcebergScanPlanProvider}'s manifest-level planning path (gated by

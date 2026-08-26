@@ -421,8 +421,10 @@ public class ScopedMetaCacheConcurrencyTest {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         CountDownLatch loaderStarted = new CountDownLatch(1);
         CountDownLatch releaseLoader = new CountDownLatch(1);
+        AtomicReference<String> retired = new AtomicReference<>();
         try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
-            ScopedMetaCache<String, String> cache = registry.createCache("test", ENABLED);
+            ScopedMetaCache<String, String> cache = registry.createCache(
+                    "test", ENABLED, null, (key, value) -> retired.set(value));
             Future<String> loaded = executor.submit(() -> cache.get("key", TABLE, ignored -> {
                 loaderStarted.countDown();
                 await(releaseLoader);
@@ -436,6 +438,7 @@ public class ScopedMetaCacheConcurrencyTest {
             Assertions.assertEquals(
                     "stale-load-result", loaded.get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
             Assertions.assertEquals("direct-put", cache.getIfPresent("key", TABLE));
+            Assertions.assertEquals("stale-load-result", retired.get());
         } finally {
             releaseLoader.countDown();
             executor.shutdownNow();

@@ -45,7 +45,7 @@ import java.util.function.Supplier;
  * the partition style must come from that same metadata generation; otherwise later spec evolution could make
  * an empty scan expose live partition metadata.
  *
- * <p>Backed by the shared {@link MetaCacheEntry} framework (independent-copy meta-cache migration): a
+ * <p>Backed by the shared {@link MetaCache} framework (independent-copy meta-cache migration): a
  * contextual, access-TTL entry whose per-query loader is supplied at {@link #getOrLoad}. TTL is
  * {@code meta.cache.iceberg.table.ttl-second}: {@code <= 0} disables caching (every read goes live, matching
  * the legacy "no-cache" catalog); a positive value is Caffeine {@code expireAfterAccess} with a

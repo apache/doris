@@ -273,7 +273,7 @@ public class IcebergTableCacheTest {
     public void loaderExceptionPropagatesUnwrapped() {
         // The partition-view readers (listPartitions / listPartitionNames) catch NoSuchTableException to degrade
         // a concurrent-drop race to an empty list. Routing them through this cache must NOT wrap that exception,
-        // or the degradation would break and they'd throw instead. The MetaCacheEntry manual-miss-load path
+        // or the degradation would break and they'd throw instead. The MetaCache manual-miss-load path
         // re-throws the loader's RuntimeException verbatim. MUTATION: wrapping the loader exception ->
         // assertThrows(NoSuchTableException) fails (a different type is thrown) -> red.
         IcebergTableCache c = new IcebergTableCache(100, 1000);

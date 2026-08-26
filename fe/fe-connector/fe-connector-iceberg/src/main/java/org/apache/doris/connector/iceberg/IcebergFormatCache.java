@@ -53,7 +53,7 @@ import java.util.function.Supplier;
  * value is a bare format-name {@link String} with no {@code FileIO} / credential, so it is safe to share across
  * users and is built unconditionally (only the TTL knob disables it).
  *
- * <p>Backed identically to {@link IcebergPartitionCache}: a contextual, access-TTL {@link MetaCacheEntry} with
+ * <p>Backed identically to {@link IcebergPartitionCache}: a contextual, access-TTL {@link MetaCache} with
  * manual miss-load, so the inference runs OUTSIDE Caffeine's compute lock and a failed scan's exception
  * propagates verbatim and is NOT cached (the next query retries — legacy parity). TTL is
  * {@code meta.cache.iceberg.table.ttl-second}; {@code <= 0} disables (read live). Lives on the long-lived

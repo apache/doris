@@ -38,7 +38,7 @@ import java.util.function.LongSupplier;
  * {@code applySnapshot} -&gt; {@code scan.snapshot-id} -&gt; {@code Table.copy}, so an external write made
  * after the pin is not visible until refresh.
  *
- * <p>Backed by the shared {@link MetaCacheEntry} framework (independent-copy meta-cache migration): a
+ * <p>Backed by the shared {@link MetaCache} framework (independent-copy meta-cache migration): a
  * contextual, access-TTL entry whose per-query loader is supplied at {@link #getOrLoad}. TTL is
  * {@code meta.cache.paimon.table.ttl-second}: {@code <= 0} disables caching (every read goes live, matching
  * the legacy "no-cache" catalog); a positive value is Caffeine {@code expireAfterAccess} with a

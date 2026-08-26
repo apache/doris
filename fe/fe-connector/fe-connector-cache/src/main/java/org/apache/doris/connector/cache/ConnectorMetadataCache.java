@@ -27,7 +27,7 @@ import java.util.function.Supplier;
  * GENERIC (engine-agnostic) cross-query cache of a connector's derived metadata, keyed by a table identity plus
  * an optional MVCC coordinate ({@link ConnectorTableKey}) and holding an opaque value {@code V}. It is the generic
  * form of the hand-rolled iceberg caches (e.g. {@code IcebergPartitionCache}): same construction pattern (a
- * contextual-only, manual-miss-load {@link MetaCacheEntry}), same {@link CacheSpec} wiring, same invalidation style
+ * contextual-only, manual-miss-load {@link MetaCache}), same {@link CacheSpec} wiring, same invalidation style
  * — but keyed by the engine-agnostic {@link ConnectorTableKey} and holding an opaque {@code V} instead of an
  * engine-specific value, so it has no engine-specific imports and is shared by every connector. Consumers today:
  * the hive/iceberg/paimon derived partition-view caches (entry {@code "partition_view"}); a connector may hold

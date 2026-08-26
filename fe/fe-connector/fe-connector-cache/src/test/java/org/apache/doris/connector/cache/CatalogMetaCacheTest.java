@@ -26,6 +26,7 @@ import java.util.Arrays;
 import java.util.Queue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 class CatalogMetaCacheTest {
     private static final CacheSpec SPEC = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 100);
@@ -113,6 +114,27 @@ class CatalogMetaCacheTest {
     }
 
     @Test
+    void disabledLoadRetiresValueNotOwnedByCache() {
+        AtomicReference<String> retired = new AtomicReference<>();
+        AtomicReference<MetaCacheRemovalReason> reason = new AtomicReference<>();
+        MetaCacheDefinition<TableKey, String> definition = MetaCacheDefinition
+                .<TableKey, String>builder("disabled", CacheSpec.of(true, 0L, 100L), TableKey::scope)
+                .removalListener((key, value, removalReason) -> {
+                    retired.set(value);
+                    reason.set(removalReason);
+                })
+                .build();
+        try (CatalogMetaCache catalog = new CatalogMetaCache()) {
+            MetaCache<TableKey, String> cache = catalog.create(definition);
+
+            Assertions.assertEquals("loaded", cache.get(
+                    new TableKey("db", "table"), key -> "loaded"));
+            Assertions.assertEquals("loaded", retired.get());
+            Assertions.assertEquals(MetaCacheRemovalReason.EXPLICIT, reason.get());
+        }
+    }
+
+    @Test
     void rejectsMissingScopeDuplicateNamesAndUseAfterClose() {
         Assertions.assertThrows(NullPointerException.class,
                 () -> MetaCacheDefinition.builder("missing-scope", SPEC, null).build());
@@ -147,10 +169,12 @@ class CatalogMetaCacheTest {
     @Test
     void invalidationRejectsRefreshAdmittedBeforeGenerationChange() {
         AtomicInteger loads = new AtomicInteger();
+        AtomicReference<String> retired = new AtomicReference<>();
         QueuedExecutor executor = new QueuedExecutor();
         MetaCacheDefinition<TableKey, String> definition = MetaCacheDefinition
                 .<TableKey, String>builder("refresh", SPEC, TableKey::scope)
                 .loader(key -> "v" + loads.incrementAndGet())
+                .removalListener((key, value, reason) -> retired.set(value))
                 .refreshAfterWrite(Duration.ofNanos(1), executor)
                 .build();
         try (CatalogMetaCache catalog = new CatalogMetaCache()) {
@@ -165,6 +189,7 @@ class CatalogMetaCacheTest {
 
             Assertions.assertNull(cache.getIfPresent(key));
             Assertions.assertEquals(2, loads.get());
+            Assertions.assertEquals("v2", retired.get());
         }
     }
 
