@@ -56,6 +56,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -110,6 +111,11 @@ public interface IcebergCatalogOps {
 
     /** Loads the Iceberg {@link Table} for {@code dbName.tableName}. */
     Table loadTable(String dbName, String tableName);
+
+    /** Runs a bounded operation against a loaded table. Implementations may release table-owned resources. */
+    default <T> T withTable(String dbName, String tableName, Function<Table, T> operation) {
+        return operation.apply(loadTable(dbName, tableName));
+    }
 
     // ---- DDL writes (B1) — thin delegations to the real Catalog / SupportsNamespaces ----
 
@@ -171,30 +177,45 @@ public interface IcebergCatalogOps {
     /** Adds the nested field at {@code path} to {@code dbName.tableName} at {@code position} (null = append). */
     default void addNestedColumn(String dbName, String tableName, ConnectorColumnPath path,
             IcebergColumnChange column, ConnectorColumnPosition position) {
-        IcebergNestedColumnEvolution.addColumn(loadTable(dbName, tableName), path, column, position);
+        withTable(dbName, tableName, table -> {
+            IcebergNestedColumnEvolution.addColumn(table, path, column, position);
+            return null;
+        });
     }
 
     /** Drops the nested field at {@code path} from {@code dbName.tableName}. */
     default void dropNestedColumn(String dbName, String tableName, ConnectorColumnPath path) {
-        IcebergNestedColumnEvolution.dropColumn(loadTable(dbName, tableName), path);
+        withTable(dbName, tableName, table -> {
+            IcebergNestedColumnEvolution.dropColumn(table, path);
+            return null;
+        });
     }
 
     /** Renames the nested field at {@code path} to {@code newName} (a leaf name) in {@code dbName.tableName}. */
     default void renameNestedColumn(String dbName, String tableName, ConnectorColumnPath path, String newName) {
-        IcebergNestedColumnEvolution.renameColumn(loadTable(dbName, tableName), path, newName);
+        withTable(dbName, tableName, table -> {
+            IcebergNestedColumnEvolution.renameColumn(table, path, newName);
+            return null;
+        });
     }
 
     /** Modifies the nested field at {@code path} (type/comment/nullable) of {@code dbName.tableName}, optional move. */
     default void modifyNestedColumn(String dbName, String tableName, ConnectorColumnPath path,
             IcebergColumnChange column, boolean nullableSpecified, boolean commentSpecified,
             ConnectorColumnPosition position) {
-        IcebergNestedColumnEvolution.modifyColumn(loadTable(dbName, tableName), path, column,
-                nullableSpecified, commentSpecified, position);
+        withTable(dbName, tableName, table -> {
+            IcebergNestedColumnEvolution.modifyColumn(table, path, column,
+                    nullableSpecified, commentSpecified, position);
+            return null;
+        });
     }
 
     /** Sets (or clears) the comment of the flat-or-nested field at {@code path} of {@code dbName.tableName}. */
     default void modifyColumnComment(String dbName, String tableName, ConnectorColumnPath path, String comment) {
-        IcebergNestedColumnEvolution.modifyColumnComment(loadTable(dbName, tableName), path, comment);
+        withTable(dbName, tableName, table -> {
+            IcebergNestedColumnEvolution.modifyColumnComment(table, path, comment);
+            return null;
+        });
     }
 
     // ---- Branch / tag refs (B4) — build + commit a ManageSnapshots; needs the live Table ----
@@ -247,24 +268,40 @@ public interface IcebergCatalogOps {
         private final boolean nestedNamespaceEnabled;
         private final boolean viewEnabled;
         private final Optional<String> externalCatalogName;
+        private final Function<Table, Runnable> tableCleanup;
 
         public CatalogBackedIcebergCatalogOps(Catalog catalog) {
-            this(catalog, false, false, true, Optional.empty());
+            this(catalog, false, false, true, Optional.empty(), table -> () -> { });
         }
 
         public CatalogBackedIcebergCatalogOps(Catalog catalog, boolean restFlavor,
                 boolean nestedNamespaceEnabled, boolean viewEnabled, Optional<String> externalCatalogName) {
-            this(catalog, null, restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName);
+            this(catalog, restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName,
+                    table -> () -> { });
+        }
+
+        public CatalogBackedIcebergCatalogOps(Catalog catalog, boolean restFlavor,
+                boolean nestedNamespaceEnabled, boolean viewEnabled, Optional<String> externalCatalogName,
+                Function<Table, Runnable> tableCleanup) {
+            this(catalog, null, restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName, tableCleanup);
         }
 
         public CatalogBackedIcebergCatalogOps(Catalog catalog, ViewCatalog viewCatalog, boolean restFlavor,
                 boolean nestedNamespaceEnabled, boolean viewEnabled, Optional<String> externalCatalogName) {
+            this(catalog, viewCatalog, restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName,
+                    table -> () -> { });
+        }
+
+        public CatalogBackedIcebergCatalogOps(Catalog catalog, ViewCatalog viewCatalog, boolean restFlavor,
+                boolean nestedNamespaceEnabled, boolean viewEnabled, Optional<String> externalCatalogName,
+                Function<Table, Runnable> tableCleanup) {
             this.catalog = catalog;
             this.viewCatalog = viewCatalog;
             this.restFlavor = restFlavor;
             this.nestedNamespaceEnabled = nestedNamespaceEnabled;
             this.viewEnabled = viewEnabled;
             this.externalCatalogName = externalCatalogName;
+            this.tableCleanup = tableCleanup;
         }
 
         @Override
@@ -382,6 +419,16 @@ public interface IcebergCatalogOps {
         }
 
         @Override
+        public <T> T withTable(String dbName, String tableName, Function<Table, T> operation) {
+            Table table = loadTable(dbName, tableName);
+            try {
+                return operation.apply(table);
+            } finally {
+                tableCleanup.apply(table).run();
+            }
+        }
+
+        @Override
         public void createDatabase(String dbName, Map<String, String> properties) {
             requireNamespaces().createNamespace(toNamespace(dbName), properties);
         }
@@ -397,15 +444,17 @@ public interface IcebergCatalogOps {
             TableIdentifier id = toTableIdentifier(dbName, tableName);
             // Mirror legacy IcebergMetadataOps.performCreateTable: the buildTable path is only needed to
             // attach a sort order; otherwise the plain createTable overload is used.
+            Table table;
             if (sortOrder != null && !sortOrder.isUnsorted()) {
-                catalog.buildTable(id, schema)
+                table = catalog.buildTable(id, schema)
                         .withPartitionSpec(partitionSpec)
                         .withProperties(properties)
                         .withSortOrder(sortOrder)
                         .create();
             } else {
-                catalog.createTable(id, schema, partitionSpec, properties);
+                table = catalog.createTable(id, schema, partitionSpec, properties);
             }
+            tableCleanup.apply(table).run();
         }
 
         @Override
@@ -420,8 +469,10 @@ public interface IcebergCatalogOps {
 
         @Override
         public Optional<String> loadTableLocation(String dbName, String tableName) {
-            String location = catalog.loadTable(toTableIdentifier(dbName, tableName)).location();
-            return isBlank(location) ? Optional.empty() : Optional.of(location);
+            return withTable(dbName, tableName, table -> {
+                String location = table.location();
+                return isBlank(location) ? Optional.empty() : Optional.of(location);
+            });
         }
 
         @Override
@@ -434,182 +485,203 @@ public interface IcebergCatalogOps {
         @Override
         public void addColumn(String dbName, String tableName, IcebergColumnChange column,
                 ConnectorColumnPosition position) {
-            Table table = loadTable(dbName, tableName);
-            IcebergNestedColumnEvolution.validateNoCaseInsensitiveSiblingCollision(
-                    table.schema().asStruct(), "", column.getName(), null, "add");
-            UpdateSchema updateSchema = table.updateSchema();
-            updateSchema.addColumn(column.getName(), column.getType(), column.getComment(),
-                    column.getDefaultValue());
-            applyPosition(updateSchema, position, column.getName());
-            updateSchema.commit();
+            withTable(dbName, tableName, table -> {
+                IcebergNestedColumnEvolution.validateNoCaseInsensitiveSiblingCollision(
+                        table.schema().asStruct(), "", column.getName(), null, "add");
+                UpdateSchema updateSchema = table.updateSchema();
+                updateSchema.addColumn(column.getName(), column.getType(), column.getComment(),
+                        column.getDefaultValue());
+                applyPosition(updateSchema, position, column.getName());
+                updateSchema.commit();
+                return null;
+            });
         }
 
         @Override
         public void addColumns(String dbName, String tableName, List<IcebergColumnChange> columns) {
-            Table table = loadTable(dbName, tableName);
-            IcebergNestedColumnEvolution.validateNoCaseInsensitiveTopLevelCollisions(table.schema(), columns);
-            UpdateSchema updateSchema = table.updateSchema();
-            for (IcebergColumnChange column : columns) {
-                updateSchema.addColumn(column.getName(), column.getType(), column.getComment(),
-                        column.getDefaultValue());
-            }
-            updateSchema.commit();
+            withTable(dbName, tableName, table -> {
+                IcebergNestedColumnEvolution.validateNoCaseInsensitiveTopLevelCollisions(table.schema(), columns);
+                UpdateSchema updateSchema = table.updateSchema();
+                for (IcebergColumnChange column : columns) {
+                    updateSchema.addColumn(column.getName(), column.getType(), column.getComment(),
+                            column.getDefaultValue());
+                }
+                updateSchema.commit();
+                return null;
+            });
         }
 
         @Override
         public void dropColumn(String dbName, String tableName, String columnName) {
-            IcebergNestedColumnEvolution.dropTopLevelColumn(loadTable(dbName, tableName), columnName);
+            withTable(dbName, tableName, table -> {
+                IcebergNestedColumnEvolution.dropTopLevelColumn(table, columnName);
+                return null;
+            });
         }
 
         @Override
         public void renameColumn(String dbName, String tableName, String oldName, String newName) {
-            IcebergNestedColumnEvolution.renameTopLevelColumn(loadTable(dbName, tableName), oldName, newName);
+            withTable(dbName, tableName, table -> {
+                IcebergNestedColumnEvolution.renameTopLevelColumn(table, oldName, newName);
+                return null;
+            });
         }
 
         @Override
         public void modifyColumn(String dbName, String tableName, IcebergColumnChange column,
                 boolean commentSpecified, ConnectorColumnPosition position) {
-            Table table = loadTable(dbName, tableName);
-            Types.NestedField current = table.schema().findField(column.getName());
-            if (current == null) {
-                throw new DorisConnectorException("Column " + column.getName() + " does not exist");
-            }
-            // Iceberg can widen required -> optional but never optional -> required (existing data may hold
-            // nulls), so a NOT NULL request on an already-nullable column fails loud — legacy parity
-            // (IcebergMetadataOps.validateForModifyColumn / validateForModifyComplexColumn).
-            if (current.isOptional() && !column.isNullable()) {
-                throw new DorisConnectorException(
-                        "Can not change nullable column " + column.getName() + " to not null");
-            }
-            UpdateSchema updateSchema = table.updateSchema();
-            Type newType = column.getType();
-            // #65329 omit-preserves: an omitted COMMENT keeps the field's current doc rather than clearing it
-            // (mirror of IcebergNestedColumnEvolution.modifyColumn / legacy IcebergMetadataOps).
-            String targetComment = commentSpecified ? column.getComment() : current.doc();
-            if (newType.isPrimitiveType()) {
-                // Reject a complex -> primitive change with a clean message before iceberg's updateColumn leaks a
-                // raw type-diff error — parity with IcebergNestedColumnEvolution.modifyColumn / legacy
-                // IcebergMetadataOps (symmetric with the non-complex -> complex guard below).
-                if (!current.type().isPrimitiveType()) {
-                    throw new DorisConnectorException("Modify column type from complex to primitive is not"
-                            + " supported: " + column.getName());
+            withTable(dbName, tableName, table -> {
+                Types.NestedField current = table.schema().findField(column.getName());
+                if (current == null) {
+                    throw new DorisConnectorException("Column " + column.getName() + " does not exist");
                 }
-                updateSchema.updateColumn(column.getName(), newType.asPrimitiveType(), targetComment);
-            } else {
-                // A complex (STRUCT/ARRAY/MAP) modify diffs the new type against the current one field-by-field
-                // (IcebergComplexTypeDiff); the top-level column doc is updated separately, as in legacy.
-                if (current.type().isPrimitiveType()) {
-                    throw new DorisConnectorException("Modify column type from non-complex to complex is not"
-                            + " supported: " + column.getName());
+                // Iceberg can widen required -> optional but never optional -> required (existing data may hold
+                // nulls), so a NOT NULL request on an already-nullable column fails loud — legacy parity
+                // (IcebergMetadataOps.validateForModifyColumn / validateForModifyComplexColumn).
+                if (current.isOptional() && !column.isNullable()) {
+                    throw new DorisConnectorException(
+                            "Can not change nullable column " + column.getName() + " to not null");
                 }
-                IcebergComplexTypeDiff.apply(updateSchema, column.getName(), current.type(), newType,
-                        column.getSourceType());
-                if (!Objects.equals(current.doc(), targetComment)) {
-                    updateSchema.updateColumnDoc(column.getName(), targetComment);
+                UpdateSchema updateSchema = table.updateSchema();
+                Type newType = column.getType();
+                // #65329 omit-preserves: an omitted COMMENT keeps the field's current doc rather than clearing it
+                // (mirror of IcebergNestedColumnEvolution.modifyColumn / legacy IcebergMetadataOps).
+                String targetComment = commentSpecified ? column.getComment() : current.doc();
+                if (newType.isPrimitiveType()) {
+                    // Reject a complex -> primitive change with a clean message before iceberg's updateColumn leaks
+                    // a raw type-diff error — parity with IcebergNestedColumnEvolution.modifyColumn / legacy
+                    // IcebergMetadataOps (symmetric with the non-complex -> complex guard below).
+                    if (!current.type().isPrimitiveType()) {
+                        throw new DorisConnectorException("Modify column type from complex to primitive is not"
+                                + " supported: " + column.getName());
+                    }
+                    updateSchema.updateColumn(column.getName(), newType.asPrimitiveType(), targetComment);
+                } else {
+                    // A complex (STRUCT/ARRAY/MAP) modify diffs the new type against the current one field-by-field
+                    // (IcebergComplexTypeDiff); the top-level column doc is updated separately, as in legacy.
+                    if (current.type().isPrimitiveType()) {
+                        throw new DorisConnectorException("Modify column type from non-complex to complex is not"
+                                + " supported: " + column.getName());
+                    }
+                    IcebergComplexTypeDiff.apply(updateSchema, column.getName(), current.type(), newType,
+                            column.getSourceType());
+                    if (!Objects.equals(current.doc(), targetComment)) {
+                        updateSchema.updateColumnDoc(column.getName(), targetComment);
+                    }
                 }
-            }
-            if (column.isNullable()) {
-                updateSchema.makeColumnOptional(column.getName());
-            }
-            applyPosition(updateSchema, position, column.getName());
-            updateSchema.commit();
+                if (column.isNullable()) {
+                    updateSchema.makeColumnOptional(column.getName());
+                }
+                applyPosition(updateSchema, position, column.getName());
+                updateSchema.commit();
+                return null;
+            });
         }
 
         @Override
         public void reorderColumns(String dbName, String tableName, List<String> newOrder) {
-            UpdateSchema updateSchema = loadTable(dbName, tableName).updateSchema();
-            updateSchema.moveFirst(newOrder.get(0));
-            for (int i = 1; i < newOrder.size(); i++) {
-                updateSchema.moveAfter(newOrder.get(i), newOrder.get(i - 1));
-            }
-            updateSchema.commit();
+            withTable(dbName, tableName, table -> {
+                UpdateSchema updateSchema = table.updateSchema();
+                updateSchema.moveFirst(newOrder.get(0));
+                for (int i = 1; i < newOrder.size(); i++) {
+                    updateSchema.moveAfter(newOrder.get(i), newOrder.get(i - 1));
+                }
+                updateSchema.commit();
+                return null;
+            });
         }
 
         @Override
         public void createOrReplaceBranch(String dbName, String tableName, BranchChange branch) {
-            Table icebergTable = loadTable(dbName, tableName);
-            String branchName = branch.getName();
-            if (branchName == null || branchName.trim().isEmpty()) {
-                throw new DorisConnectorException("Branch name cannot be empty");
-            }
-            // null snapshotId == "use the table's current snapshot" (may itself be null for an empty table),
-            // mirroring legacy IcebergMetadataOps.createOrReplaceBranchImpl.
-            Long snapshotId = resolveSnapshotId(branch.getSnapshotId(), icebergTable);
-            boolean refExists = icebergTable.refs().get(branchName) != null;
-            ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
-            if (branch.isCreate() && branch.isReplace() && !refExists) {
-                createBranch(manageSnapshots, branchName, snapshotId);
-            } else if (branch.isReplace()) {
-                if (snapshotId == null) {
-                    throw new DorisConnectorException("Cannot complete replace branch operation on "
-                            + icebergTable.name() + " , main has no snapshot");
+            withTable(dbName, tableName, icebergTable -> {
+                String branchName = branch.getName();
+                if (branchName == null || branchName.trim().isEmpty()) {
+                    throw new DorisConnectorException("Branch name cannot be empty");
                 }
-                manageSnapshots.replaceBranch(branchName, snapshotId);
-            } else {
-                if (refExists && branch.isIfNotExists()) {
-                    return;
+                Long snapshotId = resolveSnapshotId(branch.getSnapshotId(), icebergTable);
+                boolean refExists = icebergTable.refs().get(branchName) != null;
+                ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+                if (branch.isCreate() && branch.isReplace() && !refExists) {
+                    createBranch(manageSnapshots, branchName, snapshotId);
+                } else if (branch.isReplace()) {
+                    if (snapshotId == null) {
+                        throw new DorisConnectorException("Cannot complete replace branch operation on "
+                                + icebergTable.name() + " , main has no snapshot");
+                    }
+                    manageSnapshots.replaceBranch(branchName, snapshotId);
+                } else {
+                    if (refExists && branch.isIfNotExists()) {
+                        return null;
+                    }
+                    createBranch(manageSnapshots, branchName, snapshotId);
                 }
-                createBranch(manageSnapshots, branchName, snapshotId);
-            }
-            if (branch.getMaxSnapshotAgeMs() != null) {
-                manageSnapshots.setMaxSnapshotAgeMs(branchName, branch.getMaxSnapshotAgeMs());
-            }
-            if (branch.getMinSnapshotsToKeep() != null) {
-                manageSnapshots.setMinSnapshotsToKeep(branchName, branch.getMinSnapshotsToKeep());
-            }
-            if (branch.getMaxRefAgeMs() != null) {
-                manageSnapshots.setMaxRefAgeMs(branchName, branch.getMaxRefAgeMs());
-            }
-            manageSnapshots.commit();
+                if (branch.getMaxSnapshotAgeMs() != null) {
+                    manageSnapshots.setMaxSnapshotAgeMs(branchName, branch.getMaxSnapshotAgeMs());
+                }
+                if (branch.getMinSnapshotsToKeep() != null) {
+                    manageSnapshots.setMinSnapshotsToKeep(branchName, branch.getMinSnapshotsToKeep());
+                }
+                if (branch.getMaxRefAgeMs() != null) {
+                    manageSnapshots.setMaxRefAgeMs(branchName, branch.getMaxRefAgeMs());
+                }
+                manageSnapshots.commit();
+                return null;
+            });
         }
 
         @Override
         public void createOrReplaceTag(String dbName, String tableName, TagChange tag) {
-            Table icebergTable = loadTable(dbName, tableName);
-            Long snapshotId = resolveSnapshotId(tag.getSnapshotId(), icebergTable);
-            if (snapshotId == null) {
-                // Creating a tag on an empty table is not allowed (legacy parity, incl. the legacy message text).
-                throw new DorisConnectorException("Cannot complete replace branch operation on "
-                        + icebergTable.name() + " , main has no snapshot");
-            }
-            String tagName = tag.getName();
-            if (tagName == null || tagName.trim().isEmpty()) {
-                throw new DorisConnectorException("Tag name cannot be empty");
-            }
-            boolean refExists = icebergTable.refs().get(tagName) != null;
-            ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
-            if (tag.isCreate() && tag.isReplace() && !refExists) {
-                manageSnapshots.createTag(tagName, snapshotId);
-            } else if (tag.isReplace()) {
-                manageSnapshots.replaceTag(tagName, snapshotId);
-            } else {
-                if (refExists && tag.isIfNotExists()) {
-                    return;
+            withTable(dbName, tableName, icebergTable -> {
+                Long snapshotId = resolveSnapshotId(tag.getSnapshotId(), icebergTable);
+                if (snapshotId == null) {
+                    // Creating a tag on an empty table is not allowed (legacy parity, incl. legacy message text).
+                    throw new DorisConnectorException("Cannot complete replace branch operation on "
+                            + icebergTable.name() + " , main has no snapshot");
                 }
-                manageSnapshots.createTag(tagName, snapshotId);
-            }
-            if (tag.getMaxRefAgeMs() != null) {
-                manageSnapshots.setMaxRefAgeMs(tagName, tag.getMaxRefAgeMs());
-            }
-            manageSnapshots.commit();
+                String tagName = tag.getName();
+                if (tagName == null || tagName.trim().isEmpty()) {
+                    throw new DorisConnectorException("Tag name cannot be empty");
+                }
+                boolean refExists = icebergTable.refs().get(tagName) != null;
+                ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+                if (tag.isCreate() && tag.isReplace() && !refExists) {
+                    manageSnapshots.createTag(tagName, snapshotId);
+                } else if (tag.isReplace()) {
+                    manageSnapshots.replaceTag(tagName, snapshotId);
+                } else {
+                    if (refExists && tag.isIfNotExists()) {
+                        return null;
+                    }
+                    manageSnapshots.createTag(tagName, snapshotId);
+                }
+                if (tag.getMaxRefAgeMs() != null) {
+                    manageSnapshots.setMaxRefAgeMs(tagName, tag.getMaxRefAgeMs());
+                }
+                manageSnapshots.commit();
+                return null;
+            });
         }
 
         @Override
         public void dropBranch(String dbName, String tableName, DropRefChange branch) {
-            Table icebergTable = loadTable(dbName, tableName);
-            SnapshotRef ref = icebergTable.refs().get(branch.getName());
-            if (ref != null || !branch.isIfExists()) {
-                icebergTable.manageSnapshots().removeBranch(branch.getName()).commit();
-            }
+            withTable(dbName, tableName, icebergTable -> {
+                SnapshotRef ref = icebergTable.refs().get(branch.getName());
+                if (ref != null || !branch.isIfExists()) {
+                    icebergTable.manageSnapshots().removeBranch(branch.getName()).commit();
+                }
+                return null;
+            });
         }
 
         @Override
         public void dropTag(String dbName, String tableName, DropRefChange tag) {
-            Table icebergTable = loadTable(dbName, tableName);
-            SnapshotRef ref = icebergTable.refs().get(tag.getName());
-            if (ref != null || !tag.isIfExists()) {
-                icebergTable.manageSnapshots().removeTag(tag.getName()).commit();
-            }
+            withTable(dbName, tableName, icebergTable -> {
+                SnapshotRef ref = icebergTable.refs().get(tag.getName());
+                if (ref != null || !tag.isIfExists()) {
+                    icebergTable.manageSnapshots().removeTag(tag.getName()).commit();
+                }
+                return null;
+            });
         }
 
         /** The explicit snapshot id, else the table's current snapshot id, else {@code null} (empty table). */
@@ -632,51 +704,60 @@ public interface IcebergCatalogOps {
 
         @Override
         public void addPartitionField(String dbName, String tableName, PartitionFieldChange change) {
-            UpdatePartitionSpec updateSpec = loadTable(dbName, tableName).updateSpec();
-            Term transform = getTransform(change.getTransformName(), change.getColumnName(),
-                    change.getTransformArg());
-            // A non-null partitionFieldName is the AS alias (mirroring IcebergMetadataOps.addPartitionField).
-            if (change.getPartitionFieldName() != null) {
-                updateSpec.addField(change.getPartitionFieldName(), transform);
-            } else {
-                updateSpec.addField(transform);
-            }
-            updateSpec.commit();
+            withTable(dbName, tableName, table -> {
+                UpdatePartitionSpec updateSpec = table.updateSpec();
+                Term transform = getTransform(change.getTransformName(), change.getColumnName(),
+                        change.getTransformArg());
+                // A non-null partitionFieldName is the AS alias (mirroring IcebergMetadataOps.addPartitionField).
+                if (change.getPartitionFieldName() != null) {
+                    updateSpec.addField(change.getPartitionFieldName(), transform);
+                } else {
+                    updateSpec.addField(transform);
+                }
+                updateSpec.commit();
+                return null;
+            });
         }
 
         @Override
         public void dropPartitionField(String dbName, String tableName, PartitionFieldChange change) {
-            UpdatePartitionSpec updateSpec = loadTable(dbName, tableName).updateSpec();
-            // Remove by field name when given, else by the transform that identifies the field (legacy parity).
-            if (change.getPartitionFieldName() != null) {
-                updateSpec.removeField(change.getPartitionFieldName());
-            } else {
-                Term transform = getTransform(change.getTransformName(), change.getColumnName(),
-                        change.getTransformArg());
-                updateSpec.removeField(transform);
-            }
-            updateSpec.commit();
+            withTable(dbName, tableName, table -> {
+                UpdatePartitionSpec updateSpec = table.updateSpec();
+                // Remove by field name when given, else by the transform that identifies the field (legacy parity).
+                if (change.getPartitionFieldName() != null) {
+                    updateSpec.removeField(change.getPartitionFieldName());
+                } else {
+                    Term transform = getTransform(change.getTransformName(), change.getColumnName(),
+                            change.getTransformArg());
+                    updateSpec.removeField(transform);
+                }
+                updateSpec.commit();
+                return null;
+            });
         }
 
         @Override
         public void replacePartitionField(String dbName, String tableName, PartitionFieldChange change) {
-            UpdatePartitionSpec updateSpec = loadTable(dbName, tableName).updateSpec();
-            // Remove the old field first, then add the new one — both in one spec update (legacy parity).
-            if (change.getOldPartitionFieldName() != null) {
-                updateSpec.removeField(change.getOldPartitionFieldName());
-            } else {
-                Term oldTransform = getTransform(change.getOldTransformName(), change.getOldColumnName(),
-                        change.getOldTransformArg());
-                updateSpec.removeField(oldTransform);
-            }
-            Term newTransform = getTransform(change.getTransformName(), change.getColumnName(),
-                    change.getTransformArg());
-            if (change.getPartitionFieldName() != null) {
-                updateSpec.addField(change.getPartitionFieldName(), newTransform);
-            } else {
-                updateSpec.addField(newTransform);
-            }
-            updateSpec.commit();
+            withTable(dbName, tableName, table -> {
+                UpdatePartitionSpec updateSpec = table.updateSpec();
+                // Remove the old field first, then add the new one — both in one spec update (legacy parity).
+                if (change.getOldPartitionFieldName() != null) {
+                    updateSpec.removeField(change.getOldPartitionFieldName());
+                } else {
+                    Term oldTransform = getTransform(change.getOldTransformName(), change.getOldColumnName(),
+                            change.getOldTransformArg());
+                    updateSpec.removeField(oldTransform);
+                }
+                Term newTransform = getTransform(change.getTransformName(), change.getColumnName(),
+                        change.getTransformArg());
+                if (change.getPartitionFieldName() != null) {
+                    updateSpec.addField(change.getPartitionFieldName(), newTransform);
+                } else {
+                    updateSpec.addField(newTransform);
+                }
+                updateSpec.commit();
+                return null;
+            });
         }
 
         /**

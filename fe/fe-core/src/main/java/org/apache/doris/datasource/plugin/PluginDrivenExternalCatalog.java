@@ -38,6 +38,7 @@ import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorSessionBuilder;
+import org.apache.doris.connector.ConnectorStatementScopeImpl;
 import org.apache.doris.connector.DefaultConnectorContext;
 import org.apache.doris.connector.DefaultConnectorValidationContext;
 import org.apache.doris.connector.ddl.CreateTableInfoToConnectorRequestConverter;
@@ -46,7 +47,6 @@ import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.connector.spi.ConnectorSession;
-import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorTestResult;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.ddl.ConnectorColumnPath;
@@ -344,8 +344,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
 
     @Override
     protected List<String> listDatabaseNames() {
+        ConnectorSession session = buildCrossStatementSession();
         try {
-            ConnectorSession session = buildCrossStatementSession();
             return PluginDrivenMetadata.get(session, connector).listDatabaseNames(session);
         } catch (RuntimeException e) {
             // The connector connects lazily: initLocalObjectsImpl() only constructs it, so the
@@ -356,30 +356,36 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             // connector-agnostic: any plugin that connects lazily gets the same treatment.
             recordDeferredInitError(e);
             throw e;
+        } finally {
+            session.getStatementScope().closeAll();
         }
     }
 
     @Override
     protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
         ConnectorSession session = buildCrossStatementSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-        List<String> tableNames = metadata.listTableNames(session, dbName);
-        // Deliberately the raw field, NOT hasConnectorCapability(): this already runs inside an initialized
-        // catalog, so re-entering makeSureInitialized() here would be pointless work on a listing path.
-        if (!connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_VIEW)) {
-            return tableNames;
+        try {
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            List<String> tableNames = metadata.listTableNames(session, dbName);
+            // Deliberately the raw field, NOT hasConnectorCapability(): this already runs inside an initialized
+            // catalog, so re-entering makeSureInitialized() here would be pointless work on a listing path.
+            if (!connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_VIEW)) {
+                return tableNames;
+            }
+            // Mirror legacy IcebergExternalCatalog.listTableNamesFromRemote: for a view-exposing connector
+            // (iceberg) SHOW TABLES includes both tables AND views, because the connector's listTableNames
+            // subtracts the view names. Re-merge the connector's view names here (the two sets are disjoint
+            // by construction, so a plain addAll cannot introduce duplicates).
+            List<String> viewNames = metadata.listViewNames(session, dbName);
+            if (viewNames.isEmpty()) {
+                return tableNames;
+            }
+            List<String> merged = new ArrayList<>(tableNames);
+            merged.addAll(viewNames);
+            return merged;
+        } finally {
+            session.getStatementScope().closeAll();
         }
-        // Mirror legacy IcebergExternalCatalog.listTableNamesFromRemote: for a view-exposing connector
-        // (iceberg) SHOW TABLES includes both tables AND views, because the connector's listTableNames
-        // subtracts the view names. Re-merge the connector's view names here (the two sets are disjoint
-        // by construction, so a plain addAll cannot introduce duplicates).
-        List<String> viewNames = metadata.listViewNames(session, dbName);
-        if (viewNames.isEmpty()) {
-            return tableNames;
-        }
-        List<String> merged = new ArrayList<>(tableNames);
-        merged.addAll(viewNames);
-        return merged;
     }
 
     @Override
@@ -1337,14 +1343,22 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     @Override
     public String fromRemoteDatabaseName(String remoteDatabaseName) {
         ConnectorSession session = buildCrossStatementSession();
-        return PluginDrivenMetadata.get(session, connector).fromRemoteDatabaseName(session, remoteDatabaseName);
+        try {
+            return PluginDrivenMetadata.get(session, connector).fromRemoteDatabaseName(session, remoteDatabaseName);
+        } finally {
+            session.getStatementScope().closeAll();
+        }
     }
 
     @Override
     public String fromRemoteTableName(String remoteDatabaseName, String remoteTableName) {
         ConnectorSession session = buildCrossStatementSession();
-        return PluginDrivenMetadata.get(session, connector)
-                .fromRemoteTableName(session, remoteDatabaseName, remoteTableName);
+        try {
+            return PluginDrivenMetadata.get(session, connector)
+                    .fromRemoteTableName(session, remoteDatabaseName, remoteTableName);
+        } finally {
+            session.getStatementScope().closeAll();
+        }
     }
 
     /**
@@ -1375,13 +1389,9 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      * Builds a {@link ConnectorSession} for a CROSS-STATEMENT background loader — one that fills a cache
      * living longer than any single statement (database/table name caches, schema cache, column-statistic
      * cache, row-count cache, the BE-driven metadata TVF). Identical to {@link #buildConnectorSession()}
-     * (same credential handling) except the per-statement scope is forced to
-     * {@link ConnectorStatementScope#NONE}. That makes the read-through a contract rather than an accident:
-     * a metadata resolved through {@link PluginDrivenMetadata#get} with this session is built fresh and never
-     * memoized into — nor closed with — some live statement's scope, even when the loader happens to run on a
-     * request/ANALYZE thread that has one (e.g. {@code fetchRowCount} reached synchronously from
-     * {@code AnalysisManager.buildAnalysisJobInfo}). Under NONE the funnel memoizes nothing, so this is
-     * byte-identical to a bare {@code getMetadata} call.
+     * (same credential handling) except it owns a fresh operation-local scope instead of borrowing a live SQL
+     * statement's scope. Every caller closes this scope in {@code finally}; this preserves cross-statement
+     * isolation while giving connector metadata and table borrowers a deterministic release boundary.
      */
     public ConnectorSession buildCrossStatementSession() {
         ConnectContext ctx = ConnectContext.get();
@@ -1391,14 +1401,14 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                     .withCatalogName(getName())
                     .withCatalogProperties(catalogProperty.getProperties())
                     .withUserSessionCapability(supportsUserSession())
-                    .withStatementScope(ConnectorStatementScope.NONE)
+                    .withStatementScope(new ConnectorStatementScopeImpl())
                     .build();
         }
         return ConnectorSessionBuilder.create()
                 .withCatalogId(getId())
                 .withCatalogName(getName())
                 .withCatalogProperties(catalogProperty.getProperties())
-                .withStatementScope(ConnectorStatementScope.NONE)
+                .withStatementScope(new ConnectorStatementScopeImpl())
                 .build();
     }
 
