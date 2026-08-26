@@ -66,8 +66,11 @@ public class IvmFullRefreshMTMV extends OneRewriteRuleFactory {
                         .filter(context -> context.getMode() == IvmRewriteContext.Mode.FULL)
                         .filter(IvmRewriteContext::hasFullRefreshStreamScans)
                         .isPresent())
-                .thenApply(ctx -> rewriteScan(ctx.root,
-                        ctx.statementContext.getIvmRewriteContext().get()))
+                .thenApply(ctx -> {
+                    ctx.statementContext.addPlannerHook(CloudTableStreamReadStateHook.INSTANCE);
+                    return rewriteScan(ctx.root,
+                            ctx.statementContext.getIvmRewriteContext().get());
+                })
                 .toRule(RuleType.IVM_FULL_REFRESH_MTMV);
     }
 

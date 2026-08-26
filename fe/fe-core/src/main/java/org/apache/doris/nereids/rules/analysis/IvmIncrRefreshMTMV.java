@@ -64,6 +64,7 @@ public class IvmIncrRefreshMTMV implements CustomRewriter {
         IvmRewriteContext context = rewriteContext.get();
         Plan rewritten = rewriteIncrementalPlan(plan, rewriteResult, context,
                 jobContext.getCascadesContext().getConnectContext());
+        CloudTableStreamReadStateHook.installReadStates(rewritten);
         rewriteResult.setIncrRefreshRewritten(true);
         return rewritten;
     }
