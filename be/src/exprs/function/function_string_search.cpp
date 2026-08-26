@@ -636,13 +636,14 @@ private:
             const StringRef delimiter_ref =
                     delimiter_column.get_data_at(index_check_const<delimiter_const>(i));
 
-            if (str_ref.size == 0) {
-                dest_offsets.push_back(dest_pos);
-                continue;
-            }
             if (delimiter_ref.size == 0) {
-                split_empty_delimiter(str_ref, column_string_chars, column_string_offsets,
-                                      string_pos, dest_pos);
+                if (str_ref.size != 0) {
+                    split_empty_delimiter(str_ref, column_string_chars, column_string_offsets,
+                                          string_pos, dest_pos);
+                }
+            } else if (str_ref.size == 0) {
+                column_string_offsets.push_back(string_pos);
+                dest_pos++;
             } else {
                 if constexpr (!delimiter_const) {
                     search.set_pattern(&delimiter_ref);
