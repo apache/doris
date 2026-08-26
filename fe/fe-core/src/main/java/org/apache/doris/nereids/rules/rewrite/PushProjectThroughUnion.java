@@ -63,6 +63,16 @@ public class PushProjectThroughUnion extends OneRewriteRuleFactory {
         if (projects.size() != logicalSetOperation.getOutput().size()) {
             return false;
         }
+        // A correlated subquery may reference outer slots in its project (e.g. an aliased outer
+        // column). Such slots have no producer inside the union children, so pushing the project
+        // through the union would leave a dangling slot reference in each child. Reject those
+        // projects here, before the children are rewritten (PushProjectIntoUnion has a similar
+        // late guard, but it is bypassed because this rule runs first).
+        for (NamedExpression project : projects) {
+            if (!logicalSetOperation.getOutputSet().containsAll(project.getInputSlots())) {
+                return false;
+            }
+        }
         boolean isAll = logicalSetOperation.getQualifier().equals(Qualifier.ALL);
         Set<ExprId> projectInputExprIds = Sets.newHashSetWithExpectedSize(projects.size());
         for (NamedExpression project : projects) {

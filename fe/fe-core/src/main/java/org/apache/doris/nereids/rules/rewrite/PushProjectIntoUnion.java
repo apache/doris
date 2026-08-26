@@ -100,6 +100,15 @@ public class PushProjectIntoUnion extends OneRewriteRuleFactory {
         if (union.getQualifier() != Qualifier.ALL || union.arity() != 0) {
             return false;
         }
+        // The project must only consume slots produced by the union. A correlated subquery may
+        // still have a project referencing an outer correlated slot (e.g. an aliased outer column
+        // that is resolved back to its producer); such slots have no constant producer in the
+        // union, so pushing the project into the union would leave a dangling slot reference.
+        for (NamedExpression ne : project.getProjects()) {
+            if (!union.getOutputSet().containsAll(ne.getInputSlots())) {
+                return false;
+            }
+        }
         for (List<NamedExpression> constExprs : union.getConstantExprsList()) {
             Set<Slot> uniqueFunctionSlots = Sets.newHashSet();
             for (int i = 0; i < constExprs.size(); i++) {
