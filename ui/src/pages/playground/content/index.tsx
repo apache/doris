@@ -16,70 +16,78 @@
  * specific language governing permissions and limitations
  * under the License.
  */
- 
-import React, {useState, useEffect, useContext, SyntheticEvent} from 'react';
+
+import React, { useState, useEffect, useContext, SyntheticEvent } from 'react';
 // import {Controlled as CodeMirror} from 'react-codemirror2';
 import styles from './index.less';
 import {
     CODEMIRROR_OPTIONS,
     AdhocContentRouteKeyEnum,
 } from '../adhoc.data';
-import {Button, Row, Col, notification} from 'antd';
-import {PlayCircleFilled} from '@ant-design/icons';
-import {Switch, Route, Redirect} from 'react-router';
-import {AdhocContentResult} from './content-result';
-import {useRequest} from '@umijs/hooks';
-import {AdHocAPI} from 'Src/api/api';
-import {Result} from '@src/interfaces/http.interface';
-import {isSuccess, getDbName, getTimeNow} from 'Utils/utils';
-import {CodeMirrorWithFullscreen} from 'Components/codemirror-with-fullscreen/codemirror-with-fullscreen';
+import { Button, Row, Col, notification } from 'antd';
+import { PlayCircleFilled } from '@ant-design/icons';
+import { Switch, Route, Redirect } from 'react-router';
+import { AdhocContentResult } from './content-result';
+import { useRequest } from '@umijs/hooks';
+import { AdHocAPI } from 'Src/api/api';
+import { Result } from '@src/interfaces/http.interface';
+import { isSuccess, getDbName, getTimeNow } from 'Utils/utils';
+import { saveHistory, cacheResult, getCachedResult, getHistory, removeHistoryItem, clearHistory, HistoryItem } from 'Utils/query-store';
+import { Drawer, List, Empty, Tag, Popconfirm } from 'antd';
+import { HistoryOutlined, DeleteOutlined } from '@ant-design/icons';
+import { CodeMirrorWithFullscreen } from 'Components/codemirror-with-fullscreen/codemirror-with-fullscreen';
 import {
     openInEditorSubject,
     runSQLSuccessSubject,
 } from '../adhoc.subject';
-import {FlatBtn} from 'Components/flatbtn';
-import {ContentStructure} from './content-structure';
+import { FlatBtn } from 'Components/flatbtn';
+import { ContentStructure } from './content-structure';
 import sqlFormatter from 'sql-formatter';
-import {useTranslation} from 'react-i18next';
-import {ResizableBox} from 'react-resizable';
+import { useTranslation } from 'react-i18next';
+import { ResizableBox } from 'react-resizable';
 require('react-resizable/css/styles.css');
 let editorInstance: any;
 let isQueryTableClicked = false;
 let isFieldNameInserted = false;
 export function AdHocContent(props: any) {
     let { t } = useTranslation();
-    const {match} = props;
+    const { match } = props;
     const [loading, setLoading] = useState({
         favoriteConfirm: false,
     });
     const [code, setCode] = useState('');
+    const [historyOpen, setHistoryOpen] = useState(false);
+    const [historyList, setHistoryList] = useState<HistoryItem[]>([]);
+
+    const openHistory = () => {
+        setHistoryList(getHistory());
+        setHistoryOpen(true);
+    };
     const editorAreaHeight = +(localStorage.getItem('editorAreaHeight') || 300);
     // const beginTime = getTimeNow();
     const runQuery = useRequest<Result<any>>(
         () =>
             AdHocAPI.doQuery({
-                db_name:getDbName().db_name,
-                body:{stmt:getCodeSql()},
+                db_name: getDbName().db_name,
+                body: { stmt: getCodeSql() },
             }),
         {
             manual: true,
             onSuccess: res => {
-                // const endTime = getTimeNow();
-                const {db_name, tbl_name} = getDbName();
-                if (isSuccess(res)) {
-                    res.sqlCode = getCodeSql();
-                    res = {...res, db_name, tbl_name}
-                    props.history.push({pathname:`/Playground/result/${db_name}-${tbl_name}`,state: res});
-                    runSQLSuccessSubject.next(true);
-                } else {
-                    res.sqlCode = getCodeSql();
-                    res = {...res, db_name, tbl_name}
-                    props.history.push({pathname:`/Playground/result/${db_name}-${tbl_name}`,state: res});
-                    runSQLSuccessSubject.next(false);
+                const { db_name, tbl_name } = getDbName();
+                const sql = getCodeSql();
+                const ok = isSuccess(res);
+                res.sqlCode = sql;
+                res = { ...res, db_name, tbl_name };
+                saveHistory({ sql, dbName: db_name, tblName: tbl_name, success: ok, time: getTimeNow() });
+                if (ok) {
+                    cacheResult(sql, db_name, tbl_name, res);
                 }
+                props.history.push({ pathname: `/Playground/result/${db_name}-${tbl_name}`, state: res });
+                runSQLSuccessSubject.next(ok);
             },
             onError: () => {
-                notification.error({message: t('errMsg')});
+                notification.error({ message: t('errMsg') });
                 runSQLSuccessSubject.next(false);
             },
         },
@@ -115,13 +123,24 @@ export function AdHocContent(props: any) {
     function setEditorCursor(insert = false) {
         setTimeout(() => {
             editorInstance.focus();
-            editorInstance.setCursor({line: 0, ch: 7});
+            editorInstance.setCursor({ line: 0, ch: 7 });
             isFieldNameInserted = insert;
         }, 0);
     }
 
 
-    function handleRunQuery() {
+    function handleRunQuery(force = false) {
+        const sql = getCodeSql();
+        const { db_name, tbl_name } = getDbName();
+        if (!force) {
+            const cached = getCachedResult(sql, db_name);
+            if (cached) {
+                const res: any = { ...cached.result, sqlCode: sql, db_name, tbl_name, fromCache: true, cachedAt: cached.cachedAt };
+                props.history.push({ pathname: `/Playground/result/${db_name}-${tbl_name}`, state: res });
+                runSQLSuccessSubject.next(true);
+                return;
+            }
+        }
         runQuery.run();
     }
 
@@ -138,7 +157,7 @@ export function AdHocContent(props: any) {
     }
     return (
         <div>
-            <Row justify="space-between" style={{marginBottom: 10}}>
+            <Row justify="space-between" style={{ marginBottom: 10 }}>
                 <Col>{t('editor')} &nbsp;&nbsp;
                     <Button size='small' onClick={() => {
                         const sqlStr = sqlFormatter.format(code);
@@ -150,7 +169,7 @@ export function AdHocContent(props: any) {
                     editorInstance.focus();
                 }}>{t('clear')}</FlatBtn></Col>
             </Row>
-            <Row justify="space-between" style={{marginBottom: 10, fontSize:'12px'}}>
+            <Row justify="space-between" style={{ marginBottom: 10, fontSize: '12px' }}>
                 {t('currentDatabase')}: {getDbName().db_name}
             </Row>
             <ResizableBox
@@ -184,21 +203,18 @@ export function AdHocContent(props: any) {
                     >
                         <Col>
                             <Button
-                                icon={<PlayCircleFilled/>}
+                                icon={<PlayCircleFilled />}
                                 disabled={!code}
                                 type="primary"
                                 onClick={() => handleRunQuery()}
-                                loading={runQuery.loading}
-                            >
-                                {t('execute')}
+                                loading={runQuery.loading}>{t('execute')}
                             </Button>
                         </Col>
-                        {/* <Button
-                            onClick={() =>props.isDoris?setShowHistory(true):props.history.push('/adhoc/history')}
-                            type="default"
-                        >
-                            历史查询
-                        </Button> */}
+                        <Col>
+                            <Button icon={<HistoryOutlined />} onClick={openHistory}>
+                                {t('history')}
+                            </Button>
+                        </Col>
                     </Row>
                 </div>
             </ResizableBox>
@@ -214,8 +230,8 @@ export function AdHocContent(props: any) {
                 <Route
                     path={`${match.path}/${AdhocContentRouteKeyEnum.Structure}/:table`}
                     render={props => (
-                        <div style={{display:'flex',height:'53vh'}}>
-                            <div style={{flex:3}}>
+                        <div style={{ display: 'flex', height: '53vh' }}>
+                            <div style={{ flex: 3 }}>
                                 <ContentStructure
                                     queryTable={tableName =>
                                         handleQueryTable(tableName)
@@ -224,7 +240,7 @@ export function AdHocContent(props: any) {
                                         handleNameClicked(fieldName)
                                     }
                                     isDoris={props.isDoris}
-                                    // tabChange={() =>console.log(11)}
+                                // tabChange={() =>console.log(11)}
                                 />
                             </div>
                             {/* <div style={{flex:1}}>
@@ -245,4 +261,4 @@ export function AdHocContent(props: any) {
         </div>
     );
 }
- 
+

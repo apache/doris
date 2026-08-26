@@ -51,5 +51,9 @@
     "search":"Search",
     "executionFailed":"Execution failed",
     "loading":"loading",
-    "Download": "Download"
+    "Download": "Download",
+    "history": "History",
+    "noHistory": "No query history",
+    "clearHistoryConfirm": "Clear all history?",
+    "cachedResult": "Cached"
 }
