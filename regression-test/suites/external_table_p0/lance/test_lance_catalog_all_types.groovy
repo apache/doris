@@ -29,6 +29,9 @@ suite("test_lance_catalog_all_types","p0,external") {
     String catalogName = "test_lance_catalog_all_types"
     String databaseName = "default"
     String tableName = "all_types"
+    def scannerV2Rows = sql """SHOW VARIABLES LIKE 'enable_file_scanner_v2'"""
+    assertEquals(1, scannerV2Rows.size())
+    String originalScannerV2 = scannerV2Rows[0][1].toString()
 
     /*
      * Lance/Arrow to Doris type mapping exercised by this fixture:
@@ -84,6 +87,7 @@ suite("test_lance_catalog_all_types","p0,external") {
 
     sql """DROP CATALOG IF EXISTS `${catalogName}`"""
     try {
+        sql """SET enable_file_scanner_v2 = true"""
         sql """
             CREATE CATALOG `${catalogName}` PROPERTIES (
                 "type" = "lance",
@@ -125,6 +129,21 @@ suite("test_lance_catalog_all_types","p0,external") {
             where row_id = 1;
         """
 
+        // 验证新增 Lance 类型不仅能完成 Schema 映射，也能读取实际值。
+        qt_additional_lance_types """
+            SELECT
+                null_col IS NULL AS null_is_null,
+                duration_s_col,
+                duration_ms_col,
+                duration_us_col,
+                duration_ns_col,
+                hex(blob_col) AS blob_col,
+                CAST(json_col AS STRING) AS json_col,
+                bfloat16_vector_col
+            FROM `${catalogName}`.`${databaseName}`.`${tableName}`
+            WHERE row_id = 1
+        """
+
         def timestampRows = sql """
             SELECT timestamp_us_col, timestamp_us_utc_col
             FROM `${catalogName}`.`${databaseName}`.`${tableName}`
@@ -144,6 +163,7 @@ suite("test_lance_catalog_all_types","p0,external") {
         assertEquals("2026-07-28 12:34:56.123456+00:00", timestampRows[0][1].toString())
 
     } finally {
+        sql """SET enable_file_scanner_v2 = ${originalScannerV2}"""
         // sql """DROP CATALOG IF EXISTS `${catalogName}`"""
     }
 }
