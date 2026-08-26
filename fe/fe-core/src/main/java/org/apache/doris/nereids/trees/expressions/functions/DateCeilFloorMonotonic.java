@@ -17,10 +17,12 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
-/** monotonicity of XX_CEIL and XX_FLOOR */
-public interface DateCeilFloorMonotonic extends Monotonic {
+/** Monotonicity and rounding relation of date/time ceil and floor functions. */
+public interface DateCeilFloorMonotonic extends RoundingMonotonic {
     @Override
     default boolean isMonotonic(Literal lower, Literal upper) {
         switch (arity()) {
@@ -43,5 +45,21 @@ public interface DateCeilFloorMonotonic extends Monotonic {
     @Override
     default int getMonotonicFunctionChildIndex() {
         return 0;
+    }
+
+    @Override
+    default boolean isRoundingRelationGuaranteed() {
+        if (arity() == 1) {
+            return true;
+        }
+        if (arity() == 2 && getArgument(1).getDataType().isDateLikeType()) {
+            return true;
+        }
+        return (arity() == 2 || arity() == 3) && isPositiveIntegerLiteral(getArgument(1));
+    }
+
+    private boolean isPositiveIntegerLiteral(Expression expression) {
+        return expression instanceof IntegerLikeLiteral
+                && ((IntegerLikeLiteral) expression).getBigDecimalValue().signum() > 0;
     }
 }
