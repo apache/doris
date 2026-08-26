@@ -680,6 +680,10 @@ public class Config extends ConfigBase {
             "Minimal number of write successful replicas for load job."})
     public static short min_load_replica_num = -1;
 
+    @ConfField(mutable = true, masterOnly = true, description = "Minimum number of successfully written replicas "
+            + "required in each resource group for a load job.")
+    public static volatile String[] resource_group_load_success_quorum = {};
+
     @ConfField(description = {"load job 调度器的执行间隔，单位是秒。",
             "The interval of load job scheduler, in seconds."})
     public static int load_checker_interval_second = 5;
