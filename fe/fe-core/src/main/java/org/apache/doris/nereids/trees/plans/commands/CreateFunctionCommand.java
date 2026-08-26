@@ -298,6 +298,11 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
+        if (Env.getCurrentEnv().getFunctionRegistry()
+                .isBuiltinAggStateCombinator(functionName.getFunction())) {
+            throw new AnalysisException("Function name '" + functionName.getFunction()
+                    + "' is reserved for built-in aggregate state combinators");
+        }
         // check argument
         argsDef.analyze();
 

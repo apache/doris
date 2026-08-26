@@ -107,14 +107,23 @@ class CombineCombinatorTest {
     }
 
     @Test
-    void testScalarFunctionDoesNotSupportCombine() {
+    void testAggStateCombinatorClassification() {
         SlotReference argument = new SlotReference("value", IntegerType.INSTANCE, false);
         FunctionRegistry functionRegistry = new FunctionRegistry();
         Assertions.assertTrue(functionRegistry
                 .findBuiltinFunctionBuilder("abs_combine", ImmutableList.of(argument)).isEmpty());
+        Assertions.assertFalse(functionRegistry.isBuiltinAggStateCombinator("abs_combine"));
         Assertions.assertFalse(functionRegistry.isAggregateFunction(null, "abs_combine"));
-        Assertions.assertFalse(functionRegistry.isAggregateFunction(null, "avg_combine"));
-        Assertions.assertFalse(functionRegistry.isAggregateFunction(null, "avg_union"));
+        Assertions.assertTrue(functionRegistry.isBuiltinAggStateCombinator("avg_state"));
+        Assertions.assertTrue(functionRegistry.isBuiltinAggStateCombinator("avg_merge"));
+        Assertions.assertTrue(functionRegistry.isBuiltinAggStateCombinator("avg_union"));
+        Assertions.assertTrue(functionRegistry.isBuiltinAggStateCombinator("avg_combine"));
+        Assertions.assertTrue(functionRegistry.isBuiltinAggStateCombinator("avg_foreach"));
+        Assertions.assertFalse(functionRegistry.isAggregateFunction(null, "avg_state"));
+        Assertions.assertTrue(functionRegistry.isAggregateFunction(null, "avg_merge"));
+        Assertions.assertTrue(functionRegistry.isAggregateFunction(null, "avg_union"));
+        Assertions.assertTrue(functionRegistry.isAggregateFunction(null, "avg_combine"));
+        Assertions.assertTrue(functionRegistry.isAggregateFunction(null, "avg_foreach"));
     }
 
     @Test
