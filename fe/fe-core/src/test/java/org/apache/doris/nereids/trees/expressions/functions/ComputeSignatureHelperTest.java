@@ -327,14 +327,13 @@ public class ComputeSignatureHelperTest {
                 new ArrayLiteral(Lists.newArrayList(new IntegerLiteral(0))));
         signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
         Assertions.assertTrue(signature.getArgType(0) instanceof ArrayType);
-        // each decimal slot is promoted by its own argument type instead of the wider type
-        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(5, 4),
+        // non-MAP decimal slots keep the original behavior of using the wider type
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(7, 4),
                 ((ArrayType) signature.getArgType(0)).getItemType());
         Assertions.assertTrue(signature.getArgType(1) instanceof ArrayType);
-        // null argument falls back to the wider type of all concrete decimal slots
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(7, 4),
                 ((ArrayType) signature.getArgType(1)).getItemType());
-        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(6, 3),
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(7, 4),
                 signature.getArgType(2));
         Assertions.assertTrue(signature.getArgType(4) instanceof ArrayType);
         Assertions.assertEquals(IntegerType.INSTANCE,
@@ -360,12 +359,13 @@ public class ComputeSignatureHelperTest {
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(7, 5),
                 ((MapType) signature.getArgType(0)).getValueType());
         Assertions.assertTrue(signature.getArgType(1) instanceof MapType);
-        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(8, 5),
+        // a NULL MAP argument falls back to the wider type of the corresponding group
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(5, 4),
                 ((MapType) signature.getArgType(1)).getKeyType());
-        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(8, 5),
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(7, 5),
                 ((MapType) signature.getArgType(1)).getValueType());
-        // each decimal slot is promoted by its own argument type instead of the wider type
-        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(6, 3),
+        // non-MAP decimal slots keep the original behavior of using the wider type
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(8, 5),
                 signature.getArgType(2));
     }
 
@@ -383,6 +383,89 @@ public class ComputeSignatureHelperTest {
                 ((MapType) signature.getArgType(0)).getKeyType());
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(18, 18),
                 ((MapType) signature.getArgType(0)).getValueType());
+    }
+
+    @Test
+    void testVarArgMapDecimalV3ComputePrecision() {
+        // a variadic MAP argument: the key leaves of all repeated arguments aggregate
+        // while key and value stay independent instead of being merged into one wider type
+        FunctionSignature signature = FunctionSignature.ret(BooleanType.INSTANCE)
+                .varArgs(MapType.of(DecimalV3Type.WILDCARD, DecimalV3Type.WILDCARD));
+        Map<Literal, Literal> map = Maps.newLinkedHashMap();
+        map.put(new DecimalV3Literal(new BigDecimal("12345678901234567890")),
+                new DecimalV3Literal(new BigDecimal("0.125000000000000000")));
+        List<Expression> arguments = Lists.newArrayList(new MapLiteral(map));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
+        Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(20, 0),
+                ((MapType) signature.getArgType(0)).getKeyType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(18, 18),
+                ((MapType) signature.getArgType(0)).getValueType());
+    }
+
+    @Test
+    void testFieldDecimalV3VarArgOneType() {
+        // field declares varArgs(DECIMALV3, DECIMALV3): its fixed first operand and the
+        // repeated tail are one comparison type and must be promoted to one type
+        FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE)
+                .varArgs(DecimalV3Type.WILDCARD, DecimalV3Type.WILDCARD);
+        List<Expression> arguments = Lists.newArrayList(
+                new DecimalV3Literal(new BigDecimal("1.20")),
+                new DecimalV3Literal(new BigDecimal("1.200")));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(4, 3), signature.getArgType(0));
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(4, 3), signature.getArgType(1));
+    }
+
+    @Test
+    void testElementAtLinkedDecimalV3ComputePrecision() {
+        // Simulate the signature after Any/Follow resolution of element_at: the MAP key
+        // and the lookup slot are resolved to the same DECIMAL(9, 2), while the lookup
+        // argument is a wider DECIMAL(10, 3). Both must be promoted to DECIMAL(10, 3)
+        // so the BE compares columns of the same concrete decimal class.
+        FunctionSignature signature = FunctionSignature.ret(DecimalV3Type.createDecimalV3Type(5, 2))
+                .args(MapType.of(DecimalV3Type.createDecimalV3Type(9, 2),
+                                DecimalV3Type.createDecimalV3Type(5, 2)),
+                        DecimalV3Type.createDecimalV3Type(9, 2));
+        Map<Literal, Literal> map = Maps.newLinkedHashMap();
+        map.put(new DecimalV3Literal(new BigDecimal("1234567.89")),
+                new DecimalV3Literal(new BigDecimal("123.45")));
+        List<Expression> arguments = Lists.newArrayList(
+                new MapLiteral(map),
+                new DecimalV3Literal(new BigDecimal("1234567.891")));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
+        Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
+        // the MAP key and the linked lookup slot are promoted to one type
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(10, 3),
+                ((MapType) signature.getArgType(0)).getKeyType());
+        // the MAP value keeps its own type
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(5, 2),
+                ((MapType) signature.getArgType(0)).getValueType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(10, 3), signature.getArgType(1));
+    }
+
+    @Test
+    void testElementAtNullLookupLinkedDecimalV3ComputePrecision() {
+        // a NULL lookup must fall back to the MAP key group instead of the wider type of
+        // an unrelated MAP leaf (the value), so it can still match the MAP key type
+        FunctionSignature signature = FunctionSignature.ret(DecimalV3Type.createDecimalV3Type(18, 18))
+                .args(MapType.of(DecimalV3Type.createDecimalV3Type(9, 2),
+                                DecimalV3Type.createDecimalV3Type(18, 18)),
+                        DecimalV3Type.createDecimalV3Type(9, 2));
+        Map<Literal, Literal> map = Maps.newLinkedHashMap();
+        map.put(new DecimalV3Literal(new BigDecimal("1234567.89")),
+                new DecimalV3Literal(new BigDecimal("0.000000000000000001")));
+        List<Expression> arguments = Lists.newArrayList(
+                new MapLiteral(map),
+                new NullLiteral());
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
+        Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(9, 2),
+                ((MapType) signature.getArgType(0)).getKeyType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(18, 18),
+                ((MapType) signature.getArgType(0)).getValueType());
+        // the NULL lookup keeps the MAP key type instead of the wider type
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(9, 2), signature.getArgType(1));
     }
 
     @Test
