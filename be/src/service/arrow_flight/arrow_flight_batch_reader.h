@@ -100,6 +100,7 @@ private:
 
     std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
     std::once_flag _timezone_once_flag;
+    bool _timezone_valid = false;
     std::shared_ptr<Block> _block;
 };
 

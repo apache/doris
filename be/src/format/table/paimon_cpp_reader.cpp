@@ -26,6 +26,7 @@
 #include "arrow/c/bridge.h"
 #include "arrow/record_batch.h"
 #include "arrow/result.h"
+#include "common/logging.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "format/table/paimon_doris_file_system.h"
@@ -54,7 +55,7 @@ PaimonCppReader::PaimonCppReader(const std::vector<SlotDescriptor*>& file_slot_d
           _profile(profile),
           _range(range),
           _range_params(range_params) {
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _ctzz);
+    DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _ctzz));
     if (range.__isset.table_format_params &&
         range.table_format_params.__isset.table_level_row_count) {
         _remaining_table_level_row_count = range.table_format_params.table_level_row_count;

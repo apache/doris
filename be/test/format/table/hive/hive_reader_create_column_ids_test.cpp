@@ -28,6 +28,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/check.h"
 #include "common/object_pool.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
@@ -163,8 +164,8 @@ protected:
         cache = std::make_unique<doris::FileMetaCache>(1024);
 
         // Setup timezone
-        doris::TimezoneUtils::find_cctz_time_zone(doris::TimezoneUtils::default_time_zone,
-                                                  timezone_obj);
+        ASSERT_TRUE(doris::TimezoneUtils::find_cctz_time_zone(
+                doris::TimezoneUtils::default_time_zone, timezone_obj));
     }
 
     void TearDown() override { cache.reset(); }
@@ -659,7 +660,7 @@ protected:
         RuntimeProfile profile("test_profile");
 
         cctz::time_zone ctz;
-        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+        DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
 
         auto hive_reader =
                 std::make_unique<HiveParquetReader>(&profile, scan_params, scan_range, 1024, &ctz,
@@ -699,7 +700,7 @@ protected:
         RuntimeProfile profile("test_profile");
 
         cctz::time_zone ctz;
-        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+        DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
 
         auto hive_reader =
                 std::make_unique<HiveOrcReader>(&profile, &runtime_state, scan_params, scan_range,

@@ -206,16 +206,13 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
             RE2 time_zone_pattern(R"([+-]\d{2}:?\d{2}|Z)");
             bool ok = false;
             std::string fmt;
-            re2::StringPiece value;
-            if (time_zone_pattern.Match(str_date, 0, str_date.size(), RE2::UNANCHORED, &value, 1)) {
+            if (time_zone_pattern.Match(str_date, 0, str_date.size(), RE2::UNANCHORED,
+                                        nullptr, 0)) {
                 // with time_zone info
                 // YYYY-MM-DDTHH:MM:SSZ or YYYY-MM-DDTHH:MM:SS+08:00
                 // or 2022-08-08T12:10:10.000Z or YYYY-MM-DDTHH:MM:SS-08:00
                 fmt = "%Y-%m-%dT%H:%M:%E*S%Ez";
-                cctz::time_zone ctz;
-                // find time_zone by time_zone suffix string
-                TimezoneUtils::find_cctz_time_zone(value.as_string(), ctz);
-                ok = cctz::parse(fmt, str_date, ctz, &tp);
+                ok = cctz::parse(fmt, str_date, cctz::utc_time_zone(), &tp);
             } else {
                 // without time_zone info
                 // 2022-08-08T12:10:10.000

@@ -184,7 +184,10 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
     size_t chunk_size = chunk_meta.total_compressed_size;
 
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    if (!TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz)) {
+        return Status::InvalidArgument("Invalid default timezone: {}",
+                                       TimezoneUtils::default_time_zone);
+    }
     auto _converter = parquet::PhysicalToLogicalConverter::get_converter(
             field_schema, field_schema->data_type, data_type, &ctz, false);
     if (!_converter->support()) {

@@ -568,7 +568,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int scale = 6;
         std::string tz_str = "+08:00";
         cctz::time_zone tz;
-        TimezoneUtils::find_cctz_time_zone(tz_str, tz);
+        ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(tz_str, tz));
         DateV2Value<DateTimeV2ValueType> datetime_v2;
         datetime_v2.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
         TimestampTzValue tz_value;

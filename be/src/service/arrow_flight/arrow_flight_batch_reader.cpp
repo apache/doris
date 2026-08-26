@@ -262,8 +262,13 @@ arrow::Status ArrowFlightBatchRemoteReader::_fetch_data() {
 
         std::call_once(_timezone_once_flag, [this, callback] {
             DCHECK(callback->response_->has_timezone());
-            TimezoneUtils::find_cctz_time_zone(callback->response_->timezone(), _timezone_obj);
+            _timezone_valid = TimezoneUtils::find_cctz_time_zone(callback->response_->timezone(),
+                                                                 _timezone_obj);
         });
+        if (!_timezone_valid) {
+            return _return_invalid_status(
+                    fmt::format("Invalid timezone: {}", callback->response_->timezone()));
+        }
 
         {
             SCOPED_ATOMIC_TIMER(&_deserialize_block_timer);

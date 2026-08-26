@@ -49,7 +49,7 @@ ArrowStreamReader::ArrowStreamReader(RuntimeState* state, RuntimeProfile* profil
           _file_slot_descs(file_slot_descs),
           _io_ctx(io_ctx),
           _file_reader(nullptr) {
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _ctzz);
+    DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _ctzz));
 }
 
 ArrowStreamReader::~ArrowStreamReader() = default;

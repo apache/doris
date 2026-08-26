@@ -49,6 +49,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/check.h"
 #include "common/config.h"
 #include "common/object_pool.h"
 #include "common/status.h"
@@ -419,7 +420,7 @@ public:
         auto local_fs = io::global_local_filesystem();
         io::FileReaderSPtr local_file_reader;
         static_cast<void>(local_fs->open_file(file_path, &local_file_reader));
-        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+        ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
         //        auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
         std::vector<std::string> column_names;
         std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
@@ -474,7 +475,7 @@ public:
         static_cast<void>(local_fs->open_file(file_path, &local_file_reader));
 
         cctz::time_zone local_ctz;
-        TimezoneUtils::find_cctz_time_zone(timezone_name, local_ctz);
+        DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(timezone_name, local_ctz));
 
         std::vector<std::string> column_names;
         std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
