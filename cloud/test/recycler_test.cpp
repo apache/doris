@@ -3208,10 +3208,41 @@ TEST(RecyclerTest, recycle_tablet_packed_file_ref_count) {
     }
     std::string merged_key = packed_file_key({instance_id, packed_file_path});
     txn->put(merged_key, merged_info.SerializeAsString());
+
+    // Delete bitmap metadata is stored as a blob and its packed-file slice must be
+    // decremented when the tablet is recycled as well.
+    const std::string delete_bitmap_packed_file_path =
+            fmt::format("data/merge_file/{}/delete_bitmap.dat", tablet_id);
+    const std::string delete_bitmap_key = versioned::meta_delete_bitmap_key(
+            {instance_id, tablet_id, merged_rowset.rowset_id_v2()});
+    DeleteBitmapStoragePB delete_bitmap_storage;
+    delete_bitmap_storage.set_store_in_fdb(false);
+    auto* delete_bitmap_location = delete_bitmap_storage.mutable_packed_slice_location();
+    delete_bitmap_location->set_packed_file_path(delete_bitmap_packed_file_path);
+    delete_bitmap_location->set_offset(0);
+    delete_bitmap_location->set_size(kSmallFileSize);
+    cloud::blob_put(txn.get(), delete_bitmap_key, delete_bitmap_storage, 0);
+
+    PackedFileInfoPB delete_bitmap_info;
+    delete_bitmap_info.set_ref_cnt(1);
+    delete_bitmap_info.set_total_slice_num(1);
+    delete_bitmap_info.set_total_slice_bytes(kSmallFileSize);
+    delete_bitmap_info.set_remaining_slice_bytes(kSmallFileSize);
+    delete_bitmap_info.set_state(PackedFileInfoPB::NORMAL);
+    delete_bitmap_info.set_resource_id(std::string(kResourceId));
+    auto* delete_bitmap_slice = delete_bitmap_info.add_slices();
+    delete_bitmap_slice->set_path(delete_bitmap_path(tablet_id, merged_rowset.rowset_id_v2()));
+    delete_bitmap_slice->set_offset(0);
+    delete_bitmap_slice->set_size(kSmallFileSize);
+    delete_bitmap_slice->set_rowset_id(merged_rowset.rowset_id_v2());
+    delete_bitmap_slice->set_tablet_id(tablet_id);
+    txn->put(packed_file_key({instance_id, delete_bitmap_packed_file_path}),
+             delete_bitmap_info.SerializeAsString());
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
 
     // Prepare object storage files.
     ASSERT_EQ(0, accessor->put_file(packed_file_path, "payload"));
+    ASSERT_EQ(0, accessor->put_file(delete_bitmap_packed_file_path, "delete bitmap payload"));
     for (int i = 0; i < merged_rowset.num_segments(); ++i) {
         auto path = segment_path(tablet_id, merged_rowset.rowset_id_v2(), i);
         ASSERT_EQ(0, accessor->put_file(path, "segment"));
@@ -3228,6 +3259,11 @@ TEST(RecyclerTest, recycle_tablet_packed_file_ref_count) {
     std::string merged_val;
     EXPECT_EQ(TxnErrorCode::TXN_KEY_NOT_FOUND, txn->get(merged_key, &merged_val));
     EXPECT_EQ(1, accessor->exists(packed_file_path));
+    std::string delete_bitmap_packed_file_val;
+    EXPECT_EQ(TxnErrorCode::TXN_KEY_NOT_FOUND,
+              txn->get(packed_file_key({instance_id, delete_bitmap_packed_file_path}),
+                       &delete_bitmap_packed_file_val));
+    EXPECT_EQ(1, accessor->exists(delete_bitmap_packed_file_path));
 
     // tablet directory should be cleaned.
     std::unique_ptr<ListIterator> list_iter;
