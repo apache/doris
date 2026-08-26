@@ -712,8 +712,9 @@ public class TypeCoercionMatrixTest {
                 new EqualTo(new SlotReference("left", TimeStampNsType.INSTANCE),
                         new SlotReference("right", DateTimeV2Type.MAX)));
         Assertions.assertEquals(TimeStampNsType.INSTANCE, timestampNsDateTime.child(0).getDataType());
-        Assertions.assertEquals(DateTimeV2Type.MAX, timestampNsDateTime.child(1).getDataType());
-        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, TimeStampTzType.MAX, null);
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, timestampNsDateTime.child(1).getDataType());
+        testProcessComparisonPredicate(
+                TimeStampNsType.INSTANCE, TimeStampTzType.MAX, TimeStampNsType.INSTANCE);
         testProcessComparisonPredicate(TimeStampNsType.INSTANCE, TimeV2Type.MAX, TimeStampNsType.INSTANCE);
         testProcessComparisonPredicate(TimeStampNsType.INSTANCE, StringType.INSTANCE, TimeStampNsType.INSTANCE);
         testProcessComparisonPredicate(DateTimeV2Type.of(4), ArrayType.of(StringType.INSTANCE), null);
