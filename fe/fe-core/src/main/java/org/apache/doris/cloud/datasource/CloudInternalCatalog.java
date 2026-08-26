@@ -501,7 +501,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         schemaBuilder.setNumShortKeyColumns(shortKeyColumnCount);
         schemaBuilder.setNumRowsPerRowBlock(1024);
         schemaBuilder.setCompressKind(OlapCommon.CompressKind.COMPRESS_LZ4);
-        schemaBuilder.setBfFpp(bfFpp);
+        if (bfColumns != null && !bfColumns.isEmpty()) {
+            schemaBuilder.setBfFpp(bfFpp);
+        }
 
         int deleteSign = -1;
         int sequenceCol = -1;

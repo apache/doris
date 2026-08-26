@@ -3084,10 +3084,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     /**
      * An {@code @incr} read folds all changes to a row into one record: TSO is the tie-break column
      * ordering them, and the folded result is written back into OP as the change kind the user
-     * sees, so every scan type needs both slots present. {@code SELECT k, v FROM
-     * t@incr("incrementType" = "DETAIL")} also needs the keys to group by and, when the table keeps
-     * historical values, {@code __BEFORE__v__} to report what v was before the change; APPEND_ONLY
-     * never groups and needs neither.
+     * sees, so every scan type needs both slots present. MIN_DELTA compares the complete first
+     * BEFORE and last AFTER row images, including value columns omitted by the SQL projection.
+     * DETAIL needs BEFORE images only for projected values. APPEND_ONLY never groups and needs
+     * neither keys nor BEFORE images.
      */
     private void preserveRowBinlogSemanticSlots(OlapScanNode scanNode, Set<SlotId> requiredSlotIds) {
         RowBinlogTableWrapper wrapper = (RowBinlogTableWrapper) scanNode.getOlapTable();
@@ -3121,12 +3121,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // are no before-image storage dependencies to preserve.
             return;
         }
+        boolean preserveCompleteRow = scanType == TBinlogScanType.MIN_DELTA;
         for (SlotDescriptor slot : scanSlots) {
             Column column = slot.getColumn();
-            if (column == null || column.isKey() || !requiredSlotIds.contains(slot.getId())
-                    || isRowBinlogInternalColumn(column)) {
+            if (column == null || column.isKey() || isRowBinlogInternalColumn(column)
+                    || (!preserveCompleteRow && !requiredSlotIds.contains(slot.getId()))) {
                 continue;
             }
+            preserveStorageSlot(slot, requiredSlotIds);
             preserveStorageSlot(slotByName.get(Column.generateBeforeColName(column.getName())),
                     requiredSlotIds);
         }
@@ -3303,6 +3305,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 || aggregate.getAggMode() != AggMode.INPUT_TO_RESULT) {
             return false;
         }
+        // BucketedAggregationNode always finalizes into the output tuple slot
+        // types (need_finalize=true, isPartial=false), so fusing an aggregate
+        // whose functions produce buffers (partial) would fail the BE
+        // result-type check: the slot type of a buffer-producing function is
+        // Varchar while the function's final return type (e.g. DOUBLE for
+        // stddev) is what insert_result_into writes. The one-phase GLOBAL
+        // dedup aggregate of a 3-phase DISTINCT plan has exactly this shape —
+        // the node itself is INPUT_TO_RESULT but its non-distinct functions
+        // run in INPUT_TO_BUFFER mode — and must stay on the regular
+        // AggregationNode path, which serializes when isPartial.
+        if (containsPartialAggFunction(aggregate)) {
+            return false;
+        }
         // Exclude one-phase-only aggregates (e.g. GROUP_CONCAT with ORDER BY).
         // BucketedAggregationNode has no sort-info field, so fusing would drop
         // the aggregate ORDER BY contract. Only aggregates supporting two-phase
@@ -3430,6 +3445,34 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
         return true;
+    }
+
+    /**
+     * Check whether the aggregate's output contains any buffer-producing
+     * (partial) aggregate function, i.e. an AggregateExpression in a mode with
+     * productAggregateBuffer=true. BucketedAggregationNode cannot carry such
+     * functions: it always finalizes into the output tuple slot types, while a
+     * buffer-producing function's slot type is the serialized Varchar type
+     * (AggregateExpression.getDataType) — writing the final result (e.g. DOUBLE
+     * for stddev) into that String column fails the BE result-type check.
+     */
+    private boolean containsPartialAggFunction(PhysicalHashAggregate<? extends Plan> aggregate) {
+        for (NamedExpression o : aggregate.getOutputExpressions()) {
+            AtomicBoolean foundPartial = new AtomicBoolean(false);
+            o.foreach(c -> {
+                if (c instanceof AggregateExpression) {
+                    if (((AggregateExpression) c).getAggregateParam().aggMode.productAggregateBuffer) {
+                        foundPartial.set(true);
+                    }
+                    return true;
+                }
+                return false;
+            });
+            if (foundPartial.get()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

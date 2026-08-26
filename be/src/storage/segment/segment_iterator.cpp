@@ -1178,8 +1178,8 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     }
 
     {
-        SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_zonemap_ns);
         if (!_common_expr_ctxs_push_down.empty()) {
+            SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_zonemap_ns);
             const auto pre_expr_zonemap_size = condition_row_ranges->count();
             RETURN_IF_ERROR(_apply_expr_zonemap_to_row_ranges(_common_expr_ctxs_push_down, 0,
                                                               condition_row_ranges));
@@ -1559,6 +1559,15 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
         // weight schema change may not be enabled or other reasons
         // caused the column unique_id not be set, to prevent errors
         // occurring, return true here that column data needs to be read
+        return true;
+    }
+    // Row-binlog incremental reads force-push the TSO range predicate (see
+    // OlapScanner::_init_tso_predicate), and the merge iterator uses the TSO column as its
+    // sequence sort key (BetaRowsetReader sets binlog_tso_idx). On a cross-version rowset
+    // (e.g. produced by binlog LMax quick-merge) the TSO zonemap can be always-true, so the
+    // pruning below would skip reading it and fill placeholder zeros, breaking the merge
+    // ordering. The TSO column carries real values on disk, so force it to be read.
+    if (_opts.read_row_binlog && cid == _schema->tso_ordinal()) {
         return true;
     }
     const auto& column = *_schema->column(cid);
@@ -3591,6 +3600,9 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
             RETURN_IF_ERROR(column_expr->root()->execute_column(column_expr.get(), block, nullptr,
                                                                 _selected_size, result_column));
 
+            // The materialized value is cached in the block and later consumed as the slot's
+            // concrete column type, so do not let a ColumnConst cross this boundary.
+            result_column = result_column->convert_to_full_column_if_const();
             block->replace_by_position(materialized_pos, std::move(result_column));
         }
     }

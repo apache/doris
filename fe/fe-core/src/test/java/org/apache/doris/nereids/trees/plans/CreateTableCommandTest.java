@@ -1030,6 +1030,37 @@ public class CreateTableCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testRejectMaxValueInListPartition() {
+        // MAXVALUE can only be used in RANGE partition's VALUES LESS THAN, it is not a
+        // concrete LIST partition value, so creating a LIST partition with it must fail.
+        String invalidSql = "create table test.tbl_list_maxvalue ("
+                + "k int not null, v int) "
+                + "duplicate key(k) "
+                + "partition by list(k) ("
+                + "  partition p1 values in (('1')),"
+                + "  partition p2 values in ((MAXVALUE))"
+                + ") "
+                + "distributed by hash(k) buckets 1 "
+                + "properties('replication_num' = '1')";
+        AnalysisException ex = Assertions.assertThrows(
+                AnalysisException.class, () -> getCreateTableStmt(invalidSql));
+        Assertions.assertTrue(ex.getMessage().contains("MAXVALUE is not allowed in LIST partition"));
+        Assertions.assertTrue(ex.getMessage().contains("p2"));
+
+        // RANGE partition's VALUES LESS THAN (MAXVALUE) stays allowed.
+        String validSql = "create table test.tbl_range_maxvalue ("
+                + "k int not null, v int) "
+                + "duplicate key(k) "
+                + "partition by range(k) ("
+                + "  partition p1 values less than ('10'),"
+                + "  partition p2 values less than (MAXVALUE)"
+                + ") "
+                + "distributed by hash(k) buckets 1 "
+                + "properties('replication_num' = '1')";
+        Assertions.assertDoesNotThrow(() -> getCreateTableStmt(validSql));
+    }
+
+    @Test
     public void testVariantFieldPatternDictCompressionValidation() {
         String invalidSql = "create table test.tbl_variant_dict_invalid\n"
                 + "(k1 int, v variant<\n"

@@ -1765,15 +1765,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public ReplayCommand visitReplay(DorisParser.ReplayContext ctx) {
-        if (ctx.replayCommand().replayType().DUMP() != null) {
-            LogicalPlan plan = plan(ctx.replayCommand().replayType().query());
-            return new ReplayCommand(PlanType.REPLAY_COMMAND, null, plan, ReplayCommand.ReplayType.DUMP);
-        } else if (ctx.replayCommand().replayType().PLAY() != null) {
-            String tmpPath = ctx.replayCommand().replayType().filePath.getText();
-            String path = LogicalPlanBuilderAssistant.escapeBackSlash(tmpPath.substring(1, tmpPath.length() - 1));
-            return new ReplayCommand(PlanType.REPLAY_COMMAND, path, null, ReplayCommand.ReplayType.PLAY);
-        }
-        return null;
+        LogicalPlan plan = plan(ctx.replayCommand().replayType().query());
+        return new ReplayCommand(PlanType.REPLAY_COMMAND, plan);
     }
 
     @Override
@@ -3201,8 +3194,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Only supported: " + Operator.ADD, ctx);
                 }
                 Interval interval = (Interval) left;
-                String funcOpName = String.format("%sS_ADD", interval.timeUnit());
-                return new UnboundFunction(funcOpName, ImmutableList.of(right, interval.value()));
+                return buildDateArithmetic(right, interval, "ADD");
             }
 
             if (right instanceof Interval) {
@@ -3215,8 +3207,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Only supported: " + Operator.ADD + " and " + Operator.SUBTRACT, ctx);
                 }
                 Interval interval = (Interval) right;
-                String funcOpName = String.format("%sS_%s", interval.timeUnit(), op);
-                return new UnboundFunction(funcOpName, ImmutableList.of(left, interval.value()));
+                return buildDateArithmetic(left, interval, op);
             }
 
             return ParserUtils.withOrigin(ctx, () -> {
@@ -3247,6 +3238,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             });
         });
+    }
+
+    private static UnboundFunction buildDateArithmetic(Expression date, Interval interval, String operation) {
+        return new UnboundFunction("DATE_" + operation, ImmutableList.of(date, interval));
     }
 
     @Override
@@ -6466,6 +6461,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             indexType = "INVERTED";
         } else if (ctx.ANN() != null) {
             indexType = "ANN";
+        } else if (ctx.BLOOMFILTER() != null) {
+            indexType = "BLOOMFILTER";
         }
         String comment = ctx.STRING_LITERAL() == null ? "" : stripQuotes(ctx.STRING_LITERAL().getText());
         IndexDefinition indexDefinition = new IndexDefinition(indexName, ifNotExists, indexCols, indexType,

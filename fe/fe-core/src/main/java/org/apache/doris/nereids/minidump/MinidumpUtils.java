@@ -61,9 +61,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Type;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -236,29 +234,6 @@ public class MinidumpUtils {
     }
 
     /**
-     * Loading minidump messages from file to memory
-     * @param minidumpPath path of minidump file
-     * @return minidump messages in memory
-     */
-    public static Minidump loadMinidumpInputs(String minidumpPath) throws AnalysisException {
-        Minidump minidump = null;
-        try {
-            minidump = MinidumpUtils.jsonMinidumpLoad(minidumpPath);
-        } catch (AnalysisException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-        setConnectContext(minidump);
-
-        Env env = Env.getCurrentEnv();
-        ConnectContext.get().setEnv(env);
-        ConnectContext.get().getSessionVariable().setEnableNereidsTrace(false);
-        ConnectContext.get().getSessionVariable().setNereidsTraceEventMode("all");
-        return minidump;
-    }
-
-    /**
      * Executing sql with minidump and return jsontype result for more use of unit test
      * @param sql original sql clause
      * @return JSONObject of result plan
@@ -364,89 +339,6 @@ public class MinidumpUtils {
         if (isDump()) {
             saveMinidumpString(connectContext.getMinidump(), DebugUtil.printId(connectContext.queryId()));
         }
-    }
-
-    /** compare two json object and print detail information about difference */
-    public static List<String> compareJsonObjects(JSONObject json1, JSONObject json2, String path) {
-        List<String> differences = new ArrayList<>();
-
-        Iterator<String> keys = json1.keys();
-        while (keys.hasNext()) {
-            String key = keys.next();
-            String currentPath = "";
-            if (path.isEmpty()) {
-                if (key.equals("PlanType")) {
-                    path = json1.getString(key);
-                } else {
-                    currentPath = key;
-                }
-            } else {
-                if (key.equals("PlanType")) {
-                    currentPath = path + "." + json1.getString(key);
-                } else {
-                    currentPath = path + "." + key;
-                }
-            }
-
-            if (!json2.has(key)) {
-                differences.add("Key '" + currentPath + "' not found in the second JSON object.");
-                continue;
-            }
-
-            Object value1 = json1.get(key);
-            Object value2 = json2.get(key);
-
-            if (!value1.toString().equals(value2.toString())) {
-                differences.add("Value for key '" + currentPath + "' is different: " + value1 + " != " + value2);
-            }
-
-            if (value1 instanceof JSONObject && value2 instanceof JSONObject) {
-                List<String> nestedDifferences =
-                        compareJsonObjects((JSONObject) value1, (JSONObject) value2, currentPath);
-                differences.addAll(nestedDifferences);
-            } else if (value1 instanceof JSONArray && value2 instanceof JSONArray) {
-                List<String> nestedDifferences = compareJsonArrays((JSONArray) value1, (JSONArray) value2, currentPath);
-                differences.addAll(nestedDifferences);
-            }
-        }
-
-        keys = json2.keys();
-        while (keys.hasNext()) {
-            String key = keys.next();
-            String currentPath = (path.isEmpty()) ? key : path + "." + key;
-
-            if (!json1.has(key)) {
-                differences.add("Key '" + currentPath + "' not found in the first JSON object.");
-            }
-        }
-
-        return differences;
-    }
-
-    private static List<String> compareJsonArrays(JSONArray array1, JSONArray array2, String path) {
-        List<String> differences = new ArrayList<>();
-
-        if (array1.length() != array2.length()) {
-            differences.add("Array length for key '" + path + "' is different: "
-                    + array1.length() + " != " + array2.length());
-            return differences;
-        }
-
-        for (int i = 0; i < array1.length(); i++) {
-            Object value1 = array1.get(i);
-            Object value2 = array2.get(i);
-            String currentPath = path + "[" + i + "]";
-
-            if (value1 instanceof JSONObject && value2 instanceof JSONObject) {
-                List<String> nestedDifferences =
-                        compareJsonObjects((JSONObject) value1, (JSONObject) value2, currentPath);
-                differences.addAll(nestedDifferences);
-            } else if (!value1.equals(value2)) {
-                differences.add("Value for key '" + currentPath + "' is different: " + value1 + " != " + value2);
-            }
-        }
-
-        return differences;
     }
 
     private static String getValue(Object obj, Field field) {

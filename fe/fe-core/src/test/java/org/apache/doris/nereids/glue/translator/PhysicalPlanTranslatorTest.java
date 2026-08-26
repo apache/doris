@@ -237,10 +237,9 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 .collect(Collectors.toList());
 
         Assertions.assertTrue(scanColumns.containsAll(ImmutableList.of(
-                "k1", "k2", "v1", Column.generateBeforeColName("v1"),
+                "k1", "k2", "v1", "v2", Column.generateBeforeColName("v1"),
+                Column.generateBeforeColName("v2"),
                 Column.BINLOG_OPERATION_COL, Column.BINLOG_TSO_COL)));
-        Assertions.assertFalse(scanColumns.contains("v2"));
-        Assertions.assertFalse(scanColumns.contains(Column.generateBeforeColName("v2")));
         Assertions.assertFalse(scanColumns.contains(Column.BINLOG_LSN_COL));
 
         Assertions.assertTrue(scanNode.getExtraKeyColumnSlotIds().isEmpty());

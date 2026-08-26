@@ -1074,6 +1074,17 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
         !is_segment_overlapping(segments_encoded_key_bounds) &&
         _context.tablet_schema->cluster_key_uids().empty()) {
         rowset_meta->set_segments_overlap(NONOVERLAPPING);
+    } else if (!segments_encoded_key_bounds.empty() &&
+               is_segment_overlapping(segments_encoded_key_bounds) &&
+               _rowset_meta->is_row_binlog()) {
+        // A row-binlog horizontal merge output can hold the same user key in more than
+        // one output segment (a forced segment boundary splits a key range), so the
+        // segments genuinely overlap. The compaction ctx default is NONOVERLAPPING for
+        // the non-quick-merge path, and the branch above only ever downgrades, so upgrade
+        // here. Otherwise RowsetMeta::is_segments_overlapping() and
+        // BetaRowsetReader::is_merge_iterator() would pick a segment union instead of a
+        // merge and break downstream MIN_DELTA reads.
+        rowset_meta->set_segments_overlap(OVERLAPPING);
     }
 
     auto segment_num = _num_seg();

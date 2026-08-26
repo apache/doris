@@ -20,7 +20,6 @@ package org.apache.doris.common;
 import java.io.File;
 
 public class Config extends ConfigBase {
-
     @ConfField(description = "The path of the user-defined configuration file, used to store fe_custom.conf. "
             + "Configurations in this file will override those in fe.conf")
     public static String custom_config_dir = EnvUtils.getDorisHome() + "/conf";
@@ -566,6 +565,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = "Minimum number of successfully written replicas for "
             + "a load job.")
     public static short min_load_replica_num = -1;
+
+    @ConfField(mutable = true, masterOnly = true, description = "Minimum number of successfully written replicas "
+            + "required in each resource group for a load job.")
+    public static volatile String[] resource_group_load_success_quorum = {};
 
     @ConfField(description = "The interval of the load job scheduler, in seconds.")
     public static int load_checker_interval_second = 5;
@@ -2834,8 +2837,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean fix_tablet_partition_id_eq_0 = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = "Default storage format of inverted index, the "
-            + "default value is V3.")
+    @ConfField(mutable = true, masterOnly = true,
+            callback = InvertedIndexStorageFormatValidator.RuntimeConfigHandler.class,
+            description = "Default storage format of inverted index, the default value is V3.")
     public static String inverted_index_storage_format = "V3";
 
     @ConfField(mutable = true, masterOnly = true, description = "Enable the 'delete predicate' for DELETE statements. "
@@ -3363,6 +3367,13 @@ public class Config extends ConfigBase {
                     + "other BEs in cloud mode.")
     public static int rehash_tablet_after_be_dead_seconds = 3600;
 
+    @ConfField(mutable = true, masterOnly = false,
+            description = "Whether to drop the primary/secondary route entries of a CloudReplica whose backend no "
+                    + "longer exists, when loading the image and in the tablet rebalancer round. Those entries are "
+                    + "already ignored at query time (the replica is rehashed), so they only waste FE memory and "
+                    + "image size. Set to false to keep the legacy leaking behavior. Default is true.")
+    public static boolean enable_cloud_replica_stale_route_clean = true;
+
     @ConfField(mutable = false, masterOnly = true,
             description = "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. If false, "
                     + "use the legacy modulo placement. Restart-only.")
@@ -3426,7 +3437,12 @@ public class Config extends ConfigBase {
     public static int meta_service_rpc_timeout_retry_times = 1;
 
     @ConfField(mutable = true, description = "Whether to enable QPS rate limit for RPC requests to meta service.")
-    public static boolean meta_service_rpc_rate_limit_enabled = false;
+    public static boolean meta_service_rpc_rate_limit_enabled = true;
+
+    @ConfField(mutable = true, description = "Whether to only evaluate and report meta service RPC rate limits "
+            + "without waiting or rejecting requests. This takes effect only when meta service RPC rate limiting "
+            + "is enabled.")
+    public static boolean meta_service_rpc_rate_limit_dry_run = true;
 
     @ConfField(mutable = true, description = "Default QPS limit for each method (requests per second) in each cpu "
             + "core, non-positive value (<= 0) means no limit")
@@ -3595,8 +3611,13 @@ public class Config extends ConfigBase {
     public static String doris_tde_key_region = "";
 
     @ConfField(mutable = true, description = "The key provider identifier for TDE (Transparent Data Encryption). "
-            + "Recognized values include aws_kms, aliyun_kms, ranger_kms, gcp_kms, and azure_kms.")
+            + "Recognized values include aws_kms, aliyun_kms, ranger_kms, gcp_kms, azure_kms, and local. "
+            + "For local mode, doris_tde_root_key_file must be set to a key file path.")
     public static String doris_tde_key_provider = "";
+
+    @ConfField(description = "Path to the root key file for TDE local mode. The file content must be a "
+            + "Base64-encoded key.")
+    public static String doris_tde_root_key_file = "";
 
     @ConfField(mutable = true, description = "The simple authentication user name for TDE Hadoop KMS")
     public static String doris_tde_hadoop_user_name = "hadoop";
