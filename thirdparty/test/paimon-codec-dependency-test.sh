@@ -72,5 +72,7 @@ grep -Eq '^[[:space:]]+zstd$' <<<"${dependencies}" ||
     fail "paimon_objlib does not wait for the ZSTD headers"
 grep -Eq '^[[:space:]]+snappy$' <<<"${dependencies}" ||
     fail "paimon_objlib does not wait for the Snappy headers"
+grep -Eq '^[[:space:]]+lz4$' <<<"${dependencies}" ||
+    fail "paimon_objlib does not wait for the LZ4 headers"
 
 echo "PASS"
