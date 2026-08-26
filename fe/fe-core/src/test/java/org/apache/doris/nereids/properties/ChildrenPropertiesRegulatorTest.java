@@ -72,6 +72,7 @@ public class ChildrenPropertiesRegulatorTest {
             = Lists.newArrayList(PhysicalProperties.MUST_SHUFFLE);
 
     private enum ActualShuffleShape {
+        SINGLETON_EXECUTION_BUCKETED,
         SINGLE,
         OVERLAPPING_EQUIVALENCE,
         EQUIVALENT_REPLACEMENT
@@ -338,6 +339,19 @@ public class ChildrenPropertiesRegulatorTest {
         Assertions.assertFalse(adjustOnePhaseAggWithCte(
                 Lists.newArrayList(key), inputStatistics, aggregateStatistics,
                 3, 0.2, 1000).isEmpty());
+    }
+
+    @Test
+    public void testSingletonExecutionBucketedDistributionIsPreserved() {
+        ShuffleAdjustment adjustment = adjustParentShuffleReuseWithKeys(
+                100, 100, 100, 3,
+                RequiredShuffleShape.FULL_GROUP_BY, ActualShuffleShape.SINGLETON_EXECUTION_BUCKETED,
+                AggPhase.GLOBAL);
+
+        Assertions.assertInstanceOf(DistributionSpecHash.class, adjustment.properties.getDistributionSpec());
+        DistributionSpecHash resultHash = (DistributionSpecHash) adjustment.properties.getDistributionSpec();
+        Assertions.assertEquals(ShuffleType.EXECUTION_BUCKETED, resultHash.getShuffleType());
+        Assertions.assertTrue(resultHash.getOrderedShuffledColumns().isEmpty());
     }
 
     @Test
@@ -639,7 +653,10 @@ public class ChildrenPropertiesRegulatorTest {
         PhysicalProperties requiredChildProperty = PhysicalProperties.createHash(
                 parentRequiredKeys, ShuffleType.REQUIRE);
         DistributionSpecHash actualChildHash;
-        if (actualShuffleShape == ActualShuffleShape.OVERLAPPING_EQUIVALENCE) {
+        if (actualShuffleShape == ActualShuffleShape.SINGLETON_EXECUTION_BUCKETED) {
+            actualChildHash = new DistributionSpecHash(
+                    Lists.newArrayList(), ShuffleType.EXECUTION_BUCKETED);
+        } else if (actualShuffleShape == ActualShuffleShape.OVERLAPPING_EQUIVALENCE) {
             Map<ExprId, Integer> exprIdToEquivalenceSet = Maps.newHashMap();
             exprIdToEquivalenceSet.put(key1.getExprId(), 0);
             exprIdToEquivalenceSet.put(key2.getExprId(), 1);

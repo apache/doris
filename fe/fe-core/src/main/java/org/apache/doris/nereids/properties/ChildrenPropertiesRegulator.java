@@ -157,6 +157,12 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         List<ExprId> fullShuffleKeys = collectFullAggregateShuffleKeys(agg);
         List<Set<ExprId>> actualShuffleDimensions =
                 ShuffleKeyPruneUtils.getIndependentShuffleDimensions(actualChildHash);
+        // HttpStream models its mandatory single-fragment execution as a zero-key EXECUTION_BUCKETED hash.
+        // It is not a pruned key subset; enforcing another hash would create an undispatched fragment.
+        if (actualShuffleDimensions.isEmpty()
+                && actualChildHash.getShuffleType() == ShuffleType.EXECUTION_BUCKETED) {
+            return;
+        }
         int requiredShuffleDimensionCount =
                 ShuffleKeyPruneUtils.getIndependentShuffleDimensions(requiredChildHash).size();
         boolean requiredKeysAreReduced = !fullShuffleKeys.isEmpty()
