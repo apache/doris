@@ -265,7 +265,8 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
         assertTrue(catalogs.toString().contains(catalogName))
 
         sql """DROP DATABASE IF EXISTS ${dbName} FORCE"""
-        sql """CREATE DATABASE ${dbName}"""
+        // Paimon JDBC persists database properties in paimon_database_properties.
+        sql """CREATE DATABASE ${dbName} PROPERTIES ('owner' = 'doris')"""
         def databases = sql """SHOW DATABASES"""
         assertTrue(databases.toString().contains(dbName))
 

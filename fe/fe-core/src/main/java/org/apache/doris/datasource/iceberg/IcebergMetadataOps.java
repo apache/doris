@@ -250,13 +250,20 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
         if (!properties.isEmpty() && dorisCatalog instanceof IcebergExternalCatalog) {
             String icebergCatalogType = ((IcebergExternalCatalog) dorisCatalog).getIcebergCatalogType();
-            if (!IcebergExternalCatalog.ICEBERG_HMS.equals(icebergCatalogType)) {
+            if (!supportsDatabaseProperties(icebergCatalogType)) {
                 throw new DdlException(
                     "Not supported: create database with properties for iceberg catalog type: " + icebergCatalogType);
             }
         }
         nsCatalog.createNamespace(getNamespace(dbName), properties);
         return false;
+    }
+
+    private boolean supportsDatabaseProperties(String catalogType) {
+        return IcebergExternalCatalog.ICEBERG_HMS.equals(catalogType)
+                || IcebergExternalCatalog.ICEBERG_JDBC.equals(catalogType)
+                || IcebergExternalCatalog.ICEBERG_REST.equals(catalogType)
+                || IcebergExternalCatalog.ICEBERG_GLUE.equals(catalogType);
     }
 
     @Override

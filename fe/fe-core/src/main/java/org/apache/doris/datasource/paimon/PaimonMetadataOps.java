@@ -109,7 +109,7 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
 
         if (!properties.isEmpty() && dorisCatalog instanceof PaimonExternalCatalog) {
             String catalogType = ((PaimonExternalCatalog) dorisCatalog).getCatalogType();
-            if (!PaimonExternalCatalog.PAIMON_HMS.equals(catalogType)) {
+            if (!supportsDatabaseProperties(catalogType)) {
                 throw new DdlException(
                     "Not supported: create database with properties for paimon catalog type: " + catalogType);
             }
@@ -117,6 +117,13 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
 
         catalog.createDatabase(dbName, ifNotExists, properties);
         return false;
+    }
+
+    private boolean supportsDatabaseProperties(String catalogType) {
+        return PaimonExternalCatalog.PAIMON_HMS.equals(catalogType)
+                || PaimonExternalCatalog.PAIMON_JDBC.equals(catalogType)
+                || PaimonExternalCatalog.PAIMON_REST.equals(catalogType)
+                || PaimonExternalCatalog.PAIMON_DLF.equals(catalogType);
     }
 
     @Override

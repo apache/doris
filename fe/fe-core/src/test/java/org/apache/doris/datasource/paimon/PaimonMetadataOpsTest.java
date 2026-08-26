@@ -60,6 +60,7 @@ import org.mockito.Mockito;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -448,5 +449,52 @@ public class PaimonMetadataOpsTest {
             Assert.assertTrue(t instanceof DdlException);
             Assert.assertTrue(t.getMessage().contains("database doesn't exist"));
         }
+    }
+
+    @Test
+    public void testCreateDatabaseWithPropertiesForSupportedCatalogs() throws Exception {
+        List<String> supportedCatalogTypes = Arrays.asList(
+                PaimonExternalCatalog.PAIMON_HMS,
+                PaimonExternalCatalog.PAIMON_JDBC,
+                PaimonExternalCatalog.PAIMON_REST,
+                PaimonExternalCatalog.PAIMON_DLF);
+        for (String catalogType : supportedCatalogTypes) {
+            String remoteDbName = catalogType + "_db";
+            Catalog remoteCatalog = Mockito.mock(Catalog.class);
+            PaimonExternalCatalog dorisCatalog = Mockito.mock(PaimonExternalCatalog.class);
+            Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
+            Mockito.when(dorisCatalog.getCatalogType()).thenReturn(catalogType);
+            Mockito.doThrow(new Catalog.DatabaseNotExistException(remoteDbName))
+                    .when(remoteCatalog).getDatabase(remoteDbName);
+            PaimonMetadataOps catalogOps = new PaimonMetadataOps(dorisCatalog, remoteCatalog);
+            HashMap<String, String> properties = Maps.newHashMap();
+            properties.put("owner", "doris");
+
+            Assert.assertFalse(catalogOps.createDbImpl(remoteDbName, false, properties));
+
+            Mockito.verify(remoteCatalog).createDatabase(remoteDbName, false, properties);
+        }
+    }
+
+    @Test
+    public void testCreateDatabaseWithPropertiesForFilesystemCatalogIsRejected() throws Exception {
+        String filesystemDbName = "filesystem_db";
+        Catalog remoteCatalog = Mockito.mock(Catalog.class);
+        PaimonExternalCatalog dorisCatalog = Mockito.mock(PaimonExternalCatalog.class);
+        Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
+        Mockito.when(dorisCatalog.getCatalogType()).thenReturn(PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        Mockito.doThrow(new Catalog.DatabaseNotExistException(filesystemDbName))
+                .when(remoteCatalog).getDatabase(filesystemDbName);
+        PaimonMetadataOps filesystemOps = new PaimonMetadataOps(dorisCatalog, remoteCatalog);
+        HashMap<String, String> properties = Maps.newHashMap();
+        properties.put("owner", "doris");
+
+        DdlException exception = Assert.assertThrows(
+                DdlException.class,
+                () -> filesystemOps.createDbImpl(filesystemDbName, false, properties));
+
+        Assert.assertTrue(exception.getMessage().contains("paimon catalog type: filesystem"));
+        Mockito.verify(remoteCatalog, Mockito.never())
+                .createDatabase(Mockito.anyString(), Mockito.anyBoolean(), Mockito.anyMap());
     }
 }
