@@ -23,8 +23,12 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
@@ -97,5 +101,39 @@ class PredicateRewriteForPartitionPruneTest {
                 new EqualTo(cast,
                         new TimeStampNsLiteral("2024-01-02 00:00:00.000002001")), null);
         Assertions.assertEquals(BooleanLiteral.FALSE, unreachable);
+    }
+
+    @Test
+    void testKeepDateTimeV2CastBelowThreeValuedLogicExpressions() {
+        SlotReference nullableSlot = new SlotReference("dt", DateTimeV2Type.of(6), true);
+        Cast cast = new Cast(nullableSlot, TimeStampNsType.INSTANCE);
+        TimeStampNsLiteral unreachable = new TimeStampNsLiteral("2024-01-02 00:00:00.000002001");
+        InPredicate in = new InPredicate(cast, ImmutableList.of(unreachable));
+        EqualTo equalTo = new EqualTo(cast, unreachable);
+
+        Assertions.assertEquals(BooleanLiteral.FALSE,
+                PredicateRewriteForPartitionPrune.rewrite(in, null));
+        Assertions.assertEquals(BooleanLiteral.FALSE,
+                PredicateRewriteForPartitionPrune.rewrite(equalTo, null));
+
+        Expression inIsNull = new IsNull(in);
+        Expression equalToIsNull = new IsNull(equalTo);
+        Expression coalesce = new Coalesce(in, BooleanLiteral.TRUE);
+        Expression not = new Not(in);
+        Assertions.assertEquals(inIsNull,
+                PredicateRewriteForPartitionPrune.rewrite(inIsNull, null));
+        Assertions.assertEquals(equalToIsNull,
+                PredicateRewriteForPartitionPrune.rewrite(equalToIsNull, null));
+        Assertions.assertEquals(coalesce,
+                PredicateRewriteForPartitionPrune.rewrite(coalesce, null));
+        Assertions.assertEquals(not,
+                PredicateRewriteForPartitionPrune.rewrite(not, null));
+
+        Expression and = new And(in, BooleanLiteral.TRUE);
+        Expression or = new Or(in, BooleanLiteral.FALSE);
+        Assertions.assertEquals(new And(BooleanLiteral.FALSE, BooleanLiteral.TRUE),
+                PredicateRewriteForPartitionPrune.rewrite(and, null));
+        Assertions.assertEquals(new Or(BooleanLiteral.FALSE, BooleanLiteral.FALSE),
+                PredicateRewriteForPartitionPrune.rewrite(or, null));
     }
 }

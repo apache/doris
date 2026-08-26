@@ -294,4 +294,62 @@ suite("test_timestamp_ns_partition_bucket") {
         where dt = cast('2024-01-01 00:00:00.000001000' as timestamp_ns)
         order by id
     """
+
+    sql "drop table if exists datetimev2_cast_timestamp_ns_nullable_prune"
+    sql """
+        create table datetimev2_cast_timestamp_ns_nullable_prune (
+            id int,
+            dt datetimev2(6)
+        )
+        duplicate key(id)
+        partition by list(dt) (
+            partition p_null values in (NULL),
+            partition p_value values in ('2024-01-01 00:00:00.000001')
+        )
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql """
+        insert into datetimev2_cast_timestamp_ns_nullable_prune values
+        (1, NULL),
+        (2, '2024-01-01 00:00:00.000001')
+    """
+
+    // Removing the cast turns NULL into FALSE for an unreachable nanosecond option. Such a
+    // truth-preserving rewrite is valid for a positive filter, but not below three-valued parents.
+    explain {
+        sql """
+            select id from datetimev2_cast_timestamp_ns_nullable_prune
+            where (cast(dt as timestamp_ns) in (
+                cast('2024-01-01 00:00:00.000001001' as timestamp_ns))) is null
+        """
+        contains "partitions=1/2 (p_null)"
+        notContains "VEMPTYSET"
+    }
+    explain {
+        sql """
+            select id from datetimev2_cast_timestamp_ns_nullable_prune
+            where (cast(dt as timestamp_ns) =
+                cast('2024-01-01 00:00:00.000001001' as timestamp_ns)) is null
+        """
+        contains "partitions=1/2 (p_null)"
+        notContains "VEMPTYSET"
+    }
+    explain {
+        sql """
+            select id from datetimev2_cast_timestamp_ns_nullable_prune
+            where coalesce(cast(dt as timestamp_ns) in (
+                cast('2024-01-01 00:00:00.000001001' as timestamp_ns)), true)
+        """
+        contains "partitions=1/2 (p_null)"
+        notContains "VEMPTYSET"
+    }
+    explain {
+        sql """
+            select id from datetimev2_cast_timestamp_ns_nullable_prune
+            where not (cast(dt as timestamp_ns) in (
+                cast('2024-01-01 00:00:00.000001001' as timestamp_ns)))
+        """
+        contains "partitions=1/2 (p_value)"
+    }
 }
