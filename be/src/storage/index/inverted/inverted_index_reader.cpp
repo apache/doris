@@ -477,7 +477,11 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
             RETURN_IF_ERROR(match_index_search(context, query_type, query_info, *searcher_ptr,
                                                term_match_bitmap));
             term_match_bitmap->runOptimize();
-            cache->insert(cache_key, term_match_bitmap, &cache_handler);
+            // A bitmap produced under a candidate restriction is partial and
+            // must never be cached as the full-segment result.
+            if (context->candidate_rows == nullptr) {
+                cache->insert(cache_key, term_match_bitmap, &cache_handler);
+            }
             bit_map = term_match_bitmap;
         }
         return Status::OK();

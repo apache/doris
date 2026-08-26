@@ -48,6 +48,17 @@ struct IndexQueryContext {
     // under a key a row-accurate query could hit.
     bool count_on_index_fastpath = false;
 
+    // Candidate-pushdown handshake. Set by SegmentIterator ONLY while it
+    // evaluates pushed-down conjuncts and the current candidate row bitmap is
+    // small enough (config::inverted_index_candidate_pushdown_ratio), reset
+    // right after. When set, an index query MAY restrict doc-list intersection
+    // and verification to this candidate set (PhraseQuery joins it into the
+    // leapfrog). A bitmap produced under a non-null candidate is PARTIAL and
+    // must never be inserted into the query cache; cache lookups stay valid
+    // (a cached full-segment bitmap intersected later is still correct). The
+    // pointee is owned by the caller and outlives the evaluation.
+    const roaring::Roaring* candidate_rows = nullptr;
+
     // ---- Reply direction: fields a READER writes and the CALLER reads back ----
     //
     // A caller that hands a reader a COPY of this context rather than the context itself must

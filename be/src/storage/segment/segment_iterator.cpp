@@ -834,8 +834,28 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
             if (_index_query_context != nullptr) {
                 _index_query_context->count_on_index_fastpath = _count_on_index_fastpath_safe();
                 _index_query_context->count_on_index_fastpath_hit = false;
+                // Candidate-pushdown handshake: while index conditions are
+                // evaluated, expose the current candidate bitmap so index
+                // queries can restrict themselves to it (two-phase
+                // evaluation). Only engaged when the candidate set is small
+                // enough for the restriction to pay off; results produced
+                // under it are partial and skip the query cache. _row_bitmap
+                // only shrinks during the applies below, so restricting to
+                // its current state stays correct for every later conjunct.
+                double candidate_ratio = config::inverted_index_candidate_pushdown_ratio;
+                if (candidate_ratio > 0 &&
+                    _row_bitmap.cardinality() <
+                            static_cast<uint64_t>(static_cast<double>(num_rows()) *
+                                                  candidate_ratio)) {
+                    _index_query_context->candidate_rows = &_row_bitmap;
+                }
             }
-            DEFER({ _capture_count_fastpath_hit(); });
+            DEFER({
+                _capture_count_fastpath_hit();
+                if (_index_query_context != nullptr) {
+                    _index_query_context->candidate_rows = nullptr;
+                }
+            });
             // Only apply column-level inverted index if we have iterators
             if (has_index_in_iterators()) {
                 RETURN_IF_ERROR(_apply_inverted_index());
