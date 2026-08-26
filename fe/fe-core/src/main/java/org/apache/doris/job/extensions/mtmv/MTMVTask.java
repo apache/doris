@@ -452,9 +452,16 @@ public class MTMVTask extends AbstractTask {
                 if (mtmv.isIvm()) {
                     attempts.add(RefreshAttemptType.IVM);
                 }
-                // AUTO always has the full fallback chain. If the MV was created
-                // as non-IVM, it starts from PARTITIONS and may end at COMPLETE.
-                attempts.add(RefreshAttemptType.PARTITIONS);
+                // AUTO always ends with COMPLETE. For an MV defined REFRESH COMPLETE,
+                // skip the PARTITIONS attempt: its sync check treats base tables that are
+                // not MTMVRelatedTableIf (external tables, views) as always synchronous,
+                // so the refresh would be skipped forever after the first build.
+                if (mtmv.getRefreshInfo().getRefreshMethod() != RefreshMethod.COMPLETE) {
+                    attempts.add(RefreshAttemptType.PARTITIONS);
+                } else {
+                    LOG.info("AUTO refresh of COMPLETE-method mv={} skips partition-sync check "
+                            + "and refreshes all directly, taskId={}", mtmv.getName(), super.getTaskId());
+                }
                 attempts.add(RefreshAttemptType.COMPLETE);
                 break;
             case INCREMENTAL:
