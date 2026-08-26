@@ -897,7 +897,18 @@ public class MetaCacheEntry<K, V> {
         if (removalListener == null) {
             return;
         }
-        pendingRemovalNotifications.add(new RemovedToken<>(key, removalToken(value)));
+        RemovedToken<K> removed = new RemovedToken<>(key, removalToken(value));
+        if (closed.get()) {
+            invokeRemovalListener(removed.key, removed.token);
+            return;
+        }
+        pendingRemovalNotifications.add(removed);
+        if (closed.get() && pendingRemovalNotifications.remove(removed)) {
+            // close() drained before this publication. Claim the exact token here; if removal
+            // fails, the close drain or a worker already owns it and must invoke the listener.
+            invokeRemovalListener(removed.key, removed.token);
+            return;
+        }
         scheduleRemovalCleanup();
     }
 
@@ -984,9 +995,12 @@ public class MetaCacheEntry<K, V> {
         }
         for (int processed = 0; processed < REMOVAL_CLEANUP_BATCH_SIZE; processed++) {
             RemovedToken<K> removed = pendingRemovalNotifications.poll();
-            if (removed == null || closed.get()) {
+            if (removed == null) {
                 return;
             }
+            afterRemovalNotificationPollForTest(removed.key);
+            // A successful poll transfers ownership to this worker. close() cannot see this token
+            // in its final drain, so the worker must invoke it even when close raced the poll.
             invokeRemovalListener(removed.key, removed.token);
         }
     }
@@ -1350,6 +1364,10 @@ public class MetaCacheEntry<K, V> {
 
     // Called immediately before the asynchronous drain tries to acquire admissionLock.
     void beforeRemovalCleanupLockForTest(K key) {
+    }
+
+    // Called after a cleanup worker claims a dependency-retirement token from the queue.
+    void afterRemovalNotificationPollForTest(K key) {
     }
 
     // Let tests establish admissionLock -> Caffeine eviction-lock ordering deterministically.

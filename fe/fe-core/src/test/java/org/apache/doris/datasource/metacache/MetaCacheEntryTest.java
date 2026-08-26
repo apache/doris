@@ -1916,6 +1916,82 @@ public class MetaCacheEntryTest {
     }
 
     @Test
+    public void testCloseDoesNotDropRemovalTokenClaimedByCleanupWorker() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch tokenClaimed = new CountDownLatch(1);
+        CountDownLatch releaseClaimedToken = new CountDownLatch(1);
+        CountDownLatch retired = new CountDownLatch(1);
+        MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<String, Integer>(
+                "close-after-token-poll", key -> 1,
+                CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                refreshExecutor, false, false, null, null, null,
+                value -> value, (key, token) -> retired.countDown()) {
+            @Override
+            void afterRemovalNotificationPollForTest(String key) {
+                tokenClaimed.countDown();
+                awaitLatch(releaseClaimedToken);
+            }
+        };
+        try {
+            entry.put("k", 1);
+            entry.invalidateKey("k");
+            Assert.assertTrue(tokenClaimed.await(3L, TimeUnit.SECONDS));
+
+            entry.close();
+            Assert.assertEquals("the worker still owns the polled token", 1L, retired.getCount());
+            releaseClaimedToken.countDown();
+
+            Assert.assertTrue(retired.await(3L, TimeUnit.SECONDS));
+        } finally {
+            releaseClaimedToken.countDown();
+            entry.close();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRemovalPublicationAfterCloseDrainInvokesListenerInline() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService removalExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch callbackPassedOpenCheck = new CountDownLatch(1);
+        CountDownLatch releaseCallback = new CountDownLatch(1);
+        CountDownLatch retired = new CountDownLatch(1);
+        AtomicBoolean pauseCallback = new AtomicBoolean();
+        MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<String, Integer>(
+                "publish-after-close-drain", key -> 1,
+                CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                refreshExecutor, false, false, null, null, null,
+                value -> value, (key, token) -> retired.countDown()) {
+            @Override
+            void beforeRemovalOwnerSnapshotForTest(String key) {
+                if (pauseCallback.compareAndSet(true, false)) {
+                    callbackPassedOpenCheck.countDown();
+                    awaitLatch(releaseCallback);
+                }
+            }
+        };
+        try {
+            entry.put("k", 1);
+            pauseCallback.set(true);
+            LoadingCache<String, Integer> loadingCache = extractLoadingCache(entry);
+            Future<?> removal = removalExecutor.submit(() -> loadingCache.invalidate("k"));
+            Assert.assertTrue(callbackPassedOpenCheck.await(3L, TimeUnit.SECONDS));
+
+            entry.close();
+            Assert.assertEquals("close drained before the callback published", 1L, retired.getCount());
+            releaseCallback.countDown();
+            removal.get(3L, TimeUnit.SECONDS);
+
+            Assert.assertTrue(retired.await(3L, TimeUnit.SECONDS));
+        } finally {
+            releaseCallback.countDown();
+            entry.close();
+            removalExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testLocalEvictionStopsOnceTheDeficitIsReclaimed() {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         ExternalMetaCacheBudgetManager manager = new ExternalMetaCacheBudgetManager(OptionalLong.of(1L << 20));
