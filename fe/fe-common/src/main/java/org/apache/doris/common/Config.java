@@ -1995,8 +1995,10 @@ public class Config extends ConfigBase {
     /**
      * Max data version of backends serialize block.
      */
+    public static final int TIMESTAMP_NS_MIN_BE_EXEC_VERSION = 14;
+
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 13;
+    public static int max_be_exec_version = TIMESTAMP_NS_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.

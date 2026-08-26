@@ -57,6 +57,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 #include "core/types.h"
@@ -811,6 +812,51 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
     serialize_and_deserialize_test_array();
     serialize_and_deserialize_test_long();
     serialize_and_deserialize_test_one();
+}
+
+TEST(BlockTest, TimestampNsRequiresCompatibleBlockExchangeVersion) {
+    EXPECT_EQ(BeExecVersionManager::get_newest_version(), SUPPORT_TIMESTAMP_NS_VERSION);
+
+    auto timestamp_ns_type = std::make_shared<DataTypeTimeStampNs>();
+    auto timestamp_ns_column = timestamp_ns_type->create_column();
+    timestamp_ns_column->insert(
+            Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(123456789)));
+    Block block({{std::move(timestamp_ns_column), timestamp_ns_type, "timestamp_ns"}});
+
+    size_t uncompressed_bytes = 0;
+    size_t compressed_bytes = 0;
+    int64_t compress_time = 0;
+    PBlock old_version_block;
+    Status old_version_status = block.serialize(
+            SUPPORT_TIMESTAMP_NS_VERSION - 1, &old_version_block, &uncompressed_bytes,
+            &compressed_bytes, &compress_time, segment_v2::CompressionTypePB::NO_COMPRESSION);
+    EXPECT_FALSE(old_version_status.ok());
+    EXPECT_NE(old_version_status.to_string().find("TIMESTAMP_NS requires be_exec_version 14"),
+              std::string::npos);
+    EXPECT_EQ(old_version_block.column_metas_size(), 0);
+
+    PBlock current_version_block;
+    ASSERT_TRUE(block.serialize(SUPPORT_TIMESTAMP_NS_VERSION, &current_version_block,
+                                &uncompressed_bytes, &compressed_bytes, &compress_time,
+                                segment_v2::CompressionTypePB::NO_COMPRESSION)
+                        .ok());
+    ASSERT_EQ(current_version_block.column_metas_size(), 1);
+    EXPECT_EQ(current_version_block.column_metas(0).type(), PGenericType::TIMESTAMP_NS);
+
+    Block restored_block;
+    int64_t decompress_time = 0;
+    ASSERT_TRUE(
+            restored_block.deserialize(current_version_block, &uncompressed_bytes, &decompress_time)
+                    .ok());
+    EXPECT_EQ(restored_block.rows(), 1);
+
+    current_version_block.set_be_exec_version(SUPPORT_TIMESTAMP_NS_VERSION - 1);
+    Status old_version_deserialize_status = restored_block.deserialize(
+            current_version_block, &uncompressed_bytes, &decompress_time);
+    EXPECT_FALSE(old_version_deserialize_status.ok());
+    EXPECT_NE(old_version_deserialize_status.to_string().find(
+                      "TIMESTAMP_NS requires be_exec_version 14"),
+              std::string::npos);
 }
 
 TEST(BlockTest, dump_data) {
