@@ -49,7 +49,7 @@ using wide::operator~;
 // matching the old code shape where operator% reused divide().
 // ---------------------------------------------------------------------------
 template <size_t Bits>
-wide::integer<Bits, unsigned> divide_generic(wide::integer<Bits, unsigned> numerator,
+wide::integer<Bits, unsigned> divide_generic(wide::integer<Bits, unsigned>& numerator,
                                              wide::integer<Bits, unsigned> denominator) {
     const wide::integer<Bits, unsigned> zero = 0;
     if (denominator == zero) {
@@ -71,8 +71,9 @@ wide::integer<Bits, unsigned> divide_generic(wide::integer<Bits, unsigned> numer
         x = x >> 1;
         denominator = denominator >> 1;
     }
-    // quotient is returned; numerator now holds the remainder (same contract
-    // as _impl::divide, though callers of this helper only see the quotient).
+    // Quotient is returned; numerator now holds the remainder via the reference
+    // argument, matching the _impl::divide contract so a modulo caller can read
+    // the remainder from the same slot instead of recomputing it.
     return quotient;
 }
 
@@ -179,11 +180,10 @@ void bench_div(benchmark::State& state, int case_id) {
             const wide::UInt256 d = c.divisors[idx];
             idx = (idx + 1) & (batch - 1); // batch is always 4096 (power of 2)
             if constexpr (UseLegacyGeneric) {
-                wide::UInt256 q = divide_generic(n, d);
+                wide::UInt256 rem = n;
+                wide::UInt256 q = divide_generic(rem, d);
                 benchmark::DoNotOptimize(q);
             } else {
-                // divide() writes the remainder into its first argument, so each
-                // iteration must restart from a fresh copy of the dividend.
                 wide::UInt256 q = n / d;
                 benchmark::DoNotOptimize(q);
             }
@@ -203,12 +203,12 @@ void bench_mod(benchmark::State& state, int case_id) {
             const wide::UInt256 d = c.divisors[idx];
             idx = (idx + 1) & (batch - 1); // batch is always 4096 (power of 2)
             if constexpr (UseLegacyGeneric) {
-                // Old behavior: operator% could not go faster than divide() since
-                // it consumed divide()'s remainder slot without extra lanes.
-                wide::UInt256 q = n;
-                wide::UInt256 sink = divide_generic(q, d);
-                benchmark::DoNotOptimize(sink);
-                benchmark::DoNotOptimize(q); // remainder lands in the first arg
+                // Old behavior: operator% reused divide(), which leaves the remainder
+                // in its first argument, so it could never beat divide(). Consume only
+                // that remainder, mirroring what production operator% returns.
+                wide::UInt256 rem = n;
+                divide_generic(rem, d);
+                benchmark::DoNotOptimize(rem);
             } else {
                 wide::UInt256 r = n % d;
                 benchmark::DoNotOptimize(r);

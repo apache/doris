@@ -275,27 +275,43 @@ TEST(WideInteger, SingleLimbSignedDivision) {
 }
 
 TEST(WideInteger, TwoLimbDivisorDifferential) {
-    // Cross-check the 128-bit-divisor Knuth path against the compiler's native
-    // unsigned __int128 division. Both operands fit in 128 bits so the quotient
-    // and remainder are exactly representable and comparable.
+    // Force the two-limb (65..128-bit divisor) Knuth Algorithm D path and check it
+    // against independently constructed ground truth. We pick bounded q, d, r FIRST,
+    // then build n = q*d + r, so the expected quotient and remainder are known
+    // without ever invoking the operators under test (no fixed-width circular
+    // reconstruction that a wrapped-around wrong q could still satisfy).
+    //
+    // Path selection: d has its high 64-bit limb set (>= 2^64) so it misses the
+    // single-limb fast path, and q >= 2^64 together with d >= 2^64 gives
+    // n = q*d + r >= 2^128, so the numerator carries bits above 127 and the
+    // operands-fit-128 fast path is skipped -> divide() lands in divide_knuth.
+    //
+    // Overflow safety: q < 2^127 and d < 2^128 give q*d < 2^255; r < d < 2^128, so
+    // n = q*d + r < 2^256 and never wraps the 256-bit accumulator.
     std::mt19937_64 rng(0xC0FFEE1234ULL);
     auto rnd = [&rng]() { return rng(); };
+    auto make128 = [](uint64_t hi, uint64_t lo) { return (UInt256(hi) << 64) | UInt256(lo); };
     for (int iter = 0; iter < 20000; ++iter) {
-        const unsigned __int128 num = (static_cast<unsigned __int128>(rnd()) << 64) | rnd();
-        // Force a genuine 2-limb divisor: the high 64 bits must be non-zero.
-        unsigned __int128 den = (static_cast<unsigned __int128>(rnd()) << 64) | rnd();
-        if ((den >> 64) == 0) {
-            den |= (static_cast<unsigned __int128>(1) << 64);
+        uint64_t d_hi = rnd();
+        if (d_hi == 0) {
+            d_hi = 1; // high limb non-zero -> divisor genuinely spans two limbs
         }
+        const UInt256 d = make128(d_hi, rnd());
 
-        const unsigned __int128 expected_q = num / den;
-        const unsigned __int128 expected_r = num % den;
+        uint64_t q_hi = rnd() >> 1; // < 2^63 so q < 2^127
+        if (q_hi == 0) {
+            q_hi = 1; // q >= 2^64 so that q*d >= 2^128
+        }
+        const UInt256 q = make128(q_hi, rnd());
 
-        const UInt256 q = UInt256(num) / UInt256(den);
-        const UInt256 r = UInt256(num) % UInt256(den);
+        // r < (d_hi << 64) <= d by construction, so 0 <= r < d without dividing.
+        const uint64_t r_hi = rnd() % d_hi;
+        const UInt256 r = make128(r_hi, rnd());
 
-        ASSERT_EQ(static_cast<unsigned __int128>(q), expected_q) << "iter " << iter;
-        ASSERT_EQ(static_cast<unsigned __int128>(r), expected_r) << "iter " << iter;
+        const UInt256 n = q * d + r;
+
+        ASSERT_EQ(n / d, q) << "iter " << iter;
+        ASSERT_EQ(n % d, r) << "iter " << iter;
     }
 }
 
