@@ -36,9 +36,14 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.thrift.TOlapScanNode;
+import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPartitionBoundary;
+import org.apache.doris.thrift.TScanRange;
+import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -275,6 +280,80 @@ public class OlapScanNodeTest {
         Assert.assertEquals(Lists.newArrayList(oldTargetPartitionId, afterPartitionId), serializedPartitionIds);
 
         Assert.assertEquals("p_target,p_after", scanNode.getSelectedPartitionNamesForExplain());
+    }
+
+    @Test
+    public void testRuntimeFilterBucketMetadataAttachedOnceAcrossWorkers() throws Exception {
+        OlapScanNode scanNode = newBucketPruneScanNode(10L);
+        TPaloScanRange paloScanRange = scanNode.scanRangeLocations.get(0)
+                .getScanRange().getPaloScanRange();
+        Map<Long, Long> bucketInfo = getBucketInfo(scanNode);
+        bucketInfo.put(10L, ((long) 4 << Integer.SIZE) | 2L);
+
+        scanNode.setRuntimeFilterBucketPruneParameters();
+        bucketInfo.clear();
+        scanNode.setRuntimeFilterBucketPruneParameters();
+
+        Assert.assertEquals(2, paloScanRange.getBucketSeq());
+        Assert.assertEquals(4, paloScanRange.getBucketNum());
+    }
+
+    @Test
+    public void testMissingRuntimeFilterBucketMetadataDisablesScanPruning() throws Exception {
+        OlapScanNode scanNode = newBucketPruneScanNode(10L, 11L);
+        TPaloScanRange firstScanRange = scanNode.scanRangeLocations.get(0)
+                .getScanRange().getPaloScanRange();
+        TPaloScanRange secondScanRange = scanNode.scanRangeLocations.get(1)
+                .getScanRange().getPaloScanRange();
+        Map<Long, Long> bucketInfo = getBucketInfo(scanNode);
+        bucketInfo.put(10L, ((long) 4 << Integer.SIZE) | 2L);
+        bucketInfo.put(11L, ((long) 4 << Integer.SIZE) | 3L);
+
+        boolean previousEnableDebugPoints = Config.enable_debug_points;
+        try {
+            Config.enable_debug_points = true;
+            DebugPointUtil.addDebugPointWithValue(
+                    OlapScanNode.MISSING_RF_BUCKET_METADATA_DEBUG_POINT, 11L);
+
+            scanNode.setRuntimeFilterBucketPruneParameters();
+
+            Assert.assertFalse(firstScanRange.isSetBucketSeq());
+            Assert.assertFalse(firstScanRange.isSetBucketNum());
+            Assert.assertFalse(secondScanRange.isSetBucketSeq());
+            Assert.assertFalse(secondScanRange.isSetBucketNum());
+        } finally {
+            DebugPointUtil.removeDebugPoint(OlapScanNode.MISSING_RF_BUCKET_METADATA_DEBUG_POINT);
+            Config.enable_debug_points = previousEnableDebugPoints;
+        }
+    }
+
+    private OlapScanNode newBucketPruneScanNode(long... tabletIds) {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getName()).thenReturn("rf_bucket_fact");
+        Mockito.when(table.getDistributionColumnNames()).thenReturn(Collections.emptySet());
+
+        TupleDescriptor tupleDescriptor = new TupleDescriptor(new TupleId(1));
+        tupleDescriptor.setTable(table);
+        OlapScanNode scanNode = new OlapScanNode(
+                new PlanNodeId(1), tupleDescriptor, "rfBucketScanNode", ScanContext.EMPTY);
+        for (long tabletId : tabletIds) {
+            TPaloScanRange paloScanRange = new TPaloScanRange();
+            paloScanRange.setTabletId(tabletId);
+            TScanRange scanRange = new TScanRange();
+            scanRange.setPaloScanRange(paloScanRange);
+            TScanRangeLocations locations = new TScanRangeLocations();
+            locations.setScanRange(scanRange);
+            scanNode.scanRangeLocations.add(locations);
+        }
+        return scanNode;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<Long, Long> getBucketInfo(OlapScanNode scanNode) throws Exception {
+        java.lang.reflect.Field bucketInfoField =
+                OlapScanNode.class.getDeclaredField("tabletId2BucketInfo");
+        bucketInfoField.setAccessible(true);
+        return (Map<Long, Long>) bucketInfoField.get(scanNode);
     }
 
     private Partition mockPartition(String name) {

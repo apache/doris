@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "exec/operator/operator.h"
 #include "exec/operator/scan_operator.h"
+#include "exec/runtime_filter/runtime_filter_bucket_pruner.h"
 #include "runtime/runtime_profile.h"
 #include "storage/index/snii/snii_prx_profile.h"
 #include "storage/olap_scan_common.h"
@@ -78,6 +79,7 @@ private:
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
     Status _process_conjuncts(RuntimeState* state) override;
+    Status _on_runtime_filter_update(const VExprContextSPtrs& new_conjuncts) override;
     bool _is_key_column(const std::string& col_name) override;
 
     bool can_push_down_column_predicate(const SlotDescriptor* slot) override;
@@ -135,7 +137,12 @@ private:
 
     Status _build_key_ranges_and_filters();
 
+    bool _is_tablet_pruned_by_runtime_filter(int64_t partition_id, int32_t bucket_seq,
+                                             int32_t bucket_num) const;
+
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
+    bool _has_rf_bucket_prune_metadata = false;
+    RuntimeFilterBucketPruner _rf_bucket_pruner;
     std::vector<SyncRowsetStats> _sync_statistics;
     MonotonicStopWatch _sync_cloud_tablets_watcher;
     std::shared_ptr<Dependency> _cloud_tablet_dependency;
@@ -154,6 +161,7 @@ private:
     snii::SniiPhraseRuntimeProfileCounters _snii_phrase_profile_counters;
 
     RuntimeProfile::Counter* _tablet_counter = nullptr;
+    RuntimeProfile::Counter* _buckets_pruned_by_rf_counter = nullptr;
     RuntimeProfile::Counter* _key_range_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
     RuntimeProfile::Counter* _scanner_init_timer = nullptr;
