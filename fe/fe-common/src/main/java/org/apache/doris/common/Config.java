@@ -170,12 +170,13 @@ public class Config extends ConfigBase {
                     + "if the specified driver file path is not an absolute path, Doris will find jars from this path"})
     public static String jdbc_drivers_dir = EnvUtils.getDorisHome() + "/plugins/jdbc_drivers";
 
-    @ConfField(description = {"JDBC 驱动的安全路径。在创建 JDBC Catalog 时，允许使用的文件或者网络路径，可配置多个，使用分号分隔"
-            + "默认为 * 表示全部允许，如果设置为空也表示全部允许",
-            "The safe path of the JDBC driver. When creating a JDBC Catalog,"
-                    + "you can configure multiple files or network paths that are allowed to be used,"
-                    + "separated by semicolons"
-                    + "The default is * to allow all, if set to empty, also means to allow all"})
+    @ConfField(description = {
+            "JDBC 驱动的安全路径。在创建 JDBC Catalog 时，允许使用的文件或者网络路径，可配置多个，使用分号分隔。"
+                    + "默认为 * 表示全部允许，如果设置为空也表示全部允许。配置具体路径时会按路径组件匹配，拒绝路径遍历和前缀混淆。",
+            "The safe path of the JDBC driver. When creating a JDBC Catalog, you can configure multiple "
+                    + "allowed file or network paths separated by semicolons. The default is * to allow all; "
+                    + "if set to empty, it also means to allow all. When set to concrete paths, driver URLs "
+                    + "are matched structurally, so path traversal and prefix confusion are rejected."})
     public static String jdbc_driver_secure_path = "*";
 
     @ConfField(description = {"MySQL Jdbc Catalog mysql 不支持下推的函数",
@@ -192,8 +193,12 @@ public class Config extends ConfigBase {
                     + "these variables, it just needs to accept them without error."})
     public static String[] mysql_compat_var_whitelist = {};
 
-    @ConfField(mutable = true, masterOnly = true, description = {"强制 SQLServer Jdbc Catalog 加密为 false",
-            "Force SQLServer Jdbc Catalog encrypt to false"})
+    @ConfField(description = {
+            "强制 SQLServer Jdbc Catalog 加密为 false。该配置会禁用 SQLServer JDBC 传输加密，"
+                    + "因此只能通过 fe.conf 设置，不能在运行时修改。",
+            "Force SQLServer Jdbc Catalog encrypt to false. This is a security-sensitive switch that disables "
+                    + "SQLServer JDBC transport encryption, so it can only be set in fe.conf and is not "
+                    + "modifiable at runtime via ADMIN SET FRONTEND CONFIG."})
     public static boolean force_sqlserver_jdbc_encrypt_false = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
@@ -3216,12 +3221,6 @@ public class Config extends ConfigBase {
     })
     public static int http_sql_submitter_max_worker_threads = 2;
 
-    @ConfField(mutable = false, masterOnly = false, description = {
-        "http 请求处理/api/upload 任务的最大线程池。",
-        "The max number work threads of http upload submitter."
-    })
-    public static int http_load_submitter_max_worker_threads = 2;
-
     @ConfField(mutable = true, masterOnly = true, description = {
             "load label 个数阈值，超过该个数后，对于已经完成导入作业或者任务，"
             + "其 label 会被删除，被删除的 label 可以被重用。值为 -1 时，表示此阈值不生效。",
@@ -3617,9 +3616,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int mow_calculate_delete_bitmap_retry_times = 10;
 
-    @ConfField(mutable = true, description = {"指定 S3 Load endpoint 白名单，举例：s3_load_endpoint_white_list=a,b,c",
-            "the white list for the s3 load endpoint, if it is empty, no white list will be set,"
-            + "for example: s3_load_endpoint_white_list=a,b,c"})
+    @ConfField(description = {
+            "指定 S3 Load endpoint 白名单。如果为空，则不设置白名单。只能通过 fe.conf 设置，并在重启后生效。"
+                    + "例如：s3_load_endpoint_white_list=a,b,c。",
+            "The allowlist for S3 load endpoints. If it is empty, no allowlist will be set. "
+                    + "For example: s3_load_endpoint_white_list=a,b,c. "
+                    + "This can only be set in fe.conf and takes effect after a restart; "
+                    + "it is intentionally not modifiable at runtime via ADMIN SET FRONTEND CONFIG."})
     public static String[] s3_load_endpoint_white_list = {};
 
     @ConfField(mutable = true, description = {
@@ -3665,10 +3668,13 @@ public class Config extends ConfigBase {
             ".dfs.core.cloudapi.de"
     };
 
-    @ConfField(mutable = true, description = {"指定 Jdbc driver url 白名单，举例：jdbc_driver_url_white_list=a,b,c",
-            "the white list for jdbc driver url, if it is empty, no white list will be set"
-            + "for example: jdbc_driver_url_white_list=a,b,c"
-    })
+    @ConfField(description = {
+            "指定 JDBC driver URL 白名单。如果为空，则不设置白名单。只能通过 fe.conf 设置，并在重启后生效。"
+                    + "例如：jdbc_driver_url_white_list=a,b,c。",
+            "The allowlist for JDBC driver URLs. If it is empty, no allowlist will be set. "
+                    + "For example: jdbc_driver_url_white_list=a,b,c. "
+                    + "This can only be set in fe.conf and takes effect after a restart; "
+                    + "it is intentionally not modifiable at runtime via ADMIN SET FRONTEND CONFIG."})
     public static String[] jdbc_driver_url_white_list = {};
 
     @ConfField(description = {"Stream_Load 导入时，label 被限制的最大长度",

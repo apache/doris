@@ -60,13 +60,17 @@ import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.regex.Pattern;
 
 public class JdbcExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(JdbcExternalCatalog.class);
+    private static final Pattern SAFE_DRIVER_FILE_NAME = Pattern.compile("^[A-Za-z0-9._-]+\\.jar$");
 
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
             JdbcResource.JDBC_URL,
@@ -103,6 +107,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
         }
+        checkDriverUrlSecurityRule(catalogProperty.getProperties().get(JdbcResource.DRIVER_URL));
 
         JdbcResource.checkBooleanProperty(JdbcResource.ONLY_SPECIFIED_DATABASE, getOnlySpecifiedDatabase());
         JdbcResource.checkBooleanProperty(ExternalCatalog.LOWER_CASE_META_NAMES, getLowerCaseMetaNames());
@@ -116,6 +121,38 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
         // check function rules
         ExternalFunctionRules.check(catalogProperty.getProperties().getOrDefault(JdbcResource.FUNCTION_RULES, ""));
+    }
+
+    /**
+     * Enforce the mandatory driver URL rule on user-facing CREATE and ALTER CATALOG validation.
+     * Catalog replay does not call {@link #checkProperties()}, so existing catalogs remain compatible.
+     */
+    static void checkDriverUrlSecurityRule(String driverUrl) throws DdlException {
+        if (driverUrl == null || driverUrl.isEmpty()) {
+            return;
+        }
+        String pathToCheck = driverUrl;
+        if (driverUrl.contains("://")) {
+            try {
+                String decoded = new URI(driverUrl).getPath();
+                if (decoded != null) {
+                    pathToCheck = decoded;
+                }
+            } catch (URISyntaxException e) {
+                throw new DdlException("Invalid driver_url: " + driverUrl);
+            }
+        }
+        String probe = pathToCheck.replace('\\', '/');
+        for (String segment : probe.split("/")) {
+            if ("..".equals(segment)) {
+                throw new DdlException(
+                        "Invalid driver_url: path traversal ('..') is not allowed: " + driverUrl);
+            }
+        }
+        if (!driverUrl.contains("://") && !SAFE_DRIVER_FILE_NAME.matcher(driverUrl).matches()) {
+            throw new DdlException("Invalid driver_url: a driver file name must match "
+                    + "[A-Za-z0-9._-]+.jar (got: " + driverUrl + ")");
+        }
     }
 
     @Override
