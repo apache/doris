@@ -131,8 +131,8 @@ public:
     void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
                               const uint8_t* __restrict null_map) const override;
 
-    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-                             const uint32_t* indices_end) override;
+    void insert_indices_from_impl(const IColumn& src, const uint32_t* indices_begin,
+                                  const uint32_t* indices_end) override;
 
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
@@ -141,7 +141,7 @@ public:
                                "Method replace_column_data is not supported for " + get_name());
     }
 
-    void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+    void insert_range_from_impl(const IColumn& src, size_t start, size_t length) override;
     void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
                                            size_t length) override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;

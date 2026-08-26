@@ -83,8 +83,8 @@ public:
         return res;
     }
 
-    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-                             const uint32_t* indices_end) override {
+    void insert_indices_from_impl(const IColumn& src, const uint32_t* indices_begin,
+                                  const uint32_t* indices_end) override {
         const Self& src_vec = assert_cast<const Self&>(src);
         auto origin_size = size();
         auto new_size = indices_end - indices_begin;
@@ -128,7 +128,7 @@ public:
         insert_data(x.get<TYPE_STRING>().data(), _item_size);
     }
 
-    void insert_range_from(const IColumn& src, size_t start, size_t length) override {
+    void insert_range_from_impl(const IColumn& src, size_t start, size_t length) override {
         const auto& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
         CHECK_EQ(src_col._item_size, _item_size);
 

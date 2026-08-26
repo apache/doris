@@ -111,8 +111,8 @@ public:
         data.push_back(assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(src).get_data()[n]);
     }
 
-    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-                             const uint32_t* indices_end) override {
+    void insert_indices_from_impl(const IColumn& src, const uint32_t* indices_begin,
+                                  const uint32_t* indices_end) override {
         auto origin_size = size();
         auto new_size = indices_end - indices_begin;
         data.resize(origin_size + new_size);
@@ -140,7 +140,7 @@ public:
     void insert_data(const char* pos, size_t /*length*/) override;
     void insert_default() override { data.push_back(value_type()); }
     void insert(const Field& x) override { data.push_back(x.template get<T>()); }
-    void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+    void insert_range_from_impl(const IColumn& src, size_t start, size_t length) override;
 
     void insert_many_defaults(size_t length) override {
         size_t old_size = data.size();
