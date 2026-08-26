@@ -34,7 +34,6 @@
 #include "io/fs/file_reader.h"
 #include "runtime/runtime_state.h"
 #include "util/coding.h"
-#include "util/debug_points.h"
 #include "util/thrift_util.h"
 
 namespace doris {
@@ -293,32 +292,6 @@ TEST(ParquetColumnChunkReaderTest, DictionaryProbeDoesNotParseDataPageHeader) {
     const size_t data_header_read_count = buffered_reader.read_count();
     ASSERT_TRUE(reader.parse_page_header().ok());
     EXPECT_EQ(buffered_reader.read_count(), data_header_read_count);
-}
-
-TEST(ParquetColumnChunkReaderTest, PageHeaderMemoryFailureIsNotRetried) {
-    tparquet::PageHeader header = make_data_page_header(tparquet::Encoding::PLAIN);
-
-    std::vector<uint8_t> data;
-    ThriftSerializer serializer(/*compact=*/true, /*initial_buffer_size=*/256);
-    ASSERT_TRUE(serializer.serialize(&header, &data).ok());
-    data.push_back(0);
-    const size_t data_size = data.size();
-    CountingBufferedReader buffered_reader(std::move(data));
-    tparquet::ColumnMetaData metadata;
-    metadata.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
-    ParquetPageReadContext page_read_ctx(false);
-    PageReader<false, false> reader(&buffered_reader, nullptr, 0, data_size, 1, metadata,
-                                    page_read_ctx);
-    const bool debug_points_were_enabled = config::enable_debug_points;
-    config::enable_debug_points = true;
-    DebugPoints::instance()->add("ParquetPageReader.parse_page_header.memory_failure");
-
-    Status status = reader.parse_page_header();
-    DebugPoints::instance()->remove("ParquetPageReader.parse_page_header.memory_failure");
-    config::enable_debug_points = debug_points_were_enabled;
-
-    EXPECT_TRUE(status.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) << status;
-    EXPECT_EQ(buffered_reader.read_count(), 1);
 }
 
 TEST(ParquetColumnChunkReaderTest, ParsePageHeaderLoadsDictionaryOnFirstUse) {

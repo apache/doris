@@ -37,28 +37,11 @@ Status set_hash_strategy(segment_v2::HashStrategyPB strategy,
 }
 } // namespace
 
-BlockSplitBloomFilter::~BlockSplitBloomFilter() {
-    if (_data == nullptr) {
-        return;
-    }
-    if (_is_write) {
-        segment_v2::g_write_bloom_filter_total_bytes << -static_cast<int64_t>(_size);
-        segment_v2::g_write_bloom_filter_num << -1;
-    } else {
-        segment_v2::g_read_bloom_filter_total_bytes << -static_cast<int64_t>(_size);
-        segment_v2::g_read_bloom_filter_num << -1;
-    }
-    segment_v2::g_total_bloom_filter_total_bytes << -static_cast<int64_t>(_size);
-    // The derived owner uses Doris's tracked allocator, so the base must not delete this view.
-    _data = nullptr;
-}
-
 Status BlockSplitBloomFilter::init(uint64_t filter_size, segment_v2::HashStrategyPB strategy) {
     RETURN_IF_ERROR(set_hash_strategy(strategy, &_hash_func));
     _num_bytes = filter_size;
     _size = _num_bytes;
-    _owned_data = make_unique_buffer<char>(_size);
-    _data = _owned_data.get();
+    _data = new char[_size];
     memset(_data, 0, _size);
     _has_null = nullptr;
     _is_write = true;
@@ -73,18 +56,9 @@ Status BlockSplitBloomFilter::init(const char* buf, size_t size,
     if (buf == nullptr || size <= 1) {
         return Status::InvalidArgument("Invalid Parquet Bloom filter buffer of size {}", size);
     }
-    RETURN_IF_ERROR(init_for_read(size, strategy));
-    memcpy(_data, buf, size);
-    return Status::OK();
-}
-
-Status BlockSplitBloomFilter::init_for_read(size_t size, segment_v2::HashStrategyPB strategy) {
-    if (size <= 1) {
-        return Status::InvalidArgument("Invalid Parquet Bloom filter buffer of size {}", size);
-    }
     RETURN_IF_ERROR(set_hash_strategy(strategy, &_hash_func));
-    _owned_data = make_unique_buffer<char>(size);
-    _data = _owned_data.get();
+    _data = new char[size];
+    memcpy(_data, buf, size);
     _size = size;
     _num_bytes = size;
     _has_null = nullptr;

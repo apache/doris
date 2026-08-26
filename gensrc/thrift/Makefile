@@ -30,11 +30,9 @@ all: ${GEN_OBJECTS} ${OBJECTS}
 .PHONY: all
 
 THRIFT_CPP_ARGS = -I ${CURDIR} -I ${BUILD_DIR}/thrift/ --gen cpp:moveable_types,no_skeleton -out ${BUILD_DIR}/gen_cpp --allow-64bit-consts -strict
-CONTAINER_MEMORY_CHECK = ${CURDIR}/add_container_memory_check.py
 
 ${BUILD_DIR}/gen_cpp:
 	mkdir -p $@
-
-${BUILD_DIR}/gen_cpp/%_types.cpp: ${CURDIR}/%.thrift ${CONTAINER_MEMORY_CHECK} | ${BUILD_DIR}/gen_cpp
+# handwrite thrift
+${BUILD_DIR}/gen_cpp/%_types.cpp: ${CURDIR}/%.thrift | ${BUILD_DIR}/gen_cpp
 	${THRIFT} ${THRIFT_CPP_ARGS} $<
-	python3 ${CONTAINER_MEMORY_CHECK} $@
