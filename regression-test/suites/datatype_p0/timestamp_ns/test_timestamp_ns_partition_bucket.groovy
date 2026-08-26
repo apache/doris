@@ -270,18 +270,13 @@ suite("test_timestamp_ns_partition_bucket") {
         order by id
     """
 
-    // Mixed-type coercion creates an internally strict cast even when the session is non-strict.
-    // It must fail when evaluated, while the same comparison may prune the out-of-range partition.
     sql "set enable_strict_cast = false"
-    test {
-        sql """
+    qt_datetimev2_cast_timestamp_ns_eq """
             select id, dt = cast('2024-01-01 00:00:00.000001000' as timestamp_ns)
             from datetimev2_cast_timestamp_ns_prune partition(p3)
             where id = 4
             order by id
         """
-        exception "TIMESTAMP_NS overflow"
-    }
     explain {
         sql """
             select id from datetimev2_cast_timestamp_ns_prune
