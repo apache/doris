@@ -13425,6 +13425,27 @@ true
 ["2012-03-11 11:10:11", "2014-12-11 11:10:11"]
 ["2012-03-12 12:11:12", "2015-03-12 12:11:12"]
 
+-- !array_range_int32_upper_bound --
+[2147483646]
+
+-- !array_range_int32_upper_bound_multiple_elements --
+[2147483644, 2147483646]
+
+-- !array_range_int32_upper_bound_non_const --
+[2147483646]
+
+-- !array_range_datetime_day_upper_bound --
+["9999-12-30 00:00:00"]
+
+-- !array_range_datetime_second_upper_bound --
+["9999-12-31 23:59:58"]
+
+-- !array_range_datetime_year_upper_bound --
+["9998-12-31 00:00:00"]
+
+-- !array_range_datetime_month_end --
+["2020-01-31 00:00:00", "2020-02-29 00:00:00"]
+
 -- !sequence_int_one_para --
 \N
 [0]
@@ -13470,6 +13491,9 @@ true
 [10, 11, 12]
 [11, 12, 13]
 
+-- !sequence_int32_upper_bound --
+[2147483646]
+
 -- !sequence_datetime_default --
 \N
 []
@@ -13499,6 +13523,9 @@ true
 ["2012-03-10 10:09:10", "2012-03-20 10:09:10"]
 ["2012-03-11 11:10:11", "2012-03-22 11:10:11"]
 ["2012-03-12 12:11:12", "2012-03-24 12:11:12"]
+
+-- !sequence_datetime_upper_bound --
+["9999-12-30 00:00:00"]
 
 -- !sequence_datetime_week --
 \N
