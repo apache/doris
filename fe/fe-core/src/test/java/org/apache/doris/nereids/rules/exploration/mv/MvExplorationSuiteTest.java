@@ -335,6 +335,18 @@ public class MvExplorationSuiteTest extends SqlTestBase {
                 queryPlan.child(0), queryPlan, queryPlan));
     }
 
+    @Test
+    void testPartitionUnionRejectsMultipleGlobalLimits() {
+        Plan scan = PlanChecker.from(connectContext)
+                .analyze("select id from T1")
+                .rewrite()
+                .getPlan().child(0);
+        Plan innerLimit = new LogicalLimit<>(3, 0, LimitPhase.GLOBAL, scan);
+        Plan queryPlan = new LogicalLimit<>(2, 0, LimitPhase.GLOBAL, innerLimit);
+
+        Assertions.assertNull(TEST_RULE.buildPartitionCompensationPlan(queryPlan, queryPlan, queryPlan));
+    }
+
     // -------------------------------------------------------------------------
     // from EliminateJoinTest
     // -------------------------------------------------------------------------
