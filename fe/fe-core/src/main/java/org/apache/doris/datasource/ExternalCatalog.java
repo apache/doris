@@ -80,6 +80,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -1506,6 +1507,7 @@ public abstract class ExternalCatalog
         // lightweight lookup index and must always track registered objects so normal by-ID lookup can load on demand.
         // By default, incremental updates keep cold names/object cache entries cold.
         // forceUpdateCacheState is only for paths that intentionally populate those cold entries.
+        AtomicBoolean objectEntryUpdated = new AtomicBoolean();
         databaseNames.computeAfterValidation(
                 "",
                 (ignored, current) -> {
@@ -1517,10 +1519,18 @@ public abstract class ExternalCatalog
                     // can not publish a stale snapshot after this incremental update.
                     return current == null ? null : current.withName(remoteDbName, localDbName);
                 },
-                () -> databases.computeAfterValidation(
-                        localDbName,
-                        (ignored, current) -> (forceUpdateCacheState || current != null) ? db : null,
-                        () -> dbIdNameIndex.put(dbId, localDbName)));
+                () -> {
+                    // The outer names CAS may retry after this object step succeeds. Do not replay the object
+                    // ownership change: a later lookup may already have published and returned a newer object.
+                    if (objectEntryUpdated.get()) {
+                        return;
+                    }
+                    databases.computeWithCommitAction(
+                            localDbName,
+                            (ignored, current) -> (forceUpdateCacheState || current != null) ? db : null,
+                            () -> dbIdNameIndex.put(dbId, localDbName));
+                    objectEntryUpdated.set(true);
+                });
     }
 
     protected void invalidateDatabaseCache(String localDbName) {

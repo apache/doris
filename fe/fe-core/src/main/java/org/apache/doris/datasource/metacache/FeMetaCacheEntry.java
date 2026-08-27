@@ -320,6 +320,29 @@ public class FeMetaCacheEntry<K, V> {
         }
     }
 
+    /**
+     * Runs the action only after the expected cache value is confirmed, while concurrent loads are prevented from
+     * publishing until both the action and the value update finish. The action runs while this entry's stripe and
+     * the shared-cache publication locks are held, so it must be short, non-blocking, and must not re-enter this
+     * entry. If it throws, the value is not updated, but completed external side effects are not rolled back.
+     */
+    public V computeWithCommitAction(K key, BiFunction<K, V, V> remappingFunction, Runnable commitAction) {
+        BiFunction<K, V, V> remapper = Objects.requireNonNull(remappingFunction, "remappingFunction can not be null");
+        Runnable action = Objects.requireNonNull(commitAction, "commitAction can not be null");
+        StripeState<K> stripe = stripeState(key);
+        synchronized (stripe) {
+            while (true) {
+                V current = data.getIfPresent(key);
+                V updated = effectiveEnabled ? remapper.apply(key, current) : null;
+                bumpAction(stripe, key);
+                beforePublicMutationWriteForTest(key);
+                if (data.compareAndSet(key, current, updated, action)) {
+                    return updated;
+                }
+            }
+        }
+    }
+
     public void invalidateKey(K key) {
         invalidateKeyAndRun(key, () -> {
         });

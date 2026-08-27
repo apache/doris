@@ -292,10 +292,17 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     }
 
     public boolean compareAndSet(K key, ScopePath path, V expectedValue, V updatedValue) {
+        return compareAndSet(key, path, expectedValue, updatedValue, NO_OP);
+    }
+
+    public boolean compareAndSet(
+            K key, ScopePath path, V expectedValue, V updatedValue, Runnable commitAction) {
         Objects.requireNonNull(key, "key can not be null");
         Objects.requireNonNull(path, "path can not be null");
+        Runnable action = Objects.requireNonNull(commitAction, "commitAction can not be null");
         checkOpen();
         if (!effectiveEnabled) {
+            action.run();
             return true;
         }
         try (PublicationLease<K, V> lease = acquirePublicationLease(key, path, false)) {
@@ -306,7 +313,9 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                     return false;
                 }
                 lease.keyNode.loadPublicationState.set(new Object());
+                action.run();
                 if (updatedValue == currentValue) {
+                    lease.keyNode.loadPublicationState.set(new Object());
                     return true;
                 }
                 if (updatedValue == null) {
@@ -317,6 +326,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                 } else {
                     publishCommitted(lease, key, updatedValue);
                 }
+                lease.keyNode.loadPublicationState.set(new Object());
                 return true;
             });
         }

@@ -72,6 +72,37 @@ public class ScopedMetaCacheConcurrencyTest {
     }
 
     @Test
+    public void commitActionPreventsConcurrentMissFromPublishingBetweenIndexAndValue() throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch actionStarted = new CountDownLatch(1);
+        CountDownLatch concurrentLoadElected = new CountDownLatch(1);
+        AtomicInteger loads = new AtomicInteger();
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
+            ScopedMetaCache<String, String> cache = registry.createCache(
+                    "test", ENABLED, null, null, concurrentLoadElected::countDown, () -> {
+                    });
+
+            Future<Boolean> update = executor.submit(() -> cache.compareAndSet(
+                    "key", TABLE, null, "event-value", () -> {
+                        actionStarted.countDown();
+                        await(concurrentLoadElected);
+                    }));
+            await(actionStarted);
+            Future<String> lookup = executor.submit(() -> cache.get("key", TABLE, ignored -> {
+                loads.incrementAndGet();
+                return "lookup-value";
+            }));
+
+            Assertions.assertTrue(update.get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            Assertions.assertEquals("event-value", lookup.get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            Assertions.assertEquals("event-value", cache.getIfPresent("key", TABLE));
+            Assertions.assertEquals(0, loads.get());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void closeDuringRefreshAdmissionDoesNotRetainRefreshMarker() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         CountDownLatch refreshRegistered = new CountDownLatch(1);

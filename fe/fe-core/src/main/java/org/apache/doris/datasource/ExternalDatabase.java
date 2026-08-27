@@ -59,6 +59,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -701,6 +702,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         // lightweight lookup index and must always track registered objects so normal by-ID lookup can load on demand.
         // By default, incremental updates keep cold names/object cache entries cold.
         // forceUpdateCacheState is only for paths that intentionally populate those cold entries.
+        AtomicBoolean objectEntryUpdated = new AtomicBoolean();
         tableNames.computeAfterValidation(
                 "",
                 (ignored, current) -> {
@@ -712,10 +714,18 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     // can not publish a stale snapshot after this incremental update.
                     return current == null ? null : current.withName(remoteTableName, localTableName);
                 },
-                () -> tables.computeAfterValidation(
-                        localTableName,
-                        (ignored, current) -> (forceUpdateCacheState || current != null) ? table : null,
-                        () -> tableIdNameIndex.put(table.getId(), localTableName)));
+                () -> {
+                    // The outer names CAS may retry after this object step succeeds. Do not replay the object
+                    // ownership change: a later lookup may already have published a newer object.
+                    if (objectEntryUpdated.get()) {
+                        return;
+                    }
+                    tables.computeWithCommitAction(
+                            localTableName,
+                            (ignored, current) -> (forceUpdateCacheState || current != null) ? table : null,
+                            () -> tableIdNameIndex.put(table.getId(), localTableName));
+                    objectEntryUpdated.set(true);
+                });
     }
 
     protected void invalidateTableCache(String localTableName) {

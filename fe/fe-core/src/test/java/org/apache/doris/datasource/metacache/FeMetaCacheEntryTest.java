@@ -169,7 +169,7 @@ public class FeMetaCacheEntryTest {
             entry.put("table", 1);
 
             Assert.assertThrows(IllegalStateException.class,
-                    () -> entry.computeAfterValidation(
+                    () -> entry.computeWithCommitAction(
                             "table", (key, value) -> 2, () -> {
                                 throw new IllegalStateException("identity conflict");
                             }));
@@ -375,6 +375,175 @@ public class FeMetaCacheEntryTest {
     }
 
     @Test
+    public void testOuterNameRetryDoesNotReplaceObjectLoadedAfterColdIdentityCommit() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        CountDownLatch firstObjectCommitFinished = new CountDownLatch(1);
+        CountDownLatch continueNamePublication = new CountDownLatch(1);
+        AtomicInteger nameAttempts = new AtomicInteger();
+        AtomicInteger objectRemovals = new AtomicInteger();
+        AtomicBoolean queryDatabase = new AtomicBoolean(true);
+        AtomicBoolean eventDatabase = new AtomicBoolean(true);
+        AtomicBoolean objectEntryUpdated = new AtomicBoolean();
+        IdNameIndex index = new IdNameIndex("database");
+        try {
+            FeMetaCacheEntry<String, AtomicBoolean> objects = FeMetaCacheEntry.withSyncRemovalListener(
+                    "databases", ignored -> queryDatabase, ENABLED, refreshExecutor, 1,
+                    (key, value, cause) -> {
+                        objectRemovals.incrementAndGet();
+                        value.set(false);
+                    });
+            FeMetaCacheEntry<String, Set<String>> names = new FeMetaCacheEntry<String, Set<String>>(
+                    "databaseNames", key -> Set.of(), ENABLED, refreshExecutor, false, 1) {
+                @Override
+                void beforePublicMutationWriteForTest(String key) {
+                    if (nameAttempts.incrementAndGet() == 1) {
+                        firstObjectCommitFinished.countDown();
+                        await(continueNamePublication);
+                    }
+                }
+            };
+
+            Future<Set<String>> update = worker.submit(() -> names.computeAfterValidation(
+                    "names",
+                    (key, current) -> current == null ? null : Set.of("database"),
+                    () -> {
+                        if (objectEntryUpdated.get()) {
+                            return;
+                        }
+                        objects.computeWithCommitAction(
+                                "database", (key, current) -> current == null ? null : eventDatabase,
+                                () -> index.put(1L, "database"));
+                        objectEntryUpdated.set(true);
+                    }));
+            await(firstObjectCommitFinished);
+            Assert.assertEquals("database", index.getName(1L));
+
+            names.putSharedForTest("names", Set.of("database"));
+            Assert.assertSame(queryDatabase, objects.get("database"));
+            continueNamePublication.countDown();
+
+            Assert.assertEquals(Set.of("database"), update.get(3L, TimeUnit.SECONDS));
+            Assert.assertSame(queryDatabase, objects.getIfPresent("database"));
+            Assert.assertTrue(queryDatabase.get());
+            Assert.assertEquals(0, objectRemovals.get());
+            Assert.assertEquals(2, nameAttempts.get());
+        } finally {
+            continueNamePublication.countDown();
+            worker.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testInnerRetryReevaluatesObjectLoadedBeforeIdentityCommit() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        CountDownLatch firstRemapCalculated = new CountDownLatch(1);
+        CountDownLatch continueObjectPublication = new CountDownLatch(1);
+        AtomicInteger attempts = new AtomicInteger();
+        AtomicInteger objectRemovals = new AtomicInteger();
+        AtomicBoolean queryDatabase = new AtomicBoolean(true);
+        AtomicBoolean eventDatabase = new AtomicBoolean(true);
+        try {
+            FeMetaCacheEntry<String, AtomicBoolean> objects = new FeMetaCacheEntry<String, AtomicBoolean>(
+                    "databases", ignored -> queryDatabase, ENABLED, refreshExecutor, false, false, 1,
+                    (key, value, cause) -> {
+                        objectRemovals.incrementAndGet();
+                        value.set(false);
+                    }) {
+                @Override
+                void beforePublicMutationWriteForTest(String key) {
+                    if (attempts.incrementAndGet() == 1) {
+                        firstRemapCalculated.countDown();
+                        await(continueObjectPublication);
+                    }
+                }
+            };
+
+            Future<AtomicBoolean> update = worker.submit(() -> objects.computeWithCommitAction(
+                    "database", (key, current) -> current == null ? null : eventDatabase, () -> {
+                    }));
+            await(firstRemapCalculated);
+            objects.putSharedForTest("database", queryDatabase);
+            continueObjectPublication.countDown();
+
+            Assert.assertSame(eventDatabase, update.get(3L, TimeUnit.SECONDS));
+            Assert.assertSame(eventDatabase, objects.getIfPresent("database"));
+            Assert.assertFalse(queryDatabase.get());
+            Assert.assertEquals(1, objectRemovals.get());
+            Assert.assertEquals(2, attempts.get());
+        } finally {
+            continueObjectPublication.countDown();
+            worker.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testOuterNameRetryDoesNotReplayCompletedHotObjectCommit() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        CountDownLatch firstObjectCommitFinished = new CountDownLatch(1);
+        CountDownLatch continueNamePublication = new CountDownLatch(1);
+        AtomicInteger nameAttempts = new AtomicInteger();
+        AtomicInteger objectRemovals = new AtomicInteger();
+        AtomicBoolean initialDatabase = new AtomicBoolean(true);
+        AtomicBoolean eventDatabase = new AtomicBoolean(true);
+        AtomicBoolean queryDatabase = new AtomicBoolean(true);
+        AtomicBoolean objectEntryUpdated = new AtomicBoolean();
+        try {
+            FeMetaCacheEntry<String, AtomicBoolean> objects = FeMetaCacheEntry.withSyncRemovalListener(
+                    "databases", ignored -> queryDatabase, ENABLED, refreshExecutor, 1,
+                    (key, value, cause) -> {
+                        objectRemovals.incrementAndGet();
+                        value.set(false);
+                    });
+            FeMetaCacheEntry<String, Set<String>> names = new FeMetaCacheEntry<String, Set<String>>(
+                    "databaseNames", key -> Set.of(), ENABLED, refreshExecutor, false, 1) {
+                @Override
+                void beforePublicMutationWriteForTest(String key) {
+                    if (nameAttempts.incrementAndGet() == 1) {
+                        firstObjectCommitFinished.countDown();
+                        await(continueNamePublication);
+                    }
+                }
+            };
+            objects.put("database", initialDatabase);
+
+            Future<Set<String>> update = worker.submit(() -> names.computeAfterValidation(
+                    "names",
+                    (key, current) -> Set.of("database"),
+                    () -> {
+                        if (objectEntryUpdated.get()) {
+                            return;
+                        }
+                        objects.computeWithCommitAction("database", (key, current) -> eventDatabase, () -> {
+                        });
+                        objectEntryUpdated.set(true);
+                    }));
+            await(firstObjectCommitFinished);
+            Assert.assertSame(eventDatabase, objects.getIfPresent("database"));
+
+            names.putSharedForTest("names", Set.of("database"));
+            objects.invalidateKey("database");
+            Assert.assertFalse(eventDatabase.get());
+            Assert.assertSame(queryDatabase, objects.get("database"));
+            continueNamePublication.countDown();
+
+            Assert.assertEquals(Set.of("database"), update.get(3L, TimeUnit.SECONDS));
+            Assert.assertSame(queryDatabase, objects.getIfPresent("database"));
+            Assert.assertTrue(queryDatabase.get());
+            Assert.assertEquals(2, objectRemovals.get());
+            Assert.assertEquals(2, nameAttempts.get());
+        } finally {
+            continueNamePublication.countDown();
+            worker.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testFailedValidationDoesNotCancelCurrentAuxiliaryIndexAction() throws Exception {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -484,7 +653,7 @@ public class FeMetaCacheEntryTest {
         index.checkCanPut(id, "table");
         prechecksComplete.countDown();
         await(startPublication);
-        return entry.computeAfterValidation("table", (key, value) -> id, () -> index.put(id, "table"));
+        return entry.computeWithCommitAction("table", (key, value) -> id, () -> index.put(id, "table"));
     }
 
     private static Long resultOrNull(Future<Long> future) throws Exception {

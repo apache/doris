@@ -72,8 +72,21 @@ public final class MetaCache<K, V> {
     }
 
     public boolean compareAndSet(K key, V expectedValue, V updatedValue) {
+        return compareAndSet(key, expectedValue, updatedValue, () -> {
+        });
+    }
+
+    /**
+     * Updates a value only if it is still current, and runs an auxiliary action inside the same guarded commit.
+     * Concurrent cache loads can not publish between the action and the value update.
+     * The action runs while the publication guards and key lock are held, so it must be short, non-blocking, and
+     * must not re-enter this cache. If it throws, the value is not updated, but completed external side effects are
+     * not rolled back.
+     */
+    public boolean compareAndSet(K key, V expectedValue, V updatedValue, Runnable commitAction) {
         K nonNullKey = Objects.requireNonNull(key, "key can not be null");
-        return delegate.compareAndSet(nonNullKey, definition.scope(nonNullKey), expectedValue, updatedValue);
+        return delegate.compareAndSet(nonNullKey, definition.scope(nonNullKey), expectedValue, updatedValue,
+                Objects.requireNonNull(commitAction, "commitAction can not be null"));
     }
 
     public void invalidateKey(K key) {
