@@ -1109,6 +1109,8 @@ void DataDir::perform_remote_rowset_gc() {
 
         std::vector<io::Path> seg_paths;
         seg_paths.reserve(gc_pb.num_segments());
+        // RemoteRowsetGcPB is local-mode only. Segment-list rowsets are cloud-only, so remote GC
+        // files are still named by contiguous segment indexes rather than persisted segment_ids.
         for (int i = 0; i < gc_pb.num_segments(); ++i) {
             seg_paths.emplace_back(
                     storage_resource->first.remote_segment_path(gc_pb.tablet_id(), rowset_id, i));

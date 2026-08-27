@@ -67,6 +67,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
         out->mutable_tablet_uid()->CopyFrom(in.tablet_uid());
     }
     out->set_num_segments(in.num_segments());
+    out->mutable_segment_ids()->CopyFrom(in.segment_ids());
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());
@@ -164,6 +165,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
         out->mutable_tablet_uid()->CopyFrom(in.tablet_uid());
     }
     out->set_num_segments(in.num_segments());
+    out->mutable_segment_ids()->Swap(in.mutable_segment_ids());
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());
@@ -275,6 +277,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
         out->mutable_tablet_uid()->CopyFrom(in.tablet_uid());
     }
     out->set_num_segments(in.num_segments());
+    out->mutable_segment_ids()->CopyFrom(in.segment_ids());
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());
@@ -372,6 +375,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
         out->mutable_tablet_uid()->CopyFrom(in.tablet_uid());
     }
     out->set_num_segments(in.num_segments());
+    out->mutable_segment_ids()->Swap(in.mutable_segment_ids());
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());

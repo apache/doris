@@ -51,6 +51,7 @@ import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
@@ -408,10 +409,20 @@ public class AuditLogHelper {
             auditEventBuilder.setState(String.valueOf(MysqlStateType.OK));
         }
         AuditEvent event = auditEventBuilder.build();
-        Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(event);
+        Set<Long> externalDmlBackendIds = getExternalDmlAuditBackendIds(ctx.getExecutor());
+        if (externalDmlBackendIds.isEmpty()) {
+            Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(event);
+        } else {
+            Env.getCurrentEnv().getWorkloadRuntimeStatusMgr()
+                    .submitFinishQueryToAudit(event, externalDmlBackendIds);
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("submit audit event: {}", event.queryId);
         }
+    }
+
+    static Set<Long> getExternalDmlAuditBackendIds(StmtExecutor executor) {
+        return executor == null ? ImmutableSet.of() : executor.getExternalDmlAuditBackendIds();
     }
 
     private static long getQueueTimeMs(ConnectContext ctx) {

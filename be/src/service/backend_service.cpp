@@ -388,6 +388,8 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     rowset_meta->set_rowset_id(new_rowset_id);
     rowset_meta->set_tablet_uid(local_tablet->tablet_uid());
 
+    // Binlog is only supported in local mode. Segment-list rowsets are cloud-only, so binlog files
+    // are still named by contiguous segment indexes rather than persisted segment_ids.
     // Step 5: get all segment files
     // Step 5.1: get all segment files size
     std::vector<std::string> segment_file_urls;
