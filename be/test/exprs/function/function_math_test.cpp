@@ -484,23 +484,56 @@ TEST(MathFunctionTest, round_bankers_test) {
 TEST(MathFunctionTest, least_test) {
     std::string func_name = "least";
 
-    InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
 
-    DataSet data_set = {
-            {{3, 2}, 2}, {{3, 3}, 3}, {{Null(), -2}, Null()}, {{193, -2}, -2}, {{193, -1}, -1}};
+        DataSet data_set = {
+                {{3, 2}, 2}, {{3, 3}, 3}, {{Null(), -2}, Null()}, {{193, -2}, -2}, {{193, -1}, -1}};
 
-    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_DECIMALV2, PrimitiveType::TYPE_DECIMALV2};
+
+        DataSet data_set = {{{DECIMALV2VALUEFROMDOUBLE(3.0), DECIMALV2VALUEFROMDOUBLE(2.0)},
+                             DECIMALV2VALUEFROMDOUBLE(2.0)},
+                            {{DECIMALV2VALUEFROMDOUBLE(3.0), DECIMALV2VALUEFROMDOUBLE(3.0)},
+                             DECIMALV2VALUEFROMDOUBLE(3.0)},
+                            {{DECIMALV2VALUEFROMDOUBLE(-1.0), DECIMALV2VALUEFROMDOUBLE(2.0)},
+                             DECIMALV2VALUEFROMDOUBLE(-1.0)}};
+
+        check_function_all_arg_comb<DataTypeDecimalV2, true>(func_name, input_types, data_set, 9,
+                                                             27);
+    }
 }
 
 TEST(MathFunctionTest, greatest_test) {
     std::string func_name = "greatest";
 
-    InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
 
-    DataSet data_set = {
-            {{3, 2}, 3}, {{3, 3}, 3}, {{Null(), -2}, Null()}, {{193, -2}, 193}, {{193, -1}, 193}};
+        DataSet data_set = {{{3, 2}, 3},
+                            {{3, 3}, 3},
+                            {{Null(), -2}, Null()},
+                            {{193, -2}, 193},
+                            {{193, -1}, 193}};
 
-    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_DECIMALV2, PrimitiveType::TYPE_DECIMALV2};
+
+        DataSet data_set = {{{DECIMALV2VALUEFROMDOUBLE(3.0), DECIMALV2VALUEFROMDOUBLE(2.0)},
+                             DECIMALV2VALUEFROMDOUBLE(3.0)},
+                            {{DECIMALV2VALUEFROMDOUBLE(3.0), DECIMALV2VALUEFROMDOUBLE(3.0)},
+                             DECIMALV2VALUEFROMDOUBLE(3.0)},
+                            {{DECIMALV2VALUEFROMDOUBLE(-1.0), DECIMALV2VALUEFROMDOUBLE(2.0)},
+                             DECIMALV2VALUEFROMDOUBLE(2.0)}};
+
+        check_function_all_arg_comb<DataTypeDecimalV2, true>(func_name, input_types, data_set, 9,
+                                                             27);
+    }
 }
 
 TEST(MathFunctionTest, bin_test) {
