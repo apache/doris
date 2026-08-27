@@ -33,8 +33,24 @@ public class DorisHiveCatalog extends HiveCatalog {
 
     @Override
     public void initialize(String name, Map<String, String> properties) {
-        super.initialize(name, properties);
-        ownedFileIO = extractFileIO();
+        try {
+            super.initialize(name, properties);
+            ownedFileIO = extractFileIO();
+        } catch (RuntimeException | Error failure) {
+            closePartiallyInitializedFileIO(failure);
+            throw failure;
+        }
+    }
+
+    private void closePartiallyInitializedFileIO(Throwable initializationFailure) {
+        try {
+            FileIO fileIO = extractFileIO();
+            if (fileIO != null) {
+                fileIO.close();
+            }
+        } catch (Throwable closeFailure) {
+            initializationFailure.addSuppressed(closeFailure);
+        }
     }
 
     @Override
