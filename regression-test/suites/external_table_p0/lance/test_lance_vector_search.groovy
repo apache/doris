@@ -124,16 +124,12 @@ suite("test_lance_vector_search", "p0,external") {
             FROM `${catalogName}`.`doris`.`vs_ivf_pq_f32`
         """
 
-        // EXPLAIN asserts the logical search parameters Doris sends to the backend. It does not
-        // prove which physical Lance index served the query; that proof lives in the fixture
-        // generator's plan self-check plus the nprobes=1 discriminator below, until lance-c
-        // exposes the selected index at runtime.
+        // EXPLAIN reports the searched vector column, distance metric, fixed snapshot and Doris
+        // physical split plan, while lance-c does not expose its selected index at runtime.
         explain {
             sql("""SELECT row_id, label, _distance FROM ${indexedTopFive} ORDER BY _distance, row_id""")
             contains "externalSearchType=VECTOR"
             contains "lanceVectorColumn=embedding"
-            contains "lanceTopK=5"
-            contains "lanceOffset=0"
             contains "lanceMetric=l2"
             contains "lanceVersion="
             contains "lanceSearchFragments=2"

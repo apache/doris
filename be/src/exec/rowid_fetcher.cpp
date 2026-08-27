@@ -78,6 +78,7 @@
 #include "util/brpc_client_cache.h" // BrpcClientCache
 #include "util/defer_op.h"
 #include "util/jsonb/serialize.h"
+#include "util/pretty_printer.h"
 
 namespace doris {
 
@@ -724,6 +725,11 @@ const std::string RowIdStorageReader::ScannersRunningTimeProfile = "ScannersRunn
 const std::string RowIdStorageReader::InitReaderAvgTimeProfile = "InitReaderAvgTime";
 const std::string RowIdStorageReader::GetBlockAvgTimeProfile = "GetBlockAvgTime";
 const std::string RowIdStorageReader::FileReadLinesProfile = "FileReadLines";
+const std::string RowIdStorageReader::LanceDatasetOpenTimeProfile = "LanceDatasetOpenTime";
+const std::string RowIdStorageReader::LanceRowIdTakeReadTimeProfile = "LanceRowIdTakeReadTime";
+const std::string RowIdStorageReader::LanceArrowToDorisBlockTimeProfile =
+        "LanceArrowToDorisBlockTime";
+const std::string RowIdStorageReader::LanceRowIdFetchTotalTimeProfile = "LanceRowIdFetchTotalTime";
 const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOCount =
         "TopNLazyMaterializationSecondPhaseLocalIOCount";
 const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOBytes =
@@ -784,7 +790,18 @@ Status RowIdStorageReader::read_lance_rows_by_row_ids(
     RETURN_IF_ERROR(scope_timer_run(
             [&]() { return reader.read_by_row_ids(scan_range_desc, row_ids, block); },
             &fetch_statistics->get_block_ms));
-    return reader.close();
+    RETURN_IF_ERROR(reader.close());
+
+    const auto collect_lance_fetch_time = [&](const std::string& timer_name) {
+        if (const auto* counter = runtime_profile->get_counter(timer_name); counter != nullptr) {
+            fetch_statistics->lance_fetch_times_ns.emplace(timer_name, counter->value());
+        }
+    };
+    collect_lance_fetch_time(LanceDatasetOpenTimeProfile);
+    collect_lance_fetch_time(LanceRowIdTakeReadTimeProfile);
+    collect_lance_fetch_time(LanceArrowToDorisBlockTimeProfile);
+    collect_lance_fetch_time(LanceRowIdFetchTotalTimeProfile);
+    return Status::OK();
 }
 
 Status RowIdStorageReader::read_external_row_from_file_mapping(
@@ -1108,13 +1125,17 @@ Status RowIdStorageReader::read_batch_external_row(
         fmt::memory_buffer file_read_times_buffer;
         format_to(file_read_times_buffer, "[");
 
+        std::map<std::string, int64_t> lance_fetch_times_ns;
         size_t idx = 0;
         for (const auto& [_, scan_info] : scan_rows) {
             format_to(file_read_lines_buffer, "{}, ", scan_info.first.size());
-            *init_reader_avg_ms = fetch_statistics[idx].init_reader_ms;
+            *init_reader_avg_ms += fetch_statistics[idx].init_reader_ms;
             *get_block_avg_ms += fetch_statistics[idx].get_block_ms;
             format_to(file_read_bytes_buffer, "{}, ", fetch_statistics[idx].file_read_bytes);
             format_to(file_read_times_buffer, "{}, ", fetch_statistics[idx].file_read_times);
+            for (const auto& [time_name, time_value] : fetch_statistics[idx].lance_fetch_times_ns) {
+                lance_fetch_times_ns[time_name] += time_value;
+            }
             idx++;
         }
 
@@ -1127,13 +1148,17 @@ Status RowIdStorageReader::read_batch_external_row(
         runtime_profile->add_info_string(InitReaderAvgTimeProfile,
                                          std::to_string(*init_reader_avg_ms) + "ms");
         runtime_profile->add_info_string(GetBlockAvgTimeProfile,
-                                         std::to_string(*init_reader_avg_ms) + "ms");
+                                         std::to_string(*get_block_avg_ms) + "ms");
         runtime_profile->add_info_string(FileReadLinesProfile,
                                          fmt::to_string(file_read_lines_buffer));
         runtime_profile->add_info_string(FileScanner::FileReadBytesProfile,
                                          fmt::to_string(file_read_bytes_buffer));
         runtime_profile->add_info_string(FileScanner::FileReadTimeProfile,
                                          fmt::to_string(file_read_times_buffer));
+        for (const auto& [time_name, time_value] : lance_fetch_times_ns) {
+            runtime_profile->add_info_string(time_name,
+                                             PrettyPrinter::print(time_value, TUnit::TIME_NS));
+        }
     }
 
     runtime_profile->to_proto(pprofile, 2);

@@ -774,12 +774,12 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
     echo "Finished patching ${PAIMON_CPP_SOURCE}"
 fi
 
-# Patch lance-c for fragment-scoped nearest-neighbor search and row-ID-based fetching.
+# Patch lance-c with the scan execution statistics API from upstream PR #64.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
-    if [[ "${LANCE_C_SOURCE}" == "lance-c-0.1.6" ]]; then
+    if [[ "${LANCE_C_SOURCE}" == "lance-c-0.1.7" ]]; then
         cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p1 <"${TP_PATCH_DIR}/lance-c-0.1.6-doris.patch"
+            patch -p1 <"${TP_PATCH_DIR}/lance-c-0.1.7-pr-64.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -

@@ -90,6 +90,24 @@ struct LanceFixtureInfo {
     std::vector<int64_t> fragment_ids;
 };
 
+void expect_lance_profile_hierarchy(RuntimeProfile* profile,
+                                    const std::vector<std::string>& metric_names) {
+    TRuntimeProfileTree tree;
+    profile->to_thrift(&tree, 3);
+    ASSERT_FALSE(tree.nodes.empty());
+    const auto& children = tree.nodes[0].child_counters_map;
+    ASSERT_TRUE(children.contains(RuntimeProfile::ROOT_COUNTER));
+    EXPECT_TRUE(children.at(RuntimeProfile::ROOT_COUNTER).contains("FileScannerV2"));
+    ASSERT_TRUE(children.contains("FileScannerV2"));
+    EXPECT_TRUE(children.at("FileScannerV2").contains("TableReader"));
+    ASSERT_TRUE(children.contains("TableReader"));
+    EXPECT_TRUE(children.at("TableReader").contains("LanceReader"));
+    ASSERT_TRUE(children.contains("LanceReader"));
+    for (const auto& metric_name : metric_names) {
+        EXPECT_TRUE(children.at("LanceReader").contains(metric_name)) << metric_name;
+    }
+}
+
 Status get_fixture_info(const std::filesystem::path& dataset_uri, LanceFixtureInfo* info) {
     std::unique_ptr<LanceDataset, decltype(&lance_dataset_close)> dataset(
             lance_dataset_open(dataset_uri.c_str(), nullptr, 0), lance_dataset_close);
@@ -344,6 +362,12 @@ TEST(LanceTableReaderVectorSearchTest, SearchesWholeSnapshotWithOffsetAndDistanc
     EXPECT_FLOAT_EQ(1.0F, rows[0].second);
     EXPECT_EQ(4, rows[1].first);
     EXPECT_FLOAT_EQ(8.25F, rows[1].second);
+    ASSERT_NE(profile.get_info_string("LanceTopK"), nullptr);
+    EXPECT_EQ("2", *profile.get_info_string("LanceTopK"));
+    ASSERT_NE(profile.get_info_string("LanceOffset"), nullptr);
+    EXPECT_EQ("1", *profile.get_info_string("LanceOffset"));
+    ASSERT_NE(profile.get_info_string("LanceTopKPlusOffset"), nullptr);
+    EXPECT_EQ("3", *profile.get_info_string("LanceTopKPlusOffset"));
     EXPECT_TRUE(reader.close().ok());
 }
 
@@ -399,8 +423,6 @@ TEST(LanceTableReaderVectorSearchTest, SearchesMultipleFragmentSplits) {
 
     LanceTableReader reader;
     ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
-    ASSERT_NE(profile.get_info_string("LanceUseIndex"), nullptr);
-    EXPECT_EQ(*profile.get_info_string("LanceUseIndex"), "false");
     std::vector<int64_t> row_ids;
     for (const auto fragment_id : fixture.fragment_ids) {
         ASSERT_TRUE(prepare_fixture(&reader, dataset_uri, fixture, {fragment_id}).ok());
@@ -413,9 +435,49 @@ TEST(LanceTableReaderVectorSearchTest, SearchesMultipleFragmentSplits) {
     }
     std::ranges::sort(row_ids);
     EXPECT_EQ((std::vector<int64_t> {1, 2, 3, 4}), row_ids);
-    ASSERT_NE(profile.get_counter("LanceFragmentCount"), nullptr);
-    EXPECT_EQ(profile.get_counter("LanceFragmentCount")->value(),
+    ASSERT_NE(profile.get_counter("LancePlannedIndexSegmentCount"), nullptr);
+    EXPECT_EQ(0, profile.get_counter("LancePlannedIndexSegmentCount")->value());
+    ASSERT_NE(profile.get_counter("LancePlannedIndexedFragmentCount"), nullptr);
+    EXPECT_EQ(0, profile.get_counter("LancePlannedIndexedFragmentCount")->value());
+    ASSERT_NE(profile.get_counter("LancePlannedFlatSearchFragmentCount"), nullptr);
+    EXPECT_EQ(profile.get_counter("LancePlannedFlatSearchFragmentCount")->value(),
               static_cast<int64_t>(fixture.fragment_ids.size()));
+    ASSERT_NE(profile.get_info_string("LanceTopK"), nullptr);
+    EXPECT_EQ("4", *profile.get_info_string("LanceTopK"));
+    ASSERT_NE(profile.get_info_string("LanceOffset"), nullptr);
+    EXPECT_EQ("0", *profile.get_info_string("LanceOffset"));
+    ASSERT_NE(profile.get_info_string("LanceTopKPlusOffset"), nullptr);
+    EXPECT_EQ("4", *profile.get_info_string("LanceTopKPlusOffset"));
+    EXPECT_NE(profile.get_counter("LanceDatasetOpenTime"), nullptr);
+    EXPECT_NE(profile.get_counter("LanceScannerConfigureTime"), nullptr);
+    EXPECT_NE(profile.get_counter("LanceScannerReadTime"), nullptr);
+    EXPECT_NE(profile.get_counter("LanceRowOffsetRangesScanned"), nullptr);
+    EXPECT_NE(profile.get_counter("LanceTaskWaitTime"), nullptr);
+    EXPECT_EQ(profile.get_counter("LanceExecutionIndexCacheMissLoads"), nullptr);
+    EXPECT_EQ(profile.get_counter("LanceRowIdTakeReadTime"), nullptr);
+    EXPECT_EQ(profile.get_counter("LanceRowIdFetchTotalTime"), nullptr);
+    EXPECT_EQ(profile.get_counter("LanceScalarIndexQueryTime"), nullptr);
+    EXPECT_EQ(profile.get_counter("LanceScalarIndexResultSerializationTime"), nullptr);
+    expect_lance_profile_hierarchy(&profile, {"LanceDatasetOpenTime",
+                                              "LanceScannerConfigureTime",
+                                              "LanceScannerReadTime",
+                                              "LanceArrowToDorisBlockTime",
+                                              "LanceExecutionIOOps",
+                                              "LanceExecutionIORequests",
+                                              "LanceExecutionIOBytesRead",
+                                              "LanceIndexPartitionCacheMissLoads",
+                                              "LanceIndexComparisons",
+                                              "LanceFragmentsScanned",
+                                              "LanceRowOffsetRangesScanned",
+                                              "LanceRowsScanned",
+                                              "LanceIVFPartitionsRanked",
+                                              "LanceIVFPartitionsSearched",
+                                              "LanceVectorIndexSegmentsSearched",
+                                              "LanceTaskWaitTime",
+                                              "LanceIVFPartitionRankingTime",
+                                              "LancePlannedIndexSegmentCount",
+                                              "LancePlannedIndexedFragmentCount",
+                                              "LancePlannedFlatSearchFragmentCount"});
     EXPECT_TRUE(reader.close().ok());
 }
 
@@ -519,6 +581,13 @@ TEST(LanceTableReaderVectorSearchTest, ReturnsStableGlobalRowIdsAndFetchesPayloa
     EXPECT_EQ("extra", label_values.get_data_at(0).to_string());
     EXPECT_EQ("unit-x", label_values.get_data_at(1).to_string());
     EXPECT_EQ("extra", label_values.get_data_at(2).to_string());
+    EXPECT_NE(fetch_profile.get_counter("LanceDatasetOpenTime"), nullptr);
+    EXPECT_NE(fetch_profile.get_counter("LanceRowIdTakeReadTime"), nullptr);
+    EXPECT_NE(fetch_profile.get_counter("LanceArrowToDorisBlockTime"), nullptr);
+    EXPECT_NE(fetch_profile.get_counter("LanceRowIdFetchTotalTime"), nullptr);
+    expect_lance_profile_hierarchy(&fetch_profile,
+                                   {"LanceDatasetOpenTime", "LanceRowIdTakeReadTime",
+                                    "LanceArrowToDorisBlockTime", "LanceRowIdFetchTotalTime"});
     EXPECT_TRUE(payload_reader.close().ok());
 }
 
