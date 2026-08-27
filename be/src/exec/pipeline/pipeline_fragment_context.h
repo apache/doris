@@ -230,6 +230,9 @@ private:
     // After prepared, `_total_tasks` is equal to the size of `_tasks`.
     // When submit fail, `_total_tasks` is equal to the number of tasks submitted.
     std::atomic<int> _total_tasks = 0;
+    // Multiple tasks can observe the same query cancellation and call cancel concurrently.
+    // Run fragment-level cancellation side effects only once.
+    std::atomic_bool _cancelled = false;
 
     std::unique_ptr<RuntimeProfile> _fragment_level_profile;
     // This is used by loading process to report Fragment exec status to FE, FE need fragment status to
