@@ -123,6 +123,15 @@ public class CastExpr extends Expr {
     }
 
     @Override
+    protected void treeToThriftHelper(TExpr container, ExprVisitor visitor) {
+        if (noOp) {
+            getChild(0).treeToThriftHelper(container, visitor);
+            return;
+        }
+        super.treeToThriftHelper(container, visitor);
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.CAST_EXPR;
         msg.setOpcode(opcode);
