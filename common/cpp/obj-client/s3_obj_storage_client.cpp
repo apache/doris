@@ -58,8 +58,8 @@ std::string object_identity(const ObjStoragePath& opts) {
 }
 
 std::string s3_error_message(const Aws::S3::S3Error& error, std::string_view message) {
-    // A failure raised by the client itself carries no request id. Printing nothing leaves a
-    // dangling `request_id=` that has been read as a request id of the object storage.
+    // A failure raised by the client itself carries no request id, and a dangling
+    // `request_id=` has been read as a request id of the object storage.
     std::string request_id =
             error.GetRequestId().empty() ? "<empty>" : error.GetRequestId().c_str();
     return fmt::format("{}: {} {} code={}, type={}, request_id={}", message,
@@ -313,8 +313,7 @@ ObjStorageResponse S3ObjStorageClient::get_object(const ObjStoragePath& opts, vo
         };
     }
     *size_return = outcome.GetResult().GetContentLength();
-    // case for incomplete read, and the case of a server or a proxy answering a ranged read
-    // with the whole object, which no longer fits into the buffer of the caller
+    // Short read, or a server or a proxy answering a ranged read with the whole object.
     SYNC_POINT_CALLBACK("s3_obj_storage_client::get_object", size_return);
     if (*size_return != bytes_read) {
         const auto& request_id = outcome.GetResult().GetRequestId();

@@ -162,9 +162,6 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     SCOPED_RAW_TIMER(&_s3_stats.total_get_request_time_ns);
 
     int total_sleep_time = 0;
-    // The status of the last throttled attempt. The message built once the retries are
-    // exhausted knows nothing of the object storage, so without it the exception name and the
-    // request id of the very error the read gave up on are lost.
     Status last_error;
     while (retry_count <= max_retries) {
         *bytes_read = 0;
@@ -178,22 +175,17 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
             if (resp.http_code ==
                 static_cast<int>(Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS)) {
                 s3_file_reader_too_many_request_counter << 1;
-                _s3_stats.too_many_request_err_counter++;
                 last_error = Status(resp.status.code, std::move(resp.status.msg));
-                if (++retry_count > max_retries) {
-                    // No attempt left to wait for.
-                    break;
-                }
+                retry_count++;
                 int wait_time = std::min(base_wait_time * (1 << retry_count),
                                          max_wait_time); // Exponential backoff
                 std::this_thread::sleep_for(std::chrono::milliseconds(wait_time));
+                _s3_stats.too_many_request_err_counter++;
                 _s3_stats.too_many_request_sleep_time_ms += wait_time;
                 total_sleep_time += wait_time;
                 continue;
             } else {
-                // Handle other errors. The message already tells what failed to be read,
-                // appending to it only leaves a trailing token behind the request id of the
-                // object storage, which has been read as a request id more than once.
+                // Handle other errors
                 return {resp.status.code, std::move(resp.status.msg)};
             }
         }
@@ -215,8 +207,6 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
         }
         return Status::OK();
     }
-    // The error of the last attempt is bracketed rather than appended, so that what the object
-    // storage said stays apart from the context of the read.
     std::string msg = fmt::format(
             "failed to get object, path={} offset={} bytes_req={} bytes_read={} file_size={} "
             "tries={}, last error: [{}]",
