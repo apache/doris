@@ -3318,11 +3318,11 @@ TEST(IcebergV2ReaderTest, IcebergMissingWholeStructEqualityKeyMaterializesDefaul
     }
 }
 
-// A schema carrier may contain a dropped and a re-added child with the same name. Keep the
-// Parquet/ORC setup identical so both readers prove that equality-key reconstruction follows the
-// exact field-id path instead of attaching both same-name children to one synthetic struct slot.
+// A current projected struct may contain a re-added child with the same name as a dropped
+// equality key. Keep the Parquet/ORC setup identical so both readers prove that a historical key
+// is reconstructed by field ID instead of reading the new same-name child from the projected root.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
-TEST(IcebergV2ReaderTest, IcebergMissingWholeStructEqualityKeyUsesExactHistoricalChildId) {
+TEST(IcebergV2ReaderTest, IcebergProjectedStructDoesNotReuseReaddedEqualityKeyByName) {
     const auto run_case = [](FileFormat file_format) {
         const bool is_parquet = file_format == FileFormat::PARQUET;
         const std::string format_name = is_parquet ? "parquet" : "orc";
@@ -3333,10 +3333,12 @@ TEST(IcebergV2ReaderTest, IcebergMissingWholeStructEqualityKeyUsesExactHistorica
         const auto file_path = (test_dir / ("split." + format_name)).string();
         const auto delete_file_path = (test_dir / ("equality-delete." + format_name)).string();
         if (is_parquet) {
-            write_single_int_parquet_file(file_path, "id", {1, 2, 3}, 0);
+            write_nested_equality_parquet_file(file_path, {1, 2, 3}, {7, 8, 9},
+                                               {false, false, false}, true, "k", 4);
             write_nested_equality_parquet_file(delete_file_path, {}, {7}, {false}, true, "k", 3);
         } else {
-            write_single_int_orc_file(file_path, "id", {1, 2, 3}, 0);
+            write_nested_equality_orc_file(file_path, {1, 2, 3}, {7, 8, 9}, {false, false, false},
+                                           "k", 4);
             write_nested_equality_orc_file(delete_file_path, {}, {7}, {false}, "k", 3);
         }
 
@@ -3344,17 +3346,23 @@ TEST(IcebergV2ReaderTest, IcebergMissingWholeStructEqualityKeyUsesExactHistorica
                 "payload", 1,
                 {external_schema_field("k", 4, {}, std::nullopt,
                                        external_primitive_type(TPrimitiveType::INT), false, true),
-                 external_schema_field("k", 3, {}, "7",
+                 external_schema_field("k", 3, {}, std::nullopt,
                                        external_primitive_type(TPrimitiveType::INT), false, true)},
                 true);
         std::vector<schema::external::TSchema> history = {
-                external_schema(100, {external_schema_field("id", 0), payload})};
+                external_schema(-1, {external_schema_field("id", 0), std::move(payload)})};
 
+        const auto int_type = std::make_shared<DataTypeInt32>();
         std::vector<ColumnDefinition> projected_columns;
-        projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+        projected_columns.push_back(make_table_column(0, "id", int_type));
+        auto current_key = make_table_column(4, "k", int_type);
+        auto payload_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"k"});
+        auto projected_payload = make_table_column(1, "payload", payload_type);
+        projected_payload.children = {std::move(current_key)};
+        projected_columns.push_back(std::move(projected_payload));
         auto scan_params = make_local_scan_params(file_format);
         scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
-        scan_params.__set_current_schema_id(100);
+        scan_params.__set_current_schema_id(-1);
         scan_params.__set_history_schema_info(std::move(history));
 
         RuntimeProfile profile("test_profile");

@@ -461,7 +461,10 @@ Status ParquetReader::init_reader(
     _table_column_names = &all_column_names;
     auto schema_desc = _file_metadata->schema();
 
-    std::map<std::string, std::string> required_file_columns; //file column -> table column
+    // A projected Iceberg struct and its raw historical equality-delete carrier can intentionally
+    // map to the same physical root. Keep both logical columns; the equality carrier is shared by
+    // all historical keys under that root.
+    std::multimap<std::string, std::string> required_file_columns; // file column -> table columns
     for (auto table_column_name : all_column_names) {
         if (_table_info_node_ptr->children_column_exists(table_column_name)) {
             required_file_columns.emplace(
@@ -473,10 +476,11 @@ Status ParquetReader::init_reader(
     }
     for (int i = 0; i < schema_desc.size(); ++i) {
         const auto& name = schema_desc.get_column(i)->name;
-        if (required_file_columns.contains(name)) {
+        const auto [begin, end] = required_file_columns.equal_range(name);
+        for (auto column = begin; column != end; ++column) {
             _read_file_columns.emplace_back(name);
-            _read_table_columns.emplace_back(required_file_columns[name]);
-            _read_table_columns_set.insert(required_file_columns[name]);
+            _read_table_columns.emplace_back(column->second);
+            _read_table_columns_set.insert(column->second);
         }
     }
     // build column predicates for column lazy read
@@ -835,7 +839,12 @@ Status ParquetReader::_next_row_group_reader() {
             return size;
         };
         int64_t group_size = 0; // only calculate the needed columns
+        const std::string* previous_read_col = nullptr;
         for (auto& read_col : _read_file_columns) {
+            if (previous_read_col != nullptr && *previous_read_col == read_col) {
+                continue;
+            }
+            previous_read_col = &read_col;
             const FieldSchema* field = _file_metadata->schema().get_column(read_col);
             group_size += column_compressed_size(field);
         }
@@ -948,7 +957,12 @@ std::vector<io::PrefetchRange> ParquetReader::_generate_random_access_ranges(
                 }
             };
     const tparquet::RowGroup& row_group = _t_metadata->row_groups[group.row_group_id];
+    const std::string* previous_read_col = nullptr;
     for (const auto& read_col : _read_file_columns) {
+        if (previous_read_col != nullptr && *previous_read_col == read_col) {
+            continue;
+        }
+        previous_read_col = &read_col;
         const FieldSchema* field = _file_metadata->schema().get_column(read_col);
         scalar_range(field, row_group);
     }

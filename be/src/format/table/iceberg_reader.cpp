@@ -29,6 +29,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <set>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -96,6 +97,56 @@ const schema::external::TField* find_iceberg_struct_child(const schema::external
         }
     }
     return nullptr;
+}
+
+struct ProjectedIcebergStructChild {
+    size_t index;
+    const schema::external::TField* field;
+};
+
+std::optional<ProjectedIcebergStructChild> find_projected_iceberg_struct_child(
+        const schema::external::TField& parent, const schema::external::TField& target,
+        const DataTypeStruct& projected_type) {
+    DORIS_CHECK(parent.__isset.nestedField);
+    DORIS_CHECK(parent.nestedField.__isset.struct_field);
+    DORIS_CHECK(parent.nestedField.struct_field.__isset.fields);
+    DORIS_CHECK(target.__isset.name);
+    DORIS_CHECK(target.__isset.id);
+
+    // FE keeps current children first and appends historical equality fields to the schema carrier
+    // by field ID. A dropped and re-added field may therefore appear twice with the same name,
+    // while the query's DataTypeStruct contains only the current occurrence.
+    size_t schema_name_ordinal = 0;
+    const schema::external::TField* schema_child = nullptr;
+    for (const auto& child_ptr : parent.nestedField.struct_field.fields) {
+        DORIS_CHECK(child_ptr.__isset.field_ptr && child_ptr.field_ptr != nullptr);
+        const auto& child = child_ptr.field_ptr;
+        DORIS_CHECK(child->__isset.name);
+        DORIS_CHECK(child->__isset.id);
+        if (child->name != target.name) {
+            continue;
+        }
+        if (child->id == target.id) {
+            schema_child = child.get();
+            break;
+        }
+        ++schema_name_ordinal;
+    }
+    if (schema_child == nullptr) {
+        return std::nullopt;
+    }
+
+    size_t projected_name_ordinal = 0;
+    for (size_t index = 0; index < projected_type.get_elements().size(); ++index) {
+        if (projected_type.get_element_name(index) != target.name) {
+            continue;
+        }
+        if (projected_name_ordinal == schema_name_ordinal) {
+            return ProjectedIcebergStructChild {.index = index, .field = schema_child};
+        }
+        ++projected_name_ordinal;
+    }
+    return std::nullopt;
 }
 
 template <typename Offsets>
@@ -721,7 +772,7 @@ Status IcebergTableReader::get_next_block_inner(Block* block, size_t* read_rows,
 
     RETURN_IF_ERROR(_file_format_reader->get_next_block(block, read_rows, eof));
     RETURN_IF_ERROR(_materialize_missing_table_columns(block));
-    RETURN_IF_ERROR(_materialize_missing_equality_delete_columns(block, *read_rows));
+    RETURN_IF_ERROR(_materialize_missing_equality_delete_columns(block));
     RETURN_IF_ERROR(_materialize_nested_equality_delete_columns(block));
     RETURN_IF_ERROR(_validate_required_table_columns(block));
 
@@ -912,6 +963,11 @@ Status IcebergTableReader::_materialize_missing_table_columns(Block* block) {
     for (const auto& col_name : _all_required_col_names) {
         if (_row_lineage_columns != nullptr &&
             (col_name == ROW_LINEAGE_ROW_ID || col_name == ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER)) {
+            continue;
+        }
+        // Equality-delete carriers are hidden reader columns, not table fields. They are populated
+        // from another projected column after ordinary missing table defaults are materialized.
+        if (_physical_missing_equality_delete_columns.contains(col_name)) {
             continue;
         }
         if (struct_node->children_column_exists(col_name)) {
@@ -1125,7 +1181,9 @@ std::string IcebergTableReader::_get_or_register_equality_delete_carrier(
     return carrier_name;
 }
 
-Status IcebergTableReader::_materialize_missing_equality_delete_columns(Block* block, size_t rows) {
+Status IcebergTableReader::_materialize_missing_equality_delete_columns(Block* block) {
+    DORIS_CHECK(block != nullptr);
+    const size_t rows = block->rows();
     for (const auto& [name, value] : _missing_equality_delete_values) {
         const auto position = _col_name_to_block_idx->find(name);
         const ColumnPtr repeated = iceberg::repeat_initial_default_column(value, rows);
@@ -1272,51 +1330,61 @@ Status IcebergTableReader::_materialize_nested_equality_delete_columns(Block* bl
     return Status::OK();
 }
 
-Status IcebergTableReader::_get_current_schema_equality_delete_path(
-        int32_t field_id, std::vector<size_t>* child_indexes, DataTypePtr* leaf_type) const {
+Status IcebergTableReader::_get_projected_schema_equality_delete_path(
+        int32_t field_id, std::vector<size_t>* child_indexes, DataTypePtr* leaf_type,
+        bool* path_is_projected) const {
     DORIS_CHECK(child_indexes != nullptr);
     DORIS_CHECK(leaf_type != nullptr);
+    DORIS_CHECK(path_is_projected != nullptr);
     child_indexes->clear();
+    *path_is_projected = false;
     const auto path = _find_schema_field_path(field_id);
     if (path.empty()) {
-        return Status::InternalError(
-                "Missing current Iceberg schema path for equality-delete field id {}", field_id);
+        return Status::InternalError("Missing Iceberg schema path for equality-delete field id {}",
+                                     field_id);
     }
     DORIS_CHECK(path.front()->__isset.id);
     const auto root_name = _id_to_block_column_name.find(path.front()->id);
     DORIS_CHECK(root_name != _id_to_block_column_name.end());
     const auto root_type = _required_column_types.find(root_name->second);
     DORIS_CHECK(root_type != _required_column_types.end());
+    std::vector<const schema::external::TField*> projected_root_path;
+    if (!_find_schema_field_path_in_root(_current_schema_root(), path.front()->id,
+                                         &projected_root_path)) {
+        return Status::OK();
+    }
+    DORIS_CHECK(projected_root_path.size() == 1);
+    const auto* projected_parent = projected_root_path.front();
     DataTypePtr current_type = root_type->second;
     for (size_t path_index = 1; path_index < path.size(); ++path_index) {
-        const auto* parent = path[path_index - 1];
         const auto* child = path[path_index];
-        DORIS_CHECK(parent != nullptr);
+        DORIS_CHECK(projected_parent != nullptr);
         DORIS_CHECK(child != nullptr);
-        if (!parent->__isset.nestedField || !parent->nestedField.__isset.struct_field ||
-            !parent->nestedField.struct_field.__isset.fields) {
+        if (!projected_parent->__isset.nestedField ||
+            !projected_parent->nestedField.__isset.struct_field ||
+            !projected_parent->nestedField.struct_field.__isset.fields) {
             return Status::NotSupported(
-                    "Iceberg equality-delete field id {} has a non-struct current-schema parent",
+                    "Iceberg equality-delete field id {} has a non-struct projected-schema parent",
                     field_id);
         }
         DORIS_CHECK(child->__isset.name);
+        DORIS_CHECK(child->__isset.id);
         const auto* struct_type =
                 typeid_cast<const DataTypeStruct*>(remove_nullable(current_type).get());
         if (struct_type == nullptr) {
-            return Status::InternalError(
-                    "Iceberg equality-delete field id {} is absent from projected column type {}",
-                    field_id, current_type->get_name());
+            return Status::OK();
         }
-        const auto child_index = struct_type->try_get_position_by_name(child->name);
-        if (!child_index.has_value()) {
-            return Status::InternalError(
-                    "Iceberg equality-delete field id {} is absent from projected struct type {}",
-                    field_id, current_type->get_name());
+        const auto projected_child =
+                find_projected_iceberg_struct_child(*projected_parent, *child, *struct_type);
+        if (!projected_child.has_value()) {
+            return Status::OK();
         }
-        child_indexes->push_back(*child_index);
-        current_type = struct_type->get_element(*child_index);
+        child_indexes->push_back(projected_child->index);
+        current_type = struct_type->get_element(projected_child->index);
+        projected_parent = projected_child->field;
     }
     *leaf_type = make_nullable(remove_nullable(current_type));
+    *path_is_projected = true;
     return Status::OK();
 }
 
@@ -1699,12 +1767,15 @@ Status IcebergParquetReader::init_reader(
         DataTypePtr source_leaf_type;
         ColumnPtr missing_value;
         bool reads_physical_root = false;
-        const auto current_path = _find_schema_field_path(field_id);
-        if (!current_path.empty() && current_path.front()->__isset.id &&
-            _id_to_block_column_name.contains(current_path.front()->id)) {
-            source_block_name = _id_to_block_column_name.at(current_path.front()->id);
-            RETURN_IF_ERROR(_get_current_schema_equality_delete_path(
-                    field_id, &source_child_indexes, &source_leaf_type));
+        const auto table_path = _find_schema_field_path(field_id);
+        bool uses_projected_root = false;
+        if (!table_path.empty() && table_path.front()->__isset.id &&
+            _id_to_block_column_name.contains(table_path.front()->id)) {
+            RETURN_IF_ERROR(_get_projected_schema_equality_delete_path(
+                    field_id, &source_child_indexes, &source_leaf_type, &uses_projected_root));
+        }
+        if (uses_projected_root) {
+            source_block_name = _id_to_block_column_name.at(table_path.front()->id);
         } else {
             const std::string root_name = to_lower(file_column->name);
             const auto root_source = physical_root_sources.find(root_name);
@@ -1945,12 +2016,15 @@ Status IcebergOrcReader::init_reader(
         DataTypePtr source_leaf_type;
         ColumnPtr missing_value;
         bool reads_physical_root = false;
-        const auto current_path = _find_schema_field_path(field_id);
-        if (!current_path.empty() && current_path.front()->__isset.id &&
-            _id_to_block_column_name.contains(current_path.front()->id)) {
-            source_block_name = _id_to_block_column_name.at(current_path.front()->id);
-            RETURN_IF_ERROR(_get_current_schema_equality_delete_path(
-                    field_id, &source_child_indexes, &source_leaf_type));
+        const auto table_path = _find_schema_field_path(field_id);
+        bool uses_projected_root = false;
+        if (!table_path.empty() && table_path.front()->__isset.id &&
+            _id_to_block_column_name.contains(table_path.front()->id)) {
+            RETURN_IF_ERROR(_get_projected_schema_equality_delete_path(
+                    field_id, &source_child_indexes, &source_leaf_type, &uses_projected_root));
+        }
+        if (uses_projected_root) {
+            source_block_name = _id_to_block_column_name.at(table_path.front()->id);
         } else {
             DORIS_CHECK(!file_path.names.empty());
             const std::string root_name = to_lower(file_path.names.front());

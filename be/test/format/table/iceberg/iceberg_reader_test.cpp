@@ -137,8 +137,14 @@ public:
         return _register_missing_equality_delete_column(field_id, name, type);
     }
 
-    Status materialize_missing_equality_delete_columns(Block* block, size_t rows) {
-        return _materialize_missing_equality_delete_columns(block, rows);
+    Status materialize_missing_equality_delete_columns(Block* block) {
+        return _materialize_missing_equality_delete_columns(block);
+    }
+
+    void set_hidden_equality_delete_column(const std::string& name) {
+        table_info_node_ptr = std::make_shared<TableSchemaChangeHelper::StructNode>();
+        _all_required_col_names = {name};
+        _physical_missing_equality_delete_columns.insert(name);
     }
 
     Status extract_nested_equality_delete_column(const ColumnPtr& root_column,
@@ -1026,6 +1032,30 @@ TEST_F(IcebergReaderTest, preserves_generated_row_lineage_values_with_v1_reader)
     EXPECT_EQ(preserved[1], 102);
 }
 
+TEST_F(IcebergReaderTest, skips_hidden_equality_carrier_during_table_default_materialization) {
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryGlobals()};
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    TFileRangeDesc scan_range;
+    IcebergMaterializationTestReader reader(&profile, &runtime_state, scan_params, scan_range);
+    reader.set_hidden_equality_delete_column("__equality_delete_column__7_0");
+
+    auto values = ColumnInt32::create();
+    values->insert_value(17);
+    values->insert_value(19);
+    Block block;
+    block.insert({std::move(values), std::make_shared<DataTypeInt32>(),
+                  "__equality_delete_column__7_0"});
+
+    ASSERT_TRUE(reader.materialize_missing_table_columns(&block).ok());
+    ASSERT_EQ(block.rows(), 2);
+    const auto& preserved =
+            assert_cast<const ColumnInt32&>(*block.get_by_position(0).column).get_data();
+    EXPECT_EQ(preserved[0], 17);
+    EXPECT_EQ(preserved[1], 19);
+}
+
 TEST_F(IcebergReaderTest, promotes_nested_equality_key_with_v1_reader) {
     RuntimeProfile profile("test_profile");
     RuntimeState runtime_state {TQueryGlobals()};
@@ -1196,7 +1226,7 @@ TEST_F(IcebergReaderTest, rejects_visible_null_for_required_v1_field) {
     EXPECT_NE(status.to_string().find("required_value"), std::string::npos);
 }
 
-TEST_F(IcebergReaderTest, materializes_missing_equality_key_from_split_schema) {
+TEST_F(IcebergReaderTest, materializes_missing_equality_key_from_split_schema_using_block_rows) {
     RuntimeProfile profile("test_profile");
     RuntimeState runtime_state {TQueryGlobals()};
     TFileScanRangeParams scan_params;
@@ -1228,9 +1258,25 @@ TEST_F(IcebergReaderTest, materializes_missing_equality_key_from_split_schema) {
                               9, "__equality_delete_column__9_dropped_key", type)
                         .ok());
     Block block;
-    block.insert({type->create_column(), type, "__equality_delete_column__9_dropped_key"});
-    ASSERT_TRUE(reader.materialize_missing_equality_delete_columns(&block, 2).ok());
+    auto placeholders = type->create_column();
+    placeholders->insert_default();
+    placeholders->insert_default();
+    block.insert({std::move(placeholders), type, "__equality_delete_column__9_dropped_key"});
+    ASSERT_TRUE(reader.materialize_missing_equality_delete_columns(&block).ok());
     expect_repeated_nullable_int(block, 2, 23);
+
+    // A physical reader may report its pre-filter row count after clearing a fully filtered block.
+    // Missing equality carriers must follow the visible block size, which is zero here.
+    std::unordered_map<std::string, uint32_t> filtered_column_name_to_block_index {
+            {"__equality_delete_column__9_dropped_key", 1}};
+    reader.set_column_name_to_block_index(&filtered_column_name_to_block_index);
+    Block filtered_block;
+    filtered_block.insert({std::make_shared<DataTypeInt32>()->create_column(),
+                           std::make_shared<DataTypeInt32>(), "projected_id"});
+    filtered_block.insert({type->create_column(), type, "__equality_delete_column__9_dropped_key"});
+    ASSERT_TRUE(reader.materialize_missing_equality_delete_columns(&filtered_block).ok());
+    EXPECT_EQ(filtered_block.rows(), 0);
+    EXPECT_EQ(filtered_block.get_by_position(1).column->size(), 0);
 }
 
 TEST_F(IcebergReaderTest, rejects_mixed_dictionary_and_plain_parquet_column) {

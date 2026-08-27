@@ -172,7 +172,7 @@ protected:
     std::string _get_or_register_equality_delete_carrier(int32_t field_id,
                                                          const std::string& source_name,
                                                          const DataTypePtr& delete_key_type);
-    Status _materialize_missing_equality_delete_columns(Block* block, size_t rows);
+    Status _materialize_missing_equality_delete_columns(Block* block);
     struct NestedEqualityDeleteColumn {
         int32_t field_id = -1;
         std::string block_name;
@@ -188,9 +188,10 @@ protected:
                                                   const NestedEqualityDeleteColumn& nested_field,
                                                   ColumnPtr* leaf_column) const;
     Status _materialize_nested_equality_delete_columns(Block* block);
-    Status _get_current_schema_equality_delete_path(int32_t field_id,
-                                                    std::vector<size_t>* child_indexes,
-                                                    DataTypePtr* leaf_type) const;
+    Status _get_projected_schema_equality_delete_path(int32_t field_id,
+                                                      std::vector<size_t>* child_indexes,
+                                                      DataTypePtr* leaf_type,
+                                                      bool* path_is_projected) const;
 
     // owned by scan node
     ShardedKVCache* _kv_cache;
