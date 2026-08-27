@@ -410,4 +410,25 @@ public class LanceStorageOptionsTest {
         Assertions.assertThrows(IllegalArgumentException.class, () -> LanceStorageOptions
                 .forVendedTable(S3_URI, Collections.emptyList(), withNullKey));
     }
+
+    /**
+     * A catalog can be absent entirely - a Lance table reached purely through vended options has no
+     * Doris storage properties behind it. The provider has to answer with no options rather than
+     * fail, so that {@link LanceStorageOptions#forVendedTable} still has a map to merge onto.
+     */
+    @Test
+    public void testOssDatasetWithoutACatalogYieldsNoOptions() {
+        Assertions.assertTrue(LanceStorageOptions.forUri(OSS_URI, null).isEmpty());
+    }
+
+    /**
+     * {@link LanceStorageOptions#forVendedTable} screens out a null vended map before it reaches a
+     * provider, but the interface still admits one and the sibling providers all tolerate it. Pin
+     * that down directly, since no public entry point can reach it.
+     */
+    @Test
+    public void testOssNormalizeVendedToleratesNoVendedOptions() {
+        Assertions.assertTrue(
+                LanceOssStorageProvider.INSTANCE.normalizeVended(null).isEmpty());
+    }
 }
