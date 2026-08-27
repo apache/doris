@@ -33,8 +33,13 @@ import com.sleepycat.je.Durability;
 import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
 import com.sleepycat.je.rep.InsufficientAcksException;
+import com.sleepycat.je.rep.ReplicationBasicConfig;
+import com.sleepycat.je.rep.ReplicationConfig;
 import com.sleepycat.je.rep.ReplicatedEnvironment;
 import com.sleepycat.je.rep.impl.RepImpl;
+import com.sleepycat.je.rep.net.DataChannel;
+import com.sleepycat.je.rep.net.DataChannelFactory;
+import com.sleepycat.je.rep.net.InstanceParams;
 import com.sleepycat.je.rep.util.ReplicationGroupAdmin;
 import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
@@ -44,6 +49,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.RepeatedTest;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -51,13 +57,16 @@ import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.net.DatagramSocket;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.SocketException;
+import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -65,6 +74,49 @@ import java.util.concurrent.TimeUnit;
 public class BDBEnvironmentTest {
     private static final Logger LOG = LogManager.getLogger(BDBEnvironmentTest.class);
     private static List<String> tmpDirs = new ArrayList<>();
+
+    public static class TestDataChannelFactory implements DataChannelFactory {
+        public TestDataChannelFactory(InstanceParams params) {
+        }
+
+        @Override
+        public DataChannel acceptChannel(SocketChannel socketChannel) {
+            return null;
+        }
+
+        @Override
+        public DataChannel connect(InetSocketAddress addr, InetSocketAddress localAddr,
+                ConnectOptions connectOptions) {
+            return null;
+        }
+    }
+
+    @Test
+    public void testReplicationGroupAdminReusesConfiguredNetworkFactory() {
+        ReplicationBasicConfig networkConfig = new ReplicationBasicConfig();
+        networkConfig.setChannelFactoryClass(TestDataChannelFactory.class.getName());
+        ReplicationConfig replicationConfig = new ReplicationConfig();
+        replicationConfig.setRepNetConfig(networkConfig);
+
+        BDBEnvironment bdbEnvironment = new BDBEnvironment(true, false);
+        Deencapsulation.setField(bdbEnvironment, "replicationConfig", replicationConfig);
+
+        Env mockEnv = Mockito.mock(Env.class);
+        Frontend frontend = new Frontend(FrontendNodeType.FOLLOWER,
+                "test-fe", "127.0.0.1", 9010);
+        frontend.setIsAlive(true);
+        Mockito.when(mockEnv.getFrontends(FrontendNodeType.FOLLOWER))
+                .thenReturn(Collections.singletonList(frontend));
+
+        try (MockedStatic<Env> mockedEnvStatic = Mockito.mockStatic(Env.class)) {
+            mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(mockEnv);
+
+            ReplicationGroupAdmin admin = bdbEnvironment.getReplicationGroupAdmin();
+
+            DataChannelFactory channelFactory = Deencapsulation.getField(admin, "channelFactory");
+            Assertions.assertInstanceOf(TestDataChannelFactory.class, channelFactory);
+        }
+    }
 
     public static String createTmpDir() throws Exception {
         String dorisHome = System.getenv("DORIS_HOME");
