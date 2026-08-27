@@ -53,6 +53,7 @@ import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -85,10 +86,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     //for "type" = "hms" , but is iceberg table.
     private IcebergMetadataOps icebergMetadataOps;
-    private final IcebergCatalogResourceTracker icebergResourceTracker = new IcebergCatalogResourceTracker();
+    private IcebergCatalogResourceTracker icebergResourceTracker = new IcebergCatalogResourceTracker();
 
     private volatile AbstractHiveProperties hmsProperties;
-    private final AtomicLong runtimeGeneration = new AtomicLong();
+    private AtomicLong runtimeGeneration = new AtomicLong();
 
     public long getRuntimeGeneration() {
         return runtimeGeneration.get();
@@ -130,6 +131,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
                               String comment) {
         super(catalogId, name, InitCatalogLog.Type.HMS, comment);
         catalogProperty = new CatalogProperty(resource, props);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        icebergResourceTracker = new IcebergCatalogResourceTracker();
+        runtimeGeneration = new AtomicLong();
     }
 
     @Override
