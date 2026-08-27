@@ -802,42 +802,67 @@ TEST(DataTypeSerDeArrowTest, TimeStampNsArrowRoundTrip) {
 TEST(DataTypeSerDeArrowTest, TimeStampNsArrowUnitConversion) {
     const auto timestamp_ns_type = std::make_shared<DataTypeTimeStampNs>();
     const auto serde = timestamp_ns_type->get_serde();
+    const std::vector<std::pair<arrow::TimeUnit::type, int64_t>> unit_cases {
+            {arrow::TimeUnit::SECOND, TimeStampNsValue::NANOS_PER_SECOND},
+            {arrow::TimeUnit::MILLI, TimeStampNsValue::NANOS_PER_MILLISECOND},
+            {arrow::TimeUnit::MICRO, TimeStampNsValue::NANOS_PER_MICROSECOND},
+            {arrow::TimeUnit::NANO, 1}};
 
-    auto source_column = ColumnTimeStampNs::create();
-    source_column->insert_value(TimeStampNsValue(-1000));
-    source_column->insert_value(TimeStampNsValue(1));
+    for (const auto& [unit, nanos_per_unit] : unit_cases) {
+        auto source_column = ColumnTimeStampNs::create();
+        source_column->insert_value(TimeStampNsValue(-2 * nanos_per_unit));
+        source_column->insert_value(TimeStampNsValue(0));
+        source_column->insert_value(TimeStampNsValue(3 * nanos_per_unit));
 
-    arrow::TimestampBuilder micro_builder(arrow::timestamp(arrow::TimeUnit::MICRO),
-                                          arrow::default_memory_pool());
-    auto status = serde->write_column_to_arrow(*source_column, nullptr, &micro_builder, 0, 1,
+        arrow::TimestampBuilder builder(arrow::timestamp(unit), arrow::default_memory_pool());
+        auto status = serde->write_column_to_arrow(*source_column, nullptr, &builder, 0,
+                                                   source_column->size(), cctz::utc_time_zone());
+        ASSERT_TRUE(status.ok()) << status;
+
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+        const auto* timestamp_array = assert_cast<const arrow::TimestampArray*>(array.get());
+        EXPECT_EQ(-2, timestamp_array->Value(0));
+        EXPECT_EQ(0, timestamp_array->Value(1));
+        EXPECT_EQ(3, timestamp_array->Value(2));
+
+        auto target_column = ColumnTimeStampNs::create();
+        status = serde->read_column_from_arrow(*target_column, array.get(), 0, array->length(),
                                                cctz::utc_time_zone());
-    ASSERT_TRUE(status.ok()) << status;
-    status = serde->write_column_to_arrow(*source_column, nullptr, &micro_builder, 1, 2,
-                                          cctz::utc_time_zone());
-    EXPECT_FALSE(status.ok());
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(source_column->size(), target_column->size());
+        for (size_t i = 0; i < source_column->size(); ++i) {
+            EXPECT_EQ(source_column->get_data()[i].epoch_nanos(),
+                      target_column->get_data()[i].epoch_nanos());
+        }
 
-    std::shared_ptr<arrow::Array> micro_array;
-    ASSERT_TRUE(micro_builder.Finish(&micro_array).ok());
-    ASSERT_EQ(-1, assert_cast<const arrow::TimestampArray*>(micro_array.get())->Value(0));
+        if (unit != arrow::TimeUnit::NANO) {
+            auto lossy_column = ColumnTimeStampNs::create();
+            lossy_column->insert_value(TimeStampNsValue(1));
+            arrow::TimestampBuilder lossy_builder(arrow::timestamp(unit),
+                                                  arrow::default_memory_pool());
+            status = serde->write_column_to_arrow(*lossy_column, nullptr, &lossy_builder, 0,
+                                                  lossy_column->size(), cctz::utc_time_zone());
+            EXPECT_FALSE(status.ok());
+        }
+    }
 
-    auto micro_column = ColumnTimeStampNs::create();
-    status = serde->read_column_from_arrow(*micro_column, micro_array.get(), 0,
-                                           micro_array->length(), cctz::utc_time_zone());
-    ASSERT_TRUE(status.ok()) << status;
-    ASSERT_EQ(1, micro_column->size());
-    EXPECT_EQ(-1000, micro_column->get_data()[0].epoch_nanos());
+    for (const auto unit :
+         {arrow::TimeUnit::SECOND, arrow::TimeUnit::MILLI, arrow::TimeUnit::MICRO}) {
+        for (const auto value :
+             {std::numeric_limits<int64_t>::min(), std::numeric_limits<int64_t>::max()}) {
+            arrow::TimestampBuilder builder(arrow::timestamp(unit), arrow::default_memory_pool());
+            ASSERT_TRUE(builder.Append(value).ok());
+            std::shared_ptr<arrow::Array> array;
+            ASSERT_TRUE(builder.Finish(&array).ok());
 
-    arrow::TimestampBuilder seconds_builder(arrow::timestamp(arrow::TimeUnit::SECOND),
-                                            arrow::default_memory_pool());
-    ASSERT_TRUE(seconds_builder.Append(std::numeric_limits<int64_t>::max()).ok());
-    std::shared_ptr<arrow::Array> seconds_array;
-    ASSERT_TRUE(seconds_builder.Finish(&seconds_array).ok());
-
-    auto overflow_column = ColumnTimeStampNs::create();
-    status = serde->read_column_from_arrow(*overflow_column, seconds_array.get(), 0,
-                                           seconds_array->length(), cctz::utc_time_zone());
-    EXPECT_FALSE(status.ok());
-    EXPECT_EQ(0, overflow_column->size());
+            auto overflow_column = ColumnTimeStampNs::create();
+            const auto status = serde->read_column_from_arrow(
+                    *overflow_column, array.get(), 0, array->length(), cctz::utc_time_zone());
+            EXPECT_FALSE(status.ok());
+            EXPECT_EQ(0, overflow_column->size());
+        }
+    }
 }
 
 TEST(DataTypeSerDeArrowTest, DateTimeV2ArrowEncodingFollowsSchemaTimezone) {

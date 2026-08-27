@@ -22,7 +22,7 @@
 
 namespace doris {
 
-Status parse_timestamp_ns(StringRef str, int64_t* epoch_nanos,
+Status parse_timestamp_ns(StringRef str, TimeStampNsValue* value,
                           const cctz::time_zone* local_time_zone = nullptr);
 
 class DataTypeTimeStampNsSerDe final

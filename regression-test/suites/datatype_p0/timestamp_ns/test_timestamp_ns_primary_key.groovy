@@ -86,4 +86,40 @@ suite("test_timestamp_ns_primary_key") {
         from timestamp_ns_sequence_type
         order by id
     """
+
+    sql "drop table if exists timestamp_ns_sequence_mapping"
+    sql """
+        create table timestamp_ns_sequence_mapping (
+            id int not null,
+            value varchar(16),
+            sequence_ts timestamp_ns not null
+        )
+        unique key(id)
+        distributed by hash(id) buckets 1
+        properties(
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "false",
+            "light_schema_change" = "true",
+            "sequence_mapping.sequence_ts" = "value"
+        )
+    """
+    sql """
+        insert into timestamp_ns_sequence_mapping values
+        (1, 'newer', '1970-01-01 00:00:00.000000001'),
+        (2, 'minimum', '1677-09-21 00:12:43.145224192'),
+        (3, 'maximum', '2262-04-11 23:47:16.854775807'),
+        (4, 'normal-newer', '2024-02-29 12:34:56.123456789')
+    """
+    sql """
+        insert into timestamp_ns_sequence_mapping values
+        (1, 'older', '1970-01-01 00:00:00.000000000'),
+        (2, 'maximum', '2262-04-11 23:47:16.854775807'),
+        (3, 'minimum', '1677-09-21 00:12:43.145224192'),
+        (4, 'normal-older', '2024-02-29 12:34:56.123456788')
+    """
+    order_qt_timestamp_ns_sequence_mapping """
+        select id, value, sequence_ts
+        from timestamp_ns_sequence_mapping
+        order by id
+    """
 }
