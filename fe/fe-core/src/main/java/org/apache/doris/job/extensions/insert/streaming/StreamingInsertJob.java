@@ -1000,21 +1000,19 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     public String getLag() {
-        return offsetProvider != null ? offsetProvider.getLag() : "";
+        return offsetProvider != null ? offsetProvider.getLag() : "-1";
     }
 
-    // Numeric lag for metrics. Returns -1 when lag is not applicable (S3, snapshot phase)
-    // or unparseable, so dashboards can filter N/A jobs via lag >= 0.
-    public long getLagSeconds() {
-        String lagStr = getLag();
-        if (lagStr == null || lagStr.isEmpty()) {
-            return -1L;
-        }
-        try {
-            return Long.parseLong(lagStr);
-        } catch (NumberFormatException e) {
-            return -1L;
-        }
+    public long getLagBytes() {
+        return offsetProvider != null ? offsetProvider.getLagBytes() : -1;
+    }
+
+    public long getLastSourceEventTimestampSeconds() {
+        return offsetProvider != null ? offsetProvider.getLastSourceEventTimestampSeconds() : 0;
+    }
+
+    public long getLastTaskSuccessTimeSeconds() {
+        return lastTaskSuccessTime / 1000L;
     }
 
     /**
@@ -1077,6 +1075,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())) {
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
+            this.offsetProvider.resetLag();
             this.offsetProviderPersist = offsetProvider.getPersistInfo();
             log.info("modifyPropertiesInternal: offset updated to {}, job {}",
                     inputStreamProps.getOffsetProperty(), getJobId());
@@ -1174,8 +1173,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 ? "" : GsonUtils.GSON.toJson(failureReason)));
         trow.addToColumnValue(new TCell().setStringVal(jobRuntimeMsg == null
                 ? "" : jobRuntimeMsg));
-        trow.addToColumnValue(new TCell().setStringVal(
-                offsetProvider != null ? offsetProvider.getLag() : ""));
+        trow.addToColumnValue(new TCell().setStringVal(getLag()));
+        long lastSourceEventTimestampSeconds = getLastSourceEventTimestampSeconds();
+        trow.addToColumnValue(new TCell().setStringVal(lastSourceEventTimestampSeconds > 0
+                ? String.valueOf(lastSourceEventTimestampSeconds) : ""));
         trow.addToColumnValue(new TCell().setStringVal(lastTaskSuccessTime > 0
                 ? TimeUtils.longToTimeString(lastTaskSuccessTime) : ""));
         return trow;
