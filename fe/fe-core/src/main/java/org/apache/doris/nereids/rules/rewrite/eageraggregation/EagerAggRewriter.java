@@ -668,7 +668,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
     @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, PushDownAggContext context) {
-        if (project.containsNoneMovableFunction()) {
+        if (containsVolatileGroupKeyAfterProject(project, context) || project.containsNoneMovableFunction()) {
             return genAggregate(project, context);
         }
 
@@ -753,6 +753,16 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
 
         return project;
+    }
+
+    private boolean containsVolatileGroupKeyAfterProject(
+            LogicalProject<? extends Plan> project, PushDownAggContext context) {
+        for (SlotReference groupKey : context.getGroupKeys()) {
+            if (project.pushDownExpressionPastProject(groupKey).containsVolatileExpression()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
