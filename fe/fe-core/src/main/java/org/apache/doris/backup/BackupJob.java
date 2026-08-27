@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.GZIPUtils;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
@@ -78,7 +79,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 
 public class BackupJob extends AbstractJob implements GsonPostProcessable {
@@ -95,6 +98,26 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         UPLOAD_INFO, // Upload meta and job info file to repository. When finished, transfer to FINISHED
         FINISHED, // Job is finished.
         CANCELLED // Job is cancelled.
+    }
+
+    enum LocalJobDirCleanupResult {
+        NOT_DUE(false),
+        ALREADY_CLEANED(true),
+        DELETED(true),
+        ALREADY_ABSENT(true),
+        DEFERRED(false),
+        FAILED(false),
+        INVALID_PATH(true);
+
+        private final boolean completed;
+
+        LocalJobDirCleanupResult(boolean completed) {
+            this.completed = completed;
+        }
+
+        boolean isCompleted() {
+            return completed;
+        }
     }
 
     // all objects which need backup
@@ -128,6 +151,13 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     private String localMetaInfoFilePath = null;
     @SerializedName("jifp")
     private String localJobInfoFilePath = null;
+    /**
+     * Coordinates local staging-dir lifetime with getSnapshot materialization.
+     * Separate from the job state monitor so heavy IO does not block BackupJob.run().
+     */
+    private final Object localJobDirLock = new Object();
+    private int localJobDirReaders = 0;
+    private boolean localJobDirCleaned = false;
     // backup properties && table commit seq with table id
     @SerializedName("prop")
     private Map<String, String> properties = Maps.newHashMap();
@@ -400,7 +430,9 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
     @Override
     public synchronized void replayRun() {
-        if (state == BackupJobState.SAVE_META) {
+        // Checkpoint replay only reconstructs state for the image. Writing staging files
+        // here recreates directories that were already cleaned by the serving FE.
+        if (state == BackupJobState.SAVE_META && !Env.isCheckpointThread()) {
             saveMetaInfo(true);
         }
     }
@@ -1038,6 +1070,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             env.getBackupHandler().addSnapshot(label, this);
             return;
         }
+
     }
 
     private boolean uploadFile(String localFilePath, String remoteFilePath) {
@@ -1100,19 +1133,6 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 break;
         }
 
-        // clean the backup job dir
-        if (localJobDirPath != null) {
-            try {
-                File jobDir = new File(localJobDirPath.toString());
-                if (jobDir.exists()) {
-                    Files.walk(localJobDirPath, FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder())
-                            .map(Path::toFile).forEach(File::delete);
-                }
-            } catch (Exception e) {
-                LOG.warn("failed to clean the backup job dir: " + localJobDirPath.toString());
-            }
-        }
-
         // meta info and job info not need save in log when cancel, we need to clean them here
         backupMeta = null;
         jobInfo = null;
@@ -1136,21 +1156,237 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         return commitSeq;
     }
 
-    // read meta and job info bytes from disk, and return the snapshot
-    public synchronized Snapshot getSnapshot() {
-        if (state != BackupJobState.FINISHED || repoId != Repository.KEEP_ON_LOCAL_REPO_ID) {
-            return null;
+    /**
+     * Materialize a local snapshot for getSnapshot RPC.
+     *
+     * <p>Job state is checked under the job monitor only briefly. File lifetime is
+     * protected by a separate reader refcount so heavy IO/compression does not block
+     * {@link #run()} / other jobs on the backup daemon. Uncompressed payloads that
+     * exceed the thrift ~2GB limit are rejected before reading content. Compressed
+     * payloads are stream-compressed with an output size bound. IO failures propagate
+     * as {@link IOException} (not "snapshot not exist").
+     */
+    public Snapshot getSnapshot(boolean enableCompress) throws IOException {
+        String metaPathStr = null;
+        String jobInfoPathStr = null;
+        long expiredAt = 0;
+        long commitSeqSnapshot = 0;
+        String snapshotLabel = null;
+        Snapshot expiredSnapshot = null;
+        boolean pinned = false;
+
+        synchronized (this) {
+            if (state != BackupJobState.FINISHED || repoId != Repository.KEEP_ON_LOCAL_REPO_ID) {
+                return null;
+            }
+
+            // Avoid loading expired meta.
+            expiredAt = createTime + timeoutMs;
+            if (System.currentTimeMillis() >= expiredAt) {
+                expiredSnapshot = new Snapshot(label, null, null, 0, 0, false, expiredAt, commitSeq);
+            } else {
+                metaPathStr = localMetaInfoFilePath;
+                jobInfoPathStr = localJobInfoFilePath;
+                if (metaPathStr == null || jobInfoPathStr == null) {
+                    return null;
+                }
+                if (!acquireLocalJobDirRead()) {
+                    // Dir already cleaned or never created.
+                    return null;
+                }
+                pinned = true;
+                commitSeqSnapshot = commitSeq;
+                snapshotLabel = label;
+            }
         }
 
-        // Avoid loading expired meta.
-        long expiredAt = createTime + timeoutMs;
-        if (System.currentTimeMillis() >= expiredAt) {
-            return new Snapshot(label, null, null, expiredAt, commitSeq);
+        if (expiredSnapshot != null) {
+            return expiredSnapshot;
         }
 
-        File metaInfoFile = new File(localMetaInfoFilePath);
-        File jobInfoFile = new File(localJobInfoFilePath);
-        return new Snapshot(label, metaInfoFile, jobInfoFile, expiredAt, commitSeq);
+        try {
+            Path metaPath = Paths.get(metaPathStr);
+            Path jobInfoPath = Paths.get(jobInfoPathStr);
+            long metaSize = Files.size(metaPath);
+            long jobInfoSize = Files.size(jobInfoPath);
+
+            // Uncompressed thrift payload cannot exceed Integer.MAX_VALUE (~2GB).
+            // Reject before reading so FE heap is not blown by large local snapshots.
+            if (!enableCompress && metaSize + jobInfoSize >= Integer.MAX_VALUE) {
+                return new Snapshot(snapshotLabel, null, null, metaSize, jobInfoSize, false, expiredAt,
+                        commitSeqSnapshot);
+            }
+
+            byte[] meta;
+            byte[] jobInfo;
+            if (enableCompress) {
+                // Stream compress with a hard cap so low-compressibility data cannot
+                // grow an unbounded ByteArrayOutputStream on the FE heap.
+                meta = GZIPUtils.compress(metaPath.toFile(), Integer.MAX_VALUE);
+                int remaining = Integer.MAX_VALUE - meta.length;
+                if (remaining <= 0) {
+                    throw new IOException(String.format(
+                            "Compressed snapshot meta alone is too large (%d bytes >= 2GB).", meta.length));
+                }
+                jobInfo = GZIPUtils.compress(jobInfoPath.toFile(), remaining);
+                if ((long) meta.length + jobInfo.length >= Integer.MAX_VALUE) {
+                    throw new IOException(String.format(
+                            "Compressed snapshot is too large (%d bytes >= 2GB).",
+                            (long) meta.length + jobInfo.length));
+                }
+            } else {
+                meta = Files.readAllBytes(metaPath);
+                jobInfo = Files.readAllBytes(jobInfoPath);
+            }
+            return new Snapshot(snapshotLabel, meta, jobInfo, metaSize, jobInfoSize, enableCompress, expiredAt,
+                    commitSeqSnapshot);
+        } finally {
+            if (pinned) {
+                releaseLocalJobDirRead();
+            }
+        }
+    }
+
+    /**
+     * Cancelled and remote finished jobs have no staging value, while a local finished
+     * snapshot must remain available until its configured expiration time.
+     */
+    LocalJobDirCleanupResult cleanupLocalJobDirIfNecessary(long nowMs) {
+        boolean shouldCleanup;
+        synchronized (this) {
+            shouldCleanup = isCancelled() || (isFinished() && (repoId != Repository.KEEP_ON_LOCAL_REPO_ID
+                    || nowMs >= createTime + timeoutMs));
+        }
+        if (shouldCleanup) {
+            return cleanupLocalJobDir();
+        }
+        return LocalJobDirCleanupResult.NOT_DUE;
+    }
+
+    /**
+     * Clean up local staging dir after this job is evicted from the per-db deque.
+     * Local snapshot lifetime is bounded by both {@link #timeoutMs} and
+     * {@code max_backup_restore_job_num_per_db} queue eviction.
+     */
+    LocalJobDirCleanupResult cleanupLocalJobDirAfterRemoved() {
+        boolean shouldCleanup;
+        synchronized (this) {
+            shouldCleanup = isDone();
+        }
+        if (shouldCleanup) {
+            return cleanupLocalJobDir();
+        }
+        return LocalJobDirCleanupResult.NOT_DUE;
+    }
+
+    /**
+     * Delete local staging dir when no getSnapshot reader is active; otherwise defer
+     * until a later backup handler cleanup cycle after the last reader releases.
+     * Deletion uses {@link #localJobDirLock} only and never runs while holding the job
+     * monitor or on the getSnapshot RPC thread.
+     */
+    private LocalJobDirCleanupResult cleanupLocalJobDir() {
+        synchronized (localJobDirLock) {
+            if (localJobDirCleaned) {
+                return LocalJobDirCleanupResult.ALREADY_CLEANED;
+            }
+            if (localJobDirReaders > 0) {
+                return LocalJobDirCleanupResult.DEFERRED;
+            }
+            return cleanupLocalJobDirUnderLock();
+        }
+    }
+
+    private boolean acquireLocalJobDirRead() {
+        synchronized (localJobDirLock) {
+            if (localJobDirCleaned) {
+                return false;
+            }
+            if (getLocalJobDirPathForCleanup() == null) {
+                return false;
+            }
+            localJobDirReaders++;
+            return true;
+        }
+    }
+
+    private void releaseLocalJobDirRead() {
+        synchronized (localJobDirLock) {
+            localJobDirReaders--;
+        }
+    }
+
+    /** Caller must hold {@link #localJobDirLock}. */
+    private LocalJobDirCleanupResult cleanupLocalJobDirUnderLock() {
+        Path jobDirPath = getLocalJobDirPathForCleanup();
+        if (jobDirPath == null) {
+            localJobDirCleaned = true;
+            return LocalJobDirCleanupResult.ALREADY_CLEANED;
+        }
+        Path normalizedJobDirPath = jobDirPath.toAbsolutePath().normalize();
+        if (!isValidLocalJobDirForCleanup(normalizedJobDirPath)) {
+            LOG.warn("skip cleaning invalid backup job dir: {}. {}", normalizedJobDirPath, this);
+            localJobDirCleaned = true;
+            return LocalJobDirCleanupResult.INVALID_PATH;
+        }
+        long cleanupStartNanos = System.nanoTime();
+        try {
+            File jobDir = normalizedJobDirPath.toFile();
+            LocalJobDirCleanupResult result = LocalJobDirCleanupResult.ALREADY_ABSENT;
+            if (jobDir.exists()) {
+                deleteLocalJobDir(normalizedJobDirPath);
+                result = LocalJobDirCleanupResult.DELETED;
+                LOG.info("cleaned backup job dir: {}, elapsed_ms={}. {}", normalizedJobDirPath,
+                        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - cleanupStartNanos), this);
+            }
+            localJobDirPath = null;
+            localMetaInfoFilePath = null;
+            localJobInfoFilePath = null;
+            localJobDirCleaned = true;
+            return result;
+        } catch (Exception e) {
+            LOG.warn("failed to clean the backup job dir: {}, elapsed_ms={}. {}", normalizedJobDirPath,
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - cleanupStartNanos), this, e);
+            return LocalJobDirCleanupResult.FAILED;
+        }
+    }
+
+    Path getLocalJobDirPath() {
+        synchronized (localJobDirLock) {
+            Path jobDirPath = getLocalJobDirPathForCleanup();
+            return jobDirPath == null ? null : jobDirPath.toAbsolutePath().normalize();
+        }
+    }
+
+    void deleteLocalJobDir(Path jobDirPath) throws IOException {
+        deleteLocalJobDirRecursively(jobDirPath);
+    }
+
+    static void deleteLocalJobDirRecursively(Path jobDirPath) throws IOException {
+        try (Stream<Path> paths = Files.walk(jobDirPath)) {
+            List<Path> pathsToDelete = paths.sorted(Comparator.reverseOrder()).collect(Collectors.toList());
+            for (Path path : pathsToDelete) {
+                Files.deleteIfExists(path);
+            }
+        }
+    }
+
+    private Path getLocalJobDirPathForCleanup() {
+        if (localJobDirPath != null) {
+            return localJobDirPath;
+        }
+        if (localMetaInfoFilePath != null) {
+            return Paths.get(localMetaInfoFilePath).getParent();
+        }
+        if (localJobInfoFilePath != null) {
+            return Paths.get(localJobInfoFilePath).getParent();
+        }
+        return null;
+    }
+
+    private boolean isValidLocalJobDirForCleanup(Path jobDirPath) {
+        Path backupRootDir = BackupHandler.BACKUP_ROOT_DIR.toAbsolutePath().normalize();
+        return jobDirPath.startsWith(backupRootDir) && !jobDirPath.equals(backupRootDir);
     }
 
     public synchronized List<String> getInfo() {
