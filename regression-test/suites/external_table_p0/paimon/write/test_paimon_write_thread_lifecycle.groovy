@@ -18,17 +18,10 @@
 // Http is a framework utility class, not an injected Suite DSL property.
 import org.apache.doris.regression.util.Http
 
-suite("test_paimon_write_thread_lifecycle", "p0,external,paimon") {
+suite("test_paimon_write_thread_lifecycle", "p0,external,paimon,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable paimon test.")
-        return
-    }
-
-    // Keep the reproducer opt-in until attached JNI writer threads are released.
-    String knownBugTestEnabled = context.config.otherConfigs.get("enablePaimonKnownBugTest")
-    if (knownBugTestEnabled == null || !knownBugTestEnabled.equalsIgnoreCase("true")) {
-        logger.info("skip isolated Paimon known-bug thread regression")
         return
     }
 
@@ -104,7 +97,7 @@ suite("test_paimon_write_thread_lifecycle", "p0,external,paimon") {
     try {
         // Warm all writer and metrics paths before taking the baseline. This keeps
         // one-time JVM attachment and SDK class initialization out of the leak oracle.
-        for (int round = 0; round < 2; round++) {
+        for (int round = 0; round < 12; round++) {
             sql """
                 INSERT INTO t_thread_lifecycle
                 SELECT number + ${round * 1000}, repeat('w', 32)
@@ -130,7 +123,7 @@ suite("test_paimon_write_thread_lifecycle", "p0,external,paimon") {
         def jvmPhases = []
         def processPhases = []
         for (int phase = 0; phase < 4; phase++) {
-            writePhase(2 + phase * 12)
+            writePhase(12 + phase * 12)
             sleep(5000)
             jvmPhases.add(minimumThreadCounts(jvmThreadCounts))
             processPhases.add(minimumThreadCounts(processThreadCounts))
@@ -138,15 +131,31 @@ suite("test_paimon_write_thread_lifecycle", "p0,external,paimon") {
                     + "process=${processPhases[-1]}")
         }
 
-        assertEquals(50000L,
+        assertEquals(60000L,
                 (sql """SELECT COUNT(*) FROM t_thread_lifecycle""")[0][0] as long)
 
         backendEndpoints.keySet().each { backendId ->
-            // Equal steady-state phases must reuse or detach JNI writer threads.
-            // Comparing later phases excludes the cold shared writer-pool expansion.
-            assertTrue(jvmPhases[-1][backendId] <= jvmPhases[0][backendId] + 4,
-                    "JVM threads kept growing on backend ${backendId}: phases="
-                            + jvmPhases.collect { counts -> counts[backendId] })
+            // Warm-up performs the same workload as every measured phase. Judge persistent growth
+            // from the actual pre-phase baseline and phase low-water marks instead of failing on
+            // an isolated background-thread spike: a leaked thread cannot disappear in a later
+            // phase, while an unrelated transient thread can.
+            def jvmCounts = jvmPhases.collect { sample -> sample[backendId] as long }
+            def processCounts = processPhases.collect { sample -> sample[backendId] as long }
+            def earlyJvmFloor = jvmCounts.take(2).min()
+            def lateJvmFloor = jvmCounts.drop(2).min()
+            def earlyProcessFloor = processCounts.take(2).min()
+            def lateProcessFloor = processCounts.drop(2).min()
+
+            assertTrue(jvmCounts.min() <= jvmBefore[backendId] + 2,
+                    "JVM threads never returned to the warm-up baseline on backend ${backendId}: "
+                            + "baseline=${jvmBefore[backendId]}, phases=${jvmCounts}")
+            assertTrue(lateJvmFloor <= earlyJvmFloor + 2,
+                    "JVM threads kept growing on backend ${backendId}: phases=${jvmCounts}")
+            assertTrue(processCounts.min() <= processBefore[backendId] + 4,
+                    "Process threads never returned to the warm-up baseline on backend ${backendId}: "
+                            + "baseline=${processBefore[backendId]}, phases=${processCounts}")
+            assertTrue(lateProcessFloor <= earlyProcessFloor + 4,
+                    "Process threads kept growing on backend ${backendId}: phases=${processCounts}")
         }
     } finally {
         sql """drop catalog if exists ${catalogName}"""
