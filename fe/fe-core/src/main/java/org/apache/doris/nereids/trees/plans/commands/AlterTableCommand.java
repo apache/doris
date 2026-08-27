@@ -37,7 +37,11 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.lance.LanceExternalCatalog;
+import org.apache.doris.datasource.lance.LanceExternalTable;
+import org.apache.doris.datasource.lance.LanceIndexMutationValidator;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -47,14 +51,17 @@ import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
@@ -135,14 +142,31 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         String ctlName = tbl.getCtl();
         String dbName = tbl.getDb();
         String tableName = tbl.getTbl();
-        DatabaseIf dbIf = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrException(ctlName, catalog -> new DdlException("Unknown catalog " + catalog))
-                .getDbOrDdlException(dbName);
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrException(ctlName, catalogName -> new DdlException("Unknown catalog " + catalogName));
+        DatabaseIf dbIf = catalog.getDbOrDdlException(dbName);
         TableIf tableIf = dbIf.getTableOrDdlException(tableName);
         if (tableIf.isTemporary()) {
             throw new AnalysisException("Do not support alter temporary table[" + tableName + "]");
         }
         checkColumnOperationsSupported(tableIf, ops);
+        if (tableIf instanceof LanceExternalTable) {
+            // Top-level CREATE/DROP INDEX on Lance catalog tables: static-validate, then reject
+            // until the Lance index build path lands. ALTER TABLE ADD/DROP INDEX (alter = true)
+            // falls through to the existing generic external-table rejection below.
+            for (AlterTableOp op : ops) {
+                if (op instanceof CreateIndexOp && !((CreateIndexOp) op).isAlter()) {
+                    IndexDefinition indexDef = ((CreateIndexOp) op).getIndexDef();
+                    LanceIndexMutationValidator.validateCreateIndex((LanceExternalCatalog) catalog,
+                            (LanceExternalTable) tableIf, indexDef);
+                    throw new AnalysisException((indexDef.isOrReplace() ? "CREATE OR REPLACE INDEX" : "CREATE INDEX")
+                            + " is not supported for Lance catalog tables");
+                } else if (op instanceof DropIndexOp && !((DropIndexOp) op).isAlter()) {
+                    LanceIndexMutationValidator.validateDropIndex((LanceExternalCatalog) catalog);
+                    throw new AnalysisException("DROP INDEX is not supported for Lance catalog tables");
+                }
+            }
+        }
         for (AlterTableOp op : ops) {
             op.setTableName(tbl);
             op.validate(ctx);
