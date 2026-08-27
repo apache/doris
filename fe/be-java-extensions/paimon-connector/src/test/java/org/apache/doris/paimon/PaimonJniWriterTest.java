@@ -73,6 +73,27 @@ public class PaimonJniWriterTest {
     }
 
     @Test
+    public void testKeyDynamicGlobalIndexMemoryLimit() {
+        int pageSize = 64 * 1024;
+        long minimumIndexMemory = 4L * 1024 * 1024;
+        long minimumWriterMemory = 3L * pageSize;
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> PaimonJniWriter.calculateGlobalIndexMemoryLimit(
+                        minimumIndexMemory + minimumWriterMemory - 1, pageSize, true));
+        Assertions.assertTrue(exception.getMessage().contains("minimumIndexMemory=4194304"));
+        Assertions.assertTrue(exception.getMessage().contains("minimumWriterMemory=196608"));
+
+        Assertions.assertEquals(minimumIndexMemory,
+                PaimonJniWriter.calculateGlobalIndexMemoryLimit(
+                        minimumIndexMemory + minimumWriterMemory, pageSize, true));
+        Assertions.assertEquals(16L * 1024 * 1024,
+                PaimonJniWriter.calculateGlobalIndexMemoryLimit(
+                        64L * 1024 * 1024, pageSize, true));
+    }
+
+    @Test
     public void testOpenFailureRestoresContextClassLoader() throws Exception {
         Thread thread = Thread.currentThread();
         ClassLoader originalClassLoader = thread.getContextClassLoader();

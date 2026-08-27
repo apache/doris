@@ -46,6 +46,10 @@ under the License.
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-core</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.ververica</groupId>
+            <artifactId>frocksdbjni</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.apache.paimon</groupId>
