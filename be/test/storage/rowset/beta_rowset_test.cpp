@@ -35,22 +35,24 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
+#include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
-#include "io/fs/s3_obj_storage_client.h"
 #include "json2pb/json_to_pb.h"
 #include "runtime/exec_env.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
 #include "storage/options.h"
+#include "storage/rowset/beta_rowset_writer.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_reader.h"
@@ -59,6 +61,7 @@
 #include "storage/storage_engine.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/utils.h"
 #include "util/s3_util.h"
 
 namespace Aws {
@@ -232,6 +235,13 @@ private:
     std::unique_ptr<DataDir> _data_dir;
 };
 
+class BetaRowsetWriterForTest : public BetaRowsetWriter {
+public:
+    explicit BetaRowsetWriterForTest(StorageEngine& engine) : BetaRowsetWriter(engine) {}
+
+    Status build_tmp(RowsetSharedPtr& rowset) { return _build_tmp(rowset); }
+};
+
 class S3ClientMock : public Aws::S3::S3Client {
     S3ClientMock() {}
     S3ClientMock(const Aws::Auth::AWSCredentials& credentials,
@@ -313,7 +323,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
                 aws_cred, aws_config, Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
                 true);
 
-        client.reset(new io::S3ObjStorageClient(std::move(s3_client)));
+        client = std::make_shared<io::S3ObjStorageClient>(std::move(s3_client));
 
         rowset.rowset_meta()->set_num_segments(1);
         rowset.rowset_meta()->set_remote_storage_resource(storage_resource);
@@ -327,8 +337,8 @@ TEST_F(BetaRowsetTest, ReadTest) {
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
         Aws::Client::ClientConfiguration aws_config;
-        client.reset(new io::S3ObjStorageClient(
-                std::make_shared<Aws::S3::S3Client>(S3ClientMockGetError())));
+        client = std::make_shared<io::S3ObjStorageClient>(
+                std::make_shared<Aws::S3::S3Client>(S3ClientMockGetError()));
 
         rowset.rowset_meta()->set_num_segments(1);
         rowset.rowset_meta()->set_remote_storage_resource(storage_resource);
@@ -342,8 +352,8 @@ TEST_F(BetaRowsetTest, ReadTest) {
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
         Aws::Client::ClientConfiguration aws_config;
-        client.reset(new io::S3ObjStorageClient(
-                std::make_shared<Aws::S3::S3Client>(S3ClientMockGetErrorData())));
+        client = std::make_shared<io::S3ObjStorageClient>(
+                std::make_shared<Aws::S3::S3Client>(S3ClientMockGetErrorData()));
 
         rowset.rowset_meta()->set_num_segments(1);
         rowset.rowset_meta()->set_remote_storage_resource(storage_resource);
@@ -412,6 +422,93 @@ TEST_F(BetaRowsetTest, GetIndexFileNames) {
         ASSERT_EQ(file_names[0], "540085_0.idx");
         ASSERT_EQ(file_names[1], "540085_1.idx");
     }
+}
+
+TEST_F(BetaRowsetTest, SegmentViewUsesRealSegmentId) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000, "key_index", 0, "INT",
+                     "key");
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+
+    auto rowset_meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(rowset_meta, 1, 1);
+    rowset_meta->set_segment_ids({100, 102, 105});
+
+    BetaRowset rowset(tablet_schema, rowset_meta, kTestDir);
+    auto first_seg_path = rowset.segment(0).path();
+    ASSERT_TRUE(first_seg_path.has_value()) << first_seg_path.error();
+    EXPECT_EQ(first_seg_path.value(), kTestDir + "/540085_100.dat");
+
+    auto seg = rowset.segment(1);
+    EXPECT_EQ(seg.pos(), 1);
+    EXPECT_EQ(seg.id(), 102);
+    EXPECT_EQ(seg.file_name(), "540085_102.dat");
+
+    auto seg_path = seg.path();
+    ASSERT_TRUE(seg_path.has_value()) << seg_path.error();
+    EXPECT_EQ(seg_path.value(), kTestDir + "/540085_102.dat");
+    EXPECT_EQ(seg.file_cache_key(), segment_v2::Segment::file_cache_key("540085", 102));
+
+    auto delete_bitmap_key = seg.delete_bitmap_key(7);
+    EXPECT_EQ(std::get<0>(delete_bitmap_key), rowset.rowset_id());
+    EXPECT_EQ(std::get<1>(delete_bitmap_key), 102);
+    EXPECT_EQ(std::get<2>(delete_bitmap_key), 7);
+
+    auto row_location = seg.row_location(10);
+    EXPECT_EQ(row_location.rowset_id, rowset.rowset_id());
+    EXPECT_EQ(row_location.segment_id, 102);
+    EXPECT_EQ(row_location.row_id, 10);
+
+    auto index_file_names = seg.index_file_names();
+    ASSERT_EQ(index_file_names.size(), 1);
+    EXPECT_EQ(index_file_names[0], "540085_102_10000.idx");
+
+    auto index_file_cache_key = seg.index_file_cache_key(*tablet_schema->inverted_indexes()[0]);
+    ASSERT_TRUE(index_file_cache_key.has_value()) << index_file_cache_key.error();
+    EXPECT_EQ(index_file_cache_key.value(), kTestDir + "/540085_102_10000");
+}
+
+TEST_F(BetaRowsetTest, RowsetInfoShowsExplicitSegmentIds) {
+    auto rowset_meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(rowset_meta, 1, 1);
+    rowset_meta->set_num_segments(3);
+    rowset_meta->set_segments_overlap(NONOVERLAPPING);
+
+    BetaRowset rowset(nullptr, rowset_meta, "");
+    std::string legacy_rowset_info = rowset.get_rowset_info_str();
+    EXPECT_EQ(legacy_rowset_info.find(" []"), std::string::npos);
+
+    rowset_meta->set_segment_ids({100, 101, 200});
+    EXPECT_EQ(rowset.get_rowset_info_str(), legacy_rowset_info + " [100,101,200]");
+}
+
+TEST_F(BetaRowsetTest, TmpRowsetUsesCompletedSegmentIds) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema);
+    RowsetWriterContext writer_context;
+    create_rowset_writer_context(tablet_schema, &writer_context);
+
+    EngineOptions options;
+    StorageEngine engine(options);
+    BetaRowsetWriterForTest writer(engine);
+    ASSERT_TRUE(writer.init(writer_context).ok());
+
+    SegmentStatistics segment_statistics;
+    segment_statistics.row_num = 10;
+    ASSERT_TRUE(writer.add_segment(6, segment_statistics).ok());
+    ASSERT_TRUE(writer.add_segment(2, segment_statistics).ok());
+
+    RowsetSharedPtr tmp_rowset;
+    ASSERT_TRUE(writer.build_tmp(tmp_rowset).ok());
+    ASSERT_NE(tmp_rowset, nullptr);
+    EXPECT_EQ(tmp_rowset->num_segments(), 2);
+    EXPECT_EQ(tmp_rowset->rowset_meta()->position_of(2), 0);
+    EXPECT_EQ(tmp_rowset->rowset_meta()->position_of(6), 1);
+    EXPECT_EQ(tmp_rowset->rowset_meta()->segment_id(0), 2);
+    EXPECT_EQ(tmp_rowset->rowset_meta()->segment_id(1), 6);
 }
 
 TEST_F(BetaRowsetTest, GetSegmentNumRowsFromMeta) {

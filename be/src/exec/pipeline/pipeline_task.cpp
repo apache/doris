@@ -569,7 +569,8 @@ Status PipelineTask::execute(bool* done) {
         Defer defer {[&]() {
             // If this run is pended by a spilling request, the block will be output in next run.
             if (!_spilling) {
-                _block->clear_column_data(_root->row_desc().num_materialized_slots());
+                _block->clear_column_data(
+                        _root->operator_row_desc_after_projection().num_materialized_slots());
             }
         }};
         // `_wake_up_early` must be after `_is_blocked()`
@@ -664,7 +665,8 @@ Status PipelineTask::execute(bool* done) {
                         ->task_controller()
                         ->is_enable_reserve_memory() &&
                 workload_group && !(_wake_up_early || _dry_run)) {
-                const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, _eos);
+                const auto sink_reserve_size =
+                        _sink->get_reserve_mem_size(_state, _eos, _block.get());
 
                 if (sink_reserve_size > 0 && _should_trigger_revoking(sink_reserve_size)) {
                     LOG(INFO) << fmt::format(

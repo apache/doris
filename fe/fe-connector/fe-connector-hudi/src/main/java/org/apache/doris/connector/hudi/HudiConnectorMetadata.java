@@ -87,9 +87,6 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
 
     private static final Logger LOG = LogManager.getLogger(HudiConnectorMetadata.class);
 
-    // Catalog property gating the partition-name source (mirrors legacy HMSExternalTable.USE_HIVE_SYNC_PARTITION).
-    private static final String USE_HIVE_SYNC_PARTITION = "use_hive_sync_partition";
-
     // fe-core SPI schema property marking which emitted columns are partition columns (CSV of RAW partition-key
     // names, in declaration order). Mirrors HiveConnectorMetadata.PARTITION_COLUMNS_PROPERTY; fe-core derives the
     // partition-column set SOLELY from this key (PluginDrivenExternalTable.toSchemaCacheValue). Without it every
@@ -152,7 +149,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     private static final String HUDI_COMMIT_TIME_COLUMN = "_hoodie_commit_time";
 
     private final HmsClient hmsClient;
-    private final Map<String, String> properties;
+    private final HudiCatalogProperties props;
     // Runs the metaClient-touching partition/snapshot work under the plugin UGI doAs + TCCL pin (see R4).
     private final HudiMetaClientExecutor metaClientExecutor;
     // Canonical fs.s3a.*/hadoop.* storage config translated from the catalog's fe-filesystem StorageProperties,
@@ -161,15 +158,15 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     // getSchemaFromMetaClient or never touch S3). See HudiScanPlanProvider#storageHadoopConfig.
     private final Map<String, String> storageHadoopConfig;
 
-    public HudiConnectorMetadata(HmsClient hmsClient, Map<String, String> properties,
+    public HudiConnectorMetadata(HmsClient hmsClient, HudiCatalogProperties props,
             HudiMetaClientExecutor metaClientExecutor) {
-        this(hmsClient, properties, metaClientExecutor, Collections.emptyMap());
+        this(hmsClient, props, metaClientExecutor, Collections.emptyMap());
     }
 
-    public HudiConnectorMetadata(HmsClient hmsClient, Map<String, String> properties,
+    public HudiConnectorMetadata(HmsClient hmsClient, HudiCatalogProperties props,
             HudiMetaClientExecutor metaClientExecutor, Map<String, String> storageHadoopConfig) {
         this.hmsClient = hmsClient;
-        this.properties = properties;
+        this.props = props;
         this.metaClientExecutor = metaClientExecutor;
         this.storageHadoopConfig = storageHadoopConfig;
     }
@@ -787,7 +784,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     }
 
     private boolean useHiveSyncPartition() {
-        return Boolean.parseBoolean(properties.getOrDefault(USE_HIVE_SYNC_PARTITION, "false"));
+        return props.isUseHiveSyncPartition();
     }
 
     /**
@@ -1027,7 +1024,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         // Storage credentials (fs.s3a.* …) first so an inline user fs./dfs./hadoop. key still wins below; see
         // storageHadoopConfig field. Without it the metaClient's S3AFileSystem cannot read hoodie.properties.
         storageHadoopConfig.forEach(conf::set);
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
+        for (Map.Entry<String, String> entry : props.getRaw().entrySet()) {
             String key = entry.getKey();
             if (key.startsWith("hadoop.") || key.startsWith("fs.")
                     || key.startsWith("dfs.") || key.startsWith("hive.")) {

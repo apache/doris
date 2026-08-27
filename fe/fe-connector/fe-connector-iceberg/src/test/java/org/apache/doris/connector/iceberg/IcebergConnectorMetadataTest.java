@@ -25,13 +25,19 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 
+import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.exceptions.NotFoundException;
+import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.view.ImmutableSQLViewRepresentation;
 import org.apache.iceberg.view.ImmutableViewVersion;
@@ -39,6 +45,7 @@ import org.apache.iceberg.view.ViewVersion;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.FileNotFoundException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -70,12 +77,12 @@ public class IcebergConnectorMetadataTest {
 
     private static IcebergConnectorMetadata metadataWith(
             RecordingIcebergCatalogOps ops, Map<String, String> props) {
-        return new IcebergConnectorMetadata(ops, props, new RecordingConnectorContext());
+        return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(props), new RecordingConnectorContext());
     }
 
     private static IcebergConnectorMetadata metadataWith(
             RecordingIcebergCatalogOps ops, RecordingConnectorContext ctx) {
-        return new IcebergConnectorMetadata(ops, Collections.emptyMap(), ctx);
+        return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), ctx);
     }
 
     /** A simple 2-column unpartitioned schema (id required, name optional). */
@@ -83,6 +90,32 @@ public class IcebergConnectorMetadataTest {
         return new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
                 Types.NestedField.optional(2, "name", Types.StringType.get()));
+    }
+
+    @Test
+    public void missingMetadataFileHasStableTableError() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.loadTableFailure = new RuntimeException(
+                "Failed to open input stream", new FileNotFoundException("missing metadata file"));
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadataWith(ops).getTableSchema(null, new IcebergTableHandle("default", "missing_table")));
+        Assertions.assertTrue(ex.getMessage().contains(
+                "Metadata not found in metadata location for table default.missing_table"), ex.getMessage());
+    }
+
+    @Test
+    public void missingMetadataFileForSystemTableHasStableTableError() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.loadTableFailure = new RuntimeException(
+                "Failed to open input stream", new FileNotFoundException("missing metadata file"));
+        IcebergTableHandle handle = IcebergTableHandle.forSystemTable(
+                "default", "missing_table", "snapshots", -1L, null, -1L);
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadataWith(ops).getTableSchema(null, handle));
+        Assertions.assertTrue(ex.getMessage().contains(
+                "Metadata not found in metadata location for table default.missing_table"), ex.getMessage());
     }
 
     /**
@@ -168,7 +201,7 @@ public class IcebergConnectorMetadataTest {
         ops.table = new FakeIcebergTable(
                 "t1", idNameSchema(), PartitionSpec.unpartitioned(), "s3://bucket/db1/t1", props);
         IcebergCommentCache cache = new IcebergCommentCache(100, 1000);
-        IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops, Collections.emptyMap(),
+        IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()),
                 new RecordingConnectorContext(), new IcebergLatestSnapshotCache(0L, 1), null, null, cache);
 
         Assertions.assertEquals("sales fact", metadata.getTableComment(null, "db1", "t1"));
@@ -573,6 +606,27 @@ public class IcebergConnectorMetadataTest {
         // present handle that later fails on load. MUTATION: returning a present handle when
         // tableExists==false -> red.
         Assertions.assertFalse(handleOpt.isPresent());
+    }
+
+    @Test
+    public void getTableHandleNormalizesDeepMetadataNotFoundFailure() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.tableExistsFailure = new RuntimeException("catalog wrapper",
+                new RuntimeException("storage wrapper", new NotFoundException("metadata is missing")));
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadataWith(ops).getTableHandle(null, "db1", "missing_table"));
+        Assertions.assertEquals(
+                "Metadata not found in metadata location for table db1.missing_table", ex.getMessage());
+    }
+
+    @Test
+    public void getTableHandlePreservesMissingTableAsEmpty() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.tableExistsFailure = new RuntimeException("catalog wrapper",
+                new NoSuchTableException("table disappeared"));
+
+        Assertions.assertTrue(metadataWith(ops).getTableHandle(null, "db1", "missing_table").isEmpty());
     }
 
     // ---------------------------------------------------------------------
@@ -1311,6 +1365,38 @@ public class IcebergConnectorMetadataTest {
         // The remote load must go through the seam (auth-wrapped), mirroring getTableSchema.
         Assertions.assertTrue(ops.log.contains("loadTable:db1.t1"),
                 "getColumnHandles must load the table via the seam using the handle coordinates");
+    }
+
+    @Test
+    public void getColumnHandlesUsesPinnedHistoricalSchema() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        Schema oldSchema = new Schema(
+                Types.NestedField.required(7, "old_name", Types.IntegerType.get()),
+                Types.NestedField.optional(9, "survivor", Types.StringType.get()));
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        org.apache.iceberg.Table table = catalog.createTable(
+                TableIdentifier.of("db1", "t1"), oldSchema, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(DataFiles.builder(PartitionSpec.unpartitioned())
+                .withPath("s3://bucket/db1/t1/old.parquet")
+                .withFileSizeInBytes(1).withRecordCount(1).build()).commit();
+        Schema historicalSchema = table.schema();
+        table.updateSchema().renameColumn("old_name", "new_name").commit();
+        ops.table = table;
+
+        ConnectorMvccSnapshot pin = ConnectorMvccSnapshot.builder()
+                .snapshotId(11L).schemaId(historicalSchema.schemaId()).build();
+        IcebergConnectorMetadata metadata = metadataWith(ops);
+        Map<String, ConnectorColumnHandle> handles = metadata.getColumnHandles(
+                null, new IcebergTableHandle("db1", "t1"), pin);
+
+        Assertions.assertTrue(metadata.supportsColumnHandleSnapshotPin(null));
+        Assertions.assertTrue(handles.containsKey("old_name"));
+        Assertions.assertTrue(handles.containsKey("survivor"));
+        Assertions.assertFalse(handles.containsKey("new_name"));
+        Assertions.assertEquals(historicalSchema.findField("old_name").fieldId(),
+                ((IcebergColumnHandle) handles.get("old_name")).getFieldId());
     }
 
     // ---------------------------------------------------------------------

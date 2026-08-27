@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#include "io/fs/s3_common.h"
+#include "cpp/obj-client/s3_common.h"
 
 namespace doris {
 

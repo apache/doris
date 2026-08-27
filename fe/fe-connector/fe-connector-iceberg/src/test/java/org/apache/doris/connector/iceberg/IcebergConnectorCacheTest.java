@@ -29,6 +29,9 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -146,14 +149,14 @@ public class IcebergConnectorCacheTest {
                         .latestSnapshotCacheForTest(),
                 "a plain catalog builds the latest-snapshot cache");
         Map<String, String> vended = new HashMap<>();
-        vended.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
-        vended.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        vended.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
+        vended.put("iceberg.rest.vended-credentials-enabled", "true");
         Assertions.assertNotNull(
                 new IcebergConnector(vended, new RecordingConnectorContext()).latestSnapshotCacheForTest(),
                 "a vended-credentials catalog still builds the latest-snapshot cache (an id carries no token)");
         Map<String, String> session = new HashMap<>();
-        session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
-        session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        session.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
+        session.put("iceberg.rest.session", "user");
         Assertions.assertNull(
                 new IcebergConnector(session, new RecordingConnectorContext()).latestSnapshotCacheForTest(),
                 "a session=user catalog must NOT build the latest-snapshot cache (per-user authz bypass)");
@@ -165,8 +168,8 @@ public class IcebergConnectorCacheTest {
         // still be no-throw (the invalidate* methods null-guard each cache). MUTATION: an unguarded invalidate call
         // on a nulled cache -> NPE -> red.
         Map<String, String> session = new HashMap<>();
-        session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
-        session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        session.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
+        session.put("iceberg.rest.session", "user");
         IcebergConnector connector = new IcebergConnector(session, new RecordingConnectorContext());
         Assertions.assertNull(connector.latestSnapshotCacheForTest());
         Assertions.assertNull(connector.partitionCacheForTest());
@@ -241,8 +244,8 @@ public class IcebergConnectorCacheTest {
         // would hand BE an expired token (403 mid-scan), so this layer MUST be off (null); the query-scoped fat
         // handle still dedups within one query. MUTATION: building the cache for a vended catalog -> non-null -> red.
         Map<String, String> vended = new HashMap<>();
-        vended.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
-        vended.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        vended.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
+        vended.put("iceberg.rest.vended-credentials-enabled", "true");
         Assertions.assertNull(
                 new IcebergConnector(vended, new RecordingConnectorContext()).tableCacheForTest(),
                 "a REST vended-credentials catalog must NOT build the cross-query table cache");
@@ -254,8 +257,8 @@ public class IcebergConnectorCacheTest {
         // across users would leak credentials. This layer MUST be off (null) — the fat handle keeps within-query
         // dedup. MUTATION: building the cache for a session=user catalog -> tableCacheForTest non-null -> red.
         Map<String, String> session = new HashMap<>();
-        session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
-        session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        session.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
+        session.put("iceberg.rest.session", "user");
         Assertions.assertNull(
                 new IcebergConnector(session, new RecordingConnectorContext()).tableCacheForTest(),
                 "a per-user session catalog must NOT build the cross-query table cache");
@@ -287,6 +290,71 @@ public class IcebergConnectorCacheTest {
         Assertions.assertEquals(0, cache.size(), "REFRESH CATALOG drops everything");
     }
 
+    @Test
+    public void closeInvalidatesCrossQueryTableCache() throws Exception {
+        IcebergConnector connector =
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        IcebergTableCache cache = connector.tableCacheForTest();
+        cache.getOrLoad(TableIdentifier.of("db1", "t1"), () -> fakeTable("db1.t1"));
+        Assertions.assertEquals(1, cache.size());
+
+        connector.close();
+
+        Assertions.assertEquals(0, cache.size(), "connector teardown must release its table-cache ownership");
+    }
+
+    @Test
+    public void directTableCleanupOnlyClosesTableOwnedFileIO() {
+        RecordingFileIO tableFileIO = new RecordingFileIO();
+        FakeIcebergTable table = (FakeIcebergTable) fakeTable("rest.table");
+        table.setIo(tableFileIO);
+
+        IcebergConnector.cachedTableCleanup(table, IcebergCatalogProperties.TYPE_REST).run();
+        Assertions.assertEquals(0, tableFileIO.closeCalls,
+                "REST FileIO is owned by the retained REST catalog generation and its FileIOTracker");
+
+        IcebergConnector.cachedTableCleanup(table, IcebergCatalogProperties.TYPE_GLUE).run();
+        Assertions.assertEquals(1, tableFileIO.closeCalls);
+
+        IcebergConnector.cachedTableCleanup(table, IcebergCatalogProperties.TYPE_S3_TABLES).run();
+        Assertions.assertEquals(2, tableFileIO.closeCalls);
+    }
+
+    @Test
+    public void restConfigOnlyTableFileIOIsOwnedByTable() {
+        RecordingFileIO catalogFileIO = new RecordingFileIO();
+        RecordingFileIO configOnlyTableFileIO = new RecordingFileIO();
+
+        Assertions.assertFalse(IcebergConnector.shouldCloseTableFileIO(
+                IcebergCatalogProperties.TYPE_REST, catalogFileIO, catalogFileIO));
+        Assertions.assertTrue(IcebergConnector.shouldCloseTableFileIO(
+                IcebergCatalogProperties.TYPE_REST, configOnlyTableFileIO, catalogFileIO));
+    }
+
+    private static final class RecordingFileIO implements FileIO {
+        private int closeCalls;
+
+        @Override
+        public InputFile newInputFile(String path) {
+            throw new UnsupportedOperationException("not used");
+        }
+
+        @Override
+        public OutputFile newOutputFile(String path) {
+            throw new UnsupportedOperationException("not used");
+        }
+
+        @Override
+        public void deleteFile(String path) {
+            throw new UnsupportedOperationException("not used");
+        }
+
+        @Override
+        public void close() {
+            closeCalls++;
+        }
+    }
+
     // ============ PERF-02: partition-view cache (session=user gated) + invalidation ============
 
     private static IcebergPartitionCache.Key partKey(String db, String tbl, long snapshotId) {
@@ -306,14 +374,14 @@ public class IcebergConnectorCacheTest {
                 new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext()).partitionCacheForTest(),
                 "a plain catalog builds the partition cache");
         Map<String, String> vended = new HashMap<>();
-        vended.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
-        vended.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        vended.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
+        vended.put("iceberg.rest.vended-credentials-enabled", "true");
         Assertions.assertNotNull(
                 new IcebergConnector(vended, new RecordingConnectorContext()).partitionCacheForTest(),
                 "a vended-credentials catalog still builds the partition cache (metadata carries no credentials)");
         Map<String, String> session = new HashMap<>();
-        session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
-        session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        session.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
+        session.put("iceberg.rest.session", "user");
         Assertions.assertNull(
                 new IcebergConnector(session, new RecordingConnectorContext()).partitionCacheForTest(),
                 "a session=user catalog must NOT build the partition cache (per-user authz must not be bypassed)");
@@ -360,14 +428,14 @@ public class IcebergConnectorCacheTest {
                 new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext()).formatCacheForTest(),
                 "a plain catalog builds the format cache");
         Map<String, String> vended = new HashMap<>();
-        vended.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
-        vended.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        vended.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
+        vended.put("iceberg.rest.vended-credentials-enabled", "true");
         Assertions.assertNotNull(
                 new IcebergConnector(vended, new RecordingConnectorContext()).formatCacheForTest(),
                 "a vended-credentials catalog still builds the format cache (a format name carries no credentials)");
         Map<String, String> session = new HashMap<>();
-        session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
-        session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        session.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
+        session.put("iceberg.rest.session", "user");
         Assertions.assertNull(
                 new IcebergConnector(session, new RecordingConnectorContext()).formatCacheForTest(),
                 "a session=user catalog must NOT build the format cache (per-user authz must not be bypassed)");
@@ -401,12 +469,12 @@ public class IcebergConnectorCacheTest {
 
     private static Map<String, String> restProps(boolean vended, boolean sessionUser) {
         Map<String, String> m = new HashMap<>();
-        m.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        m.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
         if (vended) {
-            m.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+            m.put("iceberg.rest.vended-credentials-enabled", "true");
         }
         if (sessionUser) {
-            m.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+            m.put("iceberg.rest.session", "user");
         }
         return m;
     }
@@ -473,16 +541,16 @@ public class IcebergConnectorCacheTest {
         Assertions.assertNotNull(plain.listPartitionsViewCacheForTest(),
                 "a plain catalog builds the listPartitions view cache");
         Map<String, String> vended = new HashMap<>();
-        vended.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
-        vended.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        vended.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
+        vended.put("iceberg.rest.vended-credentials-enabled", "true");
         IcebergConnector vendedConn = new IcebergConnector(vended, new RecordingConnectorContext());
         Assertions.assertNotNull(vendedConn.mvccPartitionViewCacheForTest(),
                 "a vended-credentials catalog still builds the MVCC view cache (metadata carries no credentials)");
         Assertions.assertNotNull(vendedConn.listPartitionsViewCacheForTest(),
                 "a vended-credentials catalog still builds the listPartitions view cache");
         Map<String, String> session = new HashMap<>();
-        session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
-        session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        session.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
+        session.put("iceberg.rest.session", "user");
         IcebergConnector sessionConn = new IcebergConnector(session, new RecordingConnectorContext());
         Assertions.assertNull(sessionConn.mvccPartitionViewCacheForTest(),
                 "a session=user catalog must NOT build the MVCC view cache (per-user authz must not be bypassed)");
@@ -541,8 +609,8 @@ public class IcebergConnectorCacheTest {
         // Under session=user cache A's two instances are null; the invalidate hooks must null-guard them (no NPE).
         // MUTATION: an unguarded view-cache invalidate on a nulled field -> NPE -> red.
         Map<String, String> session = new HashMap<>();
-        session.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
-        session.put(IcebergConnectorProperties.REST_SESSION, IcebergConnectorProperties.SESSION_USER);
+        session.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
+        session.put("iceberg.rest.session", "user");
         IcebergConnector connector = new IcebergConnector(session, new RecordingConnectorContext());
         Assertions.assertNull(connector.mvccPartitionViewCacheForTest());
         Assertions.assertNull(connector.listPartitionsViewCacheForTest());

@@ -107,19 +107,33 @@ public class IcebergRestMetaStorePropertiesTest {
     }
 
     @Test
-    public void rule8And9SigningNameRequiresRegionAndSigV4() {
+    public void managedSigningNamesRequireRegionAndSigV4() {
         Assertions.assertEquals(
                 "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is glue",
                 validateError(raw("iceberg.rest.signing-name", "glue")));
         Assertions.assertEquals(
                 "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is s3tables",
                 validateError(raw("iceberg.rest.signing-name", "s3tables")));
+        Assertions.assertEquals(
+                "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is osstables",
+                validateError(raw("iceberg.rest.signing-name", "osstables")));
         // satisfied when both region + sigv4-enabled present.
         IcebergRestMetaStoreProperties.of(raw("iceberg.rest.signing-name", "glue",
                 "iceberg.rest.signing-region", "us-east-1", "iceberg.rest.sigv4-enabled", "true")).validate();
         // signing-name match is case-sensitive (ParamRules.requireIf uses Objects.equals): "Glue" != "glue"
         // so the rule does NOT fire. MUTATION: a case-insensitive match would throw here.
         IcebergRestMetaStoreProperties.of(raw("iceberg.rest.signing-name", "Glue")).validate();
+    }
+
+    @Test
+    public void managedSigningNamesRejectDisabledSigV4() {
+        for (String signingName : new String[] {"glue", "s3tables", "osstables"}) {
+            Assertions.assertEquals(
+                    "Rest Catalog requires sigv4-enabled set to true when signing-name is " + signingName,
+                    validateError(raw("iceberg.rest.signing-name", signingName,
+                            "iceberg.rest.signing-region", "us-east-1",
+                            "iceberg.rest.sigv4-enabled", "false")));
+        }
     }
 
     @Test

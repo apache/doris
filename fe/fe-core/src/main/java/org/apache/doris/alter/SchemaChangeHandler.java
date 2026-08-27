@@ -2341,7 +2341,7 @@ public class SchemaChangeHandler extends AlterHandler {
             //for multi add columns clauses
             //index id -> index col_unique_id supplier
             Map<Long, IntSupplier> colUniqueIdSupplierMap = new HashMap<>();
-            for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchemaWithRowBinlog(true).entrySet()) {
+            for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true, true).entrySet()) {
                 indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
 
                 IntSupplier colUniqueIdSupplier = null;
@@ -2544,8 +2544,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
                     lightSchemaChange = false;
 
-                    // ngram_bf index can do light_schema_change in both local and cloud mode
-                    // inverted index and ann index can only do light_schema_change in local mode
+                    // BfIndex and NGRAM_BF use light schema change only when new-data-only indexing is enabled.
+                    // Local mode also supports INVERTED and ANN; cloud mode supports non-tokenized INVERTED.
                     if (index.isLightAddIndexSupported(enableAddIndexForNewData)) {
                         alterIndexes.add(index);
                         isDropIndex = false;
@@ -2637,20 +2637,21 @@ public class SchemaChangeHandler extends AlterHandler {
                                 break;
                             }
                         }
-                        // for inverted index, light schema change is supported in both cloud and local mode;
-                        // for ngram index, light schema change is supported only in cloud mode;
+                        // Inverted index supports light schema change in both cloud and local mode.
+                        // NGRAM_BF and BfIndex support it only in cloud mode.
                         boolean supportLightIndexChange = false;
-                        if (Config.isCloudMode()) {
-                            if (enableAddIndexForNewData) {
-                                supportLightIndexChange = (
-                                        found.getIndexType() == IndexType.NGRAM_BF
-                                                || found.getIndexType() == IndexType.INVERTED);
+                        if (found != null) {
+                            if (Config.isCloudMode()) {
+                                supportLightIndexChange = enableAddIndexForNewData
+                                        && (found.getIndexType() == IndexType.NGRAM_BF
+                                        || found.getIndexType() == IndexType.BLOOMFILTER
+                                        || found.getIndexType() == IndexType.INVERTED);
+                            } else {
+                                supportLightIndexChange = found.getIndexType() == IndexType.INVERTED
+                                        || found.getIndexType() == IndexType.ANN;
                             }
-                        } else {
-                            supportLightIndexChange = found.getIndexType() == IndexType.INVERTED
-                                    || found.getIndexType() == IndexType.ANN;
                         }
-                        if (found != null && supportLightIndexChange) {
+                        if (supportLightIndexChange) {
                             alterIndexes.add(found);
                             isDropIndex = true;
                             lightIndexChange = true;
@@ -2678,8 +2679,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                         null, isDropIndex, jobId, false, propertyMap);
             } else if (Config.enable_light_index_change && lightIndexChange) {
+                Index.checkConflict(newIndexes, olapTable.getCopiedBfColumns());
                 long jobId = Env.getCurrentEnv().getNextId();
-                //for schema change add/drop inverted index and ngram_bf optimize, direct modify table meta firstly.
+                // For light index changes, directly modify table metadata first.
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                         alterIndexes, isDropIndex, jobId, false, propertyMap);
             } else if (buildIndexChange) {
@@ -3290,6 +3292,13 @@ public class SchemaChangeHandler extends AlterHandler {
             AnnIndexPropertiesChecker.checkProperties(indexDef.getProperties());
         }
 
+        if (indexDef.getIndexType() == IndexType.INVERTED
+                && olapTable.getInvertedIndexFileStorageFormat() == TInvertedIndexFileStorageFormat.V1) {
+            throw new DdlException("Inverted index V1 is deprecated and no longer allowed for new index creation."
+                    + " Upgrading inverted_index_storage_format via ALTER TABLE is not supported;"
+                    + " recreate the table with inverted_index_storage_format = V2.");
+        }
+
         for (String col : indexDef.getColumnNames()) {
             Column column = olapTable.getColumn(col);
             if (column != null) {
@@ -3514,7 +3523,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         //update base index schema
-        Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchemaWithRowBinlog(true);
+        Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchema(true, true);
         try {
             updateBaseIndexSchema(olapTable, indexSchemaMap, indexes);
         } catch (Exception e) {
@@ -3959,6 +3968,17 @@ public class SchemaChangeHandler extends AlterHandler {
             LOG.info("table {} binlog config is same as the previous version, so nothing need to do",
                     olapTable.getName());
             return true;
+        }
+
+        if (!oldBinlogConfig.isEnableForStreaming() && newBinlogConfig.isEnableForStreaming()) {
+            throw new DdlException("Do not support dynamically enabling binlog<Row> for table: "
+                    + olapTable.getName());
+        }
+
+        if (newBinlogConfig.isEnableForCCR()) {
+            if (Config.isCloudMode()) {
+                throw new DdlException("Binlog<CCR> is not supported in cloud mode");
+            }
         }
 
         // check db binlog config, if db binlog config is not same as table binlog config, throw exception

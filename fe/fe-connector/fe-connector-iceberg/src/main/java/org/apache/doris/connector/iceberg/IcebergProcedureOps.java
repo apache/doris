@@ -40,11 +40,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
- * Executes iceberg's {@code ALTER TABLE EXECUTE} procedures (the 9 legacy
- * {@code datasource/iceberg/action/*} actions) behind the {@link ConnectorProcedureOps} SPI.
+ * Executes iceberg's {@code ALTER TABLE EXECUTE} procedures behind the {@link ConnectorProcedureOps} SPI.
  *
  * <p>Mirrors {@link IcebergWritePlanProvider}: a fresh instance per call over the lazily-built live
  * catalog, threading the same {@code properties} / {@link IcebergCatalogOps} / {@link ConnectorContext}
@@ -52,14 +52,11 @@ import java.util.stream.Collectors;
  * runs in the connector; argument validation is connector-local (the engine cannot reach
  * {@code org.apache.doris.common.NamedArguments} across the import gate).</p>
  *
- * <p><b>T03 dispatch skeleton.</b> {@link #getSupportedProcedures()} exports the factory's name list and
+ * <p>{@link #getSupportedProcedures()} exports the factory's name list and
  * {@link #execute} routes through {@link IcebergExecuteActionFactory} → {@link BaseIcebergAction}: validate
  * arguments, load the SDK table inside {@code context.executeAuthenticated}, run the body and wrap the
- * single row. The 9 procedure bodies (the factory's switch cases) are ported in T04 (the 8 pure-SDK
- * procedures) / T05–T06 ({@code rewrite_data_files}); until then a known name reaches the factory's faithful
- * "Unsupported Iceberg procedure" rejection. Inert pre-cutover regardless: iceberg tables are not
- * {@code PluginDrivenExternalTable} until P6.6, so {@code ExecuteActionCommand} still routes them to the
- * legacy fe-core actions and never reaches this class.</p>
+ * single row. {@code rewrite_data_files} is planned as a distributed INSERT-SELECT operation and therefore
+ * bypasses the single-call action factory.</p>
  */
 public class IcebergProcedureOps implements ConnectorProcedureOps {
 
@@ -73,6 +70,7 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
     // (fail-closed); every other catalog (and the offline-test ctor) resolves the single shared ops (s -> catalogOps).
     private final Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver;
     private final ConnectorContext context;
+    private final IcebergCatalogResourceTracker resourceTracker;
 
     public IcebergProcedureOps(Map<String, String> properties, IcebergCatalogOps catalogOps,
             ConnectorContext context) {
@@ -89,9 +87,16 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
      */
     public IcebergProcedureOps(Map<String, String> properties,
             Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver, ConnectorContext context) {
+        this(properties, catalogOpsResolver, context, null);
+    }
+
+    IcebergProcedureOps(Map<String, String> properties,
+            Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver, ConnectorContext context,
+            IcebergCatalogResourceTracker resourceTracker) {
         this.properties = properties;
         this.catalogOpsResolver = catalogOpsResolver;
         this.context = context;
+        this.resourceTracker = resourceTracker;
     }
 
     @Override
@@ -183,16 +188,22 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
      */
     private ConnectorProcedureResult runInAuthScope(IcebergTableHandle handle, BaseIcebergAction action,
             ConnectorSession session) {
+        return withCatalogLease(() -> runInAuthScopeUntracked(handle, action, session));
+    }
+
+    private ConnectorProcedureResult runInAuthScopeUntracked(IcebergTableHandle handle, BaseIcebergAction action,
+            ConnectorSession session) {
         // Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces the
         // DorisConnectorException verbatim (not wrapped by executeAuthenticated's catch).
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
         ConnectorProcedureResult result;
         if (context == null) {
-            result = action.execute(ops.loadTable(handle.getDbName(), handle.getTableName()), session);
+            result = ops.withTable(handle.getDbName(), handle.getTableName(), table -> action.execute(table, session));
         } else {
             try {
                 result = context.executeAuthenticated(() ->
-                        action.execute(ops.loadTable(handle.getDbName(), handle.getTableName()), session));
+                        ops.withTable(handle.getDbName(), handle.getTableName(),
+                                table -> action.execute(table, session)));
             } catch (DorisConnectorException e) {
                 throw e;
             } catch (Exception e) {
@@ -211,6 +222,11 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
      */
     private List<ConnectorRewriteGroup> planInAuthScope(IcebergTableHandle handle,
             IcebergRewriteDataFilesAction action, ConnectorSession session) {
+        return withCatalogLease(() -> planInAuthScopeUntracked(handle, action, session));
+    }
+
+    private List<ConnectorRewriteGroup> planInAuthScopeUntracked(IcebergTableHandle handle,
+            IcebergRewriteDataFilesAction action, ConnectorSession session) {
         ZoneId sessionZone = IcebergTimeUtils.resolveSessionZone(session);
         RewriteDataFilePlanner planner = new RewriteDataFilePlanner(action.buildRewriteParameters(), sessionZone);
         // Resolve the per-request ops before the auth scope (see runInAuthScope): a session=user fail-closed
@@ -218,12 +234,11 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
         List<RewriteDataGroup> groups;
         if (context == null) {
-            groups = planner.planAndOrganizeTasks(
-                    ops.loadTable(handle.getDbName(), handle.getTableName()));
+            groups = ops.withTable(handle.getDbName(), handle.getTableName(), planner::planAndOrganizeTasks);
         } else {
             try {
-                groups = context.executeAuthenticated(() -> planner.planAndOrganizeTasks(
-                        ops.loadTable(handle.getDbName(), handle.getTableName())));
+                groups = context.executeAuthenticated(() -> ops.withTable(
+                        handle.getDbName(), handle.getTableName(), planner::planAndOrganizeTasks));
             } catch (DorisConnectorException e) {
                 throw e;
             } catch (Exception e) {
@@ -232,6 +247,15 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
             }
         }
         return groups.stream().map(IcebergProcedureOps::toConnectorRewriteGroup).collect(Collectors.toList());
+    }
+
+    private <T> T withCatalogLease(Supplier<T> operation) {
+        if (resourceTracker == null) {
+            return operation.get();
+        }
+        try (IcebergCatalogResourceTracker.TrackedResource<T> tracked = resourceTracker.load(operation)) {
+            return tracked.resource();
+        }
     }
 
     /**

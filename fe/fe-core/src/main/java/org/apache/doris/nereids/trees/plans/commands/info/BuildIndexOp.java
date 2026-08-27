@@ -31,6 +31,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
@@ -134,10 +135,18 @@ public class BuildIndexOp extends AlterTableOp {
         }
 
         IndexType indexType = existedIdx.getIndexType();
+        OlapTable olapTable = (OlapTable) table;
+        // A parsed inverted index normally needs no explicit build in cloud mode, because adding it
+        // is not a light change there and the resulting job already indexes every existing rowset.
+        // SNII backfills historical rowsets through the index-change flow instead, so its parsed
+        // indexes must reach that flow rather than being filtered out here.
+        boolean isSniiInvertedIndex = indexType == IndexType.INVERTED
+                && olapTable.getInvertedIndexFileStorageFormat() == TInvertedIndexFileStorageFormat.SNII;
         if ((Config.isNotCloudMode() && indexType == IndexType.NGRAM_BF)
                 || indexType == IndexType.BLOOMFILTER
                 || (Config.isCloudMode()
-                && indexType == IndexType.INVERTED & !existedIdx.isInvertedIndexParserNone())) {
+                && indexType == IndexType.INVERTED && !existedIdx.isInvertedIndexParserNone()
+                && !isSniiInvertedIndex)) {
             throw new AnalysisException(indexType + " index is not needed to build.");
         }
 

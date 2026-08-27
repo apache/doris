@@ -24,6 +24,7 @@
 
 #include <cstddef>
 #include <deque>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -45,6 +46,28 @@
 namespace doris::iceberg {
 
 namespace detail {
+
+inline bool parse_non_finite_default(doris::PrimitiveType type, std::string_view value,
+                                     Field* result) {
+    DORIS_CHECK(result != nullptr);
+    if (type != TYPE_FLOAT && type != TYPE_DOUBLE) {
+        return false;
+    }
+    double parsed;
+    if (value == "NaN") {
+        parsed = std::numeric_limits<double>::quiet_NaN();
+    } else if (value == "Infinity") {
+        parsed = std::numeric_limits<double>::infinity();
+    } else if (value == "-Infinity") {
+        parsed = -std::numeric_limits<double>::infinity();
+    } else {
+        return false;
+    }
+    // Iceberg serializes non-finite defaults as strings, which generic Doris numeric parsers reject.
+    *result = type == TYPE_FLOAT ? Field::create_field<TYPE_FLOAT>(static_cast<float>(parsed))
+                                 : Field::create_field<TYPE_DOUBLE>(parsed);
+    return true;
+}
 
 inline const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr& field_ptr) {
     if (!field_ptr.__isset.field_ptr || field_ptr.field_ptr == nullptr) {
@@ -135,7 +158,7 @@ inline std::string json_scalar_text(const rapidjson::Value& value) {
     return {buffer.GetString(), buffer.GetSize()};
 }
 
-inline void normalize_timestamp_for_doris(PrimitiveType primitive_type, std::string* value) {
+inline void normalize_timestamp_for_doris(doris::PrimitiveType primitive_type, std::string* value) {
     if (primitive_type != TYPE_DATETIME && primitive_type != TYPE_DATETIMEV2 &&
         primitive_type != TYPE_TIMESTAMPTZ) {
         return;
@@ -344,6 +367,9 @@ inline Status build_json_scalar_default(const schema::external::TField& field,
         return Status::OK();
     }
     normalize_timestamp_for_doris(primitive_type, &serialized_value);
+    if (parse_non_finite_default(primitive_type, serialized_value, result)) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(value_type->get_serde()->from_fe_string(serialized_value, *result));
     return Status::OK();
 }
@@ -422,6 +448,9 @@ inline Status build_initial_default_field(const schema::external::TField& field,
         return Status::OK();
     }
 
+    if (parse_non_finite_default(primitive_type, field.initial_default_value, result)) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(value_type->get_serde()->from_fe_string(field.initial_default_value, *result));
     return Status::OK();
 }

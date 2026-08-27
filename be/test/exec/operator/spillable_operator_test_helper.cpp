@@ -28,6 +28,7 @@
 #include <memory>
 #include <vector>
 
+#include "exec/operator/spill_counters.h"
 #include "io/fs/local_file_system.h"
 #include "testutil/creators.h"
 
@@ -42,26 +43,22 @@ void SpillableOperatorTestHelper::SetUp() {
 
     ADD_COUNTER_WITH_LEVEL(common_profile.get(), "MemoryUsage", TUnit::BYTES, 1);
     ADD_TIMER_WITH_LEVEL(common_profile.get(), "ExecTime", 1);
-    ADD_TIMER_WITH_LEVEL(custom_profile.get(), "SpillTotalTime", 1);
-    ADD_TIMER_WITH_LEVEL(custom_profile.get(), "SpillWriteTime", 1);
-    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteTaskWaitInQueueCount", TUnit::UNIT, 1);
-    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteTaskCount", TUnit::UNIT, 1);
-    ADD_TIMER_WITH_LEVEL(custom_profile.get(), "SpillWriteTaskWaitInQueueTime", 1);
-    ADD_TIMER_WITH_LEVEL(custom_profile.get(), "SpillWriteFileTime", 1);
-    ADD_TIMER_WITH_LEVEL(custom_profile.get(), "SpillWriteSerializeBlockTime", 1);
-    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteBlockCount", TUnit::UNIT, 1);
-    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteBlockBytes", TUnit::BYTES, 1);
-    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteFileBytes", TUnit::BYTES, 1);
-    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteRows", TUnit::UNIT, 1);
-    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadFileTime", TUnit::UNIT, 1);
-    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadDeserializeBlockTime", TUnit::UNIT, 1);
-    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadBlockCount", TUnit::UNIT, 1);
-    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadBlockBytes", TUnit::UNIT, 1);
-    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadFileBytes", TUnit::UNIT, 1);
-    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadRows", TUnit::UNIT, 1);
-    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadFileCount", TUnit::UNIT, 1);
-    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteFileTotalCount", TUnit::UNIT, 1);
-    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteFileCurrentBytes", TUnit::UNIT, 1);
+
+    // Reuse the production initializers so both the names and the TUnit of every spill
+    // counter match what SpillFileReader/SpillFileWriter expect. Registering a timer as
+    // TUnit::UNIT by hand trips the DCHECK inside ScopedTimer.
+    SpillWriteCounters write_counters;
+    write_counters.init(custom_profile.get());
+    SpillReadCounters read_counters;
+    read_counters.init(custom_profile.get());
+
+    // Source-only extras, see PipelineXSpillLocalState::init_spill_{write,read}_counters.
+    ADD_TIMER_WITH_LEVEL(custom_profile.get(), profile::SPILL_TOTAL_TIME, 1);
+    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), profile::SPILL_WRITE_FILE_BYTES, TUnit::BYTES, 1);
+    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), profile::SPILL_WRITE_FILE_TOTAL_COUNT, TUnit::UNIT,
+                           1);
+    ADD_COUNTER_WITH_LEVEL(custom_profile.get(), profile::SPILL_WRITE_FILE_CURRENT_BYTES,
+                           TUnit::BYTES, 1);
 
     operator_profile->add_child(custom_profile.get(), true);
     operator_profile->add_child(common_profile.get(), true);

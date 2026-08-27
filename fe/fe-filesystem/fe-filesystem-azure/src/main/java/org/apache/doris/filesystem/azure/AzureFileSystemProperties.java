@@ -21,6 +21,7 @@ import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
@@ -34,7 +35,6 @@ import org.apache.hadoop.conf.Configuration;
 import java.lang.reflect.Field;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -253,9 +253,10 @@ public final class AzureFileSystemProperties
     @Override
     public Map<String, String> toHadoopConfigurationMap() {
         Map<String, String> cfg = new HashMap<>();
-        for (String scheme : Arrays.asList("abfs", "abfss", "wasb", "wasbs")) {
-            cfg.put("fs." + scheme + ".impl.disable.cache", "true");
-        }
+        // No blanket ABFS/WASB cache disabling: the Doris-patched FileSystem keys its cache by the
+        // per-scheme credential fingerprint below, so different credentials never share an
+        // instance and merging this map with another storage's loses neither.
+        FsCacheKeys.putFsCacheKeys(cfg, this);
         rawProperties.forEach((key, value) -> {
             if (key.startsWith("fs.azure.")) {
                 cfg.put(key, value);
@@ -291,8 +292,9 @@ public final class AzureFileSystemProperties
      * how the {@code fs.azure.account.oauth2.*} keys reach the ABFS connector.
      *
      * <p>Ordering is load-bearing and mirrors the legacy sequence: hadoop defaults first, then the
-     * provider's own {@code fs.azure.*} view, then user {@code fs.*} passthrough (so an explicit
-     * user value wins), then cache-disable normalization last.
+     * provider's own {@code fs.azure.*} view (which carries the per-scheme cache fingerprint), then
+     * user {@code fs.*} passthrough (so an explicit user value wins), then cache-disable
+     * normalization last.
      *
      * <p>The plugin bundles hadoop, but {@code FileSystemPluginManager.FS_PARENT_FIRST_PREFIXES}
      * makes {@code org.apache.hadoop.} parent-first, so whenever the FE host ships hadoop this
@@ -313,9 +315,12 @@ public final class AzureFileSystemProperties
         for (String scheme : legacyCacheSchemes()) {
             String key = "fs." + scheme + ".impl.disable.cache";
             String userValue = rawProperties.get(key);
-            // An explicit user value wins but is normalized to true/false ("yes"/"1" would reach BE
-            // verbatim through the fs.* passthrough above otherwise).
-            conf.setBoolean(key, StringUtils.isNotBlank(userValue) ? BooleanUtils.toBoolean(userValue) : true);
+            // No blanket disable any more (the fingerprint in toHadoopConfigurationMap() isolates
+            // credentials instead); an explicit user value is still honored, normalized to
+            // true/false ("yes"/"1" would reach BE verbatim through the fs.* passthrough above).
+            if (StringUtils.isNotBlank(userValue)) {
+                conf.setBoolean(key, BooleanUtils.toBoolean(userValue));
+            }
         }
         Map<String, String> dump = new HashMap<>();
         conf.forEach(entry -> dump.put(entry.getKey(), entry.getValue()));

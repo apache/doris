@@ -37,6 +37,7 @@
 #include <memory>
 #include <mutex>
 #include <random>
+#include <ranges>
 #include <shared_mutex>
 #include <string>
 #include <type_traits>
@@ -54,8 +55,8 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/obj-client/obj_storage_client.h"
 #include "cpp/sync_point.h"
-#include "io/fs/obj_storage_client.h"
 #include "load/stream_load/stream_load_context.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
@@ -64,6 +65,7 @@
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_fwd.h"
+#include "storage/rowset/rowset_segment_id.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_meta.h"
 #include "util/client_cache.h"
@@ -155,11 +157,55 @@ Status bthread_fork_join(std::vector<std::function<Status()>>&& tasks, int concu
     return Status::OK();
 }
 
+// Resolve the status code returned by Meta Service (MS) for BE/FE clients of different version.
+// Assuming MS is always the latest version, it sends both the meta-service error code and a code that
+// older clients can decode:
+//
+//                              latest MS
+//                 +---------------------------------------+
+//                 | actual_code = meta-service error code |
+//                 | code        = compatible code         |
+//                 +----------------+----------------------+
+//                                  |
+//                    +-------------+-------------+
+//                    |                           |
+//           old BE/FE without              old BE/FE with
+//          the actual_code field         the actual_code field
+//                    |                           |
+//          ignores actual_code            local enum recognizes
+//          and reads code                 actual_code value?
+//                                         yes                  no
+//                                         |                     |
+//                                  use actual code      use code only when it
+//                                                       is explicit and non-OK
+//                                                                 |
+//                                                          otherwise return
+//                                                           UNDEFINED_ERR
+//
+// After MS adds an error code, an older actual_code-aware client may not have that enum value;
+// MetaServiceCode_IsValid detects this case. The non-OK fallback check is essential:
+// if MS ignore or incorrectly converts the compatible code to OK, an unknown error
+// must remain an error instead of becoming a false success.
 MetaServiceCode get_response_code(const MetaServiceResponseStatus& status) {
-    if (status.has_actual_code() && MetaServiceCode_IsValid(status.actual_code())) {
-        return static_cast<MetaServiceCode>(status.actual_code());
+    if (status.has_actual_code()) {
+        // Check whether this client build contains the code in its MetaServiceCode enum.
+        if (MetaServiceCode_IsValid(status.actual_code())) {
+            return static_cast<MetaServiceCode>(status.actual_code());
+        }
+        // An older client may use the compatible code, but unsupported cases must return an explicit error.
+        // Return the non-OK compatible code prepared by MS for older clients.
+        if (status.has_code() && status.code() != MetaServiceCode::OK) {
+            return status.code();
+        }
+        // Never return OK when the compatible code is absent or invalid.
+        return MetaServiceCode::UNDEFINED_ERR;
     }
-    return status.code();
+    // A legacy response has only code, so return its explicit value, including a real OK.
+    if (status.has_code()) {
+        return status.code();
+    }
+    // A response missing both fields is invalid and must be rejected.
+    return MetaServiceCode::UNDEFINED_ERR;
 }
 
 namespace {
@@ -824,9 +870,8 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             sync_stats->get_remote_rowsets_num += resp.rowset_meta().size();
         }
 
-        // If is mow, the tablet has no delete bitmap in base rowsets.
-        // So dont need to sync it.
-        if (options.sync_delete_bitmap && tablet->enable_unique_key_merge_on_write() &&
+        // MOW and row-binlog tablets need delete bitmap from meta-service.
+        if (options.sync_delete_bitmap && tablet->need_read_delete_bitmap() &&
             tablet->tablet_state() == TABLET_RUNNING) {
             DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.sync_tablet_delete_bitmap.block",
                             DBUG_BLOCK);
@@ -1265,20 +1310,25 @@ Status CloudMetaMgr::_check_delete_bitmap_v2_correctness(CloudTablet* tablet, Ge
     }
     int64_t tablet_id = tablet->tablet_id();
     int64_t new_max_version = std::max(old_max_version, resp.rowset_meta().rbegin()->end_version());
-    // rowset_id, num_segments
-    std::vector<std::pair<RowsetId, int64_t>> all_rowsets;
+    // rowset_id, segment_ids
+    std::vector<std::pair<RowsetId, std::vector<int64_t>>> all_rowsets;
     std::map<std::string, std::string> rowset_to_resource;
     for (const auto& rs_meta : resp.rowset_meta()) {
         RowsetId rowset_id;
         rowset_id.init(rs_meta.rowset_id_v2());
-        all_rowsets.emplace_back(std::make_pair(rowset_id, rs_meta.num_segments()));
+        all_rowsets.emplace_back(rowset_id, rowset_segment_ids(rs_meta));
         rowset_to_resource[rs_meta.rowset_id_v2()] = rs_meta.resource_id();
     }
     if (old_max_version > 0) {
         RowsetIdUnorderedSet all_rs_ids;
         RETURN_IF_ERROR(tablet->get_all_rs_id(old_max_version, &all_rs_ids));
         for (auto& rowset : tablet->get_rowset_by_ids(&all_rs_ids)) {
-            all_rowsets.emplace_back(std::make_pair(rowset->rowset_id(), rowset->num_segments()));
+            std::vector<int64_t> segment_ids;
+            segment_ids.reserve(rowset->num_segments());
+            for (auto seg : rowset->segments()) {
+                segment_ids.push_back(seg.id());
+            }
+            all_rowsets.emplace_back(std::make_pair(rowset->rowset_id(), std::move(segment_ids)));
             rowset_to_resource[rowset->rowset_id().to_string()] =
                     rowset->rowset_meta()->resource_id();
         }
@@ -1286,8 +1336,8 @@ Status CloudMetaMgr::_check_delete_bitmap_v2_correctness(CloudTablet* tablet, Ge
 
     auto compare_delete_bitmap = [&](DeleteBitmap* delete_bitmap, int version) {
         bool success = true;
-        for (auto& [rs_id, num_segments] : all_rowsets) {
-            for (int seg_id = 0; seg_id < num_segments; ++seg_id) {
+        for (auto& [rs_id, segment_ids] : all_rowsets) {
+            for (auto seg_id : segment_ids) {
                 DeleteBitmap::BitmapKey key = {rs_id, seg_id, new_max_version};
                 auto dm1 = tablet->tablet_meta()->delete_bitmap().get_agg(key);
                 auto dm2 = delete_bitmap->get_agg_without_cache(key);
@@ -1499,8 +1549,8 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, const std::string
     return st;
 }
 
-Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,
-                                   RowsetMetaSharedPtr* existed_rs_meta) {
+Status CloudMetaMgr::do_commit_rowset(RowsetMeta& rs_meta, const std::string& job_id,
+                                      int64_t table_id, RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
     {
@@ -1553,6 +1603,26 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
     return st;
 }
 
+Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,
+                                   RowsetMetaSharedPtr* existed_rs_meta,
+                                   RowsetMeta* attach_row_binlog,
+                                   RowsetMetaSharedPtr* existed_attach_row_binlog) {
+    if (attach_row_binlog == nullptr) {
+        return do_commit_rowset(rs_meta, job_id, table_id, existed_rs_meta);
+    }
+
+    VLOG_DEBUG << "commit rowset with row binlog, tablet_id: " << rs_meta.tablet_id()
+               << ", rowset_id: " << rs_meta.rowset_id()
+               << ", attach_row_binlog_tablet_id: " << attach_row_binlog->tablet_id()
+               << ", attach_row_binlog_rowset_id: " << attach_row_binlog->rowset_id()
+               << " txn_id: " << rs_meta.txn_id();
+    Status st = do_commit_rowset(*attach_row_binlog, job_id, table_id, existed_attach_row_binlog);
+    if (!st.ok() && !st.is<ALREADY_EXIST>()) {
+        return st;
+    }
+    return do_commit_rowset(rs_meta, job_id, table_id, existed_rs_meta);
+}
+
 void CloudMetaMgr::cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t expiration_time) {
     // For load-generated rowsets (job_id is empty), add to pending rowset manager
     // so FE can notify BE to promote them later
@@ -1564,7 +1634,7 @@ void CloudMetaMgr::cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t e
             txn_id, tablet_id, std::move(rs_meta), expiration_time);
 }
 
-Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id) {
+Status CloudMetaMgr::do_update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id) {
     VLOG_DEBUG << "update committed rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id();
     CreateRowsetRequest req;
@@ -1589,6 +1659,22 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_
         return Status::InternalError("failed to update committed rowset: {}", resp.status().msg());
     }
     return st;
+}
+
+Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id,
+                                       const RowsetMeta* attach_row_binlog) {
+    if (attach_row_binlog == nullptr) {
+        return do_update_tmp_rowset(rs_meta, table_id);
+    }
+
+    VLOG_DEBUG << "update committed rowset with row binlog, tablet_id: " << rs_meta.tablet_id()
+               << ", rowset_id: " << rs_meta.rowset_id()
+               << ", attach_row_binlog_tablet_id: " << attach_row_binlog->tablet_id()
+               << ", attach_row_binlog_rowset_id: " << attach_row_binlog->rowset_id();
+    DCHECK_EQ(rs_meta.tablet_schema()->num_variant_columns(),
+              attach_row_binlog->tablet_schema()->num_variant_columns());
+    RETURN_IF_ERROR(do_update_tmp_rowset(*attach_row_binlog, table_id));
+    return do_update_tmp_rowset(rs_meta, table_id);
 }
 
 // async send TableStats(in res) to FE coz we are in streamload ctx, response to the user ASAP
@@ -2307,9 +2393,9 @@ int64_t CloudMetaMgr::get_segment_file_size(RowsetMeta& rs_meta) {
     if (!fs) {
         LOG(WARNING) << "get fs failed, resource_id={}" << rs_meta.resource_id();
     }
-    for (int64_t seg_id = 0; seg_id < rs_meta.num_segments(); seg_id++) {
+    for (auto seg : rs_meta.segments()) {
         std::string segment_path = StorageResource().remote_segment_path(
-                rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg_id);
+                rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg.id());
         int64_t segment_file_size = 0;
         auto st = fs->file_size(segment_path, &segment_file_size);
         if (!st.ok()) {
@@ -2338,9 +2424,9 @@ int64_t CloudMetaMgr::get_inverted_index_file_size(RowsetMeta& rs_meta) {
         InvertedIndexStorageFormatPB::V1) {
         const auto& indices = rs_meta.tablet_schema()->inverted_indexes();
         for (auto& index : indices) {
-            for (int seg_id = 0; seg_id < rs_meta.num_segments(); ++seg_id) {
+            for (auto seg : rs_meta.segments()) {
                 std::string segment_path = StorageResource().remote_segment_path(
-                        rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg_id);
+                        rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg.id());
                 int64_t file_size = 0;
 
                 std::string inverted_index_file_path =
@@ -2366,10 +2452,10 @@ int64_t CloudMetaMgr::get_inverted_index_file_size(RowsetMeta& rs_meta) {
             }
         }
     } else {
-        for (int seg_id = 0; seg_id < rs_meta.num_segments(); ++seg_id) {
+        for (auto seg : rs_meta.segments()) {
             int64_t file_size = 0;
             std::string segment_path = StorageResource().remote_segment_path(
-                    rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg_id);
+                    rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg.id());
 
             std::string inverted_index_file_path = InvertedIndexDescriptor::get_index_file_path_v2(
                     InvertedIndexDescriptor::get_index_file_path_prefix(segment_path));

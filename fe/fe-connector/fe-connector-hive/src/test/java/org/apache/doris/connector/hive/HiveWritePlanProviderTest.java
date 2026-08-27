@@ -106,7 +106,7 @@ public class HiveWritePlanProviderTest {
     }
 
     private HiveWritePlanProvider providerFor(RecordingHmsClient client, RecordingConnectorContext ctx) {
-        return new HiveWritePlanProvider(client, Collections.emptyMap(), ctx);
+        return new HiveWritePlanProvider(client, HiveTestProperties.minimal(), ctx);
     }
 
     private WriteSession sessionFor(RecordingHmsClient client, RecordingConnectorContext ctx,
@@ -327,6 +327,17 @@ public class HiveWritePlanProviderTest {
 
         Assertions.assertEquals(Collections.singletonList("c1"), sink.getBucketInfo().getBucketedBy());
         Assertions.assertEquals(8, sink.getBucketInfo().getBucketCount());
+    }
+
+    @Test
+    public void planWriteAdvertisesDeferredAzureMultipartProtocol() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = tableBuilder().build();
+
+        THiveTableSink sink = planSink(client, new RecordingConnectorContext(), handle());
+
+        Assertions.assertTrue(sink.isSetSupportsDeferredAzureMultipart());
+        Assertions.assertTrue(sink.isSupportsDeferredAzureMultipart());
     }
 
     // ───────────────────────────── file format ─────────────────────────────

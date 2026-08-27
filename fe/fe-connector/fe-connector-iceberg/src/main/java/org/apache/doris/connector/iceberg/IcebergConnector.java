@@ -18,12 +18,13 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
-import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
+import org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStoreProperties;
+import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
+import org.apache.doris.connector.metastore.spi.AbstractHmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorCapability;
-import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
@@ -39,6 +40,8 @@ import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
+import org.apache.doris.kerberos.AuthType;
+import org.apache.doris.kerberos.AuthenticationConfig;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.kerberos.KerberosAuthSpec;
 import org.apache.doris.kerberos.KerberosAuthenticationConfig;
@@ -48,12 +51,16 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.BaseViewSessionCatalog;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.SessionCatalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.hive.HiveCatalog;
+import org.apache.iceberg.hive.HiveHadoopUtil;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.SupportsStorageCredentials;
 import org.apache.iceberg.rest.RESTCatalog;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.util.ThreadPools;
@@ -74,6 +81,7 @@ import software.amazon.s3tables.iceberg.S3TablesProperties;
 import software.amazon.s3tables.iceberg.imports.HttpClientProperties;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
@@ -87,6 +95,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -114,6 +123,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class IcebergConnector implements Connector {
 
     private static final Logger LOG = LogManager.getLogger(IcebergConnector.class);
+    // Direct statement scopes and the cross-query cache share this ownership lookup. Weak keys avoid retaining
+    // tables loaded by callers that never install a Doris cleanup owner.
+    private static final Map<Table, FileIO> REST_TABLE_CATALOG_FILE_IO =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     /**
      * Caches {@link ClassLoader}s keyed by resolved driver URL so a given JDBC driver jar is loaded at
@@ -132,7 +145,16 @@ public class IcebergConnector implements Connector {
     // T08 latest-snapshot cache knobs (mirror PaimonConnector). The TTL pins a STABLE snapshot across queries;
     // <= 0 means "no-cache catalog" (always live). Defaults mirror the legacy iceberg table cache
     // (Config.external_cache_expire_time_seconds_after_access = 24h, Config.max_external_table_cache_num).
+    // The six meta-cache key names live here, next to the caches they configure: this class builds every
+    // one of them, and the other readers (the CREATE-time validation on IcebergCatalogProperties, the
+    // manifest-cache derivation in IcebergCatalogFactory, the manifest gate in IcebergScanPlanProvider)
+    // are all in this package. They used to be spelled out in two places each.
+    static final String TABLE_CACHE_ENABLE = "meta.cache.iceberg.table.enable";
     static final String TABLE_CACHE_TTL_SECOND = "meta.cache.iceberg.table.ttl-second";
+    static final String TABLE_CACHE_CAPACITY = "meta.cache.iceberg.table.capacity";
+    static final String MANIFEST_CACHE_ENABLE = "meta.cache.iceberg.manifest.enable";
+    static final String MANIFEST_CACHE_TTL_SECOND = "meta.cache.iceberg.manifest.ttl-second";
+    static final String MANIFEST_CACHE_CAPACITY = "meta.cache.iceberg.manifest.capacity";
     static final long DEFAULT_TABLE_CACHE_TTL_SECOND = 86400L;
     static final int DEFAULT_TABLE_CACHE_CAPACITY = 1000;
 
@@ -151,8 +173,17 @@ public class IcebergConnector implements Connector {
     private static final String BE_TEST_LOCATION = "test_location";
 
     private final Map<String, String> properties;
+    // The bound connector-level facts (flavor, type-mapping switches, namespace level), the single
+    // reader of those keys. Also handed to the metadata / scan / write providers, so all four agree.
+    private final IcebergCatalogProperties catalogProps;
+    // The bound iceberg.rest.* facts, the single reader of those keys on this side. Bound for EVERY flavor:
+    // of() only binds (it never validates, that is the provider's CREATE-time job), and the two listing flags
+    // it carries are read unconditionally below -- IcebergCatalogOps gates them on restFlavor instead, so a
+    // non-REST catalog reads the same defaults it read from the raw map before.
+    private final IcebergRestMetaStoreProperties restProperties;
     private final ConnectorContext context;
     private volatile Catalog icebergCatalog;
+    private boolean closed;
     // Session-aware REST catalog, built for every REST catalog (plain or iceberg.rest.session=user). A SINGLE
     // shared instance, held as the ReauthenticatingRestSessionCatalog wrapper (BaseViewSessionCatalog) that
     // recovers from a 401 on the catalog's own identity by rebuilding the client (upstream #64966). For
@@ -172,6 +203,7 @@ public class IcebergConnector implements Connector {
     // per-user resolveTable). If you ADD a cross-query cache here or in IcebergConnectorMetadata, it MUST be
     // null under session=user and covered by IcebergConnectorCacheTest (which asserts exactly that at runtime).
     private final IcebergLatestSnapshotCache latestSnapshotCache; // null under session=user
+    private final IcebergCatalogResourceTracker catalogResourceTracker = new IcebergCatalogResourceTracker();
     // PERF-01: cross-query cache of the RAW iceberg Table (restores the legacy IcebergExternalMetaCache table
     // cache that the SPI cutover dropped). null when the catalog's credentials are query-dependent
     // (iceberg.rest.session=user / REST vended-credentials) — see the constructor. The per-statement scope
@@ -215,6 +247,9 @@ public class IcebergConnector implements Connector {
 
     public IcebergConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = Collections.unmodifiableMap(properties);
+        // Both before isUserSessionEnabled(), which the cache fields below gate on.
+        this.catalogProps = IcebergCatalogProperties.of(this.properties);
+        this.restProperties = IcebergRestMetaStoreProperties.of(this.properties);
         // Pin the thread-context classloader to the plugin loader for the duration of every
         // executeAuthenticated call (see TcclPinningConnectorContext). The injected context is fanned out to
         // the metadata / transaction / procedure ops below; wrapping it once here is what extends the
@@ -249,7 +284,8 @@ public class IcebergConnector implements Connector {
                 || IcebergScanPlanProvider.restVendedCredentialsEnabled(this.properties))
                 ? null
                 : new IcebergTableCache(
-                        resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+                        resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY,
+                        this::cachedTableCleanup, catalogResourceTracker);
         // PERF-02: partition-view cache. Authorization-sensitive projection: a shared (table+snapshot-keyed, no
         // user dimension) hit would disclose one user's partition list. Its readers are all downstream of a
         // per-user resolveTableForRead today (so a hit cannot precede authz), but that safety rests entirely on
@@ -310,9 +346,9 @@ public class IcebergConnector implements Connector {
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new IcebergConnectorMetadata(newCatalogBackedOps(session), properties, context,
+        return new IcebergConnectorMetadata(newCatalogBackedOps(session), catalogProps, context,
                 latestSnapshotCache, tableCache, partitionCache, commentCache,
-                mvccPartitionViewCache, listPartitionsViewCache);
+                mvccPartitionViewCache, listPartitionsViewCache, catalogResourceTracker);
     }
 
     /**
@@ -339,7 +375,7 @@ public class IcebergConnector implements Connector {
     @Override
     public ConnectorTestResult testConnection(ConnectorSession session) {
         String catalogType = properties.getOrDefault(
-                IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, "");
+                IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, "");
 
         // -- Metastore probe (REST, HMS, Glue, S3Tables) --
         // Listing databases forces a real round-trip that validates the URI, auth and warehouse config.
@@ -464,11 +500,11 @@ public class IcebergConnector implements Connector {
      * (Iceberg {@code warehouse} or Polaris {@code default-base-location}).
      */
     private String resolveS3TestLocation(String catalogType) {
-        String location = toS3Location(properties.get(IcebergConnectorProperties.WAREHOUSE));
+        String location = toS3Location(properties.get(CatalogProperties.WAREHOUSE_LOCATION));
         if (location != null) {
             return location;
         }
-        if (IcebergConnectorProperties.TYPE_REST.equalsIgnoreCase(catalogType)) {
+        if (IcebergCatalogProperties.TYPE_REST.equalsIgnoreCase(catalogType)) {
             Catalog catalog = getOrCreateCatalog();
             // The server-merged config (Iceberg warehouse / Polaris default-base-location) lives on the REST
             // session catalog we now hold (the wrapped RESTSessionCatalog; its properties() delegates to the raw
@@ -502,10 +538,10 @@ public class IcebergConnector implements Connector {
      * their "metastore" is the warehouse itself, which the storage probe below covers.
      */
     static boolean probesMetastore(String catalogType) {
-        return IcebergConnectorProperties.TYPE_REST.equalsIgnoreCase(catalogType)
-                || IcebergConnectorProperties.TYPE_HMS.equalsIgnoreCase(catalogType)
-                || IcebergConnectorProperties.TYPE_GLUE.equalsIgnoreCase(catalogType)
-                || IcebergConnectorProperties.TYPE_S3_TABLES.equalsIgnoreCase(catalogType);
+        return IcebergCatalogProperties.TYPE_REST.equalsIgnoreCase(catalogType)
+                || IcebergCatalogProperties.TYPE_HMS.equalsIgnoreCase(catalogType)
+                || IcebergCatalogProperties.TYPE_GLUE.equalsIgnoreCase(catalogType)
+                || IcebergCatalogProperties.TYPE_S3_TABLES.equalsIgnoreCase(catalogType);
     }
 
     static String metaFailureMessage(String catalogType, Throwable cause) {
@@ -563,14 +599,12 @@ public class IcebergConnector implements Connector {
      * catalogs resolve to the wrong namespace.
      */
     private IcebergCatalogOps newCatalogBackedOps() {
-        String flavor = IcebergCatalogFactory.resolveFlavor(properties);
-        boolean restFlavor = IcebergConnectorProperties.TYPE_REST.equals(flavor);
-        boolean nestedNamespaceEnabled = Boolean.parseBoolean(properties.getOrDefault(
-                IcebergConnectorProperties.REST_NESTED_NAMESPACE_ENABLED, "false"));
-        boolean viewEnabled = Boolean.parseBoolean(properties.getOrDefault(
-                IcebergConnectorProperties.REST_VIEW_ENABLED, "true"));
+        String flavor = catalogProps.getFlavor();
+        boolean restFlavor = IcebergCatalogProperties.TYPE_REST.equals(flavor);
+        boolean nestedNamespaceEnabled = restProperties.isNestedNamespaceEnabled();
+        boolean viewEnabled = restProperties.isViewEnabled();
         Optional<String> externalCatalogName =
-                Optional.ofNullable(properties.get(IcebergConnectorProperties.EXTERNAL_CATALOG_NAME));
+                catalogProps.getExternalCatalogName();
         Catalog sharedCatalog = getOrCreateCatalog();
         // Plain REST now holds the bare (wrapped) RESTSessionCatalog: its asCatalog(empty) is a Catalog +
         // SupportsNamespaces but NOT a ViewCatalog, so inject the view facet asViewCatalog(empty) explicitly (what
@@ -580,10 +614,10 @@ public class IcebergConnector implements Connector {
         if (sc != null && !isUserSessionEnabled()) {
             ViewCatalog sharedViewCatalog = sc.asViewCatalog(SessionCatalog.SessionContext.createEmpty());
             return new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(sharedCatalog, sharedViewCatalog,
-                    restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName);
+                    restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName, this::cachedTableCleanup);
         }
         return new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(sharedCatalog,
-                restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName);
+                restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName, this::cachedTableCleanup);
     }
 
     /**
@@ -602,15 +636,13 @@ public class IcebergConnector implements Connector {
         IcebergSessionCatalogAdapter adapter = sessionCatalogAdapter;
         Catalog perUserCatalog = adapter.delegatedCatalog(session);
         ViewCatalog perUserViewCatalog = adapter.delegatedViewCatalog(session);
-        boolean nestedNamespaceEnabled = Boolean.parseBoolean(properties.getOrDefault(
-                IcebergConnectorProperties.REST_NESTED_NAMESPACE_ENABLED, "false"));
-        boolean viewEnabled = Boolean.parseBoolean(properties.getOrDefault(
-                IcebergConnectorProperties.REST_VIEW_ENABLED, "true"));
+        boolean nestedNamespaceEnabled = restProperties.isNestedNamespaceEnabled();
+        boolean viewEnabled = restProperties.isViewEnabled();
         Optional<String> externalCatalogName =
-                Optional.ofNullable(properties.get(IcebergConnectorProperties.EXTERNAL_CATALOG_NAME));
+                catalogProps.getExternalCatalogName();
         // restFlavor is unconditionally true here (isUserSessionEnabled() ⇒ a REST catalog).
         return new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(perUserCatalog, perUserViewCatalog,
-                true, nestedNamespaceEnabled, viewEnabled, externalCatalogName);
+                true, nestedNamespaceEnabled, viewEnabled, externalCatalogName, this::cachedTableCleanup);
     }
 
     /**
@@ -782,9 +814,9 @@ public class IcebergConnector implements Connector {
         // external_catalog.name (REST 3-level catalogs), so it must share getMetadata's fully-threaded ops
         // (newCatalogBackedOps) — the listing-only flags (nested-namespace / view) are inert on this path but
         // threaded for parity with the legacy single per-catalog IcebergMetadataOps.
-        return new IcebergScanPlanProvider(properties,
+        return new IcebergScanPlanProvider(catalogProps,
                 this::newCatalogBackedOps, context, manifestCache,
-                tableCache, formatCache);
+                tableCache, formatCache, catalogResourceTracker);
     }
 
     @Override
@@ -793,8 +825,8 @@ public class IcebergConnector implements Connector {
         // provider builds the TIcebergTableSink and binds the write to the executor-opened
         // IcebergConnectorTransaction. It resolves the target via catalogOps.loadTable, so it shares the
         // fully-threaded ops (newCatalogBackedOps) — external_catalog.name must apply to INSERT/DELETE/MERGE.
-        return new IcebergWritePlanProvider(properties,
-                this::newCatalogBackedOps, context);
+        return new IcebergWritePlanProvider(catalogProps,
+                this::newCatalogBackedOps, context, catalogResourceTracker);
     }
 
     @Override
@@ -804,7 +836,7 @@ public class IcebergConnector implements Connector {
         // via catalogOps.loadTable, so it shares the fully-threaded ops (newCatalogBackedOps) —
         // external_catalog.name must apply to ALTER TABLE ... EXECUTE on REST 3-level catalogs.
         return new IcebergProcedureOps(properties,
-                this::newCatalogBackedOps, context);
+                this::newCatalogBackedOps, context, catalogResourceTracker);
     }
 
     /**
@@ -874,66 +906,151 @@ public class IcebergConnector implements Connector {
      * that {@code session=user} implies {@code security.type=oauth2}.
      */
     boolean isUserSessionEnabled() {
-        return IcebergConnectorProperties.SESSION_USER.equalsIgnoreCase(
-                        properties.get(IcebergConnectorProperties.REST_SESSION))
-                && IcebergConnectorProperties.TYPE_REST.equals(IcebergCatalogFactory.resolveFlavor(properties));
+        return restProperties.isUserSession()
+                && IcebergCatalogProperties.TYPE_REST.equals(catalogProps.getFlavor());
     }
 
-    private Catalog getOrCreateCatalog() {
-        if (icebergCatalog == null) {
-            synchronized (this) {
-                if (icebergCatalog == null) {
-                    icebergCatalog = createCatalog();
-                }
+    /**
+     * Closes a table's FileIO when the cached raw table owns it. Glue and S3Tables create a per-table
+     * S3FileIO; REST tables are closed only when they do not share the catalog-level FileIO. Other catalog
+     * flavors are left untouched because they may share a catalog-level FileIO.
+     */
+    private Runnable cachedTableCleanup(Table table) {
+        return cachedTableCleanup(table, catalogProps.getFlavor(), restSessionCatalog);
+    }
+
+    static Runnable cachedTableCleanup(Table table, String flavor) {
+        return cachedTableCleanup(table, flavor, null);
+    }
+
+    private static Runnable cachedTableCleanup(Table table, String flavor, Object catalog) {
+        if (table == null) {
+            return () -> { };
+        }
+        boolean tableOwned = false;
+        try {
+            if (IcebergCatalogProperties.TYPE_GLUE.equals(flavor)
+                    || IcebergCatalogProperties.TYPE_S3_TABLES.equals(flavor)) {
+                tableOwned = true;
+            } else if (IcebergCatalogProperties.TYPE_REST.equals(flavor)) {
+                FileIO producingCatalogFileIo = takeRestTableCatalogFileIo(table);
+                FileIO catalogFileIO = producingCatalogFileIo != null
+                        ? producingCatalogFileIo : restCatalogFileIO(catalog);
+                tableOwned = catalogFileIO != null
+                        ? shouldCloseTableFileIO(flavor, table.io(), catalogFileIO)
+                        : table.io() instanceof SupportsStorageCredentials
+                                && !((SupportsStorageCredentials) table.io()).credentials().isEmpty();
             }
+        } catch (Exception e) {
+            LOG.warn("Failed to determine Iceberg table FileIO ownership", e);
+        }
+        if (!tableOwned) {
+            return () -> { };
+        }
+        FileIO tableFileIO = table.io();
+        return () -> {
+            try {
+                tableFileIO.close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close Iceberg table FileIO", e);
+            }
+        };
+    }
+
+    static boolean shouldCloseTableFileIO(String flavor, FileIO tableFileIO, FileIO catalogFileIO) {
+        if (IcebergCatalogProperties.TYPE_GLUE.equals(flavor)
+                || IcebergCatalogProperties.TYPE_S3_TABLES.equals(flavor)) {
+            return true;
+        }
+        return IcebergCatalogProperties.TYPE_REST.equals(flavor)
+                && catalogFileIO != null && tableFileIO != catalogFileIO;
+    }
+
+    static void recordRestTableCatalogFileIo(Table table, FileIO fileIo) {
+        REST_TABLE_CATALOG_FILE_IO.put(table, fileIo);
+    }
+
+    static FileIO takeRestTableCatalogFileIo(Table table) {
+        return REST_TABLE_CATALOG_FILE_IO.remove(table);
+    }
+
+    static FileIO restCatalogFileIO(Object catalog) {
+        Object current = catalog;
+        try {
+            if (current instanceof ReauthenticatingRestSessionCatalog) {
+                current = ((ReauthenticatingRestSessionCatalog) current).currentDelegate();
+            }
+            if (current instanceof RESTCatalog) {
+                Field sessionCatalogField = RESTCatalog.class.getDeclaredField("sessionCatalog");
+                sessionCatalogField.setAccessible(true);
+                current = sessionCatalogField.get(current);
+            }
+            if (current instanceof RESTSessionCatalog) {
+                Field ioField = RESTSessionCatalog.class.getDeclaredField("io");
+                ioField.setAccessible(true);
+                return (FileIO) ioField.get(current);
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to identify REST catalog FileIO; skip per-table close to protect shared IO", e);
+        }
+        return null;
+    }
+
+    private synchronized Catalog getOrCreateCatalog() {
+        if (closed) {
+            throw new IllegalStateException("Iceberg connector is already closed");
+        }
+        if (icebergCatalog == null) {
+            icebergCatalog = createCatalog();
         }
         return icebergCatalog;
     }
 
     private Catalog createCatalog() {
-        String flavor = IcebergCatalogFactory.resolveFlavor(properties);
+        String flavor = catalogProps.getFlavor();
         if (flavor == null) {
             throw new DorisConnectorException(
-                    "Missing '" + IcebergConnectorProperties.ICEBERG_CATALOG_TYPE + "' property");
+                    "Missing '" + IcebergCatalogProperties.ICEBERG_CATALOG_TYPE + "' property");
         }
 
         Optional<S3CompatibleFileSystemProperties> chosenS3 =
                 IcebergCatalogFactory.chooseS3Compatible(storage().getStorageProperties());
-        String catalogName = IcebergCatalogFactory.resolveCatalogName(properties, flavor, context.getCatalogName());
+        String catalogName = IcebergCatalogFactory.resolveCatalogName(catalogProps, context.getCatalogName());
 
         // s3tables is bespoke: it is NOT built via CatalogUtil.buildIcebergCatalog. Legacy
         // IcebergS3TablesMetaStoreProperties hand-builds an S3TablesClient and calls the 3-arg
         // S3TablesCatalog.initialize(name, opts, client). Routed before the CatalogUtil flavor switch.
-        if (IcebergConnectorProperties.TYPE_S3_TABLES.equals(flavor)) {
+        if (IcebergCatalogProperties.TYPE_S3_TABLES.equals(flavor)) {
             return createS3TablesCatalog(catalogName, chosenS3);
         }
 
-        Map<String, String> catalogProps =
-                IcebergCatalogFactory.buildCatalogProperties(properties, flavor, chosenS3);
+        Map<String, String> catalogOptions =
+                IcebergCatalogFactory.buildCatalogProperties(catalogProps, chosenS3);
         Map<String, String> storageHadoopConfig = buildStorageHadoopConfig();
 
         Configuration conf;
         switch (flavor) {
-            case IcebergConnectorProperties.TYPE_HMS: {
+            case IcebergCatalogProperties.TYPE_HMS: {
                 // Reuse the shared metastore-spi parser (Q2=B bindForType): iceberg passes its own flavor token
                 // so the metastore-spi never learns iceberg.catalog.type. Only toHiveConfOverrides is used
                 // (iceberg HMS does NOT call paimon's validate(); it does not require a warehouse). The external
                 // hive.conf.resources hive-site.xml is resolved by the connector itself (addConfResources).
-                HmsMetaStoreProperties hms = (HmsMetaStoreProperties) MetaStoreProviders.bindForType(
-                        IcebergConnectorProperties.TYPE_HMS, properties, storageHadoopConfig);
+                AbstractHmsMetaStoreProperties hms = (AbstractHmsMetaStoreProperties) MetaStoreProviders
+                        .bindForType(IcebergCatalogProperties.TYPE_HMS, properties, storageHadoopConfig);
                 conf = IcebergCatalogFactory.assembleHiveConf(
-                        IcebergCatalogFactory.firstNonBlank(properties, "hive.conf.resources"),
-                        hms.toHiveConfOverrides(ConnectorConf.get(context,
-                                IcebergConnectorProperties.CONF_METASTORE_CLIENT_TIMEOUT_SECOND,
-                                IcebergConnectorProperties.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND,
-                                IcebergConnectorProperties.DEFAULT_METASTORE_CLIENT_TIMEOUT_SECOND)));
+                        hms.getConfResources(),
+                        hms.toHiveConfOverrides(IcebergConf.metastoreClientTimeoutSecond(context)));
+                // The SDK cache is JVM-static and URI-only by default. Use configuration-derived identities
+                // instead of the current UGI so catalog/FileIO construction can stay under the storage user.
+                catalogOptions.put("client-pool-cache-keys", appendHmsCacheKeys(
+                        catalogOptions.get("client-pool-cache-keys")));
                 break;
             }
-            case IcebergConnectorProperties.TYPE_GLUE:
+            case IcebergCatalogProperties.TYPE_GLUE:
                 // Legacy IcebergGlueMetaStoreProperties builds the catalog with conf=null.
                 conf = null;
                 break;
-            case IcebergConnectorProperties.TYPE_JDBC:
+            case IcebergCatalogProperties.TYPE_JDBC:
                 maybeRegisterJdbcDriver();
                 conf = IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
                 break;
@@ -949,14 +1066,52 @@ public class IcebergConnector implements Connector {
         // is asCatalog(empty), identical to what a RESTCatalog exposes; wrapping it recovers a catalog-identity
         // token expiry (#64966), and for session=user the shared session catalog + adapter also drive per-request
         // asCatalog(ctx)/asViewCatalog(ctx) delegated-credential routing (#63068).
-        if (IcebergConnectorProperties.TYPE_REST.equals(flavor)) {
-            return buildRestSessionCatalogDefault(catalogName, catalogProps, conf);
+        if (IcebergCatalogProperties.TYPE_REST.equals(flavor)) {
+            return buildRestSessionCatalogDefault(catalogName, catalogOptions, conf);
         }
 
         LOG.info("Creating Iceberg catalog '{}' flavor='{}' impl='{}'",
-                catalogName, flavor, catalogProps.get(CatalogProperties.CATALOG_IMPL));
-        return buildCatalogAuthenticated(flavor,
-                () -> CatalogUtil.buildIcebergCatalog(catalogName, catalogProps, conf));
+                catalogName, flavor, catalogOptions.get(CatalogProperties.CATALOG_IMPL));
+        return buildCatalogAuthenticated(flavor, () -> {
+            if (!IcebergCatalogProperties.TYPE_HMS.equals(flavor)) {
+                return CatalogUtil.buildIcebergCatalog(catalogName, catalogOptions, conf);
+            }
+            HadoopAuthenticator hmsAuth = buildHmsAuthenticator(properties, storageHadoopConfig);
+            applyHmsTableOwner(catalogOptions, hmsAuth);
+            Catalog catalog = CatalogUtil.buildIcebergCatalog(catalogName, catalogOptions, conf);
+            return IcebergHmsClientPool.install(catalog, hmsAuth);
+        });
+    }
+
+    static String appendHmsCacheKeys(String existing) {
+        String keys = appendCacheKey(existing, "conf:hadoop.username");
+        keys = appendCacheKey(keys, "conf:hive.metastore.client.principal");
+        keys = appendCacheKey(keys, "conf:hive.metastore.kerberos.principal");
+        keys = appendCacheKey(keys, "conf:hadoop.kerberos.principal");
+        // Both settings are captured by the JVM-static SDK pool and must distinguish ALTER CATALOG generations.
+        return appendCacheKey(keys, "conf:hive.metastore.sasl.enabled");
+    }
+
+    static String appendCacheKey(String existing, String required) {
+        if (StringUtils.isBlank(existing)) {
+            return required;
+        }
+        for (String element : existing.split(",")) {
+            if (sameCacheKey(required, element.trim())) {
+                return existing;
+            }
+        }
+        return existing + "," + required;
+    }
+
+    private static boolean sameCacheKey(String required, String existing) {
+        String prefix = "conf:";
+        if (required.regionMatches(true, 0, prefix, 0, prefix.length())
+                && existing.regionMatches(true, 0, prefix, 0, prefix.length())) {
+            // Iceberg accepts a case-insensitive marker, but Configuration property names remain case-sensitive.
+            return required.substring(prefix.length()).equals(existing.substring(prefix.length()));
+        }
+        return required.equalsIgnoreCase(existing);
     }
 
     /**
@@ -970,34 +1125,38 @@ public class IcebergConnector implements Connector {
      * Memoizes {@link #restSessionCatalog} (always) and {@link #sessionCatalogAdapter} (session=user only) as a
      * side effect. The optional {@code iceberg.rest.session-timeout} maps to the iceberg AuthSession timeout.
      */
-    private Catalog buildRestSessionCatalogDefault(String catalogName, Map<String, String> catalogProps,
+    private Catalog buildRestSessionCatalogDefault(String catalogName, Map<String, String> catalogOptions,
             Configuration conf) {
-        Map<String, String> sessionProps = new HashMap<>(catalogProps);
+        Map<String, String> sessionProps = new HashMap<>(catalogOptions);
         // Built directly via new RESTSessionCatalog(), so the CatalogUtil catalog-impl key is neither needed nor
         // valid here; drop it.
         sessionProps.remove(CatalogProperties.CATALOG_IMPL);
-        String sessionTimeout = properties.get(IcebergConnectorProperties.REST_SESSION_TIMEOUT);
+        String sessionTimeout = restProperties.getSessionTimeout();
         if (StringUtils.isNotBlank(sessionTimeout)) {
             sessionProps.put(CatalogProperties.AUTH_SESSION_TIMEOUT_MS, sessionTimeout);
         }
         boolean userSession = isUserSessionEnabled();
         IcebergSessionCatalogAdapter.DelegatedTokenMode tokenMode =
-                IcebergSessionCatalogAdapter.DelegatedTokenMode.fromString(properties.getOrDefault(
-                        IcebergConnectorProperties.REST_DELEGATED_TOKEN_MODE,
-                        IcebergConnectorProperties.DELEGATED_TOKEN_MODE_ACCESS_TOKEN));
+                IcebergSessionCatalogAdapter.DelegatedTokenMode.fromString(
+                        restProperties.getDelegatedTokenMode());
         // Frozen catalog-identity properties for the 401-recovery rebuild: an unmodifiable copy so the rebuild
         // always re-resolves from the catalog's OWN credential and can never capture a per-user delegated token.
         Map<String, String> frozenProps = Collections.unmodifiableMap(new HashMap<>(sessionProps));
         LOG.info("Creating Iceberg REST catalog '{}' (userSession={}, delegated-token-mode={})",
                 catalogName, userSession, tokenMode);
-        return buildCatalogAuthenticated(IcebergConnectorProperties.TYPE_REST, () -> {
+        return buildCatalogAuthenticated(IcebergCatalogProperties.TYPE_REST, () -> {
             RESTSessionCatalog rawSessionCatalog = newRestSessionCatalog(catalogName, sessionProps, conf);
             // Wrap so a 401 on the catalog's own identity rebuilds the client and retries once. The wrapper is a
             // thin BaseViewSessionCatalog: asCatalog(empty)/asViewCatalog(empty) and the per-user asCatalog(ctx)
             // all call back into it, so every path inherits recovery; per-user requests are excluded by the
             // wrapper's own request-level gate (a request carrying a delegated credential is never recovered).
             ReauthenticatingRestSessionCatalog sessionCatalog = new ReauthenticatingRestSessionCatalog(
-                    rawSessionCatalog, () -> rebuildRestSessionCatalog(catalogName, frozenProps, conf));
+                    rawSessionCatalog, () -> rebuildRestSessionCatalog(catalogName, frozenProps, conf),
+                    catalogResourceTracker, () -> {
+                        if (tableCache != null) {
+                            tableCache.invalidateAll();
+                        }
+                    });
             Catalog defaultCatalog = sessionCatalog.asCatalog(SessionCatalog.SessionContext.createEmpty());
             this.restSessionCatalog = sessionCatalog;
             if (userSession) {
@@ -1049,14 +1208,14 @@ public class IcebergConnector implements Connector {
      */
     private Catalog createS3TablesCatalog(String catalogName, Optional<S3CompatibleFileSystemProperties> chosenS3) {
         String region = resolveS3TablesRegion(chosenS3, properties);
-        Map<String, String> catalogProps =
-                IcebergCatalogFactory.buildS3TablesCatalogProperties(properties, chosenS3);
+        Map<String, String> catalogOptions =
+                IcebergCatalogFactory.buildS3TablesCatalogProperties(catalogProps, chosenS3);
         LOG.info("Creating Iceberg s3tables catalog '{}' region='{}' boundStorage={}",
                 catalogName, region, chosenS3.isPresent());
-        return buildCatalogAuthenticated(IcebergConnectorProperties.TYPE_S3_TABLES, () -> {
+        return buildCatalogAuthenticated(IcebergCatalogProperties.TYPE_S3_TABLES, () -> {
             S3TablesClient client = buildS3TablesClient(chosenS3, region);
             S3TablesCatalog catalog = new S3TablesCatalog();
-            catalog.initialize(catalogName, catalogProps, client);
+            catalog.initialize(catalogName, catalogOptions, client);
             return catalog;
         });
     }
@@ -1172,11 +1331,11 @@ public class IcebergConnector implements Connector {
      * (rest/hms/glue/jdbc/s3tables) contributes nothing.
      */
     static Map<String, String> deriveStorageDefaults(Map<String, String> rawCatalogProps) {
-        if (!IcebergConnectorProperties.TYPE_HADOOP.equalsIgnoreCase(
-                rawCatalogProps.get(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE))) {
+        if (!IcebergCatalogProperties.TYPE_HADOOP.equalsIgnoreCase(
+                rawCatalogProps.get(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE))) {
             return Collections.emptyMap();
         }
-        return deriveHdfsDefaultFsFromWarehouse(rawCatalogProps.get(IcebergConnectorProperties.WAREHOUSE));
+        return deriveHdfsDefaultFsFromWarehouse(rawCatalogProps.get(CatalogProperties.WAREHOUSE_LOCATION));
     }
 
     /**
@@ -1206,7 +1365,8 @@ public class IcebergConnector implements Connector {
      */
     private Map<String, String> buildStorageHadoopConfig() {
         Map<String, String> merged = new HashMap<>();
-        for (StorageProperties sp : storage().getStorageProperties()) {
+        for (StorageProperties sp : IcebergCatalogFactory.selectEffectiveStorages(
+                storage().getStorageProperties())) {
             sp.toHadoopProperties().ifPresent(h -> merged.putAll(h.toHadoopConfigurationMap()));
         }
         return merged;
@@ -1234,22 +1394,8 @@ public class IcebergConnector implements Connector {
     }
 
     /**
-     * Resolves the plugin-side Kerberos authenticator for the catalog, or {@code null} for a non-Kerberos
-     * catalog. Two Kerberos sources are covered, in precedence order:
-     * <ol>
-     *   <li><b>Storage</b> Kerberos — the raw {@code hadoop.security.authentication=kerberos} passthrough
-     *       (HDFS / data-lake login), built from the storage Hadoop configuration. Unchanged prior behavior;
-     *       when storage is Kerberos this single login also carries the HMS metastore RPC (same UGI).</li>
-     *   <li><b>HMS-metastore</b> Kerberos with non-Kerberos storage — a secured Hive Metastore whose data
-     *       storage is simple (e.g. a Kerberized HMS over S3). Legacy fe-core served this from the fe-core
-     *       {@code IcebergHMSMetaStoreProperties} HMS authenticator (delivered via {@code DefaultConnectorContext});
-     *       once the fe-core iceberg property cluster is deleted the connector must own it. This mirrors
-     *       {@code HMSBaseProperties.initHadoopAuthenticator}: the HMS client principal/keytab facts
-     *       ({@link HmsMetaStoreProperties#kerberos()}) feed a {@link KerberosAuthenticationConfig}, so the
-     *       {@code doAs} logs in the same client identity fe-core used. The HMS <em>service</em> principal /
-     *       SASL settings ride the catalog's own HiveConf ({@code hms.toHiveConfOverrides}), not the login.</li>
-     * </ol>
-     * Package-visible + static for direct unit testing (mirrors the {@code metaFailureMessage} helpers).
+     * Resolves only the storage-side Kerberos authenticator used by FileIO. HMS authentication is intentionally
+     * resolved separately by {@link #buildHmsAuthenticator} and applied at the client-pool boundary.
      */
     static HadoopAuthenticator buildPluginAuthenticator(Map<String, String> properties,
             Map<String, String> storageHadoopConfig) {
@@ -1257,20 +1403,43 @@ public class IcebergConnector implements Connector {
             return HadoopAuthenticator.getHadoopAuthenticator(
                     IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig));
         }
-        if (IcebergConnectorProperties.TYPE_HMS.equals(IcebergCatalogFactory.resolveFlavor(properties))) {
-            HmsMetaStoreProperties hms = (HmsMetaStoreProperties) MetaStoreProviders.bindForType(
-                    IcebergConnectorProperties.TYPE_HMS, properties, storageHadoopConfig);
-            Optional<KerberosAuthSpec> spec = hms.kerberos();
-            if (spec.isPresent() && spec.get().hasCredentials()) {
-                Configuration conf =
-                        IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
-                conf.set("hadoop.security.authentication", "kerberos");
-                conf.set("hive.metastore.sasl.enabled", "true");
-                return HadoopAuthenticator.getHadoopAuthenticator(
-                        new KerberosAuthenticationConfig(spec.get().getPrincipal(), spec.get().getKeytab(), conf));
-            }
-        }
         return null;
+    }
+
+    static HadoopAuthenticator buildHmsAuthenticator(Map<String, String> properties,
+            Map<String, String> storageHadoopConfig) {
+        if (!IcebergCatalogProperties.TYPE_HMS.equals(IcebergCatalogProperties.of(properties).getFlavor())) {
+            return null;
+        }
+        AbstractHmsMetaStoreProperties hms = (AbstractHmsMetaStoreProperties) MetaStoreProviders.bindForType(
+                IcebergCatalogProperties.TYPE_HMS, properties, storageHadoopConfig);
+        Optional<KerberosAuthSpec> spec = hms.kerberos();
+        if (spec.isPresent() && spec.get().hasCredentials()) {
+            Configuration conf = IcebergCatalogFactory.assembleHiveConf(
+                    hms.getConfResources(), hms.toHiveConfOverrides(""));
+            conf.set("hadoop.security.authentication", "kerberos");
+            conf.set("hive.metastore.sasl.enabled", "true");
+            return HadoopAuthenticator.getHadoopAuthenticator(
+                    new KerberosAuthenticationConfig(spec.get().getPrincipal(), spec.get().getKeytab(), conf));
+        }
+        if (hms.getAuthType() == AuthType.KERBEROS) {
+            return null;
+        }
+        Configuration conf = IcebergCatalogFactory.assembleHiveConf(
+                hms.getConfResources(), hms.toHiveConfOverrides(""));
+        return HadoopAuthenticator.getHadoopAuthenticator(AuthenticationConfig.getSimpleAuthenticationConfig(conf));
+    }
+
+    static void applyHmsTableOwner(Map<String, String> catalogOptions,
+            HadoopAuthenticator hmsAuth) throws Exception {
+        if (hmsAuth == null || catalogOptions.containsKey(HiveCatalog.HMS_TABLE_OWNER)) {
+            return;
+        }
+        // Iceberg computes this default before entering its client pool, so capture it at the HMS boundary.
+        String owner = hmsAuth.doAs(HiveHadoopUtil::currentUser);
+        if (StringUtils.isNotBlank(owner)) {
+            catalogOptions.put(HiveCatalog.HMS_TABLE_OWNER, owner);
+        }
     }
 
     private Catalog buildCatalogAuthenticated(String flavor, Callable<Catalog> builder) {
@@ -1382,10 +1551,10 @@ public class IcebergConnector implements Connector {
      */
     @Override
     public void preCreateValidation(ConnectorValidationContext validationContext) throws Exception {
-        if (!IcebergConnectorProperties.TYPE_JDBC.equals(IcebergCatalogFactory.resolveFlavor(properties))) {
+        if (!IcebergCatalogProperties.TYPE_JDBC.equals(catalogProps.getFlavor())) {
             return;
         }
-        String driverUrl = IcebergCatalogFactory.firstNonBlank(properties, IcebergConnectorProperties.JDBC_DRIVER_URL);
+        String driverUrl = IcebergJdbcMetaStoreProperties.of(properties).getDriverUrl();
         if (StringUtils.isNotBlank(driverUrl)) {
             validationContext.validateAndResolveDriverPath(driverUrl);
         }
@@ -1400,13 +1569,12 @@ public class IcebergConnector implements Connector {
      * {@link JdbcDriverSupport#resolveDriverUrl} against {@code ConnectorContext.getEnvironment()}.
      */
     private void maybeRegisterJdbcDriver() {
-        String driverUrl = IcebergCatalogFactory.firstNonBlank(properties, IcebergConnectorProperties.JDBC_DRIVER_URL);
+        IcebergJdbcMetaStoreProperties jdbc = IcebergJdbcMetaStoreProperties.of(properties);
+        String driverUrl = jdbc.getDriverUrl();
         if (StringUtils.isBlank(driverUrl)) {
             return;
         }
-        String driverClass =
-                IcebergCatalogFactory.firstNonBlank(properties, IcebergConnectorProperties.JDBC_DRIVER_CLASS);
-        registerJdbcDriver(driverUrl, driverClass);
+        registerJdbcDriver(driverUrl, jdbc.getDriverClass());
         LOG.info("Using dynamic JDBC driver for Iceberg JDBC catalog from: {}", driverUrl);
     }
 
@@ -1418,15 +1586,13 @@ public class IcebergConnector implements Connector {
      * <p>A null context is a direct-construction unit test, which has neither channel.
      */
     private String configuredDriversDir() {
-        return context == null ? null : ConnectorConf.get(context,
-                IcebergConnectorProperties.CONF_DRIVERS_DIR,
-                IcebergConnectorProperties.ENV_JDBC_DRIVERS_DIR, null);
+        return IcebergConf.driversDir(context);
     }
 
     /** The FE install root. Engine-wide rather than this connector's, so it stays in the environment. */
     private String configuredDorisHome() {
         return context == null ? null
-                : context.getEnvironment().get(IcebergConnectorProperties.ENV_DORIS_HOME);
+                : IcebergConf.dorisHome(context);
     }
 
     private void registerJdbcDriver(String driverUrl, String driverClassName) {
@@ -1513,25 +1679,39 @@ public class IcebergConnector implements Connector {
     }
 
     @Override
-    public void close() throws IOException {
+    public synchronized void close() throws IOException {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        // Release cache-owner references first. The resource tracker keeps the catalog generation alive until
+        // every table owner that was loaded through it has also released its last statement borrower.
+        if (tableCache != null) {
+            tableCache.close();
+        }
+        invalidateAll();
         Catalog c = icebergCatalog;
-        if (c != null) {
-            if (c instanceof java.io.Closeable) {
-                ((java.io.Closeable) c).close();
-            }
-            icebergCatalog = null;
-        }
-        // The default catalog (asCatalog(empty)) is a lightweight view and NOT Closeable, so close the shared
-        // underlying REST session catalog (its REST client + OAuth2 auth resources) explicitly here. It is the
-        // ReauthenticatingRestSessionCatalog wrapper, a Closeable that closes its current delegate.
         BaseViewSessionCatalog sc = restSessionCatalog;
-        if (sc != null) {
-            if (sc instanceof java.io.Closeable) {
-                ((java.io.Closeable) sc).close();
+        icebergCatalog = null;
+        restSessionCatalog = null;
+        sessionCatalogAdapter = null;
+        catalogResourceTracker.close(() -> {
+            if (c instanceof java.io.Closeable) {
+                try {
+                    ((java.io.Closeable) c).close();
+                } catch (IOException | RuntimeException e) {
+                    LOG.warn("Failed to close Iceberg catalog {}", context.getCatalogName(), e);
+                }
             }
-            restSessionCatalog = null;
-            sessionCatalogAdapter = null;
-        }
+            // The REST default Catalog is a lightweight view. Close the retained session-catalog generation too.
+            if (sc instanceof java.io.Closeable && sc != c) {
+                try {
+                    ((java.io.Closeable) sc).close();
+                } catch (IOException | RuntimeException e) {
+                    LOG.warn("Failed to close Iceberg REST session catalog {}", context.getCatalogName(), e);
+                }
+            }
+        });
     }
 
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */

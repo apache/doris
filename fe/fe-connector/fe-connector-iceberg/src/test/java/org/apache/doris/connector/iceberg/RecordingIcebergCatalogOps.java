@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
  * Hand-written recording fake for {@link IcebergCatalogOps} (no Mockito), mirroring the paimon
@@ -60,6 +61,8 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     boolean databaseExists;
     /** Canned existence answer for {@link #tableExists(String, String)}. */
     boolean tableExists;
+    /** Optional exact failure thrown by {@link #tableExists(String, String)}. */
+    RuntimeException tableExistsFailure;
     /** Canned existence answer for {@link #viewExists(String, String)}. */
     boolean viewExists;
     /** Canned SDK view returned by {@link #loadView(String, String)}. */
@@ -74,6 +77,12 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     Table table;
     /** When set, {@link #loadTable(String, String)} throws instead of returning {@link #table}. */
     boolean throwOnLoadTable;
+    /** Optional exact failure thrown by {@link #loadTable(String, String)}. */
+    RuntimeException loadTableFailure;
+    /** Bounded-table lifecycle hooks used to assert cleanup and catalog-lease ordering. */
+    int tableCleanupCount;
+    Runnable beforeTableOperation;
+    Runnable onTableCleanup;
     /** When set, {@link #loadTable(String, String)} throws {@link NoSuchTableException} (concurrent-drop race). */
     boolean throwNoSuchTableOnLoadTable;
     /**
@@ -163,6 +172,9 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
         log.add("tableExists:" + dbName + "." + tableName);
         lastExistsDb = dbName;
         lastExistsTable = tableName;
+        if (tableExistsFailure != null) {
+            throw tableExistsFailure;
+        }
         return tableExists;
     }
 
@@ -201,10 +213,29 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
         if (throwNoSuchTableOnLoadTable) {
             throw new NoSuchTableException("simulated missing table %s.%s", dbName, tableName);
         }
+        if (loadTableFailure != null) {
+            throw loadTableFailure;
+        }
         if (throwOnLoadTable) {
             throw new RuntimeException("simulated loadTable failure for " + dbName + "." + tableName);
         }
         return table;
+    }
+
+    @Override
+    public <T> T withTable(String dbName, String tableName, Function<Table, T> operation) {
+        Table loaded = loadTable(dbName, tableName);
+        try {
+            if (beforeTableOperation != null) {
+                beforeTableOperation.run();
+            }
+            return operation.apply(loaded);
+        } finally {
+            tableCleanupCount++;
+            if (onTableCleanup != null) {
+                onTableCleanup.run();
+            }
+        }
     }
 
     @Override

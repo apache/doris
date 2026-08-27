@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
@@ -60,7 +61,9 @@ import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.ClearTransactionTask;
@@ -120,6 +123,9 @@ public class DatabaseTransactionMgr {
     // the max number of txn that can be remove per round.
     // set it to avoid holding lock too long when removing too many txns per round.
     private static final int MAX_REMOVE_TXN_PER_ROUND = 10000;
+    // ConfigBase replaces the array on every update, so its identity is the cache version.
+    private static volatile String[] cachedResourceGroupSuccQuorumConfig;
+    private static volatile Map<String, Integer> cachedResourceGroupSuccQuorum = Map.of();
 
     private final long dbId;
 
@@ -494,6 +500,8 @@ public class DatabaseTransactionMgr {
         TabletInvertedIndex tabletInvertedIndex = env.getTabletInvertedIndex();
         Map<Long, Set<Long>> tabletToBackends = new HashMap<>();
         Map<Long, Table> idToTable = new HashMap<>();
+        Map<String, Integer> resourceGroupSuccQuorum = getResourceGroupSuccQuorum();
+        Map<Long, String> backendLocationTags = resourceGroupSuccQuorum.isEmpty() ? Map.of() : new HashMap<>();
         for (int i = 0; i < tableList.size(); i++) {
             idToTable.put(tableList.get(i).getId(), tableList.get(i));
         }
@@ -578,7 +586,7 @@ public class DatabaseTransactionMgr {
                 List<MaterializedIndex> allIndices;
                 if (transactionState.getLoadedTblIndexes().isEmpty()
                         || transactionState.getLoadedTblIndexes().get(tableId) == null) {
-                    allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+                    allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true);
                 } else {
                     allIndices = Lists.newArrayList();
                     for (long indexId : transactionState.getLoadedTblIndexes().get(tableId)) {
@@ -610,6 +618,8 @@ public class DatabaseTransactionMgr {
 
                 // (TODO): ignore the alter index if txn id is less than sc sched watermark
                 int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partition.getId());
+                ReplicaAllocation replicaAllocation = resourceGroupSuccQuorum.isEmpty() ? null
+                        : table.getPartitionInfo().getReplicaAllocation(partition.getId());
                 for (MaterializedIndex index : allIndices) {
                     for (Tablet tablet : index.getTablets()) {
                         tabletSuccReplicas.clear();
@@ -626,6 +636,12 @@ public class DatabaseTransactionMgr {
                             if (replica == null) {
                                 throw new TransactionCommitFailedException("could not find replica for tablet ["
                                         + tabletId + "], backend [" + tabletBackend + "]");
+                            }
+                            if (!resourceGroupSuccQuorum.isEmpty()) {
+                                backendLocationTags.computeIfAbsent(tabletBackend, backendId -> {
+                                    Backend backend = env.getCurrentSystemInfo().getBackend(backendId);
+                                    return backend == null ? "" : backend.getLocationTag().value;
+                                });
                             }
 
                             // if the tablet have no replica's to commit or the tablet is a rolling up tablet,
@@ -670,9 +686,71 @@ public class DatabaseTransactionMgr {
 
                             throw new TabletQuorumFailedException(transactionId, errMsg);
                         }
+
+                        for (Entry<String, Integer> entry : resourceGroupSuccQuorum.entrySet()) {
+                            String resourceGroup = entry.getKey();
+                            int replicaNumInResourceGroup = replicaAllocation.getReplicaNumByTag(
+                                    Tag.createNotCheck(Tag.TYPE_LOCATION, resourceGroup));
+                            int requiredInResourceGroup = Math.min(entry.getValue(), replicaNumInResourceGroup);
+                            if (requiredInResourceGroup == 0) {
+                                continue;
+                            }
+
+                            int succInResourceGroup = 0;
+                            for (Replica replica : tabletSuccReplicas) {
+                                if (resourceGroup.equals(
+                                        backendLocationTags.get(replica.getBackendIdWithoutException()))) {
+                                    succInResourceGroup++;
+                                }
+                            }
+                            if (succInResourceGroup < requiredInResourceGroup) {
+                                String writeDetail = getTabletWriteDetail(tabletSuccReplicas,
+                                        tabletWriteFailedReplicas, tabletVersionFailedReplicas);
+                                String errMsg = String.format("Failed to commit txn %s, cause tablet %s resource "
+                                                + "group success quorum failed for %s: required %s successful "
+                                                + "replicas, but only %s succeeded. table %s, partition: [ id=%s, "
+                                                + "commit version %s, visible version %s ], this tablet detail: %s. "
+                                                + "Please try again later.", transactionId, tablet.getId(),
+                                        resourceGroup, requiredInResourceGroup, succInResourceGroup, tableId,
+                                        partition.getId(), partition.getCommittedVersion(),
+                                        partition.getVisibleVersion(), writeDetail);
+                                LOG.info(errMsg);
+                                throw new TabletQuorumFailedException(transactionId, errMsg);
+                            }
+                        }
                     }
                 }
             }
+        }
+    }
+
+    private static Map<String, Integer> getResourceGroupSuccQuorum() {
+        String[] config = Config.resource_group_load_success_quorum;
+        if (config == cachedResourceGroupSuccQuorumConfig) {
+            return cachedResourceGroupSuccQuorum;
+        }
+        synchronized (DatabaseTransactionMgr.class) {
+            config = Config.resource_group_load_success_quorum;
+            if (config == cachedResourceGroupSuccQuorumConfig) {
+                return cachedResourceGroupSuccQuorum;
+            }
+            Map<String, Integer> parsedConfig = new HashMap<>();
+            for (String item : config) {
+                String[] parts = item.split(":", -1);
+                try {
+                    int configuredMin = Integer.parseInt(parts.length == 2 ? parts[1].trim() : "");
+                    if (parts[0].trim().isEmpty() || configuredMin < 0) {
+                        throw new NumberFormatException();
+                    }
+                    parsedConfig.put(parts[0].trim(), configuredMin);
+                } catch (NumberFormatException e) {
+                    LOG.warn("Invalid resource_group_load_success_quorum item '{}', ignored. Expected format "
+                            + "resource_group:min_success_replicas with a non-negative integer.", item);
+                }
+            }
+            cachedResourceGroupSuccQuorum = parsedConfig;
+            cachedResourceGroupSuccQuorumConfig = config;
+            return parsedConfig;
         }
     }
 
@@ -1435,7 +1513,7 @@ public class DatabaseTransactionMgr {
             int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partitionId);
             List<MaterializedIndex> allIndices;
             if (transactionState.getLoadedTblIndexes().isEmpty()) {
-                allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+                allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true);
             } else {
                 allIndices = Lists.newArrayList();
                 for (long indexId : transactionState.getLoadedTblIndexes().get(tableId)) {
@@ -1601,7 +1679,8 @@ public class DatabaseTransactionMgr {
         // update transaction state version
         long commitTime = System.currentTimeMillis();
         transactionState.setCommitTime(commitTime);
-        long commitTSO = getCommitTSO(transactionState, db, tableToPartition.keySet());
+        long commitTSO = TransactionUtil.getCommitTSO(transactionState.getTransactionId(), db,
+                tableToPartition.keySet());
         transactionState.setCommitTSO(commitTSO);
 
         if (MetricRepo.isInit) {
@@ -1651,7 +1730,7 @@ public class DatabaseTransactionMgr {
             long tableId = subTransactionState.getTable().getId();
             tableIds.add(tableId);
         }
-        long commitTSO = getCommitTSO(transactionState, db, tableIds);
+        long commitTSO = TransactionUtil.getCommitTSO(transactionState.getTransactionId(), db, tableIds);
         transactionState.setCommitTSO(commitTSO);
 
         if (MetricRepo.isInit) {
@@ -1727,7 +1806,8 @@ public class DatabaseTransactionMgr {
         }
         // update transaction state version
         transactionState.setCommitTime(System.currentTimeMillis());
-        long commitTSO = getCommitTSO(transactionState, db, transactionState.getIdToTableCommitInfos().keySet());
+        long commitTSO = TransactionUtil.getCommitTSO(transactionState.getTransactionId(), db,
+                transactionState.getIdToTableCommitInfos().keySet());
         transactionState.setCommitTSO(commitTSO);
 
         transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
@@ -2352,7 +2432,7 @@ public class DatabaseTransactionMgr {
                     continue;
                 }
                 List<MaterializedIndex> allIndices = partition.getMaterializedIndices(
-                        MaterializedIndex.IndexExtState.ALL);
+                        MaterializedIndex.IndexExtState.ALL, true);
                 for (MaterializedIndex index : allIndices) {
                     List<Tablet> tablets = index.getTablets();
                     for (Tablet tablet : tablets) {
@@ -2446,7 +2526,7 @@ public class DatabaseTransactionMgr {
                     continue;
                 }
                 List<MaterializedIndex> allIndices = partition
-                        .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+                        .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true);
                 for (MaterializedIndex index : allIndices) {
                     for (Tablet tablet : index.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
@@ -2919,7 +2999,7 @@ public class DatabaseTransactionMgr {
             List<MaterializedIndex> allIndices;
             if (transactionState.getLoadedTblIndexes().isEmpty()
                     || transactionState.getLoadedTblIndexes().get(tableId) == null) {
-                allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+                allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true);
             } else {
                 allIndices = Lists.newArrayList();
                 for (long indexId : transactionState.getLoadedTblIndexes().get(tableId)) {
@@ -3109,45 +3189,6 @@ public class DatabaseTransactionMgr {
             if (entry.getValue() == transactionId) {
                 iterator.remove();
             }
-        }
-    }
-
-    private long getCommitTSO(TransactionState transactionState, Database db, Set<Long> tableIds)
-            throws TransactionCommitFailedException {
-        long tso = -1L;
-        if (!Config.enable_feature_binlog) {
-            return tso;
-        }
-        if (tableIds == null || tableIds.isEmpty()) {
-            return tso;
-        }
-        boolean anyEnableTso = false;
-        for (long tableId : tableIds) {
-            Table table = db.getTableNullable(tableId);
-            if (table instanceof OlapTable && ((OlapTable) table).enableTso()) {
-                anyEnableTso = true;
-                break;
-            }
-        }
-        if (!anyEnableTso) {
-            return tso;
-        }
-        try {
-            Env env = Env.getCurrentEnv();
-            if (env == null || env.getTSOService() == null) {
-                throw new TransactionCommitFailedException("failed to get TSO for txn "
-                        + transactionState.getTransactionId() + ": TSO service is unavailable");
-            }
-            long fetched = env.getTSOService().getTSO();
-            if (fetched <= 0) {
-                throw new TransactionCommitFailedException("failed to get TSO for txn "
-                        + transactionState.getTransactionId() + ", fetched=" + fetched);
-            }
-            return fetched;
-        } catch (RuntimeException e) {
-            LOG.warn("failed to get TSO for txn {}, abort commit", transactionState.getTransactionId(), e);
-            throw new TransactionCommitFailedException("failed to get TSO for txn "
-                    + transactionState.getTransactionId(), e);
         }
     }
 

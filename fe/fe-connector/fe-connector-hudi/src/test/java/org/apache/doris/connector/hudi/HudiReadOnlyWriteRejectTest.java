@@ -44,7 +44,7 @@ public class HudiReadOnlyWriteRejectTest {
             new HudiTableHandle("db", "t", "s3://b/t", "COPY_ON_WRITE");
 
     private static HudiConnector connector() {
-        return new HudiConnector(Collections.emptyMap(), new ConnectorContext() {
+        return new HudiConnector(HudiTestProperties.minimalMap(), new ConnectorContext() {
             @Override
             public String getCatalogName() {
                 return "test_catalog";
@@ -59,7 +59,7 @@ public class HudiReadOnlyWriteRejectTest {
 
     /** The write/DDL methods throw before touching the client/executor, so null collaborators are sufficient. */
     private static HudiConnectorMetadata metadata() {
-        return new HudiConnectorMetadata(null, Collections.emptyMap(), null);
+        return new HudiConnectorMetadata(null, HudiTestProperties.minimal(), null);
     }
 
     @Test

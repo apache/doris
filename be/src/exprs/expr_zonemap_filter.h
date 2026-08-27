@@ -18,12 +18,14 @@
 #pragma once
 
 #include <compare>
+#include <cstddef>
 #include <map>
+#include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "common/check.h"
-#include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/define_primitive_type.h"
@@ -34,6 +36,7 @@
 
 namespace doris {
 class HybridSetBase;
+struct HybridSetMinMax;
 class RuntimeState;
 class TExprNode;
 
@@ -44,12 +47,7 @@ class BloomFilter;
 
 namespace doris::expr_zonemap {
 
-struct InZonemapMaterializedSet {
-    bool contains_null = false;
-    std::vector<Field> values;
-    Field min_value;
-    Field max_value;
-};
+using InZonemapMinMax = HybridSetMinMax;
 
 // Dictionary pruning evaluates file-level dictionary values, not row-level data. A kNoMatch result
 // means no non-null dictionary entry can satisfy the expression, so the whole row group can be
@@ -99,13 +97,43 @@ struct SlotLiteral {
     bool literal_on_left;
 };
 
+enum class BloomFilterPathKind {
+    STRUCT_FIELD,
+    LIST_ELEMENT,
+};
+
+struct BloomFilterPathElement {
+    BloomFilterPathKind kind;
+    std::string field_name;
+    int32_t field_ordinal = -1;
+
+    bool operator==(const BloomFilterPathElement&) const = default;
+};
+
+struct BloomFilterProbe {
+    int slot_index;
+    DataTypePtr value_type;
+    std::vector<BloomFilterPathElement> path;
+
+    bool operator==(const BloomFilterProbe&) const = default;
+};
+
 std::optional<SlotLiteral> extract_slot_and_literal(const VExprSPtrs& args);
+
+std::optional<BloomFilterProbe> extract_bloom_filter_probe(const VExprSPtr& expr);
+
+std::optional<BloomFilterProbe> extract_bloom_filter_predicate_probe(const VExprSPtr& expr);
+
+std::optional<SlotLiteral> extract_bloom_filter_slot_and_literal(const VExprSPtrs& args);
+
+bool can_evaluate_bloom_filter_equality(const VExprSPtrs& args);
 
 TExprNode create_texpr_node_from_hybrid_set_value(const void* data, const PrimitiveType& type,
                                                   int precision, int scale);
 
-Status materialize_hybrid_set_for_zonemap_filter(HybridSetBase& set, const DataTypePtr& data_type,
-                                                 InZonemapMaterializedSet* result);
+void get_hybrid_set_min_max_for_zonemap_filter(const std::shared_ptr<HybridSetBase>& set,
+                                               const DataTypePtr& data_type,
+                                               InZonemapMinMax& result);
 
 inline bool field_types_compatible(PrimitiveType lhs, PrimitiveType rhs) {
     return lhs == rhs || (is_string_type(lhs) && is_string_type(rhs));
@@ -142,21 +170,21 @@ ZoneMapFilterResult eval_null_zonemap(const ZoneMapEvalContext& ctx, const VExpr
                                       bool is_null);
 
 ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSPtr& slot_expr,
-                                    bool is_not_in, const std::vector<Field>& values,
-                                    const Field& min_value, const Field& max_value);
+                                    bool is_not_in, const InZonemapMinMax& values,
+                                    const HybridSetBase& set);
 
 ZoneMapFilterResult eval_eq_dictionary(const DictionaryEvalContext& ctx,
                                        const SlotLiteral& slot_literal);
 
 ZoneMapFilterResult eval_in_dictionary(const DictionaryEvalContext& ctx, const VExprSPtr& slot_expr,
-                                       bool is_not_in, const std::vector<Field>& values);
+                                       bool is_not_in, const HybridSetBase& values);
 
 ZoneMapFilterResult eval_eq_bloom_filter(const BloomFilterEvalContext& ctx,
                                          const SlotLiteral& slot_literal);
 
 ZoneMapFilterResult eval_in_bloom_filter(const BloomFilterEvalContext& ctx,
                                          const VExprSPtr& slot_expr, bool is_not_in,
-                                         const std::vector<Field>& values);
+                                         const HybridSetBase& values);
 
 // Return the only slot ordinal referenced by a zonemap-evaluable expression in its current
 // binding. Expressions that are unsupported by zonemap pruning, reference multiple slots, or use an

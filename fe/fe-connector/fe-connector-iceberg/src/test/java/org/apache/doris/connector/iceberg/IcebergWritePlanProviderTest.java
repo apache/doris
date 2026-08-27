@@ -108,6 +108,27 @@ public class IcebergWritePlanProviderTest {
     private static final Map<String, String> NON_REST_PROPS =
             Collections.singletonMap("iceberg.catalog.type", "hadoop");
 
+    @Test
+    public void rejectsVariantDataWritesButAllowsDeleteOnlyMerge() {
+        ConnectorColumn nestedVariant = new ConnectorColumn("payload",
+                ConnectorType.structOf(Collections.singletonList("nested"),
+                        Collections.singletonList(ConnectorType.of("VARIANT"))),
+                null, true, null);
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergWritePlanProvider.validateWriteSchema(
+                        Collections.singletonList(nestedVariant), true));
+        Assertions.assertDoesNotThrow(() -> IcebergWritePlanProvider.validateWriteSchema(
+                Collections.singletonList(nestedVariant), false));
+
+        ConnectorColumn id = new ConnectorColumn(
+                "id", ConnectorType.of("INT"), null, true, null);
+        WriteHandle partialInsert = new WriteHandle(new IcebergTableHandle("db1", "t2"))
+                .columns(Collections.singletonList(id))
+                .boundTargetColumns(Arrays.asList(id, nestedVariant));
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergWritePlanProvider.validateWriteSchema(partialInsert));
+    }
+
     private static InMemoryCatalog freshCatalog() {
         InMemoryCatalog catalog = new InMemoryCatalog();
         catalog.initialize("test", Collections.emptyMap());
@@ -216,7 +237,7 @@ public class IcebergWritePlanProviderTest {
     private static IcebergWritePlanProvider providerFor(Table table, RecordingConnectorContext ctx) {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = table;
-        return new IcebergWritePlanProvider(NON_REST_PROPS, ops, ctx);
+        return new IcebergWritePlanProvider(IcebergCatalogProperties.of(NON_REST_PROPS), ops, ctx);
     }
 
     /** A session that carries the bound iceberg connector transaction (the provider reads it). */
@@ -236,7 +257,7 @@ public class IcebergWritePlanProviderTest {
             ConnectorWriteHandle handle, Map<String, String> properties) {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = table;
-        ConnectorSinkPlan plan = new IcebergWritePlanProvider(properties, ops, ctx)
+        ConnectorSinkPlan plan = new IcebergWritePlanProvider(IcebergCatalogProperties.of(properties), ops, ctx)
                 .planWrite(sessionFor(table, ctx), handle);
         Assertions.assertEquals(TDataSinkType.ICEBERG_TABLE_SINK, plan.getDataSink().getType());
         return plan.getDataSink().getIcebergTableSink();
@@ -349,6 +370,20 @@ public class IcebergWritePlanProviderTest {
 
         Assertions.assertTrue(plan.getDataSink().getIcebergTableSink().getSchemaJson().contains("name"));
         Assertions.assertFalse(plan.getDataSink().getIcebergTableSink().getSchemaJson().contains("renamed_name"));
+    }
+
+    @Test
+    public void writeSchemaAllowsNestedPrimitivePartitionSource() {
+        InMemoryCatalog catalog = freshCatalog();
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "payload", Types.StructType.of(
+                        Types.NestedField.optional(3, "part", Types.IntegerType.get()))));
+        Table table = catalog.createTable(TableIdentifier.of("db1", "nested_partition"), schema,
+                PartitionSpec.builderFor(schema).identity("payload.part").build());
+
+        Assertions.assertDoesNotThrow(() -> IcebergWriteSchemaContext.create(
+                table, "db1.nested_partition", Optional.empty(), false, false));
     }
 
     @Test
@@ -493,7 +528,7 @@ public class IcebergWritePlanProviderTest {
 
         // Doris physical decimal widths and unbounded binary encoding must not look like schema evolution.
         Map<String, String> properties = new HashMap<>(NON_REST_PROPS);
-        properties.put(IcebergConnectorProperties.ENABLE_MAPPING_VARBINARY, "true");
+        properties.put(IcebergCatalogProperties.ENABLE_MAPPING_VARBINARY, "true");
         Assertions.assertDoesNotThrow(() -> planSink(table, contextWithStorage(),
                 new WriteHandle(new IcebergTableHandle("db1", "scalars")).boundTargetColumns(boundSchema),
                 properties));
@@ -744,6 +779,32 @@ public class IcebergWritePlanProviderTest {
                 "the sink must not ship the fs.s3a.* hadoop form (BE cannot read it)");
     }
 
+    @Test
+    public void planWritePrefersOssBackendConfigOverGenericS3Fallback() {
+        Table table = partitionedSortedTable(freshCatalog());
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.backendFileType = TFileType.FILE_S3;
+        ctx.storageProperties = Arrays.asList(
+                new FakeS3CompatibleStorageProperties("OSS").backendProperties(ImmutableMap.of(
+                        "AWS_ENDPOINT", "https://oss-cn-beijing.aliyuncs.com",
+                        "AWS_REGION", "cn-beijing",
+                        "use_path_style", "false")),
+                new FakeS3CompatibleStorageProperties("S3").backendProperties(ImmutableMap.of(
+                        "AWS_ENDPOINT", "https://s3.cn-beijing.amazonaws.com",
+                        "AWS_REGION", "cn-beijing",
+                        "use_path_style", "true",
+                        "AWS_CREDENTIALS_PROVIDER_TYPE", "DEFAULT")));
+
+        TIcebergTableSink sink = planSink(table, ctx,
+                new WriteHandle(new IcebergTableHandle("db1", "t1")));
+
+        Assertions.assertEquals("https://oss-cn-beijing.aliyuncs.com",
+                sink.getHadoopConfig().get("AWS_ENDPOINT"));
+        Assertions.assertEquals("false", sink.getHadoopConfig().get("use_path_style"));
+        Assertions.assertNull(sink.getHadoopConfig().get("AWS_CREDENTIALS_PROVIDER_TYPE"),
+                "generic S3-only properties must not leak into an explicitly matched OSS write");
+    }
+
     // ───────────────────────────── broker backend (ofs:// / gfs:// -> FILE_BROKER) ─────────────────────────────
     //
     // WHY: SchemaTypeMapper maps ofs/gfs to FILE_BROKER; the sink must then carry the catalog's broker
@@ -835,7 +896,7 @@ public class IcebergWritePlanProviderTest {
 
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = vendedTable;
-        IcebergWritePlanProvider provider = new IcebergWritePlanProvider(restVendedProps(), ops, ctx);
+        IcebergWritePlanProvider provider = new IcebergWritePlanProvider(IcebergCatalogProperties.of(restVendedProps()), ops, ctx);
         WriteSession session = new WriteSession(new IcebergConnectorTransaction(42L, ops, ctx));
 
         ConnectorSinkPlan plan = provider.planWrite(session,
@@ -852,8 +913,8 @@ public class IcebergWritePlanProviderTest {
 
     private static Map<String, String> restVendedProps() {
         Map<String, String> props = new HashMap<>();
-        props.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
-        props.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        props.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
+        props.put("iceberg.rest.vended-credentials-enabled", "true");
         return props;
     }
 
@@ -1011,7 +1072,7 @@ public class IcebergWritePlanProviderTest {
         RecordingConnectorContext ctx = contextWithStorage();
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = plannedTable;
-        IcebergWritePlanProvider provider = new IcebergWritePlanProvider(NON_REST_PROPS, ops, ctx);
+        IcebergWritePlanProvider provider = new IcebergWritePlanProvider(IcebergCatalogProperties.of(NON_REST_PROPS), ops, ctx);
         WriteSession session = new WriteSession(new IcebergConnectorTransaction(42L, ops, ctx));
         IcebergTableHandle tableHandle = new IcebergTableHandle("db1", "t2");
         String boundMetadataIdentity = provider.getWriteMetadataIdentity(session, tableHandle);
@@ -1036,7 +1097,7 @@ public class IcebergWritePlanProviderTest {
         RecordingConnectorContext ctx = contextWithStorage();
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = plannedTable;
-        IcebergWritePlanProvider provider = new IcebergWritePlanProvider(NON_REST_PROPS, ops, ctx);
+        IcebergWritePlanProvider provider = new IcebergWritePlanProvider(IcebergCatalogProperties.of(NON_REST_PROPS), ops, ctx);
         WriteSession session = new WriteSession(new IcebergConnectorTransaction(42L, ops, ctx));
         IcebergTableHandle tableHandle = new IcebergTableHandle("db1", "t1");
         String boundMetadataIdentity = provider.getWriteMetadataIdentity(session, tableHandle);
@@ -1073,7 +1134,7 @@ public class IcebergWritePlanProviderTest {
         RecordingConnectorContext ctx = contextWithStorage();
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = table;
-        IcebergWritePlanProvider provider = new IcebergWritePlanProvider(NON_REST_PROPS, ops, ctx);
+        IcebergWritePlanProvider provider = new IcebergWritePlanProvider(IcebergCatalogProperties.of(NON_REST_PROPS), ops, ctx);
         WriteSession session = new WriteSession(new IcebergConnectorTransaction(42L, ops, ctx));
         IcebergTableHandle tableHandle = new IcebergTableHandle("db1", "t2");
         table.updateProperties().set(modeProperty, "merge-on-read").commit();
@@ -1117,7 +1178,7 @@ public class IcebergWritePlanProviderTest {
         RecordingConnectorContext ctx = contextWithStorage();
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = original;
-        IcebergWritePlanProvider provider = new IcebergWritePlanProvider(NON_REST_PROPS, ops, ctx);
+        IcebergWritePlanProvider provider = new IcebergWritePlanProvider(IcebergCatalogProperties.of(NON_REST_PROPS), ops, ctx);
         WriteSession session = new WriteSession(new IcebergConnectorTransaction(42L, ops, ctx));
 
         catalog.dropTable(identifier, false);
@@ -1292,6 +1353,71 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertEquals(table.schema().findField("id").fieldId(), f.getSourceId());
     }
 
+    @Test
+    public void getWritePartitioningRoutesNestedSourceByItsTopLevelColumn() {
+        InMemoryCatalog catalog = freshCatalog();
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "payload", Types.StructType.of(
+                        Types.NestedField.optional(3, "part", Types.IntegerType.get()))));
+        Table table = catalog.createTable(TableIdentifier.of("db1", "nested_partition"), schema,
+                PartitionSpec.builderFor(schema).bucket("payload.part", 8).build());
+
+        ConnectorWritePartitionField field = providerFor(table, contextWithStorage())
+                .getWritePartitioning(sessionFor(table, contextWithStorage()),
+                        new IcebergTableHandle("db1", "nested_partition"))
+                .getFields().get(0);
+
+        Assertions.assertEquals("payload", field.getSourceColumnName(),
+                "merge exchange must route a nested source through its bound top-level struct slot");
+        Assertions.assertEquals(Integer.valueOf(3), field.getSourceId());
+    }
+
+    @Test
+    public void oldBeRejectsDataWritesUsingNestedPartitionSources() {
+        InMemoryCatalog catalog = freshCatalog();
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "payload", Types.StructType.of(
+                        Types.NestedField.optional(3, "part", Types.IntegerType.get()))));
+        Table table = catalog.createTable(TableIdentifier.of("db1", "nested_partition"), schema,
+                PartitionSpec.builderFor(schema).bucket("payload.part", 8).build());
+
+        WriteHandle oldBeWrite = new WriteHandle(
+                new IcebergTableHandle("db1", "nested_partition")).beExecVersion(11);
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> providerFor(table, contextWithStorage()).planWrite(
+                        sessionFor(table, contextWithStorage()), oldBeWrite));
+        Assertions.assertTrue(error.getMessage().contains("nested partition"));
+
+        WriteHandle currentBeWrite = new WriteHandle(
+                new IcebergTableHandle("db1", "nested_partition")).beExecVersion(12);
+        Assertions.assertDoesNotThrow(() -> providerFor(table, contextWithStorage()).planWrite(
+                sessionFor(table, contextWithStorage()), currentBeWrite));
+
+        WriteHandle oldBeRewrite = new WriteHandle(new IcebergTableHandle("db1", "nested_partition"))
+                .writeOperation(WriteOperation.REWRITE).beExecVersion(11);
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> providerFor(table, contextWithStorage()).planWrite(
+                        sessionFor(table, contextWithStorage()), oldBeRewrite));
+
+        WriteHandle currentBeRewrite = new WriteHandle(new IcebergTableHandle("db1", "nested_partition"))
+                .writeOperation(WriteOperation.REWRITE).beExecVersion(12);
+        Assertions.assertDoesNotThrow(() -> providerFor(table, contextWithStorage()).planWrite(
+                sessionFor(table, contextWithStorage()), currentBeRewrite));
+
+        WriteHandle deleteOnlyMerge = new WriteHandle(new IcebergTableHandle("db1", "nested_partition"))
+                .writeOperation(WriteOperation.MERGE).writesDataFiles(false).beExecVersion(11);
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> providerFor(table, contextWithStorage()).planWrite(
+                        sessionFor(table, contextWithStorage()), deleteOnlyMerge));
+
+        WriteHandle delete = new WriteHandle(new IcebergTableHandle("db1", "nested_partition"))
+                .writeOperation(WriteOperation.DELETE).writesDataFiles(false).beExecVersion(11);
+        Assertions.assertDoesNotThrow(() -> providerFor(table, contextWithStorage()).planWrite(
+                sessionFor(table, contextWithStorage()), delete));
+    }
+
     // ───────────────────── getSyntheticWriteColumns (connector declares the row-id STRUCT, ③ C3b-core) ─────────────────────
     //
     // WHY: post-flip the iceberg DML hidden column __DORIS_ICEBERG_ROWID_COL__ that legacy
@@ -1411,7 +1537,7 @@ public class IcebergWritePlanProviderTest {
     private static IcebergWritePlanProvider supplyProvider(Table table, RecordingConnectorContext ctx) {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = table;
-        return new IcebergWritePlanProvider(NON_REST_PROPS, ops, ctx);
+        return new IcebergWritePlanProvider(IcebergCatalogProperties.of(NON_REST_PROPS), ops, ctx);
     }
 
     private static WriteSession supplySession(Table table, RecordingConnectorContext ctx, String queryId) {
@@ -1579,7 +1705,7 @@ public class IcebergWritePlanProviderTest {
         RecordingConnectorContext ctx = contextWithStorage();
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = empty;
-        IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops, Collections.emptyMap(), ctx);
+        IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), ctx);
         ConnectorMvccSnapshot emptySnapshot = metadata.beginQuerySnapshot(null,
                 new IcebergTableHandle("db1", "tv2")).orElseThrow(AssertionError::new);
         IcebergTableHandle emptyPinnedHandle = (IcebergTableHandle) metadata.applySnapshot(
@@ -1761,9 +1887,11 @@ public class IcebergWritePlanProviderTest {
         private WriteOperation writeOperation = WriteOperation.INSERT;
         private Optional<String> branchName = Optional.empty();
         private boolean requireMergeCardinalityCheck;
+        private boolean writesDataFiles = true;
         private List<ConnectorColumn> columns = Collections.emptyList();
         private List<ConnectorColumn> boundTargetColumns;
         private String boundWriteMetadataIdentity;
+        private int beExecVersion = Integer.MAX_VALUE;
 
         WriteHandle(ConnectorTableHandle tableHandle) {
             this.tableHandle = tableHandle;
@@ -1787,6 +1915,16 @@ public class IcebergWritePlanProviderTest {
         WriteHandle boundWriteMetadataIdentity(String v) {
             this.boundWriteMetadataIdentity = v;
             return this;
+        }
+
+        WriteHandle beExecVersion(int v) {
+            this.beExecVersion = v;
+            return this;
+        }
+
+        @Override
+        public int getBeExecVersion() {
+            return beExecVersion;
         }
 
         @Override
@@ -1827,6 +1965,16 @@ public class IcebergWritePlanProviderTest {
         @Override
         public boolean isRequireMergeCardinalityCheck() {
             return requireMergeCardinalityCheck;
+        }
+
+        WriteHandle writesDataFiles(boolean v) {
+            this.writesDataFiles = v;
+            return this;
+        }
+
+        @Override
+        public boolean isWritesDataFiles() {
+            return writesDataFiles;
         }
 
         WriteHandle writeContext(Map<String, String> v) {

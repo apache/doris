@@ -34,6 +34,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_variant.h"
 #include "core/column/subcolumn_tree.h"
+#include "core/column/variant_column_utils.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nothing.h"
@@ -220,7 +221,7 @@ private:
         for (size_t i = 0; i != src_sparse_data_offsets.size(); ++i) {
             size_t start = src_sparse_data_offsets[ssize_t(i) - 1];
             size_t end = src_sparse_data_offsets[ssize_t(i)];
-            size_t lower_bound_index = ColumnVariant::find_path_lower_bound_in_sparse_data(
+            size_t lower_bound_index = find_variant_sparse_path_lower_bound(
                     prefix_ref, src_sparse_data_paths, start, end);
             for (; lower_bound_index != end; ++lower_bound_index) {
                 auto path_ref = src_sparse_data_paths.get_data_at(lower_bound_index);
@@ -286,7 +287,7 @@ private:
         for (size_t i = 0; i != src_doc_value_data_offsets.size(); ++i) {
             size_t start = src_doc_value_data_offsets[ssize_t(i) - 1];
             size_t end = src_doc_value_data_offsets[ssize_t(i)];
-            size_t lower_bound_index = ColumnVariant::find_path_lower_bound_in_sparse_data(
+            size_t lower_bound_index = find_variant_sparse_path_lower_bound(
                     prefix_ref, src_doc_value_data_paths, start, end);
             for (; lower_bound_index != end; ++lower_bound_index) {
                 auto path_ref = src_doc_value_data_paths.get_data_at(lower_bound_index);

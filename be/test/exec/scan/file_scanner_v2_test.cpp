@@ -46,14 +46,12 @@
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "format_v2/expr/cast.h"
 #include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
 namespace {
-
-constexpr int kIcebergPositionDeleteContent = 1;
-constexpr int kIcebergDeletionVectorContent = 3;
 
 TFileRangeDesc range_with_format(std::string table_format, TFileFormatType::type format_type) {
     TFileRangeDesc range;
@@ -115,6 +113,16 @@ TEST(FileScannerTest, V1CountPushdownRequiresExplicitCountStarArguments) {
     // The COUNT argument field must not affect other storage-layer aggregate operations.
     EXPECT_EQ(TPushAggOp::type::MINMAX, FileScanner::TEST_effective_push_down_agg_type(
                                                 TPushAggOp::type::MINMAX, std::nullopt));
+}
+
+TEST(FileScannerTest, CountStarPlaceholderIsNotASemanticProjection) {
+    EXPECT_TRUE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::COUNT,
+                                                           std::vector<int32_t> {}));
+    EXPECT_FALSE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::COUNT,
+                                                            std::vector<int32_t> {7}));
+    EXPECT_FALSE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::COUNT, std::nullopt));
+    EXPECT_FALSE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::MINMAX,
+                                                            std::vector<int32_t> {}));
 }
 
 TEST(FileScannerV2Test, AdaptiveBatchSizeRunsForCountFallbackOnly) {
@@ -369,6 +377,24 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
     EXPECT_FALSE(FileScannerV2::is_supported(params, hudi_range_with_delta_logs()));
 }
 
+TEST(FileScannerV2Test, ArrowRejectsVariantBeforeReaderMaterialization) {
+    EXPECT_TRUE(
+            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW, false)
+                    .ok());
+    EXPECT_TRUE(
+            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_PARQUET, true)
+                    .ok());
+
+    const auto status =
+            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW, true);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find(
+                      "External Variant is supported only for Parquet files in FileScannerV2; "
+                      "file format ARROW is not supported"),
+              std::string::npos)
+            << status;
+}
+
 // Scenario: Iceberg position-delete system table splits use FileScannerV2 for both native delete
 // formats and V3 deletion vectors. Avro remains unsupported and is rejected by FE before routing.
 TEST(FileScannerV2Test, IcebergPositionDeletesSupportNativeFormats) {
@@ -456,6 +482,30 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 }
 
+TEST(FileScannerV2Test, LegacyCountExemptionRequiresMetadataCountOnEveryRange) {
+    auto scan_range = [](std::optional<int64_t> row_count) {
+        TScanRangeParams params;
+        auto& file_range = params.scan_range.ext_scan_range.file_scan_range;
+        TFileRangeDesc range;
+        if (row_count.has_value()) {
+            TTableFormatFileDesc table_format;
+            table_format.__set_table_level_row_count(*row_count);
+            range.__set_table_format_params(table_format);
+        }
+        file_range.ranges.push_back(std::move(range));
+        return params;
+    };
+
+    LocalSplitSourceConnector proven({scan_range(4), scan_range(0)}, 2);
+    EXPECT_TRUE(proven.all_ranges_have_table_level_row_count());
+
+    LocalSplitSourceConnector missing({scan_range(4), scan_range(std::nullopt)}, 2);
+    EXPECT_FALSE(missing.all_ranges_have_table_level_row_count());
+
+    LocalSplitSourceConnector invalid({scan_range(4), scan_range(-1)}, 2);
+    EXPECT_FALSE(invalid.all_ranges_have_table_level_row_count());
+}
+
 TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
     TQueryOptions query_options;
     query_options.__set_enable_file_scanner_v2(true);
@@ -473,60 +523,6 @@ TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
     query_options.__set_enable_paimon_cpp_reader(false);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     EXPECT_TRUE(FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
-}
-
-// Scenario: one scan node is given ranges of two different table formats, which is what a connector
-// reading a table as a lake plus the log written after it produces -- its lake half planned by a
-// sibling connector, its own half by itself. The reader is format-specific, so it has to follow the
-// RANGE. Built once from the first range, it is later handed a foreign one and fails as whatever that
-// reader makes of it, not as a clean error; and since which ranges share a scanner is the engine's
-// assignment, the same query then succeeds or fails by how the ranges happened to be dealt out.
-TEST(FileScannerV2Test, TheTableReaderIsRebuiltWhenARangeChangesTableFormat) {
-    RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    RuntimeProfile profile("file_scanner_v2_reader_per_range");
-    TFileScanRangeParams params;
-    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
-
-    FileScannerV2 scanner(&state, &profile, nullptr);
-    scanner._params = &params;
-
-    const auto paimon_range = range_with_format("paimon", TFileFormatType::FORMAT_PARQUET);
-    const auto hive_range = range_with_format("hive", TFileFormatType::FORMAT_PARQUET);
-
-    // Nothing has been built yet, so the first range always builds.
-    bool rebuilt = false;
-    ASSERT_TRUE(scanner._rebuild_table_reader_if_format_changed(paimon_range, &rebuilt).ok());
-    EXPECT_TRUE(rebuilt);
-    EXPECT_EQ(scanner._table_reader_format, "paimon");
-    const auto* first_reader = scanner._table_reader.get();
-    ASSERT_NE(first_reader, nullptr);
-
-    // A second range of the same format reuses it. Rebuilding here would be wasteful rather than
-    // wrong, but it would also throw away per-reader state the next split expects to still be there.
-    ASSERT_TRUE(scanner._rebuild_table_reader_if_format_changed(paimon_range, &rebuilt).ok());
-    EXPECT_FALSE(rebuilt);
-    EXPECT_EQ(scanner._table_reader.get(), first_reader);
-
-    // A range of another format must not be handed to the reader built for the first one.
-    ASSERT_TRUE(scanner._rebuild_table_reader_if_format_changed(hive_range, &rebuilt).ok());
-    EXPECT_TRUE(rebuilt);
-    EXPECT_EQ(scanner._table_reader_format, "hive");
-    EXPECT_NE(scanner._table_reader.get(), first_reader);
-
-    // And back again, because the ranges of a mixed node arrive interleaved rather than grouped.
-    ASSERT_TRUE(scanner._rebuild_table_reader_if_format_changed(paimon_range, &rebuilt).ok());
-    EXPECT_TRUE(rebuilt);
-    EXPECT_EQ(scanner._table_reader_format, "paimon");
-
-    // The formats really do get different readers -- otherwise every assertion above would hold
-    // just as well for a scanner that never rebuilt anything.
-    std::unique_ptr<format::TableReader> as_paimon;
-    std::unique_ptr<format::TableReader> as_hive;
-    ASSERT_TRUE(scanner._create_table_reader_for_format(paimon_range, &as_paimon).ok());
-    ASSERT_TRUE(scanner._create_table_reader_for_format(hive_range, &as_hive).ok());
-    const format::TableReader& paimon_reader = *as_paimon;
-    const format::TableReader& hive_reader = *as_hive;
-    EXPECT_STRNE(typeid(paimon_reader).name(), typeid(hive_reader).name());
 }
 
 TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {

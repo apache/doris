@@ -2,7 +2,7 @@
 -- !test_pull_up_literal1 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((col1 = ds.col1) and (col2 = ds.col2)) otherCondition=()
+----NestedLoopJoin[INNER_JOIN]
 ------PhysicalOneRowRelation
 ------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
 --------PhysicalOlapScan[test_pull_up_predicate_literal(ds)]
@@ -10,7 +10,7 @@ PhysicalResultSink
 -- !test_pull_up_literal2 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((col1 = ds.col1) and (col2 = ds.col2)) otherCondition=()
+----NestedLoopJoin[INNER_JOIN]
 ------PhysicalOneRowRelation
 ------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
 --------PhysicalOlapScan[test_pull_up_predicate_literal(ds)]

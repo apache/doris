@@ -229,7 +229,7 @@ static void add_rowset(int64_t tablet_id, int32_t schema_hash, int64_t partition
     ASSERT_TRUE(res.ok());
     res = delta_writer->wait_calc_delete_bitmap();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->commit_txn(PSlaveTabletNodes());
+    res = delta_writer->commit_txn();
     ASSERT_TRUE(res.ok()) << res;
 
     TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(tablet_id);

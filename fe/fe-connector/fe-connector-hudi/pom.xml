@@ -48,6 +48,13 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <!-- For @ConnectorProperty + ConnectorPropertiesUtils (typed-holder binding; D-004). -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-foundation</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- Thrift types for constructing TTableFormatFileDesc in populateRangeParams -->
         <dependency>
             <groupId>${project.groupId}</groupId>
@@ -126,6 +133,28 @@ under the License.
             <artifactId>hudi-hadoop-mr</artifactId>
         </dependency>
 
+        <!-- PARENT-FIRST NOTE, read before the hadoop comments below. org.apache.hadoop. is in
+             ConnectorPluginManager.CONNECTOR_PARENT_FIRST_PREFIXES (added for the credential-aware
+             FileSystem cache: the kernel's Doris-patched org.apache.hadoop.fs.FileSystem keys
+             FileSystem.CACHE on doris.fs.cache.key.<scheme>, and a child-loaded vanilla copy would
+             silently ignore it), so the FE kernel's class wins for everything under that namespace.
+             It is a delegation ORDER, not an exclusion — whatever the kernel lacks still falls back to
+             the jars declared here, which is how org.apache.hadoop.hbase.* and org.apache.hadoop.hive.*
+             keep coming from the plugin. Two consequences for the comments that follow: the cross-loader
+             cast/LinkageError failures they record are HISTORY (FileSystem, Configuration and the FS
+             impls now come from one and the same loader), and the dependencies nevertheless stay,
+             because they remain this plugin's own compile/runtime closure, they are what the fallback
+             resolves against, and the intended end state — see that constant's javadoc — is an FE kernel
+             with no hadoop classes at all, where child-first resumes and self-containment is
+             load-bearing again. Every hadoop-namespace artifact declared here resolves to the same GAV
+             as the kernel's, which is what makes the shadowing a no-op. The same applies to the
+             META-INF/services/org.apache.hadoop.fs.FileSystem registrations these jars carry:
+             hadoop-deps' DORIS-PATCH binds FileSystem.loadFileSystems' ServiceLoader to
+             FileSystem.class's own (kernel) loader, so discovery runs off the kernel's service files;
+             the plugin's entries are a subset of those, and the schemes this plugin routes are pinned
+             through fs.<scheme>.impl anyway. Non-hadoop namespaces (software.amazon.awssdk and
+             org.apache.parquet in particular) are NOT parent-first. -->
+
         <!-- hadoop-hdfs-client supplies org.apache.hadoop.hdfs.DistributedFileSystem + its
              META-INF/services/org.apache.hadoop.fs.FileSystem 'hdfs' registration, needed whenever the
              connector opens an hdfs:// table base path to read the .hoodie timeline
@@ -159,9 +188,11 @@ under the License.
              jar in this plugin (the fe-connector-hms-hive-shade slim shade carries none either) provides an
              un-relocated org.apache.parquet.hadoop.* — so the
              un-relocated ParquetFileReader would otherwise resolve from the parent 'app' loader while
-             ParquetUtils and Configuration come from the child (org.apache.hadoop is child-first here, from the
-             bundled hadoop-common) — readFooter's Configuration parameter then splits across two loaders and the
-             JVM throws a LinkageError (loader constraint violation on org.apache.hadoop.conf.Configuration).
+             ParquetUtils and Configuration came from the child (org.apache.hadoop was child-first then, from
+             the bundled hadoop-common; it is parent-first now — see the PARENT-FIRST NOTE above, which
+             removes the Configuration half of this split) — readFooter's Configuration parameter then split
+             across two loaders and the JVM threw a LinkageError (loader constraint violation on
+             org.apache.hadoop.conf.Configuration).
              Co-locating parquet child-first here — the SAME FIX-PAIMON-HADOOP-CLASSLOADER pattern as hadoop-aws
              below — keeps ParquetFileReader + Configuration in one loader. parquet-hadoop pulls its
              parquet-column/common/encoding/format-structures/jackson siblings transitively; versions are
@@ -180,8 +211,9 @@ under the License.
              connector opens the table base path on the FE to read the .hoodie timeline
              (HudiScanPlanProvider.buildMetaClient -> HoodieTableMetaClient.getStorage -> FileSystem.get). The
              base org.apache.hadoop.fs.FileSystem comes from hadoop-common (bundled transitively via hudi
-             above); the plugin runs child-first (org.apache.hadoop is NOT in ChildFirstClassLoader's
-             parent-first allowlist), so bundling hadoop-common WITHOUT hadoop-aws left FileSystem in the child
+             above); the plugin ran child-first then (org.apache.hadoop was not yet in ChildFirstClassLoader's
+             parent-first allowlist — see the PARENT-FIRST NOTE above),
+             so bundling hadoop-common WITHOUT hadoop-aws left FileSystem in the child
              loader while S3AFileSystem resolved from the parent 'app' loader (fe-core's own hadoop-aws) —
              FileSystem.createFileSystem's cast then threw "S3AFileSystem cannot be cast to FileSystem" (the
              SAME FIX-PAIMON-HADOOP-CLASSLOADER split iceberg/paimon already carry). Co-locating S3AFileSystem

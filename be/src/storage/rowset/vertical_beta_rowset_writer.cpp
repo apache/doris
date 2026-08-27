@@ -159,21 +159,22 @@ Status VerticalBetaRowsetWriter<T>::flush_columns(bool is_key) {
     return Status::OK();
 }
 
-template <class T>
-    requires std::is_base_of_v<BaseBetaRowsetWriter, T>
-Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
+template <class WriterType>
+    requires std::is_base_of_v<BaseBetaRowsetWriter, WriterType>
+Status VerticalBetaRowsetWriter<WriterType>::_create_segment_writer(
         const std::vector<uint32_t>& column_ids, bool is_key,
         std::unique_ptr<segment_v2::SegmentWriter>* writer) {
     auto& context = this->_context;
 
-    int seg_id = this->_num_segment.fetch_add(1, std::memory_order_relaxed);
+    const int32_t seg_id = DORIS_TRY(WriterType::allocate_segment_id());
+    this->_num_segment.fetch_add(1, std::memory_order_relaxed);
 
     io::FileWriterPtr segment_file_writer;
     RETURN_IF_ERROR(BaseBetaRowsetWriter::create_file_writer(seg_id, segment_file_writer));
     DCHECK(segment_file_writer != nullptr);
 
     IndexFileWriterPtr index_file_writer;
-    if (context.tablet_schema->has_inverted_index() || context.tablet_schema->has_ann_index()) {
+    if (context.tablet_schema->has_inverted_or_ann_index()) {
         RETURN_IF_ERROR(this->create_index_file_writer(seg_id, &index_file_writer));
     }
 
@@ -188,7 +189,7 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
             context.data_dir, writer_options, index_file_writer.get());
 
     RETURN_IF_ERROR(this->_seg_files.add(seg_id, std::move(segment_file_writer)));
-    if (context.tablet_schema->has_inverted_index() || context.tablet_schema->has_ann_index()) {
+    if (context.tablet_schema->has_inverted_or_ann_index()) {
         RETURN_IF_ERROR(this->_idx_files.add(seg_id, std::move(index_file_writer)));
     }
 
@@ -199,6 +200,24 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
         return s;
     }
     return Status::OK();
+}
+
+template <class T>
+    requires std::is_base_of_v<BaseBetaRowsetWriter, T>
+Status VerticalBetaRowsetWriter<T>::build(RowsetSharedPtr& rowset) {
+    const int32_t next_segment_id = T::get_allocated_segment_id();
+    const int32_t segment_num = this->_num_segment.load(std::memory_order_relaxed);
+    DORIS_CHECK_EQ(next_segment_id - this->_segment_start_id, segment_num);
+    if (this->_segment_start_id != 0) {
+        std::vector<int64_t> segment_ids;
+        segment_ids.reserve(segment_num);
+        for (int32_t segment_id = this->_segment_start_id; segment_id < next_segment_id;
+             ++segment_id) {
+            segment_ids.push_back(segment_id);
+        }
+        this->_rowset_meta->set_segment_ids(segment_ids);
+    }
+    return T::build(rowset);
 }
 
 template <class T>

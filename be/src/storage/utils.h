@@ -40,6 +40,7 @@ static const std::string VERSION_COL = "__DORIS_VERSION_COL__";
 static const std::string SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
 static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
 static const std::string COMMIT_TSO_COL = "__DORIS_COMMIT_TSO_COL__";
+static const std::string ROW_LSN_COL = "__DORIS_ROW_LSN_COL__";
 static const std::string BINLOG_TSO_COL = "__DORIS_BINLOG_TSO__";
 static const std::string BINLOG_LSN_COL = "__DORIS_BINLOG_LSN__";
 static const std::string BINLOG_OP_COL = "__DORIS_BINLOG_OP__";
@@ -222,25 +223,6 @@ struct RowLocation {
 };
 using RowLocationSet = std::set<RowLocation>;
 using RowLocationPairList = std::list<std::pair<RowLocation, RowLocation>>;
-
-struct GlobalRowLoacation {
-    GlobalRowLoacation(int64_t tid, RowsetId rsid, uint32_t sid, uint32_t rid)
-            : tablet_id(tid), row_location(rsid, sid, rid) {}
-    int64_t tablet_id;
-    RowLocation row_location;
-
-    bool operator==(const GlobalRowLoacation& rhs) const {
-        return tablet_id == rhs.tablet_id && row_location == rhs.row_location;
-    }
-
-    bool operator<(const GlobalRowLoacation& rhs) const {
-        if (tablet_id != rhs.tablet_id) {
-            return tablet_id < rhs.tablet_id;
-        } else {
-            return row_location < rhs.row_location;
-        }
-    }
-};
 
 struct GlobalRowLoacationV2 {
     GlobalRowLoacationV2(uint8_t ver, uint64_t bid, uint32_t fid, uint32_t rid)

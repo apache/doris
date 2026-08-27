@@ -44,7 +44,11 @@ AnnIndexColumnWriter::AnnIndexColumnWriter(IndexFileWriter* index_file_writer,
 AnnIndexColumnWriter::~AnnIndexColumnWriter() = default;
 
 Status AnnIndexColumnWriter::init() {
-    Result<std::shared_ptr<DorisFSDirectory>> compound_dir = _index_file_writer->open(_index_meta);
+    // The staging directory, not necessarily a filesystem one: under SNII the
+    // faiss output is held in memory until begin_close() seals it into the
+    // container as a blob. Only the write side is used either way.
+    Result<std::shared_ptr<lucene::store::Directory>> compound_dir =
+            _index_file_writer->open_ann_directory(_index_meta);
 
     if (!compound_dir.has_value()) {
         return Status::IOError("Failed to open index file: {}", compound_dir.error().to_string());
@@ -167,6 +171,17 @@ Status AnnIndexColumnWriter::_build_and_save(Int64 min_train_rows, Int64 effecti
     // full-segment build buffer is released before saving the index.
     PODArray<float> empty_buffered_vectors;
     _buffered_vectors.swap(empty_buffered_vectors);
-    return _vector_index->save(_dir.get());
+    Status status = _vector_index->save(_dir.get());
+    if (!status.ok()) {
+        // A failed save keeps whatever it managed to write, and under SNII that is
+        // an ANN-sized staging file plus its descriptor. Nothing downstream
+        // unwinds it: the segment flush returns before clear() and
+        // close_inverted_index(), and ADD INDEX holds every producer until the
+        // whole rowset has been closed. Drop BOTH owners of the staging area here
+        // -- the index file writer's, and this writer's own.
+        _index_file_writer->discard_ann_staging_directory(_index_meta);
+        _dir.reset();
+    }
+    return status;
 }
 } // namespace doris::segment_v2

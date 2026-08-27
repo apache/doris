@@ -41,6 +41,10 @@ CloudRowsetWriter::~CloudRowsetWriter() {
 
 Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
+    // Row-binlog writer or a schema carrying ROW_LSN_COL needs allocated LSN.
+    _context._need_allocate_lsn =
+            _context.write_binlog_opt().enable ||
+            (_context.tablet_schema != nullptr && _context.tablet_schema->row_lsn_col_idx() >= 0);
     _rowset_meta = std::make_shared<RowsetMeta>();
 
     if (_context.is_local_rowset()) {
@@ -75,6 +79,9 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
     }
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
     _rowset_meta->set_job_id(_context.job_id);
+    if (_context.write_binlog_opt().enable) {
+        _rowset_meta->mark_row_binlog();
+    }
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
     if (_context.mow_context != nullptr) {
@@ -83,12 +90,14 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
     return Status::OK();
 }
 
-Status CloudRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num) {
+Status CloudRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num,
+                                             std::vector<int64_t>* completed_segment_ids) {
     VLOG_NOTICE << "start to build rowset meta. tablet_id=" << rowset_meta->tablet_id()
                 << ", rowset_id=" << rowset_meta->rowset_id()
                 << ", check_segment_num=" << check_segment_num;
     // Call base class implementation
-    RETURN_IF_ERROR(BaseBetaRowsetWriter::_build_rowset_meta(rowset_meta, check_segment_num));
+    RETURN_IF_ERROR(BaseBetaRowsetWriter::_build_rowset_meta(rowset_meta, check_segment_num,
+                                                             completed_segment_ids));
 
     // Collect packed file segment index information for interim rowsets as well.
     return _collect_all_packed_slice_locations(rowset_meta);
@@ -145,7 +154,7 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
     } else {
         _rowset_meta->add_segments_file_size(seg_file_size.value());
     }
-    if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
+    if (_context.tablet_schema->has_inverted_or_ann_index()) {
         if (auto idx_files_info = _idx_files.inverted_index_file_info(_segment_start_id);
             !idx_files_info.has_value()) [[unlikely]] {
             LOG(ERROR) << "expected inverted index files info, but none presents: "

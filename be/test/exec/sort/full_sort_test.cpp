@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <random>
 #include <utility>
@@ -63,6 +64,13 @@ struct FullSorterTest : public testing::Test {
     std::vector<bool> nulls_first {false};
 };
 
+TEST(SorterReserveMemoryTest, TotalSaturatesOnOverflow) {
+    SorterReserveMemory reservation {.retained_growth = std::numeric_limits<size_t>::max() - 1,
+                                     .transient_workspace = 2};
+
+    EXPECT_EQ(std::numeric_limits<size_t>::max(), reservation.total());
+}
+
 TEST_F(FullSorterTest, test_full_sorter1) {
     sorter = FullSorter::create_unique(ordering_expr_ctxs, -1, 0, &pool, is_asc_order, nulls_first,
                                        *row_desc, &_state, nullptr);
@@ -92,6 +100,20 @@ TEST_F(FullSorterTest, test_full_sorter2) {
     }
 
     std::cout << sorter->get_reserve_mem_size(&_state, false) << std::endl;
+}
+
+TEST_F(FullSorterTest, EosReservationIncludesForcedSortBelowAppendThresholds) {
+    sorter = FullSorter::create_unique(ordering_expr_ctxs, -1, 0, &pool, is_asc_order, nulls_first,
+                                       *row_desc, &_state, nullptr);
+    Block block = ColumnHelper::create_block<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1});
+    const size_t buffered_bytes = block.bytes();
+    const size_t buffered_rows = block.rows();
+    ASSERT_TRUE(sorter->append_block(&block).ok());
+
+    const auto reservation = sorter->get_reserve_mem_size_components(&_state, true, 0, 0);
+
+    EXPECT_GE(reservation.transient_workspace,
+              buffered_bytes + buffered_rows * sizeof(IColumn::Permutation::value_type));
 }
 
 TEST_F(FullSorterTest, test_full_sorter3) {

@@ -25,6 +25,7 @@
 #include "meta-service/meta_service_http.h"
 #include "meta-store/keys.h"
 #include "meta-store/mem_txn_kv.h"
+#include "meta-store/versioned_value.h"
 
 using namespace doris::cloud;
 
@@ -241,6 +242,20 @@ txn_id=126419752960)",
             return {pb.SerializeAsString()};
         },
         R"({"rowset_id":"0","tablet_id":"10010","txn_id":"10086","start_version":"2","end_version":"2","rowset_id_v2":"rowset_id_1"})",
+    },
+    Input {
+        "TableStreamOffsetKey",
+        "instance_id=gavin-instance&base_db_id=10000&base_table_id=20000&stream_db_id=30000&stream_id=40000&partition_id=50000",
+        {hex(table_stream_offset_key({"gavin-instance", 10000, 20000, 30000, 40000, 50000}))},
+        []() -> std::vector<std::string> {
+            TableStreamOffsetPB pb;
+            pb.set_partition_id(50000);
+            pb.set_state(TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING);
+            pb.set_offset_tso(123);
+            pb.set_last_consumption_time_ms(456);
+            return {pb.SerializeAsString()};
+        },
+        R"({"partition_id":"50000","state":"TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING","offset_tso":"123","last_consumption_time_ms":"456"})",
     },
     Input {
         "MetaTabletKey",
@@ -856,6 +871,21 @@ static auto versioned_test_inputs = std::array {
         R"({"store_in_fdb":false})",
     },
     Input {
+        "VersionedTableStreamOffsetKey",
+        "instance_id=gavin-instance&base_db_id=10000&base_table_id=20000&stream_db_id=30000&stream_id=40000&partition_id=50000",
+        {hex(versioned::table_stream_offset_key(
+                {"gavin-instance", 10000, 20000, 30000, 40000, 50000}))},
+        []() -> std::vector<std::string> {
+            TableStreamOffsetPB pb;
+            pb.set_partition_id(50000);
+            pb.set_state(TABLE_STREAM_OFFSET_CONSUMED);
+            pb.set_offset_tso(789);
+            pb.set_last_consumption_time_ms(987);
+            return {pb.SerializeAsString()};
+        },
+        R"({"partition_id":"50000","state":"TABLE_STREAM_OFFSET_CONSUMED","offset_tso":"789","last_consumption_time_ms":"987"})",
+    },
+    Input {
         "VersionedDataRowsetRefCountKey",
         "instance_id=gavin-instance&tablet_id=10086&rowset_id=rowset_1",
         {"031064617461000110676176696e2d696e7374616e6365000110726f777365745f7265665f636f756e74000112000000000000276610726f777365745f310001"},
@@ -1049,6 +1079,186 @@ TEST(HttpSetValueTest, process_http_set_value_versioned_key_test) {
     int64_t retrieved_count = 0;
     std::memcpy(&retrieved_count, ref_count_value.data(), sizeof(int64_t));
     EXPECT_EQ(retrieved_count, 42);
+}
+
+TEST(HttpTableStreamOffsetTest, get_and_set_latest_and_versioned_offsets) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    TableStreamOffsetPB latest_offset;
+    latest_offset.set_partition_id(50000);
+    latest_offset.set_state(TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING);
+    latest_offset.set_offset_tso(123);
+
+    brpc::Controller latest_controller;
+    brpc::URI latest_uri;
+    ASSERT_EQ(latest_uri.SetHttpURL(
+                      "localhost:5000/MetaService/http?key_type=TableStreamOffsetKey&instance_"
+                      "id=gavin-instance&base_db_id=10000&base_table_id=20000&stream_db_id=30000&"
+                      "stream_id=40000&partition_id=50000"),
+              0);
+    latest_controller.http_request().uri() = latest_uri;
+    latest_controller.request_attachment().append(proto_to_json(latest_offset));
+    auto http_res = process_http_set_value(txn_kv.get(), &latest_controller);
+    ASSERT_EQ(http_res.status_code, 200) << http_res.body;
+
+    http_res = process_http_get_value(txn_kv.get(), latest_uri);
+    ASSERT_EQ(http_res.status_code, 200) << http_res.body;
+    EXPECT_EQ(http_res.body, proto_to_json(latest_offset));
+
+    TableStreamOffsetPB versioned_offset;
+    versioned_offset.set_partition_id(50000);
+    versioned_offset.set_state(TABLE_STREAM_OFFSET_CONSUMED);
+    versioned_offset.set_offset_tso(789);
+    versioned_offset.set_last_consumption_time_ms(987);
+
+    brpc::Controller versioned_controller;
+    brpc::URI versioned_uri;
+    ASSERT_EQ(versioned_uri.SetHttpURL(
+                      "localhost:5000/MetaService/http?key_type=VersionedTableStreamOffsetKey&"
+                      "instance_id=gavin-instance&base_db_id=10000&base_table_id=20000&stream_db_"
+                      "id=30000&stream_id=40000&partition_id=50000&versionstamp="
+                      "00000000000000010001"),
+              0);
+    versioned_controller.http_request().uri() = versioned_uri;
+    versioned_controller.request_attachment().append(proto_to_json(versioned_offset));
+    http_res = process_http_set_value(txn_kv.get(), &versioned_controller);
+    ASSERT_EQ(http_res.status_code, 200) << http_res.body;
+
+    TableStreamOffsetPB newer_versioned_offset = versioned_offset;
+    newer_versioned_offset.set_offset_tso(890);
+    newer_versioned_offset.set_last_consumption_time_ms(988);
+    brpc::Controller newer_versioned_controller;
+    brpc::URI newer_versioned_uri;
+    ASSERT_EQ(newer_versioned_uri.SetHttpURL(
+                      "localhost:5000/MetaService/http?key_type=VersionedTableStreamOffsetKey&"
+                      "instance_id=gavin-instance&base_db_id=10000&base_table_id=20000&stream_db_"
+                      "id=30000&stream_id=40000&partition_id=50000&versionstamp="
+                      "00000000000000020001"),
+              0);
+    newer_versioned_controller.http_request().uri() = newer_versioned_uri;
+    newer_versioned_controller.request_attachment().append(proto_to_json(newer_versioned_offset));
+    http_res = process_http_set_value(txn_kv.get(), &newer_versioned_controller);
+    ASSERT_EQ(http_res.status_code, 200) << http_res.body;
+
+    brpc::URI versioned_get_uri;
+    ASSERT_EQ(versioned_get_uri.SetHttpURL(
+                      "localhost:5000/MetaService/http?key_type=VersionedTableStreamOffsetKey&"
+                      "instance_id=gavin-instance&base_db_id=10000&base_table_id=20000&stream_db_"
+                      "id=30000&stream_id=40000&partition_id=50000"),
+              0);
+    http_res = process_http_get_value(txn_kv.get(), versioned_get_uri);
+    ASSERT_EQ(http_res.status_code, 200) << http_res.body;
+    EXPECT_NE(http_res.body.find(proto_to_json(newer_versioned_offset)), std::string::npos);
+    EXPECT_NE(http_res.body.find("versionstamp=00000000000000020001"), std::string::npos);
+
+    // Versioned reads use an exclusive snapshot bound. Reading at the second version therefore
+    // returns the first value and proves that writing the second version did not overwrite it.
+    brpc::URI first_version_get_uri;
+    ASSERT_EQ(first_version_get_uri.SetHttpURL(
+                      "localhost:5000/MetaService/http?key_type=VersionedTableStreamOffsetKey&"
+                      "instance_id=gavin-instance&base_db_id=10000&base_table_id=20000&stream_db_"
+                      "id=30000&stream_id=40000&partition_id=50000&versionstamp="
+                      "00000000000000020001"),
+              0);
+    http_res = process_http_get_value(txn_kv.get(), first_version_get_uri);
+    ASSERT_EQ(http_res.status_code, 200) << http_res.body;
+    EXPECT_NE(http_res.body.find(proto_to_json(versioned_offset)), std::string::npos);
+    EXPECT_NE(http_res.body.find("versionstamp=00000000000000010001"), std::string::npos);
+}
+
+TEST(HttpTableStreamOffsetTest, reject_missing_offset_key_parameters) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    brpc::URI latest_uri;
+    ASSERT_EQ(latest_uri.SetHttpURL(
+                      "localhost:5000/MetaService/http?key_type=TableStreamOffsetKey&instance_"
+                      "id=gavin-instance&base_db_id=10000&base_table_id=20000&stream_db_id=30000&"
+                      "stream_id=40000"),
+              0);
+    auto http_res = process_http_get_value(txn_kv.get(), latest_uri);
+    EXPECT_EQ(http_res.status_code, 400);
+    EXPECT_NE(http_res.body.find("partition_id is not given or empty"), std::string::npos);
+
+    TableStreamOffsetPB offset;
+    offset.set_partition_id(50000);
+    offset.set_state(TABLE_STREAM_OFFSET_CONSUMED);
+    offset.set_offset_tso(789);
+    brpc::URI versioned_uri;
+    ASSERT_EQ(versioned_uri.SetHttpURL(
+                      "localhost:5000/MetaService/http?key_type=VersionedTableStreamOffsetKey&"
+                      "instance_id=gavin-instance&base_db_id=10000&base_table_id=20000&stream_db_"
+                      "id=30000&partition_id=50000&versionstamp=00000000000000010001"),
+              0);
+    brpc::Controller controller;
+    controller.http_request().uri() = versioned_uri;
+    controller.request_attachment().append(proto_to_json(offset));
+    http_res = process_http_set_value(txn_kv.get(), &controller);
+    EXPECT_EQ(http_res.status_code, 400);
+    EXPECT_NE(http_res.body.find("stream_id is not given or empty"), std::string::npos);
+}
+
+TEST(HttpTableStreamOffsetTest, reject_malformed_offset_values) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    brpc::URI latest_set_uri;
+    ASSERT_EQ(latest_set_uri.SetHttpURL(
+                      "localhost:5000/MetaService/http?key_type=TableStreamOffsetKey&instance_"
+                      "id=gavin-instance&base_db_id=10000&base_table_id=20000&stream_db_id=30000&"
+                      "stream_id=40000&partition_id=50000"),
+              0);
+    brpc::Controller latest_set_controller;
+    latest_set_controller.http_request().uri() = latest_set_uri;
+    latest_set_controller.request_attachment().append("{not-json");
+    auto http_res = process_http_set_value(txn_kv.get(), &latest_set_controller);
+    EXPECT_EQ(http_res.status_code, 400);
+    EXPECT_NE(http_res.body.find("invalid input json value"), std::string::npos);
+
+    brpc::URI versioned_set_uri;
+    ASSERT_EQ(versioned_set_uri.SetHttpURL(
+                      "localhost:5000/MetaService/http?key_type=VersionedTableStreamOffsetKey&"
+                      "instance_id=gavin-instance&base_db_id=10000&base_table_id=20000&stream_db_"
+                      "id=30000&stream_id=40000&partition_id=50000&versionstamp="
+                      "00000000000000010001"),
+              0);
+    brpc::Controller versioned_set_controller;
+    versioned_set_controller.http_request().uri() = versioned_set_uri;
+    versioned_set_controller.request_attachment().append("{not-json");
+    http_res = process_http_set_value(txn_kv.get(), &versioned_set_controller);
+    EXPECT_EQ(http_res.status_code, 400);
+    EXPECT_NE(http_res.body.find("invalid input json value"), std::string::npos);
+
+    const std::string latest_key =
+            table_stream_offset_key({"gavin-instance", 10000, 20000, 30000, 40000, 50000});
+    const std::string versioned_key = versioned::table_stream_offset_key(
+            {"gavin-instance", 10000, 20000, 30000, 40000, 50000});
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(latest_key, "\xff");
+    versioned_put(txn.get(), versioned_key, Versionstamp(1, 1), "\xff");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    brpc::URI latest_uri;
+    ASSERT_EQ(latest_uri.SetHttpURL(
+                      "localhost:5000/MetaService/http?key_type=TableStreamOffsetKey&instance_"
+                      "id=gavin-instance&base_db_id=10000&base_table_id=20000&stream_db_id=30000&"
+                      "stream_id=40000&partition_id=50000"),
+              0);
+    http_res = process_http_get_value(txn_kv.get(), latest_uri);
+    EXPECT_EQ(http_res.status_code, 400);
+    EXPECT_NE(http_res.body.find("failed to parse value"), std::string::npos);
+
+    brpc::URI versioned_uri;
+    ASSERT_EQ(versioned_uri.SetHttpURL(
+                      "localhost:5000/MetaService/http?key_type=VersionedTableStreamOffsetKey&"
+                      "instance_id=gavin-instance&base_db_id=10000&base_table_id=20000&stream_db_"
+                      "id=30000&stream_id=40000&partition_id=50000"),
+              0);
+    http_res = process_http_get_value(txn_kv.get(), versioned_uri);
+    EXPECT_EQ(http_res.status_code, 400);
+    EXPECT_NE(http_res.body.find("failed to parse versioned value"), std::string::npos);
 }
 
 TEST(HttpEncodeKeyTest, parse_versionstamp_from_uri_test) {

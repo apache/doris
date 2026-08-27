@@ -54,7 +54,6 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
     private static final Logger LOG = LogManager.getLogger(BaseExternalTableInsertExecutor.class);
     protected TransactionStatus txnStatus = TransactionStatus.ABORTED;
     protected final TransactionManager transactionManager;
-    protected final String catalogName;
     protected Optional<SummaryProfile> summaryProfile = Optional.empty();
 
     /**
@@ -65,7 +64,6 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
                                            Optional<InsertCommandContext> insertCtx,
                                            boolean emptyInsert, long jobId) {
         super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId);
-        catalogName = table.getCatalog().getName();
         transactionManager = table.getCatalog().getTransactionManager();
 
         if (ConnectContext.get().getExecutor() != null) {
@@ -126,8 +124,13 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
             txnStatus = TransactionStatus.COMMITTED;
             long t2 = System.currentTimeMillis();
 
-            // Handle post-commit operations (e.g., cache refresh)
-            doAfterCommit();
+            try {
+                doAfterCommit();
+            } catch (Exception e) {
+                // Cache refresh cannot undo a durable remote commit, so it must not make clients retry the write.
+                LOG.warn("Post-commit refresh failed for table {}. Data was committed successfully.",
+                        table.getName(), e);
+            }
             long t3 = System.currentTimeMillis();
             LOG.info("Transaction commit breakdown: doBeforeCommit={}ms, commit={}ms, doAfterCommit={}ms, total={}ms",
                     t1 - t0, t2 - t1, t3 - t2, t3 - t0);
@@ -138,15 +141,20 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
     /**
      * Called after transaction commit.
      * Subclasses can override this to customize post-commit behavior.
-     * Default: full table refresh.
+     * Default: persist the mutation for replay, then refresh the full table.
      */
     protected void doAfterCommit() throws DdlException {
-        // Default: full table refresh
-        Env.getCurrentEnv().getRefreshManager().handleRefreshTable(
-                catalogName,
-                table.getDatabase().getFullName(),
-                table.getName(),
-                true);
+        Env.getCurrentEnv().getRefreshManager().refreshTableAfterExternalMutation((ExternalTable) table);
+    }
+
+    @Override
+    protected void handleAfterCompleteFailure(Exception e) throws Exception {
+        if (txnStatus != TransactionStatus.COMMITTED) {
+            super.handleAfterCompleteFailure(e);
+            return;
+        }
+        // A post-commit listener cannot undo remote data, so failing the statement would invite duplicate retries.
+        LOG.warn("Post-commit listener failed for table {}. Data was committed successfully.", table.getName(), e);
     }
 
     @Override

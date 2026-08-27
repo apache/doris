@@ -181,6 +181,15 @@ struct FunctionEsquery {
     static std::string get_error_msg() { return "esquery only supported on es table"; }
 };
 
+class FunctionStack : public FunctionFake<UDTFImpl> {
+public:
+    static FunctionPtr create() { return std::make_shared<FunctionStack>(); }
+
+    bool skip_return_type_check() const override { return true; }
+
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {0}; }
+};
+
 template <typename FunctionImpl>
 void register_function(SimpleFunctionFactory& factory, const std::string& name) {
     factory.register_function<FunctionFake<FunctionImpl>>(name);
@@ -254,6 +263,7 @@ void register_table_function_with_impl(SimpleFunctionFactory& factory, const std
 
 void register_function_fake(SimpleFunctionFactory& factory) {
     register_function<FunctionEsquery>(factory, "esquery");
+    factory.register_function<FunctionStack>("stack");
 
     register_table_function_expand_outer<FunctionExplodeV2>(factory, "explode");
     register_table_alternative_function_expand_outer<FunctionExplode>(factory, "explode");

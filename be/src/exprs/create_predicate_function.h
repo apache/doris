@@ -20,13 +20,11 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/data_type/define_primitive_type.h"
-#include "exprs/function_filter.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
 #include "storage/predicate/bloom_filter_predicate.h"
 #include "storage/predicate/column_predicate.h"
 #include "storage/predicate/in_list_predicate.h"
-#include "storage/predicate/like_column_predicate.h"
 
 namespace doris {
 
@@ -171,60 +169,6 @@ inline HybridSetBase* create_string_value_set(size_t size, bool null_aware) {
 
 inline auto create_bloom_filter(PrimitiveType type, bool null_aware) {
     return create_predicate_function<BloomFilterTraits>(type, null_aware);
-}
-
-template <PrimitiveType PT>
-std::shared_ptr<const ColumnPredicate> create_olap_column_predicate(
-        uint32_t column_id, const std::shared_ptr<BloomFilterFuncBase>& filter, const TabletColumn*,
-        bool null_aware) {
-    std::shared_ptr<BloomFilterFuncBase> filter_olap;
-    filter_olap.reset(create_bloom_filter(PT, null_aware));
-    filter_olap->light_copy(filter.get());
-    // create a new filter to match the input filter and PT. For example, filter may be varchar, but PT is char
-    return BloomFilterColumnPredicate<PT>::create_shared(column_id, filter_olap);
-}
-
-template <PrimitiveType PT>
-std::shared_ptr<const ColumnPredicate> create_olap_column_predicate(
-        uint32_t column_id, const std::shared_ptr<HybridSetBase>& filter,
-        const TabletColumn* column, bool) {
-    return create_in_list_predicate<PT, PredicateType::IN_LIST>(column_id, filter,
-                                                                column->length());
-}
-
-template <PrimitiveType PT>
-std::shared_ptr<ColumnPredicate> create_olap_column_predicate(
-        uint32_t column_id, const std::shared_ptr<FunctionFilter>& filter,
-        const TabletColumn* column, bool) {
-    // currently only support like predicate
-    if constexpr (PT == TYPE_CHAR || PT == TYPE_VARCHAR || PT == TYPE_STRING) {
-        return LikeColumnPredicate::create_shared(filter->_opposite, column_id, column->name(),
-                                                  filter->_fn_ctx, filter->_string_param);
-    }
-    throw Exception(ErrorCode::INTERNAL_ERROR, "function filter do not support type {}", PT);
-}
-
-template <typename T>
-std::shared_ptr<ColumnPredicate> create_column_predicate(uint32_t column_id,
-                                                         const std::shared_ptr<T>& filter,
-                                                         FieldType type, const TabletColumn* column,
-                                                         bool null_aware = false) {
-    switch (type) {
-#define M(NAME)                                                                           \
-    case FieldType::OLAP_FIELD_##NAME: {                                                  \
-        return create_olap_column_predicate<NAME>(column_id, filter, column, null_aware); \
-    }
-        APPLY_FOR_PRIMTYPE(M)
-#undef M
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
-        return create_olap_column_predicate<TYPE_DECIMALV2>(column_id, filter, column, null_aware);
-    }
-    case FieldType::OLAP_FIELD_TYPE_BOOL: {
-        return create_olap_column_predicate<TYPE_BOOLEAN>(column_id, filter, column, null_aware);
-    }
-    default:
-        return nullptr;
-    }
 }
 
 } // namespace doris

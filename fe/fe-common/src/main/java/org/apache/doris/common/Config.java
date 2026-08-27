@@ -20,7 +20,6 @@ package org.apache.doris.common;
 import java.io.File;
 
 public class Config extends ConfigBase {
-
     @ConfField(description = "The path of the user-defined configuration file, used to store fe_custom.conf. "
             + "Configurations in this file will override those in fe.conf")
     public static String custom_config_dir = EnvUtils.getDorisHome() + "/conf";
@@ -132,6 +131,12 @@ public class Config extends ConfigBase {
             + "`DORIS_LOCAL_RESOURCE_GROUP` environment variable. An empty string " + "means unset.")
     public static String local_resource_group = "";
 
+    @ConfField(mutable = false,
+            description = "Whether to enable replica filtering based on location resource tags. If disabled, "
+                    + "invalid compute groups are still rejected, but replicas are no longer filtered by the "
+                    + "user's location resource tag.")
+    public static boolean enable_resource_tag_location_check = true;
+
     @ConfField(mutable = true, masterOnly = false,
             description = "PreparedStatement stmtId starting position, used for testing only")
     public static long prepared_stmt_start_id = -1;
@@ -217,6 +222,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = "The log roll size of BDBJE. When the number of log "
             + "entries exceeds this value, the log will be rolled")
     public static int edit_log_roll_num = 50000;
+
+    @ConfField(mutable = true, masterOnly = true, description = "The maximum interval in seconds between edit log "
+            + "rolls in cloud mode. A non-positive value disables time-based edit log rolling")
+    public static int cloud_edit_log_roll_interval_second = 3600;
 
     @ConfField(mutable = true, masterOnly = true, description = "The max number of log entries for batching BDBJE")
     public static int batch_edit_log_max_item_num = 100;
@@ -318,9 +327,25 @@ public class Config extends ConfigBase {
             + "BDBJE. The connection is abandoned if the clock skew is larger than this value.")
     public static long max_bdbje_clock_delta_ms = 5000; // 5s
 
-    @ConfField(mutable = true, description = "Whether to enable "
-            + "authentication for all HTTP " + "interfaces", varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_all_http_auth = false;
+    @ConfField(description = "Whether to enable authentication for all HTTP interfaces. On by default. "
+            + "While it is off, some HTTP interfaces (for example parts of the metadata, statistics "
+            + "and admin surface) serve requests without checking the caller's privileges, and a few "
+            + "(statistics and import endpoints) without any credentials at all. "
+            + "This config is deliberately NOT mutable: turning authentication off must be a recorded, "
+            + "on-disk decision in fe.conf that survives a restart, not a runtime command. "
+            + "Upgrade note: a cluster upgrading from a version where this defaulted to false may have "
+            + "callers that poll those interfaces anonymously (monitoring, metrics scrapers, ops "
+            + "scripts, health probes); those callers will start getting 401 until they present "
+            + "credentials. The fix is to give them credentials -- setting this back to false in "
+            + "fe.conf is a temporary migration aid that leaves those interfaces unauthenticated. "
+            + "Also check fe_custom.conf when upgrading: it is read after fe.conf and overwrites it, "
+            + "and in releases where this flag was mutable an 'ADMIN SET FRONTEND CONFIG' with "
+            + "persist=true could have written false into it. Making the flag non-mutable does not "
+            + "remove or migrate such a value, so a cluster can look clean in fe.conf and still start "
+            + "with authentication off; delete the entry from fe_custom.conf to pick up the new default. "
+            + "Security scanning and penetration testing must never be run with this off.",
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_all_http_auth = true;
 
     @ConfField(description = "Whether to enable FE unified TLS configuration. When enabled, protocols not listed in "
             + "tls_excluded_protocols will use TLS implementation.")
@@ -541,6 +566,10 @@ public class Config extends ConfigBase {
             + "a load job.")
     public static short min_load_replica_num = -1;
 
+    @ConfField(mutable = true, masterOnly = true, description = "Minimum number of successfully written replicas "
+            + "required in each resource group for a load job.")
+    public static volatile String[] resource_group_load_success_quorum = {};
+
     @ConfField(description = "The interval of the load job scheduler, in seconds.")
     public static int load_checker_interval_second = 5;
 
@@ -566,13 +595,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = "Randomly use V3 storage_format (ext_meta) for some "
             + "tables in fuzzy tests to increase coverage")
     public static boolean random_use_v3_storage_format = true;
-
-    @ConfField(mutable = true, masterOnly = true, description = "The stale threshold of checkpoint image file in "
-            + "cloud mode (in seconds). If the image file is older " + "than this threshold, a new checkpoint will be "
-            + "triggered even if there are no new journals. This " + "helps keep table version, partition version, and "
-            + "tablet stats in the image up-to-date. If the value "
-            + "is less than or equal to 0, this feature is disabled.")
-    public static long cloud_checkpoint_image_stale_threshold_seconds = 3600;
 
     @ConfField(mutable = true, masterOnly = true, description = "Wait for the internal batch to be written before "
             + "returning; insert into and stream load use group " + "commit by default.")
@@ -635,11 +657,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = "Whether to enable stream load profile")
     public static boolean enable_stream_load_profile = false;
-
-    @ConfField(mutable = true, masterOnly = true, description = "Whether to enable writing to a single replica for "
-            + "stream load and broker load.",
-            varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_single_replica_load = false;
 
     @ConfField(mutable = true, masterOnly = true, description = "Shuffle will not be enabled for DUPLICATE KEY tables "
             + "if their tablet count is lower than this number",
@@ -971,6 +988,11 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long tablet_schedule_high_priority_second = 30 * 60;
+
+    @ConfField(mutable = true, masterOnly = true,
+            description = "Whether optional backend selection policies may participate in repair clone source "
+                    + "selection. The default policy is a no-op and does not change repair behavior.")
+    public static boolean enable_repair_source_backend_selection = true;
 
     /**
      * publish version queue's size in be, report it to fe,
@@ -1969,7 +1991,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 11;
+    public static int max_be_exec_version = 13;
 
     /**
      * Min data version of backends serialize block.
@@ -2803,8 +2825,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean fix_tablet_partition_id_eq_0 = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = "Default storage format of inverted index, the "
-            + "default value is V3.")
+    @ConfField(mutable = true, masterOnly = true,
+            callback = InvertedIndexStorageFormatValidator.RuntimeConfigHandler.class,
+            description = "Default storage format of inverted index, the default value is V3.")
     public static String inverted_index_storage_format = "V3";
 
     @ConfField(mutable = true, masterOnly = true, description = "Enable the 'delete predicate' for DELETE statements. "
@@ -2931,6 +2954,16 @@ public class Config extends ConfigBase {
             + "offset state from table streams, in seconds.",
             varType = VariableAnnotation.EXPERIMENTAL)
     public static int table_stream_partition_offset_cleanup_interval_second = 3600;
+
+    @ConfField(mutable = true, masterOnly = true,
+            description = "Maximum number of Cloud Table Stream partitions consumed by one INSERT statement.",
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static int cloud_table_stream_max_partitions_per_insert = 10000;
+
+    @ConfField(mutable = true, masterOnly = true,
+            description = "Number of initial Cloud Table Stream partition offsets sent in one MetaService request.",
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static int cloud_table_stream_create_partition_batch_size = 1000;
 
     //==========================================================================
     //                    begin of cloud config
@@ -3322,6 +3355,13 @@ public class Config extends ConfigBase {
                     + "other BEs in cloud mode.")
     public static int rehash_tablet_after_be_dead_seconds = 3600;
 
+    @ConfField(mutable = true, masterOnly = false,
+            description = "Whether to drop the primary/secondary route entries of a CloudReplica whose backend no "
+                    + "longer exists, when loading the image and in the tablet rebalancer round. Those entries are "
+                    + "already ignored at query time (the replica is rehashed), so they only waste FE memory and "
+                    + "image size. Set to false to keep the legacy leaking behavior. Default is true.")
+    public static boolean enable_cloud_replica_stale_route_clean = true;
+
     @ConfField(mutable = false, masterOnly = true,
             description = "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. If false, "
                     + "use the legacy modulo placement. Restart-only.")
@@ -3385,7 +3425,12 @@ public class Config extends ConfigBase {
     public static int meta_service_rpc_timeout_retry_times = 1;
 
     @ConfField(mutable = true, description = "Whether to enable QPS rate limit for RPC requests to meta service.")
-    public static boolean meta_service_rpc_rate_limit_enabled = false;
+    public static boolean meta_service_rpc_rate_limit_enabled = true;
+
+    @ConfField(mutable = true, description = "Whether to only evaluate and report meta service RPC rate limits "
+            + "without waiting or rejecting requests. This takes effect only when meta service RPC rate limiting "
+            + "is enabled.")
+    public static boolean meta_service_rpc_rate_limit_dry_run = true;
 
     @ConfField(mutable = true, description = "Default QPS limit for each method (requests per second) in each cpu "
             + "core, non-positive value (<= 0) means no limit")
@@ -3532,6 +3577,9 @@ public class Config extends ConfigBase {
             + "variant.")
     public static boolean enable_inverted_index_v1_for_variant = false;
 
+    @ConfField(mutable = true, description = "Whether to enable ColumnVariantV2 for Variant execution and storage.")
+    public static boolean enable_variant_v2 = false;
+
     @ConfField(mutable = true, description = "Prometheus output table dimension metric count limit.")
     public static int prom_output_table_metrics_limit = 10000;
 
@@ -3543,15 +3591,33 @@ public class Config extends ConfigBase {
             + "data keys")
     public static String doris_tde_key_id = "";
 
-    @ConfField(mutable = true, description = "The endpoint of the KMS service, should match the region of the key")
+    @ConfField(mutable = true, description = "The endpoint of the KMS service. For cloud KMS, it should match the "
+            + "region of the key. For Ranger KMS, use a Hadoop KMS URI or HTTP(S) URL.")
     public static String doris_tde_key_endpoint = "";
 
     @ConfField(mutable = true, description = "The region where the KMS key is located, used for SDK configuration")
     public static String doris_tde_key_region = "";
 
-    @ConfField(mutable = true, description = "The key provider for TDE (Transparent Data Encryption), currently "
-            + "supports aws_kms")
+    @ConfField(mutable = true, description = "The key provider identifier for TDE (Transparent Data Encryption). "
+            + "Recognized values include aws_kms, aliyun_kms, ranger_kms, gcp_kms, azure_kms, and local. "
+            + "For local mode, doris_tde_root_key_file must be set to a key file path.")
     public static String doris_tde_key_provider = "";
+
+    @ConfField(description = "Path to the root key file for TDE local mode. The file content must be a "
+            + "Base64-encoded key.")
+    public static String doris_tde_root_key_file = "";
+
+    @ConfField(mutable = true, description = "The simple authentication user name for TDE Hadoop KMS")
+    public static String doris_tde_hadoop_user_name = "hadoop";
+
+    @ConfField(mutable = true, description = "The Kerberos principal for TDE Hadoop KMS")
+    public static String doris_tde_kerberos_principal = "";
+
+    @ConfField(mutable = true, description = "The Kerberos keytab path for TDE Hadoop KMS")
+    public static String doris_tde_kerberos_keytab = "";
+
+    @ConfField(mutable = true, description = "The Hadoop XML configuration directory for TDE Hadoop KMS")
+    public static String doris_tde_hadoop_conf_dir = "";
 
     @ConfField(mutable = true, description = "The encryption algorithm used for data. Default is AES256; may be set "
             + "to empty later for KMS to decide.")
@@ -3578,7 +3644,7 @@ public class Config extends ConfigBase {
     @ConfField
     public static String cloud_snapshot_handler_class = "org.apache.doris.cloud.snapshot.CloudSnapshotHandler";
     @ConfField
-    public static int cloud_snapshot_handler_interval_second = 3600;
+    public static int cloud_snapshot_handler_interval_second = 10;
     @ConfField(mutable = true)
     public static long cloud_snapshot_timeout_seconds = 600;
     @ConfField(mutable = true)

@@ -17,7 +17,6 @@
 
 package org.apache.doris.connector.trino;
 
-import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
 
 import com.google.common.collect.ImmutableMap;
@@ -28,7 +27,6 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.Map;
 
 /**
@@ -55,7 +53,10 @@ public class TrinoBootstrapTest {
     @Test
     public void perCatalogPropertyTakesPrecedence() {
         String resolved = TrinoBootstrap.resolvePluginDir(
-                ImmutableMap.of("trino.plugin.dir", "/custom/catalog/dir"), "/should/be/ignored");
+                TrinoCatalogProperties.of(ImmutableMap.of(
+                        TrinoCatalogProperties.CONNECTOR_NAME, "postgresql",
+                        TrinoCatalogProperties.PLUGIN_DIR, "/custom/catalog/dir")).getPluginDirOverride(),
+                "/should/be/ignored");
         Assertions.assertEquals("/custom/catalog/dir", resolved);
     }
 
@@ -64,7 +65,7 @@ public class TrinoBootstrapTest {
         // Exactly what the regression environment configures, delivered by the engine because the
         // plugin classloader cannot read FE Config.
         String resolved = TrinoBootstrap.resolvePluginDir(
-                Collections.emptyMap(), "/tmp/trino_connector/connectors");
+                "", "/tmp/trino_connector/connectors");
         Assertions.assertEquals("/tmp/trino_connector/connectors", resolved);
     }
 
@@ -79,7 +80,7 @@ public class TrinoBootstrapTest {
         installPluginIn(dorisHome, "plugins/connectors");
 
         String resolved = TrinoBootstrap.resolvePluginDir(
-                Collections.emptyMap(), dorisHome + "/plugins/trino_plugins");
+                "", dorisHome + "/plugins/trino_plugins");
         Assertions.assertEquals(dorisHome + "/plugins/trino_plugins", resolved);
     }
 
@@ -90,11 +91,11 @@ public class TrinoBootstrapTest {
         // but every query fails"; throwing keeps the cause at the point of breakage. The message names
         // both channels because after the migration either one could be the missing half.
         IllegalStateException e = Assertions.assertThrows(IllegalStateException.class,
-                () -> TrinoBootstrap.resolvePluginDir(Collections.emptyMap(), null));
+                () -> TrinoBootstrap.resolvePluginDir("", null));
         Assertions.assertTrue(e.getMessage().contains("trino-connector.conf"), e.getMessage());
         Assertions.assertTrue(e.getMessage().contains("trino_connector_plugin_dir"), e.getMessage());
         Assertions.assertThrows(IllegalStateException.class,
-                () -> TrinoBootstrap.resolvePluginDir(Collections.emptyMap(), ""));
+                () -> TrinoBootstrap.resolvePluginDir("", ""));
     }
 
     @Test
@@ -102,18 +103,15 @@ public class TrinoBootstrapTest {
         // The resolution the connector performs before calling resolvePluginDir. Asserted here rather
         // than trusted, because getting it backwards would make an administrator's edit to
         // trino-connector.conf silently do nothing while fe.conf still holds the old value.
-        Assertions.assertEquals("/from/plugin/conf", ConnectorConf.get(
-                context(ImmutableMap.of(TrinoConnectorProvider.CONF_PLUGIN_DIR, "/from/plugin/conf"),
-                        ImmutableMap.of(TrinoConnectorProvider.ENV_PLUGIN_DIR, "/from/fe/conf")),
-                TrinoConnectorProvider.CONF_PLUGIN_DIR, TrinoConnectorProvider.ENV_PLUGIN_DIR, null));
+        Assertions.assertEquals("/from/plugin/conf", TrinoConf.pluginDir(
+                context(ImmutableMap.of(TrinoConf.CONF_PLUGIN_DIR, "/from/plugin/conf"),
+                        ImmutableMap.of(TrinoConf.ENV_PLUGIN_DIR, "/from/fe/conf"))));
 
-        Assertions.assertEquals("/from/fe/conf", ConnectorConf.get(
+        Assertions.assertEquals("/from/fe/conf", TrinoConf.pluginDir(
                 context(ImmutableMap.of(),
-                        ImmutableMap.of(TrinoConnectorProvider.ENV_PLUGIN_DIR, "/from/fe/conf")),
-                TrinoConnectorProvider.CONF_PLUGIN_DIR, TrinoConnectorProvider.ENV_PLUGIN_DIR, null));
+                        ImmutableMap.of(TrinoConf.ENV_PLUGIN_DIR, "/from/fe/conf"))));
 
-        Assertions.assertNull(ConnectorConf.get(context(ImmutableMap.of(), ImmutableMap.of()),
-                TrinoConnectorProvider.CONF_PLUGIN_DIR, TrinoConnectorProvider.ENV_PLUGIN_DIR, null));
+        Assertions.assertNull(TrinoConf.pluginDir(context(ImmutableMap.of(), ImmutableMap.of())));
     }
 
     @Test

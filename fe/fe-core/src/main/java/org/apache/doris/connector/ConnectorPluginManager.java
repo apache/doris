@@ -82,8 +82,46 @@ public class ConnectorPluginManager {
 
     // Connector SPI and filesystem SPI classes must be parent-first so that all
     // instances of shared interfaces/classes are loaded by a single ClassLoader.
-    private static final List<String> CONNECTOR_PARENT_FIRST_PREFIXES =
-            Arrays.asList("org.apache.doris.connector.", "org.apache.doris.filesystem.");
+    //
+    // org.apache.hadoop. is parent-first so that the Doris-patched org.apache.hadoop.fs.FileSystem
+    // (hadoop-deps; its Cache.Key carries doris.fs.cache.key.<scheme>) reaches EVERY connector
+    // plugin, including a third-party or previous-release one that bundles vanilla hadoop-common.
+    // FE no longer sends the blanket fs.<scheme>.impl.disable.cache=true, and could not send it
+    // selectively either -- storage property maps are built before anyone knows which plugin
+    // consumes them -- so a plugin on an unpatched FileSystem would silently hand one cached client
+    // to catalogs that differ only in credentials.
+    //
+    // The prefix covers the namespace, not just that one class, because the JVM requires it: a
+    // plugin-loaded subclass such as org.apache.hadoop.hdfs.DistributedFileSystem overrides
+    // FileSystem.initialize(URI, Configuration), and both loaders must then resolve Configuration to
+    // the same Class or startup dies with "loader constraint violation".
+    //
+    // Parent-first is a delegation ORDER, not an exclusive claim: ChildFirstClassLoader falls back
+    // to the plugin's own jars for anything the parent lacks. So org.apache.hadoop.hbase.* (hudi)
+    // and org.apache.hadoop.hive.* still come from the plugin -- FE carries hive-exec:core, the
+    // plugins carry hive-metastore, and the class names do not intersect. Everything else the
+    // plugins bundle under this namespace does change provider: hadoop-common/auth/annotations/
+    // hdfs-client/aws, hadoop-shaded-guava and -protobuf, and the huaweicloud fs.obs.* classes
+    // (paimon), which the FE kernel ships too. All of them are the same artifact at the same
+    // version on both sides, and both versions are pinned in fe/pom.xml -- hadoop.version is
+    // additionally held by the maven-enforcer rule in be-java-extensions/hadoop-deps, huaweiobs
+    // .version only by dependencyManagement, so bumping either for one side alone silently hands
+    // the plugins the kernel's copy.
+    //
+    // The static state hanging off these now-shared classes matters as much as the classes: see the
+    // DORIS-PATCH in hadoop-deps' FileSystem.loadFileSystems, which binds the ServiceLoader scan to
+    // the class's own loader so that FileSystem.SERVICE_FILE_SYSTEMS -- a process-wide, first-caller
+    // -wins registry -- cannot be frozen by whichever plugin's context loader happens to touch it
+    // first.
+    //
+    // NOTE: the intended end state is an FE kernel with no hadoop classes at all, every plugin
+    // bringing its own. At that point the fallback above takes over on its own, and the plugin
+    // becomes responsible for shipping a patched FileSystem the same way the kernel does today.
+    //
+    // Package-private so ConnectorPluginHadoopPatchTest asserts against this list, not a copy of it.
+    static final List<String> CONNECTOR_PARENT_FIRST_PREFIXES =
+            Arrays.asList("org.apache.doris.connector.", "org.apache.doris.filesystem.",
+                    "org.apache.hadoop.");
 
     /** Family label in the process-wide {@link PluginRegistry}. */
     private static final String PLUGIN_FAMILY = "CONNECTOR";

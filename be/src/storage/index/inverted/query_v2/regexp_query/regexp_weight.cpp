@@ -41,6 +41,7 @@
 #include "storage/index/inverted/query_v2/nullable_scorer.h"
 #include "storage/index/inverted/query_v2/segment_postings.h"
 #include "storage/index/inverted/util/string_helper.h"
+#include "util/hyperscan_util.h"
 
 CL_NS_USE(index)
 
@@ -70,6 +71,9 @@ ScorerPtr RegexpWeight::scorer(const QueryExecutionContext& context,
 
 ScorerPtr RegexpWeight::regexp_scorer(const QueryExecutionContext& context,
                                       const std::string& binding_key) {
+    if (is_hyperscan_regexp_expensive(_pattern)) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, HYPERSCAN_BOUNDED_REPEAT_ERROR);
+    }
     auto prefix = get_regex_prefix(_pattern);
 
     hs_database_t* database = nullptr;

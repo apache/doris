@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminCancelRepairTableComma
 import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCleanTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCompactTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCopyTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCreateClusterSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminDropClusterSnapshotCommand;
@@ -238,6 +239,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcessListCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPythonPackagesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPythonVersionsCommand;
@@ -431,6 +433,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAdminCompactTableCommand(AdminCompactTableCommand adminCompactTableCommand, C context) {
         return visitCommand(adminCompactTableCommand, context);
+    }
+
+    default R visitAdminCompactTabletCommand(AdminCompactTabletCommand adminCompactTabletCommand, C context) {
+        return visitCommand(adminCompactTabletCommand, context);
     }
 
     default R visitAdminCleanTrashCommand(AdminCleanTrashCommand adminCleanTrashCommand, C context) {
@@ -775,6 +781,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowProcCommand(ShowProcCommand showProcCommand, C context) {
         return visitCommand(showProcCommand, context);
+    }
+
+    default R visitShowProcedureStatusCommand(ShowProcedureStatusCommand showProcedureStatusCommand, C context) {
+        return visitCommand(showProcedureStatusCommand, context);
     }
 
     default R visitShowDataCommand(ShowDataCommand showDataCommand, C context) {

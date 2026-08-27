@@ -60,6 +60,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -77,7 +78,7 @@ import java.util.Optional;
  * <p><b>WHY this matters:</b> at the P6.6 iceberg cutover, {@code ALTER TABLE t EXECUTE proc(...)} on an
  * iceberg table (then a {@code PluginDrivenExternalTable}) must route through the connector's
  * {@link ConnectorProcedureOps} instead of the legacy fe-core actions, while the engine keeps the
- * {@code ALTER} privilege check, the single-row {@code CommonResultSet} wrapping and the edit-log refresh
+ * {@code ALTER} privilege check, the committed-mutation fence and the single-row result wrapping
  * (D-062 §2). These tests pin that the dispatch threads the catalog's session/handle into
  * {@code getProcedureOps().execute(...)}, wraps the engine-neutral {@link ConnectorProcedureResult} back
  * into a {@code ResultSet}, surfaces the connector's {@link DorisConnectorException} as a
@@ -89,9 +90,6 @@ public class ConnectorExecuteActionTest {
     private static final String REMOTE_DB = "remote_db";
     private static final String REMOTE_TBL = "remote_tbl";
 
-    // execute() now refreshes the table's caches after a successful commit (H-6) via
-    // Env.getCurrentEnv().getRefreshManager().refreshTableInternal(...). Stub that statically for every test so
-    // the dispatch paths don't NPE, and so the refresh can be verified.
     private MockedStatic<Env> envStatic;
     private Env env;
     private RefreshManager refreshManager;
@@ -258,6 +256,7 @@ public class ConnectorExecuteActionTest {
                 .getLeft()).getColumnName());
         // The engine passes the connector's rendered rows straight through to the ResultSet.
         Assertions.assertEquals(Collections.singletonList(Arrays.asList("0", "0", "0", "0")), rs.getResultRows());
+        Mockito.verifyNoInteractions(refreshManager);
     }
 
     @Test
@@ -278,6 +277,23 @@ public class ConnectorExecuteActionTest {
         Assertions.assertEquals(UserException.class, e.getClass(),
                 "Re-wrap must use the plain UserException type the legacy action body threw (no extra errCode layer)");
         Assertions.assertEquals("Snapshot 7 not found in table remote_tbl", e.getDetailMessage());
+        Mockito.verifyNoInteractions(refreshManager);
+    }
+
+    @Test
+    public void executeReWrapsPostCommitRefreshConnectorException() {
+        Fixture f = new Fixture();
+        Mockito.when(f.procedureOps.execute(Mockito.any(), Mockito.any(), Mockito.anyString(),
+                        Mockito.anyMap(), Mockito.any(), Mockito.anyList()))
+                .thenReturn(twoColumnResult(Arrays.asList("100", "200")));
+        Mockito.doThrow(new DorisConnectorException("connector cache invalidation failed"))
+                .when(refreshManager).refreshTableAfterExternalMutation(f.table);
+
+        ConnectorExecuteAction action = new ConnectorExecuteAction("rollback_to_snapshot",
+                f.props, Optional.empty(), Optional.empty(), f.table);
+
+        UserException e = Assertions.assertThrows(UserException.class, () -> action.execute(f.table));
+        Assertions.assertEquals("connector cache invalidation failed", e.getDetailMessage());
     }
 
     @Test
@@ -332,9 +348,9 @@ public class ConnectorExecuteActionTest {
     }
 
     @Test
-    public void executeEnforcesSingleRowWidthInvariant() {
+    public void executeFencesCommittedSingleCallBeforeResultValidation() {
         Fixture f = new Fixture();
-        // Two declared columns but a one-wide row -> the single-row contract (BaseExecuteAction:106-108) must trip.
+        // Two declared columns but a one-wide row: the connector call completed, then result validation fails.
         Mockito.when(f.procedureOps.execute(Mockito.any(), Mockito.any(), Mockito.anyString(),
                         Mockito.anyMap(), Mockito.any(), Mockito.anyList()))
                 .thenReturn(twoColumnResult(Collections.singletonList("only-one")));
@@ -342,6 +358,12 @@ public class ConnectorExecuteActionTest {
         ConnectorExecuteAction action = new ConnectorExecuteAction("rollback_to_snapshot",
                 f.props, Optional.empty(), Optional.empty(), f.table);
         Assertions.assertThrows(IllegalStateException.class, () -> action.execute(f.table));
+
+        InOrder order = Mockito.inOrder(f.procedureOps, refreshManager);
+        order.verify(f.procedureOps).execute(Mockito.eq(f.session), Mockito.eq(f.handle),
+                Mockito.eq("rollback_to_snapshot"), Mockito.eq(f.props),
+                Mockito.isNull(), Mockito.eq(Collections.emptyList()));
+        order.verify(refreshManager).refreshTableAfterExternalMutation(f.table);
     }
 
     @Test
@@ -373,69 +395,6 @@ public class ConnectorExecuteActionTest {
                 f.props, Optional.empty(), Optional.empty(), f.table);
         Assertions.assertNull(action.execute(f.table),
                 "A non-empty schema with zero rows (connector's null-row encoding) wraps to null, like legacy");
-    }
-
-    // -------- execute(): leader-side cache refresh after a successful commit (H-6) --------
-
-    @Test
-    public void executeRefreshesTableCachesAfterSuccessfulSingleCall() throws Exception {
-        Fixture f = new Fixture();
-        Mockito.when(f.procedureOps.execute(Mockito.any(), Mockito.any(), Mockito.anyString(),
-                        Mockito.anyMap(), Mockito.any(), Mockito.anyList()))
-                .thenReturn(twoColumnResult(Arrays.asList("100", "200")));
-
-        ConnectorExecuteAction action = new ConnectorExecuteAction("rollback_to_snapshot",
-                f.props, Optional.empty(), Optional.empty(), f.table);
-        action.execute(f.table);
-
-        // H-6: the FE that ran the procedure must refresh the mutated table through the standard refresh-table
-        // path — the only path that clears BOTH the engine meta cache (LOCAL names) and the connector's own
-        // per-table cache (REMOTE names, the iceberg latest-snapshot cache, default TTL 24h). Without this the
-        // leader keeps serving the pre-procedure snapshot up to 24h (leader/follower split). MUTATION: dropping
-        // the refreshTableCachesAfterMutation() call -> verify fails.
-        Mockito.verify(refreshManager).refreshTableInternal(
-                Mockito.eq(f.db), Mockito.eq(f.table), Mockito.anyLong());
-    }
-
-    @Test
-    public void executeRefreshesTableCachesAfterSuccessfulDistributedRewrite() throws Exception {
-        // The DISTRIBUTED rewrite also produces a new snapshot, so it must refresh too. No groups -> the driver
-        // takes the early return without opening a transaction, but the refresh still runs on a normal return.
-        Fixture f = new Fixture();
-        Mockito.when(f.procedureOps.getExecutionMode("rewrite_data_files"))
-                .thenReturn(ProcedureExecutionMode.DISTRIBUTED);
-        Mockito.when(f.procedureOps.planRewrite(Mockito.any(), Mockito.any(), Mockito.anyString(),
-                        Mockito.anyMap(), Mockito.any(), Mockito.anyList()))
-                .thenReturn(Collections.emptyList());
-        // Without this the mock returns null and the engine NPEs while wrapping the result.
-        Mockito.when(f.procedureOps.buildRewriteResult(Mockito.anyString(), Mockito.any()))
-                .thenReturn(rewriteResult("0", "0", "0", "0"));
-
-        Expression where = new GreaterThan(new UnboundSlot("a"), new IntegerLiteral(5));
-        ConnectorExecuteAction action = new ConnectorExecuteAction("rewrite_data_files",
-                f.props, Optional.empty(), Optional.of(where), f.table);
-        action.execute(f.table);
-
-        Mockito.verify(refreshManager).refreshTableInternal(
-                Mockito.eq(f.db), Mockito.eq(f.table), Mockito.anyLong());
-    }
-
-    @Test
-    public void executeDoesNotRefreshWhenProcedureFails() {
-        Fixture f = new Fixture();
-        Mockito.when(f.procedureOps.execute(Mockito.any(), Mockito.any(), Mockito.anyString(),
-                        Mockito.anyMap(), Mockito.any(), Mockito.anyList()))
-                .thenThrow(new DorisConnectorException("Snapshot 7 not found in table remote_tbl"));
-
-        ConnectorExecuteAction action = new ConnectorExecuteAction("rollback_to_snapshot",
-                f.props, Optional.empty(), Optional.empty(), f.table);
-
-        Assertions.assertThrows(UserException.class, () -> action.execute(f.table));
-        // A failed procedure committed nothing, so it must not refresh (no spurious cache churn; mirrors follower
-        // replay which only runs on a logged success). MUTATION: refreshing unconditionally / in a finally -> the
-        // never-verify fails.
-        Mockito.verify(refreshManager, Mockito.never())
-                .refreshTableInternal(Mockito.any(), Mockito.any(), Mockito.anyLong());
     }
 
     // -------- validate(): engine keeps the ALTER privilege check --------

@@ -47,7 +47,7 @@ import java.util.List;
 public class HiveCreateTableValidationTest {
 
     private HiveConnectorMetadata metadata() {
-        return new HiveConnectorMetadata(null, null, null);
+        return new HiveConnectorMetadata(null, HiveTestProperties.minimal(), null);
     }
 
     private ConnectorColumn col(String name, String type, boolean nullable) {

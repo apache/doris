@@ -466,7 +466,7 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
             fn->process_close();
         }
         _child_block->clear_column_data(_parent->cast<TableFunctionOperatorX>()
-                                                ._child->row_desc()
+                                                ._child->operator_row_desc_after_projection()
                                                 .num_materialized_slots());
         _reset_block_fast_path_state();
     }
@@ -762,7 +762,7 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(RuntimeS
             }
             _child_rows_has_output.clear();
             _child_block->clear_column_data(_parent->cast<TableFunctionOperatorX>()
-                                                    ._child->row_desc()
+                                                    ._child->operator_row_desc_after_projection()
                                                     .num_materialized_slots());
         }
     }
@@ -790,7 +790,7 @@ void TableFunctionLocalState::process_next_child_row() {
         // because we still need _child_block to output NULL rows for outer table function
         if (!_need_to_handle_outer_conjuncts) {
             _child_block->clear_column_data(_parent->cast<TableFunctionOperatorX>()
-                                                    ._child->row_desc()
+                                                    ._child->operator_row_desc_after_projection()
                                                     .num_materialized_slots());
         }
         _cur_child_offset = -1;
@@ -859,19 +859,21 @@ Status TableFunctionOperatorX::prepare(doris::RuntimeState* state) {
     for (auto* fn : _fns) {
         RETURN_IF_ERROR(fn->prepare());
     }
-    RETURN_IF_ERROR(VExpr::prepare(_vfn_ctxs, state, row_descriptor()));
+    RETURN_IF_ERROR(VExpr::prepare(_vfn_ctxs, state, operator_row_desc_before_projection()));
 
-    RETURN_IF_ERROR(VExpr::prepare(_expand_conjuncts_ctxs, state, row_descriptor()));
+    RETURN_IF_ERROR(
+            VExpr::prepare(_expand_conjuncts_ctxs, state, operator_row_desc_before_projection()));
 
     // get current all output slots
-    for (const auto& tuple_desc : row_descriptor().tuple_descriptors()) {
+    for (const auto& tuple_desc : operator_row_desc_before_projection().tuple_descriptors()) {
         for (const auto& slot_desc : tuple_desc->slots()) {
             _output_slots.push_back(slot_desc);
         }
     }
 
     // get all input slots
-    for (const auto& child_tuple_desc : _child->row_desc().tuple_descriptors()) {
+    for (const auto& child_tuple_desc :
+         _child->operator_row_desc_after_projection().tuple_descriptors()) {
         for (const auto& child_slot_desc : child_tuple_desc->slots()) {
             _child_slots.push_back(child_slot_desc);
         }

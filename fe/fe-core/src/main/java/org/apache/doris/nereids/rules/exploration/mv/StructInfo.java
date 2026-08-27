@@ -975,8 +975,12 @@ public class StructInfo {
         }
         // Deep copy the plan to avoid the plan output is the same with the later union output, this may cause
         // exec by mistake
+        DeepCopierContext deepCopierContext = new DeepCopierContext();
+        // The compensation filter changes the partition range. Invalidate pruning during the copy to avoid
+        // another traversal before the following whole-tree rewrite applies partition pruning again.
+        deepCopierContext.setInvalidatePartitionPruning(true);
         queryPlanWithUnionFilter = new LogicalPlanDeepCopier().deepCopy(
-                (LogicalPlan) queryPlanWithUnionFilter, new DeepCopierContext());
+                (LogicalPlan) queryPlanWithUnionFilter, deepCopierContext);
         // rbo rewrite after adding filter on origin plan
         return Pair.of(MaterializedViewUtils.rewriteByRules(parentCascadesContext, context -> {
             Rewriter.getWholeTreeRewriter(context).execute();

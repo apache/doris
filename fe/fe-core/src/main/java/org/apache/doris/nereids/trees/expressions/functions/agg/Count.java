@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.ConnectorComputeVariantType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
@@ -101,8 +103,9 @@ public class Count extends NotNullableAggregateFunction
     }
 
     static void checkLegacyVariantArgument(Expression argument, Expression function) {
-        DataType argumentType = argument.getDataType();
-        if (argumentType instanceof VariantType && !((VariantType) argumentType).isComputeV2()) {
+        // ConnectorComputeVariantType is an engine-only carrier and never uses the legacy Variant path.
+        if (!Config.enable_variant_v2 && argument.getDataType() instanceof VariantType
+                && !(argument.getDataType() instanceof ConnectorComputeVariantType)) {
             throwDistinctArgumentException(function);
         }
     }

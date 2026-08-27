@@ -256,6 +256,10 @@ Status parse_and_materialize_variant_columns(Block& block, const std::vector<uin
 void parse_json_to_variant(IColumn& column, const StringRef& jsons, JsonParser* parser,
                            const ParseConfig& config);
 
+// Select the V1 parse target used by the storage write path for the given schema column.
+ParseConfig::ParseTo select_storage_variant_parse_target(const TabletColumn& column,
+                                                         const ParseConfig& config);
+
 // Parse variant columns by picking variant positions from `column_pos` and generating ParseConfig
 // based on tablet schema settings (flatten nested / doc snapshot mode).
 Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& tablet_schema,

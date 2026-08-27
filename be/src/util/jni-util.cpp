@@ -168,6 +168,12 @@ Status Env::GetJNIEnvSlowPath(JNIEnv** env) {
     DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";
 
 #ifdef USE_LIBHDFS3
+    // libhdfs3 is a pure native HDFS client that does not manage any JVM lifecycle.
+    // However, Doris still relies on features such as Java UDFs, so it has to implement its own
+    // `FindOrCreateJavaVM()` logic. When encountering the `JNI_EDETACHED` error code, Doris is
+    // responsible for invoking `AttachCurrentThread()` on its own.
+    // This only used on MacOS, so even though there maybe memory leak (because we do not
+    // detach the thread), do not care about it.
     std::call_once(g_vm_once, FindOrCreateJavaVM);
     int rc = g_vm->GetEnv(reinterpret_cast<void**>(&tls_env_), JNI_VERSION_1_8);
     if (rc == JNI_EDETACHED) {
@@ -177,7 +183,9 @@ Status Env::GetJNIEnvSlowPath(JNIEnv** env) {
         return Status::JniError("Unable to get JVM: {}", rc);
     }
 #else
-    // the hadoop libhdfs will do all the stuff
+    // The `getJNIEnv()` function of Hadoop libhdfs creates a POSIX TLS `ThreadLocalState` for every
+    // native thread that invokes it, and registers a destructor with the TLS key.
+    // The pthread library automatically invokes this destructor upon thread exit.
     std::call_once(g_jvm_conf_once, SetEnvIfNecessary);
     tls_env_ = getJNIEnv();
 #endif

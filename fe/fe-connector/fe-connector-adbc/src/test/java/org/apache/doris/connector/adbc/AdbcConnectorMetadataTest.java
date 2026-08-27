@@ -56,7 +56,7 @@ class AdbcConnectorMetadataTest {
      * what the cache does across statements is {@link AdbcMetadataCacheNativeTest}'s subject, not this one's.
      */
     private static AdbcConnectorMetadata metadataOn(AdbcClient client) {
-        return new AdbcConnectorMetadata(client, new AdbcSchemaStrategy(), Map.of(),
+        return new AdbcConnectorMetadata(client, new AdbcSchemaStrategy(),
                 AdbcDialectRegistry::defaultDialect, new AdbcMetadataCache(Map.of()));
     }
 

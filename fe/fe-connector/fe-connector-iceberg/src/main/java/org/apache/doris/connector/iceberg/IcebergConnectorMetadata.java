@@ -89,6 +89,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.concurrent.Callable;
 import java.util.function.Predicate;
 
 /**
@@ -127,10 +128,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     private static final int ICEBERG_ROW_LINEAGE_MIN_VERSION = 3;
 
     // Snapshot-summary keys for table-level row count (getTableStatistics). Local literal copies of the
-    // spec-stable iceberg strings — byte-identical to legacy IcebergUtils.TOTAL_* and to the COUNT(*)
-    // pushdown copies in IcebergScanPlanProvider (themselves deliberately NOT org.apache.iceberg
-    // .SnapshotSummary.* per that file's note). Duplicated rather than shared so this fix does not touch
-    // the unrelated scan provider. All THREE keys are read: legacy getIcebergRowCount (via
+    // spec-stable iceberg strings — byte-identical to legacy IcebergUtils.TOTAL_*. These remain optimizer
+    // estimates only; exact COUNT(*) pushdown deliberately derives its result from live manifest-list counters.
+    // All THREE keys are read: legacy getIcebergRowCount (via
     // getCountFromSummary, upstream 32a2651f66b / #64648) nets out position deletes AND gates the count to
     // UNKNOWN on any equality delete — see computeRowCount.
     private static final String TOTAL_RECORDS = "total-records";
@@ -144,8 +144,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     private static final String TABLE_COMMENT_PROP = "comment";
 
     private final IcebergCatalogOps catalogOps;
+    private final IcebergCatalogProperties catalogProps;
     private final Map<String, String> properties;
-    // Every remote metadata READ is wrapped in context.executeAuthenticated(...) so the FE-injected
+    // Every remote metadata READ is wrapped in executeAuthenticated(...) so the FE-injected
     // Kerberos UGI applies — legacy IcebergMetadataOps wrapped each call in executionAuthenticator.execute,
     // and the paimon mirror (PaimonConnectorMetadata) wraps the equivalent reads. The default
     // executeAuthenticated is a pass-through, so simple-auth catalogs are unaffected.
@@ -174,37 +175,38 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // getMvccPartitionView / listPartitions respectively.
     private final ConnectorMetadataCache<ConnectorMvccPartitionView> mvccPartitionViewCache;
     private final ConnectorMetadataCache<List<ConnectorPartitionInfo>> listPartitionsViewCache;
+    private final IcebergCatalogResourceTracker resourceTracker;
 
-    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
+    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, IcebergCatalogProperties catalogProps,
             ConnectorContext context) {
-        this(catalogOps, properties, context, new IcebergLatestSnapshotCache(0L, 1), null, null);
+        this(catalogOps, catalogProps, context, new IcebergLatestSnapshotCache(0L, 1), null, null);
     }
 
     /** Convenience ctor without a cross-query table cache (tableCache null); used by MVCC/statistics tests. */
-    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
+    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, IcebergCatalogProperties catalogProps,
             ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache) {
-        this(catalogOps, properties, context, latestSnapshotCache, null, null);
+        this(catalogOps, catalogProps, context, latestSnapshotCache, null, null);
     }
 
     /** Convenience ctor without a partition-view cache (partitionCache null). */
-    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
+    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, IcebergCatalogProperties catalogProps,
             ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache,
             IcebergTableCache tableCache) {
-        this(catalogOps, properties, context, latestSnapshotCache, tableCache, null);
+        this(catalogOps, catalogProps, context, latestSnapshotCache, tableCache, null);
     }
 
-    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
+    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, IcebergCatalogProperties catalogProps,
             ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache,
             IcebergTableCache tableCache, IcebergPartitionCache partitionCache) {
-        this(catalogOps, properties, context, latestSnapshotCache, tableCache, partitionCache, null);
+        this(catalogOps, catalogProps, context, latestSnapshotCache, tableCache, partitionCache, null);
     }
 
     /** Convenience ctor without the PERF-06 derived partition-view caches (both null). */
-    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
+    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, IcebergCatalogProperties catalogProps,
             ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache,
             IcebergTableCache tableCache, IcebergPartitionCache partitionCache,
             IcebergCommentCache commentCache) {
-        this(catalogOps, properties, context, latestSnapshotCache, tableCache, partitionCache, commentCache,
+        this(catalogOps, catalogProps, context, latestSnapshotCache, tableCache, partitionCache, commentCache,
                 null, null);
     }
 
@@ -215,14 +217,26 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * {@code (db, table, snapshotId, schemaId)}. Both {@code null} for a session=user catalog / the convenience
      * ctors (no cross-query derived layer -> compute directly every call).
      */
-    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
+    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, IcebergCatalogProperties catalogProps,
             ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache,
             IcebergTableCache tableCache, IcebergPartitionCache partitionCache,
             IcebergCommentCache commentCache,
             ConnectorMetadataCache<ConnectorMvccPartitionView> mvccPartitionViewCache,
             ConnectorMetadataCache<List<ConnectorPartitionInfo>> listPartitionsViewCache) {
+        this(catalogOps, catalogProps, context, latestSnapshotCache, tableCache, partitionCache, commentCache,
+                mvccPartitionViewCache, listPartitionsViewCache, null);
+    }
+
+    IcebergConnectorMetadata(IcebergCatalogOps catalogOps, IcebergCatalogProperties catalogProps,
+            ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache,
+            IcebergTableCache tableCache, IcebergPartitionCache partitionCache,
+            IcebergCommentCache commentCache,
+            ConnectorMetadataCache<ConnectorMvccPartitionView> mvccPartitionViewCache,
+            ConnectorMetadataCache<List<ConnectorPartitionInfo>> listPartitionsViewCache,
+            IcebergCatalogResourceTracker resourceTracker) {
         this.catalogOps = catalogOps;
-        this.properties = properties;
+        this.catalogProps = catalogProps;
+        this.properties = catalogProps.getRaw();
         this.context = context;
         this.latestSnapshotCache = latestSnapshotCache;
         this.tableCache = tableCache;
@@ -230,6 +244,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         this.commentCache = commentCache;
         this.mvccPartitionViewCache = mvccPartitionViewCache;
         this.listPartitionsViewCache = listPartitionsViewCache;
+        this.resourceTracker = resourceTracker;
     }
 
     // ========== ConnectorSchemaOps ==========
@@ -240,7 +255,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // RuntimeException on failure (never swallow to an empty list — that would mask a transient
         // metastore failure as "zero databases").
         try {
-            return context.executeAuthenticated(catalogOps::listDatabaseNames);
+            return executeAuthenticated(catalogOps::listDatabaseNames);
         } catch (Exception e) {
             LOG.warn("failed to list database names in catalog {}", context.getCatalogName(), e);
             throw new RuntimeException("Failed to list database names, error message is:" + e.getMessage(), e);
@@ -251,7 +266,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     public boolean databaseExists(ConnectorSession session, String dbName) {
         // Mirror legacy IcebergMetadataOps.databaseExist: wrap in the auth context, rethrow on failure.
         try {
-            return context.executeAuthenticated(() -> catalogOps.databaseExists(dbName));
+            return executeAuthenticated(() -> catalogOps.databaseExists(dbName));
         } catch (Exception e) {
             throw new RuntimeException("Failed to check database exist, error message is:" + e.getMessage(), e);
         }
@@ -266,7 +281,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // DATABASE renders no LOCATION clause rather than LOCATION '' for a location-less namespace.
         try {
             Optional<String> location =
-                    context.executeAuthenticated(() -> catalogOps.loadNamespaceLocation(dbName));
+                    executeAuthenticated(() -> catalogOps.loadNamespaceLocation(dbName));
             Map<String, String> props = new HashMap<>();
             location.ifPresent(loc -> props.put(ConnectorDatabaseMetadata.LOCATION_PROPERTY, loc));
             return new ConnectorDatabaseMetadata(dbName, props);
@@ -283,7 +298,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // (e.g. NoSuchNamespaceException — iceberg's exceptions are unchecked, so UGI.doAs does NOT wrap
         // them) is rethrown verbatim, other failures are wrapped.
         try {
-            return context.executeAuthenticated(() -> catalogOps.listTableNames(dbName));
+            return executeAuthenticated(() -> catalogOps.listTableNames(dbName));
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
@@ -296,7 +311,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // Mirror legacy IcebergMetadataOps.listViewNames: wrap in the auth context; a RuntimeException
         // (e.g. NoSuchNamespaceException) is rethrown verbatim, other failures are wrapped.
         try {
-            return context.executeAuthenticated(() -> catalogOps.listViewNames(dbName));
+            return executeAuthenticated(() -> catalogOps.listViewNames(dbName));
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
@@ -311,7 +326,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // failure into a RuntimeException — unlike the listing methods (listTableNames / listViewNames), which
         // rethrow a RuntimeException verbatim so NoSuchNamespaceException surfaces unwrapped.
         try {
-            return context.executeAuthenticated(() -> catalogOps.viewExists(dbName, viewName));
+            return executeAuthenticated(() -> catalogOps.viewExists(dbName, viewName));
         } catch (Exception e) {
             throw new RuntimeException("Failed to check view exist, error message is: " + e.getMessage(), e);
         }
@@ -329,7 +344,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // not in the SDK-only seam, because parseSchema reads the enable.mapping.* flags that only exist in
         // this layer's properties (mirrors the table path: seam loadTable -> metadata buildTableSchema).
         try {
-            return context.executeAuthenticated(() -> {
+            return executeAuthenticated(() -> {
                 View icebergView = catalogOps.loadView(dbName, viewName);
                 ViewVersion viewVersion = icebergView.currentVersion();
                 if (viewVersion == null) {
@@ -365,7 +380,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // the auth context. Like the other write ops (dropTable / dropDatabase), normalize EVERY failure into a
         // DorisConnectorException so PluginDrivenExternalCatalog.dropTable rewraps it as a DdlException.
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.dropView(dbName, viewName);
                 return null;
             });
@@ -408,9 +423,17 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // (the handle build below is pure — no remote call).
         boolean exists;
         try {
-            exists = context.executeAuthenticated(() -> catalogOps.tableExists(dbName, tableName));
+            exists = executeAuthenticated(() -> catalogOps.tableExists(dbName, tableName));
         } catch (Exception e) {
-            throw new RuntimeException("Failed to check table exist, error message is:" + e.getMessage(), e);
+            // Preserve Optional.empty even when an auth/catalog layer wraps NoSuchTableException.
+            if (ExceptionUtils.getThrowableList(e).stream()
+                    .anyMatch(NoSuchTableException.class::isInstance)) {
+                return Optional.empty();
+            }
+            // Existence checks in several catalogs load metadata internally, so normalize them at the shared
+            // handle boundary just like explicit table loads.
+            throw IcebergExceptionUtils.wrapTableLoadFailure(new IcebergTableHandle(dbName, tableName), e,
+                    "Failed to check table exist, error message is:");
         }
         if (!exists) {
             return Optional.empty();
@@ -642,9 +665,10 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     private Table loadTable(ConnectorSession session, IcebergTableHandle handle) {
         try {
-            return context.executeAuthenticated(() -> resolveTableForRead(session, handle));
+            return executeAuthenticated(() -> resolveTableForRead(session, handle));
         } catch (Exception e) {
-            throw new RuntimeException("Failed to load table, error message is:" + e.getMessage(), e);
+            throw IcebergExceptionUtils.wrapTableLoadFailure(
+                    handle, e, "Failed to load table, error message is:");
         }
     }
 
@@ -659,11 +683,18 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * the sys-table path ({@link #loadSysTable}), which builds its metadata view from this same scoped base.
      */
     private Table resolveTableForRead(ConnectorSession session, IcebergTableHandle handle) {
-        return IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
-                () -> tableCache != null
-                        ? tableCache.getOrLoad(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
-                                () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()))
-                        : catalogOps.loadTable(handle.getDbName(), handle.getTableName()));
+        if (tableCache != null) {
+            return IcebergStatementScope.sharedBorrowedTable(session, handle.getDbName(), handle.getTableName(),
+                    () -> tableCache.borrow(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
+                            () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName())),
+                    () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()));
+        }
+        return resourceTracker == null
+                ? IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
+                        () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()))
+                : IcebergStatementScope.sharedTrackedTable(session, handle.getDbName(), handle.getTableName(),
+                        resourceTracker, () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()),
+                        table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor()));
     }
 
     /**
@@ -678,7 +709,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     private Table loadSysTable(ConnectorSession session, IcebergTableHandle handle) {
         try {
-            return context.executeAuthenticated(() -> {
+            return executeAuthenticated(() -> {
                 // Schema binding, column handles and split planning must all see one base generation; an
                 // independently refreshed session catalog can otherwise pair old tuple slots with new rows.
                 Table base = resolveTableForRead(session, handle);
@@ -686,7 +717,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                         base, MetadataTableType.from(handle.getSysTableName()));
             });
         } catch (Exception e) {
-            throw new RuntimeException("Failed to load table, error message is:" + e.getMessage(), e);
+            throw IcebergExceptionUtils.wrapTableLoadFailure(
+                    handle, e, "Failed to load table, error message is:");
         }
     }
 
@@ -707,7 +739,31 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // metadata-table columns (t$snapshots -> committed_at/...) so the generic scan node can look up
         // its pruned sys-table slots by name; a data handle resolves the base table's columns.
         Table table = iceHandle.isSystemTable() ? loadSysTable(session, iceHandle) : loadTable(session, iceHandle);
-        List<Types.NestedField> fields = table.schema().columns();
+        return buildColumnHandles(table.schema());
+    }
+
+    @Override
+    public Map<String, ConnectorColumnHandle> getColumnHandles(
+            ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorMvccSnapshot snapshot) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isSystemTable() || snapshot == null || snapshot.getSchemaId() < 0) {
+            return getColumnHandles(session, handle);
+        }
+        Table table = loadTable(session, iceHandle);
+        Schema schema = table.currentSnapshot() == null
+                ? table.schema() : table.schemas().get((int) snapshot.getSchemaId());
+        // Keep the handle-schema fallback identical to getTableSchema so slots and handles cannot diverge.
+        return buildColumnHandles(schema == null ? table.schema() : schema);
+    }
+
+    @Override
+    public boolean supportsColumnHandleSnapshotPin(ConnectorSession session) {
+        return true;
+    }
+
+    private static Map<String, ConnectorColumnHandle> buildColumnHandles(Schema schema) {
+        List<Types.NestedField> fields = schema.columns();
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(fields.size());
         for (Types.NestedField field : fields) {
             String name = field.name();
@@ -787,9 +843,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * .getIcebergRowCount} (which calls {@code getCountFromSummary(summary, true)}, upstream 32a2651f66b /
      * #64648): any equality delete ({@code total-equality-deletes} absent or {@code != "0"}) -> -1 (UNKNOWN),
      * since equality deletes re-project at read time and the summary cannot net them out; otherwise
-     * {@code total-records - total-position-deletes}. Shares the equality-delete gate with the COUNT(*)
-     * pushdown {@code IcebergScanPlanProvider.getCountFromSummary}, differing only in dangling-delete handling
-     * (table statistics always net out position deletes; the pushdown honors the dangling-delete session var).
+     * {@code total-records - total-position-deletes}. This best-effort optimizer estimate is not used as an
+     * exact query result; COUNT(*) pushdown independently sums live-row counters from the manifest list.
      * Empty table (no current snapshot) -> -1, which the caller maps to UNKNOWN.
      */
     private static long computeRowCount(Table table) {
@@ -806,8 +861,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // summary, true) (upstream 32a2651f66b, #64648): an absent total-* counter (compaction / replace /
         // overwrite snapshots may omit one — the pre-fix Long.parseLong(null) NPE-d), or any equality delete
         // (total-equality-deletes != "0"), makes the summary row count unsafe -> -1 (caller maps to UNKNOWN),
-        // because equality deletes re-project at read time and the summary cannot net them out. Same gate as
-        // the COUNT(*) pushdown IcebergScanPlanProvider.getCountFromSummary.
+        // because equality deletes re-project at read time and the summary cannot net them out.
         String equalityDeletes = summary.get(TOTAL_EQUALITY_DELETES);
         String totalRecords = summary.get(TOTAL_RECORDS);
         String positionDeletes = summary.get(TOTAL_POSITION_DELETES);
@@ -844,8 +898,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             ConnectorSession session,
             long tableId, String tableName, String dbName,
             String remoteName, int numCols, long catalogId) {
-        if (IcebergConnectorProperties.TYPE_HMS.equalsIgnoreCase(
-                properties.get(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE))) {
+        if (IcebergCatalogProperties.TYPE_HMS.equalsIgnoreCase(
+                properties.get(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE))) {
             THiveTable tHiveTable = new THiveTable(dbName, tableName, new HashMap<>());
             TTableDescriptor desc = new TTableDescriptor(
                     tableId, TTableType.HIVE_TABLE, numCols, 0, tableName, dbName);
@@ -874,7 +928,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     "Not supported: create database with properties for iceberg catalog type: " + catalogType());
         }
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.createDatabase(dbName, properties);
                 return null;
             });
@@ -898,7 +952,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     public void dropDatabase(ConnectorSession session, String dbName, boolean ifExists, boolean force) {
         Optional<String> namespaceLocation;
         try {
-            namespaceLocation = context.executeAuthenticated(() -> {
+            namespaceLocation = executeAuthenticated(() -> {
                 Optional<String> location;
                 try {
                     location = isHmsCatalog()
@@ -963,7 +1017,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 IcebergSchemaBuilder.buildTableProperties(request.getProperties(), properties);
         applyCreateTableComment(tableProperties, request.getComment());
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.createTable(request.getDbName(), request.getTableName(),
                         schema, partitionSpec, sortOrder, tableProperties);
                 return null;
@@ -1108,7 +1162,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         Optional<String> tableLocation;
         try {
-            tableLocation = context.executeAuthenticated(() -> {
+            tableLocation = executeAuthenticated(() -> {
                 Optional<String> location = isHmsCatalog()
                         ? catalogOps.loadTableLocation(iceHandle.getDbName(), iceHandle.getTableName())
                         : Optional.empty();
@@ -1133,7 +1187,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     public void renameTable(ConnectorSession session, ConnectorTableHandle handle, String newName) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.renameTable(iceHandle.getDbName(), iceHandle.getTableName(), newName);
                 return null;
             });
@@ -1158,7 +1212,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         IcebergColumnChange change = toAddColumnChange(column);
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.addColumn(iceHandle.getDbName(), iceHandle.getTableName(), change, position);
                 return null;
             });
@@ -1178,7 +1232,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             changes.add(toAddColumnChange(column));
         }
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.addColumns(iceHandle.getDbName(), iceHandle.getTableName(), changes);
                 return null;
             });
@@ -1194,7 +1248,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     public void dropColumn(ConnectorSession session, ConnectorTableHandle handle, String columnName) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.dropColumn(iceHandle.getDbName(), iceHandle.getTableName(), columnName);
                 return null;
             });
@@ -1211,7 +1265,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             String newName) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.renameColumn(iceHandle.getDbName(), iceHandle.getTableName(), oldName, newName);
                 return null;
             });
@@ -1256,7 +1310,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 column.getComment(), null, column.isNullable(), column.getType());
         boolean commentSpecified = column.isCommentSpecified();
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.modifyColumn(iceHandle.getDbName(), iceHandle.getTableName(), change,
                         commentSpecified, position);
                 return null;
@@ -1280,9 +1334,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return buildError;
         }
         try {
-            Types.NestedField current = context.executeAuthenticated(() ->
-                    catalogOps.loadTable(handle.getDbName(), handle.getTableName())
-                            .schema().findField(column.getName()));
+            Types.NestedField current = executeAuthenticated(() ->
+                    catalogOps.withTable(handle.getDbName(), handle.getTableName(),
+                            table -> table.schema().findField(column.getName())));
             if (current != null && !current.type().isPrimitiveType()) {
                 IcebergComplexTypeDiff.validateNestedModifyRepresentable(current.type(), column.getType());
             }
@@ -1302,7 +1356,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.reorderColumns(iceHandle.getDbName(), iceHandle.getTableName(), newOrder);
                 return null;
             });
@@ -1348,7 +1402,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         IcebergColumnChange change = new IcebergColumnChange(path.getLeafName(), icebergType,
                 column.getComment(), null, column.isNullable());
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.addNestedColumn(iceHandle.getDbName(), iceHandle.getTableName(), path, change, position);
                 return null;
             });
@@ -1370,7 +1424,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.dropNestedColumn(iceHandle.getDbName(), iceHandle.getTableName(), path);
                 return null;
             });
@@ -1394,7 +1448,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.renameNestedColumn(iceHandle.getDbName(), iceHandle.getTableName(), path, newName);
                 return null;
             });
@@ -1442,7 +1496,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         boolean nullableSpecified = column.isNullableSpecified();
         boolean commentSpecified = column.isCommentSpecified();
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.modifyNestedColumn(iceHandle.getDbName(), iceHandle.getTableName(), path, change,
                         nullableSpecified, commentSpecified, position);
                 return null;
@@ -1465,7 +1519,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             ConnectorColumnPath path, String comment) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.modifyColumnComment(iceHandle.getDbName(), iceHandle.getTableName(), path, comment);
                 return null;
             });
@@ -1488,7 +1542,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     public void createOrReplaceBranch(ConnectorSession session, ConnectorTableHandle handle, BranchChange branch) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.createOrReplaceBranch(iceHandle.getDbName(), iceHandle.getTableName(), branch);
                 return null;
             });
@@ -1504,7 +1558,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     public void createOrReplaceTag(ConnectorSession session, ConnectorTableHandle handle, TagChange tag) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.createOrReplaceTag(iceHandle.getDbName(), iceHandle.getTableName(), tag);
                 return null;
             });
@@ -1520,7 +1574,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     public void dropBranch(ConnectorSession session, ConnectorTableHandle handle, DropRefChange branch) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.dropBranch(iceHandle.getDbName(), iceHandle.getTableName(), branch);
                 return null;
             });
@@ -1536,7 +1590,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     public void dropTag(ConnectorSession session, ConnectorTableHandle handle, DropRefChange tag) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.dropTag(iceHandle.getDbName(), iceHandle.getTableName(), tag);
                 return null;
             });
@@ -1560,7 +1614,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             PartitionFieldChange change) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.addPartitionField(iceHandle.getDbName(), iceHandle.getTableName(), change);
                 return null;
             });
@@ -1577,7 +1631,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             PartitionFieldChange change) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.dropPartitionField(iceHandle.getDbName(), iceHandle.getTableName(), change);
                 return null;
             });
@@ -1594,7 +1648,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             PartitionFieldChange change) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
-            context.executeAuthenticated(() -> {
+            executeAuthenticated(() -> {
                 catalogOps.replacePartitionField(iceHandle.getDbName(), iceHandle.getTableName(), change);
                 return null;
             });
@@ -1640,14 +1694,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         return "ARRAY".equals(name) || "MAP".equals(name) || "STRUCT".equals(name);
     }
 
-    /** The configured {@code iceberg.catalog.type}, or {@code null} when unset. */
+    /** The configured metastore backend, lower-cased, or {@code null} when the catalog names none. */
     private String catalogType() {
-        return properties.get(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE);
+        return catalogProps.getFlavor();
     }
 
-    /** Whether this is an HMS-backed iceberg catalog (case-insensitive, matching the read-path fork). */
+    /** Whether this is an HMS-backed iceberg catalog (matching the read-path fork). */
     private boolean isHmsCatalog() {
-        return IcebergConnectorProperties.TYPE_HMS.equalsIgnoreCase(catalogType());
+        return IcebergCatalogProperties.TYPE_HMS.equals(catalogType());
     }
 
     // ========== E7: System Tables (P6.5) ==========
@@ -1743,7 +1797,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public ConnectorTransaction beginTransaction(ConnectorSession session) {
-        return new IcebergConnectorTransaction(session.allocateTransactionId(), catalogOps, context);
+        return new IcebergConnectorTransaction(
+                session.allocateTransactionId(), catalogOps, context, resourceTracker, catalogProps.getFlavor());
     }
 
     /**
@@ -1883,7 +1938,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // null cache (session=user / no-cache catalog) computes directly every call. A resolved-empty -1
             // bypasses cache A because its numeric key is otherwise indistinguishable from an unresolved latest
             // read, even though only the former is a query-begin MVCC boundary.
-            return context.executeAuthenticated(() -> {
+            return executeAuthenticated(() -> {
                 if (mvccPartitionViewCache == null || iceHandle.isResolvedEmptySnapshot()) {
                     return Optional.of(buildMvccPartitionViewUncached(session, iceHandle));
                 }
@@ -1893,8 +1948,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                         () -> buildMvccPartitionViewUncached(session, iceHandle)));
             });
         } catch (Exception e) {
-            throw new RuntimeException("Failed to build iceberg MVCC partition view, error message is:"
-                    + e.getMessage(), e);
+            throw IcebergExceptionUtils.wrapTableLoadFailure(iceHandle, e,
+                    "Failed to build iceberg MVCC partition view, error message is:");
         }
     }
 
@@ -1928,7 +1983,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     public List<String> listPartitionNames(ConnectorSession session, ConnectorTableHandle handle) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
-            return context.executeAuthenticated(() -> {
+            return executeAuthenticated(() -> {
                 Table table;
                 try {
                     table = resolveTableForRead(session, iceHandle);
@@ -1941,8 +1996,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                         TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache);
             });
         } catch (Exception e) {
-            throw new RuntimeException("Failed to list iceberg partition names, error message is:"
-                    + e.getMessage(), e);
+            throw IcebergExceptionUtils.wrapTableLoadFailure(iceHandle, e,
+                    "Failed to list iceberg partition names, error message is:");
         }
     }
 
@@ -1969,7 +2024,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // returns without a remote call). BYPASS the cache when the filter is present -- that is not the
             // pruning path (which always passes Optional.empty()) and is not keyed by (snapshot, schema) alone -- or
             // when the cache is null (session=user / no-cache catalog): compute directly every call.
-            return context.executeAuthenticated(() -> {
+            return executeAuthenticated(() -> {
                 if (listPartitionsViewCache == null || filter.isPresent()) {
                     return listPartitionsUncached(session, iceHandle);
                 }
@@ -1978,8 +2033,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 return listPartitionsViewCache.get(key, () -> listPartitionsUncached(session, iceHandle));
             });
         } catch (Exception e) {
-            throw new RuntimeException("Failed to list iceberg partitions, error message is:"
-                    + e.getMessage(), e);
+            throw IcebergExceptionUtils.wrapTableLoadFailure(iceHandle, e,
+                    "Failed to list iceberg partitions, error message is:");
         }
     }
 
@@ -2044,7 +2099,34 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     private IcebergLatestSnapshotCache.CachedSnapshot loadLatestSnapshotPin(
             ConnectorSession session, IcebergTableHandle iceHandle) {
-        Table table = loadTable(session, iceHandle);
+        try {
+            return executeAuthenticated(() -> {
+                if (tableCache != null) {
+                    return IcebergStatementScope.withBorrowedTable(
+                            session, iceHandle.getDbName(), iceHandle.getTableName(),
+                            () -> tableCache.borrow(
+                                    TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()),
+                                    () -> catalogOps.loadTable(iceHandle.getDbName(), iceHandle.getTableName())),
+                            () -> catalogOps.loadTable(iceHandle.getDbName(), iceHandle.getTableName()),
+                            this::latestSnapshotPin);
+                }
+                if (resourceTracker != null) {
+                    return IcebergStatementScope.withTrackedTable(
+                            session, iceHandle.getDbName(), iceHandle.getTableName(), resourceTracker,
+                            () -> catalogOps.loadTable(iceHandle.getDbName(), iceHandle.getTableName()),
+                            table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor()),
+                            this::latestSnapshotPin);
+                }
+                return catalogOps.withTable(iceHandle.getDbName(), iceHandle.getTableName(),
+                        this::latestSnapshotPin);
+            });
+        } catch (Exception e) {
+            throw IcebergExceptionUtils.wrapTableLoadFailure(
+                    iceHandle, e, "Failed to load table, error message is:");
+        }
+    }
+
+    private IcebergLatestSnapshotCache.CachedSnapshot latestSnapshotPin(Table table) {
         Snapshot current = table.currentSnapshot();
         ConnectorMvccPartitionView.Style emptyPartitionStyle = IcebergPartitionUtils.isValidRelatedTable(table)
                 ? ConnectorMvccPartitionView.Style.RANGE
@@ -2218,12 +2300,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     private List<ConnectorColumn> parseSchema(Schema schema) {
         List<Types.NestedField> fields = schema.columns();
         List<ConnectorColumn> columns = new ArrayList<>(fields.size());
-        boolean enableVarbinary = Boolean.parseBoolean(
-                properties.getOrDefault(
-                        IcebergConnectorProperties.ENABLE_MAPPING_VARBINARY, "false"));
-        boolean enableTimestampTz = Boolean.parseBoolean(
-                properties.getOrDefault(
-                        IcebergConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
+        boolean enableVarbinary = catalogProps.isEnableMappingVarbinary();
+        boolean enableTimestampTz = catalogProps.isEnableMappingTimestampTz();
 
         for (Types.NestedField field : fields) {
             // Legacy IcebergUtils.parseSchema parity (mirrors PaimonConnectorMetadata): the column name is
@@ -2288,6 +2366,13 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             }
         }
         return formatVersion;
+    }
+
+    private <T> T executeAuthenticated(Callable<T> operation) throws Exception {
+        if (resourceTracker == null) {
+            return context.executeAuthenticated(operation);
+        }
+        return resourceTracker.call(() -> context.executeAuthenticated(operation));
     }
 
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */

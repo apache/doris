@@ -68,6 +68,9 @@ struct TDescribeTablesParams {
   // Reserved for downstream field `current_roles` to keep thrift field ids
   // wire-compatible across maintained branches. Do not reuse this id.
   8: optional set<string> reserved_field_8
+  // Report COLUMN_KEY the way MySQL does. Forwarded from the schema scan node because
+  // this request carries no session of its own.
+  9: optional bool mysql_compatible_index_metadata = false
 }
 
 // Results of a call to describeTable()
@@ -183,6 +186,8 @@ struct TListPrivilegesResult{
 struct TReportExecStatusResult {
   // required in V1
   1: optional Status.TStatus status
+  // Set only after FE accepts the external-file commit vectors for this report.
+  2: optional bool external_file_commit_data_accepted
 }
 
 // Service Protocol Details
@@ -372,6 +377,11 @@ struct TGroupCommitInfo{
     5: optional bool updateLoadData
     6: optional i64 tableId 
     7: optional i64 receiveData
+    8: optional string loadSelectionPreferredKey
+    9: optional string loadSelectionMode
+    // set by followers that understand selection errors carried in TMasterOpResult
+    // statusCode/errMessage; masters must keep throwing for callers without it
+    10: optional bool supportsSelectionErrorResult
 }
 
 struct TMasterOpRequest {
@@ -416,6 +426,7 @@ struct TMasterOpRequest {
     // thrift field ids wire-compatible across maintained branches. Do not reuse these ids.
     34: optional set<string> reserved_field_34
     35: optional bool reserved_field_35
+    36: optional string connectingFeLocalResourceGroup
 
     // selectdb cloud
     1000: optional string cloud_cluster
@@ -461,6 +472,8 @@ struct TMasterOpResult {
     9: optional TTxnLoadInfo txnLoadInfo;
     10: optional i64 groupCommitLoadBeId;
     11: optional i64 affectedRows;
+    // Lets the forwarding FE wait for the final statistics of external write fragments.
+    12: optional list<i64> auditStatisticsBackendIds;
 }
 
 // Certificate-based authentication info forwarded from BE to FE
@@ -823,6 +836,7 @@ struct TCloudVersionInfo {
    2: optional i64 partitionId
    3: optional i64 version
    4: optional i64 versionUpdateTime
+   5: optional i64 commitTso
 }
 
 struct TFrontendSyncCloudVersionRequest {
@@ -917,6 +931,10 @@ enum TSchemaTableName {
   TABLE_STREAM_CONSUMPTION = 16,
   ROLE_MAPPINGS = 17,
   EXTENSIONS = 18,
+  TSO_STATUS = 19,
+  STATISTICS = 20,
+  KEY_COLUMN_USAGE = 21,
+  TABLE_CONSTRAINTS = 22,
 }
 
 struct TMetadataTableRequestParams {
@@ -951,6 +969,9 @@ struct TSchemaTableRequestParams {
     // Reserved for downstream field `current_roles` to keep thrift field ids
     // wire-compatible across maintained branches. Do not reuse this id.
     9: optional set<string> reserved_field_9
+    // The one table the query asked for, when it pinned one with `TABLE_NAME = '...'`.
+    // Lets the FE answer from that table instead of walking the whole database.
+    10: optional string table_name
 }
 
 struct TFetchSchemaTableDataRequest {

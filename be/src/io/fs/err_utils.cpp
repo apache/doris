@@ -18,7 +18,6 @@
 #include "io/fs/err_utils.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
-#include <aws/s3/S3Errors.h>
 #include <errno.h> // IWYU pragma: keep
 #include <fmt/format.h>
 #include <string.h>
@@ -27,16 +26,9 @@
 
 #include "common/status.h"
 #include "io/fs/hdfs.h"
-#include "io/fs/obj_storage_client.h"
 
 namespace doris {
 using namespace ErrorCode;
-
-io::ObjectStorageStatus convert_to_obj_response(Status st) {
-    int code = st._code;
-    std::string msg = st._err_msg == nullptr ? "" : std::move(st._err_msg->_msg);
-    return io::ObjectStorageStatus {.code = code, .msg = std::move(msg)};
-}
 
 namespace io {
 
@@ -119,27 +111,6 @@ Status localfs_error(int posix_errno, std::string_view msg) {
         return Status::Error<PERMISSION_DENIED, false>(message);
     default:
         return Status::Error<ErrorCode::INTERNAL_ERROR, false>(message);
-    }
-}
-
-Status s3fs_error(const Aws::S3::S3Error& err, std::string_view msg) {
-    using namespace Aws::Http;
-    // A failure raised by the client itself carries no request id. Printing nothing leaves a
-    // dangling `request_id=` that has been read as a request id of the object storage.
-    std::string request_id = err.GetRequestId().empty() ? "<empty>" : err.GetRequestId().c_str();
-    switch (err.GetResponseCode()) {
-    case HttpResponseCode::NOT_FOUND:
-        return Status::Error<NOT_FOUND, false>("{}: {} {} code=NOT_FOUND, type={}, request_id={}",
-                                               msg, err.GetExceptionName(), err.GetMessage(),
-                                               err.GetErrorType(), request_id);
-    case HttpResponseCode::FORBIDDEN:
-        return Status::Error<PERMISSION_DENIED, false>(
-                "{}: {} {} code=FORBIDDEN, type={}, request_id={}", msg, err.GetExceptionName(),
-                err.GetMessage(), err.GetErrorType(), request_id);
-    default:
-        return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
-                "{}: {} {} code={} type={}, request_id={}", msg, err.GetExceptionName(),
-                err.GetMessage(), err.GetResponseCode(), err.GetErrorType(), request_id);
     }
 }
 

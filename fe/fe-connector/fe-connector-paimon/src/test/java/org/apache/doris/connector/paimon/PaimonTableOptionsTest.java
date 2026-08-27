@@ -70,7 +70,7 @@ public class PaimonTableOptionsTest {
         props.put("paimon.jni.enable_jni_io_manager", "true");
         props.put("paimon.client-pool-size", "7");
 
-        Options options = PaimonCatalogFactory.buildCatalogOptions(props);
+        Options options = PaimonCatalogFactory.buildCatalogOptions(PaimonCatalogProperties.of(props));
 
         // WHY (#65955): both namespaces are re-keyed by the generic "paimon.*" passthrough unless
         // excluded, which would push a per-TABLE option and a BE scanner knob into the Paimon CATALOG

@@ -42,6 +42,8 @@ set_target_properties(txn_kv_test PROPERTIES COMPILE_FLAGS "-fno-access-control"
 add_executable(recycler_test
     recycler_test.cpp
     recycler_operation_log_test.cpp
+    table_stream_recycler_test.cpp
+    table_stream_checker_test.cpp
     snapshot_data_size_calculator_test.cpp
     recycle_versioned_keys_test.cpp
     recycler_batch_delete_test.cpp)
@@ -58,6 +60,7 @@ add_executable(meta_service_test
    meta_service_operation_log_test.cpp
    meta_service_snapshot_test.cpp
    meta_service_tablet_stats_test.cpp
+   meta_service_table_stream_test.cpp
    meta_service_versioned_read_test.cpp
    schema_kv_test.cpp
    compaction_rw_separation_test.cpp
@@ -100,6 +103,8 @@ add_executable(stopwatch_test stopwatch_test.cpp)
 add_executable(util_test util_test.cpp)
 
 add_executable(network_util_test network_util_test.cpp)
+
+add_executable(cloud_server_starter_factory_test cloud_server_starter_factory_test.cpp)
 
 set(TLS_UT_TARGETS)
 if (ENABLE_TLS)
@@ -180,6 +185,8 @@ target_link_libraries(stopwatch_test ${TEST_LINK_LIBS})
 target_link_libraries(util_test ${TEST_LINK_LIBS})
 
 target_link_libraries(network_util_test ${TEST_LINK_LIBS})
+
+target_link_libraries(cloud_server_starter_factory_test ${TEST_LINK_LIBS})
 
 foreach(TLS_UT_TARGET ${TLS_UT_TARGETS})
     target_link_libraries(${TLS_UT_TARGET} ${TEST_LINK_LIBS})

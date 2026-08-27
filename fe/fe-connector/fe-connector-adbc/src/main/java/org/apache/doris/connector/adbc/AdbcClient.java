@@ -155,7 +155,7 @@ public class AdbcClient implements Closeable {
             // SQLite driver, where a bogus value fails with "dlsym(...) failed: undefined symbol".
             params.put("entrypoint", entrypoint.trim());
         }
-        // Option names keep their "adbc." prefix; see AdbcConnectorProperties.DRIVER_OPTION_PREFIX.
+        // Option names keep their "adbc." prefix; see AdbcCatalogProperties.DRIVER_OPTION_PREFIX.
         params.putAll(driverOptions);
         return params;
     }

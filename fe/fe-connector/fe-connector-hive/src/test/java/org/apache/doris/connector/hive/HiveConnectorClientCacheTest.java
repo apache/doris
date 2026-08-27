@@ -156,7 +156,7 @@ public class HiveConnectorClientCacheTest {
     }
 
     private HiveConnectorMetadata metadataOver(HmsClient client) {
-        return new HiveConnectorMetadata(client, Collections.emptyMap(), new FakeConnectorContext());
+        return new HiveConnectorMetadata(client, HiveTestProperties.minimal(), new FakeConnectorContext());
     }
 
     /**

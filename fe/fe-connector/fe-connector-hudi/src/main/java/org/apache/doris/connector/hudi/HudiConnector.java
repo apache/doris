@@ -20,8 +20,9 @@ package org.apache.doris.connector.hudi;
 import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
+import org.apache.doris.connector.hms.HmsConfHelper;
 import org.apache.doris.connector.hms.ThriftHmsClient;
-import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
+import org.apache.doris.connector.metastore.spi.AbstractHmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -30,6 +31,8 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.kerberos.AuthType;
+import org.apache.doris.kerberos.AuthenticationConfig;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.kerberos.KerberosAuthSpec;
 import org.apache.doris.kerberos.KerberosAuthenticationConfig;
@@ -61,31 +64,28 @@ public class HudiConnector implements Connector {
 
     private static final Logger LOG = LogManager.getLogger(HudiConnector.class);
 
-    // Catalog property key gating the plugin-side Kerberos authenticator (value matches AuthType.KERBEROS).
-    private static final String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
-
+    private final HudiCatalogProperties props;
     private final Map<String, String> properties;
     private final ConnectorContext context;
     private volatile HmsClient hmsClient;
 
-    // Lazily-built plugin-side Kerberos authenticator (single-owner auth), null for a non-Kerberos catalog.
-    // Its doAs acts on the PLUGIN's UserGroupInformation copy — the one this connector's ThriftHmsClient RPC
-    // reads (hadoop + fe-kerberos bundled child-first in the hudi plugin zip) — not the app-loader copy the
-    // FE-injected context would use. Mirrors HiveConnector: after the catalog flip the sibling shares the hms
-    // gateway's context whose executeAuthenticated resolves to NOOP (SIMPLE), which would silently downgrade a
-    // Kerberos HMS. A hudi sibling runs in its OWN classloader, so it must own its authenticator (sharing the
-    // gateway's hive-loader authenticator would split the UGI copy across loaders).
-    private volatile HadoopAuthenticator pluginAuth;
-    private volatile boolean pluginAuthComputed;
+    // HMS and storage deliberately have separate authenticators: hive.metastore.username must affect set_ugi
+    // without changing the UGI used by HoodieTableMetaClient and FileIO.
+    private volatile HadoopAuthenticator hmsAuth;
+    private volatile boolean hmsAuthComputed;
+    private volatile HadoopAuthenticator storageAuth;
+    private volatile boolean storageAuthComputed;
 
     public HudiConnector(Map<String, String> properties, ConnectorContext context) {
-        this.properties = Collections.unmodifiableMap(properties);
+        HmsConfHelper.initializeHadoopConfigDir(context);
+        this.props = HudiCatalogProperties.of(properties);
+        this.properties = props.getRaw();
         this.context = context;
     }
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new HudiConnectorMetadata(getOrCreateClient(), properties, metaClientExecutor(),
+        return new HudiConnectorMetadata(getOrCreateClient(), props, metaClientExecutor(),
                 HudiScanPlanProvider.storageHadoopConfig(context));
     }
 
@@ -93,9 +93,9 @@ public class HudiConnector implements Connector {
      * Builds the metaClient execute-wrapper the metadata partition/snapshot methods run their
      * {@code HoodieTableMetaClient}-touching work inside: a TCCL pin to the hudi plugin classloader (so
      * hudi-bundled reflection resolves the plugin's child-first copies) around the plugin UGI {@code doAs}
-     * (Kerberos) — or the FE-injected {@code context.executeAuthenticated} when this is a non-Kerberos
-     * catalog — restoring the previous TCCL in a {@code finally}. Mirrors the {@link #createClient()} auth
-     * choice; the TCCL pin is added because — unlike the HMS thrift RPC ({@code ThriftHmsClient.doAs} pins the
+     * (Kerberos) — or the FE-injected {@code context.executeAuthenticated} when storage is non-Kerberos —
+     * restoring the previous TCCL in a {@code finally}. The storage-specific choice is intentionally separate
+     * from HMS auth; the TCCL pin is added because — unlike the HMS thrift RPC (which pins the
      * system loader) — building a metaClient / listing partitions off the (unpinned) planning thread needs the
      * plugin loader. See {@link HudiMetaClientExecutor} and memory
      * {@code catalog-spi-plugin-tccl-classloader-gotcha}.
@@ -107,7 +107,7 @@ public class HudiConnector implements Connector {
                 ClassLoader previous = Thread.currentThread().getContextClassLoader();
                 Thread.currentThread().setContextClassLoader(HudiConnector.class.getClassLoader());
                 try {
-                    HadoopAuthenticator auth = pluginAuthenticator();
+                    HadoopAuthenticator auth = storageAuthenticator();
                     if (auth != null) {
                         return auth.doAs(action::call);
                     }
@@ -204,29 +204,19 @@ public class HudiConnector implements Connector {
     }
 
     private HmsClient createClient() {
-        String metastoreUri = properties.get(HudiConnectorProperties.HIVE_METASTORE_URIS);
-        if (metastoreUri == null || metastoreUri.isEmpty()) {
-            metastoreUri = properties.get("uri");
-        }
-        if (metastoreUri == null || metastoreUri.isEmpty()) {
-            throw new DorisConnectorException(
-                    "HMS URI ('" + HudiConnectorProperties.HIVE_METASTORE_URIS + "') is required for Hudi connector");
-        }
-
-        int poolSize = HudiConnectorProperties.getInt(
-                properties, HudiConnectorProperties.HMS_CLIENT_POOL_SIZE,
-                HudiConnectorProperties.DEFAULT_HMS_CLIENT_POOL_SIZE);
-
-        HmsClientConfig config = new HmsClientConfig(properties, poolSize);
+        // The URI (either spelling) and the pool size were checked when this connector was constructed --
+        // HudiCatalogProperties.of throws for a catalog without a metastore URI, so there is nothing left
+        // to re-check here.
+        HmsClientConfig config = buildHmsClientConfig();
+        int poolSize = config.getPoolSize();
         LOG.info("Creating Hudi connector HMS client for catalog='{}', uri={}, poolSize={}",
                 context.getCatalogName(), config.getMetastoreUri(), poolSize);
 
-        // For a Kerberos catalog run the metastore RPC under the PLUGIN's UGI doAs (buildPluginAuthenticator),
-        // NOT the FE-injected context: after the catalog flip that context resolves to NOOP (SIMPLE) auth, which
-        // would silently downgrade a Kerberos HMS. AuthAction.execute is a generic method (<T> T execute(...)),
-        // so it cannot be a lambda — use an anonymous class. ThriftHmsClient.doAs already pins the RPC's TCCL to
-        // the system classloader; the plugin's HadoopAuthenticator only wraps it in a UGI doAs (no TCCL change).
-        HadoopAuthenticator auth = pluginAuthenticator();
+        // HMS SIMPLE and Kerberos both need the plugin's UGI at set_ugi/client-RPC time; the separate storage
+        // authenticator is deliberately not reused because hive.metastore.username is not a FileIO identity.
+        // AuthAction.execute is generic, so it cannot be a lambda. ThriftHmsClient.doAs pins the RPC TCCL; the
+        // plugin authenticator here only adds the UGI doAs.
+        HadoopAuthenticator auth = hmsAuthenticator();
         ThriftHmsClient.AuthAction authAction;
         if (auth != null) {
             authAction = new ThriftHmsClient.AuthAction() {
@@ -239,6 +229,15 @@ public class HudiConnector implements Connector {
             authAction = context::executeAuthenticated;
         }
         return wrapWithCache(new ThriftHmsClient(config, authAction));
+    }
+
+    HmsClientConfig buildHmsClientConfig() {
+        AbstractHmsMetaStoreProperties hms = (AbstractHmsMetaStoreProperties) MetaStoreProviders.bindForType(
+                HmsClientConfig.METASTORE_TYPE_HMS, properties, Collections.emptyMap());
+        // The FE fallback is deployment state, not a catalog property, but the live HiveConf still needs it.
+        return new HmsClientConfig(hms.getConfResources(), HmsConfHelper.mergeCatalogProperties(properties,
+                hms.toHiveConfOverrides(HmsConfHelper.metastoreClientTimeoutSecond(context))),
+                props.getHmsClientPoolSize());
     }
 
     /**
@@ -256,54 +255,75 @@ public class HudiConnector implements Connector {
     }
 
     /**
-     * Lazily builds and memoizes the plugin-side Kerberos authenticator that {@link #createClient()} wraps the
+     * Lazily builds and memoizes the plugin-side authenticator that {@link #createClient()} wraps the
      * metastore RPC under, so the RPC uses the PLUGIN's own {@code UserGroupInformation} copy (hadoop +
-     * fe-kerberos are bundled child-first in the hudi plugin). Returns {@code null} for a non-Kerberos catalog
-     * so the FE-injected auth path is preserved unchanged. Construction is cheap — the keytab login is lazy in
-     * {@code getUGI()} on the first {@code doAs}. Mirrors {@code HiveConnector.pluginAuthenticator}.
+     * fe-kerberos are bundled child-first in the hudi plugin). Construction is cheap — a keytab login is lazy
+     * in {@code getUGI()} on the first {@code doAs}. Mirrors {@code HiveConnector.pluginAuthenticator}.
      */
-    private HadoopAuthenticator pluginAuthenticator() {
-        if (!pluginAuthComputed) {
+    private HadoopAuthenticator hmsAuthenticator() {
+        if (!hmsAuthComputed) {
             synchronized (this) {
-                if (!pluginAuthComputed) {
-                    pluginAuth = buildPluginAuthenticator(properties);
-                    pluginAuthComputed = true;
+                if (!hmsAuthComputed) {
+                    hmsAuth = buildHmsAuthenticator(properties);
+                    hmsAuthComputed = true;
                 }
             }
         }
-        return pluginAuth;
+        return hmsAuth;
+    }
+
+    private HadoopAuthenticator storageAuthenticator() {
+        if (!storageAuthComputed) {
+            synchronized (this) {
+                if (!storageAuthComputed) {
+                    storageAuth = buildPluginAuthenticator(properties);
+                    storageAuthComputed = true;
+                }
+            }
+        }
+        return storageAuth;
     }
 
     /**
-     * Resolves the plugin-side Kerberos authenticator for the catalog, or {@code null} for a non-Kerberos
-     * catalog. Byte-faithful mirror of {@code HiveConnector.buildPluginAuthenticator} — two Kerberos sources in
-     * precedence order (mirroring the legacy {@code HMSBaseProperties.initHadoopAuthenticator}):
-     * <ol>
-     *   <li><b>Storage</b> Kerberos — the raw {@code hadoop.security.authentication=kerberos} passthrough (HDFS
-     *       login). When storage is Kerberos this single login also carries the HMS metastore RPC (same UGI).</li>
-     *   <li><b>HMS-metastore</b> Kerberos with non-Kerberos storage — a secured Hive Metastore whose data
-     *       storage is simple (e.g. a Kerberized HMS over S3). The HMS client principal/keytab facts
-     *       ({@link HmsMetaStoreProperties#kerberos()}, resolved through the shared metastore-spi parser) feed a
-     *       {@link KerberosAuthenticationConfig}, so the {@code doAs} logs in the same client identity fe-core
-     *       used.</li>
-     * </ol>
-     * Package-visible + static for KDC-free unit testing.
+     * Resolves the plugin-side HMS authenticator. Explicit HMS SIMPLE/KERBEROS wins over storage fallback, so
+     * the metastore identity remains independent from the Hudi data-path identity. Package-visible + static for
+     * KDC-free unit testing.
      */
-    static HadoopAuthenticator buildPluginAuthenticator(Map<String, String> properties) {
-        if ("kerberos".equalsIgnoreCase(properties.get(HADOOP_SECURITY_AUTHENTICATION))) {
-            return HadoopAuthenticator.getHadoopAuthenticator(buildHadoopConf(properties));
-        }
-        HmsMetaStoreProperties hms = (HmsMetaStoreProperties) MetaStoreProviders.bindForType(
-                HmsClientConfig.METASTORE_TYPE_HMS, properties, Collections.emptyMap());
-        Optional<KerberosAuthSpec> spec = hms.kerberos();
-        if (spec.isPresent() && spec.get().hasCredentials()) {
-            Configuration conf = buildHadoopConf(properties);
-            conf.set("hadoop.security.authentication", "kerberos");
-            conf.set("hive.metastore.sasl.enabled", "true");
+    static HadoopAuthenticator buildHmsAuthenticator(Map<String, String> properties) {
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(HudiConnector.class.getClassLoader());
+            AbstractHmsMetaStoreProperties hms = (AbstractHmsMetaStoreProperties) MetaStoreProviders.bindForType(
+                    HmsClientConfig.METASTORE_TYPE_HMS, properties, Collections.emptyMap());
+            Optional<KerberosAuthSpec> spec = hms.kerberos();
+            if (spec.isPresent() && spec.get().hasCredentials()) {
+                Configuration conf = buildHmsConf(hms);
+                conf.set("hadoop.security.authentication", "kerberos");
+                conf.set("hive.metastore.sasl.enabled", "true");
+                return HadoopAuthenticator.getHadoopAuthenticator(
+                        new KerberosAuthenticationConfig(
+                                spec.get().getPrincipal(), spec.get().getKeytab(), conf));
+            }
+            if (hms.getAuthType() == AuthType.KERBEROS) {
+                return null;
+            }
+            // HMS set_ugi uses the current UGI; scope this user to the metastore instead of Hudi FileIO.
             return HadoopAuthenticator.getHadoopAuthenticator(
-                    new KerberosAuthenticationConfig(spec.get().getPrincipal(), spec.get().getKeytab(), conf));
+                    AuthenticationConfig.getSimpleAuthenticationConfig(buildHmsConf(hms)));
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
         }
-        return null;
+    }
+
+    /** Resolves only the storage Kerberos identity used by Hudi metadata and file operations. */
+    static HadoopAuthenticator buildPluginAuthenticator(Map<String, String> properties) {
+        if (!"kerberos".equalsIgnoreCase(properties.get("hadoop.security.authentication"))) {
+            return null;
+        }
+        Configuration conf = new Configuration();
+        conf.setClassLoader(HudiConnector.class.getClassLoader());
+        properties.forEach(conf::set);
+        return HadoopAuthenticator.getHadoopAuthenticator(conf);
     }
 
     /**
@@ -312,11 +332,8 @@ public class HudiConnector implements Connector {
      * hadoop-mapreduce onto the unit-test classpath. The classloader is pinned to the plugin loader so the
      * child-first (plugin) copy of the auth classes is resolved. Mirrors {@code HiveConnector.buildHadoopConf}.
      */
-    private static Configuration buildHadoopConf(Map<String, String> properties) {
-        Configuration conf = new Configuration();
-        conf.setClassLoader(HudiConnector.class.getClassLoader());
-        properties.forEach(conf::set);
-        return conf;
+    private static Configuration buildHmsConf(AbstractHmsMetaStoreProperties hms) {
+        return HmsConfHelper.createHadoopConfWithResources(hms.getConfResources(), hms.toHiveConfOverrides(""));
     }
 
     @Override

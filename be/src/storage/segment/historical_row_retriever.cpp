@@ -78,18 +78,6 @@ PrimaryKeyModelRowRetriever::PrimaryKeyModelRowRetriever() = default;
 
 PrimaryKeyModelRowRetriever::~PrimaryKeyModelRowRetriever() = default;
 
-void PrimaryKeyModelRowRetriever::clear() {
-    _key_columns.clear();
-    _seq_column = nullptr;
-    _use_default_or_null_flag.clear();
-    _has_default_or_nullable = false;
-    _operators.clear();
-    _old_delete_signs.clear();
-    // drops the previous block's rowset pins and read plan
-    DCHECK(_context.tablet_schema != nullptr) << "clear() before init()";
-    _row_fetcher = std::make_unique<HistoricalRowFetcher>(_context);
-}
-
 Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_sign_column_data,
                                                             size_t row_pos, size_t num_rows) {
     auto& tablet_schema = _context.tablet_schema;
@@ -158,9 +146,6 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
 Status PrimaryKeyModelRowRetriever::build_after_block(Block* block, size_t row_pos,
                                                       size_t num_rows) {
     DCHECK_EQ(_use_default_or_null_flag.size(), num_rows);
-    if (config::is_cloud_mode()) {
-        return Status::NotSupported("fill_missing_columns");
-    }
     if (_context.partial_update_info == nullptr) {
         return Status::InternalError("partial update info is null");
     }
@@ -172,11 +157,6 @@ Status PrimaryKeyModelRowRetriever::build_after_block(Block* block, size_t row_p
 Status PrimaryKeyModelRowRetriever::build_before_block(Block* before_block,
                                                        const std::vector<uint32_t>& value_cids,
                                                        size_t /*row_pos*/, size_t num_rows) {
-    if (config::is_cloud_mode()) {
-        // TODO(plat1ko): cloud mode
-        return Status::NotSupported("fill_before_columns");
-    }
-
     auto& tablet_schema = _context.tablet_schema;
 
     if (num_rows == 0 || value_cids.empty()) {
@@ -184,7 +164,7 @@ Status PrimaryKeyModelRowRetriever::build_before_block(Block* before_block,
     }
 
     // Create block to hold historical values for value columns.
-    Block old_value_block = tablet_schema->create_block_by_cids(value_cids);
+    Block old_value_block = tablet_schema->create_storage_block(value_cids);
     CHECK_EQ(value_cids.size(), old_value_block.columns());
 
     // key: logical row index in current batch; value: index in old_value_block

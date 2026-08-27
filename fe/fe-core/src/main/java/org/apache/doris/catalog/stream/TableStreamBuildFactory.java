@@ -19,6 +19,7 @@ package org.apache.doris.catalog.stream;
 
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
@@ -61,6 +62,13 @@ public class TableStreamBuildFactory {
         Column sequenceColumn = new Column(Column.STREAM_SEQ_COL, Type.BIGINT);
         sequenceColumn.setIsVisible(false);
         schema.add(sequenceColumn);
+        // Only expose stream LSN when the base table stores row LSN, e.g. dup table with binlog.
+        if (params.baseTable instanceof OlapTable
+                && ((OlapTable) params.baseTable).hasRowLsnColumn()) {
+            Column lsnColumn = new Column(Column.STREAM_LSN_COL, Type.BIGINT);
+            lsnColumn.setIsVisible(false);
+            schema.add(lsnColumn);
+        }
         Column changeTypeColumn = new Column(Column.STREAM_CHANGE_TYPE_COL, Type.VARCHAR);
         changeTypeColumn.setIsVisible(false);
         schema.add(changeTypeColumn);

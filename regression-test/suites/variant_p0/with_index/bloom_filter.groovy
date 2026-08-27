@@ -16,6 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_with_bf", ""){
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def table_name = "var_with_bloom_filter"
     sql "DROP TABLE IF EXISTS var_with_bloom_filter"
     sql """
@@ -27,17 +28,17 @@ suite("regression_test_variant_with_bf", ""){
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "bloom_filter_columns" = "v");
     """
-    sql """insert into ${table_name} values (1, '{"a" : 123456}')"""
-    sql """insert into ${table_name} values (2, '{"a" : 789111}')"""
-    sql """insert into ${table_name} values (3, '{"a" : 789111}')"""
+    sql """insert into ${table_name} values (1, ${variantV2Function}('{"a" : 123456}'))"""
+    sql """insert into ${table_name} values (2, ${variantV2Function}('{"a" : 789111}'))"""
+    sql """insert into ${table_name} values (3, ${variantV2Function}('{"a" : 789111}'))"""
 
-    sql """insert into ${table_name} values (1, '{"b" : "xxxxxxx"}')"""
-    sql """insert into ${table_name} values (2, '{"b" : "yyyyyyy"}')"""
-    sql """insert into ${table_name} values (3, '{"b" : "zzzzzzz"}')"""
+    sql """insert into ${table_name} values (1, ${variantV2Function}('{"b" : "xxxxxxx"}'))"""
+    sql """insert into ${table_name} values (2, ${variantV2Function}('{"b" : "yyyyyyy"}'))"""
+    sql """insert into ${table_name} values (3, ${variantV2Function}('{"b" : "zzzzzzz"}'))"""
 
-    sql """insert into ${table_name} values (1, '{"b" : "xxxxxxx"}')"""
-    sql """insert into ${table_name} values (2, '{"b" : "yyyyyyy"}')"""
-    sql """insert into ${table_name} values (3, '{"b" : "zzzzzzz"}')"""
+    sql """insert into ${table_name} values (1, ${variantV2Function}('{"b" : "xxxxxxx"}'))"""
+    sql """insert into ${table_name} values (2, ${variantV2Function}('{"b" : "yyyyyyy"}'))"""
+    sql """insert into ${table_name} values (3, ${variantV2Function}('{"b" : "zzzzzzz"}'))"""
 
     qt_sql "select * from  var_with_bloom_filter where cast(v['a'] as int) = 789111"
     qt_sql "select * from  var_with_bloom_filter where cast(v['b'] as text) = 'yyyyyyy' ";
