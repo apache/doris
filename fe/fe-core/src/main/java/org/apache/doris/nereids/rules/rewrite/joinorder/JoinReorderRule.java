@@ -79,6 +79,12 @@ public class JoinReorderRule extends DefaultPlanRewriter<Void> {
         return 0;
     }
 
+    /*
+     * Traverses once to collect the current reorderable join cluster and rewrite independent
+     * clusters below its boundaries.
+     * Collects inputs, predicates, and the cross-join count into the cluster parameter, and
+     * returns the fallback plan.
+     */
     private Plan rewriteAndCollectCluster(Plan plan, JoinCluster cluster, Void context) {
         if (plan instanceof LogicalJoin
                 && isReorderable((LogicalJoin<?, ?>) plan)) {
