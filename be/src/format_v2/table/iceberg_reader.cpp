@@ -311,6 +311,10 @@ static Status build_v2_json_scalar_default(const format::ColumnDefinition& field
                                            std::deque<std::string>* binary_storage,
                                            const cctz::time_zone* timezone, Field* result) {
     const auto primitive_type = value_type->get_primitive_type();
+    if (primitive_type == TYPE_VARIANT) {
+        return Status::InvalidArgument(
+                "Iceberg VARIANT initial-default for field '{}' must be NULL", field.name);
+    }
     std::string serialized_value = iceberg_json_scalar_text(json_value);
     const bool binary_like =
             field.initial_default_value_is_base64 || primitive_type == TYPE_VARBINARY;
@@ -395,6 +399,10 @@ static Status build_v2_initial_default_field(const format::ColumnDefinition& fie
 
     const auto value_type = remove_nullable(data_type);
     const auto primitive_type = value_type->get_primitive_type();
+    if (primitive_type == TYPE_VARIANT) {
+        return Status::InvalidArgument(
+                "Iceberg VARIANT initial-default for field '{}' must be NULL", field.name);
+    }
     if (is_complex_type(primitive_type)) {
         rapidjson::Document document;
         document.Parse<rapidjson::kParseFullPrecisionFlag>(field.initial_default_value->data(),

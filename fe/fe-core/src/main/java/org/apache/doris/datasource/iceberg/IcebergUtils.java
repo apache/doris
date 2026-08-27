@@ -1224,6 +1224,8 @@ public class IcebergUtils {
                 } catch (NumberFormatException e) {
                     throw new IllegalArgumentException("Invalid Decimal string: " + value, e);
                 }
+            case VARIANT:
+                throw new IllegalArgumentException("Iceberg VARIANT default values must be NULL");
             default:
                 throw new IllegalArgumentException("Cannot parse unknown type: " + type);
         }
@@ -1427,6 +1429,9 @@ public class IcebergUtils {
 
     private static String serializeInitialDefault(org.apache.iceberg.types.Type type, Object value,
             boolean enableMappingTimestampTz) {
+        if (type.typeId() == TypeID.VARIANT) {
+            throw new IllegalArgumentException("Iceberg VARIANT initial-default must be NULL");
+        }
         if (type.isNestedType()) {
             // Keep Iceberg's type-directed JSON representation for struct/list/map values. In
             // particular, struct members are keyed by field id and an empty object is the V3

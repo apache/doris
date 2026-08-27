@@ -641,6 +641,8 @@ public final class IcebergWriteSchemaContext {
             case STRUCT:
                 return structExpression((Types.StructType) icebergType, value, targetType,
                         enableMappingVarbinary, enableMappingTimestampTz);
+            case VARIANT:
+                throw new AnalysisException("Iceberg VARIANT write-default must be NULL");
             default:
                 throw new AnalysisException("Unsupported Iceberg write-default type: " + icebergType);
         }

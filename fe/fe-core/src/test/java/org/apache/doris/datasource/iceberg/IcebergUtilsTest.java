@@ -395,6 +395,27 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testIcebergVariantDefaultsMustBeNull() {
+        Types.VariantType variantType = Types.VariantType.get();
+        Schema schema = new Schema(Types.NestedField.optional(1, "payload", variantType));
+
+        Assert.assertNull(IcebergUtils.parseIcebergLiteral(null, variantType));
+        Assert.assertTrue(IcebergUtils.getSerializedInitialDefaults(schema, false).isEmpty());
+
+        IllegalArgumentException ddlException = Assert.assertThrows(IllegalArgumentException.class,
+                () -> IcebergUtils.parseIcebergLiteral("{\"source\":\"ddl\"}", variantType));
+        Assert.assertTrue(ddlException.getMessage().contains("VARIANT default values must be NULL"));
+
+        Types.NestedField malformedField = Mockito.mock(Types.NestedField.class);
+        Mockito.when(malformedField.fieldId()).thenReturn(1);
+        Mockito.when(malformedField.type()).thenReturn(variantType);
+        Mockito.when(malformedField.initialDefault()).thenReturn("non-null-variant");
+        IllegalArgumentException readException = Assert.assertThrows(IllegalArgumentException.class,
+                () -> IcebergUtils.getSerializedInitialDefault(malformedField, false));
+        Assert.assertTrue(readException.getMessage().contains("VARIANT initial-default must be NULL"));
+    }
+
+    @Test
     public void testIcebergVariantWriteCapabilityMatrix() {
         Type variant = IcebergUtils.icebergTypeToDorisType(Types.VariantType.get(), false, false);
         Column column = new Column("payload", variant);
