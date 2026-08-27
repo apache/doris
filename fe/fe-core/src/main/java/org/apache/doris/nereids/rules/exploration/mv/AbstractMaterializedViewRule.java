@@ -977,7 +977,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         for (Set<Slot> requireNullableSlots : requireNoNullableViewSlot) {
             shuttledRequireNoNullableViewSlot.add(
                     ExpressionUtils.shuttleExpressionWithLineage(new ArrayList<>(requireNullableSlots),
-                                    viewStructInfo.getTopPlan()).stream().map(Slot.class::cast)
+                                    viewStructInfo.getTopPlan()).stream()
+                            .filter(Slot.class::isInstance)
+                            .map(Slot.class::cast)
                             .collect(Collectors.toSet()));
         }
         return shuttledRequireNoNullableViewSlot;
