@@ -19,7 +19,6 @@
 
 #include <fmt/format.h>
 
-#include <array>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -43,14 +42,44 @@
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "runtime/runtime_state.h"
-#include "util/string_parser.hpp"
 
 namespace doris {
 
 struct CastToTimestampNs {
-    // Floating-point input has no fixed decimal scale. Format it with the shortest round-trippable
-    // decimal representation, then reuse the decimal parser so digits 7-9 are not lost through a
-    // binary floating-point-to-microsecond conversion.
+private:
+    struct FloatDecimalParts {
+        int64_t integer;
+        int64_t fraction;
+        uint32_t scale;
+    };
+
+    template <typename T>
+        requires std::is_floating_point_v<T>
+    static FloatDecimalParts split_float_to_decimal(T value) {
+        // fmt 7.x keeps Dragonbox in detail, so isolate the dependency in this helper. It is the
+        // same shortest-decimal conversion used by fmt's default floating-point formatter.
+        const auto decimal = fmt::detail::dragonbox::to_decimal(value);
+        const auto significand = decimal.significand;
+        const auto decimal_exponent = decimal.exponent;
+        if (decimal_exponent >= 0) {
+            const auto integer =
+                    significand * common::exp10_i64(static_cast<uint32_t>(decimal_exponent));
+            return {static_cast<int64_t>(integer), 0, 0};
+        }
+
+        const auto scale = static_cast<uint32_t>(-decimal_exponent);
+        if (scale >= 19) {
+            return {0, 0, 0};
+        }
+        const auto scale_multiplier = common::exp10_i64(scale);
+        return {static_cast<int64_t>(significand / scale_multiplier),
+                static_cast<int64_t>(significand % scale_multiplier), scale};
+    }
+
+public:
+    // Floating-point input has no fixed decimal scale. Use its shortest round-trippable decimal
+    // representation so digits 7-9 are not polluted by binary floating-point subtraction and the
+    // result preserves the existing string-formatting cast semantics.
     template <typename T>
         requires std::is_floating_point_v<T>
     static bool from_float(T float_value, TimeStampNsValue& result, CastParameters& params) {
@@ -66,24 +95,12 @@ struct CastToTimestampNs {
         constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
         DCHECK(IsStrict == params.is_strict);
         SET_PARAMS_RET_FALSE_IFN(
-                float_value > 0 && !std::isnan(float_value) && !std::isinf(float_value),
+                float_value > 0 && std::isfinite(float_value) &&
+                        float_value < static_cast<double>(std::numeric_limits<int64_t>::max()),
                 "invalid float value for timestamp_ns: {}", float_value);
 
-        std::array<char, 64> decimal_buffer {};
-        const auto formatted =
-                fmt::format_to_n(decimal_buffer.data(), decimal_buffer.size(), "{}", float_value);
-        DCHECK_LE(formatted.size, decimal_buffer.size());
-        StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-        constexpr int decimal_scale = 18;
-        const auto decimal_value = StringParser::string_to_decimal<TYPE_DECIMAL128I>(
-                decimal_buffer.data(), formatted.size, 38, decimal_scale, &parse_result);
-        SET_PARAMS_RET_FALSE_IFN(parse_result == StringParser::PARSE_SUCCESS,
-                                 "invalid float value for timestamp_ns: {}", float_value);
-
-        constexpr auto scale_multiplier = decimal_scale_multiplier<Int128>(decimal_scale);
-        return from_decimal<ParseMode>(decimal_value / scale_multiplier,
-                                       decimal_value % scale_multiplier, decimal_scale, result,
-                                       params);
+        const auto [integer, fraction, scale] = split_float_to_decimal(float_value);
+        return from_decimal<ParseMode>(integer, fraction, scale, result, params);
     }
 
     template <typename T>

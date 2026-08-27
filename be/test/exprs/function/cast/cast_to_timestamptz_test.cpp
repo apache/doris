@@ -269,9 +269,9 @@ TEST_F(CastTimeStampTzTest, from_datetime_non_strict_mode_to_timestamptz) {
 
 TEST_F(CastTimeStampTzTest, timestamp_ns_and_timestamptz_round_trip) {
     const auto make_timestamp_ns = [](std::string_view text) {
-        int64_t epoch_nanos = 0;
-        EXPECT_TRUE(parse_timestamp_ns(StringRef {text.data(), text.size()}, &epoch_nanos).ok());
-        return TimeStampNsValue(epoch_nanos);
+        TimeStampNsValue value;
+        EXPECT_TRUE(parse_timestamp_ns(StringRef {text.data(), text.size()}, &value).ok());
+        return value;
     };
 
     auto timestamp_ns_block = ColumnHelper::create_block<DataTypeTimeStampNs>(

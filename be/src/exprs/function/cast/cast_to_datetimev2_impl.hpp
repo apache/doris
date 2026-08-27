@@ -322,8 +322,10 @@ inline bool CastToDatetimeV2::parse_fractional_seconds(const char* start, size_t
     DCHECK_LE(to_scale, ResultScale);
 
     StringParser::ParseResult success;
-    auto fraction = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
-            start, std::min<int>(static_cast<int>(length), static_cast<int>(to_scale)), &success);
+    const auto parsed_scale =
+            static_cast<uint32_t>(std::min<size_t>(length, static_cast<size_t>(to_scale)));
+    auto fraction = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(start, parsed_scale,
+                                                                              &success);
     SET_PARAMS_RET_FALSE_IFN(success == StringParser::PARSE_SUCCESS,
                              "invalid fractional part in datetime string '{}'",
                              std::string {start, start + length});
@@ -339,11 +341,9 @@ inline bool CastToDatetimeV2::parse_fractional_seconds(const char* start, size_t
                 fraction = 0;
             }
         }
-    } else {
-        fraction *= common::exp10_i32(to_scale - static_cast<uint32_t>(length));
     }
 
-    fraction *= common::exp10_i32(ResultScale - to_scale);
+    fraction *= common::exp10_i32(ResultScale - parsed_scale);
     if constexpr (is_timestamp_ns_result<ResultType>) {
         datetime.unchecked_set_time_unit<TimeUnit::MICROSECOND>(
                 fraction / TimeStampNsValue::NANOS_PER_MICROSECOND);

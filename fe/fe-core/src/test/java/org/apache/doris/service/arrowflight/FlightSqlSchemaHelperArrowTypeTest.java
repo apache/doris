@@ -213,7 +213,12 @@ public class FlightSqlSchemaHelperArrowTypeTest {
         byte[] serialized = FlightSqlSchemaHelper.getSerializedSchema(Arrays.asList(
                 buildField(desc("ts", TPrimitiveType.TIMESTAMP_NS)),
                 buildField(desc("items", TPrimitiveType.ARRAY,
-                        desc("item", TPrimitiveType.TIMESTAMP_NS)))));
+                        desc("item", TPrimitiveType.TIMESTAMP_NS))),
+                buildField(desc("by_name", TPrimitiveType.MAP,
+                        desc("key", TPrimitiveType.VARCHAR),
+                        desc("value", TPrimitiveType.TIMESTAMP_NS))),
+                buildField(desc("record", TPrimitiveType.STRUCT,
+                        desc("ts", TPrimitiveType.TIMESTAMP_NS)))));
 
         Schema schema = MessageSerializer.deserializeSchema(
                 new ReadChannel(Channels.newChannel(new ByteArrayInputStream(serialized))));
@@ -221,5 +226,9 @@ public class FlightSqlSchemaHelperArrowTypeTest {
         Assertions.assertEquals(timestampNs, schema.getFields().get(0).getType());
         Assertions.assertEquals(timestampNs,
                 schema.getFields().get(1).getChildren().get(0).getType());
+        Assertions.assertEquals(timestampNs,
+                schema.getFields().get(2).getChildren().get(0).getChildren().get(1).getType());
+        Assertions.assertEquals(timestampNs,
+                schema.getFields().get(3).getChildren().get(0).getType());
     }
 }
