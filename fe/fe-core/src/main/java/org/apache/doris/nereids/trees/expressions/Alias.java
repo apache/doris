@@ -41,7 +41,6 @@ public class Alias extends NamedExpression implements UnaryExpression {
     private final Supplier<String> name;
     private final List<String> qualifier;
     private final boolean nameFromChild;
-    private final Optional<Slot> outputSlot;
 
     /**
      * constructor of Alias.
@@ -60,14 +59,6 @@ public class Alias extends NamedExpression implements UnaryExpression {
     public Alias(Expression child) {
         this(StatementScopeIdGenerator.newExprId(), ImmutableList.of(child),
                 Suppliers.memoize(child::toSql), ImmutableList.of(), true);
-    }
-
-    /**
-     * Create an alias whose output keeps all metadata from the given slot.
-     */
-    public Alias(Expression child, Slot outputSlot) {
-        this(outputSlot.getExprId(), ImmutableList.of(child), outputSlot::getName,
-                outputSlot.getQualifier(), false, Optional.of(outputSlot));
     }
 
     public Alias(ExprId exprId, Expression child) {
@@ -92,29 +83,15 @@ public class Alias extends NamedExpression implements UnaryExpression {
 
     private Alias(ExprId exprId, List<Expression> child, Supplier<String> name,
             List<String> qualifier, boolean nameFromChild) {
-        this(exprId, child, name, qualifier, nameFromChild, Optional.empty());
-    }
-
-    private Alias(ExprId exprId, List<Expression> child, Supplier<String> name,
-            List<String> qualifier, boolean nameFromChild, Optional<Slot> outputSlot) {
         super(child);
         this.exprId = exprId;
         this.name = name;
         this.qualifier = qualifier;
         this.nameFromChild = nameFromChild;
-        this.outputSlot = outputSlot;
-        outputSlot.ifPresent(slot -> {
-            Preconditions.checkArgument(exprId.equals(slot.getExprId()));
-            Preconditions.checkArgument(child.get(0).getDataType().equals(slot.getDataType()));
-            Preconditions.checkArgument(child.get(0).nullable() == slot.nullable());
-        });
     }
 
     @Override
     public Slot toSlot() throws UnboundException {
-        if (outputSlot.isPresent()) {
-            return outputSlot.get();
-        }
         SlotReference slotReference = child() instanceof SlotReference
                 ? (SlotReference) child() : null;
 
@@ -196,12 +173,11 @@ public class Alias extends NamedExpression implements UnaryExpression {
     @Override
     public Alias withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Alias(exprId, children, name, qualifier, nameFromChild, outputSlot);
+        return new Alias(exprId, children, name, qualifier, nameFromChild);
     }
 
     public Alias withExprId(ExprId exprId) {
-        return new Alias(exprId, children, name, qualifier, nameFromChild,
-                outputSlot.map(slot -> slot.withExprId(exprId)));
+        return new Alias(exprId, children, name, qualifier, nameFromChild);
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -122,7 +121,7 @@ class EliminateJoinConditionTest implements MemoPatternMatchSupported {
         Assertions.assertEquals(originalOutput, project.getOutput());
         for (int i = 0; i < originalOutput.size(); i++) {
             NamedExpression projectExpression = project.getProjects().get(i);
-            assertSlotMetadata(originalOutput.get(i), project.getOutput().get(i));
+            assertSlotContract(originalOutput.get(i), project.getOutput().get(i));
             if (preservedOutput.contains(originalOutput.get(i))) {
                 Assertions.assertEquals(originalOutput.get(i), projectExpression);
             } else {
@@ -133,22 +132,11 @@ class EliminateJoinConditionTest implements MemoPatternMatchSupported {
         }
     }
 
-    private void assertSlotMetadata(Slot expected, Slot actual) {
+    private void assertSlotContract(Slot expected, Slot actual) {
         Assertions.assertEquals(expected.getExprId(), actual.getExprId());
         Assertions.assertEquals(expected.getName(), actual.getName());
-        Assertions.assertEquals(expected.getQualifier(), actual.getQualifier());
         Assertions.assertEquals(expected.getDataType(), actual.getDataType());
         Assertions.assertEquals(expected.nullable(), actual.nullable());
-        Assertions.assertEquals(expected.getIndexInSqlString(), actual.getIndexInSqlString());
-        Assertions.assertInstanceOf(SlotReference.class, expected);
-        Assertions.assertInstanceOf(SlotReference.class, actual);
-        SlotReference expectedReference = (SlotReference) expected;
-        SlotReference actualReference = (SlotReference) actual;
-        Assertions.assertEquals(expectedReference.getOriginalTable(), actualReference.getOriginalTable());
-        Assertions.assertEquals(expectedReference.getOriginalColumn(), actualReference.getOriginalColumn());
-        Assertions.assertEquals(expectedReference.getOneLevelTable(), actualReference.getOneLevelTable());
-        Assertions.assertEquals(expectedReference.getOneLevelColumn(), actualReference.getOneLevelColumn());
-        Assertions.assertEquals(expectedReference.getSubPath(), actualReference.getSubPath());
     }
 
     @Test
