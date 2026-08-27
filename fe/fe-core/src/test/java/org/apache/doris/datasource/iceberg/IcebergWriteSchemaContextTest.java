@@ -218,6 +218,48 @@ public class IcebergWriteSchemaContextTest {
     }
 
     @Test
+    public void testVariantWriteDefaultMustBeNull() {
+        Types.VariantType variantType = Types.VariantType.get();
+        Schema schema = new Schema(18, Arrays.asList(
+                Types.NestedField.optional(1, "optional_payload", variantType),
+                Types.NestedField.required(2, "required_payload", variantType)));
+        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.forSchema(
+                schema, 3, true, true);
+        Map<String, Column> columns = context.getColumns().stream()
+                .collect(Collectors.toMap(Column::getName, column -> column));
+
+        Expression optionalDefault = context.resolveWriteDefault(columns.get("optional_payload"));
+        Assertions.assertTrue(optionalDefault instanceof NullLiteral);
+        Assertions.assertEquals(DataType.fromCatalogType(columns.get("optional_payload").getType()),
+                optionalDefault.getDataType());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> context.resolveWriteDefault(columns.get("required_payload")));
+
+        AnalysisException nonNullException = Assertions.assertThrows(AnalysisException.class,
+                () -> IcebergWriteSchemaContext.toDorisExpression(
+                        variantType, new Object(), optionalDefault.getDataType(), true, true));
+        Assertions.assertTrue(nonNullException.getMessage().contains(
+                "VARIANT write-default must be NULL"));
+    }
+
+    @Test
+    public void testStructWriteDefaultKeepsVariantChildNull() {
+        Types.StructType structType = Types.StructType.of(
+                Types.NestedField.optional(101, "payload", Types.VariantType.get()));
+        DataType targetType = DataType.fromCatalogType(IcebergUtils.icebergTypeToDorisType(
+                structType, true, true));
+
+        Expression expression = IcebergWriteSchemaContext.toDorisExpression(
+                structType, new ArrayStructLike((Object) null), targetType, true, true);
+
+        Assertions.assertTrue(expression instanceof StructLiteral);
+        List<?> fields = ((StructLiteral) expression).getValue();
+        Assertions.assertEquals(1, fields.size());
+        Assertions.assertTrue(fields.get(0) instanceof NullLiteral);
+        Assertions.assertEquals(targetType, expression.getDataType());
+    }
+
+    @Test
     public void testWriteDefaultResolutionDoesNotFallBackToReusedName() {
         Schema pinnedSchema = new Schema(18, ImmutableList.of(defaultField(
                 7, "reused_name", Types.IntegerType.get(),

@@ -60,6 +60,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "exec/common/endian.h"
 #include "exec/scan/access_path_parser.h"
 #include "exprs/runtime_filter_expr.h"
@@ -1503,6 +1504,108 @@ TEST(IcebergV2ReaderTest, AnnotateConvertsTimestamptzDefaultToSessionTimezone) {
     ASSERT_NE(literal, nullptr);
     EXPECT_EQ(timestamp_type->to_string(*literal->get_column_ptr(), 0),
               "2025-01-18 09:02:03.654321");
+}
+
+TEST(IcebergV2ReaderTest, AnnotateVariantInitialDefaultMustBeNull) {
+    const auto variant_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+
+    auto optional_variant =
+            external_schema_field("payload", 1, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::VARIANT), false, true);
+    TFileScanRangeParams valid_scan_params;
+    valid_scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    valid_scan_params.__set_current_schema_id(100);
+    valid_scan_params.__set_history_schema_info(
+            {external_schema(100, {std::move(optional_variant)})});
+
+    ColumnDefinition valid_column;
+    valid_column.name = "payload";
+    valid_column.type = variant_type;
+    ProjectedColumnBuildContext valid_context {.scan_params = &valid_scan_params};
+    doris::format::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.annotate_projected_column(TFileScanSlotInfo(), &valid_context, &valid_column)
+                        .ok());
+    ASSERT_TRUE(valid_column.is_optional.has_value());
+    EXPECT_TRUE(*valid_column.is_optional);
+    EXPECT_FALSE(valid_column.initial_default_value.has_value());
+    EXPECT_EQ(valid_column.default_expr, nullptr);
+    ASSERT_TRUE(valid_context.schema_column.has_value());
+    EXPECT_TRUE(valid_context.schema_column->type->equals(*variant_type));
+
+    auto malformed_variant =
+            external_schema_field("payload", 1, {}, "{\"source\":\"malformed\"}",
+                                  external_primitive_type(TPrimitiveType::VARIANT), false, true);
+    TFileScanRangeParams malformed_scan_params;
+    malformed_scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    malformed_scan_params.__set_current_schema_id(101);
+    malformed_scan_params.__set_history_schema_info(
+            {external_schema(101, {std::move(malformed_variant)})});
+
+    ColumnDefinition malformed_column;
+    malformed_column.name = "payload";
+    malformed_column.type = variant_type;
+    ProjectedColumnBuildContext malformed_context {.scan_params = &malformed_scan_params};
+    const auto status = reader.annotate_projected_column(TFileScanSlotInfo(), &malformed_context,
+                                                         &malformed_column);
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+    EXPECT_NE(status.to_string().find("VARIANT initial-default for field 'payload' must be NULL"),
+              std::string::npos)
+            << status;
+}
+
+TEST(IcebergV2ReaderTest, StructInitialDefaultKeepsVariantChildNull) {
+    const auto variant_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    const auto struct_type = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {variant_type}, Strings {"payload"}));
+
+    auto optional_variant =
+            external_schema_field("payload", 2, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::VARIANT), false, true);
+    auto valid_struct =
+            external_struct_schema_field("event", 1, {std::move(optional_variant)}, true, "{}");
+    TFileScanRangeParams valid_scan_params;
+    valid_scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    valid_scan_params.__set_current_schema_id(100);
+    valid_scan_params.__set_history_schema_info({external_schema(100, {std::move(valid_struct)})});
+
+    ColumnDefinition valid_column;
+    valid_column.name = "event";
+    valid_column.type = struct_type;
+    ProjectedColumnBuildContext valid_context {.scan_params = &valid_scan_params};
+    doris::format::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.annotate_projected_column(TFileScanSlotInfo(), &valid_context, &valid_column)
+                        .ok());
+    ASSERT_NE(valid_column.default_expr, nullptr);
+    const auto* literal = dynamic_cast<const VLiteral*>(valid_column.default_expr->root().get());
+    ASSERT_NE(literal, nullptr);
+    EXPECT_TRUE(literal->get_data_type()->equals(*struct_type));
+    Field value;
+    literal->get_column_ptr()->get(0, value);
+    const auto& struct_fields = value.get<TYPE_STRUCT>();
+    ASSERT_EQ(struct_fields.size(), 1);
+    EXPECT_TRUE(struct_fields[0].is_null());
+
+    auto malformed_variant =
+            external_schema_field("payload", 2, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::VARIANT), false, true);
+    auto malformed_struct = external_struct_schema_field(
+            "event", 1, {std::move(malformed_variant)}, true, "{\"2\":{\"source\":\"malformed\"}}");
+    TFileScanRangeParams malformed_scan_params;
+    malformed_scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    malformed_scan_params.__set_current_schema_id(101);
+    malformed_scan_params.__set_history_schema_info(
+            {external_schema(101, {std::move(malformed_struct)})});
+
+    ColumnDefinition malformed_column;
+    malformed_column.name = "event";
+    malformed_column.type = struct_type;
+    ProjectedColumnBuildContext malformed_context {.scan_params = &malformed_scan_params};
+    const auto status = reader.annotate_projected_column(TFileScanSlotInfo(), &malformed_context,
+                                                         &malformed_column);
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+    EXPECT_NE(status.to_string().find("VARIANT initial-default for field 'payload' must be NULL"),
+              std::string::npos)
+            << status;
 }
 
 TEST(IcebergV2ReaderTest, AnnotateBuildsComplexInitialDefaults) {
