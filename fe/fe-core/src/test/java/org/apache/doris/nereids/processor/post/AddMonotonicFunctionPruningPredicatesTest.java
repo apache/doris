@@ -19,7 +19,7 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
@@ -85,11 +85,21 @@ class AddMonotonicFunctionPruningPredicatesTest extends ExpressionRewriteTestHel
         SlotReference dateTimeSlot = new SlotReference("dt", DateTimeV2Type.SYSTEM_DEFAULT, true);
         Expression original = yearEquals(dateTimeSlot);
         PhysicalFilter<PhysicalFileScan> filter = new PhysicalFilter<>(
-                ImmutableSet.of(original), logicalProperties(dateTimeSlot), fileScan(dateTimeSlot));
+                ImmutableSet.of(original), logicalProperties(dateTimeSlot), fileScan(dateTimeSlot, true));
 
         Plan rewritten = filter.accept(processor, cascadesContext);
 
         assertYearRange(rewritten, original, dateTimeSlot);
+    }
+
+    @Test
+    void doNotAddPredicatesForNonStorageFileScan() {
+        SlotReference dateTimeSlot = new SlotReference("dt", DateTimeV2Type.SYSTEM_DEFAULT, true);
+        PhysicalFilter<PhysicalFileScan> filter = new PhysicalFilter<>(
+                ImmutableSet.of(yearEquals(dateTimeSlot)), logicalProperties(dateTimeSlot),
+                fileScan(dateTimeSlot, false));
+
+        Assertions.assertSame(filter, filter.accept(processor, cascadesContext));
     }
 
     @Test
@@ -193,8 +203,10 @@ class AddMonotonicFunctionPruningPredicatesTest extends ExpressionRewriteTestHel
                 Optional.empty(), ImmutableList.of(), Optional.empty());
     }
 
-    private PhysicalFileScan fileScan(SlotReference output) {
-        return new PhysicalFileScan(RelationId.createGenerator().getNextId(), Mockito.mock(ExternalTable.class),
+    private PhysicalFileScan fileScan(SlotReference output, boolean supportsStoragePredicatePruning) {
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.supportsStoragePredicatePruning()).thenReturn(supportsStoragePredicatePruning);
+        return new PhysicalFileScan(RelationId.createGenerator().getNextId(), table,
                 ImmutableList.of("test"), null, Optional.empty(), logicalProperties(output),
                 SelectedPartitions.NOT_PRUNED, Optional.empty(), Optional.empty(), ImmutableList.of(),
                 Optional.empty());

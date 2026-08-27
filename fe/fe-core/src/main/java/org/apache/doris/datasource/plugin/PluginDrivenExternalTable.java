@@ -278,6 +278,11 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return hasCapability(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
     }
 
+    /** Whether this table's storage reader can use inferred bare-column predicates for data skipping. */
+    public boolean supportsStoragePredicatePruning() {
+        return hasCapability(ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING);
+    }
+
     /**
      * Returns whether THIS table supports {@code ALTER TABLE} column schema-change DDL (including dotted
      * nested paths and {@code MODIFY COLUMN ... COMMENT}). The nereids {@code AlterTableCommand} column-op

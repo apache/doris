@@ -283,6 +283,16 @@ public class HiveConnectorMetadataSchemaTest {
     }
 
     @Test
+    public void testStoragePredicatePruningMarkerMatchesColumnarFileFormats() {
+        Assertions.assertTrue(hasCapability(schemaOf(unpartitionedTable(PARQUET_INPUT_FORMAT).build()),
+                ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING));
+        Assertions.assertTrue(hasCapability(schemaOf(unpartitionedTable(ORC_INPUT_FORMAT).build()),
+                ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING));
+        Assertions.assertFalse(hasCapability(schemaOf(unpartitionedTable(TEXT_INPUT_FORMAT).build()),
+                ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING));
+    }
+
+    @Test
     public void testColumnAutoAnalyzeMarkerEmittedForEveryPlainHiveFormat() {
         // WHY: legacy StatisticsUtil.supportAutoAnalyze admitted EVERY plain-hive (dlaType==HIVE) table into
         // background per-column auto-analyze regardless of file format. Emitting it per-table (not connector-wide)

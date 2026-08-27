@@ -560,10 +560,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
 
         // Per-table scan capabilities that the generic fe-core consumer refines the connector-wide capability
-        // set with. Top-N lazy materialization is orc/parquet-only in hive (legacy
-        // HMSExternalTable.supportedHiveTopNLazyTable), which the connector-wide SUPPORTS_TOPN_LAZY_MATERIALIZE
-        // cannot express for a heterogeneous hive catalog; emit it per-table so fe-core enables the optimization
-        // only for eligible tables and never for text/csv/json/view/hudi.
+        // set with. Top-N lazy materialization and storage min/max pruning are orc/parquet-only in hive, which
+        // connector-wide capabilities cannot express for a heterogeneous hive catalog; emit them per-table so
+        // fe-core enables the optimizations only for eligible tables and never for text/csv/json/view/hudi.
         Set<ConnectorCapability> perTableCapabilities = EnumSet.noneOf(ConnectorCapability.class);
         // Legacy StatisticsUtil.supportAutoAnalyze admitted EVERY plain-hive (dlaType==HIVE) table into background
         // per-column auto-analyze regardless of file format. Emit it per-table for every plain-hive data table (any
@@ -577,8 +576,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         if (supportsHiveSampleAnalyze(tableInfo)) {
             perTableCapabilities.add(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE);
         }
-        if (supportsHiveTopNLazyMaterialize(tableInfo)) {
+        if (supportsHiveOrcOrParquetScan(tableInfo)) {
             perTableCapabilities.add(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE);
+            perTableCapabilities.add(ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING);
         }
 
         // Distribution (bucketing) columns for the flipped table's getDistributionColumnNames() — legacy
@@ -2267,13 +2267,11 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Whether {@code tableInfo} is a plain-hive orc/parquet base table eligible for Top-N lazy materialization,
-     * replicating legacy {@code HMSExternalTable.supportedHiveTopNLazyTable} plus the {@code getDlaType()==HIVE}
-     * guard the legacy consumer ({@code MaterializeProbeVisitor}) applied: a view is excluded, an
-     * iceberg/hudi-on-HMS table is excluded (those are served by their own connector, which declares the
-     * capability connector-wide after the cutover), and only the parquet/orc input formats qualify.
+     * Whether {@code tableInfo} is a plain-hive ORC/Parquet base table. These tables support both Top-N lazy
+     * materialization and storage-level min/max predicate pruning. Views and iceberg/hudi-on-HMS tables are
+     * excluded; their connector-specific pruning semantics are validated separately.
      */
-    private boolean supportsHiveTopNLazyMaterialize(HmsTableInfo tableInfo) {
+    private boolean supportsHiveOrcOrParquetScan(HmsTableInfo tableInfo) {
         if (isView(tableInfo)) {
             return false;
         }
@@ -2287,7 +2285,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     /**
      * Whether {@code tableInfo} is a plain-hive data table (any file format) eligible for background per-column
      * auto-analyze, replicating legacy {@code StatisticsUtil.supportAutoAnalyze}'s {@code dlaType==HIVE} gate.
-     * Unlike {@link #supportsHiveTopNLazyMaterialize} there is NO orc/parquet restriction (legacy analyzed any hive
+     * Unlike {@link #supportsHiveOrcOrParquetScan} there is NO orc/parquet restriction (legacy analyzed any hive
      * format); a view is excluded (nothing to analyze) and an iceberg/hudi-on-HMS table is excluded here
      * ({@code detect() != HIVE}) — iceberg-on-HMS instead inherits the capability from its sibling via
      * {@link #reflectSiblingCapabilities}, and hudi-on-HMS is withheld.

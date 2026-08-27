@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.processor.post;
 
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.rules.InferPredicateFromMonotonicFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -70,8 +72,13 @@ public class AddMonotonicFunctionPruningPredicates extends PlanPostProcessor {
         if (plan instanceof PhysicalStorageLayerAggregate) {
             plan = ((PhysicalStorageLayerAggregate) plan).getRelation();
         }
-        if (plan instanceof PhysicalOlapScan || plan instanceof PhysicalFileScan) {
+        if (plan instanceof PhysicalOlapScan) {
             return true;
+        }
+        if (plan instanceof PhysicalFileScan) {
+            ExternalTable table = ((PhysicalFileScan) plan).getTable();
+            return table instanceof PluginDrivenExternalTable
+                    && ((PluginDrivenExternalTable) table).supportsStoragePredicatePruning();
         }
         if (!(plan instanceof PhysicalTVFRelation)) {
             return false;
