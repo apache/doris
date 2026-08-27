@@ -22,6 +22,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -136,14 +137,24 @@ public class ComputeGroupBindingUtil {
         // Deliberately not ComputeGroupMgr.getComputeGroupByName() for the existence check: when
         // the group is missing that builds a hint message from the thread-local ConnectContext,
         // and the callers here are background threads that do not have one.
+        //
+        // A missing group is left on the default INTERNAL_ERR, which RoutineLoadTaskScheduler
+        // reports as a retryable pause: the name can come back on its own, because a compute group
+        // that is merely scaled to zero backends is removed from the cluster map and re-added when
+        // it scales up again. Auto resume then picks the job up without an operator.
         if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames()
                 .contains(computeGroup)) {
             throw new UserException("Compute group '" + computeGroup + "' not found.");
         }
 
+        // A revoked privilege is the opposite: somebody decided this owner may no longer use this
+        // group, and nothing will undo that by itself. CANNOT_RESUME_ERR keeps ScheduleRule from
+        // auto resuming the job, which would otherwise pause and resume it every few minutes for
+        // as long as the grant is missing.
         if (!Env.getCurrentEnv().getAccessManager().checkCloudPriv(owner, computeGroup,
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
-            throw new UserException("USAGE denied to user '" + owner.getQualifiedUser()
+            throw new UserException(InternalErrorCode.CANNOT_RESUME_ERR,
+                    "USAGE denied to user '" + owner.getQualifiedUser()
                     + "' for compute group '" + computeGroup + "'");
         }
     }

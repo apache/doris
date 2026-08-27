@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.load.CloudRoutineLoadManager;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -351,6 +352,55 @@ public class RoutineLoadComputeGroupTest {
         Assert.assertTrue(job.pauseMsg, job.pauseMsg.contains("Compute group 'cg_dropped' not found."));
         Assert.assertFalse("the operator must not be sent to look at BE status for a dropped group",
                 job.pauseMsg.contains("no available BE found"));
+
+        // A group can come back by itself - one that is only scaled to zero backends leaves the
+        // cluster map and re-enters it when it scales up - so this pause has to stay retryable.
+        Assert.assertNotEquals(InternalErrorCode.CANNOT_RESUME_ERR, job.pauseCode);
+        Assert.assertTrue("a dropped group must still auto resume once it is back",
+                ScheduleRule.isNeedAutoSchedule(job));
+    }
+
+    /**
+     * A revoked privilege is not transient, so the job must stop instead of flapping.
+     *
+     * <p>Pausing with the default INTERNAL_ERR would let {@link ScheduleRule} auto resume the job
+     * within at most MAX_BACK_OFF_TIME_SEC, whereupon the next task fails the same check and pauses
+     * it again - for as long as the grant is missing, at two edit log entries per cycle.
+     */
+    @Test
+    public void testRevokedUsagePausesTaskWithoutAutoResume() {
+        // the group exists, so the check gets past existence and fails on the privilege
+        enterCloudMode(false, Lists.newArrayList("cg_pinned"));
+
+        RecordingKafkaRoutineLoadJob job = new RecordingKafkaRoutineLoadJob();
+        Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.RUNNING);
+        Deencapsulation.setField(job, "userIdentity", UserIdentity.ADMIN);
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(RoutineLoadJob.COMPUTE_GROUP, "cg_pinned");
+        Deencapsulation.setField(job, "jobProperties", jobProperties);
+
+        Map<Long, RoutineLoadJob> jobs = Maps.newHashMap();
+        jobs.put(1L, job);
+        RoutineLoadTaskScheduler scheduler =
+                new RoutineLoadTaskScheduler(new TestCloudRoutineLoadManager(jobs));
+
+        ConcurrentMap<Integer, Long> partitionIdToOffset = Maps.newConcurrentMap();
+        partitionIdToOffset.put(1, 100L);
+        KafkaTaskInfo taskInfo = new AlwaysReadyKafkaTaskInfo(new UUID(1, 1), 1L, partitionIdToOffset);
+
+        try {
+            Deencapsulation.invoke(scheduler, "scheduleOneTask", taskInfo);
+            Assert.fail("a task whose owner lost USAGE on the pinned group must fail");
+        } catch (Exception expected) {
+            // scheduleOneTask pauses the job and rethrows
+        }
+
+        Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, job.newState);
+        Assert.assertNotNull("the job must be paused with a reason", job.pauseMsg);
+        Assert.assertTrue(job.pauseMsg, job.pauseMsg.contains("USAGE denied"));
+        Assert.assertEquals(InternalErrorCode.CANNOT_RESUME_ERR, job.pauseCode);
+        Assert.assertFalse("a revoked privilege must not be auto resumed",
+                ScheduleRule.isNeedAutoSchedule(job));
     }
 
     private CreateRoutineLoadInfo newCreateInfo(String declaredComputeGroup) {
@@ -387,15 +437,22 @@ public class RoutineLoadComputeGroupTest {
         }
     }
 
-    /** Captures the state transition instead of writing an edit log. */
+    /**
+     * Captures the state transition instead of writing an edit log, and mirrors it onto the real
+     * fields so that ScheduleRule can be asked what it would do with the resulting pause.
+     */
     private static class RecordingKafkaRoutineLoadJob extends KafkaRoutineLoadJob {
         private JobState newState;
         private String pauseMsg;
+        private InternalErrorCode pauseCode;
 
         @Override
         public void updateState(JobState jobState, ErrorReason reason, boolean isReplay) {
             this.newState = jobState;
             this.pauseMsg = reason == null ? null : reason.getMsg();
+            this.pauseCode = reason == null ? null : reason.getCode();
+            this.state = jobState;
+            this.pauseReason = reason;
         }
     }
 

@@ -265,6 +265,15 @@ suite("test_routine_load_compute_group", "p0") {
                 pausedForComputeGroup)
         assertFalse("a compute group problem must never be reported as a BE availability problem",
                 sawBeAvailabilityReason)
+
+        // Nothing undoes a REVOKE by itself, so the pause carries CANNOT_RESUME_ERR and the job
+        // must stay down instead of being auto resumed into the same failure every few minutes.
+        for (int i = 0; i < 15; i++) {
+            def state = sql_return_maparray("SHOW ROUTINE LOAD FOR ${revokeJob}").get(0).State
+            assertEquals("a job paused by a revoked privilege must not be auto resumed",
+                    "PAUSED", state)
+            sleep(1000)
+        }
     } finally {
         try {
             sql "STOP ROUTINE LOAD FOR ${revokeJob}"

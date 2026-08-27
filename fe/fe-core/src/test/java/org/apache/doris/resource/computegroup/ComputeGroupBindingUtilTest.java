@@ -22,6 +22,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -183,6 +184,10 @@ public class ComputeGroupBindingUtilTest {
         UserException e = Assert.assertThrows(UserException.class,
                 () -> ComputeGroupBindingUtil.checkComputeGroupBeforeTask(UserIdentity.ADMIN, "cg_gone"));
         Assert.assertTrue(e.getMessage(), e.getMessage().contains("not found"));
+        // A missing group can come back on its own - one that is only scaled to zero backends
+        // leaves the cluster map and re-enters it when it scales up - so the pause this produces
+        // has to stay retryable for RoutineLoadTaskScheduler / ScheduleRule.
+        Assert.assertNotEquals(InternalErrorCode.CANNOT_RESUME_ERR, e.getErrorCode());
     }
 
     // The owner's USAGE on the compute group was revoked while the job kept running. This is the
@@ -192,7 +197,10 @@ public class ComputeGroupBindingUtilTest {
         enterCloudMode(false, Lists.newArrayList(CG_OK));
         UserException e = Assert.assertThrows(UserException.class,
                 () -> ComputeGroupBindingUtil.checkComputeGroupBeforeTask(UserIdentity.ADMIN, CG_OK));
-        Assert.assertTrue(e.getMessage(), e.getMessage().contains("compute group"));
+        Assert.assertTrue(e.getMessage(), e.getMessage().contains("USAGE denied"));
+        // Unlike a missing group, nothing undoes a REVOKE by itself, so the pause must not be auto
+        // resumed - otherwise the job flaps every few minutes for as long as the grant is missing.
+        Assert.assertEquals(InternalErrorCode.CANNOT_RESUME_ERR, e.getErrorCode());
     }
 
     // Non-cloud has no named compute group, so the check is skipped entirely.
