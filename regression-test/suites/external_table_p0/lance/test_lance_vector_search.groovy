@@ -90,10 +90,10 @@ suite("test_lance_vector_search", "p0,external") {
     // deterministic ladder 0, 16, 64, 144, ... with no ties.
     String headQuery = "[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]"
     String tailQuery = "[1023,1024,1025,1026,1027,1028,1029,1030,1031,1032,1033,1034,1035,1036,1037,1038]"
-    // boundaryQuery is row 256's vector. On this frozen index row 256 lies next to an IVF
+    // boundaryQuery is row 257's vector. On this frozen index row 257 lies next to an IVF
     // partition edge, so part of its true neighbourhood sits in an adjacent partition
     // (pinned by the generator self-check); see the discriminator block below.
-    String boundaryQuery = "[255,256,257,258,259,260,261,262,263,264,265,266,267,268,269,270]"
+    String boundaryQuery = "[256,257,258,259,260,261,262,263,264,265,266,267,268,269,270,271]"
     String indexedTopFive = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${headQuery}", "top_k"="5", "metric"="l2", "nprobes"="4", "refine_factor"="10", "use_index"="true")"""
     String flatTopFive = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${headQuery}", "top_k"="5", "metric"="l2", "use_index"="false")"""
     String indexedTopTwo = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${headQuery}", "top_k"="2", "metric"="l2", "nprobes"="4", "refine_factor"="10", "use_index"="true")"""
@@ -212,7 +212,7 @@ suite("test_lance_vector_search", "p0,external") {
             ORDER BY _distance, row_id
         """
 
-        // Silent-fallback discriminator. Row 256's true nearest neighbours straddle an IVF
+        // Silent-fallback discriminator. Row 257's true nearest neighbours straddle an IVF
         // partition edge, so a genuine single-partition probe must miss the ones on the far
         // side and differ from flat search even after exact reranking. A pipeline that ignores use_index/nprobes and silently scans
         // flat fails this assertion: on an unindexed table Lance ignores nprobes and

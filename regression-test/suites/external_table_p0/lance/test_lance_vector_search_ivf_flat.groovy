@@ -46,9 +46,9 @@ suite("test_lance_vector_search_ivf_flat", "p0,external") {
     // deterministic ladder 0, 16, 64, 144, ... with no ties.
     String headQuery = "[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]"
     String tailQuery = "[1023,1024,1025,1026,1027,1028,1029,1030,1031,1032,1033,1034,1035,1036,1037,1038]"
-    // boundaryQuery is row 256's vector; it sits next to an IVF partition edge on this
+    // boundaryQuery is row 257's vector; it sits next to an IVF partition edge on this
     // frozen index (pinned by the generator self-check). See the discriminator below.
-    String boundaryQuery = "[255,256,257,258,259,260,261,262,263,264,265,266,267,268,269,270]"
+    String boundaryQuery = "[256,257,258,259,260,261,262,263,264,265,266,267,268,269,270,271]"
 
     def indexedSearch = { String query, String topK ->
         """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${query}", "top_k"="${topK}", "metric"="l2", "nprobes"="4", "use_index"="true")"""
@@ -119,7 +119,7 @@ suite("test_lance_vector_search_ivf_flat", "p0,external") {
         ORDER BY _distance, row_id
     """
 
-    // Silent-fallback discriminator. Row 256's true nearest neighbours straddle an IVF
+    // Silent-fallback discriminator. Row 257's true nearest neighbours straddle an IVF
     // partition edge, so a genuine single-partition probe must miss the ones on the far side
     // and differ from the flat search. A pipeline that ignores use_index/nprobes and scans
     // flat fails this: on an unindexed table Lance ignores nprobes and returns exactly the
