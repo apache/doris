@@ -2063,6 +2063,17 @@ public class PaimonScanPlanProviderTest {
                 "a null session must default to false");
     }
 
+    @Test
+    public void fileMetadataColumnsRequireFileScannerV2() {
+        Assertions.assertTrue(PaimonScanPlanProvider.isFileScannerV2Enabled(
+                sessionWithProps(Collections.singletonMap("enable_file_scanner_v2", "true"))));
+        Assertions.assertFalse(PaimonScanPlanProvider.isFileScannerV2Enabled(
+                sessionWithProps(Collections.singletonMap("enable_file_scanner_v2", "false"))));
+        Assertions.assertTrue(PaimonScanPlanProvider.isFileScannerV2Enabled(
+                sessionWithProps(Collections.emptyMap())));
+        Assertions.assertTrue(PaimonScanPlanProvider.isFileScannerV2Enabled(null));
+    }
+
     // ---------------------------------------------------------------------
     // FIX-REST-VENDED — per-table vended credentials overlaid as location.*
     // ---------------------------------------------------------------------

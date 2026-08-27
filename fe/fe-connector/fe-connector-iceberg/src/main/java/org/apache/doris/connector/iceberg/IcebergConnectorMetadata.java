@@ -731,7 +731,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // metadata-table columns (t$snapshots -> committed_at/...) so the generic scan node can look up
         // its pruned sys-table slots by name; a data handle resolves the base table's columns.
         Table table = iceHandle.isSystemTable() ? loadSysTable(session, iceHandle) : loadTable(session, iceHandle);
-        return buildColumnHandles(table.schema());
+        return buildColumnHandles(table.schema(), !iceHandle.isSystemTable());
     }
 
     @Override
@@ -746,7 +746,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         Schema schema = table.currentSnapshot() == null
                 ? table.schema() : table.schemas().get((int) snapshot.getSchemaId());
         // Keep the handle-schema fallback identical to getTableSchema so slots and handles cannot diverge.
-        return buildColumnHandles(schema == null ? table.schema() : schema);
+        return buildColumnHandles(schema == null ? table.schema() : schema, true);
     }
 
     @Override
@@ -754,12 +754,18 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         return true;
     }
 
-    private static Map<String, ConnectorColumnHandle> buildColumnHandles(Schema schema) {
+    private static Map<String, ConnectorColumnHandle> buildColumnHandles(
+            Schema schema, boolean appendDataFileMetadataColumns) {
         List<Types.NestedField> fields = schema.columns();
-        Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(fields.size());
+        Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(
+                fields.size() + (appendDataFileMetadataColumns ? 2 : 0));
         for (Types.NestedField field : fields) {
             String name = field.name();
             handles.put(name, new IcebergColumnHandle(name, field.fieldId()));
+        }
+        if (appendDataFileMetadataColumns) {
+            handles.put(ICEBERG_FILE_PATH_COL, new IcebergColumnHandle(ICEBERG_FILE_PATH_COL, -1));
+            handles.put(ICEBERG_ROW_POSITION_COL, new IcebergColumnHandle(ICEBERG_ROW_POSITION_COL, -1));
         }
         return handles;
     }

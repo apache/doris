@@ -904,6 +904,51 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void metadataColumnsRejectForceJniBeforePlanning() {
+        IcebergScanPlanProvider provider = providerOver(
+                createTable("t1", SCHEMA, PartitionSpec.unpartitioned()));
+        ConnectorSession session = new FakeScanSession("UTC",
+                Collections.singletonMap("force_jni_scanner", "true"));
+        List<ConnectorColumnHandle> columns = Collections.singletonList(new IcebergColumnHandle("_file", -1));
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planScan(session, ConnectorScanRequest.builder(
+                        new IcebergTableHandle("db1", "t1"), columns).build()));
+        Assertions.assertEquals(
+                "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC reader; "
+                        + "actual reader is JNI",
+                ex.getMessage());
+    }
+
+    @Test
+    public void metadataColumnsRejectDisabledFileScannerV2DuringPlanning() {
+        IcebergScanPlanProvider provider = providerOver(
+                createTable("t1", SCHEMA, PartitionSpec.unpartitioned()));
+        ConnectorSession session = new FakeScanSession("UTC",
+                Collections.singletonMap("enable_file_scanner_v2", "false"));
+        List<ConnectorColumnHandle> columns = Collections.singletonList(new IcebergColumnHandle("_pos", -1));
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planScan(session, ConnectorScanRequest.builder(
+                        new IcebergTableHandle("db1", "t1"), columns).build()));
+        Assertions.assertEquals(
+                "Iceberg metadata columns require FileScannerV2 native Parquet/ORC reader",
+                ex.getMessage());
+    }
+
+    @Test
+    public void ordinaryColumnsAllowDisabledFileScannerV2InProperties() {
+        IcebergScanPlanProvider provider = providerOver(
+                createTable("t1", SCHEMA, PartitionSpec.unpartitioned()));
+        ConnectorSession session = new FakeScanSession("UTC",
+                Collections.singletonMap("enable_file_scanner_v2", "false"));
+
+        Assertions.assertDoesNotThrow(() -> provider.getScanNodeProperties(session,
+                new IcebergTableHandle("db1", "t1"),
+                Collections.singletonList(new IcebergColumnHandle("id", 1)), Optional.empty()));
+    }
+
+    @Test
     public void getScanNodePropertiesOmitsPathPartitionKeysForUnpartitionedTable() {
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));

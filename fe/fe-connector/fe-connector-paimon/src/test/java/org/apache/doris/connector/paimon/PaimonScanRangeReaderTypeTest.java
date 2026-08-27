@@ -82,6 +82,7 @@ public class PaimonScanRangeReaderTypeTest {
         PaimonScanRange range = new PaimonScanRange.Builder()
                 .fileFormat("orc")
                 .path("s3://bkt/a/part-0.orc")
+                .originalFilePath("oss://bucket.endpoint/a/part-0.orc")
                 .schemaId(1L)
                 .build();
 
@@ -89,5 +90,8 @@ public class PaimonScanRangeReaderTypeTest {
         Assertions.assertTrue(formatDesc.getPaimonParams().isSetReaderType());
         Assertions.assertEquals(TPaimonReaderType.PAIMON_NATIVE,
                 formatDesc.getPaimonParams().getReaderType());
+        Assertions.assertEquals("oss://bucket.endpoint/a/part-0.orc",
+                formatDesc.getPaimonParams().getOriginalFilePath(),
+                "metadata columns must expose RawFile.path(), not the normalized BE read path");
     }
 }

@@ -33,6 +33,8 @@ const std::string VIRTUAL_COLUMN_PREFIX = "__DORIS_VIRTUAL_COL__";
 const std::string ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
 const std::string ICEBERG_FILE_PATH_COL = "_file";
 const std::string ICEBERG_ROW_POSITION_COL = "_pos";
+const std::string PAIMON_FILE_PATH_COL = "__paimon_file_path";
+const std::string PAIMON_ROW_POSITION_COL = "__paimon_row_index";
 
 /// The maximum precision representable by a 4-byte decimal (Decimal4Value)
 constexpr int MAX_DECIMAL32_PRECISION = 9;

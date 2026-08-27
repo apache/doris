@@ -76,6 +76,8 @@ import java.util.Set;
 public class PaimonConnectorMetadata implements ConnectorMetadata {
 
     private static final Logger LOG = LogManager.getLogger(PaimonConnectorMetadata.class);
+    private static final String PAIMON_FILE_PATH_COL = "__paimon_file_path";
+    private static final String PAIMON_ROW_POSITION_COL = "__paimon_row_index";
 
     private final PaimonCatalogOps catalogOps;
     private final PaimonTypeMapping.Options typeMappingOptions;
@@ -257,7 +259,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                         table,
                         schema.fields(),
                         schema.partitionKeys(),
-                        schema.primaryKeys());
+                        schema.primaryKeys(),
+                        true);
             }
         }
         return buildTableSchema(
@@ -265,7 +268,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 table,
                 table.rowType().getFields(),
                 paimonHandle.getPartitionKeys(),
-                table.primaryKeys());
+                table.primaryKeys(),
+                !paimonHandle.isSystemTable());
     }
 
     /**
@@ -316,7 +320,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 table,
                 schema.fields(),
                 schema.partitionKeys(),
-                schema.primaryKeys());
+                schema.primaryKeys(),
+                true);
     }
 
     /**
@@ -345,7 +350,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 table,
                 table.rowType().getFields(),
                 paimonHandle.getPartitionKeys(),
-                table.primaryKeys());
+                table.primaryKeys(),
+                false);
     }
 
     /**
@@ -374,8 +380,14 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * ConnectorTableHandle, ConnectorMvccSnapshot)}) share ONE mapping and cannot drift.
      */
     private ConnectorTableSchema buildTableSchema(String tableName, Table table, List<DataField> fields,
-            List<String> partitionKeys, List<String> primaryKeys) {
+            List<String> partitionKeys, List<String> primaryKeys, boolean appendDataFileMetadataColumns) {
         List<ConnectorColumn> columns = mapFields(fields, primaryKeys);
+        if (appendDataFileMetadataColumns) {
+            columns.add(new ConnectorColumn(PAIMON_FILE_PATH_COL, ConnectorType.of("STRING"),
+                    "Paimon raw data file path", false, null, false).invisible());
+            columns.add(new ConnectorColumn(PAIMON_ROW_POSITION_COL, ConnectorType.of("BIGINT"),
+                    "Paimon physical row position", false, null, false).invisible());
+        }
 
         // LinkedHashMap so the table-options order (used by SHOW CREATE TABLE's PROPERTIES) is
         // deterministic across runs.
@@ -1002,6 +1014,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // Reject a DISTRIBUTE BY clause up front (before the executeAuthenticated try, whose catch would rewrap
         // the message). Moved off fe-core CreateTableInfo.validate — the connector owns the paimon DDL rule.
         rejectDistribution(request);
+        rejectReservedMetadataColumns(request);
         Identifier id = Identifier.create(request.getDbName(), request.getTableName());
         Schema schema = PaimonSchemaBuilder.build(request);
         try {
@@ -1027,6 +1040,17 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         if (request.getBucketSpec() != null) {
             throw new DorisConnectorException("Paimon doesn't support 'DISTRIBUTE BY', "
                     + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
+        }
+    }
+
+    void rejectReservedMetadataColumns(ConnectorCreateTableRequest request) {
+        for (ConnectorColumn column : request.getColumns()) {
+            String name = column.getName();
+            if (PAIMON_FILE_PATH_COL.equalsIgnoreCase(name)
+                    || PAIMON_ROW_POSITION_COL.equalsIgnoreCase(name)) {
+                throw new DorisConnectorException(
+                        "Cannot create Paimon table with reserved metadata column: " + name);
+            }
         }
     }
 
@@ -1159,10 +1183,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         if (!paimonHandle.isSystemTable()) {
             Optional<PaimonCatalogOps.PaimonSchemaSnapshot> latest = catalogOps.latestSchema(table);
             if (latest.isPresent()) {
-                return buildColumnHandles(latest.get().fields());
+                return buildColumnHandles(latest.get().fields(), true);
             }
         }
-        return buildColumnHandles(table.rowType().getFields());
+        return buildColumnHandles(table.rowType().getFields(), !paimonHandle.isSystemTable());
     }
 
     /**
@@ -1189,7 +1213,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             // leading `rowkind`). Build the handles from the pinned view's own rowType, the same source
             // systemTableSchemaAt binds the slots from, so the two cannot disagree.
             return buildColumnHandles(
-                    resolveSystemTableAt(session, sysCandidate, snapshot).rowType().getFields());
+                    resolveSystemTableAt(session, sysCandidate, snapshot).rowType().getFields(), false);
         }
         if (snapshot == null || snapshot.getSchemaId() < 0) {
             return getColumnHandles(session, handle);
@@ -1210,7 +1234,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // later base@same-schemaId read (each has its own independently-evolved schema-<id>).
         PaimonCatalogOps.PaimonSchemaSnapshot schema =
                 schemaAtMemo.getOrLoad(pinned, schemaId, () -> catalogOps.schemaAt(table, schemaId));
-        return buildColumnHandles(schema.fields());
+        return buildColumnHandles(schema.fields(), true);
     }
 
     /**
@@ -1223,11 +1247,17 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         return true;
     }
 
-    private static Map<String, ConnectorColumnHandle> buildColumnHandles(List<DataField> fields) {
-        Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(fields.size());
+    private static Map<String, ConnectorColumnHandle> buildColumnHandles(List<DataField> fields,
+            boolean appendDataFileMetadataColumns) {
+        Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(fields.size() + 2);
         for (int i = 0; i < fields.size(); i++) {
             String name = fields.get(i).name();
             handles.put(name, new PaimonColumnHandle(name, i));
+        }
+        if (appendDataFileMetadataColumns) {
+            handles.put(PAIMON_FILE_PATH_COL, new PaimonColumnHandle(PAIMON_FILE_PATH_COL, -1));
+            handles.put(PAIMON_ROW_POSITION_COL,
+                    new PaimonColumnHandle(PAIMON_ROW_POSITION_COL, -1));
         }
         return handles;
     }

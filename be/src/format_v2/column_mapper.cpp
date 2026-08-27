@@ -201,6 +201,10 @@ std::string virtual_column_type_to_string(TableVirtualColumnType type) {
         return "ICEBERG_FILE_PATH";
     case TableVirtualColumnType::ICEBERG_ROW_POSITION:
         return "ICEBERG_ROW_POSITION";
+    case TableVirtualColumnType::PAIMON_FILE_PATH:
+        return "PAIMON_FILE_PATH";
+    case TableVirtualColumnType::PAIMON_ROW_POSITION:
+        return "PAIMON_ROW_POSITION";
     }
     return "UNKNOWN";
 }
@@ -433,6 +437,7 @@ std::string TableColumnMapperOptions::debug_string() const {
         << ", allow_idless_complex_wrapper_projection=" << allow_idless_complex_wrapper_projection
         << ", enable_row_lineage_virtual_columns=" << enable_row_lineage_virtual_columns
         << ", enable_iceberg_metadata_virtual_columns=" << enable_iceberg_metadata_virtual_columns
+        << ", enable_paimon_metadata_virtual_columns=" << enable_paimon_metadata_virtual_columns
         << "}";
     return out.str();
 }
@@ -2254,6 +2259,18 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
         }
         return TableVirtualColumnType::INVALID;
     }();
+    const auto paimon_metadata_type = [&] {
+        if (!_options.enable_paimon_metadata_virtual_columns) {
+            return TableVirtualColumnType::INVALID;
+        }
+        if (iequal(table_column.name, BeConsts::PAIMON_FILE_PATH_COL)) {
+            return TableVirtualColumnType::PAIMON_FILE_PATH;
+        }
+        if (iequal(table_column.name, BeConsts::PAIMON_ROW_POSITION_COL)) {
+            return TableVirtualColumnType::PAIMON_ROW_POSITION;
+        }
+        return TableVirtualColumnType::INVALID;
+    }();
     // Row-lineage names are Iceberg metadata contracts, not reserved names in generic Hive,
     // Hudi, or Paimon schemas. Only the Iceberg reader may opt into virtual synthesis.
     const auto row_lineage_type =
@@ -2265,6 +2282,9 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
         // physical field with the same name. The connector rejects such schema collisions; keeping
         // this branch first also makes the BE safe during an FE rolling upgrade.
         mapping->virtual_column_type = iceberg_metadata_type;
+    } else if (paimon_metadata_type != TableVirtualColumnType::INVALID) {
+        // Paimon metadata is carried by RawFile and is never a physical Parquet/ORC field.
+        mapping->virtual_column_type = paimon_metadata_type;
     } else if (const auto* partition_value = find_partition_value(table_column, _partition_values);
                table_column.is_partition_key && partition_value != nullptr) {
         // Partition values are split constants and must take precedence over defaults.

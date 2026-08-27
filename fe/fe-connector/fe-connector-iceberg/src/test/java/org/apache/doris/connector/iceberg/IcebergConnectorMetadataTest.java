@@ -1366,9 +1366,11 @@ public class IcebergConnectorMetadataTest {
         Map<String, ConnectorColumnHandle> handles =
                 metadataWith(ops).getColumnHandles(null, new IcebergTableHandle("db1", "t1"));
 
-        Assertions.assertEquals(2, handles.size());
+        Assertions.assertEquals(4, handles.size());
         Assertions.assertTrue(handles.containsKey("ID"));
         Assertions.assertTrue(handles.containsKey("Name"));
+        Assertions.assertTrue(handles.containsKey("_file"));
+        Assertions.assertTrue(handles.containsKey("_pos"));
         Assertions.assertFalse(handles.containsKey("id"), "post-#65094 the handle key keeps the iceberg case");
         Assertions.assertEquals(7, ((IcebergColumnHandle) handles.get("ID")).getFieldId());
         Assertions.assertEquals(9, ((IcebergColumnHandle) handles.get("Name")).getFieldId());

@@ -26,6 +26,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.scan.ConnectorColumnCategory;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
@@ -172,6 +173,18 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // hard-rejects a PAIMON_CPP range), so the flag no longer influences planning — see
     // PaimonScanRange.populateRangeParams.
     private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
+    private static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
+    private static final String PAIMON_FILE_PATH_COL = "__paimon_file_path";
+    private static final String PAIMON_ROW_POSITION_COL = "__paimon_row_index";
+
+    @Override
+    public ConnectorColumnCategory classifyColumn(String columnName) {
+        if (PAIMON_FILE_PATH_COL.equalsIgnoreCase(columnName)
+                || PAIMON_ROW_POSITION_COL.equalsIgnoreCase(columnName)) {
+            return ConnectorColumnCategory.SYNTHESIZED;
+        }
+        return ConnectorColumnCategory.DEFAULT;
+    }
 
     // Session variable name (byte-identical to SessionVariable.IGNORE_SPLIT_TYPE) surfaced through the same
     // VariableMgr.toMap channel. A debugging escape hatch to isolate reader bugs: IGNORE_JNI drops every JNI
@@ -268,6 +281,14 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return false;
         }
         return Boolean.parseBoolean(session.getSessionProperties().get(FORCE_JNI_SCANNER));
+    }
+
+    static boolean isFileScannerV2Enabled(ConnectorSession session) {
+        if (session == null) {
+            return true;
+        }
+        return Boolean.parseBoolean(
+                session.getSessionProperties().getOrDefault(ENABLE_FILE_SCANNER_V2, "true"));
     }
 
     /**
@@ -596,6 +617,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             boolean countPushdown) {
 
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        boolean requiresMetadataColumns = columns.stream()
+                .filter(column -> column instanceof PaimonColumnHandle)
+                .map(column -> ((PaimonColumnHandle) column).getName())
+                .anyMatch(name -> PAIMON_FILE_PATH_COL.equalsIgnoreCase(name)
+                        || PAIMON_ROW_POSITION_COL.equalsIgnoreCase(name));
         Map<String, String> pinnedOptions = paimonHandle.getScanOptions();
         boolean optionsPin = PaimonScanParams.isOptionsPin(pinnedOptions);
         if (countPushdown && isIncrementalBinlogScan(paimonHandle, pinnedOptions)) {
@@ -610,6 +636,22 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return Collections.emptyList();
         }
         Table table = resolveScanTable(paimonHandle);
+
+        if (requiresMetadataColumns
+                && (paimonHandle.isForceJni() || isForceJniScannerEnabled(session))) {
+            throw new DorisConnectorException(
+                    "Paimon metadata columns are only supported by FileScannerV2 native Parquet/ORC "
+                            + "reader; actual reader is JNI");
+        }
+        if (requiresMetadataColumns && !isFileScannerV2Enabled(session)) {
+            throw new DorisConnectorException(
+                    "Paimon metadata columns require FileScannerV2 native Parquet/ORC reader");
+        }
+        // Metadata predicates must be evaluated against actual rows. A merged-row-count range has no
+        // file path or physical row positions, so it cannot satisfy the predicate correctly.
+        if (requiresMetadataColumns) {
+            countPushdown = false;
+        }
 
         // Build predicates from filter expression
         RowType rowType = table.rowType();
@@ -718,6 +760,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:401).
                 continue;
             }
+            if (requiresMetadataColumns) {
+                throw new DorisConnectorException(
+                        "Paimon metadata columns are only supported by FileScannerV2 native Parquet/ORC "
+                                + "reader; actual reader is JNI");
+            }
             if (hasVariantProjection) {
                 throw new DorisConnectorException(
                         "Paimon Variant columns require native Parquet data files");
@@ -768,6 +815,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     isForceJniScannerEnabled(session), hasVariantProjection,
                     physicalVariantSchemaIds, optRawFiles)) {
                 if (ignoreNative) {
+                    if (requiresMetadataColumns) {
+                        throw new DorisConnectorException(
+                                "Paimon metadata columns require FileScannerV2 native Parquet/ORC reader");
+                    }
                     // FIX-L14: ignore_split_type=IGNORE_NATIVE drops native splits (legacy getSplits:443).
                     continue;
                 }
@@ -797,6 +848,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 if (ignoreJni) {
                     // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:483).
                     continue;
+                }
+                if (requiresMetadataColumns) {
+                    throw new DorisConnectorException(
+                            "Paimon metadata columns are only supported by FileScannerV2 native Parquet/ORC "
+                                    + "reader; actual reader is JNI");
                 }
                 if (hasVariantProjection) {
                     throw new DorisConnectorException(
@@ -841,6 +897,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         long selfSplitWeight = length + (deletionFile != null ? deletionFile.length() : 0);
         PaimonScanRange.Builder builder = new PaimonScanRange.Builder()
                 .path(normalizeUri(file.path(), vendedToken))
+                .originalFilePath(file.path())
                 .start(start)
                 .length(length)
                 .fileSize(file.length())

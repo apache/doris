@@ -1113,6 +1113,10 @@ Status IcebergTableReader::materialize_virtual_columns(Block* table_block) {
         case format::TableVirtualColumnType::ICEBERG_ROW_POSITION:
             RETURN_IF_ERROR(_materialize_iceberg_row_position(table_block, column_idx));
             break;
+        case format::TableVirtualColumnType::PAIMON_FILE_PATH:
+        case format::TableVirtualColumnType::PAIMON_ROW_POSITION:
+            DORIS_CHECK(false);
+            break;
         case format::TableVirtualColumnType::INVALID:
             break;
         }
@@ -1913,14 +1917,12 @@ Status IcebergTableReader::_materialize_iceberg_file_path(Block* table_block, si
     DORIS_CHECK(string_column != nullptr);
 
     const auto file_path = _data_file_path();
-    string_column->reserve(row_position_column.size());
-    for (size_t row = 0; row < row_position_column.size(); ++row) {
-        string_column->insert_data(file_path.data(), file_path.size());
-    }
+    string_column->insert_data(file_path.data(), file_path.size());
     if (nullable_column != nullptr) {
-        nullable_column->get_null_map_data().resize_fill(row_position_column.size(), 0);
+        nullable_column->get_null_map_data().resize_fill(1, 0);
     }
-    table_block->replace_by_position(column_idx, std::move(column));
+    table_block->replace_by_position(
+            column_idx, ColumnConst::create(std::move(column), row_position_column.size()));
     return Status::OK();
 }
 

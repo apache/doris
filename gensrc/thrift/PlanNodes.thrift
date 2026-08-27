@@ -384,6 +384,9 @@ struct TPaimonFileDesc {
     16: optional i64 schema_id; // for schema change.
     // Reader implementation for logical paimon split. Native file split uses range format type.
     17: optional TPaimonReaderType reader_type;
+    // Original Paimon RawFile.path() before Doris storage path normalization. Native readers use this
+    // to materialize the public file-location metadata column.
+    18: optional string original_file_path;
 }
 
 struct TTrinoConnectorFileDesc {

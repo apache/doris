@@ -67,6 +67,10 @@ enum TableVirtualColumnType {
     ICEBERG_FILE_PATH = 4,
     // Iceberg absolute physical row position metadata column `_pos`.
     ICEBERG_ROW_POSITION = 5,
+    // Paimon RawFile path metadata column `__paimon_file_path`.
+    PAIMON_FILE_PATH = 6,
+    // Paimon absolute physical row position metadata column `__paimon_row_index`.
+    PAIMON_ROW_POSITION = 7,
 };
 
 enum class FilterConversionType {
@@ -169,6 +173,7 @@ struct TableColumnMapperOptions {
     bool allow_idless_complex_wrapper_projection = false;
     bool enable_row_lineage_virtual_columns = false;
     bool enable_iceberg_metadata_virtual_columns = false;
+    bool enable_paimon_metadata_virtual_columns = false;
 
     std::string debug_string() const;
 };

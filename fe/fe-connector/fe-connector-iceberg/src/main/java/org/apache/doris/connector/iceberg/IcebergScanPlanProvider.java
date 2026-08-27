@@ -147,6 +147,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static final long DEFAULT_MAX_FILE_SPLIT_SIZE = 64L * 1024 * 1024;
     private static final long DEFAULT_MAX_INITIAL_FILE_SPLIT_NUM = 200L;
     private static final long DEFAULT_MAX_FILE_SPLIT_NUM = 100000L;
+    private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
+    private static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
     // FIX-M3 streaming (file-count) batch gate — keys byte-identical to fe-core SessionVariable.
     private static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
     private static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
@@ -692,6 +694,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter,
             boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        validateMetadataColumnReader(session, columns);
         if (iceHandle.isResolvedEmptySnapshot() && !isSnapshotIndependentSystemTable(iceHandle)) {
             // Iceberg has no snapshot id that can represent "before the first commit". Returning no ranges is
             // the read-side MVCC fence; otherwise a refreshed Table would turn -1 into "latest" and expose a
@@ -2094,7 +2097,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         List<String> names = new ArrayList<>(columns.size());
         for (ConnectorColumnHandle column : columns) {
-            names.add(((IcebergColumnHandle) column).getName());
+            String name = ((IcebergColumnHandle) column).getName();
+            if (!ICEBERG_FILE_PATH_COL.equalsIgnoreCase(name)
+                    && !ICEBERG_ROW_POSITION_COL.equalsIgnoreCase(name)) {
+                names.add(name);
+            }
         }
         return names;
     }
@@ -3004,6 +3011,30 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return defaultValue;
         }
         return Boolean.parseBoolean(raw.trim());
+    }
+
+    private static boolean requiresMetadataColumns(List<ConnectorColumnHandle> columns) {
+        return columns.stream()
+                .filter(column -> column instanceof IcebergColumnHandle)
+                .map(column -> ((IcebergColumnHandle) column).getName())
+                .anyMatch(name -> ICEBERG_FILE_PATH_COL.equalsIgnoreCase(name)
+                        || ICEBERG_ROW_POSITION_COL.equalsIgnoreCase(name));
+    }
+
+    private static void validateMetadataColumnReader(
+            ConnectorSession session, List<ConnectorColumnHandle> columns) {
+        if (!requiresMetadataColumns(columns)) {
+            return;
+        }
+        if (sessionBool(session, FORCE_JNI_SCANNER, false)) {
+            throw new DorisConnectorException(
+                    "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC reader; "
+                            + "actual reader is JNI");
+        }
+        if (!sessionBool(session, ENABLE_FILE_SCANNER_V2, true)) {
+            throw new DorisConnectorException(
+                    "Iceberg metadata columns require FileScannerV2 native Parquet/ORC reader");
+        }
     }
 
     // The session time zone drives zone-adjusted (timestamptz) literal pushdown. Delegates to the shared

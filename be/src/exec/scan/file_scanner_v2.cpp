@@ -198,7 +198,9 @@ bool is_partition_slot(const TFileScanSlotInfo& slot_info, const std::string& co
     if (column_name.starts_with(BeConsts::GLOBAL_ROWID_COL) ||
         column_name == BeConsts::ICEBERG_ROWID_COL ||
         column_name == BeConsts::ICEBERG_FILE_PATH_COL ||
-        column_name == BeConsts::ICEBERG_ROW_POSITION_COL) {
+        column_name == BeConsts::ICEBERG_ROW_POSITION_COL ||
+        column_name == BeConsts::PAIMON_FILE_PATH_COL ||
+        column_name == BeConsts::PAIMON_ROW_POSITION_COL) {
         return false;
     }
     return slot_info.__isset.category ? slot_info.category == TColumnCategory::PARTITION_KEY
@@ -209,7 +211,9 @@ bool is_data_file_slot(const TFileScanSlotInfo& slot_info, const std::string& co
     if (column_name.starts_with(BeConsts::GLOBAL_ROWID_COL) ||
         column_name == BeConsts::ICEBERG_ROWID_COL ||
         column_name == BeConsts::ICEBERG_FILE_PATH_COL ||
-        column_name == BeConsts::ICEBERG_ROW_POSITION_COL) {
+        column_name == BeConsts::ICEBERG_ROW_POSITION_COL ||
+        column_name == BeConsts::PAIMON_FILE_PATH_COL ||
+        column_name == BeConsts::PAIMON_ROW_POSITION_COL) {
         return false;
     }
     // CSV and other non-self-describing formats need FE slot descriptors for only the columns that

@@ -185,7 +185,7 @@ public class PaimonConnectorMetadataTest {
         // to get column handles is to re-fetch the table from the catalog seam. MUTATION:
         // removing the `if (table == null) { table = ops.getTable(id); }` block -> NPE on
         // table.rowType() -> red. The recorded getTable call proves the reload happened.
-        Assertions.assertEquals(Arrays.asList("id", "name"), new java.util.ArrayList<>(handles.keySet()),
+        Assertions.assertEquals(Arrays.asList("id", "name", "__paimon_file_path", "__paimon_row_index"), new java.util.ArrayList<>(handles.keySet()),
                 "column handles must be derived from the reloaded table's row type, in order");
         Assertions.assertTrue(ops.log.contains("getTable:db1.t1"),
                 "reload-fallback must re-fetch the table from the seam when the transient ref is null");
@@ -210,7 +210,7 @@ public class PaimonConnectorMetadataTest {
         // default). It DOES consult schemaManager().latest() (mirroring getTableSchema so an external
         // schema change is reflected), but must not re-fetch the Table. MUTATION: always reloading
         // would record a getTable entry -> red.
-        Assertions.assertEquals(Arrays.asList("id", "name"), new java.util.ArrayList<>(handles.keySet()));
+        Assertions.assertEquals(Arrays.asList("id", "name", "__paimon_file_path", "__paimon_row_index"), new java.util.ArrayList<>(handles.keySet()));
         Assertions.assertTrue(ops.log.stream().noneMatch(e -> e.startsWith("getTable")),
                 "with a present transient table, no remote getTable reload must happen");
     }
@@ -273,6 +273,17 @@ public class PaimonConnectorMetadataTest {
                 "every paimon column must report isKey=true for legacy DESC Key parity");
         Assertions.assertTrue(val.isKey(),
                 "a non-PK paimon column must also report isKey=true (legacy set isKey=true for all)");
+
+        ConnectorColumn filePath = schema.getColumns().get(2);
+        ConnectorColumn rowPosition = schema.getColumns().get(3);
+        Assertions.assertEquals("__paimon_file_path", filePath.getName());
+        Assertions.assertEquals("STRING", filePath.getType().getTypeName());
+        Assertions.assertFalse(filePath.isNullable());
+        Assertions.assertFalse(filePath.isVisible());
+        Assertions.assertEquals("__paimon_row_index", rowPosition.getName());
+        Assertions.assertEquals("BIGINT", rowPosition.getType().getTypeName());
+        Assertions.assertFalse(rowPosition.isNullable());
+        Assertions.assertFalse(rowPosition.isVisible());
     }
 
     @Test
@@ -355,9 +366,9 @@ public class PaimonConnectorMetadataTest {
         // path MUST read schemaManager().latest() (legacy PaimonExternalTable parity), not the cached
         // rowType(). This is the no-cache meta-cache regression (test_paimon_table_meta_cache line
         // 112: expected 3 but was 2). MUTATION: reading table.rowType() (the cached 2-col schema) -> red.
-        Assertions.assertEquals(3, schema.getColumns().size(),
-                "the latest schema path must read schemaManager().latest() (3 cols after external "
-                        + "ALTER), not the CachingCatalog-frozen rowType() (2 cols)");
+        Assertions.assertEquals(5, schema.getColumns().size(),
+                "the latest schema path must read schemaManager().latest() (3 data columns after external "
+                        + "ALTER) and append two hidden file metadata columns");
         Assertions.assertEquals("new_col", schema.getColumns().get(2).getName(),
                 "the externally-added column must surface via schemaManager().latest()");
     }
@@ -389,7 +400,7 @@ public class PaimonConnectorMetadataTest {
         // by-field-id StructNode lacks that column -> children.contains(table_column_name) DCHECK aborts
         // the BE (ExtReg 1004351 test_paimon_jdbc_catalog crash). MUTATION: reading table.rowType() (the
         // frozen "name") -> keySet is [id, name] with "renamed" missing -> red.
-        Assertions.assertEquals(Arrays.asList("id", "renamed"), new java.util.ArrayList<>(handles.keySet()),
+        Assertions.assertEquals(Arrays.asList("id", "renamed", "__paimon_file_path", "__paimon_row_index"), new java.util.ArrayList<>(handles.keySet()),
                 "getColumnHandles must key handles by the latest (post-rename) schema, not the "
                         + "CachingCatalog-frozen rowType()");
     }
@@ -438,8 +449,8 @@ public class PaimonConnectorMetadataTest {
         // WHY: when schemaManager().latest() is unavailable (non-DataTable backend / empty table),
         // the latest path must fall back to table.rowType() rather than crash. MUTATION:
         // unconditionally dereferencing latestSchema().get() -> NoSuchElementException -> red.
-        Assertions.assertEquals(2, schema.getColumns().size(),
-                "an absent latest schema must fall back to the table's rowType()");
+        Assertions.assertEquals(4, schema.getColumns().size(),
+                "an absent latest schema must fall back to the table's rowType() and append metadata");
     }
 
     // ---------------------------------------------------------------------

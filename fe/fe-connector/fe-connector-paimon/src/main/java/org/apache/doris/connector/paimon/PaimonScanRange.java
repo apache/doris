@@ -83,6 +83,9 @@ public class PaimonScanRange implements ConnectorScanRange {
         if (builder.schemaId != null) {
             props.put("paimon.schema_id", String.valueOf(builder.schemaId));
         }
+        if (builder.originalFilePath != null) {
+            props.put("paimon.original_file_path", builder.originalFilePath);
+        }
         if (builder.deletionFilePath != null) {
             props.put("paimon.deletion_file.path", builder.deletionFilePath);
             props.put("paimon.deletion_file.offset", String.valueOf(builder.deletionFileOffset));
@@ -236,6 +239,10 @@ public class PaimonScanRange implements ConnectorScanRange {
             if (schemaIdStr != null) {
                 fileDesc.setSchemaId(Long.parseLong(schemaIdStr));
             }
+            String originalFilePath = props.get("paimon.original_file_path");
+            if (originalFilePath != null) {
+                fileDesc.setOriginalFilePath(originalFilePath);
+            }
         }
 
         fileDesc.setFileFormat(getFileFormat());
@@ -313,6 +320,7 @@ public class PaimonScanRange implements ConnectorScanRange {
 
         // Native reader fields
         private Long schemaId;
+        private String originalFilePath;
         private String deletionFilePath;
         private long deletionFileOffset;
         private long deletionFileLength;
@@ -370,6 +378,11 @@ public class PaimonScanRange implements ConnectorScanRange {
 
         public Builder schemaId(long schemaId) {
             this.schemaId = schemaId;
+            return this;
+        }
+
+        public Builder originalFilePath(String originalFilePath) {
+            this.originalFilePath = originalFilePath;
             return this;
         }
 

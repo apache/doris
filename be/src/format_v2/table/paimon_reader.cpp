@@ -24,10 +24,17 @@
 #include <string>
 #include <utility>
 
+#include "common/consts.h"
+#include "core/assert_cast.h"
+#include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "exprs/vexpr_context.h"
@@ -37,6 +44,7 @@
 #include "format_v2/jni/paimon_jni_reader.h"
 #include "format_v2/table/schema_history_util.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "util/string_util.h"
 
 namespace doris::format::paimon {
 namespace {
@@ -229,9 +237,13 @@ Status PaimonReader::prepare_split(const format::SplitReadOptions& options) {
         SCOPED_TIMER(_profile.total_timer);
         SCOPED_TIMER(_profile.prepare_split_timer);
         _split_schema_id = -1;
+        _original_file_path.clear();
         const auto& paimon_params = options.current_range.table_format_params.paimon_params;
         if (paimon_params.__isset.schema_id) {
             _split_schema_id = paimon_params.schema_id;
+        }
+        if (paimon_params.__isset.original_file_path) {
+            _original_file_path = paimon_params.original_file_path;
         }
     }
     RETURN_IF_ERROR(format::TableReader::prepare_split(options));
@@ -280,8 +292,103 @@ Status PaimonReader::annotate_file_schema(std::vector<format::ColumnDefinition>*
 Status PaimonReader::customize_file_scan_request(format::FileScanRequest* file_request) {
     DORIS_CHECK(file_request != nullptr);
     RETURN_IF_ERROR(format::TableReader::customize_file_scan_request(file_request));
+    if (_need_metadata_columns()) {
+        if (_original_file_path.empty()) {
+            return Status::InvalidArgument(
+                    "Paimon metadata columns require a FileScannerV2 native Parquet/ORC split with "
+                    "the original RawFile path");
+        }
+        RETURN_IF_ERROR(_append_row_position_output_column(file_request));
+    }
     file_request->variant_schema_overrides = _variant_schema_overrides;
     return Status::OK();
+}
+
+Status PaimonReader::materialize_virtual_columns(Block* table_block) {
+    DORIS_CHECK(table_block != nullptr);
+    for (size_t column_idx = 0; column_idx < _data_reader.column_mapper->mappings().size();
+         ++column_idx) {
+        const auto& mapping = _data_reader.column_mapper->mappings()[column_idx];
+        switch (mapping.virtual_column_type) {
+        case format::TableVirtualColumnType::PAIMON_FILE_PATH:
+            RETURN_IF_ERROR(_materialize_file_path(table_block, column_idx));
+            break;
+        case format::TableVirtualColumnType::PAIMON_ROW_POSITION:
+            RETURN_IF_ERROR(_materialize_row_position(table_block, column_idx));
+            break;
+        default:
+            break;
+        }
+    }
+    return Status::OK();
+}
+
+std::string PaimonReader::_data_file_path() const {
+    DORIS_CHECK(!_original_file_path.empty());
+    return _original_file_path;
+}
+
+Status PaimonReader::_append_row_position_output_column(format::FileScanRequest* request) {
+    const auto row_position_column_id = format::LocalColumnId(format::ROW_POSITION_COLUMN_ID);
+    _append_file_scan_column(request, row_position_column_id, &request->non_predicate_columns);
+    _row_position_block_position = request->local_positions.at(row_position_column_id).value();
+    return Status::OK();
+}
+
+Status PaimonReader::_materialize_file_path(Block* table_block, size_t column_idx) {
+    DORIS_CHECK(_row_position_block_position < _data_reader.block_template.columns());
+    const auto& row_position_column = assert_cast<const ColumnInt64&>(
+            *_data_reader.block_template.get_by_position(_row_position_block_position).column);
+    auto column = table_block->get_by_position(column_idx).type->create_column();
+    auto* nullable_column = check_and_get_column<ColumnNullable>(*column);
+    auto* string_column = nullable_column != nullptr
+                                  ? check_and_get_column<ColumnString>(
+                                            nullable_column->get_nested_column_ptr().get())
+                                  : check_and_get_column<ColumnString>(column.get());
+    DORIS_CHECK(string_column != nullptr);
+    const auto file_path = _data_file_path();
+    string_column->insert_data(file_path.data(), file_path.size());
+    if (nullable_column != nullptr) {
+        nullable_column->get_null_map_data().resize_fill(1, 0);
+    }
+    table_block->replace_by_position(
+            column_idx, ColumnConst::create(std::move(column), row_position_column.size()));
+    return Status::OK();
+}
+
+Status PaimonReader::_materialize_row_position(Block* table_block, size_t column_idx) {
+    DORIS_CHECK(_row_position_block_position < _data_reader.block_template.columns());
+    const auto& row_position_column = assert_cast<const ColumnInt64&>(
+            *_data_reader.block_template.get_by_position(_row_position_block_position).column);
+    auto column = table_block->get_by_position(column_idx).type->create_column();
+    auto* nullable_column = check_and_get_column<ColumnNullable>(*column);
+    auto* int_column = nullable_column != nullptr
+                               ? check_and_get_column<ColumnInt64>(
+                                         nullable_column->get_nested_column_ptr().get())
+                               : check_and_get_column<ColumnInt64>(column.get());
+    DORIS_CHECK(int_column != nullptr);
+    int_column->get_data().assign(row_position_column.get_data().begin(),
+                                  row_position_column.get_data().end());
+    if (nullable_column != nullptr) {
+        nullable_column->get_null_map_data().resize_fill(row_position_column.size(), 0);
+    }
+    table_block->replace_by_position(column_idx, std::move(column));
+    return Status::OK();
+}
+
+bool PaimonReader::_need_metadata_columns() const {
+    if (_data_reader.column_mapper != nullptr) {
+        return std::ranges::any_of(_data_reader.column_mapper->mappings(), [](const auto& mapping) {
+            return mapping.virtual_column_type ==
+                           format::TableVirtualColumnType::PAIMON_FILE_PATH ||
+                   mapping.virtual_column_type ==
+                           format::TableVirtualColumnType::PAIMON_ROW_POSITION;
+        });
+    }
+    return std::ranges::any_of(_projected_columns, [](const auto& column) {
+        return iequal(column.name, BeConsts::PAIMON_FILE_PATH_COL) ||
+               iequal(column.name, BeConsts::PAIMON_ROW_POSITION_COL);
+    });
 }
 
 Status PaimonReader::_parse_deletion_vector_file(const TTableFormatFileDesc& t_desc,
