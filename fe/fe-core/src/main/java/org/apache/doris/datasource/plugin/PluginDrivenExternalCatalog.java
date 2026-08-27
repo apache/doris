@@ -81,6 +81,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.PluginDrivenTransactionManager;
 
 import com.google.common.base.Preconditions;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -107,6 +108,7 @@ import java.util.OptionalLong;
 public class PluginDrivenExternalCatalog extends ExternalCatalog {
 
     private static final Logger LOG = LogManager.getLogger(PluginDrivenExternalCatalog.class);
+    private static final long UNRECONCILED_METASTORE_EVENT_ID = Long.MIN_VALUE;
 
     // Volatile for cross-thread visibility; all mutations happen under synchronized(this)
     // via makeSureInitialized() → initLocalObjectsImpl(), or resetToUninitialized() → onClose().
@@ -120,6 +122,11 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
 
     // The displayed engine name, resolved from the provider on first use (see getDisplayEngineName).
     private transient volatile String displayEngineName;
+
+    // Durable event watermark whose preceding structural constraint transitions are already in the journal.
+    // The sentinel is also the missing-field value for images written before this watermark existed.
+    @SerializedName("msei")
+    private volatile long lastSyncedMetastoreEventId = UNRECONCILED_METASTORE_EVENT_ID;
 
     /** No-arg constructor for GSON deserialization. */
     public PluginDrivenExternalCatalog() {
@@ -140,6 +147,27 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         super(catalogId, name, InitCatalogLog.Type.PLUGIN, comment);
         this.catalogProperty = new CatalogProperty(resource, props);
         this.connector = connector;
+        this.lastSyncedMetastoreEventId = -1L;
+    }
+
+    public long getLastSyncedMetastoreEventId() {
+        return lastSyncedMetastoreEventId == UNRECONCILED_METASTORE_EVENT_ID
+                ? -1L : lastSyncedMetastoreEventId;
+    }
+
+    public void updateLastSyncedMetastoreEventId(long eventId) {
+        lastSyncedMetastoreEventId = eventId;
+    }
+
+    public void markMetastoreConstraintStateUnreconciled() {
+        lastSyncedMetastoreEventId = UNRECONCILED_METASTORE_EVENT_ID;
+    }
+
+    public boolean needsMetastoreConstraintReconciliation() {
+        return lastSyncedMetastoreEventId == UNRECONCILED_METASTORE_EVENT_ID
+                && ConnectorFactory.findProvider(getType(), getProperties())
+                        .map(ConnectorProvider::providesEventSource)
+                        .orElse(false);
     }
 
     @Override

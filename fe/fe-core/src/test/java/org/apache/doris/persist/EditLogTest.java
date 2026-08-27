@@ -187,6 +187,74 @@ public class EditLogTest {
     }
 
     @Test
+    public void testAtomicRequestStaysInSingleJournalBatch() throws Exception {
+        int originalMaxItemNum = Config.batch_edit_log_max_item_num;
+        long originalMaxByteSize = Config.batch_edit_log_max_byte_size;
+        try {
+            Config.batch_edit_log_max_item_num = 1;
+            Config.batch_edit_log_max_byte_size = 1;
+
+            Journal journal = Mockito.mock(Journal.class);
+            AtomicLong nextLogId = new AtomicLong(10);
+            List<List<Short>> writes = new ArrayList<>();
+            Mockito.when(journal.write(Mockito.any(JournalBatch.class))).thenAnswer(invocation -> {
+                JournalBatch batch = invocation.getArgument(0);
+                List<Short> opCodes = new ArrayList<>();
+                for (JournalBatch.Entity entity : batch.getJournalEntities()) {
+                    opCodes.add(entity.getOpCode());
+                }
+                writes.add(opCodes);
+                return nextLogId.getAndAdd(batch.getJournalEntities().size());
+            });
+
+            List<EditLog.EditLogItem> requests = List.of(
+                    new EditLog.EditLogItem(OperationType.OP_ADD_CONSTRAINT, new Text("before")),
+                    new EditLog.EditLogItem(List.of(
+                            new EditLog.EditLogOperation(
+                                    OperationType.OP_DROP_CONSTRAINT, new Text("drop")),
+                            new EditLog.EditLogOperation(
+                                    OperationType.OP_ADD_META_ID_MAPPINGS, new Text("cursor")))),
+                    new EditLog.EditLogItem(OperationType.OP_ADD_CONSTRAINT, new Text("after")));
+
+            List<long[]> logIdNumPairs = EditLog.writeJournalBatch(journal, requests);
+
+            Assert.assertEquals(List.of(
+                    List.of(OperationType.OP_ADD_CONSTRAINT),
+                    List.of(OperationType.OP_DROP_CONSTRAINT, OperationType.OP_ADD_META_ID_MAPPINGS),
+                    List.of(OperationType.OP_ADD_CONSTRAINT)), writes);
+            Assert.assertArrayEquals(new long[]{10, 1}, logIdNumPairs.get(0));
+            Assert.assertArrayEquals(new long[]{11, 2, 1}, logIdNumPairs.get(1));
+            Assert.assertArrayEquals(new long[]{13, 1}, logIdNumPairs.get(2));
+        } finally {
+            Config.batch_edit_log_max_item_num = originalMaxItemNum;
+            Config.batch_edit_log_max_byte_size = originalMaxByteSize;
+        }
+    }
+
+    @Test
+    public void testAtomicRequestReturnsFinalJournalId() throws Exception {
+        File imageDir = temporaryFolder.newFolder("atomic_edit_log");
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getImageDir()).thenReturn(imageDir.getAbsolutePath());
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            EditLog editLog = new EditLog("test");
+            editLog.open();
+            try {
+                EditLog.EditLogItem item = editLog.submitAtomicEdits(List.of(
+                        new EditLog.EditLogOperation(
+                                OperationType.OP_DROP_CONSTRAINT, new Text("drop")),
+                        new EditLog.EditLogOperation(
+                                OperationType.OP_ADD_META_ID_MAPPINGS, new Text("cursor"))));
+
+                Assert.assertEquals(2L, item.await());
+            } finally {
+                editLog.close();
+            }
+        }
+    }
+
+    @Test
     public void testCloudModeTimeBasedEditLogRoll() throws Exception {
         Config.deploy_mode = "cloud";
 

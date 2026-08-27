@@ -18,14 +18,17 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.datasource.log.MetaIdMappingsLog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.mtmv.MTMVUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Map;
 import javax.annotation.Nullable;
 
@@ -114,18 +117,45 @@ public class ExternalMetaIdMgr {
             handleMetaIdMapping(mapping, ctlMetaIdMgr);
         }
         if (log.isFromHmsEvent()) {
-            // Propagate the master's synced-event-id cursor to this FE, keyed by catalogId only (the log
-            // already carries it). A flipped hms catalog is a generic PluginDrivenExternalCatalog driven by
-            // MetastoreEventSyncDriver, whose follower cursor map must be fed here (otherwise its
-            // masterUpperBound stays -1 and followers stop receiving incremental updates). Never cast to
-            // HMSExternalCatalog (that cast would ClassCastException for a PluginDrivenExternalCatalog and
-            // abort replay).
             CatalogIf<?> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
             if (catalogIf instanceof PluginDrivenExternalCatalog) {
+                PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) catalogIf;
+                if (log.isConstraintTransitionsPersisted()) {
+                    List<TableNameInfo> affectedTables = Env.getCurrentEnv().getConstraintManager()
+                            .reconcileUntrustedCatalogConstraints(catalog.getName());
+                    invalidateConstraintCaches(affectedTables,
+                            "when reconciling legacy metastore constraints for " + catalog.getName());
+                    // Persist the cursor with the catalog image so a restarted or newly promoted master
+                    // resumes only after the last replayable constraint transition.
+                    catalog.updateLastSyncedMetastoreEventId(log.getLastSyncedEventId());
+                } else {
+                    // Legacy cursor records did not journal structural constraint transitions. Do not let an
+                    // upgraded FE treat that cursor as durable proof. Keep the physical entries so a promoted
+                    // follower can journal their cleanup, but quarantine every read until that happens.
+                    boolean newlyUntrusted = Env.getCurrentEnv().getConstraintManager()
+                            .markCatalogConstraintsUntrusted(catalog.getName());
+                    if (newlyUntrusted) {
+                        catalog.markMetastoreConstraintStateUnreconciled();
+                        List<TableNameInfo> affectedTables = Env.getCurrentEnv().getConstraintManager()
+                                .getCatalogConstraintRelatedTables(catalog.getName());
+                        invalidateConstraintCaches(affectedTables,
+                                "when replaying a legacy metastore event cursor for " + catalog.getName());
+                    }
+                }
+                // Publish the follower upper bound only after the corresponding constraint state is replayed
+                // or quarantined. Descriptor bodies still catch up, but their constraint mutations are skipped.
                 Env.getCurrentEnv().getMetastoreEventSyncDriver()
                         .updateMasterLastSyncedEventId(catalogId, log.getLastSyncedEventId());
             }
         }
+    }
+
+    private void invalidateConstraintCaches(List<TableNameInfo> affectedTables, String reason) {
+        for (TableNameInfo affectedTable : affectedTables) {
+            Env.getCurrentEnv().getSqlCacheManager()
+                    .invalidateAboutTableAndFencePublication(affectedTable);
+        }
+        MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(affectedTables, reason);
     }
 
     // no lock because the operations is serialized currently

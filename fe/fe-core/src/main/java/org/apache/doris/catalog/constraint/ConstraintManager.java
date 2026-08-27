@@ -50,13 +50,16 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
@@ -80,8 +83,92 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     // A candidate FE cannot report its version before loading the image and replaying journals.
     private final ReentrantLock frontendAdmissionLock = new ReentrantLock();
+    private transient Set<String> untrustedExternalCatalogs = ConcurrentHashMap.newKeySet();
 
     public ConstraintManager() {
+    }
+
+    /** One constraint-state transition derived from a connector metastore event. */
+    public static class MetastoreConstraintMutation {
+        private enum Type {
+            DROP_TABLE,
+            DROP_DATABASE,
+            DROP_CATALOG,
+            RENAME_TABLE,
+            RENAME_DATABASE,
+            DROP_COLUMNS
+        }
+
+        private final Type type;
+        private final TableNameInfo tableNameInfo;
+        private final TableNameInfo newTableNameInfo;
+        private final String catalogName;
+        private final String dbName;
+        private final String newDbName;
+        private final List<String> columnNames;
+
+        private MetastoreConstraintMutation(Type type, TableNameInfo tableNameInfo,
+                TableNameInfo newTableNameInfo, String catalogName, String dbName,
+                String newDbName, Collection<String> columnNames) {
+            this.type = type;
+            this.tableNameInfo = tableNameInfo;
+            this.newTableNameInfo = newTableNameInfo;
+            this.catalogName = catalogName;
+            this.dbName = dbName;
+            this.newDbName = newDbName;
+            this.columnNames = columnNames == null
+                    ? ImmutableList.of() : ImmutableList.copyOf(columnNames);
+        }
+
+        public static MetastoreConstraintMutation dropTable(TableNameInfo tableNameInfo) {
+            return new MetastoreConstraintMutation(
+                    Type.DROP_TABLE, tableNameInfo, null, null, null, null, null);
+        }
+
+        public static MetastoreConstraintMutation dropDatabase(String catalogName, String dbName) {
+            return new MetastoreConstraintMutation(
+                    Type.DROP_DATABASE, null, null, catalogName, dbName, null, null);
+        }
+
+        public static MetastoreConstraintMutation dropCatalog(String catalogName) {
+            return new MetastoreConstraintMutation(
+                    Type.DROP_CATALOG, null, null, catalogName, null, null, null);
+        }
+
+        public static MetastoreConstraintMutation renameTable(
+                TableNameInfo tableNameInfo, TableNameInfo newTableNameInfo) {
+            return new MetastoreConstraintMutation(
+                    Type.RENAME_TABLE, tableNameInfo, newTableNameInfo, null, null, null, null);
+        }
+
+        public static MetastoreConstraintMutation renameDatabase(
+                String catalogName, String dbName, String newDbName) {
+            return new MetastoreConstraintMutation(
+                    Type.RENAME_DATABASE, null, null, catalogName, dbName, newDbName, null);
+        }
+
+        public static MetastoreConstraintMutation dropColumns(
+                TableNameInfo tableNameInfo, Collection<String> columnNames) {
+            return new MetastoreConstraintMutation(
+                    Type.DROP_COLUMNS, tableNameInfo, null, null, null, null, columnNames);
+        }
+    }
+
+    private static class ConstraintLogEntry {
+        private final String tableKey;
+        private final String constraintName;
+        private final Constraint constraint;
+
+        private ConstraintLogEntry(String tableKey, String constraintName, Constraint constraint) {
+            this.tableKey = tableKey;
+            this.constraintName = constraintName;
+            this.constraint = constraint;
+        }
+
+        private EditLog.EditLogOperation toOperation(short op) {
+            return new EditLog.EditLogOperation(
+                    op, new AlterConstraintLog(constraint, new TableNameInfo(tableKey)));
+        }
     }
 
     private static String toKey(TableNameInfo tni) {
@@ -373,6 +460,9 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         String key = toKey(tableNameInfo);
         readLock();
         try {
+            if (isConstraintReadUntrustedWithoutLock(tableNameInfo)) {
+                return ImmutableMap.of();
+            }
             Map<String, Constraint> tableConstraints
                     = constraintsMap.get(key);
             if (tableConstraints == null) {
@@ -390,6 +480,9 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         String key = toKey(tableNameInfo);
         readLock();
         try {
+            if (isConstraintReadUntrustedWithoutLock(tableNameInfo)) {
+                return null;
+            }
             Map<String, Constraint> tableConstraints
                     = constraintsMap.get(key);
             if (tableConstraints == null) {
@@ -440,21 +533,21 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
     /** Returns all PrimaryKeyConstraints for the given table. */
     public ImmutableList<PrimaryKeyConstraint> getPrimaryKeyConstraints(
             TableNameInfo tableNameInfo) {
-        return getConstraintsByType(toKey(tableNameInfo),
+        return getConstraintsByType(tableNameInfo,
                 PrimaryKeyConstraint.class);
     }
 
     /** Returns all ForeignKeyConstraints for the given table. */
     public ImmutableList<ForeignKeyConstraint> getForeignKeyConstraints(
             TableNameInfo tableNameInfo) {
-        return getConstraintsByType(toKey(tableNameInfo),
+        return getConstraintsByType(tableNameInfo,
                 ForeignKeyConstraint.class);
     }
 
     /** Returns all UniqueConstraints for the given table. */
     public ImmutableList<UniqueConstraint> getUniqueConstraints(
             TableNameInfo tableNameInfo) {
-        return getConstraintsByType(toKey(tableNameInfo),
+        return getConstraintsByType(tableNameInfo,
                 UniqueConstraint.class);
     }
 
@@ -641,13 +734,9 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
     }
 
     public List<TableNameInfo> dropTableConstraints(TableNameInfo tableNameInfo) {
-        String key = toKey(tableNameInfo);
         writeLock();
         try {
-            Map<String, TableNameInfo> affectedTables = new LinkedHashMap<>();
-            collectConstraintRelatedTables(affectedTables, tableNameInfo, constraintsMap.get(key));
-            dropTableConstraintsWithoutLock(key, tableNameInfo);
-            return ImmutableList.copyOf(affectedTables.values());
+            return dropTableConstraintsWithoutLock(tableNameInfo);
         } finally {
             writeUnlock();
         }
@@ -659,44 +748,57 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
      */
     public List<TableNameInfo> dropConstraintsReferencingColumns(
             TableNameInfo tableNameInfo, Collection<String> columnNames) {
-        String key = toKey(tableNameInfo);
         writeLock();
         try {
-            Map<String, Constraint> tableConstraints = constraintsMap.get(key);
-            if (tableConstraints == null) {
-                return ImmutableList.of();
-            }
-            Map<String, Constraint> constraintsToDrop = new LinkedHashMap<>();
-            for (Entry<String, Constraint> entry : tableConstraints.entrySet()) {
-                if (columnNames.stream().anyMatch(
-                        columnName -> constraintReferencesColumn(entry.getValue(), columnName))) {
-                    constraintsToDrop.put(entry.getKey(), entry.getValue());
-                }
-            }
-            if (constraintsToDrop.isEmpty()) {
-                return ImmutableList.of();
-            }
-
-            Map<String, TableNameInfo> affectedTables = new LinkedHashMap<>();
-            collectConstraintRelatedTables(affectedTables, tableNameInfo, constraintsToDrop);
-            constraintsToDrop.forEach((constraintName, constraint) -> {
-                tableConstraints.remove(constraintName);
-                if (constraint instanceof DistributionMappingConstraint) {
-                    removeTableLocalConstraint(
-                            resolveTableIfPresent(tableNameInfo), constraintName);
-                }
-            });
-            constraintsToDrop.values().forEach(
-                    constraint -> cleanupConstraintReferences(tableNameInfo, constraint));
-            if (tableConstraints.isEmpty()) {
-                constraintsMap.remove(key);
-            }
-            LOG.info("Dropped constraints {} from table {} after columns {} were removed",
-                    constraintsToDrop.keySet(), key, columnNames);
-            return ImmutableList.copyOf(affectedTables.values());
+            return dropConstraintsReferencingColumnsWithoutLock(tableNameInfo, columnNames);
         } finally {
             writeUnlock();
         }
+    }
+
+    private List<TableNameInfo> dropTableConstraintsWithoutLock(TableNameInfo tableNameInfo) {
+        String key = toKey(tableNameInfo);
+        Map<String, TableNameInfo> affectedTables = new LinkedHashMap<>();
+        collectConstraintRelatedTables(affectedTables, tableNameInfo, constraintsMap.get(key));
+        dropTableConstraintsWithoutLock(key, tableNameInfo);
+        return ImmutableList.copyOf(affectedTables.values());
+    }
+
+    private List<TableNameInfo> dropConstraintsReferencingColumnsWithoutLock(
+            TableNameInfo tableNameInfo, Collection<String> columnNames) {
+        String key = toKey(tableNameInfo);
+        Map<String, Constraint> tableConstraints = constraintsMap.get(key);
+        if (tableConstraints == null) {
+            return ImmutableList.of();
+        }
+        Map<String, Constraint> constraintsToDrop = new LinkedHashMap<>();
+        for (Entry<String, Constraint> entry : tableConstraints.entrySet()) {
+            if (columnNames.stream().anyMatch(
+                    columnName -> constraintReferencesColumn(entry.getValue(), columnName))) {
+                constraintsToDrop.put(entry.getKey(), entry.getValue());
+            }
+        }
+        if (constraintsToDrop.isEmpty()) {
+            return ImmutableList.of();
+        }
+
+        Map<String, TableNameInfo> affectedTables = new LinkedHashMap<>();
+        collectConstraintRelatedTables(affectedTables, tableNameInfo, constraintsToDrop);
+        constraintsToDrop.forEach((constraintName, constraint) -> {
+            tableConstraints.remove(constraintName);
+            if (constraint instanceof DistributionMappingConstraint) {
+                removeTableLocalConstraint(
+                        resolveTableIfPresent(tableNameInfo), constraintName);
+            }
+        });
+        constraintsToDrop.values().forEach(
+                constraint -> cleanupConstraintReferences(tableNameInfo, constraint));
+        if (tableConstraints.isEmpty()) {
+            constraintsMap.remove(key);
+        }
+        LOG.info("Dropped constraints {} from table {} after columns {} were removed",
+                constraintsToDrop.keySet(), key, columnNames);
+        return ImmutableList.copyOf(affectedTables.values());
     }
 
     private void dropTableConstraintsWithoutLock(String key, TableNameInfo tableNameInfo) {
@@ -717,13 +819,79 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
     public List<TableNameInfo> dropCatalogConstraints(String catalogName) {
         writeLock();
         try {
-            String prefix = catalogName + ".";
-            List<TableNameInfo> affectedTables = dropConstraintsByPrefix(prefix);
-            LOG.info("Dropped all constraints for catalog {}", catalogName);
+            List<TableNameInfo> affectedTables = dropCatalogConstraintsWithoutLock(catalogName);
+            untrustedExternalCatalogs.remove(catalogName);
             return affectedTables;
         } finally {
             writeUnlock();
         }
+    }
+
+    /** Returns the tables whose rewrite caches depend on constraints in the given catalog. */
+    public List<TableNameInfo> getCatalogConstraintRelatedTables(String catalogName) {
+        String prefix = catalogName + ".";
+        readLock();
+        try {
+            Map<String, TableNameInfo> affectedTables = new LinkedHashMap<>();
+            constraintsMap.entrySet().stream()
+                    .filter(entry -> entry.getKey().startsWith(prefix))
+                    .forEach(entry -> collectConstraintRelatedTables(
+                            affectedTables, new TableNameInfo(entry.getKey()), entry.getValue()));
+            return ImmutableList.copyOf(affectedTables.values());
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public boolean markCatalogConstraintsUntrusted(String catalogName) {
+        writeLock();
+        try {
+            return untrustedExternalCatalogs.add(catalogName);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /** Drops quarantined state before a replay-safe cursor makes the catalog trusted again. */
+    public List<TableNameInfo> reconcileUntrustedCatalogConstraints(String catalogName) {
+        writeLock();
+        try {
+            if (!untrustedExternalCatalogs.remove(catalogName)) {
+                return ImmutableList.of();
+            }
+            return dropCatalogConstraintsWithoutLock(catalogName);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private boolean isConstraintReadUntrustedWithoutLock(TableNameInfo tableNameInfo) {
+        if (untrustedExternalCatalogs.contains(tableNameInfo.getCtl())) {
+            return true;
+        }
+        Map<String, Constraint> constraints = constraintsMap.get(toKey(tableNameInfo));
+        if (constraints == null) {
+            return false;
+        }
+        for (Constraint constraint : constraints.values()) {
+            if (constraint instanceof ForeignKeyConstraint) {
+                TableNameInfo referencedTable = ((ForeignKeyConstraint) constraint).getReferencedTableName();
+                if (referencedTable != null && untrustedExternalCatalogs.contains(referencedTable.getCtl())) {
+                    return true;
+                }
+            } else if (constraint instanceof PrimaryKeyConstraint
+                    && ((PrimaryKeyConstraint) constraint).getForeignTableInfos().stream()
+                            .anyMatch(table -> untrustedExternalCatalogs.contains(table.getCtl()))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<TableNameInfo> dropCatalogConstraintsWithoutLock(String catalogName) {
+        List<TableNameInfo> affectedTables = dropConstraintsByPrefix(catalogName + ".");
+        LOG.info("Dropped all constraints for catalog {}", catalogName);
+        return affectedTables;
     }
 
     /**
@@ -734,14 +902,17 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
     public List<TableNameInfo> dropDatabaseConstraints(String catalogName, String dbName) {
         writeLock();
         try {
-            String prefix = catalogName + "." + dbName + ".";
-            List<TableNameInfo> affectedTables = dropConstraintsByPrefix(prefix);
-            LOG.info("Dropped all constraints for database {}.{}",
-                    catalogName, dbName);
-            return affectedTables;
+            return dropDatabaseConstraintsWithoutLock(catalogName, dbName);
         } finally {
             writeUnlock();
         }
+    }
+
+    private List<TableNameInfo> dropDatabaseConstraintsWithoutLock(String catalogName, String dbName) {
+        String prefix = catalogName + "." + dbName + ".";
+        List<TableNameInfo> affectedTables = dropConstraintsByPrefix(prefix);
+        LOG.info("Dropped all constraints for database {}.{}", catalogName, dbName);
+        return affectedTables;
     }
 
     /**
@@ -804,42 +975,265 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
 
     /** Move every qualified table key when a database is renamed. */
     public void renameDatabase(String catalogName, String oldDbName, String newDbName) {
-        String oldPrefix = catalogName + "." + oldDbName + ".";
         writeLock();
         try {
-            Map<TableNameInfo, TableNameInfo> renamedTables = constraintsMap.keySet().stream()
-                    .filter(key -> key.startsWith(oldPrefix))
-                    .map(TableNameInfo::new)
-                    .collect(Collectors.toMap(
-                            tableInfo -> tableInfo,
-                            tableInfo -> new TableNameInfo(
-                                    catalogName, newDbName, tableInfo.getTbl())));
-            for (Entry<TableNameInfo, TableNameInfo> renamedTable : renamedTables.entrySet()) {
-                Map<String, Constraint> tableConstraints =
-                        constraintsMap.remove(toKey(renamedTable.getKey()));
-                constraintsMap.put(toKey(renamedTable.getValue()), tableConstraints);
-            }
-            for (Map<String, Constraint> tableConstraints : constraintsMap.values()) {
-                for (Constraint constraint : tableConstraints.values()) {
-                    if (constraint instanceof ForeignKeyConstraint) {
-                        ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) constraint;
-                        TableNameInfo referencedTable = foreignKey.getReferencedTableName();
-                        if (referencedTable != null) {
-                            TableNameInfo renamedTable = renamedTables.get(referencedTable);
-                            if (renamedTable != null) {
-                                foreignKey.setReferencedTableInfo(renamedTable);
-                            }
-                        }
-                    } else if (constraint instanceof PrimaryKeyConstraint) {
-                        ((PrimaryKeyConstraint) constraint).renameForeignTables(renamedTables);
-                    }
-                }
-            }
-            LOG.info("Renamed database constraints from {}.{} to {}.{}",
-                    catalogName, oldDbName, catalogName, newDbName);
+            renameDatabaseWithoutLock(catalogName, oldDbName, newDbName);
         } finally {
             writeUnlock();
         }
+    }
+
+    private void renameDatabaseWithoutLock(String catalogName, String oldDbName, String newDbName) {
+        String oldPrefix = catalogName + "." + oldDbName + ".";
+        Map<TableNameInfo, TableNameInfo> renamedTables = constraintsMap.keySet().stream()
+                .filter(key -> key.startsWith(oldPrefix))
+                .map(TableNameInfo::new)
+                .collect(Collectors.toMap(
+                        tableInfo -> tableInfo,
+                        tableInfo -> new TableNameInfo(catalogName, newDbName, tableInfo.getTbl())));
+        for (Entry<TableNameInfo, TableNameInfo> renamedTable : renamedTables.entrySet()) {
+            Map<String, Constraint> tableConstraints = constraintsMap.remove(toKey(renamedTable.getKey()));
+            constraintsMap.put(toKey(renamedTable.getValue()), tableConstraints);
+        }
+        for (Map<String, Constraint> tableConstraints : constraintsMap.values()) {
+            for (Constraint constraint : tableConstraints.values()) {
+                if (constraint instanceof ForeignKeyConstraint) {
+                    ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) constraint;
+                    TableNameInfo referencedTable = foreignKey.getReferencedTableName();
+                    if (referencedTable != null) {
+                        TableNameInfo renamedTable = renamedTables.get(referencedTable);
+                        if (renamedTable != null) {
+                            foreignKey.setReferencedTableInfo(renamedTable);
+                        }
+                    }
+                } else if (constraint instanceof PrimaryKeyConstraint) {
+                    ((PrimaryKeyConstraint) constraint).renameForeignTables(renamedTables);
+                }
+            }
+        }
+        LOG.info("Renamed database constraints from {}.{} to {}.{}",
+                catalogName, oldDbName, catalogName, newDbName);
+    }
+
+    /** Apply one connector-event constraint change and enqueue its old-opcode replay records. */
+    public List<TableNameInfo> applyMetastoreConstraintMutation(
+            MetastoreConstraintMutation mutation) {
+        return applyMetastoreConstraintMutation(mutation, ImmutableList.of());
+    }
+
+    /** Apply one connector-event constraint change and atomically append a trailing replay record. */
+    public List<TableNameInfo> applyMetastoreConstraintMutation(
+            MetastoreConstraintMutation mutation, EditLog.EditLogOperation trailingOperation) {
+        return applyMetastoreConstraintMutation(mutation, ImmutableList.of(trailingOperation));
+    }
+
+    private List<TableNameInfo> applyMetastoreConstraintMutation(
+            MetastoreConstraintMutation mutation, List<EditLog.EditLogOperation> trailingOperations) {
+        EditLog.EditLogItem editLogItem = null;
+        List<TableNameInfo> affectedTables;
+        writeLock();
+        try {
+            boolean hasRelevantConstraints = hasRelevantConstraintsWithoutLock(mutation);
+            if (!hasRelevantConstraints && trailingOperations.isEmpty()) {
+                return ImmutableList.of();
+            }
+            List<EditLog.EditLogOperation> operations = new ArrayList<>();
+            if (hasRelevantConstraints) {
+                Set<String> trackedTableKeys = collectMutationTableKeysWithoutLock(mutation);
+                Map<String, Map<String, Constraint>> before =
+                        snapshotConstraintsWithoutLock(trackedTableKeys);
+                affectedTables = applyMetastoreConstraintMutationWithoutLock(mutation);
+                operations.addAll(buildConstraintTransitionEdits(before, trackedTableKeys));
+            } else {
+                affectedTables = ImmutableList.of();
+            }
+            operations.addAll(trailingOperations);
+            editLogItem = operations.isEmpty() ? null
+                    : Env.getCurrentEnv().getEditLog().submitAtomicEdits(operations);
+        } finally {
+            writeUnlock();
+        }
+        awaitEditLog(editLogItem);
+        return ImmutableList.copyOf(affectedTables);
+    }
+
+    private boolean hasRelevantConstraintsWithoutLock(MetastoreConstraintMutation mutation) {
+        // A foreign key cannot exist without its referenced primary key in this manager. Therefore,
+        // no source entry also means there is no cross-table reference for these mutations to update.
+        switch (mutation.type) {
+            case DROP_TABLE:
+            case RENAME_TABLE:
+                return constraintsMap.containsKey(toKey(mutation.tableNameInfo));
+            case DROP_COLUMNS:
+                Map<String, Constraint> tableConstraints = constraintsMap.get(toKey(mutation.tableNameInfo));
+                return tableConstraints != null && tableConstraints.values().stream().anyMatch(
+                        constraint -> mutation.columnNames.stream().anyMatch(
+                                columnName -> constraintReferencesColumn(constraint, columnName)));
+            case DROP_DATABASE:
+            case RENAME_DATABASE:
+                String prefix = mutation.catalogName + "." + mutation.dbName + ".";
+                return constraintsMap.keySet().stream().anyMatch(key -> key.startsWith(prefix));
+            case DROP_CATALOG:
+                String catalogPrefix = mutation.catalogName + ".";
+                return constraintsMap.keySet().stream().anyMatch(key -> key.startsWith(catalogPrefix));
+            default:
+                throw new IllegalStateException("Unsupported metastore constraint mutation: " + mutation.type);
+        }
+    }
+
+    private List<TableNameInfo> applyMetastoreConstraintMutationWithoutLock(
+            MetastoreConstraintMutation mutation) {
+        switch (mutation.type) {
+            case DROP_TABLE:
+                return dropTableConstraintsWithoutLock(mutation.tableNameInfo);
+            case DROP_DATABASE:
+                return dropDatabaseConstraintsWithoutLock(mutation.catalogName, mutation.dbName);
+            case DROP_CATALOG:
+                return dropCatalogConstraintsWithoutLock(mutation.catalogName);
+            case RENAME_TABLE:
+                renameTableWithoutLock(mutation.tableNameInfo, mutation.newTableNameInfo);
+                return ImmutableList.of();
+            case RENAME_DATABASE:
+                renameDatabaseWithoutLock(mutation.catalogName, mutation.dbName, mutation.newDbName);
+                return ImmutableList.of();
+            case DROP_COLUMNS:
+                return dropConstraintsReferencingColumnsWithoutLock(
+                        mutation.tableNameInfo, mutation.columnNames);
+            default:
+                throw new IllegalStateException("Unsupported metastore constraint mutation: " + mutation.type);
+        }
+    }
+
+    private Set<String> collectMutationTableKeysWithoutLock(MetastoreConstraintMutation mutation) {
+        Set<String> tableKeys = new LinkedHashSet<>();
+        switch (mutation.type) {
+            case DROP_TABLE:
+            case RENAME_TABLE:
+            case DROP_COLUMNS:
+                tableKeys.add(toKey(mutation.tableNameInfo));
+                break;
+            case DROP_DATABASE:
+            case RENAME_DATABASE:
+                String databasePrefix = mutation.catalogName + "." + mutation.dbName + ".";
+                constraintsMap.keySet().stream()
+                        .filter(key -> key.startsWith(databasePrefix))
+                        .forEach(tableKeys::add);
+                break;
+            case DROP_CATALOG:
+                String catalogPrefix = mutation.catalogName + ".";
+                constraintsMap.keySet().stream()
+                        .filter(key -> key.startsWith(catalogPrefix))
+                        .forEach(tableKeys::add);
+                break;
+            default:
+                throw new IllegalStateException("Unsupported metastore constraint mutation: " + mutation.type);
+        }
+
+        List<String> sourceTableKeys = new ArrayList<>(tableKeys);
+        for (String tableKey : sourceTableKeys) {
+            Map<String, Constraint> tableConstraints = constraintsMap.get(tableKey);
+            if (tableConstraints == null) {
+                continue;
+            }
+            Map<String, TableNameInfo> relatedTables = new LinkedHashMap<>();
+            collectConstraintRelatedTables(
+                    relatedTables, new TableNameInfo(tableKey), tableConstraints);
+            tableKeys.addAll(relatedTables.keySet());
+        }
+
+        if (mutation.type == MetastoreConstraintMutation.Type.RENAME_TABLE) {
+            tableKeys.add(toKey(mutation.newTableNameInfo));
+        } else if (mutation.type == MetastoreConstraintMutation.Type.RENAME_DATABASE) {
+            String oldPrefix = mutation.catalogName + "." + mutation.dbName + ".";
+            String newPrefix = mutation.catalogName + "." + mutation.newDbName + ".";
+            sourceTableKeys.stream()
+                    .filter(key -> key.startsWith(oldPrefix))
+                    .map(key -> newPrefix + key.substring(oldPrefix.length()))
+                    .forEach(tableKeys::add);
+        }
+        return tableKeys;
+    }
+
+    private Map<String, Map<String, Constraint>> snapshotConstraintsWithoutLock(
+            Collection<String> tableKeys) {
+        Map<String, Map<String, Constraint>> snapshot = new HashMap<>();
+        for (String tableKey : tableKeys) {
+            Map<String, Constraint> constraints = constraintsMap.get(tableKey);
+            if (constraints == null) {
+                continue;
+            }
+            Map<String, Constraint> tableConstraints = new HashMap<>();
+            for (Entry<String, Constraint> constraintEntry : constraints.entrySet()) {
+                tableConstraints.put(constraintEntry.getKey(), copyConstraint(constraintEntry.getValue()));
+            }
+            snapshot.put(tableKey, tableConstraints);
+        }
+        return snapshot;
+    }
+
+    private Constraint copyConstraint(Constraint constraint) {
+        return GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(constraint), Constraint.class);
+    }
+
+    private List<EditLog.EditLogOperation> buildConstraintTransitionEdits(
+            Map<String, Map<String, Constraint>> before, Collection<String> trackedTableKeys) {
+        // Primary-key foreign-table lists are derived from foreign keys. Constraint equality intentionally
+        // ignores that list, so replaying the FK drops/adds rebuilds it without redundant PK replacement logs.
+        List<ConstraintLogEntry> drops = new ArrayList<>();
+        List<ConstraintLogEntry> adds = new ArrayList<>();
+        for (Entry<String, Map<String, Constraint>> tableEntry : before.entrySet()) {
+            Map<String, Constraint> current = constraintsMap.get(tableEntry.getKey());
+            for (Entry<String, Constraint> constraintEntry : tableEntry.getValue().entrySet()) {
+                Constraint currentConstraint = current == null
+                        ? null : current.get(constraintEntry.getKey());
+                if (!Objects.equals(constraintEntry.getValue(), currentConstraint)) {
+                    drops.add(new ConstraintLogEntry(tableEntry.getKey(),
+                            constraintEntry.getKey(), constraintEntry.getValue()));
+                }
+            }
+        }
+        for (String tableKey : trackedTableKeys) {
+            Map<String, Constraint> current = constraintsMap.get(tableKey);
+            if (current == null) {
+                continue;
+            }
+            Map<String, Constraint> previous = before.get(tableKey);
+            for (Entry<String, Constraint> constraintEntry : current.entrySet()) {
+                Constraint previousConstraint = previous == null
+                        ? null : previous.get(constraintEntry.getKey());
+                if (!Objects.equals(previousConstraint, constraintEntry.getValue())) {
+                    adds.add(new ConstraintLogEntry(tableKey,
+                            constraintEntry.getKey(), constraintEntry.getValue()));
+                }
+            }
+        }
+
+        Comparator<ConstraintLogEntry> stableOrder = Comparator
+                .comparing((ConstraintLogEntry entry) -> entry.tableKey)
+                .thenComparing(entry -> entry.constraintName);
+        drops.sort(Comparator.comparingInt(
+                (ConstraintLogEntry entry) -> dropReplayOrder(entry.constraint)).thenComparing(stableOrder));
+        adds.sort(Comparator.comparingInt(
+                (ConstraintLogEntry entry) -> addReplayOrder(entry.constraint)).thenComparing(stableOrder));
+
+        List<EditLog.EditLogOperation> operations = new ArrayList<>(drops.size() + adds.size());
+        drops.forEach(entry -> operations.add(entry.toOperation(OperationType.OP_DROP_CONSTRAINT)));
+        adds.forEach(entry -> operations.add(entry.toOperation(OperationType.OP_ADD_CONSTRAINT)));
+        return operations;
+    }
+
+    private int dropReplayOrder(Constraint constraint) {
+        if (constraint instanceof ForeignKeyConstraint) {
+            return 0;
+        }
+        return constraint instanceof PrimaryKeyConstraint ? 2 : 1;
+    }
+
+    private int addReplayOrder(Constraint constraint) {
+        if (constraint instanceof PrimaryKeyConstraint) {
+            return 0;
+        }
+        return constraint instanceof ForeignKeyConstraint ? 2 : 1;
     }
 
     private void renameTableWithoutLock(TableNameInfo oldTableInfo, TableNameInfo newTableInfo) {
@@ -945,6 +1339,7 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
+        untrustedExternalCatalogs = ConcurrentHashMap.newKeySet();
         LOG.info("ConstraintManager deserialized with {} table entries",
                 constraintsMap.size());
     }
@@ -998,6 +1393,9 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
             TableNameInfo tableNameInfo, String columnName) {
         readLock();
         try {
+            if (isConstraintReadUntrustedWithoutLock(tableNameInfo)) {
+                return null;
+            }
             String key = toKey(tableNameInfo);
             Map<String, Constraint> tableConstraints
                     = constraintsMap.get(key);
@@ -1314,11 +1712,14 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
 
     @SuppressWarnings("unchecked")
     private <T extends Constraint> ImmutableList<T> getConstraintsByType(
-            String qualifiedTableName, Class<T> type) {
+            TableNameInfo tableNameInfo, Class<T> type) {
         readLock();
         try {
+            if (isConstraintReadUntrustedWithoutLock(tableNameInfo)) {
+                return ImmutableList.of();
+            }
             Map<String, Constraint> tableConstraints
-                    = constraintsMap.get(qualifiedTableName);
+                    = constraintsMap.get(toKey(tableNameInfo));
             if (tableConstraints == null) {
                 return ImmutableList.of();
             }

@@ -114,12 +114,14 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.tso.TSOTimestamp;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -135,12 +137,24 @@ import java.util.concurrent.atomic.AtomicLong;
 public class EditLog {
     public static final Logger LOG = LogManager.getLogger(EditLog.class);
 
+    /** One operation inside an atomic edit-log request. */
+    public static class EditLogOperation {
+        private final short op;
+        private final Writable writable;
+
+        public EditLogOperation(short op, Writable writable) {
+            this.op = op;
+            this.writable = writable;
+        }
+    }
+
     // Helper class to hold log edit requests.
     // Public so that callers can enqueue inside a lock and await outside it.
     public static class EditLogItem {
         static AtomicLong nextUid = new AtomicLong(0);
         final short op;
         final Writable writable;
+        final List<EditLogOperation> atomicOperations;
         final Object lock = new Object();
         volatile boolean finished = false;
         long logId = -1;
@@ -149,6 +163,16 @@ public class EditLog {
         EditLogItem(short op, Writable writable) {
             this.op = op;
             this.writable = writable;
+            this.atomicOperations = null;
+            uid = nextUid.getAndIncrement();
+        }
+
+        EditLogItem(List<EditLogOperation> atomicOperations) {
+            Preconditions.checkArgument(!atomicOperations.isEmpty(),
+                    "atomic edit-log request must contain at least one operation");
+            this.atomicOperations = Collections.unmodifiableList(new ArrayList<>(atomicOperations));
+            this.op = atomicOperations.get(atomicOperations.size() - 1).op;
+            this.writable = null;
             uid = nextUid.getAndIncrement();
         }
 
@@ -168,6 +192,10 @@ public class EditLog {
                 }
             }
             return logId;
+        }
+
+        private int journalCount() {
+            return atomicOperations == null ? 1 : atomicOperations.size();
         }
     }
 
@@ -227,17 +255,19 @@ public class EditLog {
             List<long[]> logIdNumPairs = writeJournalBatch(journal, batch);
 
             // Notify all producers
-            // For batch with index, assign logId to each request according to the batch flushes
+            // For batch with index, assign logId to each request according to the batch flushes.
+            // Atomic groups occupy multiple journal IDs but correspond to one producer request.
             int reqIndex = 0;
             for (long[] pair : logIdNumPairs) {
                 long logId = pair[0];
-                int num = (int) pair[1];
-                for (int i = 0; i < num && reqIndex < batch.size(); i++, reqIndex++) {
+                int numJournals = (int) pair[1];
+                int numRequests = pair.length == 3 ? (int) pair[2] : numJournals;
+                for (int i = 0; i < numRequests && reqIndex < batch.size(); i++, reqIndex++) {
                     EditLogItem req = batch.get(reqIndex);
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("notify editLog request: uid={}, op={}", req.uid, req.op);
                     }
-                    req.logId = logId + i;
+                    req.logId = numRequests == 1 ? logId + numJournals - 1 : logId + i;
                     synchronized (req.lock) {
                         req.finished = true;
                         req.lock.notifyAll();
@@ -254,7 +284,10 @@ public class EditLog {
             System.exit(-1);
         }
 
-        txId += batch.size();
+        int journalCount = batch.stream()
+                .mapToInt(EditLogItem::journalCount)
+                .sum();
+        txId += journalCount;
         // update statistics, etc. (optional, can be added as needed)
         if (txId >= Config.edit_log_roll_num || exceedEditLogRollInterval()) {
             LOG.info("edit log roll condition met. txId: {}, edit log roll num: {}, "
@@ -264,7 +297,7 @@ public class EditLog {
             txId = 0;
         }
         if (MetricRepo.isInit) {
-            MetricRepo.COUNTER_EDIT_LOG_WRITE.increase(Long.valueOf(batch.size()));
+            MetricRepo.COUNTER_EDIT_LOG_WRITE.increase(Long.valueOf(journalCount));
         }
     }
 
@@ -275,6 +308,20 @@ public class EditLog {
         for (EditLogItem req : batch) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("try to flush editLog request: uid={}, op={}", req.uid, req.op);
+            }
+            if (req.atomicOperations != null) {
+                if (!journalBatch.getJournalEntities().isEmpty()) {
+                    long logId = journal.write(journalBatch);
+                    logIdNumPairs.add(new long[]{logId, journalBatch.getJournalEntities().size()});
+                    journalBatch = new JournalBatch(itemNum);
+                }
+                JournalBatch atomicBatch = new JournalBatch(req.atomicOperations.size());
+                for (EditLogOperation operation : req.atomicOperations) {
+                    atomicBatch.addJournal(operation.op, operation.writable);
+                }
+                long logId = journal.write(atomicBatch);
+                logIdNumPairs.add(new long[]{logId, atomicBatch.getJournalEntities().size(), 1});
+                continue;
             }
             if (requiresDirectJournalWrite(req.op)) {
                 if (!journalBatch.getJournalEntities().isEmpty()) {
@@ -1690,7 +1737,25 @@ public class EditLog {
             throw new Error("Fatal Error : no editLog stream");
         }
 
-        EditLogItem req = new EditLogItem(op, writable);
+        return enqueueEdit(new EditLogItem(op, writable));
+    }
+
+    /** Submit operations that must become durable as one journal transaction. */
+    public EditLogItem submitAtomicEdits(List<EditLogOperation> operations) {
+        Preconditions.checkArgument(!operations.isEmpty(),
+                "atomic edit-log request must contain at least one operation");
+        for (EditLogOperation operation : operations) {
+            Preconditions.checkArgument(!requiresDirectJournalWrite(operation.op),
+                    "operation %s cannot be written in a journal batch", operation.op);
+        }
+        if (this.getNumEditStreams() == 0) {
+            LOG.error("Fatal Error : no editLog stream", new Exception());
+            throw new Error("Fatal Error : no editLog stream");
+        }
+        return enqueueEdit(new EditLogItem(operations));
+    }
+
+    private EditLogItem enqueueEdit(EditLogItem req) {
         while (true) {
             try {
                 logEditQueue.put(req);

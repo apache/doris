@@ -19,9 +19,11 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.RefreshManager;
+import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.event.ConnectorEventSource;
+import org.apache.doris.connector.spi.event.EventPollRequest;
 import org.apache.doris.connector.spi.event.EventPollResult;
 import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor;
 import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor.Op;
@@ -126,11 +128,15 @@ public class MetastoreEventSyncDriverClassLoaderTest {
             }).when(refreshManager).replayRefreshCatalog(Mockito.any(CatalogLog.class));
             ExternalMetaIdMgr externalMetaIdMgr = Mockito.mock(ExternalMetaIdMgr.class);
             EditLog editLog = Mockito.mock(EditLog.class);
+            ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
             Env env = Mockito.mock(Env.class);
             Mockito.when(env.isMaster()).thenReturn(true);
             Mockito.when(env.getRefreshManager()).thenReturn(refreshManager);
             Mockito.when(env.getExternalMetaIdMgr()).thenReturn(externalMetaIdMgr);
             Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+            Mockito.when(constraintManager.applyMetastoreConstraintMutation(Mockito.any()))
+                    .thenReturn(Collections.emptyList());
 
             Thread thread = Thread.currentThread();
             ClassLoader original = thread.getContextClassLoader();
@@ -163,6 +169,31 @@ public class MetastoreEventSyncDriverClassLoaderTest {
         assertDescriptorApplicationClassLoader(true);
     }
 
+    @Test
+    public void pollingErrorDoesNotLeaveDriverPermanentlyRunning() {
+        ConnectorEventSource eventSource = Mockito.mock(ConnectorEventSource.class);
+        Mockito.when(eventSource.pollOnce(Mockito.any())).thenThrow(new AssertionError("injected linkage error"));
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getEventSource()).thenReturn(eventSource);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.isInitialized()).thenReturn(true);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Mockito.when(catalogMgr.getCatalogIds()).thenReturn(Collections.singletonList(1L));
+        Mockito.doReturn(catalog).when(catalogMgr).getCatalog(1L);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+
+        MetastoreEventSyncDriver driver = new MetastoreEventSyncDriver();
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertThrows(AssertionError.class, driver::runAfterCatalogReady);
+            Assertions.assertThrows(AssertionError.class, driver::runAfterCatalogReady);
+        }
+
+        Mockito.verify(eventSource, Mockito.times(2)).pollOnce(Mockito.any());
+    }
+
     private void assertDescriptorApplicationClassLoader(boolean failInvalidation) throws Exception {
         ClassLoader apiLoader = Connector.class.getClassLoader();
         AtomicReference<ClassLoader> pollClassLoader = new AtomicReference<>();
@@ -177,6 +208,9 @@ public class MetastoreEventSyncDriverClassLoaderTest {
             ConnectorEventSource eventSource = (ConnectorEventSource) Proxy.newProxyInstance(
                     eventSourceLoader, new Class<?>[] {ConnectorEventSource.class}, (proxy, method, args) -> {
                         if ("pollOnce".equals(method.getName())) {
+                            EventPollRequest request = (EventPollRequest) args[0];
+                            Assertions.assertFalse(request.isMaster());
+                            Assertions.assertEquals(7L, request.getMasterUpperBound());
                             pollClassLoader.set(Thread.currentThread().getContextClassLoader());
                             return EventPollResult.ofChanges(1L, Collections.singletonList(descriptor));
                         }
@@ -203,6 +237,7 @@ public class MetastoreEventSyncDriverClassLoaderTest {
             PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
             Mockito.when(catalog.getId()).thenReturn(1L);
             Mockito.when(catalog.getName()).thenReturn("test_catalog");
+            Mockito.when(catalog.getLastSyncedMetastoreEventId()).thenReturn(7L);
             Mockito.when(catalog.canonicalLocalDatabaseNameFromRemote("db1")).thenReturn("db1");
             CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
             Mockito.doAnswer(invocation -> {

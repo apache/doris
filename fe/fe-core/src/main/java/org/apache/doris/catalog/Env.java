@@ -1241,6 +1241,7 @@ public class Env {
         loadImage(this.imageDir); // load image file
         seedSelfLocalResourceGroup();
         migrateConstraintsFromTables(); // migrate old table-based constraints
+        metastoreEventSyncDriver.prepareConstraintStateAfterImageLoad();
         editLog.open(); // open bdb env
         this.globalTransactionMgr.setEditLog(editLog);
         this.idGenerator.setEditLog(editLog);
@@ -1750,6 +1751,9 @@ public class Env {
             replayJournal(-1);
             long replayEndTime = System.currentTimeMillis();
             LOG.info("finish replay in " + (replayEndTime - replayStartTime) + " msec");
+
+            toMasterProgress = "reconcile legacy metastore constraints";
+            metastoreEventSyncDriver.reconcileConstraintStateBeforeMasterReady();
 
             removeDroppedFrontends(removedFrontends);
 

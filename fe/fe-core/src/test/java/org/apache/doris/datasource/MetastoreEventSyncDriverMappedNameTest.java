@@ -33,6 +33,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.List;
 
 public class MetastoreEventSyncDriverMappedNameTest {
 
@@ -132,8 +133,8 @@ public class MetastoreEventSyncDriverMappedNameTest {
             MetastoreChangeDescriptor descriptor, Env env) throws Exception {
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
-            Deencapsulation.invoke(
-                    new MetastoreEventSyncDriver(), "applyOne", catalog, connector, descriptor);
+            Deencapsulation.invoke(new MetastoreEventSyncDriver(), "applyDescriptorsAndCommit",
+                    catalog, connector, List.of(descriptor), false, -1L, descriptor.getEventId());
         }
     }
 

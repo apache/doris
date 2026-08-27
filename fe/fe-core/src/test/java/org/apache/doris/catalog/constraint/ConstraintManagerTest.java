@@ -20,6 +20,7 @@ package org.apache.doris.catalog.constraint;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.catalog.CatalogRecycleBin;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
@@ -28,6 +29,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Version;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Frontend;
@@ -654,6 +657,37 @@ class ConstraintManagerTest {
         PrimaryKeyConstraint primaryKey = (PrimaryKeyConstraint) mgr.getConstraint(T1, "pk");
         Assertions.assertTrue(primaryKey.getForeignTableInfos().isEmpty());
         Assertions.assertEquals(ImmutableSet.of(T1, T2), ImmutableSet.copyOf(affectedTables));
+    }
+
+    @Test
+    void dropConstraintsReferencingColumnsRemovesTableLocalDistributionMapping() {
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        TableAttributes tableAttributes = Mockito.mock(TableAttributes.class);
+        Map<String, Constraint> tableLocalConstraints = new HashMap<>();
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("removed_key"), List.of("kept_key"));
+
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(T1.getCtl())).thenReturn(catalog);
+        Mockito.when(catalog.getDbNullable(T1.getDb())).thenReturn(database);
+        Mockito.when(database.getTableNullable(T1.getTbl())).thenReturn(table);
+        Mockito.when(table.getTableAttributes()).thenReturn(tableAttributes);
+        Mockito.when(tableAttributes.getConstraintsMap()).thenReturn(tableLocalConstraints);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            mgr.addConstraint(T1, mapping.getName(), mapping, true);
+            Assertions.assertSame(mapping, tableLocalConstraints.get(mapping.getName()));
+
+            mgr.dropConstraintsReferencingColumns(T1, List.of("removed_key"));
+        }
+
+        Assertions.assertNull(mgr.getConstraint(T1, mapping.getName()));
+        Assertions.assertTrue(tableLocalConstraints.isEmpty());
     }
 
     // ==================== checkAndDropTableConstraints ====================
