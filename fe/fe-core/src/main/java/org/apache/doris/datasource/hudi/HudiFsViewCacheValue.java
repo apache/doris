@@ -38,20 +38,23 @@ public class HudiFsViewCacheValue {
         this.fsView = fsView;
     }
 
-    public synchronized Lease tryAcquire() {
+    public Lease tryAcquire() {
         Lease lease;
-        if (loaderReferenceAvailable) {
-            loaderReferenceAvailable = false;
-            lease = new Lease(this, fsView);
-        } else if (evicted) {
-            return null;
-        } else {
-            refCount++;
-            lease = new Lease(this, fsView);
+        synchronized (this) {
+            if (loaderReferenceAvailable) {
+                loaderReferenceAvailable = false;
+                lease = new Lease(this, fsView);
+            } else if (evicted) {
+                return null;
+            } else {
+                refCount++;
+                lease = new Lease(this, fsView);
+            }
         }
         try {
             // The cache uses expire-after-access without detached refresh. Sync every foreground generation handoff
-            // so a continuously hot key still observes newly completed commits.
+            // so a continuously hot key still observes newly completed commits. The exact lease keeps the view alive;
+            // do not hold the generation-owner monitor across remote timeline I/O.
             fsView.sync();
             return lease;
         } catch (RuntimeException e) {
