@@ -201,6 +201,7 @@ public class StmtExecutor {
 
     @Setter
     private volatile Coordinator coord = null;
+    private volatile Coordinator externalDmlAuditCoordinator = null;
     // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
     // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
     // is skipped.
@@ -506,6 +507,18 @@ public class StmtExecutor {
         return masterOpExecutor != null;
     }
 
+    public void setExternalDmlAuditCoordinator(Coordinator coordinator) {
+        externalDmlAuditCoordinator = coordinator;
+    }
+
+    public Set<Long> getExternalDmlAuditBackendIds() {
+        if (masterOpExecutor != null) {
+            return masterOpExecutor.getAuditStatisticsBackendIds();
+        }
+        return externalDmlAuditCoordinator == null
+                ? Collections.emptySet() : externalDmlAuditCoordinator.getDispatchedBackendIdsForAudit();
+    }
+
     public ShowResultSet getProxyShowResultSet() {
         return proxyShowResultSet;
     }
@@ -684,6 +697,7 @@ public class StmtExecutor {
     public void execute(TUniqueId queryId) throws Exception {
         SessionVariable sessionVariable = context.getSessionVariable();
         context.setEffectiveCloudCluster(null);
+        externalDmlAuditCoordinator = null;
         if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
             context.setReturnResultFromLocal(true);
         }

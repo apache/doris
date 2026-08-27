@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "storage/rowset/rowset_fwd.h"
 #include "storage/transform/block_transform.h"
 
 namespace doris {
@@ -40,7 +41,7 @@ bool binlog_needs_historical_lookup(const RowsetWriterContext& context);
 struct BinlogDeriveContext {
     TabletSchemaSPtr binlog_schema;
     TabletSchemaSPtr source_schema;
-    std::shared_ptr<const std::vector<int64_t>> lsn_ids;
+    ConstAllocatedLsnVectorSharedPtr lsn_ids;
     size_t num_rows = 0;
     uint32_t binlog_tso_cid = 0;
     uint32_t binlog_lsn_cid = 0;

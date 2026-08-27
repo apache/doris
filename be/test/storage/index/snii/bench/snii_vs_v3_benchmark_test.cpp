@@ -1245,7 +1245,7 @@ protected:
                             result.index_compaction_columns = static_cast<int64_t>(
                                     cctx.columns_to_do_index_compaction.size());
                         },
-                        10000000, storage_resource);
+                        10000000, /*output_segment_start_id=*/0, storage_resource);
             });
             EXPECT_TRUE(compaction_status.ok()) << compaction_status.to_string();
         } else {

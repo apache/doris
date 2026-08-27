@@ -1561,6 +1561,15 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
         // occurring, return true here that column data needs to be read
         return true;
     }
+    // Row-binlog incremental reads force-push the TSO range predicate (see
+    // OlapScanner::_init_tso_predicate), and the merge iterator uses the TSO column as its
+    // sequence sort key (BetaRowsetReader sets binlog_tso_idx). On a cross-version rowset
+    // (e.g. produced by binlog LMax quick-merge) the TSO zonemap can be always-true, so the
+    // pruning below would skip reading it and fill placeholder zeros, breaking the merge
+    // ordering. The TSO column carries real values on disk, so force it to be read.
+    if (_opts.read_row_binlog && cid == _schema->tso_ordinal()) {
+        return true;
+    }
     const auto& column = *_schema->column(cid);
     // Different subcolumns may share the same parent_unique_id, so we choose to abandon this optimization.
     if (column.is_extracted_column() &&
@@ -3591,6 +3600,9 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
             RETURN_IF_ERROR(column_expr->root()->execute_column(column_expr.get(), block, nullptr,
                                                                 _selected_size, result_column));
 
+            // The materialized value is cached in the block and later consumed as the slot's
+            // concrete column type, so do not let a ColumnConst cross this boundary.
+            result_column = result_column->convert_to_full_column_if_const();
             block->replace_by_position(materialized_pos, std::move(result_column));
         }
     }

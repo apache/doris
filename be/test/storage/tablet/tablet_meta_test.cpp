@@ -383,13 +383,13 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
         ASSERT_EQ(bm->cardinality(), 100 * (version + 1));
     }
 
-    std::vector<std::pair<RowsetId, int64_t>> rowset_ids;
+    std::vector<DeleteBitmap::RowsetIdWithSegmentIds> rowsets;
     auto rowset_id1 = RowsetId {2, 0, 1, 0};
     auto rowset_id2 = RowsetId {2, 0, 1, 1};
-    rowset_ids.emplace_back(std::make_pair(rowset_id1, 2));
-    rowset_ids.emplace_back(std::make_pair(rowset_id2, 2));
+    rowsets.emplace_back(rowset_id1, std::vector<DeleteBitmap::SegmentId> {0, 1});
+    rowsets.emplace_back(rowset_id2, std::vector<DeleteBitmap::SegmentId> {0, 1});
     DeleteBitmap subset_delete_map(10086);
-    dbmp->subset_and_agg(rowset_ids, 5, 9, &subset_delete_map);
+    dbmp->subset_and_agg(rowsets, 5, 9, &subset_delete_map);
     ASSERT_EQ(subset_delete_map.delete_bitmap.size(), 4);
 
     roaring::Roaring d;
@@ -401,6 +401,31 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
     EXPECT_EQ(d.cardinality(), 500);
     subset_delete_map.get({rowset_id2, 1, 9}, &d);
     EXPECT_EQ(d.cardinality(), 500);
+}
+
+TEST(TabletMetaTest, TestDeleteBitmapSubsetAndAggWithSegmentList) {
+    DeleteBitmap delete_bitmap(10086);
+    RowsetId rowset_id {2, 0, 1, 0};
+    delete_bitmap.add({rowset_id, 0, 5}, 100);
+    delete_bitmap.add({rowset_id, 10, 5}, 101);
+    delete_bitmap.add({rowset_id, 10, 9}, 102);
+    delete_bitmap.add({rowset_id, 12, 7}, 103);
+
+    std::vector<DeleteBitmap::RowsetIdWithSegmentIds> rowsets;
+    rowsets.emplace_back(rowset_id, std::vector<DeleteBitmap::SegmentId> {10, 12});
+    DeleteBitmap subset_delete_map(10086);
+    delete_bitmap.subset_and_agg(rowsets, 5, 9, &subset_delete_map);
+
+    ASSERT_EQ(subset_delete_map.delete_bitmap.size(), 2);
+    roaring::Roaring segment_delete_bitmap;
+    ASSERT_EQ(subset_delete_map.get({rowset_id, 10, 9}, &segment_delete_bitmap), 0);
+    EXPECT_EQ(segment_delete_bitmap.cardinality(), 2);
+    EXPECT_TRUE(segment_delete_bitmap.contains(101));
+    EXPECT_TRUE(segment_delete_bitmap.contains(102));
+    ASSERT_EQ(subset_delete_map.get({rowset_id, 12, 9}, &segment_delete_bitmap), 0);
+    EXPECT_EQ(segment_delete_bitmap.cardinality(), 1);
+    EXPECT_TRUE(segment_delete_bitmap.contains(103));
+    EXPECT_NE(subset_delete_map.get({rowset_id, 0, 9}, &segment_delete_bitmap), 0);
 }
 
 } // namespace doris

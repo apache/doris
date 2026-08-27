@@ -49,6 +49,8 @@ public:
     // flush when all column finished, flush column footer
     Status final_flush() override;
 
+    Status build(RowsetSharedPtr& rowset) override;
+
     int64_t num_rows() const override { return _total_key_group_rows; }
 
     Status _close_file_writers() override;

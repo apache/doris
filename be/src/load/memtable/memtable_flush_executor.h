@@ -38,6 +38,7 @@ class MemTableMemoryLimiter;
 class Block;
 class GroupRowsetWriter;
 class OlapTableSchemaParam;
+struct RowsetWriterContext;
 class RowsetWriter;
 class SystemMetrics;
 class WorkloadGroup;
@@ -63,6 +64,8 @@ struct SharedMemtable {
     std::once_flag block_once;
     Status block_status;
     std::shared_ptr<Block> block;
+    RowsetWriterContext* rowset_ctx = nullptr;
+    bool has_allocated_lsns = false;
 
     std::atomic<int> finished_sub_task_count {0};
     // data + binlog

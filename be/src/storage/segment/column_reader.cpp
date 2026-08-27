@@ -730,8 +730,9 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
         if (is_string_type(type)) {
             auto reader_type = should_analyzer ? InvertedIndexReaderType::FULLTEXT
                                                : InvertedIndexReaderType::STRING_TYPE;
-            index_reader =
-                    SniiIndexReader::create_shared(index_meta, index_file_reader, reader_type);
+            index_reader = SniiIndexReader::create_shared(
+                    index_meta, index_file_reader, reader_type, rows_of_segment,
+                    _meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY);
         } else if (field_is_numeric_type(type)) {
             index_reader = SniiBkdIndexReader::create_shared(index_meta, index_file_reader);
         } else {

@@ -54,13 +54,21 @@
 #include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/snii/encoding/byte_sink.h"
+#include "storage/index/snii/encoding/crc32c.h"
+#include "storage/index/snii/format/core_metadata.h"
+#include "storage/index/snii/format/dict_block.h"
+#include "storage/index/snii/format/dict_block_directory.h"
 #include "storage/index/snii/format/dict_entry.h"
+#include "storage/index/snii/format/null_bitmap.h"
 #include "storage/index/snii/format/prx_pod.h"
+#include "storage/index/snii/format/sampled_term_index.h"
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/query/bm25_scorer.h"
 #include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/query/phrase_verify_timer.h"
 #include "storage/index/snii/query/query_profile.h"
+#include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/snii_doris_adapter.h"
 #include "storage/index/snii/snii_prx_profile.h"
 // Exercise the reader router without acquiring process-global query-cache ownership.
@@ -202,6 +210,11 @@ void init_index_meta(TabletIndex* meta, int64_t index_id = kIndexId,
     meta->init_from_pb(pb);
 }
 
+// Rows in the segment write_positional_segment() lays down. Named because the
+// readers built over it must be told the same number: the count fast path bounds
+// the index document domain against the segment row count.
+constexpr uint32_t kPositionalSegmentDocCount = 6;
+
 void write_positional_segment() {
     std::vector<doris::snii::writer::TermPostings> terms {
             make_term("failed", {{.docid = 0, .positions = {0}},
@@ -223,7 +236,7 @@ void write_positional_segment() {
     input.index_id = kIndexId;
     input.index_suffix = "";
     input.config = doris::snii::format::IndexConfig::kDocsPositions;
-    input.doc_count = 6;
+    input.doc_count = kPositionalSegmentDocCount;
     input.terms = std::move(terms);
     input.target_dict_block_bytes = 64;
 
@@ -507,14 +520,24 @@ struct OpenedSniiIndex {
     std::shared_ptr<SniiIndexReader> index_reader;
 };
 
+// Opens a reader over a fixture segment. Every fixture in this file writes one
+// segment per index file with no rows beyond the indexed ones, so the index's own
+// doc count IS the segment row count; production takes it from Segment::_num_rows
+// instead, and that independence is exactly what the count fast path's domain
+// guard rests on -- cases that need the two to DISAGREE build their reader by hand.
 Status open_snii_index(const TabletIndex* meta, std::string index_path_prefix,
-                       OpenedSniiIndex* opened) {
+                       OpenedSniiIndex* opened, bool column_is_array = false) {
     opened->file_reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
                                                             std::move(index_path_prefix),
                                                             InvertedIndexStorageFormatPB::SNII);
     RETURN_IF_ERROR(opened->file_reader->init());
-    opened->index_reader = SniiIndexReader::create_shared(meta, opened->file_reader,
-                                                          InvertedIndexReaderType::FULLTEXT);
+    auto logical_reader = opened->file_reader->open_snii_index(meta);
+    if (!logical_reader.has_value()) {
+        return logical_reader.error();
+    }
+    opened->index_reader = SniiIndexReader::create_shared(
+            meta, opened->file_reader, InvertedIndexReaderType::FULLTEXT,
+            logical_reader.value()->stats().doc_count, column_is_array);
     return Status::OK();
 }
 
@@ -536,6 +559,167 @@ uint32_t lookup_df(const doris::snii::reader::LogicalIndexReader& index, const s
     return entry.df;
 }
 
+struct CorruptDfLogicalIndex {
+    std::unique_ptr<MemoryFile> file;
+    doris::snii::reader::LogicalIndexReader reader;
+};
+
+// Rows really present in the segment the corruption fixtures describe, and the
+// number of them that are NULL when the fixture is built nullable.
+constexpr uint32_t kCorruptSegmentRows = 10;
+constexpr uint32_t kCorruptNullCount = 2;
+
+// Which numbers the CRC-valid image lies about. The POSTING is always the real
+// two documents {2, 7}, so a rejection a case observes can only come from the
+// guard under test -- never from a damaged posting. `stats_doc_count` is written
+// into Core; leaving it at kCorruptSegmentRows keeps the document domain honest
+// and isolates `df`, while raising it models a rewrite that inflated the domain
+// along with df.
+struct CorruptDfSpec {
+    bool nullable = false;
+    uint32_t df = 0;
+    uint32_t stats_doc_count = kCorruptSegmentRows;
+};
+
+// Keep the CRC-valid Core/STI/DICT/DBD corruption fixture visible as one end-to-end image builder.
+// NOLINTNEXTLINE(readability-function-size)
+Status build_corrupt_df_logical_index(const CorruptDfSpec& spec, CorruptDfLogicalIndex* out) {
+    const uint32_t null_count = spec.nullable ? kCorruptNullCount : 0;
+
+    doris::snii::writer::SniiIndexInput input;
+    input.index_id = kIndexId;
+    input.index_suffix = "";
+    input.config = doris::snii::format::IndexConfig::kDocsPositions;
+    input.doc_count = kCorruptSegmentRows;
+    input.terms = {
+            make_term("alpha", {{.docid = 2, .positions = {0}}, {.docid = 7, .positions = {0}}})};
+    if (spec.nullable) {
+        input.null_docids = {1, 3};
+    }
+
+    MemoryFile source_file;
+    doris::snii::writer::SniiCompoundWriter compound(&source_file);
+    RETURN_IF_ERROR(compound.add_logical_index(input));
+    RETURN_IF_ERROR(compound.finish());
+    doris::snii::reader::SniiSegmentReader source_segment;
+    RETURN_IF_ERROR(doris::snii::reader::SniiSegmentReader::open(&source_file, &source_segment));
+    doris::snii::reader::LogicalIndexReader source_reader;
+    RETURN_IF_ERROR(source_segment.open_index(kIndexId, "", &source_reader));
+
+    std::vector<uint32_t> real_docids;
+    RETURN_IF_ERROR(doris::snii::query::term_query(source_reader, "alpha", &real_docids));
+    DORIS_CHECK(real_docids == (std::vector<uint32_t> {2, 7}));
+
+    std::vector<doris::snii::format::DictEntry> entries;
+    uint64_t frq_base = 0;
+    uint64_t prx_base = 0;
+    RETURN_IF_ERROR(source_reader.decode_dict_block(0, &entries, &frq_base, &prx_base));
+    DORIS_CHECK_EQ(entries.size(), 1);
+    DORIS_CHECK(entries.front().kind == doris::snii::format::DictEntryKind::kInline);
+    entries.front().df = spec.df;
+
+    doris::snii::format::DictBlockBuilder dict_builder(
+            source_reader.tier(), source_reader.has_positions(), frq_base, prx_base);
+    dict_builder.add_entry(std::move(entries.front()));
+    std::vector<uint8_t> dict_block = dict_builder.finish_owned();
+
+    doris::snii::format::SampledTermIndexBuilder sampled_builder;
+    sampled_builder.add_block_first_term("alpha");
+    doris::snii::ByteSink sampled_frame;
+    sampled_builder.finish(&sampled_frame);
+
+    doris::snii::format::BlockRef block_ref;
+    block_ref.offset = 0;
+    block_ref.length = dict_block.size();
+    block_ref.n_entries = 1;
+    block_ref.checksum = doris::snii::crc32c(doris::snii::Slice(dict_block));
+    doris::snii::format::DictBlockDirectoryBuilder directory_builder;
+    directory_builder.add(block_ref);
+    doris::snii::ByteSink directory_frame;
+    directory_builder.finish(&directory_frame);
+
+    doris::snii::ByteSink null_frame;
+    if (spec.nullable) {
+        doris::snii::format::NullBitmapWriter null_writer;
+        null_writer.add_null(1);
+        null_writer.add_null(3);
+        // LogicalIndexReader::open cross-checks this against Core stats.doc_count.
+        RETURN_IF_ERROR(null_writer.finish(spec.stats_doc_count, &null_frame));
+    }
+
+    doris::snii::format::CoreMetadata core;
+    core.index_config = doris::snii::format::IndexConfig::kDocsPositions;
+    core.stats.doc_count = spec.stats_doc_count;
+    core.stats.indexed_doc_count = spec.stats_doc_count - null_count;
+    core.stats.term_count = 1;
+    core.stats.sum_total_term_freq = 2;
+    core.stats.null_count = null_count;
+    core.section_refs.dict_region = {.offset = 0, .length = dict_block.size()};
+    if (spec.nullable) {
+        core.section_refs.null_bitmap = {.offset = dict_block.size(), .length = null_frame.size()};
+    }
+    doris::snii::ByteSink core_frame;
+    RETURN_IF_ERROR(doris::snii::format::encode_core_metadata(core, &core_frame));
+
+    out->file = std::make_unique<MemoryFile>();
+    RETURN_IF_ERROR(out->file->append(doris::snii::Slice(dict_block)));
+    if (spec.nullable) {
+        RETURN_IF_ERROR(out->file->append(null_frame.view()));
+    }
+    RETURN_IF_ERROR(out->file->finalize());
+    return doris::snii::reader::LogicalIndexReader::open(out->file.get(), core_frame.view(),
+                                                         sampled_frame.view(),
+                                                         directory_frame.view(), &out->reader);
+}
+
+// A reader for the corruption fixtures. The corrupt logical index is handed to
+// _try_count_only_fastpath preopened, so nothing is read through `file_reader`;
+// what matters is that the reader carries the segment's REAL row count, which is
+// the one bound the corrupt image cannot move.
+std::shared_ptr<SniiIndexReader> make_corrupt_index_reader(
+        const TabletIndex* meta, const std::shared_ptr<IndexFileReader>& file_reader) {
+    return SniiIndexReader::create_shared(meta, file_reader, InvertedIndexReaderType::FULLTEXT,
+                                          /*rows_of_segment=*/kCorruptSegmentRows,
+                                          /*column_is_array=*/false);
+}
+
+// Rows in the segment write_array_null_payload_segment() lays down, and the row
+// that is NULL at the outer level within it.
+constexpr uint32_t kArrayNullPayloadDocCount = 4;
+constexpr uint32_t kArrayNullPayloadNullDocid = 1;
+
+// A segment shaped the way a nullable ARRAY column really lands on disk when the
+// nested payload survives under the outer null map: docid 1 is NULL, and
+// "alpha"'s posting contains it anyway. That is not a corrupt image --
+// ArrayColumnWriter::append_nullable feeds add_array_values() every row of the
+// batch (the offsets come from the nested ColumnArray, which the outer null map
+// never touches) and the add_array_nulls() that follows only records the null row
+// id. Reachable from SQL because
+// PreparedFunctionImpl::default_implementation_for_nulls keeps nested values on
+// NULL rows, e.g. array_concat(arr, nullable_arr).
+Status write_array_null_payload_segment(std::string_view index_path_prefix) {
+    doris::snii::writer::SniiIndexInput input;
+    input.index_id = kIndexId;
+    input.index_suffix = "";
+    input.config = doris::snii::format::IndexConfig::kDocsPositions;
+    input.doc_count = kArrayNullPayloadDocCount;
+    input.terms = {make_term("alpha", {{.docid = kArrayNullPayloadNullDocid, .positions = {0}},
+                                       {.docid = 3, .positions = {0}}})};
+    input.null_docids = {kArrayNullPayloadNullDocid};
+
+    MemoryFile memory_file;
+    doris::snii::writer::SniiCompoundWriter compound(&memory_file);
+    RETURN_IF_ERROR(compound.add_logical_index(input));
+    RETURN_IF_ERROR(compound.finish());
+
+    doris::snii::io::LocalFileWriter local_file;
+    RETURN_IF_ERROR(local_file.open(
+            InvertedIndexDescriptor::get_index_file_path_v2(std::string(index_path_prefix))));
+    RETURN_IF_ERROR(local_file.append(
+            doris::snii::Slice(memory_file.data().data(), memory_file.data().size())));
+    return local_file.finalize();
+}
+
 class SniiIndexReaderCountFallback : public testing::Test {
 protected:
     void SetUp() override {
@@ -547,8 +731,9 @@ protected:
                 std::make_shared<IndexFileReader>(io::global_local_filesystem(), kIndexPathPrefix,
                                                   InvertedIndexStorageFormatPB::SNII);
         assert_ok(_file_reader->init());
-        _index_reader = SniiIndexReader::create_shared(&_meta, _file_reader,
-                                                       InvertedIndexReaderType::FULLTEXT);
+        _index_reader = SniiIndexReader::create_shared(
+                &_meta, _file_reader, InvertedIndexReaderType::FULLTEXT,
+                /*rows_of_segment=*/kPositionalSegmentDocCount, /*column_is_array=*/false);
         _previous_query_cache = ExecEnv::GetInstance()->get_inverted_index_query_cache();
         _query_cache.reset(InvertedIndexQueryCache::create_global_cache(1024 * 1024, 1));
         ExecEnv::GetInstance()->set_inverted_index_query_cache(_query_cache.get());
@@ -1469,6 +1654,103 @@ TEST_F(SniiIndexReaderCountFallback, PublicSingleTermCountFastPathLeavesPrxStats
     verify_query("failed ~1");
 }
 
+// Runs the count fast path over a CRC-valid image whose numbers lie, and returns
+// what it answered. The reader always knows the segment's real row count.
+Status run_count_fastpath_over_corrupt_index(const TabletIndex* meta,
+                                             const std::shared_ptr<IndexFileReader>& file_reader,
+                                             const CorruptDfSpec& spec) {
+    CorruptDfLogicalIndex corrupt;
+    RETURN_IF_ERROR(build_corrupt_df_logical_index(spec, &corrupt));
+    auto reader = make_corrupt_index_reader(meta, file_reader);
+    QueryExecutionContext execution(/*enable_query_cache=*/false,
+                                    /*count_on_index_fastpath=*/true);
+    InvertedIndexQueryInfo query_info;
+    query_info.term_infos.emplace_back("alpha", 0);
+    const std::vector<std::string> terms {"alpha"};
+    bool handled = false;
+    std::shared_ptr<roaring::Roaring> bitmap;
+
+    const Status status = reader->_try_count_only_fastpath(
+            execution.context, InvertedIndexQueryType::MATCH_PHRASE_QUERY, query_info, terms,
+            &handled, &bitmap, &corrupt.reader);
+
+    EXPECT_FALSE(handled);
+    EXPECT_EQ(bitmap, nullptr);
+    return status;
+}
+
+TEST_F(SniiIndexReaderCountFallback, CountFastPathRejectsDfBeyondDocumentDomain) {
+    // df 100 against an honest 10-document domain.
+    const Status status = run_count_fastpath_over_corrupt_index(&_meta, _file_reader,
+                                                                {.nullable = false, .df = 100});
+
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
+}
+
+TEST_F(SniiIndexReaderCountFallback, CountFastPathRejectsDfBeyondNonNullDomain) {
+    // Exercises the INDEXED half of the domain check on its own: with
+    // doc_count 10 and df 9, `df > doc_count` is false, so the rejection can only
+    // come from `df > indexed_doc_count` (10 rows minus 2 nulls = 8). Drop that
+    // clause from the guard and this case goes red while the one above stays green.
+    const Status status = run_count_fastpath_over_corrupt_index(&_meta, _file_reader,
+                                                                {.nullable = true, .df = 9});
+
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
+}
+
+TEST_F(SniiIndexReaderCountFallback, CountFastPathRejectsADocumentDomainLargerThanTheSegment) {
+    // Both in-image limits inflated together with df, which is what a rewrite of
+    // the Core frame produces: df == doc_count == indexed_doc_count == 100 clears
+    // every comparison that stays inside the image. Only the segment's own row
+    // count (10) exposes it -- without that bound the fast path would fabricate
+    // 100 ids and SegmentIterator, seeding [0, num_rows) and intersecting, would
+    // quietly report 10 for a term that matches 2 documents.
+    const Status status = run_count_fastpath_over_corrupt_index(
+            &_meta, _file_reader, {.nullable = false, .df = 100, .stats_doc_count = 100});
+
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
+}
+
+TEST_F(SniiIndexReaderCountFallback, CountFastPathDeclinesAnArrayColumnHoldingANullRowInAPosting) {
+    const std::string path = std::string(kTestDir) + "/array_null_payload";
+    assert_ok(write_array_null_payload_segment(path));
+    const Field query_value = Field::create_field<TYPE_STRING>(std::string("alpha"));
+    roaring::Roaring nulls;
+    nulls.add(kArrayNullPayloadNullDocid);
+
+    // Declared ARRAY: the fast path steps aside and the posting is decoded, so the
+    // mask_out_null the MATCH machinery applies removes the null row -- one match.
+    OpenedSniiIndex as_array;
+    assert_ok(open_snii_index(&_meta, path, &as_array, /*column_is_array=*/true));
+    QueryExecutionContext decoded(/*enable_query_cache=*/false,
+                                  /*count_on_index_fastpath=*/true);
+    std::shared_ptr<roaring::Roaring> decoded_bitmap;
+    assert_ok(as_array.index_reader->query(decoded.context, "count_content", query_value,
+                                           InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+                                           decoded_bitmap));
+    ASSERT_NE(decoded_bitmap, nullptr);
+    EXPECT_FALSE(decoded.context->count_on_index_fastpath_hit);
+    EXPECT_EQ(bitmap_docids(*decoded_bitmap), (std::vector<uint32_t> {1, 3}));
+    EXPECT_EQ((*decoded_bitmap - nulls).cardinality(), 1U);
+
+    // Control on the SAME bytes, declared scalar. df is 2 and the fabricated ids
+    // are placed OFF the null row on purpose, so mask_out_null removes nothing and
+    // the count comes back 2. That gap is what the ARRAY guard exists to close; if
+    // the writer is ever taught to skip outer-null rows, this control loses its
+    // premise and should be retired with it.
+    OpenedSniiIndex as_scalar;
+    assert_ok(open_snii_index(&_meta, path, &as_scalar, /*column_is_array=*/false));
+    QueryExecutionContext fabricated(/*enable_query_cache=*/false,
+                                     /*count_on_index_fastpath=*/true);
+    std::shared_ptr<roaring::Roaring> fabricated_bitmap;
+    assert_ok(as_scalar.index_reader->query(fabricated.context, "count_content", query_value,
+                                            InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+                                            fabricated_bitmap));
+    ASSERT_NE(fabricated_bitmap, nullptr);
+    EXPECT_TRUE(fabricated.context->count_on_index_fastpath_hit);
+    EXPECT_EQ((*fabricated_bitmap - nulls).cardinality(), 2U);
+}
+
 TEST_F(SniiIndexReaderCountFallback, CountFastPathPublishesHitAfterRequestedNullBitmap) {
     const std::string path = std::string(kTestDir) + "/count_null_failure";
     assert_ok(write_nullable_phrase_segment(path, /*has_null=*/true, kIndexId,
@@ -1851,8 +2133,9 @@ TEST_F(SniiIndexReaderCountFallback, KeywordLaneWarmQueryCacheHitSkipsSegmentOpe
     opened.file_reader = std::make_shared<IndexFileReader>(
             io::global_local_filesystem(), kIndexPathPrefix, InvertedIndexStorageFormatPB::SNII);
     assert_ok(opened.file_reader->init());
-    opened.index_reader = SniiIndexReader::create_shared(&keyword_meta, opened.file_reader,
-                                                         InvertedIndexReaderType::STRING_TYPE);
+    opened.index_reader = SniiIndexReader::create_shared(
+            &keyword_meta, opened.file_reader, InvertedIndexReaderType::STRING_TYPE,
+            /*rows_of_segment=*/kPositionalSegmentDocCount, /*column_is_array=*/false);
 
     std::atomic<uint32_t> searcher_opens {0};
     opened.index_reader->set_searcher_open_observer_for_test(record_searcher_open, &searcher_opens);

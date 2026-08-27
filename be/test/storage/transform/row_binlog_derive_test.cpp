@@ -308,6 +308,11 @@ protected:
         ctx.segment_id = 0;
         return ctx;
     }
+
+    void register_segment_lsns(RowsetWriterContext& rwc, size_t num_rows) {
+        rwc.allocated_lsn_map = std::make_shared<segment_v2::SegmentAllocatedLsnMap>();
+        rwc.insert_segment_allocated_lsns(0, make_seg_lsn(num_rows));
+    }
 };
 
 // ===========================================================================
@@ -334,7 +339,7 @@ TEST_F(RowBinlogDeriveTest, PlainAppendAndDeleteWithAfterAndLsn) {
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
     cfg.write_before = false; // no PU, no BEFORE -> plain derive
-    cfg.insert_seg_lsn(0, make_seg_lsn(2));
+    register_segment_lsns(rwc, 2);
 
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"PlainRowBinlogDerive"}));
@@ -400,7 +405,7 @@ TEST_F(RowBinlogDeriveTest, PlainNoDeleteSignColumnAllAppend) {
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
     cfg.write_before = false;
-    cfg.insert_seg_lsn(0, make_seg_lsn(2));
+    register_segment_lsns(rwc, 2);
 
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"PlainRowBinlogDerive"}));
@@ -491,7 +496,7 @@ TEST_F(RowBinlogDeriveTest, PlainMapsHiddenKeysAndSkipsHiddenNonKeys) {
     cfg.source.tablet_schema = source_schema;
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
-    cfg.insert_seg_lsn(0, make_seg_lsn(2));
+    register_segment_lsns(rwc, 2);
 
     Block block = source_schema->create_storage_block();
     {
@@ -578,7 +583,7 @@ TEST_F(RowBinlogDeriveTest, MowUpdateAndAppendTakesHistoryV2) {
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
     cfg.write_before = false;
-    cfg.insert_seg_lsn(0, make_seg_lsn(2));
+    register_segment_lsns(rwc, 2);
 
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"MowRowBinlogDerive"}));
@@ -722,7 +727,7 @@ TEST_F(RowBinlogDeriveTest, MowHiddenKeyColumnIsPartOfTheProbeKey) {
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
     cfg.write_before = false;
-    cfg.insert_seg_lsn(0, make_seg_lsn(1));
+    register_segment_lsns(rwc, 1);
 
     auto chain = build_transform_chain(rwc);
     TransformExecContext ctx = exec_ctx(binlog_schema, &rwc);
@@ -800,7 +805,7 @@ TEST_F(RowBinlogDeriveTest, MowPartialUpdateWithBeforeImage) {
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
     cfg.write_before = true;
-    cfg.insert_seg_lsn(0, make_seg_lsn(2));
+    register_segment_lsns(rwc, 2);
 
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"MowRowBinlogDerive"}));
@@ -893,7 +898,7 @@ TEST_F(RowBinlogDeriveTest, MowInsertAfterDeletedHistoryRowIsAppend) {
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
     cfg.write_before = false;
-    cfg.insert_seg_lsn(0, make_seg_lsn(2));
+    register_segment_lsns(rwc, 2);
 
     auto chain = build_transform_chain(rwc);
     TransformExecContext ctx = exec_ctx(binlog_schema, &rwc);
@@ -979,7 +984,7 @@ TEST_F(RowBinlogDeriveTest, MowLooksUpHistoryInBaseTabletNotBinlogTablet) {
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
     cfg.write_before = false;
-    cfg.insert_seg_lsn(0, make_seg_lsn(1));
+    register_segment_lsns(rwc, 1);
 
     auto chain = build_transform_chain(rwc);
     TransformExecContext ctx = exec_ctx(binlog_schema, &rwc);
@@ -1053,7 +1058,7 @@ TEST_F(RowBinlogDeriveTest, MowDeleteExistingAndNewKey) {
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
     cfg.write_before = false;
-    cfg.insert_seg_lsn(0, make_seg_lsn(2));
+    register_segment_lsns(rwc, 2);
 
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"MowRowBinlogDerive"}));
@@ -1136,7 +1141,7 @@ TEST_F(RowBinlogDeriveTest, MowBeforeImageMirrorsHistory) {
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
     cfg.write_before = true;
-    cfg.insert_seg_lsn(0, make_seg_lsn(3));
+    register_segment_lsns(rwc, 3);
 
     // setup_retriever_and_lookup requires partial_update_info on the retriever
     // context (build_after_block / retrieve_historical_row DCHECK it). For a
@@ -1258,7 +1263,7 @@ TEST_F(RowBinlogDeriveTest, MowBeforeNoopZeroValueColumns) {
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
     cfg.write_before = true;
-    cfg.insert_seg_lsn(0, make_seg_lsn(2));
+    register_segment_lsns(rwc, 2);
 
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"MowRowBinlogDerive"}));
@@ -1346,7 +1351,7 @@ TEST_F(RowBinlogDeriveTest, MowSeqSourceSeqLosesStillReadsHistory) {
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
     cfg.write_before = false;
-    cfg.insert_seg_lsn(0, make_seg_lsn(2));
+    register_segment_lsns(rwc, 2);
 
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"MowRowBinlogDerive"}));
@@ -1420,7 +1425,7 @@ TEST_F(RowBinlogDeriveTest, MowRejectsFlexiblePartialUpdate) {
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
     cfg.write_before = false;
-    cfg.insert_seg_lsn(0, make_seg_lsn(2));
+    register_segment_lsns(rwc, 2);
 
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"MowRowBinlogDerive"}));
@@ -1490,7 +1495,7 @@ TEST_F(RowBinlogDeriveTest, MowFixedPartialUpdateRejectsBadWidth) {
 
     // too narrow: no columns (0 < num_key_columns 1)
     {
-        cfg.insert_seg_lsn(0, make_seg_lsn(1));
+        register_segment_lsns(rwc, 1);
         TransformExecContext ctx = make_ctx();
         Block block;
         auto st = chain.apply(ctx, &block);
@@ -1500,7 +1505,7 @@ TEST_F(RowBinlogDeriveTest, MowFixedPartialUpdateRejectsBadWidth) {
     }
     // too wide: full width including hidden delete_sign (4 >= num_columns 4)
     {
-        cfg.insert_seg_lsn(0, make_seg_lsn(1));
+        register_segment_lsns(rwc, 1);
         TransformExecContext ctx = make_ctx();
         Block block = source_schema->create_storage_block(); // 4 columns
         block.get_by_position(0).column->assert_mutable()->insert_default();
@@ -1531,7 +1536,7 @@ TEST_F(RowBinlogDeriveTest, RejectsMissingSourceSchema) {
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
     cfg.write_before = false;
-    cfg.insert_seg_lsn(0, make_seg_lsn(1));
+    register_segment_lsns(rwc, 1);
 
     auto chain = build_transform_chain(rwc); // no PU, no BEFORE -> plain derive
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"PlainRowBinlogDerive"}));
@@ -1568,7 +1573,7 @@ TEST_F(RowBinlogDeriveTest, RejectsNegativeSegmentId) {
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
     cfg.write_before = false;
-    cfg.insert_seg_lsn(0, make_seg_lsn(1));
+    register_segment_lsns(rwc, 1);
 
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"PlainRowBinlogDerive"}));
@@ -1607,7 +1612,7 @@ TEST_F(RowBinlogDeriveTest, RejectsSchemaAndWriteBeforeDisagreement) {
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = make_mow_context(100, {});
     cfg.write_before = true; // the schema has no BEFORE columns
-    cfg.insert_seg_lsn(0, make_seg_lsn(1));
+    register_segment_lsns(rwc, 1);
 
     auto chain = build_transform_chain(rwc);
     TransformExecContext ctx = exec_ctx(binlog_schema, &rwc);

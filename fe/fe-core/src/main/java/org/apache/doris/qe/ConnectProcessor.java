@@ -831,6 +831,11 @@ public abstract class ConnectProcessor {
             }
         }
         if (executor != null) {
+            List<Long> auditStatisticsBackendIds = Lists.newArrayList(
+                    AuditLogHelper.getExternalDmlAuditBackendIds(executor));
+            if (!auditStatisticsBackendIds.isEmpty()) {
+                result.setAuditStatisticsBackendIds(auditStatisticsBackendIds);
+            }
             if (executor.getProxyShowResultSet() != null) {
                 result.setResultSet(executor.getProxyShowResultSet().tothrift());
             } else if (!executor.getProxyQueryResultBufList().isEmpty()) {

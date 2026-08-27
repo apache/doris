@@ -117,6 +117,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
 /**
@@ -238,6 +239,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // IcebergConnector and injected via getScanPlanProvider. Nullable — null via the offline-test ctors; when null
     // getScanNodeProperties resolves file_format_type live (matching pre-PERF-03 behaviour, node-memoized per query).
     private final IcebergFormatCache formatCache;
+    private final IcebergCatalogResourceTracker resourceTracker;
 
     // FIX-SCAN-METRICS: per-query stash of the iceberg SDK scan diagnostics captured by the attached
     // IcebergScanProfileReporter during planScan, keyed by session queryId. fe-core drains it
@@ -300,6 +302,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
             ConnectorContext context, IcebergManifestCache manifestCache, IcebergTableCache tableCache,
             IcebergFormatCache formatCache) {
+        this(catalogProps, catalogOpsResolver, context, manifestCache, tableCache, formatCache, null);
+    }
+
+    IcebergScanPlanProvider(IcebergCatalogProperties catalogProps,
+            Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
+            ConnectorContext context, IcebergManifestCache manifestCache, IcebergTableCache tableCache,
+            IcebergFormatCache formatCache, IcebergCatalogResourceTracker resourceTracker) {
         this.catalogProps = catalogProps;
         this.properties = catalogProps.getRaw();
         this.catalogOpsResolver = catalogOpsResolver;
@@ -307,6 +316,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         this.manifestCache = manifestCache;
         this.tableCache = tableCache;
         this.formatCache = formatCache;
+        this.resourceTracker = resourceTracker;
     }
 
     /**
@@ -3019,16 +3029,28 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces verbatim (it
         // re-validates the credential even on a scope hit).
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
-        Table raw = IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(), () -> {
+        Supplier<Table> directLoader = () -> {
             try {
-                return context == null
-                        ? loadRawTable(ops, handle)
-                        : context.executeAuthenticated(() -> loadRawTable(ops, handle));
+                return context == null ? ops.loadTable(handle.getDbName(), handle.getTableName())
+                        : context.executeAuthenticated(
+                                () -> ops.loadTable(handle.getDbName(), handle.getTableName()));
             } catch (Exception e) {
                 throw IcebergExceptionUtils.wrapTableLoadFailure(
                         handle, e, "Failed to load table for scan, error message is:");
             }
-        });
+        };
+        Table raw = tableCache == null
+                ? resourceTracker == null
+                        ? IcebergStatementScope.sharedTable(
+                                session, handle.getDbName(), handle.getTableName(), directLoader)
+                        : IcebergStatementScope.sharedTrackedTable(
+                                session, handle.getDbName(), handle.getTableName(), resourceTracker, directLoader,
+                                table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor()))
+                : IcebergStatementScope.sharedBorrowedTable(
+                        session, handle.getDbName(), handle.getTableName(),
+                        () -> tableCache.borrow(
+                                TableIdentifier.of(handle.getDbName(), handle.getTableName()), directLoader),
+                        directLoader);
         return wrapTableForScan(raw);
     }
 
@@ -3037,14 +3059,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * enabled (the connector disables it for credential-dependent catalogs), else a direct remote
      * {@code loadTable}. No wrap and no auth scope here — {@link #resolveTable} owns both.
      */
-    private Table loadRawTable(IcebergCatalogOps ops, IcebergTableHandle handle) {
-        if (tableCache != null) {
-            return tableCache.getOrLoad(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
-                    () -> ops.loadTable(handle.getDbName(), handle.getTableName()));
-        }
-        return ops.loadTable(handle.getDbName(), handle.getTableName());
-    }
-
     /**
      * Routes a resolved data table's {@code io()} through the plugin-side Kerberos {@code doAs}
      * ({@link IcebergAuthenticatedFileIO} via {@link IcebergAuthenticatedTableOperations}) — the scan-side
@@ -3094,8 +3108,17 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
         // Keep the raw base shared with metadata binding and ordinary scan properties. The caller already owns
         // the auth scope, and avoiding a fresh load prevents system-table slots and rows crossing generations.
-        Table base = IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
-                () -> loadRawTable(ops, handle));
+        Table base = tableCache == null
+                ? resourceTracker == null
+                        ? IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
+                                () -> ops.loadTable(handle.getDbName(), handle.getTableName()))
+                        : IcebergStatementScope.sharedTrackedTable(session, handle.getDbName(), handle.getTableName(),
+                                resourceTracker, () -> ops.loadTable(handle.getDbName(), handle.getTableName()),
+                                table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor()))
+                : IcebergStatementScope.sharedBorrowedTable(session, handle.getDbName(), handle.getTableName(),
+                        () -> tableCache.borrow(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
+                                () -> ops.loadTable(handle.getDbName(), handle.getTableName())),
+                        () -> ops.loadTable(handle.getDbName(), handle.getTableName()));
         return MetadataTableUtils.createMetadataTableInstance(
                 base,
                 MetadataTableType.from(handle.getSysTableName()));

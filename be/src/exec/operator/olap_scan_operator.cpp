@@ -130,6 +130,8 @@ Status OlapScanLocalState::_init_profile() {
     _scan_rows = ADD_COUNTER(custom_profile(), "ScanRows", TUnit::UNIT);
     _tablets_pruned_by_rf_counter =
             ADD_COUNTER(custom_profile(), "TabletsPrunedByRuntimeFilter", TUnit::UNIT);
+    _buckets_pruned_by_rf_counter =
+            ADD_COUNTER(custom_profile(), "BucketsPrunedByRuntimeFilter", TUnit::UNIT);
 
     // 1. init segment profile
     _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
@@ -655,7 +657,7 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
         _cond_ranges.emplace_back(new doris::OlapScanRange());
     }
 
-    // Filter out tablets whose partitions have been pruned by runtime filters.
+    // Filter out tablets whose partitions or buckets have been pruned by runtime filters.
     //
     // TODO(rf-partition-prune): this happens after OlapScanLocalState::init()
     // has already executed _sync_cloud_tablets() (in cloud mode that performs
@@ -670,13 +672,16 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     // the tablet, (b) acquire ready-at-start RFs before _sync_cloud_tablets()
     // and run partition pruning there to filter _scan_ranges by partition_id
     // so the heavy per-tablet work is skipped for pruned partitions.
-    if (_rf_partition_pruner.pruned_partition_count() > 0) {
+    if (_rf_partition_pruner.pruned_partition_count() > 0 ||
+        _rf_bucket_pruner.pruned_tablet_count() > 0) {
         DCHECK_EQ(_tablets.size(), _scan_ranges.size());
         DCHECK_EQ(_tablets.size(), _read_sources.size());
         size_t write_idx = 0;
         for (size_t read_idx = 0; read_idx < _tablets.size(); ++read_idx) {
             int64_t pid = _tablets[read_idx].tablet->partition_id();
-            if (!_rf_partition_pruner.is_partition_pruned(pid)) {
+            const auto& scan_range = *_scan_ranges[read_idx];
+            if (!_is_tablet_pruned_by_runtime_filter(pid, scan_range.bucket_seq,
+                                                     scan_range.bucket_num)) {
                 if (write_idx != read_idx) {
                     _tablets[write_idx] = std::move(_tablets[read_idx]);
                     _scan_ranges[write_idx] = std::move(_scan_ranges[read_idx]);
@@ -740,9 +745,9 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             key_ranges.emplace_back(range.get());
         }
 
-        ParallelScannerBuilder scanner_builder(this, _tablets, _read_sources, _scanner_profile,
-                                               key_ranges, state(), p._limit, true,
-                                               p._olap_scan_node.is_preaggregation);
+        ParallelScannerBuilder scanner_builder(this, _tablets, _read_sources, _scan_ranges,
+                                               _scanner_profile, key_ranges, state(), p._limit,
+                                               true, p._olap_scan_node.is_preaggregation);
 
         int max_scanners_count = state()->parallel_scan_max_scanners_count();
 
@@ -831,6 +836,8 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                                   p._olap_scan_node.is_preaggregation,
                                   read_row_binlog,
                                   resolve_binlog_scan_type(palo_scan_range),
+                                  palo_scan_range.bucket_seq,
+                                  palo_scan_range.bucket_num,
                                   palo_scan_range.__isset.start_tso
                                           ? std::make_optional(palo_scan_range.start_tso)
                                           : std::nullopt,
@@ -1111,11 +1118,52 @@ void OlapScanLocalState::set_scan_ranges(RuntimeState* state,
         }
     }
 
-    for (auto& scan_range : scan_ranges) {
-        DCHECK(scan_range.scan_range.__isset.palo_scan_range);
+    bool bucket_prune_metadata_initialized = !_scan_ranges.empty();
+    for (const auto& scan_range : scan_ranges) {
+        DORIS_CHECK(scan_range.scan_range.__isset.palo_scan_range);
         _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
+        const auto& palo_scan_range = *_scan_ranges.back();
+        DORIS_CHECK_EQ(palo_scan_range.__isset.bucket_seq, palo_scan_range.__isset.bucket_num);
+        if (!bucket_prune_metadata_initialized) {
+            _has_rf_bucket_prune_metadata = palo_scan_range.__isset.bucket_seq;
+            bucket_prune_metadata_initialized = true;
+        } else {
+            DORIS_CHECK_EQ(palo_scan_range.__isset.bucket_seq, _has_rf_bucket_prune_metadata);
+        }
+        if (_has_rf_bucket_prune_metadata) {
+            DORIS_CHECK_GT(palo_scan_range.bucket_num, 0);
+            DORIS_CHECK_GE(palo_scan_range.bucket_seq, 0);
+            DORIS_CHECK_LT(palo_scan_range.bucket_seq, palo_scan_range.bucket_num);
+        }
         COUNTER_UPDATE(_tablet_counter, 1);
     }
+}
+
+Status OlapScanLocalState::_on_runtime_filter_update(const VExprContextSPtrs& new_conjuncts) {
+    RETURN_IF_ERROR(Base::_on_runtime_filter_update(new_conjuncts));
+    if (!state()->query_options().enable_runtime_filter_bucket_prune ||
+        !_has_rf_bucket_prune_metadata || _scan_ranges.empty()) {
+        return Status::OK();
+    }
+
+    int64_t newly_pruned = 0;
+    RETURN_IF_ERROR(_rf_bucket_pruner.prune_by_runtime_filters(
+            _scan_ranges, new_conjuncts, _parent->runtime_filter_descs(), _parent->node_id(),
+            state()->runtime_filter_max_in_num(), &newly_pruned));
+    if (newly_pruned > 0) {
+        COUNTER_SET(_buckets_pruned_by_rf_counter, _rf_bucket_pruner.pruned_tablet_count());
+    }
+    return Status::OK();
+}
+
+bool OlapScanLocalState::_is_tablet_pruned_by_runtime_filter(int64_t partition_id,
+                                                             int32_t bucket_seq,
+                                                             int32_t bucket_num) const {
+    if (_rf_partition_pruner.is_partition_pruned(partition_id)) {
+        return true;
+    }
+    return _has_rf_bucket_prune_metadata &&
+           _rf_bucket_pruner.is_bucket_pruned(bucket_seq, bucket_num);
 }
 
 static std::string tablets_id_to_string(

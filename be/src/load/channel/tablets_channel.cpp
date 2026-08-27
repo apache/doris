@@ -627,14 +627,14 @@ Status BaseTabletsChannel::_write_block_data(
                 print_id(_load_id), _index_id, request.packet_seq(), send_data.rows(),
                 request.tablet_ids_size());
     }
-    bool has_row_binlog_lsn = request.row_binlog_lsns_size() > 0;
-    if (has_row_binlog_lsn) {
-        if (send_data.rows() != request.row_binlog_lsns_size()) {
+    bool has_allocated_lsn = request.allocated_lsns_size() > 0;
+    if (has_allocated_lsn) {
+        if (send_data.rows() != request.allocated_lsns_size()) {
             return Status::InternalError(
-                    "invalid add block request row-binlog lsn count, load_id={}, index_id={}, "
-                    "packet_seq={}, block_rows={}, row_binlog_lsns_size={}",
+                    "invalid add block request allocated lsn count, load_id={}, index_id={}, "
+                    "packet_seq={}, block_rows={}, allocated_lsns_size={}",
                     print_id(_load_id), _index_id, request.packet_seq(), send_data.rows(),
-                    request.row_binlog_lsns_size());
+                    request.allocated_lsns_size());
         }
     }
 
@@ -791,10 +791,10 @@ Status BaseTabletsChannel::_write_block_data_for_adaptive_random_bucket(
         RETURN_IF_ERROR(_prepare_adaptive_random_bucket_writer(tablet_writer));
 
         TabletAddRowsPayload rows {.row_idxs = row_idxs};
-        if (request.row_binlog_lsns_size() > 0) {
-            rows.row_binlog_lsns.reserve(row_idxs.size());
+        if (request.allocated_lsns_size() > 0) {
+            rows.allocated_lsns.reserve(row_idxs.size());
             for (auto row_idx : row_idxs) {
-                rows.row_binlog_lsns.emplace_back(request.row_binlog_lsns(row_idx));
+                rows.allocated_lsns.emplace_back(request.allocated_lsns(row_idx));
             }
         }
         bool memtable_flushed = false;
@@ -920,14 +920,14 @@ void BaseTabletsChannel::_build_tablet_to_rows(
     // tests show that a relatively coarse-grained read lock here performs better under multicore scenario
     // see: https://github.com/apache/doris/pull/28552
     std::shared_lock<std::shared_mutex> rlock(_broken_tablets_lock);
-    bool has_row_binlog_lsn = request.row_binlog_lsns_size() > 0;
+    bool has_allocated_lsn = request.allocated_lsns_size() > 0;
     if (request.is_single_tablet_block()) {
         // The cloud mode need the tablet ids to prepare rowsets.
         int64_t tablet_id = request.tablet_ids(0);
         auto& rows = (*tablet_to_rows)[tablet_id];
         rows.row_idxs.emplace_back(0);
-        if (has_row_binlog_lsn) {
-            rows.row_binlog_lsns.emplace_back(request.row_binlog_lsns(0));
+        if (has_allocated_lsn) {
+            rows.allocated_lsns.emplace_back(request.allocated_lsns(0));
         }
         return;
     }
@@ -940,8 +940,8 @@ void BaseTabletsChannel::_build_tablet_to_rows(
         }
         auto& rows = (*tablet_to_rows)[tablet_id];
         rows.row_idxs.emplace_back(i);
-        if (has_row_binlog_lsn) {
-            rows.row_binlog_lsns.emplace_back(request.row_binlog_lsns(i));
+        if (has_allocated_lsn) {
+            rows.allocated_lsns.emplace_back(request.allocated_lsns(i));
         }
     }
 }
