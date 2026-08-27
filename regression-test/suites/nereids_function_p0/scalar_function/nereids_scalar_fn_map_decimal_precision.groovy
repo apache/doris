@@ -181,4 +181,14 @@ suite("nereids_scalar_fn_map_decimal_precision") {
         SELECT ABS(CAST('123.456' AS DECIMAL(10,3))) AS abs_v,
                ROUND(CAST('123.456' AS DECIMAL(10,3)), 2) AS round_v;
     """
+
+    // 13. struct(...) fields are independent type variables: the default decimal v3
+    // precision promotion must not merge them (e.g. widening the scale of a DECIMAL(76,0)
+    // field would truncate the decimals of an ARRAY<DECIMAL(76,18)> field)
+    order_qt_struct_independent_fields """
+        SELECT CAST(STRUCT(
+            CAST('9999999999999999999999999999999999999999999999999999999999999999999999999999' AS DECIMAL(76,0)),
+            ARRAY(CAST('0.125000000000000000' AS DECIMAL(76,18)))
+        ) AS STRING) AS s;
+    """
 }
