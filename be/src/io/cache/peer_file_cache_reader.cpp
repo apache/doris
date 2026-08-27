@@ -17,6 +17,7 @@
 #include "io/cache/peer_file_cache_reader.h"
 
 #include <brpc/controller.h>
+#include <bthread/mutex.h>
 #include <butil/iobuf.h>
 #include <bvar/latency_recorder.h>
 #include <bvar/reducer.h>
@@ -25,8 +26,12 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <chrono>
+#include <mutex>
+#include <unordered_map>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/metrics/doris_metrics.h"
 #include "runtime/exec_env.h"
@@ -44,6 +49,49 @@
 namespace doris::io {
 
 namespace {
+
+struct PeerConnectionHealth {
+    int32_t consecutive_failures = 0;
+    std::chrono::steady_clock::time_point circuit_open_until;
+    bool probe_in_flight = false;
+};
+
+// Entries are removed after a successful connection. Add expiry cleanup if permanently
+// unavailable peer addresses accumulate.
+bthread::Mutex peer_connection_health_mutex;
+std::unordered_map<std::string, PeerConnectionHealth> peer_connection_health;
+
+bool peer_connection_circuit_allows(const std::string& address) {
+    std::unique_lock<bthread::Mutex> lock(peer_connection_health_mutex);
+    auto it = peer_connection_health.find(address);
+    if (it == peer_connection_health.end() ||
+        it->second.circuit_open_until == std::chrono::steady_clock::time_point {}) {
+        return true;
+    }
+    auto& health = it->second;
+    if (std::chrono::steady_clock::now() < health.circuit_open_until || health.probe_in_flight) {
+        return false;
+    }
+    health.probe_in_flight = true;
+    return true;
+}
+
+void record_peer_connection_failure(const std::string& address) {
+    std::unique_lock<bthread::Mutex> lock(peer_connection_health_mutex);
+    auto& health = peer_connection_health[address];
+    health.probe_in_flight = false;
+    ++health.consecutive_failures;
+    if (health.consecutive_failures >= std::max(1, config::cache_peer_read_failure_threshold)) {
+        health.circuit_open_until =
+                std::chrono::steady_clock::now() +
+                std::chrono::seconds(std::max(0, config::cache_peer_read_circuit_open_seconds));
+    }
+}
+
+void record_peer_connection_success(const std::string& address) {
+    std::unique_lock<bthread::Mutex> lock(peer_connection_health_mutex);
+    peer_connection_health.erase(address);
+}
 
 struct ExpectedPeerFetch {
     std::vector<FileBlock::Range> expected_ranges;
@@ -212,11 +260,15 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
         }
     }
     std::string brpc_addr = get_host_port(realhost, port);
+    if (!peer_connection_circuit_allows(brpc_addr)) {
+        return Status::RpcError<false>("Peer connection circuit is open for {}", brpc_addr);
+    }
     Status st = Status::OK();
     std::shared_ptr<PBackendService_Stub> brpc_stub =
             ExecEnv::GetInstance()->brpc_internal_client_cache()->get_new_client_no_cache(
-                    brpc_addr);
+                    brpc_addr, "", "", "", 200, 0);
     if (!brpc_stub) {
+        record_peer_connection_failure(brpc_addr);
         peer_cache_reader_failed_counter << 1;
         LOG(WARNING) << "failed to get brpc stub " << brpc_addr;
         st = Status::RpcError<false>("Address {} is wrong", brpc_addr);
@@ -244,8 +296,10 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
     peer_cache_reader_read_counter << 1;
     brpc_stub->fetch_peer_data(&cntl, &req, &resp, nullptr);
     if (cntl.Failed()) {
+        record_peer_connection_failure(brpc_addr);
         return Status::RpcError<false>(cntl.ErrorText());
     }
+    record_peer_connection_success(brpc_addr);
     if (resp.has_status()) {
         Status st2 = Status::create<false>(resp.status());
         LOG_EVERY_N(WARNING, 1000) << "peer cache read failed, status=" << st2.msg();
