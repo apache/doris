@@ -601,6 +601,21 @@ invalidate_paimon_17_prebuilt_marker() {
         "${install_dir}/arrow-paimon-17-build-fingerprint.txt"
 }
 
+# A legacy-prefix Arrow downgrade must first remove Paimon built against the
+# previous Arrow ABI. If the Arrow build is interrupted, the incomplete prefix
+# then fails at link time instead of exposing a mixed Arrow/Paimon SDK.
+prepare_arrow_17_install_prefix() {
+    local install_dir="$1"
+
+    rm -f "${install_dir}/arrow-build-fingerprint.txt" \
+        "${install_dir}/paimon-build-fingerprint.txt" \
+        "${install_dir}/arrow-paimon-build-fingerprint.txt"
+    invalidate_paimon_17_prebuilt_marker "${install_dir}"
+    clean_paimon_artifacts_in "${install_dir}"
+    invalidate_arrow_17_prebuilt_marker "${install_dir}"
+    clean_arrow_artifacts_in "${install_dir}"
+}
+
 publish_paimon_17_prebuilt_marker() {
     local install_dir="$1"
     paimon_artifacts_valid_in "${install_dir}"

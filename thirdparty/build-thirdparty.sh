@@ -1212,8 +1212,7 @@ build_arrow_stack() {
 }
 
 build_arrow_17() {
-    invalidate_arrow_17_prebuilt_marker "${TP_INSTALL_DIR}"
-    clean_arrow_artifacts_in "${TP_INSTALL_DIR}"
+    prepare_arrow_17_install_prefix "${TP_INSTALL_DIR}"
     build_arrow_stack "${ARROW_17_SOURCE}" "${XSIMD_17_NAME}" "${TP_INSTALL_DIR}" false
     publish_arrow_17_prebuilt_marker "${TP_INSTALL_DIR}"
 }

@@ -472,6 +472,18 @@ if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
 
+# Normalize compile-bench before dependency selection. The mode is a BE build,
+# even when --compile-bench is the only command-line target.
+if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
+    BUILD_BE=1
+    BUILD_FE=0
+    BUILD_CLOUD=0
+    BUILD_HIVE_UDF=0
+    BUILD_BE_JAVA_EXTENSIONS=0
+    BUILD_BE_CDC_CLIENT=0
+    OUTPUT_BE_BINARY=0
+fi
+
 if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && ${BUILD_CLOUD} -eq 0 ]]; then
     clean_gensrc
     clean_be
@@ -491,10 +503,25 @@ fi
 # shellcheck source=thirdparty/arrow-paimon-vars.sh
 . "${DORIS_HOME}/thirdparty/arrow-paimon-vars.sh"
 NEED_ARROW_PAIMON_THIRDPARTY=false
-if [[ "${BUILD_BE}" -eq 1 || "${BUILD_CLOUD}" -eq 1 ||
-    "${BUILD_META_TOOL}" == "ON" || "${BUILD_FILE_CACHE_MICROBENCH_TOOL}" == "ON" ||
+if [[ "${BUILD_BE}" -eq 1 || "${BUILD_META_TOOL}" == "ON" ||
+    "${BUILD_FILE_CACHE_MICROBENCH_TOOL}" == "ON" ||
     "${BUILD_INDEX_TOOL}" == "ON" ]]; then
     NEED_ARROW_PAIMON_THIRDPARTY=true
+fi
+
+if [[ "${NEED_ARROW_PAIMON_THIRDPARTY}" == "true" ]]; then
+    DEFAULT_ARROW_PAIMON_HOME="${DORIS_THIRDPARTY}/installed/${ARROW_INSTALL_SUBDIR}"
+    SELECTED_ARROW_HOME="${ARROW_HOME:-${DEFAULT_ARROW_PAIMON_HOME}}"
+    SELECTED_PAIMON_HOME="${PAIMON_HOME:-${SELECTED_ARROW_HOME}}"
+    if [[ "${SELECTED_ARROW_HOME}" != "${DEFAULT_ARROW_PAIMON_HOME}" ||
+        "${SELECTED_PAIMON_HOME}" != "${DEFAULT_ARROW_PAIMON_HOME}" ]]; then
+        echo "build.sh only supports the Arrow/Paimon stack selected from DORIS_THIRDPARTY." >&2
+        echo "Expected ARROW_HOME=${DEFAULT_ARROW_PAIMON_HOME} and PAIMON_HOME=${DEFAULT_ARROW_PAIMON_HOME}." >&2
+        echo "Unset ARROW_HOME and PAIMON_HOME, or point DORIS_THIRDPARTY at the matching thirdparty tree." >&2
+        exit 1
+    fi
+    export ARROW_HOME="${DEFAULT_ARROW_PAIMON_HOME}"
+    export PAIMON_HOME="${DEFAULT_ARROW_PAIMON_HOME}"
 fi
 
 rebuild_thirdparty_libraries() {
@@ -730,16 +757,6 @@ for ((i = 0; i < ${#CLOUD_EXTRA_FEATURE_KEYS[@]}; i++)); do
 done
 
 if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
-    # BE compile benchmark mode: measure a cold, cache-free BE C++ build.
-    # Everything that is not the BE C++ build would only add noise, so force
-    # a BE-only build regardless of the other options.
-    BUILD_BE=1
-    BUILD_FE=0
-    BUILD_CLOUD=0
-    BUILD_HIVE_UDF=0
-    BUILD_BE_JAVA_EXTENSIONS=0
-    BUILD_BE_CDC_CLIENT=0
-    OUTPUT_BE_BINARY=0
     # shellcheck source=build-support/compile-bench/bench-lib.sh
     . "${DORIS_HOME}/build-support/compile-bench/bench-lib.sh"
     compile_bench_init "${DORIS_HOME}"

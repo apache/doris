@@ -101,22 +101,21 @@ jobs:
           fi
           tar -xvf doris-thirdparty-prebuilt-darwin-arm64.tar.xz
 
-          # Rebuild either Arrow/Paimon stack when its inputs change or the
-          # shared prebuilt predates the dual-version component closure.
-          # The artifact check covers both master pushes and scheduled builds.
+          # Rebuild the Arrow/Paimon stack when the shared prebuilt predates the
+          # selected Arrow version/component closure.
           # shellcheck source=thirdparty/arrow-paimon-vars.sh
           . ./arrow-paimon-vars.sh
-          select_arrow_paimon_rebuild_packages installed
           arrow_paimon_prebuilt_is_valid=false
-          if [[ "${#ARROW_PAIMON_REBUILD_PACKAGES[@]}" -eq 0 ]]; then
+          if arrow_paimon_prebuilt_valid installed; then
             arrow_paimon_prebuilt_is_valid=true
           fi
           if [[ "${arrow_paimon_prebuilt_is_valid}" != "true" ]]; then
             curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz \
               -o doris-thirdparty-source.tgz
             tar -zxvf doris-thirdparty-source.tgz
+            ./download-thirdparty.sh arrow paimon_cpp xsimd brotli
             export MACOSX_DEPLOYMENT_TARGET=12.0
-            ./build-thirdparty.sh -j "$(nproc)" "${ARROW_PAIMON_REBUILD_PACKAGES[@]}"
+            ./build-thirdparty.sh -j "$(nproc)" arrow paimon_cpp
           fi
           popd
 

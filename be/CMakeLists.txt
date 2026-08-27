@@ -200,8 +200,6 @@ option(BUILD_FILE_CACHE_LRU_TOOL "ON for building file cache lru tool or OFF for
 message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
 
 option(ENABLE_PAIMON_CPP "Enable Paimon C++ integration" ON)
-set(ARROW_HOME "${THIRDPARTY_DIR}/arrow-24.0.0" CACHE PATH "Selected Arrow install prefix")
-set(PAIMON_HOME "" CACHE PATH "Selected Paimon install prefix")
 option(ENABLE_TDE "Enable TDE feature module" OFF)
 set(TDE_MODULE_DIR "" CACHE STRING "TDE feature module directory under be/src")
 option(ENABLE_TLS "Enable TLS feature module" OFF)
@@ -223,13 +221,20 @@ endif()
 if (DEFINED ENV{ENABLE_PAIMON_CPP})
     set(ENABLE_PAIMON_CPP "$ENV{ENABLE_PAIMON_CPP}" CACHE BOOL "" FORCE)
 endif()
+
+# Refresh automatic selections on every configure so a reused CMake cache
+# follows the current DORIS_THIRDPARTY. Environment overrides are explicit and
+# likewise replace any earlier automatic or explicit cache value.
 if (DEFINED ENV{ARROW_HOME})
-    set(ARROW_HOME "$ENV{ARROW_HOME}" CACHE PATH "" FORCE)
+    set(ARROW_HOME "$ENV{ARROW_HOME}" CACHE PATH "Selected Arrow install prefix" FORCE)
+else()
+    set(ARROW_HOME "${THIRDPARTY_DIR}/arrow-24.0.0" CACHE PATH
+        "Selected Arrow install prefix" FORCE)
 endif()
 if (DEFINED ENV{PAIMON_HOME})
-    set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "" FORCE)
-elseif (NOT PAIMON_HOME)
-    set(PAIMON_HOME "${ARROW_HOME}" CACHE PATH "" FORCE)
+    set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "Selected Paimon install prefix" FORCE)
+else()
+    set(PAIMON_HOME "${ARROW_HOME}" CACHE PATH "Selected Paimon install prefix" FORCE)
 endif()
 
 if (NOT EXISTS "${ARROW_HOME}/include/arrow/util/config.h")

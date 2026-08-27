@@ -358,6 +358,18 @@ exercise_generic_recovery_dispatch() {
             fail "${non_native_target} invoked the native Arrow/Paimon builder"
     done
 
+    rm -f "${args_file}"
+    if DORIS_THIRDPARTY="${external_thirdparty_dir}" \
+        bash "${generic}/build.sh" --cloud >"${output_file}" 2>&1; then
+        fail "--cloud did not reach the generated-source sentinel"
+    else
+        status=$?
+    fi
+    [[ "${status}" -eq "${non_native_status}" ]] ||
+        fail "--cloud incorrectly required the BE Arrow/Paimon stack"
+    [[ ! -e "${args_file}" ]] ||
+        fail "--cloud invoked the native Arrow/Paimon builder"
+
     if DORIS_THIRDPARTY="${thirdparty_dir}" RECOVERY_ARGS_FILE="${args_file}" \
         bash "${generic}/build.sh" --fe --clean >"${output_file}" 2>&1; then
         fail "--fe --clean did not reach the generated-source sentinel"
@@ -368,6 +380,32 @@ exercise_generic_recovery_dispatch() {
         fail "--fe --clean failed before the generated-source sentinel"
     [[ ! -e "${args_file}" ]] ||
         fail "--fe --clean invoked the native Arrow/Paimon builder"
+
+    rm -f "${args_file}"
+    if DORIS_THIRDPARTY="${thirdparty_dir}" RECOVERY_ARGS_FILE="${args_file}" \
+        bash "${generic}/build.sh" --compile-bench >"${output_file}" 2>&1; then
+        fail "standalone --compile-bench skipped stale-prebuilt recovery"
+    else
+        status=$?
+    fi
+    [[ "${status}" -eq 73 ]] ||
+        fail "standalone --compile-bench failed before invoking its builder"
+    read -r flag parallel package1 package2 package3 package4 extra <"${args_file}"
+    [[ "${flag}" == "-j" && "${parallel}" =~ ^[0-9]+$ &&
+        "${package1}" == "arrow_17" && "${package2}" == "paimon_cpp_17" &&
+        "${package3}" == "arrow" && "${package4}" == "paimon_cpp" && -z "${extra}" ]] ||
+        fail "standalone --compile-bench dispatched the wrong build package set"
+
+    rm -f "${args_file}"
+    if ARROW_HOME="${generic}/explicit-arrow" PAIMON_HOME="${generic}/explicit-paimon" \
+        DORIS_THIRDPARTY="${thirdparty_dir}" RECOVERY_ARGS_FILE="${args_file}" \
+        bash "${generic}/build.sh" --be >"${output_file}" 2>&1; then
+        fail "build.sh accepted unsupported explicit Arrow/Paimon prefixes"
+    fi
+    grep -Fq "only supports the Arrow/Paimon stack selected from DORIS_THIRDPARTY" \
+        "${output_file}" || fail "build.sh did not explain its supported Arrow/Paimon selection"
+    [[ ! -e "${args_file}" ]] ||
+        fail "an unsupported explicit Arrow/Paimon selection invoked the builder"
 
     if DORIS_THIRDPARTY="${thirdparty_dir}" RECOVERY_ARGS_FILE="${args_file}" \
         bash "${generic}/build.sh" --be >"${output_file}" 2>&1; then
@@ -561,6 +599,46 @@ select_arrow_paimon_rebuild_packages "${prebuilt}" >/dev/null 2>&1
 publish_arrow_17_prebuilt_marker "${prebuilt}"
 arrow_paimon_17_prebuilt_valid "${prebuilt}" ||
     fail "republished Arrow 17 component markers were rejected"
+
+# Preparing a root-prefix Arrow downgrade removes Paimon first. An interrupted
+# Arrow 17 build therefore cannot expose a root Arrow 17/Paimon 24 mixture to an
+# unchanged branch-4.1 consumer.
+migration_prefix="${tmpdir}/interrupted-arrow-17-migration"
+migration_selected_prefix="$(arrow_install_dir "${migration_prefix}")"
+mkdir -p \
+    "${migration_prefix}/include/arrow" \
+    "${migration_prefix}/include/parquet" \
+    "${migration_prefix}/include/paimon" \
+    "${migration_prefix}/include/unrelated" \
+    "${migration_prefix}/lib64" \
+    "${migration_selected_prefix}"
+for library in "${ARROW_REQUIRED_LIBRARIES[@]}" "${PAIMON_REQUIRED_LIBRARIES[@]}"; do
+    touch "${migration_prefix}/lib64/${library}"
+done
+touch \
+    "${migration_prefix}/arrow-build-fingerprint.txt" \
+    "${migration_prefix}/paimon-build-fingerprint.txt" \
+    "${migration_prefix}/arrow-paimon-build-fingerprint.txt" \
+    "${migration_prefix}/arrow-17-build-fingerprint.txt" \
+    "${migration_prefix}/paimon-arrow-17-build-fingerprint.txt" \
+    "${migration_prefix}/arrow-paimon-17-build-fingerprint.txt" \
+    "${migration_prefix}/include/unrelated/sentinel" \
+    "${migration_selected_prefix}/sentinel"
+
+prepare_arrow_17_install_prefix "${migration_prefix}"
+[[ ! -e "${migration_prefix}/include/arrow" &&
+    ! -e "${migration_prefix}/include/parquet" &&
+    ! -e "${migration_prefix}/include/paimon" &&
+    ! -e "${migration_prefix}/lib64/libarrow.a" &&
+    ! -e "${migration_prefix}/lib64/libpaimon.a" &&
+    ! -e "${migration_prefix}/arrow-build-fingerprint.txt" &&
+    ! -e "${migration_prefix}/paimon-build-fingerprint.txt" &&
+    ! -e "${migration_prefix}/arrow-17-build-fingerprint.txt" &&
+    ! -e "${migration_prefix}/paimon-arrow-17-build-fingerprint.txt" ]] ||
+    fail "an interrupted Arrow 17 migration left a mixed root-prefix stack"
+[[ -e "${migration_prefix}/include/unrelated/sentinel" &&
+    -e "${migration_selected_prefix}/sentinel" ]] ||
+    fail "preparing the Arrow 17 migration removed another stack's artifacts"
 
 # Reinstalling one stack cleans only files owned by that stack. In particular,
 # a downgrade of the legacy prefix must remove Arrow 24-only artifacts without
