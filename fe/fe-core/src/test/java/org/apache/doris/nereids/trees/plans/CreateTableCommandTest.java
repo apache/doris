@@ -846,7 +846,6 @@ public class CreateTableCommandTest extends TestWithFeService {
     // PartitionTableInfo.validatePartitionInfo into HiveConnectorMetadata.createTable (SPI cutover), and are now
     // covered by fe-connector-hive HiveCreateTableValidationTest.
 
-
     @Test
     public void testRejectMaxValueInListPartition() {
         // MAXVALUE can only be used in RANGE partition's VALUES LESS THAN, it is not a
