@@ -102,7 +102,25 @@ TO_TIME_FUNCTION(ToHourImpl, hour);
 TO_TIME_FUNCTION(ToMinuteImpl, minute);
 TO_TIME_FUNCTION(ToSecondImpl, second);
 TO_TIME_FUNCTION(ToMicroSecondImpl, microsecond);
-TO_TIME_FUNCTION(ToNanoSecondImpl, nanosecond);
+template <PrimitiveType PType>
+struct ToNanoSecondImpl {
+    static constexpr PrimitiveType OpArgType = PType;
+    using CppType = typename PrimitiveTypeTraits<PType>::CppType;
+    static constexpr auto name = "nanosecond";
+
+    static inline auto execute(const CppType& date_time_value) {
+        if constexpr (PType == TYPE_TIMESTAMP_NS) {
+            return date_time_value.nanosecond();
+        } else {
+            return static_cast<uint32_t>(date_time_value.microsecond()) *
+                   static_cast<uint32_t>(TimeStampNsValue::NANOS_PER_MICROSECOND);
+        }
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()};
+    }
+};
 
 TIME_FUNCTION_IMPL(WeekOfYearImpl, weekofyear, week(mysql_week_mode(3)));
 TIME_FUNCTION_IMPL(DayOfYearImpl, dayofyear, day_of_year());

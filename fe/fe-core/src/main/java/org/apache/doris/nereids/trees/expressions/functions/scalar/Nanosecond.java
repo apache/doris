@@ -22,10 +22,14 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 
@@ -39,6 +43,8 @@ public class Nanosecond extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable, Monotonic {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(TimeStampNsType.INSTANCE)
     );
 
@@ -84,16 +90,26 @@ public class Nanosecond extends ScalarFunction
 
     @Override
     public boolean isMonotonic(Literal lower, Literal upper) {
-        if (!(lower instanceof TimeStampNsLiteral) || !(upper instanceof TimeStampNsLiteral)) {
-            return false;
+        if (lower instanceof TimeStampNsLiteral && upper instanceof TimeStampNsLiteral) {
+            TimeStampNsLiteral lowerTimestamp = (TimeStampNsLiteral) lower;
+            TimeStampNsLiteral upperTimestamp = (TimeStampNsLiteral) upper;
+            return lowerTimestamp.getYear() == upperTimestamp.getYear()
+                    && lowerTimestamp.getMonth() == upperTimestamp.getMonth()
+                    && lowerTimestamp.getDay() == upperTimestamp.getDay()
+                    && lowerTimestamp.getHour() == upperTimestamp.getHour()
+                    && lowerTimestamp.getMinute() == upperTimestamp.getMinute()
+                    && lowerTimestamp.getSecond() == upperTimestamp.getSecond();
         }
-        TimeStampNsLiteral lowerTimestamp = (TimeStampNsLiteral) lower;
-        TimeStampNsLiteral upperTimestamp = (TimeStampNsLiteral) upper;
-        return lowerTimestamp.getYear() == upperTimestamp.getYear()
-                && lowerTimestamp.getMonth() == upperTimestamp.getMonth()
-                && lowerTimestamp.getDay() == upperTimestamp.getDay()
-                && lowerTimestamp.getHour() == upperTimestamp.getHour()
-                && lowerTimestamp.getMinute() == upperTimestamp.getMinute()
-                && lowerTimestamp.getSecond() == upperTimestamp.getSecond();
+        if (lower instanceof DateTimeLiteral && upper instanceof DateTimeLiteral) {
+            DateTimeLiteral lowerDateTime = (DateTimeLiteral) lower;
+            DateTimeLiteral upperDateTime = (DateTimeLiteral) upper;
+            return lowerDateTime.getYear() == upperDateTime.getYear()
+                    && lowerDateTime.getMonth() == upperDateTime.getMonth()
+                    && lowerDateTime.getDay() == upperDateTime.getDay()
+                    && lowerDateTime.getHour() == upperDateTime.getHour()
+                    && lowerDateTime.getMinute() == upperDateTime.getMinute()
+                    && lowerDateTime.getSecond() == upperDateTime.getSecond();
+        }
+        return lower instanceof DateLiteral && upper instanceof DateLiteral;
     }
 }
