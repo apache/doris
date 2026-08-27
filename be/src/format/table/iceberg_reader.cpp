@@ -28,7 +28,10 @@
 #include <algorithm>
 #include <cstring>
 #include <functional>
+#include <iterator>
+#include <limits>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <set>
 
@@ -147,6 +150,74 @@ std::optional<ProjectedIcebergStructChild> find_projected_iceberg_struct_child(
         ++projected_name_ordinal;
     }
     return std::nullopt;
+}
+
+// This recursive type dispatcher mirrors Iceberg's nested types; DORIS_CHECK expansion inflates
+// the measured complexity.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+bool projected_iceberg_field_requires_required_validation(const schema::external::TField& field,
+                                                          const DataTypePtr& data_type) {
+    DORIS_CHECK(data_type != nullptr);
+    if (field.__isset.is_optional && !field.is_optional) {
+        return true;
+    }
+    const auto value_type = remove_nullable(data_type);
+    switch (value_type->get_primitive_type()) {
+    case TYPE_STRUCT: {
+        const auto& struct_type = assert_cast<const DataTypeStruct&>(*value_type);
+        for (size_t child = 0; child < struct_type.get_elements().size(); ++child) {
+            const auto* child_field =
+                    find_iceberg_struct_child(field, struct_type.get_element_name(child));
+            DORIS_CHECK(child_field != nullptr);
+            if (projected_iceberg_field_requires_required_validation(
+                        *child_field, struct_type.get_element(child))) {
+                return true;
+            }
+        }
+        return false;
+    }
+    case TYPE_ARRAY: {
+        DORIS_CHECK(field.__isset.nestedField);
+        DORIS_CHECK(field.nestedField.__isset.array_field);
+        DORIS_CHECK(field.nestedField.array_field.__isset.item_field);
+        const auto& child_ptr = field.nestedField.array_field.item_field;
+        DORIS_CHECK(child_ptr.__isset.field_ptr && child_ptr.field_ptr != nullptr);
+        return projected_iceberg_field_requires_required_validation(
+                *child_ptr.field_ptr,
+                assert_cast<const DataTypeArray&>(*value_type).get_nested_type());
+    }
+    case TYPE_MAP: {
+        DORIS_CHECK(field.__isset.nestedField);
+        DORIS_CHECK(field.nestedField.__isset.map_field);
+        const auto& map_field = field.nestedField.map_field;
+        DORIS_CHECK(map_field.__isset.key_field && map_field.__isset.value_field);
+        DORIS_CHECK(map_field.key_field.__isset.field_ptr &&
+                    map_field.key_field.field_ptr != nullptr);
+        DORIS_CHECK(map_field.value_field.__isset.field_ptr &&
+                    map_field.value_field.field_ptr != nullptr);
+        const auto& map_type = assert_cast<const DataTypeMap&>(*value_type);
+        return projected_iceberg_field_requires_required_validation(*map_field.key_field.field_ptr,
+                                                                    map_type.get_key_type()) ||
+               projected_iceberg_field_requires_required_validation(
+                       *map_field.value_field.field_ptr, map_type.get_value_type());
+    }
+    default:
+        return false;
+    }
+}
+
+bool expression_references_required_validation_slot(
+        const VExprSPtr& expr, const std::unordered_set<int>& required_validation_slot_ids) {
+    DORIS_CHECK(expr != nullptr);
+    const auto target = expr->is_rf_wrapper() ? expr->get_impl() : expr;
+    DORIS_CHECK(target != nullptr);
+    if (target->is_slot_ref()) {
+        return required_validation_slot_ids.contains(
+                assert_cast<const VSlotRef&>(*target).slot_id());
+    }
+    return std::ranges::any_of(target->children(), [&](const VExprSPtr& child) {
+        return expression_references_required_validation_slot(child, required_validation_slot_ids);
+    });
 }
 
 template <typename Offsets>
@@ -774,20 +845,7 @@ Status IcebergTableReader::get_next_block_inner(Block* block, size_t* read_rows,
     RETURN_IF_ERROR(_materialize_missing_table_columns(block));
     RETURN_IF_ERROR(_materialize_missing_equality_delete_columns(block));
     RETURN_IF_ERROR(_materialize_nested_equality_delete_columns(block));
-    RETURN_IF_ERROR(_validate_required_table_columns(block));
-
-    if (_equality_delete_impls.size() > 0) {
-        std::unique_ptr<IColumn::Filter> filter =
-                std::make_unique<IColumn::Filter>(block->rows(), 1);
-        DORIS_CHECK(_equality_delete_impls.size() == _equality_delete_filter_column_names.size());
-        for (size_t filter_index = 0; filter_index < _equality_delete_impls.size();
-             ++filter_index) {
-            RETURN_IF_ERROR(_equality_delete_impls[filter_index]->filter_data_block(
-                    block, _col_name_to_block_idx,
-                    _equality_delete_filter_column_names[filter_index], *filter));
-        }
-        Block::filter_block_internal(block, *filter, block->columns());
-    }
+    RETURN_IF_ERROR(_apply_iceberg_row_filters(block));
 
     *read_rows = block->rows();
     return _shrink_block_if_need(block);
@@ -1066,6 +1124,94 @@ Status IcebergTableReader::_validate_required_table_columns(Block* block) const 
                 *path.front(), data_type->second, block->get_by_position(position->second).column));
     }
     return Status::OK();
+}
+
+Status IcebergTableReader::_apply_iceberg_row_filters(Block* block) {
+    DORIS_CHECK(block != nullptr);
+    if (!_equality_delete_impls.empty()) {
+        IColumn::Filter filter(block->rows(), 1);
+        DORIS_CHECK(_equality_delete_impls.size() == _equality_delete_filter_column_names.size());
+        for (size_t filter_index = 0; filter_index < _equality_delete_impls.size();
+             ++filter_index) {
+            RETURN_IF_ERROR(_equality_delete_impls[filter_index]->filter_data_block(
+                    block, _col_name_to_block_idx,
+                    _equality_delete_filter_column_names[filter_index], filter));
+        }
+        Block::filter_block_internal(block, filter, block->columns());
+    }
+    RETURN_IF_ERROR(_validate_required_table_columns(block));
+    return _filter_deferred_required_column_predicates(block);
+}
+
+Status IcebergTableReader::_filter_deferred_required_column_predicates(Block* block) const {
+    DORIS_CHECK(block != nullptr);
+    if (_deferred_required_column_predicates == nullptr || block->rows() == 0) {
+        return Status::OK();
+    }
+    DORIS_CHECK(block->rows() <= std::numeric_limits<uint16_t>::max());
+    std::vector<uint16_t> selector(block->rows());
+    std::iota(selector.begin(), selector.end(), 0);
+    uint16_t selected_rows = 0;
+    {
+        auto columns_guard = block->mutate_columns_scoped();
+        selected_rows = _deferred_required_column_predicates->evaluate(
+                columns_guard.mutable_columns(), selector.data(),
+                cast_set<uint16_t>(block->rows()));
+    }
+    IColumn::Filter filter(block->rows(), 0);
+    for (uint16_t row = 0; row < selected_rows; ++row) {
+        filter[selector[row]] = 1;
+    }
+    Block::filter_block_internal(block, filter, block->columns());
+    return Status::OK();
+}
+
+void IcebergTableReader::_prepare_physical_reader_predicates(
+        const TupleDescriptor* tuple_descriptor, const VExprContextSPtrs& conjuncts,
+        const VExprContextSPtrs* not_single_slot_filter_conjuncts,
+        const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
+    DORIS_CHECK(tuple_descriptor != nullptr);
+    _required_validation_slot_ids.clear();
+    const auto* current_root =
+            supports_iceberg_scan_semantics_v2(&_params) ? _current_schema_root() : nullptr;
+    if (current_root != nullptr) {
+        for (const auto* slot : tuple_descriptor->slots()) {
+            DORIS_CHECK(slot != nullptr);
+            std::vector<const schema::external::TField*> path;
+            if (!_find_schema_field_path_in_root(current_root, slot->col_unique_id(), &path)) {
+                continue;
+            }
+            DORIS_CHECK(path.size() == 1);
+            if (projected_iceberg_field_requires_required_validation(*path.front(), slot->type())) {
+                _required_validation_slot_ids.insert(slot->id());
+            }
+        }
+    }
+
+    const auto keep_for_physical_reader = [&](const VExprContextSPtr& conjunct) {
+        DORIS_CHECK(conjunct != nullptr);
+        return !expression_references_required_validation_slot(conjunct->root(),
+                                                               _required_validation_slot_ids);
+    };
+    _physical_reader_conjuncts.clear();
+    std::ranges::copy_if(conjuncts, std::back_inserter(_physical_reader_conjuncts),
+                         keep_for_physical_reader);
+
+    _physical_reader_not_single_slot_filter_conjuncts.clear();
+    if (not_single_slot_filter_conjuncts != nullptr) {
+        std::ranges::copy_if(*not_single_slot_filter_conjuncts,
+                             std::back_inserter(_physical_reader_not_single_slot_filter_conjuncts),
+                             keep_for_physical_reader);
+    }
+
+    _physical_reader_slot_id_to_filter_conjuncts.clear();
+    if (slot_id_to_filter_conjuncts != nullptr) {
+        for (const auto& [slot_id, slot_conjuncts] : *slot_id_to_filter_conjuncts) {
+            if (!_required_validation_slot_ids.contains(slot_id)) {
+                _physical_reader_slot_id_to_filter_conjuncts.emplace(slot_id, slot_conjuncts);
+            }
+        }
+    }
 }
 
 // This helper keeps V1/V2 equality-delete fallback semantics together; DORIS_CHECK expansion
@@ -1666,6 +1812,7 @@ Status IcebergParquetReader::init_reader(
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
     _file_format = Fileformat::PARQUET;
     _col_name_to_block_idx = col_name_to_block_idx;
+    _physical_equality_delete_root_columns.clear();
     auto* parquet_reader = static_cast<ParquetReader*>(_file_format_reader.get());
     RETURN_IF_ERROR(parquet_reader->get_file_metadata_schema(&_data_file_field_desc));
     DCHECK(_data_file_field_desc != nullptr);
@@ -1696,6 +1843,9 @@ Status IcebergParquetReader::init_reader(
                 table_info_node_ptr, supports_iceberg_scan_semantics_v2(&_params)));
     }
     RETURN_IF_ERROR(_validate_projected_missing_required_fields());
+    _prepare_physical_reader_predicates(tuple_descriptor, conjuncts,
+                                        not_single_slot_filter_conjuncts,
+                                        slot_id_to_filter_conjuncts);
 
     auto column_id_result =
             _create_column_ids(_data_file_field_desc, tuple_descriptor, table_info_node_ptr);
@@ -1783,6 +1933,7 @@ Status IcebergParquetReader::init_reader(
                 source_block_name = block_name;
                 physical_root_sources.emplace(root_name, source_block_name);
                 reads_physical_root = true;
+                _physical_equality_delete_root_columns.insert(block_name);
                 _expand_columns[index].type = make_nullable(file_column->data_type);
                 _expand_columns[index].column = _expand_columns[index].type->create_column();
                 table_info_node_ptr->add_children(
@@ -1822,11 +1973,31 @@ Status IcebergParquetReader::init_reader(
         _all_required_col_names.push_back(block_name);
     }
     _expand_col_names = std::move(new_expand_col_names);
+    parquet_reader->set_duplicate_file_column_aliases(_physical_equality_delete_root_columns);
 
-    return parquet_reader->init_reader(
-            _all_required_col_names, _col_name_to_block_idx, conjuncts, slot_id_to_predicates,
-            tuple_descriptor, row_descriptor, colname_to_slot_id, not_single_slot_filter_conjuncts,
-            slot_id_to_filter_conjuncts, table_info_node_ptr, true, column_ids, filter_column_ids);
+    auto physical_slot_id_to_predicates = slot_id_to_predicates;
+    auto deferred_required_column_predicates = AndBlockColumnPredicate::create_unique();
+    for (int slot_id : _required_validation_slot_ids) {
+        const auto predicates = physical_slot_id_to_predicates.find(slot_id);
+        if (predicates != physical_slot_id_to_predicates.end()) {
+            for (const auto& predicate : predicates->second) {
+                deferred_required_column_predicates->add_column_predicate(
+                        SingleColumnBlockPredicate::create_unique(
+                                predicate->clone(predicate->column_id())));
+            }
+        }
+        physical_slot_id_to_predicates.erase(slot_id);
+    }
+    _deferred_required_column_predicates.reset();
+    if (deferred_required_column_predicates->num_of_column_predicate() != 0) {
+        _deferred_required_column_predicates = std::move(deferred_required_column_predicates);
+    }
+    return parquet_reader->init_reader(_all_required_col_names, _col_name_to_block_idx,
+                                       _physical_reader_conjuncts, physical_slot_id_to_predicates,
+                                       tuple_descriptor, row_descriptor, colname_to_slot_id,
+                                       &_physical_reader_not_single_slot_filter_conjuncts,
+                                       &_physical_reader_slot_id_to_filter_conjuncts,
+                                       table_info_node_ptr, true, column_ids, filter_column_ids);
 }
 
 ColumnIdResult IcebergParquetReader::_create_column_ids(
@@ -1952,6 +2123,9 @@ Status IcebergOrcReader::init_reader(
                 supports_iceberg_scan_semantics_v2(&_params)));
     }
     RETURN_IF_ERROR(_validate_projected_missing_required_fields());
+    _prepare_physical_reader_predicates(tuple_descriptor, conjuncts,
+                                        not_single_slot_filter_conjuncts,
+                                        slot_id_to_filter_conjuncts);
 
     auto column_id_result =
             _create_column_ids(_data_file_type_desc, tuple_descriptor, table_info_node_ptr);
@@ -2075,10 +2249,11 @@ Status IcebergOrcReader::init_reader(
     }
     _expand_col_names = std::move(new_expand_col_names);
 
-    return orc_reader->init_reader(&_all_required_col_names, _col_name_to_block_idx, conjuncts,
-                                   false, tuple_descriptor, row_descriptor,
-                                   not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts,
-                                   table_info_node_ptr, column_ids, filter_column_ids);
+    return orc_reader->init_reader(
+            &_all_required_col_names, _col_name_to_block_idx, _physical_reader_conjuncts, false,
+            tuple_descriptor, row_descriptor, &_physical_reader_not_single_slot_filter_conjuncts,
+            &_physical_reader_slot_id_to_filter_conjuncts, table_info_node_ptr, column_ids,
+            filter_column_ids);
 }
 
 ColumnIdResult IcebergOrcReader::_create_column_ids(

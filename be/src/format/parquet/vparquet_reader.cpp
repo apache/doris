@@ -461,26 +461,37 @@ Status ParquetReader::init_reader(
     _table_column_names = &all_column_names;
     auto schema_desc = _file_metadata->schema();
 
-    // A projected Iceberg struct and its raw historical equality-delete carrier can intentionally
-    // map to the same physical root. Keep both logical columns; the equality carrier is shared by
-    // all historical keys under that root.
-    std::multimap<std::string, std::string> required_file_columns; // file column -> table columns
+    std::map<std::string, std::string> required_file_columns; // file column -> table column
+    std::multimap<std::string, std::string> duplicate_file_column_aliases;
     for (auto table_column_name : all_column_names) {
         if (_table_info_node_ptr->children_column_exists(table_column_name)) {
-            required_file_columns.emplace(
-                    _table_info_node_ptr->children_file_column_name(table_column_name),
-                    table_column_name);
+            const auto file_column_name =
+                    _table_info_node_ptr->children_file_column_name(table_column_name);
+            if (_duplicate_file_column_aliases.contains(table_column_name)) {
+                duplicate_file_column_aliases.emplace(file_column_name, table_column_name);
+            } else {
+                required_file_columns.emplace(file_column_name, table_column_name);
+            }
         } else {
             _missing_cols.emplace_back(table_column_name);
         }
     }
     for (int i = 0; i < schema_desc.size(); ++i) {
         const auto& name = schema_desc.get_column(i)->name;
-        const auto [begin, end] = required_file_columns.equal_range(name);
-        for (auto column = begin; column != end; ++column) {
+        const auto required = required_file_columns.find(name);
+        if (required != required_file_columns.end()) {
             _read_file_columns.emplace_back(name);
-            _read_table_columns.emplace_back(column->second);
-            _read_table_columns_set.insert(column->second);
+            _read_table_columns.emplace_back(required->second);
+            _read_table_columns_set.insert(required->second);
+        }
+        const auto [begin, end] = duplicate_file_column_aliases.equal_range(name);
+        for (auto alias = begin; alias != end; ++alias) {
+            if (required != required_file_columns.end() && required->second == alias->second) {
+                continue;
+            }
+            _read_file_columns.emplace_back(name);
+            _read_table_columns.emplace_back(alias->second);
+            _read_table_columns_set.insert(alias->second);
         }
     }
     // build column predicates for column lazy read

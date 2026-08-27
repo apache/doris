@@ -869,7 +869,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void updateTableProperties(ExternalTable dorisTable, Map<String, String> properties, long updateTime)
             throws UserException {
-        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        Table icebergTable = IcebergUtils.getWritableIcebergTable(dorisTable, this);
         UpdateProperties updateProperties = icebergTable.updateProperties();
         properties.forEach(updateProperties::set);
         try {
