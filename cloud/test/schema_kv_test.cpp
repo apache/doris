@@ -963,9 +963,16 @@ TEST(AlterSchemaKVTest, BlobRemoveBeforeOverwriteTest) {
 
     // Compute the schema KV key.
     auto schema_key = meta_schema_key({instance_id, index_id, schema_version});
+    auto put_three_blob_chunks = [&](Transaction* txn, std::string_view value) {
+        const size_t split_size = value.size() / 3 + 1;
+        for (size_t offset = 0, sequence = 0; offset < value.size();
+             offset += split_size, ++sequence) {
+            txn->put(encode_blob_key(schema_key, config::meta_schema_value_version, sequence),
+                     value.substr(offset, split_size));
+        }
+    };
 
-    // Overwrite the schema KV with a small split_size to create 3 blob chunks.
-    // The normal schema (~120 bytes) with split_size=50 yields 3 chunks.
+    // Overwrite the schema KV with 3 blob chunks.
     {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -973,13 +980,10 @@ TEST(AlterSchemaKVTest, BlobRemoveBeforeOverwriteTest) {
         ValueBuf old_val;
         ASSERT_EQ(cloud::blob_get(txn.get(), schema_key, &old_val), TxnErrorCode::TXN_OK);
         old_val.remove(txn.get());
-        // Write with small split_size to create 3 chunks
         doris::TabletSchemaCloudPB schema;
         ASSERT_TRUE(old_val.to_pb(&schema));
         std::string serialized = schema.SerializeAsString();
-        size_t split_size = (serialized.size() / 3) + 1; // ensures exactly 3 chunks
-        cloud::blob_put(txn.get(), schema_key, schema, config::meta_schema_value_version,
-                        split_size);
+        put_three_blob_chunks(txn.get(), serialized);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
@@ -1020,9 +1024,7 @@ TEST(AlterSchemaKVTest, BlobRemoveBeforeOverwriteTest) {
         ASSERT_TRUE(old_val.to_pb(&schema));
         schema.set_disable_auto_compaction(false);
         std::string serialized = schema.SerializeAsString();
-        size_t split_size = (serialized.size() / 3) + 1;
-        cloud::blob_put(txn.get(), schema_key, schema, config::meta_schema_value_version,
-                        split_size);
+        put_three_blob_chunks(txn.get(), serialized);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
     {

@@ -817,8 +817,8 @@ static void create_delete_bitmaps(Transaction* txn, int64_t tablet_id, std::stri
                 std::string val {"test_data"};
                 txn->put(key, val);
             } else {
-                std::string val(1000, 'A');
-                cloud::blob_put(txn, key, val, 0, 300);
+                std::string val(MIN_BLOB_SPLIT_SIZE + 1, 'A');
+                cloud::blob_put(txn, key, val, 0, MIN_BLOB_SPLIT_SIZE);
             }
         }
     }
@@ -6374,8 +6374,9 @@ TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
                 // delete bitmaps may be spilitted into mulitiple KVs if too large
                 auto delete_bitmap_key =
                         meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
-                std::string delete_bitmap_val(1000, 'A');
-                cloud::blob_put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
+                std::string delete_bitmap_val(MIN_BLOB_SPLIT_SIZE + 1, 'A');
+                cloud::blob_put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0,
+                                MIN_BLOB_SPLIT_SIZE);
             }
         }
         if (is_last_tablet) {
@@ -6607,8 +6608,9 @@ TEST(CheckerTest, delete_bitmap_inverted_check_abnormal) {
                 // delete bitmaps may be spilitted into mulitiple KVs if too large
                 auto delete_bitmap_key =
                         meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
-                std::string delete_bitmap_val(1000, 'A');
-                cloud::blob_put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
+                std::string delete_bitmap_val(MIN_BLOB_SPLIT_SIZE + 1, 'A');
+                cloud::blob_put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0,
+                                MIN_BLOB_SPLIT_SIZE);
             }
         }
     }
