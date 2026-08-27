@@ -32,18 +32,30 @@ import org.apache.doris.thrift.TQueryOptions;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+import com.google.common.hash.Hasher;
+import com.google.common.hash.Hashing;
 import com.google.protobuf.ByteString;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 public class ShortCircuitQueryContext {
+    // Number of buckets used to spread a hot query over multiple Backend
+    // LookupConnectionCache shards, avoiding single-shard lock contention.
+    private static final int CACHE_ID_BUCKET_NUM = 128;
+
+    // Round-robin bucket allocator, giving an even distribution across buckets
+    // regardless of connection id skew.
+    private static final AtomicLong CACHE_ID_BUCKET_COUNTER = new AtomicLong(0);
+
     // Cached for better CPU performance, since serialize DescriptorTable and
     // outputExprs are heavy work
     public final Planner planner;
@@ -110,12 +122,28 @@ public class ShortCircuitQueryContext {
         TExprList exprList = new TExprList(exprs);
         serializedOutputExpr = ByteString.copyFrom(
                 new TSerializer().serialize(exprList));
-        this.cacheID = UUID.randomUUID();
+        this.cacheID = genCacheID(serializedDescTable, serializedOutputExpr, serializedQueryOptions);
         this.scanNode = olapScanNode;
         this.tbl = this.scanNode.getOlapTable();
         this.tableName = this.scanNode.getTableNameInPlan();
         this.schemaVersion = this.tbl.getBaseSchemaVersion();
         this.analzyedQuery = analzyedQuery;
+    }
+
+    // Build a 128-bit cache identifier from serialized query structures and a
+    // round-robin bucket. Identical hot queries are intentionally spread across
+    // multiple Backend LookupConnectionCache shards to reduce lock contention and
+    // high sys CPU, while still bounding the number of cache entries.
+    private static UUID genCacheID(ByteString serializedDescTable, ByteString serializedOutputExpr,
+            ByteString serializedQueryOptions) {
+        int bucket = (int) Math.floorMod(CACHE_ID_BUCKET_COUNTER.getAndIncrement(), CACHE_ID_BUCKET_NUM);
+        Hasher hasher = Hashing.murmur3_128().newHasher();
+        hasher.putBytes(serializedDescTable.toByteArray());
+        hasher.putBytes(serializedOutputExpr.toByteArray());
+        hasher.putBytes(serializedQueryOptions.toByteArray());
+        hasher.putInt(bucket);
+        ByteBuffer buffer = ByteBuffer.wrap(hasher.hash().asBytes());
+        return new UUID(buffer.getLong(), buffer.getLong());
     }
 
     @VisibleForTesting
