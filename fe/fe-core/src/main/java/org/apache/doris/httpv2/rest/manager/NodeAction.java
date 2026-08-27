@@ -31,6 +31,8 @@ import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
+import org.apache.doris.httpv2.client.InternalHttpClientProviderFactory;
 import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -382,10 +384,11 @@ public class NodeAction extends RestBaseController {
             Pair<String, Integer> hostPort = hostPorts.get(i);
             String address = NetUtils.getHostPortInAccessibleFormat(hostPort.first, hostPort.second);
             configRequestDoneSignal.addMark(address, -1);
-            // FE nodes use HTTPS when enabled; BE nodes always use plain HTTP
-            // (BEs do not participate in the FE internal HTTPS scheme)
-            String scheme = (Config.enable_https && "FE".equals(nodeType)) ? "https://" : "http://";
-            String url = scheme + address + questPath;
+            String url = "http://" + address + questPath;
+            if ("FE".equals(nodeType)) {
+                url = InternalHttpClientProviderFactory.getProvider()
+                        .normalizeInternalUrl(url, InternalHttpClientProvider.Target.FE);
+            }
             httpExecutor.submit(
                     new HttpConfigInfoTask(url, hostPort, authorization, nodeType, confNames, configRequestDoneSignal,
                             configInfoTotal.get(i)));
@@ -582,8 +585,9 @@ public class NodeAction extends RestBaseController {
     private String concatFeSetConfigUrl(NodeConfigs nodeConfigs, boolean isPersist) {
         StringBuilder sb = new StringBuilder();
         Pair<String, Integer> hostPort = nodeConfigs.getHostPort();
-        sb.append(Config.enable_https ? "https://" : "http://")
-                .append(hostPort.first).append(":").append(hostPort.second).append("/api/_set_config");
+        sb.append("http://")
+                .append(NetUtils.getHostPortInAccessibleFormat(hostPort.first, hostPort.second))
+                .append("/api/_set_config");
         Map<String, String> configs = nodeConfigs.getConfigs(isPersist);
         boolean addAnd = false;
         for (Map.Entry<String, String> entry : configs.entrySet()) {
@@ -598,7 +602,8 @@ public class NodeAction extends RestBaseController {
         if (isPersist) {
             sb.append("&persist=true&reset_persist=false");
         }
-        return sb.toString();
+        return InternalHttpClientProviderFactory.getProvider()
+                .normalizeInternalUrl(sb.toString(), InternalHttpClientProvider.Target.FE);
     }
 
     // Modify fe configuration.

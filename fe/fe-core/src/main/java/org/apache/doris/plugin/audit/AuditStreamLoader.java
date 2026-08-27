@@ -22,10 +22,10 @@ import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.HttpURLUtil;
-import org.apache.doris.common.util.InternalHttpsUtils;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
+import org.apache.doris.httpv2.client.InternalHttpClientProviderFactory;
 import org.apache.doris.qe.GlobalVariable;
 
-import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -34,10 +34,8 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.Calendar;
 import java.util.stream.Collectors;
-import javax.net.ssl.HttpsURLConnection;
 
 public class AuditStreamLoader {
     private static final Logger LOG = LogManager.getLogger(AuditStreamLoader.class);
@@ -59,13 +57,8 @@ public class AuditStreamLoader {
     }
 
     private HttpURLConnection getConnection(String urlStr, String label, String clusterToken) throws IOException {
-        URL url = new URL(urlStr);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        if (conn instanceof HttpsURLConnection && Config.enable_https) {
-            HttpsURLConnection httpsConn = (HttpsURLConnection) conn;
-            httpsConn.setSSLSocketFactory(InternalHttpsUtils.getSslContext().getSocketFactory());
-            httpsConn.setHostnameVerifier(NoopHostnameVerifier.INSTANCE);
-        }
+        HttpURLConnection conn = InternalHttpClientProviderFactory.getProvider()
+                .openConnection(urlStr, InternalHttpClientProvider.Target.FE);
         conn.setInstanceFollowRedirects(false);
         conn.setRequestMethod("PUT");
         conn.setRequestProperty("token", clusterToken);

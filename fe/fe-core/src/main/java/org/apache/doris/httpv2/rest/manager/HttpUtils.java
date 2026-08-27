@@ -18,11 +18,12 @@
 package org.apache.doris.httpv2.rest.manager;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.HttpURLUtil;
-import org.apache.doris.common.util.InternalHttpsUtils;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
+import org.apache.doris.httpv2.client.InternalHttpClientProviderFactory;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Frontend;
@@ -76,8 +77,8 @@ public class HttpUtils {
     }
 
     public static String concatUrl(Pair<String, Integer> ipPort, String path, Map<String, String> arguments) {
-        StringBuilder url = new StringBuilder(Config.enable_https ? "https://" : "http://")
-                .append(ipPort.first).append(":").append(ipPort.second).append(path);
+        StringBuilder url = new StringBuilder("http://")
+                .append(NetUtils.getHostPortInAccessibleFormat(ipPort.first, ipPort.second)).append(path);
         boolean isFirst = true;
         for (Map.Entry<String, String> entry : arguments.entrySet()) {
             if (!Strings.isNullOrEmpty(entry.getValue())) {
@@ -90,7 +91,8 @@ public class HttpUtils {
                 url.append(entry.getKey()).append("=").append(entry.getValue());
             }
         }
-        return url.toString();
+        return InternalHttpClientProviderFactory.getProvider()
+                .normalizeInternalUrl(url.toString(), InternalHttpClientProvider.Target.FE);
     }
 
     public static String doGet(String url, Map<String, String> headers, int timeoutMs) throws IOException {
@@ -137,11 +139,10 @@ public class HttpUtils {
     private static String executeRequest(HttpRequestBase request) throws IOException {
         // Pick client by this request's own scheme, since this method also serves plain http BE calls.
         boolean useHttpsClient = "https".equalsIgnoreCase(request.getURI().getScheme());
-        try (CloseableHttpClient client = useHttpsClient
-                ? InternalHttpsUtils.createValidatedHttpClient()
-                : HttpClientBuilder.create().build()) {
-            return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));
-        }
+        InternalHttpClientProvider.Target target = useHttpsClient
+                ? InternalHttpClientProvider.Target.FE : InternalHttpClientProvider.Target.BE;
+        CloseableHttpClient client = InternalHttpClientProviderFactory.getProvider().getHttpClient(target);
+        return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));
     }
 
     static String parseResponse(String response) {
