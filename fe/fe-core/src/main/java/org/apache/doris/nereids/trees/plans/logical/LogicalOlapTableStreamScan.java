@@ -310,6 +310,19 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                         partitionPrunablePredicates, scanParams, readMode));
     }
 
+    @Override
+    public LogicalOlapTableStreamScan withPartitionPruned(boolean partitionPruned) {
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
+                        groupExpression, Optional.of(getLogicalProperties()),
+                        selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
+                        selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                        hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
+                        colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
+                        scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
+                        partitionPrunablePredicates, scanParams, readMode));
+    }
+
     /**
      * Returns a new {@code LogicalOlapScan} carrying the supplied
      * {@link PartitionPrunablePredicate}. It is preserved across all other
