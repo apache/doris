@@ -55,27 +55,19 @@ permissions:
 jobs:
   code-review:
     runs-on: ubuntu-latest
-    concurrency:
-      group: code-review-${{ inputs.pr_number || github.event.issue.number || github.run_id }}
-      cancel-in-progress: true
     # Pre-finalization steps can use 183 minutes and auth sync can use 8 more,
     # leaving 12 minutes for runner setup and post-job cleanup.
     timeout-minutes: 203
-    # Retry with a new /review request so an older workflow rerun cannot replace
-    # the latest review for the same PR.
     if: >-
-      github.run_attempt == 1 &&
+      inputs.pr_number != '' ||
       (
-        inputs.pr_number != '' ||
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        startsWith(github.event.comment.body, '/review') &&
         (
-          github.event_name == 'issue_comment' &&
-          github.event.issue.pull_request &&
-          startsWith(github.event.comment.body, '/review') &&
-          (
-            github.event.comment.author_association == 'MEMBER' ||
-            github.event.comment.author_association == 'OWNER' ||
-            github.event.comment.author_association == 'COLLABORATOR'
-          )
+          github.event.comment.author_association == 'MEMBER' ||
+          github.event.comment.author_association == 'OWNER' ||
+          github.event.comment.author_association == 'COLLABORATOR'
         )
       )
     steps:
