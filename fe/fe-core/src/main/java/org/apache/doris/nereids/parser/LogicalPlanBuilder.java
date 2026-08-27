@@ -6482,6 +6482,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Command visitCreateIndex(CreateIndexContext ctx) {
         String indexName = ctx.name.getText();
         boolean ifNotExists = ctx.EXISTS() != null;
+        boolean orReplace = ctx.REPLACE() != null;
+        if (orReplace && ifNotExists) {
+            throw new AnalysisException("[OR REPLACE] and [IF NOT EXISTS] cannot used at the same time");
+        }
         TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
         List<String> indexCols = visitIdentifierList(ctx.identifierList());
         Map<String, String> properties = ctx.properties != null
@@ -6494,10 +6498,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             indexType = "INVERTED";
         } else if (ctx.ANN() != null) {
             indexType = "ANN";
+        } else if (ctx.BTREE() != null) {
+            indexType = "BTREE";
+        } else if (ctx.BITMAP() != null) {
+            indexType = "BITMAP";
         }
         String comment = ctx.STRING_LITERAL() == null ? "" : stripQuotes(ctx.STRING_LITERAL().getText());
         IndexDefinition indexDefinition = new IndexDefinition(indexName, ifNotExists, indexCols, indexType,
-                properties, comment);
+                properties, comment, orReplace);
         List<AlterTableOp> alterTableOps = Lists.newArrayList(new CreateIndexOp(tableNameInfo,
                 indexDefinition, false));
         return new AlterTableCommand(tableNameInfo, alterTableOps);

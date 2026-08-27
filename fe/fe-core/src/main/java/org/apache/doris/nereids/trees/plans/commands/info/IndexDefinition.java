@@ -52,6 +52,10 @@ public class IndexDefinition {
     // instead of the column name which from DorisParser
     private List<String> caseSensitivityCols = Lists.newArrayList();
     private IndexType indexType;
+    // Lance-only index type name ("BTREE" or "BITMAP"); null for internal index types.
+    // Deliberately kept out of IndexDef.IndexType so the persisted internal enum is untouched.
+    private final String lanceIndexType;
+    private final boolean orReplace;
     private Map<String, String> properties = new HashMap<>();
     private boolean isBuildDeferred = false;
 
@@ -64,9 +68,19 @@ public class IndexDefinition {
      */
     public IndexDefinition(String name, boolean ifNotExists, List<String> cols, String indexTypeName,
             Map<String, String> properties, String comment) {
+        this(name, ifNotExists, cols, indexTypeName, properties, comment, false);
+    }
+
+    /**
+     * constructor for IndexDefinition
+     */
+    public IndexDefinition(String name, boolean ifNotExists, List<String> cols, String indexTypeName,
+            Map<String, String> properties, String comment, boolean orReplace) {
         this.name = name;
         this.ifNotExists = ifNotExists;
+        this.orReplace = orReplace;
         this.cols = Utils.copyRequiredList(cols);
+        String lanceType = null;
         this.indexType = IndexType.INVERTED;
         if (indexTypeName != null) {
             switch (indexTypeName) {
@@ -82,10 +96,19 @@ public class IndexDefinition {
                     this.indexType = IndexType.ANN;
                     break;
                 }
+                case "BTREE":
+                case "BITMAP": {
+                    // Lance catalog index types: no IndexDef.IndexType mapping, validate() rejects
+                    // them for internal tables before any internal code path reads indexType.
+                    this.indexType = null;
+                    lanceType = indexTypeName;
+                    break;
+                }
                 default:
                     throw new AnalysisException("unknown index type " + indexTypeName);
             }
         }
+        this.lanceIndexType = lanceType;
 
         if (properties != null) {
             this.properties.putAll(properties);
@@ -105,6 +128,8 @@ public class IndexDefinition {
     public IndexDefinition(String name, PartitionNamesInfo partitionNames, IndexType indexType) {
         this.name = name;
         this.indexType = indexType;
+        this.lanceIndexType = null;
+        this.orReplace = false;
         this.partitionNames = partitionNames;
         this.isBuildDeferred = true;
         this.cols = null;
@@ -233,6 +258,14 @@ public class IndexDefinition {
      * validate
      */
     public void validate() {
+        // Lance-only syntax guards: these fire before any internal validation so that SQL which
+        // only parses for Lance catalog tables never reaches internal index code paths.
+        if (lanceIndexType != null) {
+            throw new AnalysisException("USING " + lanceIndexType + " is only supported for Lance catalog tables");
+        }
+        if (orReplace) {
+            throw new AnalysisException("CREATE OR REPLACE INDEX is only supported for Lance catalog tables");
+        }
         if (partitionNames != null) {
             partitionNames.validate();
         }
@@ -279,12 +312,24 @@ public class IndexDefinition {
         }
     }
 
+    public List<String> getCols() {
+        return cols;
+    }
+
     public String getIndexName() {
         return name;
     }
 
     public IndexType getIndexType() {
         return indexType;
+    }
+
+    public boolean isOrReplace() {
+        return orReplace;
+    }
+
+    public String getLanceIndexType() {
+        return lanceIndexType;
     }
 
     public Index translateToCatalogStyle() {
@@ -315,7 +360,7 @@ public class IndexDefinition {
      * toSql
      */
     public String toSql(String tableName) {
-        StringBuilder sb = new StringBuilder("INDEX ");
+        StringBuilder sb = new StringBuilder(orReplace ? "OR REPLACE INDEX " : "INDEX ");
         sb.append(name);
         if (tableName != null && !tableName.isEmpty()) {
             sb.append(" ON ").append(tableName);
@@ -335,6 +380,8 @@ public class IndexDefinition {
         }
         if (indexType != null) {
             sb.append(" USING ").append(indexType.toString());
+        } else if (lanceIndexType != null) {
+            sb.append(" USING ").append(lanceIndexType);
         }
         if (properties != null && properties.size() > 0) {
             sb.append(" PROPERTIES(");
