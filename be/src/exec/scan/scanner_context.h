@@ -93,7 +93,7 @@ class ScanTask {
 public:
     enum class State : int {
         PENDING,   // not scheduled yet
-        IN_FLIGHT, // scheduled and running
+        IN_FLIGHT, // submitted to the scheduler; may still be waiting for TaskExecutor admission
         COMPLETED, // finished with result or error, waiting to be collected by scan node
         EOS,       // finished and no more data, waiting to be collected by scan node
     };
@@ -287,10 +287,14 @@ protected:
     // accessed by both the scanner thread pool and the operator (get_block_from_queue).
     std::mutex _transfer_lock;
 
-    // Together, _completed_tasks and _in_flight_tasks_num represent all "occupied" concurrency
-    // slots.  The scheduler uses their sum as the current concurrency:
+    // _in_flight_tasks_num includes every task submitted to the scheduler. New scanner submission
+    // always uses this total count. TaskExecutor can keep first-time submissions in its per-handle
+    // admission queue, so only the fallback that resumes yielded scanners uses:
     //
-    //   current_concurrency = _completed_tasks.size() + _in_flight_tasks_num
+    //   admitted_in_flight = _in_flight_tasks_num - TaskHandle::queued_leaf_splits()
+    //
+    // This admission-aware fallback can only re-enqueue an existing split. It must never grant
+    // margin for pulling another pending scanner into TaskExecutor.
     //
     // Lifecycle of a ScanTask:
     //   _pending_tasks  --(submit_scan_task)--> [thread pool]  --(push_back_scan_task)-->
@@ -310,9 +314,9 @@ protected:
     // _pull_next_scan_task() during scheduling.
     std::stack<std::shared_ptr<ScanTask>> _pending_tasks;
 
-    // Number of scan tasks currently submitted to the scanner scheduler thread pool
-    // (i.e. in-flight).  Incremented by submit_scan_task() before submission and
-    // decremented by push_back_scan_task() when the thread pool returns the task.
+    // Number of scan tasks currently submitted to the scanner scheduler. This includes tasks
+    // waiting for TaskExecutor admission. Incremented by submit_scan_task() before submission and
+    // decremented by push_back_scan_task() when the scheduler returns the task.
     // Declared atomic so it can be read without _transfer_lock in non-critical paths,
     // but must be read under _transfer_lock whenever combined with _completed_tasks.size()
     // to form a consistent concurrency snapshot.
@@ -345,10 +349,16 @@ protected:
     MOCK_REMOVE(const) int32_t _min_scan_concurrency = 1;
 
     std::shared_ptr<ScanTask> _pull_next_scan_task(std::shared_ptr<ScanTask> current_scan_task,
-                                                   int32_t current_concurrency);
+                                                   int32_t current_concurrency,
+                                                   bool only_existing_split = false);
 
     int32_t _get_margin(std::unique_lock<std::mutex>& transfer_lock,
                         std::unique_lock<std::shared_mutex>& scheduler_lock);
+    int32_t _get_margin(std::unique_lock<std::mutex>& transfer_lock,
+                        std::unique_lock<std::shared_mutex>& scheduler_lock,
+                        int32_t in_flight_tasks);
+
+    int32_t _admitted_in_flight_tasks() const;
 
     // Memory-aware adaptive scheduling
     std::shared_ptr<MemLimiter> _scanner_mem_limiter = nullptr;
