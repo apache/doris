@@ -120,7 +120,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                     if (value != null) {
                         retireRemovedTableGeneration(key, value);
                     }
-                }));
+                })
+                .withStrongValues());
         snapshotEntry = registerEntry(MetaCacheEntryDef.contextualOnly(ENTRY_SNAPSHOT,
                 IcebergSnapshotEntryKey.class, IcebergSnapshotCacheValue.class, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(IcebergSnapshotEntryKey::getNameMapping))
@@ -243,13 +244,14 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         if (!optionalKey.isPresent()) {
             boolean isolateForQueries = tableValue.isQueryIsolationPrepared();
             return executeForGeneration(tableValue, nameMapping.getCtlId(),
-                    () -> loadSnapshotProjection(
+                    authenticator -> loadSnapshotProjection(
                             dorisTable,
                             isolateForQueries ? tableValue.newQueryScopedTable()
                                     : tableValue.getIcebergTable(),
                             tableValue.getRetainedIcebergTable(),
-                            tableValue.getRetainedCurrentSnapshotJson(), isolateForQueries))
-                    .bindCapturedAuthenticator(tableValue.getAuthenticator());
+                            tableValue.getRetainedCurrentSnapshotJson(), isolateForQueries,
+                            authenticator)
+                            .bindCapturedAuthenticator(authenticator));
         }
         IcebergSnapshotEntryKey key = optionalKey.get();
         MetaCacheEntry<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> entry =
@@ -257,14 +259,15 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         boolean isolateForQueries = tableValue.isQueryIsolationPrepared()
                 || entry.isWeightAccounting();
         Function<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> projectionLoader =
-                ignored -> executeForGeneration(tableValue, nameMapping.getCtlId(), () -> {
+                ignored -> executeForGeneration(tableValue, nameMapping.getCtlId(), authenticator -> {
                     Table projectionTable = isolateForQueries
                             ? tableValue.newQueryScopedTable() : tableValue.getIcebergTable();
                     IcebergSnapshotCacheValue value = loadSnapshotProjection(
                             dorisTable, projectionTable,
                             tableValue.getRetainedIcebergTable(),
-                            tableValue.getRetainedCurrentSnapshotJson(), isolateForQueries)
-                            .bindCapturedAuthenticator(tableValue.getAuthenticator());
+                            tableValue.getRetainedCurrentSnapshotJson(), isolateForQueries,
+                            authenticator)
+                            .bindCapturedAuthenticator(authenticator);
                     if (entry.isWeightAccounting()) {
                         value.prepareForCachePublication(key);
                     }
@@ -714,7 +717,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
 
     private IcebergSnapshotCacheValue loadSnapshotProjection(
             ExternalTable dorisTable, Table projectionTable, Table retainedTable,
-            String retainedCurrentSnapshotJson, boolean isolateForQueries) {
+            String retainedCurrentSnapshotJson, boolean isolateForQueries,
+            ExecutionAuthenticator authenticator) {
         if (!(dorisTable instanceof MTMVRelatedTableIf)) {
             throw new RuntimeException(String.format("Table %s.%s is not a valid MTMV related table.",
                     dorisTable.getDbName(), dorisTable.getName()));
@@ -727,7 +731,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 icebergPartitionInfo = IcebergPartitionInfo.empty();
             } else {
                 icebergPartitionInfo = IcebergUtils.loadPartitionInfo(dorisTable, projectionTable,
-                        latestIcebergSnapshot.getSnapshotId(), latestIcebergSnapshot.getSchemaId());
+                        latestIcebergSnapshot.getSnapshotId(), latestIcebergSnapshot.getSchemaId(), authenticator);
             }
             Optional<Map<Integer, List<String>>> nameMapping =
                     IcebergUtils.getNameMapping(projectionTable);
@@ -758,15 +762,20 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
      * property ALTER resets the catalog before retiring the group, so a lookup that already
      * owns the old generation must not resolve authentication from the resetting catalog.
      */
-    private <T> T executeForGeneration(
-            IcebergTableCacheValue tableValue, long catalogId, Callable<T> task) {
-        org.apache.doris.common.security.authentication.ExecutionAuthenticator authenticator =
-                tableValue.getAuthenticator();
+    private <T> T executeForGeneration(IcebergTableCacheValue tableValue, long catalogId,
+            Function<ExecutionAuthenticator, T> task) {
+        ExecutionAuthenticator authenticator = tableValue.getAuthenticator();
         if (authenticator == null) {
-            return executeAuthenticated(catalogId, task);
+            CatalogIf<?> catalog = getCatalog(catalogId);
+            if (!(catalog instanceof ExternalCatalog)) {
+                throw new RuntimeException("Iceberg metadata cache requires an external catalog");
+            }
+            ((ExternalCatalog) catalog).makeSureInitialized();
+            authenticator = ((ExternalCatalog) catalog).getExecutionAuthenticator();
         }
+        ExecutionAuthenticator generationAuthenticator = authenticator;
         try {
-            return authenticator.execute(task);
+            return generationAuthenticator.execute(() -> task.apply(generationAuthenticator));
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         }

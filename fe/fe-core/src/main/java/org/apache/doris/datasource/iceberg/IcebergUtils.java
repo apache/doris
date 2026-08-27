@@ -50,6 +50,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
@@ -1937,13 +1938,18 @@ public class IcebergUtils {
 
     public static IcebergPartitionInfo loadPartitionInfo(ExternalTable dorisTable, Table table, long snapshotId,
             long schemaId) throws AnalysisException {
+        return loadPartitionInfo(dorisTable, table, snapshotId, schemaId,
+                dorisTable.getCatalog().getExecutionAuthenticator());
+    }
+
+    static IcebergPartitionInfo loadPartitionInfo(ExternalTable dorisTable, Table table, long snapshotId,
+            long schemaId, ExecutionAuthenticator authenticator) throws AnalysisException {
         if (snapshotId == IcebergUtils.UNKNOWN_SNAPSHOT_ID) {
             return IcebergPartitionInfo.empty();
         }
         List<IcebergPartition> icebergPartitions;
         try {
-            icebergPartitions = dorisTable.getCatalog().getExecutionAuthenticator()
-                    .execute(() -> loadIcebergPartition(table, snapshotId));
+            icebergPartitions = authenticator.execute(() -> loadIcebergPartition(table, snapshotId));
         } catch (Exception e) {
             String errorMsg = String.format("Failed to get iceberg partition info, table: %s.%s.%s, snapshotId: %s",
                     dorisTable.getCatalog().getName(), dorisTable.getDbName(), dorisTable.getName(), snapshotId);

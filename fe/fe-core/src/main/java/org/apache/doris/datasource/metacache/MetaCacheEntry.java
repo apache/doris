@@ -198,6 +198,19 @@ public class MetaCacheEntry<K, V> {
             @Nullable Function<V, ?> removalTokenExtractor,
             @Nullable MetaCacheEntryRemovalListener<K, ?> removalListener,
             @Nullable Consumer<V> unpublishedValueRetirer) {
+        this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly,
+                sizeEstimator, entryBudget, replacementListener, removalTokenExtractor,
+                removalListener, unpublishedValueRetirer, true);
+    }
+
+    @SuppressWarnings("unchecked")
+    public MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
+            ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
+            @Nullable MetaCacheSizeEstimator<K, V> sizeEstimator, @Nullable EntryBudget entryBudget,
+            @Nullable MetaCacheEntryReplacementListener<K, V> replacementListener,
+            @Nullable Function<V, ?> removalTokenExtractor,
+            @Nullable MetaCacheEntryRemovalListener<K, ?> removalListener,
+            @Nullable Consumer<V> unpublishedValueRetirer, boolean softValues) {
         this.name = name;
         if (contextualOnly) {
             if (loader != null) {
@@ -250,7 +263,7 @@ public class MetaCacheEntry<K, V> {
                 cacheWeigher,
                 true,
                 null);
-        if (weightBounded) {
+        if (weightBounded && softValues) {
             cacheFactory.withSoftValues();
         }
         if (weightBounded || generationFencedRefresh || removalListener != null) {

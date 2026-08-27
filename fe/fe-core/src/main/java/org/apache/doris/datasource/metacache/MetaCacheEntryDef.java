@@ -112,13 +112,14 @@ public final class MetaCacheEntryDef<K, V> {
     private final MetaCacheEntryRemovalListener<K, ?> removalListener;
     @Nullable
     private final Consumer<V> unpublishedValueRetirer;
+    private final boolean softValues;
 
     private MetaCacheEntryDef(String name, Class<K> keyType, Class<V> valueType,
             @Nullable Function<K, V> loader, CacheSpec defaultCacheSpec, boolean autoRefresh, boolean contextualOnly,
             MetaCacheEntryInvalidation<K> invalidation, @Nullable MetaCacheSizeEstimator<K, V> sizeEstimator,
             @Nullable MetaCacheEntryReplacementListener<K, V> replacementListener) {
         this(name, keyType, valueType, loader, defaultCacheSpec, autoRefresh, contextualOnly, invalidation,
-                sizeEstimator, replacementListener, null, null, null);
+                sizeEstimator, replacementListener, null, null, null, true);
     }
 
     private MetaCacheEntryDef(String name, Class<K> keyType, Class<V> valueType,
@@ -127,7 +128,7 @@ public final class MetaCacheEntryDef<K, V> {
             @Nullable MetaCacheEntryReplacementListener<K, V> replacementListener,
             @Nullable Function<V, ?> removalTokenExtractor,
             @Nullable MetaCacheEntryRemovalListener<K, ?> removalListener,
-            @Nullable Consumer<V> unpublishedValueRetirer) {
+            @Nullable Consumer<V> unpublishedValueRetirer, boolean softValues) {
         this.name = Objects.requireNonNull(name, "entry name is required");
         this.keyType = Objects.requireNonNull(keyType, "entry key type is required");
         this.valueType = Objects.requireNonNull(valueType, "entry value type is required");
@@ -151,6 +152,7 @@ public final class MetaCacheEntryDef<K, V> {
         this.removalTokenExtractor = removalTokenExtractor;
         this.removalListener = removalListener;
         this.unpublishedValueRetirer = unpublishedValueRetirer;
+        this.softValues = softValues;
     }
 
     /**
@@ -215,7 +217,7 @@ public final class MetaCacheEntryDef<K, V> {
         return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec,
                 autoRefresh, contextualOnly, invalidation,
                 Objects.requireNonNull(estimator, "estimator"), replacementListener,
-                removalTokenExtractor, removalListener, unpublishedValueRetirer);
+                removalTokenExtractor, removalListener, unpublishedValueRetirer, softValues);
     }
 
     /** Return a definition that synchronously retires dependencies after a value replacement. */
@@ -224,7 +226,7 @@ public final class MetaCacheEntryDef<K, V> {
         return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec,
                 autoRefresh, contextualOnly, invalidation, sizeEstimator,
                 Objects.requireNonNull(listener, "listener"), removalTokenExtractor, removalListener,
-                unpublishedValueRetirer);
+                unpublishedValueRetirer, softValues);
     }
 
     /**
@@ -236,14 +238,21 @@ public final class MetaCacheEntryDef<K, V> {
         return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec,
                 autoRefresh, contextualOnly, invalidation, sizeEstimator, replacementListener,
                 Objects.requireNonNull(tokenExtractor, "tokenExtractor"),
-                Objects.requireNonNull(listener, "listener"), unpublishedValueRetirer);
+                Objects.requireNonNull(listener, "listener"), unpublishedValueRetirer, softValues);
     }
 
     /** Return a definition that retires a refresh value whose ownership was never published. */
     public MetaCacheEntryDef<K, V> withUnpublishedValueRetirer(Consumer<V> retirer) {
         return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec,
                 autoRefresh, contextualOnly, invalidation, sizeEstimator, replacementListener,
-                removalTokenExtractor, removalListener, Objects.requireNonNull(retirer, "retirer"));
+                removalTokenExtractor, removalListener, Objects.requireNonNull(retirer, "retirer"), softValues);
+    }
+
+    /** Keep resource-owning weighted values strongly reachable until normal cache eviction. */
+    public MetaCacheEntryDef<K, V> withStrongValues() {
+        return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec,
+                autoRefresh, contextualOnly, invalidation, sizeEstimator, replacementListener,
+                removalTokenExtractor, removalListener, unpublishedValueRetirer, false);
     }
 
     /**
@@ -320,5 +329,9 @@ public final class MetaCacheEntryDef<K, V> {
     @Nullable
     public Consumer<V> getUnpublishedValueRetirer() {
         return unpublishedValueRetirer;
+    }
+
+    public boolean usesSoftValues() {
+        return softValues;
     }
 }

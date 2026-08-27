@@ -495,7 +495,7 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
                     refreshExecutor, entryDef.isAutoRefresh(), entryDef.isContextualOnly(),
                     entryDef.getSizeEstimator(), entryBudget, entryDef.getReplacementListener(),
                     entryDef.getRemovalTokenExtractor(), entryDef.getRemovalListener(),
-                    entryDef.getUnpublishedValueRetirer());
+                    entryDef.getUnpublishedValueRetirer(), entryDef.usesSoftValues());
         } catch (RuntimeException | Error e) {
             if (entryBudget != null) {
                 entryBudget.close();
