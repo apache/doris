@@ -1044,10 +1044,13 @@ Status IcebergTableReader::_validate_required_mapping_column(
     const auto table_type = remove_nullable(mapping.table_type);
     switch (table_type->get_primitive_type()) {
     case TYPE_STRUCT: {
+        const auto& struct_type = assert_cast<const DataTypeStruct&>(*table_type);
         const auto& struct_column = assert_cast<const ColumnStruct&>(*nested_column);
         DORIS_CHECK(mapping.child_mappings.size() == struct_column.tuple_size());
-        for (size_t child = 0; child < mapping.child_mappings.size(); ++child) {
-            RETURN_IF_ERROR(_validate_required_mapping_column(mapping.child_mappings[child],
+        const auto table_ordered_children =
+                _child_mappings_in_table_type_order(mapping, struct_type);
+        for (size_t child = 0; child < table_ordered_children.size(); ++child) {
+            RETURN_IF_ERROR(_validate_required_mapping_column(*table_ordered_children[child],
                                                               struct_column.get_column_ptr(child),
                                                               descendant_parent_null_map));
         }

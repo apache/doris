@@ -48,6 +48,7 @@ import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundInlineTable;
 import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
 import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
+import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundPaimonTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
@@ -75,6 +76,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPaimonTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
@@ -453,6 +455,11 @@ public class InsertUtils {
         Plan query = unboundLogicalSink.child();
         checkGeneratedColumnForInsertIntoSelect(table, unboundLogicalSink, insertCtx);
         if (!(query instanceof UnboundInlineTable)) {
+            if (icebergWriteSchemaContext.isPresent()) {
+                query = resolveIcebergSelectDefaultReferences(
+                        query, icebergWriteSchemaContext, unboundLogicalSink.getNameParts());
+                return plan.withChildren(query);
+            }
             return plan;
         }
 
@@ -549,7 +556,7 @@ public class InsertUtils {
                             addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
                                     null, rewriteContext, strictCast);
                         } else {
-                            NamedExpression value = resolveInlineIcebergDefaultReferences(
+                            NamedExpression value = resolveIcebergDefaultReferences(
                                     values.get(i), icebergWriteSchemaContext,
                                     unboundLogicalSink.getNameParts());
                             DataType targetType = targetTypeForInlineValue(
@@ -575,7 +582,7 @@ public class InsertUtils {
                             addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
                                     null, rewriteContext, strictCast);
                         } else {
-                            NamedExpression value = resolveInlineIcebergDefaultReferences(
+                            NamedExpression value = resolveIcebergDefaultReferences(
                                     values.get(i), icebergWriteSchemaContext,
                                     unboundLogicalSink.getNameParts());
                             DataType targetType = targetTypeForInlineValue(
@@ -605,7 +612,7 @@ public class InsertUtils {
         return targetType;
     }
 
-    private static NamedExpression resolveInlineIcebergDefaultReferences(
+    private static NamedExpression resolveIcebergDefaultReferences(
             NamedExpression value,
             Optional<IcebergWriteSchemaContext> writeSchemaContext,
             List<String> targetNameParts) {
@@ -634,6 +641,31 @@ public class InsertUtils {
         Preconditions.checkState(resolved instanceof NamedExpression,
                 "Inline table value must remain a named expression after DEFAULT resolution");
         return (NamedExpression) resolved;
+    }
+
+    private static Plan resolveIcebergSelectDefaultReferences(
+            Plan query,
+            Optional<IcebergWriteSchemaContext> writeSchemaContext,
+            List<String> targetNameParts) {
+        return query.rewriteUp(plan -> {
+            if (plan instanceof LogicalProject) {
+                LogicalProject<?> project = (LogicalProject<?>) plan;
+                List<NamedExpression> projects = project.getProjects().stream()
+                        .map(expression -> resolveIcebergDefaultReferences(
+                                expression, writeSchemaContext, targetNameParts))
+                        .collect(ImmutableList.toImmutableList());
+                return project.withProjects(projects);
+            }
+            if (plan instanceof UnboundOneRowRelation) {
+                UnboundOneRowRelation relation = (UnboundOneRowRelation) plan;
+                List<NamedExpression> projects = relation.getProjects().stream()
+                        .map(expression -> resolveIcebergDefaultReferences(
+                                expression, writeSchemaContext, targetNameParts))
+                        .collect(ImmutableList.toImmutableList());
+                return new UnboundOneRowRelation(relation.getRelationId(), projects);
+            }
+            return plan;
+        });
     }
 
     /** buildAnalyzer */

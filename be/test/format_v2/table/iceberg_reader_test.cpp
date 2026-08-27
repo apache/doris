@@ -368,6 +368,84 @@ TEST(IcebergV2ReaderTest, RequiredMappingAllowsNullHiddenByOptionalParent) {
     EXPECT_TRUE(status.ok()) << status;
 }
 
+TEST(IcebergV2ReaderTest, RequiredMappingUsesTableOrderForProjectedStructChildren) {
+    const auto nullable_int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    const auto struct_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {nullable_int_type, nullable_int_type}, Strings {"z", "a"}));
+
+    ColumnMapping required_a;
+    required_a.table_column_name = "a";
+    required_a.table_type = nullable_int_type;
+    required_a.reject_null_value = true;
+    ColumnMapping optional_z;
+    optional_z.table_column_name = "z";
+    optional_z.table_type = nullable_int_type;
+    ColumnMapping struct_mapping;
+    struct_mapping.table_column_name = "projected_struct";
+    struct_mapping.table_type = struct_type;
+    // Partial access paths can preserve mappings in a different order than the materialized
+    // DataTypeStruct. Validation must match children by table name, as materialization does.
+    struct_mapping.child_mappings = {required_a, optional_z};
+
+    const auto make_struct_column = [](bool required_is_null) -> MutableColumnPtr {
+        auto optional_values = ColumnInt32::create();
+        optional_values->insert_default();
+        auto required_values = ColumnInt32::create();
+        required_values->insert_value(7);
+        MutableColumns children;
+        children.push_back(
+                ColumnNullable::create(std::move(optional_values), ColumnUInt8::create(1, 1)));
+        children.push_back(ColumnNullable::create(std::move(required_values),
+                                                  ColumnUInt8::create(1, required_is_null)));
+        return ColumnNullable::create(ColumnStruct::create(std::move(children)),
+                                      ColumnUInt8::create(1, 0));
+    };
+
+    ColumnPtr visible_struct = make_struct_column(false);
+    auto status = IcebergRequiredFieldValidationTestHelper::_validate_required_mapping_column(
+            struct_mapping, visible_struct);
+    EXPECT_TRUE(status.ok()) << status;
+
+    ColumnPtr invalid_struct = make_struct_column(true);
+    status = IcebergRequiredFieldValidationTestHelper::_validate_required_mapping_column(
+            struct_mapping, invalid_struct);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Required Iceberg field 'a'"), std::string::npos);
+
+    ColumnMapping array_mapping;
+    array_mapping.table_column_name = "struct_array";
+    array_mapping.table_type = make_nullable(std::make_shared<DataTypeArray>(struct_type));
+    array_mapping.child_mappings = {struct_mapping};
+    auto array_offsets = ColumnArray::ColumnOffsets::create();
+    array_offsets->insert_value(1);
+    ColumnPtr array_column = ColumnNullable::create(
+            ColumnArray::create(make_struct_column(false), std::move(array_offsets)),
+            ColumnUInt8::create(1, 0));
+    status = IcebergRequiredFieldValidationTestHelper::_validate_required_mapping_column(
+            array_mapping, array_column);
+    EXPECT_TRUE(status.ok()) << status;
+
+    ColumnMapping key_mapping;
+    key_mapping.table_column_name = "key";
+    key_mapping.table_type = nullable_int_type;
+    ColumnMapping map_mapping;
+    map_mapping.table_column_name = "struct_map";
+    map_mapping.table_type =
+            make_nullable(std::make_shared<DataTypeMap>(nullable_int_type, struct_type));
+    map_mapping.child_mappings = {key_mapping, struct_mapping};
+    auto keys = ColumnInt32::create();
+    keys->insert_value(1);
+    auto map_offsets = ColumnArray::ColumnOffsets::create();
+    map_offsets->insert_value(1);
+    ColumnPtr map_column = ColumnNullable::create(
+            ColumnMap::create(ColumnNullable::create(std::move(keys), ColumnUInt8::create(1, 0)),
+                              make_struct_column(false), std::move(map_offsets)),
+            ColumnUInt8::create(1, 0));
+    status = IcebergRequiredFieldValidationTestHelper::_validate_required_mapping_column(
+            map_mapping, map_column);
+    EXPECT_TRUE(status.ok()) << status;
+}
+
 TEST(IcebergV2ReaderTest, RequiredMappingDisablesFooterAggregatePushdown) {
     const auto nullable_int_type = make_nullable(std::make_shared<DataTypeInt32>());
     ColumnMapping direct_mapping;

@@ -437,6 +437,31 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
             Assertions.assertEquals(32,
                     defaultColumnSink.getWriteSchemaContext().get().getSchemaId());
 
+            String stagingDefaultSql = "insert into " + tableName
+                    + " (id, name) select id, DEFAULT(name) "
+                    + "from (select 7 as id, 'source-name' as name) staging_source";
+            InsertIntoTableCommand stagingDefaultCommand =
+                    (InsertIntoTableCommand) parseStmt(stagingDefaultSql);
+            Plan stagingDefaultPlan = stagingDefaultCommand.getExplainPlan(connectContext);
+            PhysicalIcebergTableSink<?> stagingDefaultSink = getSinglePhysicalSink(
+                    planPhysicalPlan((LogicalPlan) stagingDefaultPlan,
+                            PhysicalProperties.GATHER, stagingDefaultSql),
+                    PhysicalIcebergTableSink.class);
+            Assertions.assertTrue(stagingDefaultSink.treeString().contains("write-name"),
+                    stagingDefaultSink.treeString());
+
+            String noFromDefaultSql = "insert into " + tableName
+                    + " (id, name) select 8, DEFAULT(name)";
+            InsertIntoTableCommand noFromDefaultCommand =
+                    (InsertIntoTableCommand) parseStmt(noFromDefaultSql);
+            Plan noFromDefaultPlan = noFromDefaultCommand.getExplainPlan(connectContext);
+            PhysicalIcebergTableSink<?> noFromDefaultSink = getSinglePhysicalSink(
+                    planPhysicalPlan((LogicalPlan) noFromDefaultPlan,
+                            PhysicalProperties.GATHER, noFromDefaultSql),
+                    PhysicalIcebergTableSink.class);
+            Assertions.assertTrue(noFromDefaultSink.treeString().contains("write-name"),
+                    noFromDefaultSink.treeString());
+
             String reorderedMultiRowSql = "insert into " + tableName
                     + " (amount, id) values "
                     + "(DEFAULT(score), 4), (DEFAULT(score), 5)";
