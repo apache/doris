@@ -42,10 +42,9 @@ public class MilliSecondsDiff extends ScalarFunction implements BinaryExpression
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE)
-                    .args(TimeStampTzType.WILDCARD, TimeStampTzType.WILDCARD),
+                    .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD),
             FunctionSignature.ret(BigIntType.INSTANCE)
-                    .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD)
-            );
+                    .args(TimeStampTzType.WILDCARD, TimeStampTzType.WILDCARD));
 
     /**
      * constructor with 2 arguments.
