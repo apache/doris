@@ -17,13 +17,23 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.load.CloudRoutineLoadManager;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -34,9 +44,12 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 
 /**
@@ -55,12 +68,14 @@ public class RoutineLoadComputeGroupTest {
     private String originalDeployMode;
     private String originalCloudUniqueId;
     private SystemInfoService originalSystemInfo;
+    private AccessControllerManager originalAccessManager;
 
     @Before
     public void setUp() {
         originalDeployMode = Config.deploy_mode;
         originalCloudUniqueId = Config.cloud_unique_id;
         originalSystemInfo = Env.getCurrentSystemInfo();
+        originalAccessManager = Env.getCurrentEnv().getAccessManager();
     }
 
     @After
@@ -68,6 +83,33 @@ public class RoutineLoadComputeGroupTest {
         Config.deploy_mode = originalDeployMode;
         Config.cloud_unique_id = originalCloudUniqueId;
         Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", originalSystemInfo);
+        Deencapsulation.setField(Env.getCurrentEnv(), "accessManager", originalAccessManager);
+        ConnectContext.remove();
+    }
+
+    /**
+     * Puts the FE into cloud mode with a known set of existing compute groups, and a session that
+     * holds (or does not hold) USAGE on whatever it asks for.
+     */
+    private void enterCloudMode(boolean hasPriv, List<String> existingClusters) {
+        Config.deploy_mode = "cloud";
+        Config.cloud_unique_id = "";
+
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        Mockito.when(accessManager.checkCloudPriv(Mockito.any(UserIdentity.class), Mockito.anyString(),
+                Mockito.any(PrivPredicate.class), Mockito.any(ResourceTypeEnum.class))).thenReturn(hasPriv);
+        Deencapsulation.setField(Env.getCurrentEnv(), "accessManager", accessManager);
+
+        Map<String, List<Backend>> clusterToBackends = Maps.newHashMap();
+        for (String cluster : existingClusters) {
+            clusterToBackends.put(cluster, Lists.newArrayList(createBackend(10000L + clusterToBackends.size())));
+        }
+        Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo",
+                new ClusterAwareCloudSystemInfoService(clusterToBackends));
+
+        ConnectContext ctx = new ConnectContext();
+        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+        ctx.setThreadLocalInfo();
     }
 
     private KafkaRoutineLoadJob newJob(String snapshotCluster, String declaredComputeGroup) {
@@ -226,10 +268,135 @@ public class RoutineLoadComputeGroupTest {
         Assert.assertEquals(Lists.newArrayList(beInB.getId()), manager.getAvailableBackendIdsForTest(1L));
     }
 
+    /**
+     * Metadata load must not re-check the declared compute group.
+     *
+     * <p>{@link RoutineLoadJob#gsonPostProcess()} re-parses the stored CREATE statement on every FE
+     * metadata load - a restart, and every checkpoint - only to rebuild the RoutineLoadDesc, and it
+     * turns any failure into {@code JobState.CANCELLED}, which is final and cannot be undone by
+     * RESUME. A compute group can be dropped, renamed, or scaled to zero backends (which
+     * CloudSystemInfoService treats as dropped) while a job exists, so validating it there would
+     * kill the job permanently instead of letting the per task check pause it recoverably.
+     */
+    @Test
+    public void testMetadataLoadDoesNotValidateDeclaredComputeGroup() throws UserException {
+        enterCloudMode(true, Lists.newArrayList("cg_live"));
+
+        CreateRoutineLoadInfo info = newCreateInfo("cg_dropped");
+        info.setReplay(true);
+
+        info.checkJobProperties();
+
+        // Only the resource check is skipped: the declaration itself is still adopted, so the job
+        // keeps running in the group it was pinned to once the group comes back.
+        Assert.assertEquals("cg_dropped", info.getComputeGroupName());
+    }
+
+    // Negative control for the test above: on the real CREATE path the same value must still be
+    // rejected, otherwise the skip would have disabled validation everywhere.
+    @Test
+    public void testCreateStillRejectsComputeGroupThatDoesNotExist() {
+        enterCloudMode(true, Lists.newArrayList("cg_live"));
+
+        CreateRoutineLoadInfo info = newCreateInfo("cg_dropped");
+
+        UserException e = Assert.assertThrows(UserException.class, info::checkJobProperties);
+        Assert.assertTrue(e.getMessage(),
+                e.getMessage().contains("Compute group 'cg_dropped' not found."));
+    }
+
+    /**
+     * The per task re-check has to run before the task takes any resource.
+     *
+     * <p>Backend allocation resolves the backends through the very compute group being checked, so
+     * a missing group makes it return an empty list and pause the job with a generic
+     * "no available BE found for job ... please check the BE status and user's cluster or tags".
+     * If the re-check ran after allocation it could never fire for a dropped group, and the
+     * operator would be sent to look at BE health for what is really a compute group that is gone.
+     * Running it first also means no transaction has been begun yet when it fails.
+     */
+    @Test
+    public void testDroppedComputeGroupFailsTaskBeforeBackendAllocation() {
+        enterCloudMode(true, Lists.newArrayList("cg_live"));
+
+        RecordingKafkaRoutineLoadJob job = new RecordingKafkaRoutineLoadJob();
+        Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.RUNNING);
+        Deencapsulation.setField(job, "userIdentity", UserIdentity.ADMIN);
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(RoutineLoadJob.COMPUTE_GROUP, "cg_dropped");
+        Deencapsulation.setField(job, "jobProperties", jobProperties);
+
+        Map<Long, RoutineLoadJob> jobs = Maps.newHashMap();
+        jobs.put(1L, job);
+        RoutineLoadTaskScheduler scheduler =
+                new RoutineLoadTaskScheduler(new TestCloudRoutineLoadManager(jobs));
+
+        ConcurrentMap<Integer, Long> partitionIdToOffset = Maps.newConcurrentMap();
+        partitionIdToOffset.put(1, 100L);
+        KafkaTaskInfo taskInfo = new AlwaysReadyKafkaTaskInfo(new UUID(1, 1), 1L, partitionIdToOffset);
+
+        try {
+            Deencapsulation.invoke(scheduler, "scheduleOneTask", taskInfo);
+            // Without the check in front, scheduling reaches allocateTaskToBe, which finds no
+            // backend for the dropped group, pauses the job with "no available BE found" and
+            // returns normally - so reaching this line is itself the regression.
+            Assert.fail("scheduling a task of a job pinned to a dropped compute group must fail,"
+                    + " last pause reason: " + job.pauseMsg);
+        } catch (Exception expected) {
+            // scheduleOneTask pauses the job and rethrows
+        }
+
+        Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, job.newState);
+        Assert.assertNotNull("the job must be paused with a reason", job.pauseMsg);
+        Assert.assertTrue(job.pauseMsg, job.pauseMsg.contains("Compute group 'cg_dropped' not found."));
+        Assert.assertFalse("the operator must not be sent to look at BE status for a dropped group",
+                job.pauseMsg.contains("no available BE found"));
+    }
+
+    private CreateRoutineLoadInfo newCreateInfo(String declaredComputeGroup) {
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadInfo.COMPUTE_GROUP, declaredComputeGroup);
+        Map<String, String> dataSourceProperties = Maps.newHashMap();
+        dataSourceProperties.put("kafka_broker_list", "127.0.0.1:9092");
+        dataSourceProperties.put("kafka_topic", "test_topic");
+        Map<String, LoadProperty> loadPropertyMap = Maps.newHashMap();
+        return new CreateRoutineLoadInfo(new LabelNameInfo("test_db", "test_job"), "test_tbl",
+                loadPropertyMap, jobProperties, "kafka", dataSourceProperties,
+                LoadTask.MergeType.APPEND, "");
+    }
+
     private Backend createBackend(long id) {
         Backend backend = new Backend(id, "127.0.0." + id, 9050);
         backend.setAlive(true);
         return backend;
+    }
+
+    /**
+     * KafkaTaskInfo asks the real RoutineLoadManager, and then Kafka, whether there is more data to
+     * consume. Neither exists here, so answer yes and let scheduling proceed to the part under
+     * test: without the compute group check in front, it must reach backend allocation.
+     */
+    private static class AlwaysReadyKafkaTaskInfo extends KafkaTaskInfo {
+        private AlwaysReadyKafkaTaskInfo(UUID id, long jobId, Map<Integer, Long> partitionIdToOffset) {
+            super(id, jobId, 20000, partitionIdToOffset, false, -1, false);
+        }
+
+        @Override
+        boolean hasMoreDataToConsume() {
+            return true;
+        }
+    }
+
+    /** Captures the state transition instead of writing an edit log. */
+    private static class RecordingKafkaRoutineLoadJob extends KafkaRoutineLoadJob {
+        private JobState newState;
+        private String pauseMsg;
+
+        @Override
+        public void updateState(JobState jobState, ErrorReason reason, boolean isReplay) {
+            this.newState = jobState;
+            this.pauseMsg = reason == null ? null : reason.getMsg();
+        }
     }
 
     private static class ClusterAwareCloudSystemInfoService extends CloudSystemInfoService {
@@ -260,6 +427,12 @@ public class RoutineLoadComputeGroupTest {
         @Override
         public RoutineLoadJob getJob(long jobId) {
             return jobs.get(jobId);
+        }
+
+        // the real one looks the task up in idToRoutineLoadJob, which this stub never fills
+        @Override
+        public boolean checkTaskInJob(RoutineLoadTaskInfo task) {
+            return jobs.containsKey(task.getJobId());
         }
 
         private List<Long> getAvailableBackendIdsForTest(long jobId) throws LoadException {

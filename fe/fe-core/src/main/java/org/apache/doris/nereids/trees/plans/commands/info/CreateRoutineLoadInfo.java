@@ -173,6 +173,14 @@ public class CreateRoutineLoadInfo {
 
     private String computeGroupName;
 
+    // Set only by the metadata load path (RoutineLoadJob#gsonPostProcess), which re-parses the
+    // stored statement to rebuild the RoutineLoadDesc rather than to admit a new job. Resource
+    // existence must not be re-checked there: a compute group can be dropped, renamed or scaled to
+    // zero backends while a job exists, and an exception during metadata load is turned into
+    // JobState.CANCELLED, which is final and cannot be undone by RESUME. Such a job has to be
+    // paused by the per task check instead, which is recoverable.
+    private boolean isReplay = false;
+
     /**
      * support partial columns load(Only Unique Key Columns)
      */
@@ -389,6 +397,15 @@ public class CreateRoutineLoadInfo {
 
     public String getComputeGroupName() {
         return computeGroupName;
+    }
+
+    /**
+     * Marks this info object as rebuilt from persisted metadata instead of parsed from a user
+     * statement, so that {@link #validate(ConnectContext)} skips checks against resources that may
+     * legitimately have disappeared since the job was created.
+     */
+    public void setReplay(boolean isReplay) {
+        this.isReplay = isReplay;
     }
 
     /**
@@ -620,7 +637,13 @@ public class CreateRoutineLoadInfo {
 
         String inputComputeGroupStr = jobProperties.get(COMPUTE_GROUP);
         if (!StringUtils.isEmpty(inputComputeGroupStr)) {
-            ComputeGroupBindingUtil.validateDeclaredComputeGroup(ConnectContext.get(), inputComputeGroupStr);
+            // The name is always adopted, because the workload group check below resolves in its
+            // namespace, but it is only validated when a user is actually declaring it. On the
+            // metadata load path the declared group may have been dropped long ago, and failing
+            // there would cancel the job permanently instead of pausing it - see isReplay.
+            if (!isReplay) {
+                ComputeGroupBindingUtil.validateDeclaredComputeGroup(ConnectContext.get(), inputComputeGroupStr);
+            }
             this.computeGroupName = inputComputeGroupStr;
         }
 

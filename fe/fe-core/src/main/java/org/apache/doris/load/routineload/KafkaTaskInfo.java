@@ -27,7 +27,6 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.load.NereidsLoadTaskInfo;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.computegroup.ComputeGroupBindingUtil;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TKafkaLoadInfo;
 import org.apache.doris.thrift.TLoadSourceType;
@@ -79,18 +78,9 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     public TRoutineLoadTask createRoutineLoadTask() throws UserException {
         KafkaRoutineLoadJob routineLoadJob = (KafkaRoutineLoadJob) routineLoadManager.getJob(jobId);
 
-        // The group can be dropped and the owner's privileges revoked while the job runs, so the
-        // declared compute group is re-checked before every task rather than only at create time.
-        // Throwing here lets RoutineLoadTaskScheduler stop the job with the real reason instead of
-        // letting it fail later with something unrelated, such as "no available BE found".
-        //
-        // Only the explicitly declared compute group is re-checked. A job that declared none is
-        // bound to whatever cluster its creating session happened to be on, which the user never
-        // chose, so putting that implicit binding under a new privilege check would start pausing
-        // jobs that predate this feature. The workload group is not checked here: it is resolved
-        // below through WorkloadGroupMgr#getWorkloadGroup, which already checks it.
-        ComputeGroupBindingUtil.checkComputeGroupBeforeTask(routineLoadJob.getUserIdentity(),
-                routineLoadJob.getDeclaredComputeGroup());
+        // The declared compute group is re-checked before every task, but that happens earlier, in
+        // RoutineLoadTaskScheduler#scheduleOneTask: it has to run before backend allocation and
+        // before beginTxn, neither of which has happened by the time this method is called.
 
         // init tRoutineLoadTask and create plan fragment
         TRoutineLoadTask tRoutineLoadTask = new TRoutineLoadTask();

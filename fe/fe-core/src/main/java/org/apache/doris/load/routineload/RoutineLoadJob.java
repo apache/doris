@@ -2029,6 +2029,10 @@ public abstract class RoutineLoadJob
                 CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
                         origStmt.originStmt);
                 CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
+                // This re-parse only rebuilds the RoutineLoadDesc; it must not re-check resources
+                // that can legitimately have disappeared since the job was created, because the
+                // catch below turns any failure into the final CANCELLED state.
+                createRoutineLoadInfo.setReplay(true);
                 // If tableId is set, resolve the current table name by ID so that
                 // table rename / SWAP TABLE won't cause replay to fail with stale name in origStmt.
                 if (!isMultiTable && tableId != 0) {

@@ -179,4 +179,99 @@ suite("test_routine_load_compute_group", "p0") {
         }
         sql """DROP TABLE IF EXISTS ${tableName}"""
     }
+
+    // The binding is re-checked before every task, not only at CREATE time: revoking the job
+    // owner's USAGE on the declared compute group must pause the job with that reason.
+    //
+    // The check is deliberately placed before the task takes any resource - before backend
+    // allocation and before the load transaction is begun - so that a group which has been dropped
+    // outright cannot first surface as "no available BE found". That ordering is what
+    // RoutineLoadComputeGroupTest#testDroppedComputeGroupFailsTaskBeforeBackendAllocation pins
+    // down; here we cover the privilege half end to end, which needs a real running job.
+    String revokeUser = "test_rl_cg_revoke_user"
+    String revokePwd = "Test_12345"
+    String revokeJob = "test_rl_cg_revoke_job"
+    String revokeTable = "test_rl_cg_revoke_tbl"
+
+    sql """DROP TABLE IF EXISTS ${revokeTable}"""
+    sql """
+        CREATE TABLE ${revokeTable} (
+            `k1` INT NULL,
+            `k2` STRING NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+    """
+    sql """DROP USER IF EXISTS ${revokeUser}"""
+    sql """CREATE USER '${revokeUser}' IDENTIFIED BY '${revokePwd}'"""
+    sql """GRANT LOAD_PRIV, SELECT_PRIV ON *.*.* TO ${revokeUser}"""
+    sql """GRANT USAGE_PRIV ON COMPUTE GROUP `${cgName}` TO ${revokeUser}"""
+
+    try {
+        // Created by the user, so RoutineLoadJob#userIdentity - the identity the per task check
+        // runs against - is that user rather than the admin running this suite.
+        connect(revokeUser, "${revokePwd}", context.config.jdbcUrl) {
+            sql """use ${context.dbName}"""
+            sql """
+                CREATE ROUTINE LOAD ${revokeJob} ON ${revokeTable}
+                COLUMNS TERMINATED BY ","
+                PROPERTIES (
+                    "max_batch_interval" = "5",
+                    "max_batch_rows" = "300000",
+                    "max_batch_size" = "209715200",
+                    "compute_group" = "${cgName}"
+                )
+                FROM KAFKA (
+                    "kafka_broker_list" = "${kafka_broker}",
+                    "kafka_topic" = "${topic}",
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                );
+            """
+        }
+
+        def runningBeforeRevoke = false
+        for (int i = 0; i < 60; i++) {
+            def state = sql_return_maparray("SHOW ROUTINE LOAD FOR ${revokeJob}").get(0).State
+            if (state == "RUNNING") {
+                runningBeforeRevoke = true
+                break
+            }
+            sleep(1000)
+        }
+        assertTrue("the job must be running before its privilege is revoked", runningBeforeRevoke)
+
+        sql """REVOKE USAGE_PRIV ON COMPUTE GROUP `${cgName}` FROM ${revokeUser}"""
+
+        // The check runs ahead of the "is there more data to consume" probe, so the job is refused
+        // on the next scheduling round whether or not the topic has new records.
+        def pausedForComputeGroup = false
+        def sawBeAvailabilityReason = false
+        def lastSeen = ""
+        for (int i = 0; i < 90; i++) {
+            def row = sql_return_maparray("SHOW ROUTINE LOAD FOR ${revokeJob}").get(0)
+            def reason = row.ReasonOfStateChanged == null ? "" : row.ReasonOfStateChanged
+            lastSeen = "state=${row.State}, reason=${reason}"
+            if (reason.contains("no available BE found")) {
+                sawBeAvailabilityReason = true
+            }
+            if (reason.contains("USAGE denied") && reason.contains(cgName)) {
+                pausedForComputeGroup = true
+                break
+            }
+            sleep(1000)
+        }
+        assertTrue("revoking USAGE must fail the next task with the real reason, last seen: ${lastSeen}",
+                pausedForComputeGroup)
+        assertFalse("a compute group problem must never be reported as a BE availability problem",
+                sawBeAvailabilityReason)
+    } finally {
+        try {
+            sql "STOP ROUTINE LOAD FOR ${revokeJob}"
+        } catch (Exception e) {
+            logger.info("stop routine load failed: ${e.getMessage()}")
+        }
+        sql """DROP TABLE IF EXISTS ${revokeTable}"""
+        sql """DROP USER IF EXISTS ${revokeUser}"""
+    }
 }
