@@ -32,6 +32,24 @@ void GroupRowsetWriter::set_row_binlog_writer(
     _row_binlog_rowset_writer = row_binlog_rowset_writer;
 }
 
+Status GroupRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
+    DCHECK(_txn_rowset_writer != nullptr);
+    DCHECK(_row_binlog_rowset_writer != nullptr);
+
+    _context = rowset_writer_context;
+    auto& data_ctx = const_cast<RowsetWriterContext&>(_txn_rowset_writer->context());
+    auto& row_binlog_ctx = const_cast<RowsetWriterContext&>(_row_binlog_rowset_writer->context());
+    _context._need_allocate_lsn =
+            data_ctx.need_allocated_lsn() || row_binlog_ctx.need_allocated_lsn();
+    if (_context.need_allocated_lsn()) {
+        // Share segment LSNs between data and row-binlog writers.
+        _context.allocated_lsn_map = std::make_shared<segment_v2::SegmentAllocatedLsnMap>();
+        data_ctx.allocated_lsn_map = _context.allocated_lsn_map;
+        row_binlog_ctx.allocated_lsn_map = _context.allocated_lsn_map;
+    }
+    return Status::OK();
+}
+
 Status GroupRowsetWriter::flush_rowsets() {
     RETURN_IF_ERROR(_txn_rowset_writer->flush());
     RETURN_IF_ERROR(_row_binlog_rowset_writer->flush());

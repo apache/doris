@@ -39,10 +39,7 @@ public:
 
     RowsetWriterSharedPtr data_writer() { return _txn_rowset_writer; }
 
-    Status init(const RowsetWriterContext& rowset_writer_context) override {
-        _context = rowset_writer_context;
-        return Status::OK();
-    }
+    Status init(const RowsetWriterContext& rowset_writer_context) override;
 
     Status add_block(const Block* block) override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(

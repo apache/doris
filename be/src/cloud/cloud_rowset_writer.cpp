@@ -41,6 +41,10 @@ CloudRowsetWriter::~CloudRowsetWriter() {
 
 Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
+    // Row-binlog writer or a schema carrying ROW_LSN_COL needs allocated LSN.
+    _context._need_allocate_lsn =
+            _context.write_binlog_opt().enable ||
+            (_context.tablet_schema != nullptr && _context.tablet_schema->row_lsn_col_idx() >= 0);
     _rowset_meta = std::make_shared<RowsetMeta>();
 
     if (_context.is_local_rowset()) {

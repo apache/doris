@@ -119,6 +119,10 @@ SharedMemtable::~SharedMemtable() {
     if (block == nullptr) {
         return;
     }
+    if (has_allocated_lsns) {
+        DCHECK(rowset_ctx != nullptr);
+        rowset_ctx->remove_segment_allocated_lsns(segment_id);
+    }
     DCHECK(memtable != nullptr);
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
             memtable->resource_ctx()->memory_context()->mem_tracker()->write_tracker());
@@ -183,6 +187,8 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
 
         shared_memtable = std::make_shared<SharedMemtable>();
         shared_memtable->memtable = mem_table;
+        shared_memtable->rowset_ctx =
+                const_cast<RowsetWriterContext*>(&group_rowset_writer->context());
         // Keep data/binlog segment_id allocators in sync.
         auto segment_id = DORIS_TRY(data_writer->allocate_segment_id());
         auto binlog_segment_id = DORIS_TRY(binlog_writer->allocate_segment_id());
@@ -308,6 +314,15 @@ Status FlushToken::_memtable2block(MemTable* memtable, SharedMemtable* shared_me
         shared_memtable->block_status = memtable->to_block(&block);
         if (shared_memtable->block_status.ok()) {
             shared_memtable->block.reset(block.release());
+            auto* rowset_ctx = shared_memtable->rowset_ctx;
+            DCHECK(rowset_ctx != nullptr);
+            if (rowset_ctx->need_allocated_lsn() && shared_memtable->block->rows() > 0) {
+                auto memtable_lsns = memtable->allocated_lsns();
+                DCHECK_EQ(memtable_lsns->size(), shared_memtable->block->rows());
+                rowset_ctx->insert_segment_allocated_lsns(shared_memtable->segment_id,
+                                                          memtable_lsns);
+                shared_memtable->has_allocated_lsns = true;
+            }
         }
     });
     if (!shared_memtable->block_status.ok()) {
@@ -392,16 +407,6 @@ void FlushToken::_flush_memtable_impl(RowsetWriter* flush_writer, MemTable* memt
             // }};
             std::shared_ptr<Block> flush_block;
             RETURN_IF_ERROR(_memtable2block(memtable, shared_memtable, flush_block));
-            if (flush_writer->context().write_binlog_opt().enable && flush_block->rows() > 0) {
-                const auto& memtable_lsns = memtable->row_binlog_lsns();
-                DCHECK_EQ(memtable_lsns.size(), flush_block->rows());
-                auto lsn_ids = std::make_shared<std::vector<int64_t>>(memtable_lsns.begin(),
-                                                                      memtable_lsns.end());
-                const_cast<RowsetWriterContext&>(flush_writer->context())
-                        .write_binlog_opt()
-                        .write_binlog_config()
-                        .insert_seg_lsn(segment_id, std::move(lsn_ids));
-            }
             RETURN_IF_ERROR(
                     flush_writer->flush_memtable(flush_block.get(), segment_id, &flush_size));
             memtable->set_flush_success();

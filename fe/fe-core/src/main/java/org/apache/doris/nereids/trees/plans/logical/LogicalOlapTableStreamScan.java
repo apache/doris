@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.constraint.TableIdentifier;
@@ -129,9 +130,13 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         if (cachedOutput.isPresent()) {
             return cachedOutput.get();
         }
-        // for reset, we could use get full schema of base table;
-        // otherwise, we only need to get the schema without hidden columns
-        List<Column> baseSchema = table.getBaseSchema(readMode == StreamReadMode.RESET);
+        // RESET and DUP_KEYS SNAPSHOT are rebuilt from the base table directly (no binlog union),
+        // so use the full schema to expose hidden columns like ROW_LSN_COL. Others only need visible.
+        boolean useFullSchemaScan = readMode == StreamReadMode.RESET
+                || (readMode == StreamReadMode.SNAPSHOT
+                        && table instanceof OlapTable
+                        && ((OlapTable) table).getKeysType() == KeysType.DUP_KEYS);
+        List<Column> baseSchema = table.getBaseSchema(useFullSchemaScan);
         List<SlotReference> slotFromColumn = createSlotsVectorized(baseSchema);
 
         ImmutableList.Builder<Slot> slots = ImmutableList.builder();
@@ -144,16 +149,16 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                 continue;
             }
             Pair<Long, String> key = Pair.of(selectedIndexId, col.getName());
-            // For INCREMENTAL / SNAPSHOT reads, non-key value columns are materialized from the
-            // base table row-binlog whose after/before value columns are always nullable (see
+            // For INCREMENTAL / SNAPSHOT(MOW) reads, non-key value columns are materialized from
+            // the base table row-binlog whose after/before value columns are always nullable (see
             // Column.generateAfterValueColumn / generateBeforeValueColumn). Declare these value
             // columns as nullable here so the stream scan output stays consistent with the plan
             // expanded in NormalizeOlapTableStreamScan, otherwise AdjustNullable reports a
-            // not-nullable -> nullable conflict. RESET does a full base-table scan, so keep its
-            // original nullability.
+            // not-nullable -> nullable conflict. Full base scans (RESET / SNAPSHOT(DUP)) do a full
+            // base-table scan, so keep their original nullability.
             Slot slot = cacheSlotWithSlotName.computeIfAbsent(key, k -> {
                 SlotReference slotRef = slotFromColumn.get(index);
-                boolean forceNullable = readMode != StreamReadMode.RESET && !baseSchema.get(index).isKey();
+                boolean forceNullable = !useFullSchemaScan && !baseSchema.get(index).isKey();
                 return forceNullable ? slotRef.withNullable(true) : slotRef;
             });
             slots.add(slot);
@@ -174,6 +179,11 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
             // add stream exclusive virtual columns.
             slots.add(SlotReference.fromColumn(
                     exprIdGenerator.getNextId(), table, Column.STREAM_SEQ_VIRTUAL_COLUMN, qualified()));
+            // Only expose stream LSN when the base table stores row LSN, e.g. dup table with binlog.
+            if (table instanceof OlapTable && ((OlapTable) table).hasRowLsnColumn()) {
+                slots.add(SlotReference.fromColumn(
+                        exprIdGenerator.getNextId(), table, Column.STREAM_LSN_VIRTUAL_COLUMN, qualified()));
+            }
             slots.add(SlotReference.fromColumn(
                     exprIdGenerator.getNextId(), table, Column.STREAM_CHANGE_TYPE_VIRTUAL_COLUMN, qualified()));
         }
