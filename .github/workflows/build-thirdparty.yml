@@ -65,7 +65,9 @@ jobs:
               - 'thirdparty/paimon-cpp-cache.cmake'
               - 'thirdparty/patches/apache-arrow-*.patch'
               - 'thirdparty/patches/paimon-cpp-*.patch'
+              - 'regression-test/pipeline/external/conf/fe.conf'
               - 'thirdparty/test/arrow-paimon-lifecycle-test.sh'
+              - 'thirdparty/test/adbc-jni-config-test.sh'
               - 'thirdparty/test/paimon-codec-dependency-test.sh'
               - '.github/workflows/build-thirdparty.yml'
 
@@ -81,6 +83,7 @@ jobs:
       - name: Test focused thirdparty lifecycle
         run: |
           thirdparty/test/arrow-paimon-lifecycle-test.sh
+          thirdparty/test/adbc-jni-config-test.sh
           thirdparty/test/paimon-codec-dependency-test.sh
 
   build_linux:
