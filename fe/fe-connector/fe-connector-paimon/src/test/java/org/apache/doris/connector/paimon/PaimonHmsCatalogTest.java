@@ -104,7 +104,7 @@ public class PaimonHmsCatalogTest {
         HiveConf hiveConf = new HiveConf();
         hiveConf.set("hive.metastore.sasl.enabled", "true");
         HiveCatalog hiveCatalog = new HiveCatalog(
-                new RecordingFileIO(), hiveConf, null, options, "record:///warehouse");
+                new RecordingFileIO(), hiveConf, null, CatalogContext.create(options), "record:///warehouse");
         AtomicReference<Table> createdTable = new AtomicReference<>();
         AtomicReference<String> rpcUser = new AtomicReference<>();
         IMetaStoreClient client = (IMetaStoreClient) Proxy.newProxyInstance(
