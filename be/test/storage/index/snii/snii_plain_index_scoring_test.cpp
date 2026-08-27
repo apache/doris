@@ -23,9 +23,9 @@
 // BM25 wants. That semantic view was introduced inside the CommonGrams segment
 // metadata, and the scoring gate was written as "does this segment carry
 // CommonGrams metadata" -- which made an ordinary analyzed index unscoreable.
-// V1/V2/V3 score the same index (see regression test_bm25_score.groovy) and
-// even score with norms omitted (test_omit_norms.groovy), so SNII was the
-// outlier. These cases pin the aligned behaviour.
+// V1/V2/V3 score the same analyzed, position-enabled index (see regression
+// test_bm25_score.groovy), so SNII was the outlier. These cases pin the aligned
+// behaviour and SNII's explicit norms requirement.
 
 #include <gtest/gtest.h>
 
@@ -50,6 +50,7 @@
 #include "storage/index/snii/stats/snii_stats_provider.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/olap_common.h"
+#include "storage/segment/column_writer.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
@@ -327,6 +328,95 @@ TEST_F(SniiPlainIndexScoring, PlainAnalyzedArrayIndexOpensTheScoringStatsProvide
     ASSERT_TRUE(open_status.ok()) << open_status;
     EXPECT_TRUE(stats.has_norms());
     EXPECT_DOUBLE_EQ(stats.avgdl(), 4.0);
+}
+
+TEST_F(SniiPlainIndexScoring, OuterNullArrayPayloadDoesNotAffectScoring) {
+    const TabletIndex index_meta = plain_index_meta(/*support_phrase=*/true);
+    const std::string prefix = prefix_for("outer_null_array_rs");
+
+    DataTypePtr item_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+    DataTypePtr array_type = std::make_shared<DataTypeArray>(item_type);
+    MutableColumnPtr nested = array_type->create_column();
+    for (const auto& text : {"alpha beta", "poison poison poison", "gamma"}) {
+        Array value;
+        value.push_back(Field::create_field<TYPE_STRING>(std::string(text)));
+        nested->insert(Field::create_field<TYPE_ARRAY>(value));
+    }
+    auto null_map = ColumnUInt8::create();
+    null_map->insert_value(0);
+    null_map->insert_value(1);
+    null_map->insert_value(0);
+    ColumnPtr column = ColumnNullable::create(std::move(nested), std::move(null_map));
+    Block block;
+    block.insert({column, std::make_shared<DataTypeNullable>(array_type), "body"});
+
+    TabletSchemaSPtr schema = array_schema();
+    io::FileWriterPtr data_file_writer;
+    ASSERT_TRUE(io::global_local_filesystem()
+                        ->create_file(fmt::format("{}/outer_null_array.dat", kTestDir),
+                                      &data_file_writer)
+                        .ok());
+    auto index_file_writer = open_writer(prefix, "outer_null_array_rs");
+
+    segment_v2::ColumnMetaPB column_meta;
+    column_meta.set_column_id(0);
+    column_meta.set_unique_id(0);
+    column_meta.set_type(int(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    column_meta.set_length(0);
+    column_meta.set_encoding(segment_v2::PLAIN_ENCODING);
+    column_meta.set_compression(segment_v2::CompressionTypePB::LZ4F);
+    column_meta.set_is_nullable(true);
+    auto* item_meta = column_meta.add_children_columns();
+    item_meta->set_column_id(0);
+    item_meta->set_unique_id(0);
+    item_meta->set_type(int(FieldType::OLAP_FIELD_TYPE_STRING));
+    item_meta->set_length(INT_MAX);
+    item_meta->set_encoding(segment_v2::PLAIN_ENCODING);
+    item_meta->set_compression(segment_v2::CompressionTypePB::LZ4F);
+    item_meta->set_is_nullable(true);
+
+    segment_v2::ColumnWriterOptions writer_options;
+    writer_options.meta = &column_meta;
+    writer_options.need_inverted_index = true;
+    writer_options.inverted_indexes = {&index_meta};
+    writer_options.index_file_writer = index_file_writer.get();
+    writer_options.file_writer = data_file_writer.get();
+    writer_options.compression_type = segment_v2::CompressionTypePB::LZ4F;
+    std::unique_ptr<segment_v2::ColumnWriter> writer;
+    ASSERT_TRUE(segment_v2::ColumnWriter::create(writer_options, &schema->column(0),
+                                                 data_file_writer.get(), &writer)
+                        .ok());
+    ASSERT_TRUE(writer->init().ok());
+
+    OlapBlockDataConvertor convertor(schema.get(), {0});
+    convertor.set_source_content(&block, 0, block.rows());
+    auto [convert_status, accessor] = convertor.convert_column_data(0);
+    ASSERT_TRUE(convert_status.ok()) << convert_status;
+    const auto* array_data = reinterpret_cast<const uint8_t*>(accessor->get_data());
+    ASSERT_TRUE(writer->append_nullable(accessor->get_nullmap(), &array_data, block.rows()).ok());
+    ASSERT_TRUE(writer->finish().ok());
+    ASSERT_TRUE(writer->write_inverted_index().ok());
+    ASSERT_TRUE(index_file_writer->begin_close().ok());
+    ASSERT_TRUE(index_file_writer->finish_close().ok());
+    ASSERT_TRUE(data_file_writer->close().ok());
+
+    IndexFileReader reader(io::global_local_filesystem(), prefix,
+                           InvertedIndexStorageFormatPB::SNII);
+    ASSERT_TRUE(reader.init().ok());
+    auto logical = reader.open_snii_index(&index_meta);
+    ASSERT_TRUE(logical.has_value()) << logical.error();
+
+    doris::snii::stats::SniiStatsProvider stats;
+    ASSERT_TRUE(doris::snii::stats::SniiStatsProvider::open(logical.value().get(), &stats).ok());
+    EXPECT_EQ(logical.value()->stats().doc_count, 3);
+    EXPECT_EQ(logical.value()->stats().sum_total_term_freq, 3);
+    EXPECT_DOUBLE_EQ(stats.avgdl(), 1.0);
+    uint64_t poison_df = 0;
+    ASSERT_TRUE(stats.doc_freq("poison", &poison_df).ok());
+    EXPECT_EQ(poison_df, 0);
+    uint8_t null_norm = 0;
+    ASSERT_TRUE(stats.encoded_norm(1, &null_norm).ok());
+    EXPECT_EQ(null_norm, doris::snii::query::encode_norm(0));
 }
 
 // Guard against over-reach: without positions there is no scoring tier, exactly

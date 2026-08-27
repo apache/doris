@@ -1090,26 +1090,15 @@ Status SniiIndexReader::_try_count_only_fastpath(
                                             &logical_reader));
     }
 
-    // ARRAY columns: df is NOT null-free, so nothing below may fabricate from it.
-    // ArrayColumnWriter::append_nullable hands add_array_values() every row of the
-    // batch -- the offsets come from the nested ColumnArray, and
-    // OlapColumnDataConvertorArray::convert_to_olap reads them without ever
-    // consulting the outer null map -- and the add_array_nulls() that follows only
-    // RECORDS the null row ids, it never retracts the tokens already emitted for
-    // them. A nullable array whose nested payload survives under the null map does
-    // occur: PreparedFunctionImpl::default_implementation_for_nulls documents that
-    // nested columns keep "arbitrary values in rows corresponding to NULL value",
-    // and need_replace_null_data_to_default() is false by default, so e.g.
-    // array_concat(arr, nullable_arr) writes arr's tokens on a NULL row. That row
-    // then sits in a posting and is counted by df. The decode path stays correct --
-    // mask_out_null subtracts it -- but the fabrication below deliberately places
-    // its ids OFF the null rows, so the same subtraction removes nothing and the
-    // count comes out too high. CLucene writes arrays identically
-    // (InvertedIndexColumnWriter::add_array_nulls only touches _null_bitmap), so
-    // this cannot be repaired from the reader side; decline whenever this segment
-    // has a null bitmap at all. Scalars are unaffected: ScalarColumnWriter::
-    // append_nullable splits the batch into runs and sends null runs to
-    // append_nulls(), which emits no tokens.
+    // ARRAY columns in legacy SNII segments are not guaranteed to have null-free
+    // dfs. Older writers indexed the nested payload before recording the outer
+    // null bitmap, and nullable nested columns may legally retain arbitrary data
+    // under a NULL row. Current SNII writers suppress that payload, but the format
+    // does not distinguish the old segments; CLucene also keeps the legacy shape.
+    // The decode path masks null rows correctly, while the count fabrication below
+    // deliberately places ids off those rows and can over-count. Decline whenever
+    // an ARRAY segment has a null bitmap. Scalars are unaffected because their
+    // nullable writer sends null runs through add_nulls(), which emits no tokens.
     if (_column_is_array && logical_reader->section_refs().null_bitmap.length > 0) {
         return Status::OK();
     }

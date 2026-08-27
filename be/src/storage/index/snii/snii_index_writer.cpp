@@ -356,6 +356,22 @@ Status SniiIndexColumnWriter::add_values(const std::string /*name*/, const void*
 Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* value_ptr,
                                                const uint8_t* nested_null_map,
                                                const uint8_t* offsets_ptr, size_t count) {
+    return _add_array_values(field_size, value_ptr, nested_null_map, nullptr, offsets_ptr, count);
+}
+
+Status SniiIndexColumnWriter::add_nullable_array_values(size_t field_size, const void* value_ptr,
+                                                        const uint8_t* nested_null_map,
+                                                        const uint8_t* row_null_map,
+                                                        const uint8_t* offsets_ptr, size_t count) {
+    RETURN_IF_ERROR(_add_array_values(field_size, value_ptr, nested_null_map, row_null_map,
+                                      offsets_ptr, count));
+    return add_array_nulls(row_null_map, count);
+}
+
+Status SniiIndexColumnWriter::_add_array_values(size_t field_size, const void* value_ptr,
+                                                const uint8_t* nested_null_map,
+                                                const uint8_t* row_null_map,
+                                                const uint8_t* offsets_ptr, size_t count) {
     if (!_failure_status.ok()) {
         return _failure_status;
     }
@@ -370,6 +386,15 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* va
     size_t start_off = 0;
     for (size_t i = 0; i < count; ++i) {
         auto array_elem_size = offsets[i + 1] - offsets[i];
+        if (row_null_map != nullptr && row_null_map[i] == 1) {
+            if (_writes_norms()) {
+                _encoded_norms.push_back(::doris::snii::query::encode_norm(0));
+                _report_encoded_norms_capacity();
+            }
+            start_off += array_elem_size;
+            ++_rid;
+            continue;
+        }
         uint32_t position_base = 0;
         // One ARRAY row is one scored document, so its length is the token count
         // of every element together -- not per element.

@@ -57,6 +57,9 @@ public:
     Status add_array_values(size_t field_size, const void* value_ptr,
                             const uint8_t* nested_null_map, const uint8_t* offsets_ptr,
                             size_t count) override;
+    Status add_nullable_array_values(size_t field_size, const void* value_ptr,
+                                     const uint8_t* nested_null_map, const uint8_t* row_null_map,
+                                     const uint8_t* offsets_ptr, size_t count) override;
     Status add_nulls(uint32_t count) override;
     Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override;
     Status finish() override;
@@ -93,6 +96,9 @@ public:
 #endif
 
 private:
+    Status _add_array_values(size_t field_size, const void* value_ptr,
+                             const uint8_t* nested_null_map, const uint8_t* row_null_map,
+                             const uint8_t* offsets_ptr, size_t count);
     Status _add_value_tokens(const Slice& value, uint32_t docid, uint32_t position_base,
                              uint32_t* max_position, uint32_t* semantic_length);
     inverted_index::CommonGramsSegmentMetadata _build_common_grams_metadata() const;

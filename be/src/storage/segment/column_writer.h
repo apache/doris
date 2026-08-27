@@ -513,6 +513,7 @@ private:
     }
 
 private:
+    Status _append_data(const uint8_t** ptr, size_t num_rows, const uint8_t* row_null_map);
     Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
     bool has_empty_items() const { return _item_writer->get_next_rowid() == 0; }
 
