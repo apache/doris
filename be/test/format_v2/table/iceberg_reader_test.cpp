@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <cstring>
 #include <filesystem>
@@ -1784,6 +1785,44 @@ TEST(IcebergV2ReaderTest, AnnotateBuildsComplexInitialDefaults) {
             "\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb\xcc\xdd\xee\xff\x00\x11", 18);
     EXPECT_EQ(keys[0].get<TYPE_STRING>(), expected_binary_key);
     EXPECT_EQ(values[0].get<TYPE_INT>(), 9);
+}
+
+TEST(IcebergV2ReaderTest, AnnotateBuildsComplexDoubleDefaultAtFullPrecision) {
+    const auto double_type = std::make_shared<DataTypeFloat64>();
+    const auto list_type = make_nullable(std::make_shared<DataTypeArray>(double_type));
+    auto list_element =
+            external_schema_field("element", 2, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::DOUBLE), false, false);
+    auto list_field = external_schema_field("values", 1, {}, "[0.18172760479972437302]",
+                                            std::nullopt, false, true);
+    schema::external::TArrayField array_metadata;
+    array_metadata.__set_item_field(std::move(list_element));
+    list_field.field_ptr->nestedField.__set_array_field(std::move(array_metadata));
+    list_field.field_ptr->__isset.nestedField = true;
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(100, {std::move(list_field)})});
+
+    ColumnDefinition column;
+    column.name = "values";
+    column.type = list_type;
+    ProjectedColumnBuildContext context {.scan_params = &scan_params};
+    doris::format::iceberg::IcebergTableReader reader;
+    const auto status = reader.annotate_projected_column(TFileScanSlotInfo(), &context, &column);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(column.default_expr, nullptr);
+    const auto* literal = dynamic_cast<const VLiteral*>(column.default_expr->root().get());
+    ASSERT_NE(literal, nullptr);
+    const auto literal_column = literal->get_column_ptr()->convert_to_full_column_if_const();
+    const auto& nullable = assert_cast<const ColumnNullable&>(*literal_column);
+    ASSERT_FALSE(nullable.is_null_at(0));
+    const auto& array = assert_cast<const ColumnArray&>(nullable.get_nested_column());
+    const auto& nullable_doubles = assert_cast<const ColumnNullable&>(array.get_data());
+    ASSERT_FALSE(nullable_doubles.is_null_at(0));
+    const auto& doubles = assert_cast<const ColumnFloat64&>(nullable_doubles.get_nested_column());
+    ASSERT_EQ(doubles.size(), 1);
+    EXPECT_EQ(std::bit_cast<uint64_t>(doubles.get_data()[0]), 0x3fc742d9a3b296dcULL);
 }
 
 TEST(IcebergV2ReaderTest, ComplexInitialDefaultPrefersExactChildNameOverAlias) {
