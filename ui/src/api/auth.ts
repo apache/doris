@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import { withRuntimeBasePath } from '../runtimeBasePath';
 import { setCsrfToken } from './csrf';
 import { UiApiError } from './client';
 import { fetchMe } from './me';
@@ -70,7 +71,7 @@ function legacyResponseCode(body: unknown): number | null {
 export async function login(username: string, password: string): Promise<UiMe> {
   let response: Response;
   try {
-    response = await fetch('/rest/v1/login', {
+    response = await fetch(withRuntimeBasePath('/rest/v1/login'), {
       method: 'POST',
       headers: {
         Accept: 'application/json',
@@ -113,7 +114,7 @@ export async function login(username: string, password: string): Promise<UiMe> {
 }
 
 export async function logout(): Promise<void> {
-  const response = await fetch('/rest/v1/logout', {
+  const response = await fetch(withRuntimeBasePath('/rest/v1/logout'), {
     method: 'POST',
     headers: { Accept: 'application/json' },
     credentials: 'same-origin',

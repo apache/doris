@@ -63,14 +63,10 @@ export function useWebSqlSession() {
     void closeWebSqlSession(id, keepalive).catch(() => undefined);
   }, []);
 
-  const disposeOwnedSession = useCallback((keepalive: boolean) => {
-    const id = sessionIdRef.current;
-    sessionIdRef.current = null;
-    storeSessionId(null);
+  const releaseTabClaim = useCallback(() => {
     releaseClaimRef.current();
     releaseClaimRef.current = () => undefined;
-    if (id) closeInBackground(id, keepalive);
-  }, [closeInBackground]);
+  }, []);
 
   const adoptSession = useCallback((id: string) => {
     if (!mountedRef.current) {
@@ -102,12 +98,6 @@ export function useWebSqlSession() {
 
   useEffect(() => {
     mountedRef.current = true;
-    const handlePageHide = (event: PageTransitionEvent) => {
-      if (event.persisted) return;
-      mountedRef.current = false;
-      disposeOwnedSession(true);
-    };
-    window.addEventListener('pagehide', handlePageHide);
     const initialize = async () => {
       try {
         const stored = storedSessionId();
@@ -133,11 +123,10 @@ export function useWebSqlSession() {
     };
     void initialize();
     return () => {
-      window.removeEventListener('pagehide', handlePageHide);
       mountedRef.current = false;
-      disposeOwnedSession(false);
+      releaseTabClaim();
     };
-  }, [adoptSession, createSession, disposeOwnedSession]);
+  }, [adoptSession, createSession, releaseTabClaim]);
 
   const ensureSession = useCallback(async () => {
     if (sessionIdRef.current) return sessionIdRef.current;

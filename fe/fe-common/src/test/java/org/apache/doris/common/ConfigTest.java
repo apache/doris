@@ -166,4 +166,29 @@ public class ConfigTest {
             Config.web_sql_max_result_bytes = original;
         }
     }
+
+    @Test
+    public void testValidateWebSqlStartupConfig() throws ConfigException {
+        int originalIdleTimeout = Config.web_sql_session_idle_timeout_seconds;
+        int originalMaxSessions = Config.web_sql_max_sessions;
+        long originalMaxResultBytes = Config.web_sql_max_result_bytes;
+        try {
+            Config.validateWebSqlConfig();
+
+            Config.web_sql_session_idle_timeout_seconds = 0;
+            Assert.assertThrows(ConfigException.class, Config::validateWebSqlConfig);
+            Config.web_sql_session_idle_timeout_seconds = originalIdleTimeout;
+
+            Config.web_sql_max_sessions = 0;
+            Assert.assertThrows(ConfigException.class, Config::validateWebSqlConfig);
+            Config.web_sql_max_sessions = originalMaxSessions;
+
+            Config.web_sql_max_result_bytes = Config.WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND + 1;
+            Assert.assertThrows(ConfigException.class, Config::validateWebSqlConfig);
+        } finally {
+            Config.web_sql_session_idle_timeout_seconds = originalIdleTimeout;
+            Config.web_sql_max_sessions = originalMaxSessions;
+            Config.web_sql_max_result_bytes = originalMaxResultBytes;
+        }
+    }
 }

@@ -23,6 +23,7 @@ import { BrowserRouter } from 'react-router-dom';
 
 import { AppRoutes } from './app/AppRoutes';
 import { queryClient } from './app/queryClient';
+import { resolveRuntimeBasePath } from './runtimeBasePath';
 import './styles/global.css';
 
 const rootElement = document.getElementById('root');
@@ -31,25 +32,27 @@ if (!rootElement) {
   throw new Error('The application root element is missing.');
 }
 
-ReactDOM.createRoot(rootElement).render(
-  <React.StrictMode>
-    <ConfigProvider
-      theme={{
-        token: {
-          colorPrimary: '#0dbe85',
-          colorInfo: '#0dbe85',
-          colorText: '#1d2434',
-          borderRadius: 0,
-          controlHeight: 44,
-          fontFamily: '"IBM Plex Sans", "Noto Sans", Arial, sans-serif',
-        },
-      }}
-    >
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <AppRoutes />
-        </BrowserRouter>
-      </QueryClientProvider>
-    </ConfigProvider>
-  </React.StrictMode>,
-);
+void resolveRuntimeBasePath().then((basePath) => {
+  ReactDOM.createRoot(rootElement).render(
+    <React.StrictMode>
+      <ConfigProvider
+        theme={{
+          token: {
+            colorPrimary: '#0dbe85',
+            colorInfo: '#0dbe85',
+            colorText: '#1d2434',
+            borderRadius: 0,
+            controlHeight: 44,
+            fontFamily: '"IBM Plex Sans", "Noto Sans", Arial, sans-serif',
+          },
+        }}
+      >
+        <QueryClientProvider client={queryClient}>
+          <BrowserRouter basename={basePath || undefined}>
+            <AppRoutes />
+          </BrowserRouter>
+        </QueryClientProvider>
+      </ConfigProvider>
+    </React.StrictMode>,
+  );
+});

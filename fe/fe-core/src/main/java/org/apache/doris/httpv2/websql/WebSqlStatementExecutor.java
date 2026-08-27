@@ -19,9 +19,12 @@ package org.apache.doris.httpv2.websql;
 
 import org.apache.doris.common.Config;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Lists;
+import org.mariadb.jdbc.client.Context;
+import org.mariadb.jdbc.util.constants.ServerStatus;
 
-import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -37,6 +40,7 @@ import java.util.function.LongSupplier;
 
 /** Executes one validated statement on an existing Web SQL connection and builds a bounded JSON result. */
 public class WebSqlStatementExecutor {
+    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
     private final LongSupplier maxResultBytesSupplier;
 
     public WebSqlStatementExecutor() {
@@ -48,28 +52,31 @@ public class WebSqlStatementExecutor {
     }
 
     public WebSqlExecutionResult execute(WebSqlSession session, String sql, WebSqlLimits limits) {
-        String validatedSql = SingleStatementValidator.requireSingleStatement(sql);
         long maxResultBytes = currentMaxResultBytes();
         Connection connection = session.getConnection();
         long startTime = System.currentTimeMillis();
         QueryResult queryResult;
 
-        try (Statement statement = connection.createStatement(
-                ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
-            statement.setFetchSize(1000);
-            statement.setMaxRows(limits.maxResultRows + 1);
-            session.setActiveStatement(statement);
-            boolean hasResultSet = statement.execute(validatedSql);
-            if (hasResultSet) {
-                try (ResultSet resultSet = statement.getResultSet()) {
-                    queryResult = readResultSet(resultSet, statement, connection,
-                            limits.maxResultRows, maxResultBytes);
+        try {
+            String validatedSql = SingleStatementValidator.requireSingleStatement(
+                    sql, noBackslashEscapes(connection));
+            try (Statement statement = connection.createStatement(
+                    ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
+                statement.setFetchSize(1000);
+                statement.setMaxRows(limits.maxResultRows + 1);
+                session.setActiveStatement(statement);
+                boolean hasResultSet = statement.execute(validatedSql);
+                if (hasResultSet) {
+                    try (ResultSet resultSet = statement.getResultSet()) {
+                        queryResult = readResultSet(resultSet, statement, connection,
+                                limits.maxResultRows, maxResultBytes);
+                    }
+                } else {
+                    queryResult = new QueryResult(Collections.emptyList(), Collections.emptyList(),
+                            Math.max(statement.getUpdateCount(), 0), false);
                 }
-            } else {
-                queryResult = new QueryResult(Collections.emptyList(), Collections.emptyList(),
-                        Math.max(statement.getUpdateCount(), 0), false);
+                queryResult.warnings.addAll(readWarnings(statement));
             }
-            queryResult.warnings.addAll(readWarnings(statement));
         } catch (SQLTimeoutException exception) {
             throw new WebSqlException(WebSqlError.QUERY_TIMEOUT, sqlDetails(exception), exception);
         } catch (SQLException exception) {
@@ -82,6 +89,12 @@ public class WebSqlStatementExecutor {
         return new WebSqlExecutionResult(queryResult.columns, queryResult.rows, queryResult.affectedRows,
                 System.currentTimeMillis() - startTime, metadata.queryId, queryResult.warnings,
                 metadata.catalog, metadata.database, queryResult.truncated);
+    }
+
+    private boolean noBackslashEscapes(Connection connection) throws SQLException {
+        org.mariadb.jdbc.Connection mariaDbConnection = connection.unwrap(org.mariadb.jdbc.Connection.class);
+        Context context = mariaDbConnection.getContext();
+        return (context.getServerStatus() & ServerStatus.NO_BACKSLASH_ESCAPES) != 0;
     }
 
     private QueryResult readResultSet(ResultSet resultSet, Statement statement, Connection connection,
@@ -153,8 +166,12 @@ public class WebSqlStatementExecutor {
                 || type.regionMatches(true, 0, "DECIMAL", 0, "DECIMAL".length());
     }
 
-    private long valueSize(Object value) {
-        return value == null ? 4 : String.valueOf(value).getBytes(StandardCharsets.UTF_8).length;
+    long valueSize(Object value) throws SQLException {
+        try {
+            return JSON_MAPPER.writeValueAsBytes(value).length;
+        } catch (JsonProcessingException exception) {
+            throw new SQLException("The SQL result contains a value that cannot be serialized", exception);
+        }
     }
 
     private List<String> readWarnings(Statement statement) throws SQLException {

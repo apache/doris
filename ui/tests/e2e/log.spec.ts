@@ -24,17 +24,12 @@ test.setTimeout(60_000);
 test.afterEach(async ({ page }) => {
   if (page.isClosed()) return;
   await page.evaluate(async (name) => {
-    const response = await fetch('/rest/v1/ui/me');
-    if (!response.ok) return;
-    const envelope = await response.json() as { data?: { csrfToken?: string } };
-    const token = envelope.data?.csrfToken;
-    if (!token) return;
-    await fetch('/rest/v1/ui/log/verbose', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json', 'X-Doris-CSRF-Token': token },
-      body: JSON.stringify({ name }),
+    await fetch('/rest/v1/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ del_verbose: name }),
     });
-    await fetch('/rest/v1/ui/logout', { method: 'POST', headers: { 'X-Doris-CSRF-Token': token } });
+    await fetch('/rest/v1/logout', { method: 'POST' });
   }, loggerName).catch(() => undefined);
 });
 

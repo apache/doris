@@ -60,6 +60,10 @@ public class WebSqlSessionManager implements DisposableBean {
             .maximumSize(10000)
             .expireAfterWrite(1, TimeUnit.HOURS)
             .build();
+    private final Cache<String, Boolean> retiredHttpSessionIds = CacheBuilder.newBuilder()
+            .maximumSize(10000)
+            .expireAfterWrite(1, TimeUnit.HOURS)
+            .build();
     private final Object lifecycleLock = new Object();
     private int pendingSessions;
     private volatile boolean destroyed;
@@ -110,7 +114,7 @@ public class WebSqlSessionManager implements DisposableBean {
     private WebSqlSession createSession(String owner, String password, UserIdentity userIdentity,
             String httpSessionId) {
         requireEnabled();
-        reserveSession(owner);
+        reserveSession(owner, httpSessionId);
         Connection connection;
         try {
             connection = userIdentity == null
@@ -126,7 +130,7 @@ public class WebSqlSessionManager implements DisposableBean {
         boolean accepted;
         synchronized (lifecycleLock) {
             pendingSessions--;
-            accepted = !destroyed;
+            accepted = !destroyed && !isRetiredHttpSession(httpSessionId);
             if (accepted) {
                 sessions.put(id, session);
             } else {
@@ -135,6 +139,9 @@ public class WebSqlSessionManager implements DisposableBean {
         }
         if (!accepted) {
             closeConnection(session);
+            if (isRetiredHttpSession(httpSessionId)) {
+                throw new WebSqlException(WebSqlError.AUTHENTICATION_REQUIRED);
+            }
             throw new WebSqlException(WebSqlError.DISABLED);
         }
         return session;
@@ -233,10 +240,14 @@ public class WebSqlSessionManager implements DisposableBean {
         if (Strings.isNullOrEmpty(httpSessionId)) {
             return 0;
         }
-        List<WebSqlSession> owned = new ArrayList<>();
-        for (WebSqlSession session : sessions.values()) {
-            if (httpSessionId.equals(session.getHttpSessionId())) {
-                owned.add(session);
+        List<WebSqlSession> owned;
+        synchronized (lifecycleLock) {
+            retiredHttpSessionIds.put(httpSessionId, true);
+            owned = new ArrayList<>();
+            for (WebSqlSession session : sessions.values()) {
+                if (httpSessionId.equals(session.getHttpSessionId())) {
+                    owned.add(session);
+                }
             }
         }
         for (WebSqlSession session : owned) {
@@ -331,10 +342,13 @@ public class WebSqlSessionManager implements DisposableBean {
         }
     }
 
-    private void reserveSession(String owner) {
+    private void reserveSession(String owner, String httpSessionId) {
         synchronized (lifecycleLock) {
             if (destroyed) {
                 throw new WebSqlException(WebSqlError.DISABLED);
+            }
+            if (isRetiredHttpSession(httpSessionId)) {
+                throw new WebSqlException(WebSqlError.AUTHENTICATION_REQUIRED);
             }
             int maxSessions = currentMaxSessions();
             int maxSessionsPerUser = Math.min(maxSessions, limits.maxSessionsPerUser);
@@ -345,6 +359,10 @@ public class WebSqlSessionManager implements DisposableBean {
             pendingSessions++;
             sessionsPerOwner.merge(owner, 1, Integer::sum);
         }
+    }
+
+    private boolean isRetiredHttpSession(String httpSessionId) {
+        return httpSessionId != null && retiredHttpSessionIds.getIfPresent(httpSessionId) != null;
     }
 
     private void releaseReservation(String owner) {

@@ -29,15 +29,7 @@ async function signIn(page: Page) {
 test.afterEach(async ({ page }) => {
   if (page.isClosed()) return;
   await page.evaluate(async () => {
-    const response = await fetch('/rest/v1/ui/me');
-    if (!response.ok) return;
-    const envelope = await response.json() as { data?: { csrfToken?: string } };
-    const token = envelope.data?.csrfToken;
-    if (!token) return;
-    await fetch('/rest/v1/ui/logout', {
-      method: 'POST',
-      headers: { 'X-Doris-CSRF-Token': token },
-    });
+    await fetch('/rest/v1/logout', { method: 'POST' });
   }).catch(() => undefined);
 });
 
@@ -74,7 +66,7 @@ test('browses, refreshes, and history-navigates the live System Proc tree', asyn
 test('shows and filters the live read-only Sessions table', async ({ page }) => {
   await signIn(page);
   await page.getByRole('menuitem', { name: /Playground/ }).click();
-  await expect(page.locator('.session-ready')).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('.connection-status.session-ready')).toBeVisible({ timeout: 20_000 });
   await page.getByRole('menuitem', { name: /Sessions/ }).click();
   await expect(page.getByRole('heading', { name: 'Sessions', exact: true })).toBeVisible();
   await expect(page.getByText('Active sessions')).toBeVisible();

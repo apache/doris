@@ -24,16 +24,7 @@ test.setTimeout(90_000);
 test.afterEach(async ({ page }) => {
   if (page.isClosed()) return;
   await page.evaluate(async () => {
-    const response = await fetch('/rest/v1/ui/me');
-    if (!response.ok) return;
-    const me: unknown = await response.json();
-    if (!me || typeof me !== 'object' || !('data' in me)
-      || !me.data || typeof me.data !== 'object' || !('csrfToken' in me.data)
-      || typeof me.data.csrfToken !== 'string') return;
-    await fetch('/rest/v1/ui/logout', {
-      method: 'POST',
-      headers: { 'X-Doris-CSRF-Token': me.data.csrfToken },
-    });
+    await fetch('/rest/v1/logout', { method: 'POST' });
   }).catch(() => undefined);
 });
 
@@ -47,13 +38,12 @@ async function signIn(page: Page) {
 async function openPlayground(page: Page) {
   await page.getByRole('menuitem', { name: /Playground/ }).click();
   await expect(page.getByRole('heading', { name: 'Playground' })).toBeVisible();
-  await expect(page.locator('.session-ready')).toBeVisible();
-  const sessionDetails = page.getByLabel('SQL session details');
-  await expect(sessionDetails).toContainText('Connection status');
-  await expect(sessionDetails).toContainText('Session ID');
+  const sessionStatus = page.locator('.connection-status.session-ready strong');
+  await expect(sessionStatus).toHaveText('ready');
   const storedId = await page.evaluate((key) => sessionStorage.getItem(key), SESSION_KEY);
   expect(storedId).toBeTruthy();
-  await expect(sessionDetails.locator('code')).toHaveText(storedId);
+  await sessionStatus.hover();
+  await expect(page.getByRole('tooltip')).toContainText(`Session ID: ${storedId}`);
 }
 
 async function setSql(page: Page, statement: string) {
@@ -64,7 +54,7 @@ async function setSql(page: Page, statement: string) {
 
 async function runSql(page: Page, statement: string, resultNumber: number) {
   await setSql(page, statement);
-  await page.getByRole('button', { name: /Run selection \/ all/ }).click();
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
   await expect(page.getByText(`Result ${resultNumber}`, { exact: true })).toBeVisible({ timeout: 20_000 });
 }
 
@@ -94,7 +84,7 @@ test('keeps SQL state across statements and refresh, while cloned storage gets a
   expect(originalId).toBeTruthy();
   if (!originalId) throw new Error('The original tab did not store a SQL session id.');
   await page.reload();
-  await expect(page.locator('.session-ready')).toBeVisible();
+  await expect(page.locator('.connection-status.session-ready')).toBeVisible();
   await expect.poll(() => page.evaluate((key) => sessionStorage.getItem(key), SESSION_KEY)).toBe(originalId);
   await runSql(page, 'SELECT @m7_value AS value_after_refresh', 1);
   await expect(page.getByText('41', { exact: true })).toBeVisible();
@@ -103,7 +93,7 @@ test('keeps SQL state across statements and refresh, while cloned storage gets a
   await cloned.goto('/home');
   await cloned.evaluate(([key, id]) => sessionStorage.setItem(key, id), [SESSION_KEY, originalId]);
   await cloned.goto('/playground');
-  await expect(cloned.locator('.session-ready')).toBeVisible();
+  await expect(cloned.locator('.connection-status.session-ready')).toBeVisible();
   const clonedId = await cloned.evaluate((key) => sessionStorage.getItem(key), SESSION_KEY);
   expect(clonedId).toBeTruthy();
   expect(clonedId).not.toBe(originalId);
@@ -117,7 +107,7 @@ test('keeps SQL state across statements and refresh, while cloned storage gets a
 test('serializes Run, cancels, resets, rebuilds a missing session, and closes explicitly', async ({ page }) => {
   await signIn(page);
   await openPlayground(page);
-  const runButton = page.getByRole('button', { name: /Run selection \/ all/ });
+  const runButton = page.getByRole('button', { name: 'Run', exact: true });
 
   await setSql(page, 'SELECT SLEEP(5)');
   await runButton.click();
@@ -138,14 +128,13 @@ test('serializes Run, cancels, resets, rebuilds a missing session, and closes ex
   if (!expiredId) throw new Error('The page did not store a SQL session id.');
   const closeStatus = await page.evaluate(async (id) => {
     const me: unknown = await (await fetch('/rest/v1/ui/me')).json();
-    if (!me || typeof me !== 'object' || !('data' in me)
-      || !me.data || typeof me.data !== 'object' || !('csrfToken' in me.data)
-      || typeof me.data.csrfToken !== 'string') {
+    if (!me || typeof me !== 'object' || !('csrfToken' in me)
+      || typeof me.csrfToken !== 'string') {
       throw new Error('The UI session response did not contain a CSRF token.');
     }
     return (await fetch(`/rest/v1/sql-sessions/${encodeURIComponent(id)}`, {
       method: 'DELETE',
-      headers: { 'X-Doris-CSRF-Token': me.data.csrfToken },
+      headers: { 'X-Doris-CSRF-Token': me.csrfToken },
     })).status;
   }, expiredId);
   expect(closeStatus).toBe(200);
@@ -157,7 +146,7 @@ test('serializes Run, cancels, resets, rebuilds a missing session, and closes ex
   await page.getByRole('button', { name: 'Close session' }).click();
   await expect(page.getByText('The SQL session is closed')).toBeVisible();
   await page.getByRole('button', { name: 'Open session' }).click();
-  await expect(page.locator('.session-ready')).toBeVisible();
+  await expect(page.locator('.connection-status.session-ready')).toBeVisible();
   const reopenedId = await page.evaluate((key) => sessionStorage.getItem(key), SESSION_KEY);
   expect(reopenedId).not.toBe(rebuiltId);
 });

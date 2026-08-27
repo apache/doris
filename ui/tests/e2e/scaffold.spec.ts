@@ -36,13 +36,13 @@ test('signs in, refreshes Home, inspects nodes, and signs out', async ({ page })
   await page.getByRole('button', { name: 'Sign in' }).click();
 
   await expect(page).toHaveURL(/\/home$/);
-  await expect(page.getByRole('heading', { name: 'Home' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Cluster Overview' })).toBeVisible();
   await expect(page.locator('.version-grid .ant-descriptions-item-content').first()).not.toHaveText('—');
   await expect(page.getByText(/signed in with an empty password/i)).toBeVisible();
   await expect(page.getByRole('tab', { name: /Frontends \(1\)/ })).toBeVisible();
 
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Home' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Cluster Overview' })).toBeVisible();
   await expect(page.getByText('127.0.0.1').first()).toBeVisible();
 
   await page.getByLabel('Search frontends').fill('127.0.0.1');

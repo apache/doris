@@ -24,9 +24,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Apache Doris built-in web console" />
     <title>Apache Doris</title>
+    <script>
+      (() => {
+        const routes = new Set([
+          'login', 'home', 'playground', 'system', 'log',
+          'query-profiles', 'sessions', 'configuration',
+        ]);
+        const segments = window.location.pathname.split('/').filter(Boolean);
+        const routeIndex = segments.findIndex((segment) => routes.has(segment));
+        const baseSegments = routeIndex >= 0
+          ? segments.slice(0, routeIndex)
+          : window.location.pathname.endsWith('/')
+            ? segments
+            : [];
+        const basePath = baseSegments.length ? `/${baseSegments.join('/')}` : '';
+        window.__DORIS_BASE_PATH__ = basePath;
+        const base = document.createElement('base');
+        base.href = `${window.location.origin}${basePath}/`;
+        document.head.appendChild(base);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="./src/main.tsx"></script>
   </body>
 </html>

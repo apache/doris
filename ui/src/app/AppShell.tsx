@@ -68,11 +68,12 @@ export function AppShell({ me }: { me: UiMe }) {
     const handleUnauthorized = () => {
       setCsrfToken(null);
       queryClient.clear();
-      void navigate('/login', { replace: true, state: { reason: 'expired' } });
+      const from = `${location.pathname}${location.search}${location.hash}`;
+      void navigate('/login', { replace: true, state: { reason: 'expired', from } });
     };
     window.addEventListener('doris-ui:unauthorized', handleUnauthorized);
     return () => window.removeEventListener('doris-ui:unauthorized', handleUnauthorized);
-  }, [navigate]);
+  }, [location.hash, location.pathname, location.search, navigate]);
 
   const menuItems = navigation.map((item) => ({
     key: item.key,

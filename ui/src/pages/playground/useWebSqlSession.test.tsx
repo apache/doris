@@ -61,7 +61,8 @@ describe('useWebSqlSession initialization', () => {
     expect(getWebSqlSession).toHaveBeenCalledWith(storedId);
     expect(createWebSqlSession).not.toHaveBeenCalled();
     unmount();
-    expect(closeWebSqlSession).toHaveBeenCalledWith(storedId, false);
+    expect(closeWebSqlSession).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(WEB_SQL_SESSION_STORAGE_KEY)).toBe(storedId);
   });
 
   it('replaces a stored session that no longer exists in the FE', async () => {
@@ -86,7 +87,7 @@ describe('useWebSqlSession initialization', () => {
     unmount();
   });
 
-  it('uses a keepalive close when the browser page is being discarded', async () => {
+  it('keeps the session available for reload and relies on idle cleanup after a discarded page', async () => {
     vi.mocked(createWebSqlSession).mockResolvedValue({
       sessionId: replacementId,
       createdAtMillis: 3,
@@ -97,8 +98,9 @@ describe('useWebSqlSession initialization', () => {
     await waitFor(() => expect(result.current.status).toBe('ready'));
     window.dispatchEvent(new Event('pagehide'));
 
-    expect(closeWebSqlSession).toHaveBeenCalledWith(replacementId, true);
+    expect(closeWebSqlSession).not.toHaveBeenCalled();
     unmount();
-    expect(closeWebSqlSession).toHaveBeenCalledTimes(1);
+    expect(closeWebSqlSession).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(WEB_SQL_SESSION_STORAGE_KEY)).toBe(replacementId);
   });
 });

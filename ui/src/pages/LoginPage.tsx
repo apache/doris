@@ -36,6 +36,10 @@ interface LoginLocationState {
   from?: string;
 }
 
+function safeReturnPath(path: string | undefined): string {
+  return path?.startsWith('/') && !path.startsWith('//') && !path.startsWith('/login') ? path : '/home';
+}
+
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -46,7 +50,7 @@ export function LoginPage() {
     mutationFn: ({ username, password }: LoginValues) => login(username.trim(), password ?? ''),
     onSuccess: (data, values) => {
       queryClient.setQueryData(['ui', 'me'], data);
-      void navigate(state.from && state.from !== '/login' ? state.from : '/home', {
+      void navigate(safeReturnPath(state.from), {
         replace: true,
         state: (values.password ?? '') === '' ? { emptyPassword: true } : undefined,
       });

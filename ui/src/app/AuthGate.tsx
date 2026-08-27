@@ -36,7 +36,8 @@ export function AuthGate() {
   }
 
   if (me.error instanceof UiApiError && me.error.status === 401) {
-    return <Navigate to="/login" replace state={{ reason: 'expired', from: location.pathname }} />;
+    const from = `${location.pathname}${location.search}${location.hash}`;
+    return <Navigate to="/login" replace state={{ reason: 'expired', from }} />;
   }
 
   if (me.isError) {

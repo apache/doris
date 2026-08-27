@@ -23,6 +23,7 @@ export default defineConfig(({ mode }) => {
   const target = env.DORIS_FE_HTTP_TARGET || 'http://127.0.0.1:8030';
 
   return {
+    base: './',
     plugins: [react()],
     server: {
       port: 5173,

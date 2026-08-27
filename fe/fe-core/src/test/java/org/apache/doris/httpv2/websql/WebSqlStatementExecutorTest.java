@@ -20,6 +20,8 @@ package org.apache.doris.httpv2.websql;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.mariadb.jdbc.client.Context;
+import org.mariadb.jdbc.util.constants.ServerStatus;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -36,6 +38,7 @@ public class WebSqlStatementExecutorTest {
     void usesThePersistentConnectionAndTruncatesAtByteLimit() throws Exception {
         Connection connection = Mockito.mock(Connection.class);
         Statement statement = Mockito.mock(Statement.class);
+        mockSqlMode(connection, false);
         ResultSet resultSet = Mockito.mock(ResultSet.class);
         ResultSetMetaData metadata = Mockito.mock(ResultSetMetaData.class);
         Mockito.when(connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY))
@@ -66,9 +69,42 @@ public class WebSqlStatementExecutorTest {
     }
 
     @Test
+    void countsBinaryAndEscapedValuesAsJsonBytes() throws Exception {
+        Connection connection = Mockito.mock(Connection.class);
+        Statement statement = Mockito.mock(Statement.class);
+        mockSqlMode(connection, false);
+        ResultSet resultSet = Mockito.mock(ResultSet.class);
+        ResultSetMetaData metadata = Mockito.mock(ResultSetMetaData.class);
+        Mockito.when(connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY))
+                .thenReturn(statement);
+        Mockito.when(connection.createStatement()).thenThrow(new SQLException("metadata unavailable"));
+        Mockito.when(statement.execute("SELECT payload")).thenReturn(true);
+        Mockito.when(statement.getResultSet()).thenReturn(resultSet);
+        Mockito.when(resultSet.getMetaData()).thenReturn(metadata);
+        Mockito.when(metadata.getColumnCount()).thenReturn(1);
+        Mockito.when(metadata.getColumnName(1)).thenReturn("payload");
+        Mockito.when(metadata.getColumnTypeName(1)).thenReturn("VARBINARY");
+        Mockito.when(resultSet.next()).thenReturn(true, true, false);
+        Mockito.when(resultSet.getObject(1)).thenReturn(new byte[12], "\\\"\\\"\\\"");
+        WebSqlSession session = new WebSqlSession("id", "alice", "http-session", connection, 0);
+
+        WebSqlExecutionResult result = new WebSqlStatementExecutor(() -> 17).execute(
+                session, "SELECT payload", limits());
+
+        Assertions.assertTrue(result.getRows().isEmpty());
+        Assertions.assertTrue(result.isTruncated());
+        Mockito.verify(statement).cancel();
+
+        WebSqlStatementExecutor executor = new WebSqlStatementExecutor();
+        Assertions.assertEquals(18, executor.valueSize(new byte[12]));
+        Assertions.assertTrue(executor.valueSize("\"\\\n") > "\"\\\n".length());
+    }
+
+    @Test
     void cancelsServerWorkWhenTheRowLimitIsReached() throws Exception {
         Connection connection = Mockito.mock(Connection.class);
         Statement statement = Mockito.mock(Statement.class);
+        mockSqlMode(connection, false);
         ResultSet resultSet = Mockito.mock(ResultSet.class);
         ResultSetMetaData metadata = Mockito.mock(ResultSetMetaData.class);
         Mockito.when(connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY))
@@ -97,6 +133,7 @@ public class WebSqlStatementExecutorTest {
     void serializesWideNumericValuesAsExactStrings() throws Exception {
         Connection connection = Mockito.mock(Connection.class);
         Statement statement = Mockito.mock(Statement.class);
+        mockSqlMode(connection, false);
         ResultSet resultSet = Mockito.mock(ResultSet.class);
         ResultSetMetaData metadata = Mockito.mock(ResultSetMetaData.class);
         Mockito.when(connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY))
@@ -131,6 +168,7 @@ public class WebSqlStatementExecutorTest {
     void closesConnectionIfCancellationAtTheResultLimitFails() throws Exception {
         Connection connection = Mockito.mock(Connection.class);
         Statement statement = Mockito.mock(Statement.class);
+        mockSqlMode(connection, false);
         ResultSet resultSet = Mockito.mock(ResultSet.class);
         ResultSetMetaData metadata = Mockito.mock(ResultSetMetaData.class);
         Mockito.when(connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY))
@@ -157,6 +195,7 @@ public class WebSqlStatementExecutorTest {
     void exposesTheActiveStatementForCancel() throws Exception {
         Connection connection = Mockito.mock(Connection.class);
         Statement statement = Mockito.mock(Statement.class);
+        mockSqlMode(connection, false);
         Mockito.when(connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY))
                 .thenReturn(statement);
         Mockito.when(connection.createStatement()).thenThrow(new SQLException("metadata unavailable"));
@@ -175,9 +214,27 @@ public class WebSqlStatementExecutorTest {
     }
 
     @Test
+    void validatesWithTheSqlModeReportedByThePersistentConnection() throws Exception {
+        Connection connection = Mockito.mock(Connection.class);
+        Statement statement = Mockito.mock(Statement.class);
+        mockSqlMode(connection, true);
+        Mockito.when(connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY))
+                .thenReturn(statement);
+        Mockito.when(connection.createStatement()).thenThrow(new SQLException("metadata unavailable"));
+        String sql = "SELECT 'a\\'; SELECT 2 --'";
+        Mockito.when(statement.execute(sql)).thenReturn(false);
+        WebSqlSession session = new WebSqlSession("id", "alice", "http-session", connection, 0);
+
+        Assertions.assertThrows(WebSqlException.class,
+                () -> new WebSqlStatementExecutor().execute(session, sql, limits()));
+        Mockito.verify(statement, Mockito.never()).execute(Mockito.anyString());
+    }
+
+    @Test
     void convertsSqlExceptionToSafeStableDetails() throws Exception {
         Connection connection = Mockito.mock(Connection.class);
         Statement statement = Mockito.mock(Statement.class);
+        mockSqlMode(connection, false);
         Mockito.when(connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY))
                 .thenReturn(statement);
         Mockito.when(statement.execute("SELECT * FROM missing"))
@@ -207,6 +264,15 @@ public class WebSqlStatementExecutorTest {
     }
 
     private WebSqlSession activeSession;
+
+    private void mockSqlMode(Connection connection, boolean noBackslashEscapes) throws SQLException {
+        org.mariadb.jdbc.Connection mariaDbConnection = Mockito.mock(org.mariadb.jdbc.Connection.class);
+        Context context = Mockito.mock(Context.class);
+        Mockito.when(connection.unwrap(org.mariadb.jdbc.Connection.class)).thenReturn(mariaDbConnection);
+        Mockito.when(mariaDbConnection.getContext()).thenReturn(context);
+        Mockito.when(context.getServerStatus()).thenReturn(
+                noBackslashEscapes ? ServerStatus.NO_BACKSLASH_ESCAPES : 0);
+    }
 
     private WebSqlLimits limits() {
         return limits(10);

@@ -38,7 +38,16 @@ public class SingleStatementValidatorTest {
         assertInvalid("SELECT 'unterminated");
         assertInvalid("SELECT 1 /* unterminated");
         assertInvalid("SELECT count(*) FROM tbl /* /* */ # */ ; DROP TABLE tbl");
-        assertInvalid("SELECT 'a\\'; SELECT 2 --'");
+    }
+
+    @Test
+    void usesOnlyTheActiveSqlMode() {
+        String modeSpecificSql = "SELECT 'a\\'; SELECT 2 --'";
+
+        Assertions.assertEquals(modeSpecificSql,
+                SingleStatementValidator.requireSingleStatement(modeSpecificSql, false));
+        Assertions.assertThrows(WebSqlException.class,
+                () -> SingleStatementValidator.requireSingleStatement(modeSpecificSql, true));
     }
 
     private void assertInvalid(String sql) {

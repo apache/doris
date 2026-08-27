@@ -18,6 +18,7 @@
 import { useQuery } from '@tanstack/react-query';
 
 import type { DynamicCell, DynamicTableData } from '../components/operations/dynamicTable';
+import { withRuntimeBasePath } from '../runtimeBasePath';
 import { UiApiError } from './client';
 import { getCsrfToken, setCsrfToken } from './csrf';
 
@@ -97,7 +98,7 @@ export async function legacyPostJsonMutation<T>(path: string, body: unknown): Pr
 async function legacyRequest<T>(path: string, init: RequestInit): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set('Accept', 'application/json');
-  const response = await fetch(path, {
+  const response = await fetch(withRuntimeBasePath(path), {
     ...init,
     headers,
     credentials: 'same-origin',

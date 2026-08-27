@@ -306,6 +306,45 @@ public class WebSqlSessionManagerTest {
         manager.destroy();
     }
 
+    @Test
+    void logoutFencesAConnectionThatIsStillOpening() throws Exception {
+        Connection connection = Mockito.mock(Connection.class);
+        CountDownLatch opening = new CountDownLatch(1);
+        CountDownLatch releaseOpen = new CountDownLatch(1);
+        WebSqlConnectionFactory factory = new WebSqlConnectionFactory() {
+            @Override
+            public Connection open(String user, String password) throws SQLException {
+                opening.countDown();
+                try {
+                    releaseOpen.await(2, TimeUnit.SECONDS);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new SQLException("connection open interrupted", exception);
+                }
+                return connection;
+            }
+        };
+        WebSqlSessionManager manager = manager(factory, Mockito.mock(WebSqlStatementExecutor.class),
+                limits(2, 2, 60000, 500));
+        UserIdentity alice = UserIdentity.createAnalyzedUserIdentWithIp("alice", "%");
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        Future<WebSqlSession> pending = pool.submit(
+                () -> manager.createSession(alice, "", "browser-1"));
+
+        Assertions.assertTrue(opening.await(1, TimeUnit.SECONDS));
+        Assertions.assertEquals(0, manager.closeSessionsForHttpSession("browser-1"));
+        releaseOpen.countDown();
+
+        ExecutionException exception = Assertions.assertThrows(
+                ExecutionException.class, () -> pending.get(1, TimeUnit.SECONDS));
+        Assertions.assertEquals(WebSqlError.AUTHENTICATION_REQUIRED,
+                ((WebSqlException) exception.getCause()).getError());
+        Mockito.verify(connection).close();
+        Assertions.assertEquals(0, manager.size());
+        pool.shutdownNow();
+        manager.destroy();
+    }
+
     private WebSqlSessionManager manager(WebSqlConnectionFactory factory, WebSqlStatementExecutor executor,
             WebSqlLimits limits) {
         return new WebSqlSessionManager(factory, executor, limits, System::currentTimeMillis, false);

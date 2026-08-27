@@ -2816,6 +2816,21 @@ public class Config extends ConfigBase {
 
     public static final long WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND = 100L * 1024 * 1024;
 
+    /** Validates Web SQL limits loaded from fe.conf and fe_custom.conf at FE startup. */
+    public static void validateWebSqlConfig() throws ConfigException {
+        if (web_sql_session_idle_timeout_seconds <= 0) {
+            throw new ConfigException("web_sql_session_idle_timeout_seconds must be greater than 0");
+        }
+        if (web_sql_max_sessions <= 0) {
+            throw new ConfigException("web_sql_max_sessions must be greater than 0");
+        }
+        if (web_sql_max_result_bytes <= 0
+                || web_sql_max_result_bytes > WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND) {
+            throw new ConfigException("web_sql_max_result_bytes must be between 1 and "
+                    + WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND);
+        }
+    }
+
     @ConfField(mutable = true, masterOnly = false, callback = WebSqlMaxResultBytesConfHandler.class,
             description = "Approximate maximum result bytes for one Web SQL statement.")
     public static long web_sql_max_result_bytes = 10 * 1024 * 1024;

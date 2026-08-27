@@ -28,24 +28,22 @@ import org.antlr.v4.runtime.CommonTokenStream;
 
 /**
  * Uses Doris's own lexer and parser to require exactly one SQL statement per HTTP request.
- * Parsing under both string-escape modes keeps the boundary safe even when the persistent
- * JDBC session changed sql_mode in an earlier request.
+ * The caller supplies the persistent JDBC session's active string-escape mode so valid SQL is
+ * judged by the same lexer rules that Doris will use to execute it.
  */
 public final class SingleStatementValidator {
     private SingleStatementValidator() {
     }
 
     public static String requireSingleStatement(String sql) {
+        return requireSingleStatement(sql, false);
+    }
+
+    public static String requireSingleStatement(String sql, boolean noBackslashEscapes) {
         if (sql == null || sql.trim().isEmpty()) {
             throw new WebSqlException(WebSqlError.INVALID_STATEMENT);
         }
 
-        requireSingleStatement(sql, false);
-        requireSingleStatement(sql, true);
-        return sql.trim();
-    }
-
-    private static void requireSingleStatement(String sql, boolean noBackslashEscapes) {
         try {
             DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
             lexer.isNoBackslashEscapes = noBackslashEscapes;
@@ -55,6 +53,7 @@ public final class SingleStatementValidator {
             if (parsed.statement().size() != 1) {
                 throw new WebSqlException(WebSqlError.INVALID_STATEMENT);
             }
+            return sql.trim();
         } catch (WebSqlException exception) {
             throw exception;
         } catch (RuntimeException exception) {

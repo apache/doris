@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import { withRuntimeBasePath } from '../runtimeBasePath';
 import { getCsrfToken, setCsrfToken } from './csrf';
 import type { UiErrorBody } from './types';
 
@@ -85,7 +86,7 @@ export async function uiRequest<T>(path: string, init: RequestInit = {}): Promis
     if (token) headers.set('X-Doris-CSRF-Token', token);
   }
 
-  const response = await fetch(path, {
+  const response = await fetch(withRuntimeBasePath(path), {
     ...init,
     method,
     headers,
