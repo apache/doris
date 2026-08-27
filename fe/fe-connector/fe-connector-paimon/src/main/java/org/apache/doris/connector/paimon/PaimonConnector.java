@@ -672,9 +672,9 @@ public class PaimonConnector implements Connector {
             fileIO.checkOrMkdirs(warehousePath);
             String clientClass = options.get(HiveCatalogOptions.METASTORE_CLIENT_CLASS);
             Catalog catalog = hmsAuth == null
-                    ? new HiveCatalog(fileIO, hiveConf, clientClass, options, warehousePath.toUri().toString())
+                    ? new HiveCatalog(fileIO, hiveConf, clientClass, catalogContext, warehousePath.toUri().toString())
                     : hmsAuth.doAs(() -> new HiveCatalog(
-                            fileIO, hiveConf, clientClass, options, warehousePath.toUri().toString()));
+                            fileIO, hiveConf, clientClass, catalogContext, warehousePath.toUri().toString()));
             catalog = PaimonHmsClientPool.install(catalog, hmsAuth);
             catalog = PaimonHmsCatalog.install(catalog, properties, storageHadoopConfig);
             catalog = CachingCatalog.tryToCreate(catalog, options);
