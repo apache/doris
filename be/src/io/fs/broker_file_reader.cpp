@@ -96,7 +96,7 @@ Status BrokerFileReader::close() {
 Status BrokerFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                       const IOContext* /*io_ctx*/) {
     if (closed()) [[unlikely]] {
-        return Status::InternalError("read closed file: ", _path.native());
+        return Status::InternalError("read closed file: {}", _path.native());
     }
 
     size_t bytes_req = result.size;

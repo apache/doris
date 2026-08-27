@@ -119,7 +119,8 @@ Status MultipleBinaryColumnReader::new_binary_column_iterator(ColumnIteratorUPtr
     iters.reserve(_multiple_column_readers.size());
     for (const auto& [index, reader] : _multiple_column_readers) {
         if (!reader) {
-            return Status::NotFound("No column reader available, binary column index is: ", index);
+            return Status::NotFound("No column reader available, binary column index is: {}",
+                                    index);
         }
         ColumnIteratorUPtr it;
         RETURN_IF_ERROR(reader->new_iterator(&it, nullptr));
@@ -133,7 +134,7 @@ Status MultipleBinaryColumnReader::add_binary_column_reader(std::shared_ptr<Colu
                                                             uint32_t index) {
     if (_multiple_column_readers.find(index) != _multiple_column_readers.end()) {
         return Status::AlreadyExist(
-                "Multiple sparse column reader already exists, binary column index is: ", index);
+                "Multiple sparse column reader already exists, binary column index is: {}", index);
     }
     _multiple_column_readers.emplace(index, std::move(reader));
     return Status::OK();

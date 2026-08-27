@@ -21,7 +21,6 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/olap_file.pb.h>
-#include <thrift/protocol/TDebugProtocol.h>
 
 #include <cstdint>
 #include <string>
@@ -72,8 +71,7 @@ Status SchemaEncryptionKeysScanner::start(RuntimeState* state) {
     for (const auto& tk : result.master_keys) {
         EncryptionKeyPB pb;
         if (!pb.ParseFromString(tk.key_pb)) {
-            return Status::InternalError("Parse master key error, master_key=",
-                                         apache::thrift::ThriftDebugString(tk));
+            return Status::InternalError("Parse master key error");
         }
         _master_keys.emplace_back(std::move(pb));
     }
