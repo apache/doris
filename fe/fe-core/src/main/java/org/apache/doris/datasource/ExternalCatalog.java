@@ -83,6 +83,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -175,6 +176,8 @@ public abstract class ExternalCatalog
     protected MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> databases;
     protected transient IdNameIndex dbIdNameIndex = new IdNameIndex("external database");
     private transient ReentrantReadWriteLock constraintMetadataLock = new ReentrantReadWriteLock(true);
+    private transient ReentrantReadWriteLock constraintMetadataMutationOrderLock =
+            new ReentrantReadWriteLock(true);
     private transient AtomicLong constraintMetadataSequence = new AtomicLong();
     private transient AtomicInteger activeConstraintMetadataMutations = new AtomicInteger();
     protected ExecutionAuthenticator executionAuthenticator;
@@ -229,26 +232,62 @@ public abstract class ExternalCatalog
      * Marks a metadata mutation before its remote operation starts and until its local publication completes.
      */
     public final ConstraintMetadataMutationGuard beginConstraintMetadataMutation() {
+        return beginConstraintMetadataMutation(constraintMetadataMutationOrderLock.readLock());
+    }
+
+    /**
+     * Prevents other metadata mutations from overlapping a catalog identity change.
+     */
+    public final ConstraintMetadataMutationGuard beginExclusiveConstraintMetadataMutation() {
+        return beginConstraintMetadataMutation(constraintMetadataMutationOrderLock.writeLock());
+    }
+
+    private ConstraintMetadataMutationGuard beginConstraintMetadataMutation(Lock mutationOrderLock) {
+        lockConstraintMetadataMutation(mutationOrderLock);
+        boolean mutationStarted = false;
         try {
-            if (!constraintMetadataLock.writeLock().tryLock(
+            try {
+                if (!constraintMetadataLock.writeLock().tryLock(
+                        Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
+                    throw new IllegalStateException(
+                            "Failed to lock external catalog metadata for mutation on "
+                                    + name + ". Try again");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(
+                        "Interrupted while locking external catalog metadata for mutation on " + name,
+                        e);
+            }
+            try {
+                activeConstraintMetadataMutations.incrementAndGet();
+                constraintMetadataSequence.incrementAndGet();
+                mutationStarted = true;
+            } finally {
+                constraintMetadataLock.writeLock().unlock();
+            }
+            return new ConstraintMetadataMutationGuard(mutationOrderLock);
+        } finally {
+            if (!mutationStarted) {
+                mutationOrderLock.unlock();
+            }
+        }
+    }
+
+    private void lockConstraintMetadataMutation(Lock mutationOrderLock) {
+        try {
+            if (!mutationOrderLock.tryLock(
                     Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
                 throw new IllegalStateException(
-                        "Failed to lock external catalog metadata for mutation on "
+                        "Failed to order external catalog metadata mutation on "
                                 + name + ". Try again");
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException(
-                    "Interrupted while locking external catalog metadata for mutation on " + name,
+                    "Interrupted while ordering external catalog metadata mutation on " + name,
                     e);
         }
-        try {
-            activeConstraintMetadataMutations.incrementAndGet();
-            constraintMetadataSequence.incrementAndGet();
-        } finally {
-            constraintMetadataLock.writeLock().unlock();
-        }
-        return new ConstraintMetadataMutationGuard();
     }
 
     public final class ConstraintMetadataReadGuard implements AutoCloseable {
@@ -266,9 +305,11 @@ public abstract class ExternalCatalog
     }
 
     public final class ConstraintMetadataMutationGuard implements AutoCloseable {
+        private final Lock mutationOrderLock;
         private boolean closed;
 
-        private ConstraintMetadataMutationGuard() {
+        private ConstraintMetadataMutationGuard(Lock mutationOrderLock) {
+            this.mutationOrderLock = mutationOrderLock;
         }
 
         @Override
@@ -277,9 +318,13 @@ public abstract class ExternalCatalog
             // Publish the sequence first so readers cannot observe an inactive mutation with a stale sequence.
             constraintMetadataSequence.incrementAndGet();
             int remainingMutations = activeConstraintMetadataMutations.decrementAndGet();
-            Preconditions.checkState(remainingMutations >= 0,
-                    "constraint metadata mutation count must not be negative");
             closed = true;
+            try {
+                Preconditions.checkState(remainingMutations >= 0,
+                        "constraint metadata mutation count must not be negative");
+            } finally {
+                mutationOrderLock.unlock();
+            }
         }
     }
 
@@ -1235,6 +1280,7 @@ public abstract class ExternalCatalog
         }
         this.dbIdNameIndex = new IdNameIndex("external database");
         this.constraintMetadataLock = new ReentrantReadWriteLock(true);
+        this.constraintMetadataMutationOrderLock = new ReentrantReadWriteLock(true);
         this.constraintMetadataSequence = new AtomicLong();
         this.activeConstraintMetadataMutations = new AtomicInteger();
     }

@@ -137,12 +137,23 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (removedCatalog == null) {
             return;
         }
-        CatalogIf catalog = removedCatalog.catalog;
-        catalog.onClose();
+        removedCatalog.catalog.onClose();
         List<TableNameInfo> affectedTables = Env.getCurrentEnv()
                 .getConstraintManager().dropCatalogConstraints(removedCatalog.catalogName);
         MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(affectedTables,
                 "after removing catalog " + removedCatalog.catalogName);
+        cleanupDetachedCatalogRuntimeState(removedCatalog);
+    }
+
+    private void cleanupRenamedCatalog(RemovedCatalog removedCatalog) {
+        if (removedCatalog == null) {
+            return;
+        }
+        removedCatalog.catalog.onClose();
+        cleanupDetachedCatalogRuntimeState(removedCatalog);
+    }
+
+    private void cleanupDetachedCatalogRuntimeState(RemovedCatalog removedCatalog) {
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null) {
             ctx.removeLastDBOfCatalog(removedCatalog.catalogName);
@@ -352,7 +363,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
         try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
-                ((ExternalCatalog) catalog).beginConstraintMetadataMutation()) {
+                ((ExternalCatalog) catalog).beginExclusiveConstraintMetadataMutation()) {
             alterCatalogNameInternal(catalogName, newCatalogName, catalog);
         }
     }
@@ -385,7 +396,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
-        cleanupRemovedCatalog(removedCatalog);
+        cleanupRenamedCatalog(removedCatalog);
         if (removedCatalog == null) {
             throw new IllegalStateException("No catalog found with name: " + catalogName);
         }
@@ -398,6 +409,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 addCatalog(catalog);
                 ddlException = new DdlException("Catalog with name " + newCatalogName + " already exist");
             } else {
+                Env.getCurrentEnv().getConstraintManager().renameCatalog(catalogName, newCatalogName);
                 catalog.modifyCatalogName(newCatalogName);
                 addCatalog(catalog);
 
@@ -667,7 +679,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
         try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
-                ((ExternalCatalog) catalog).beginConstraintMetadataMutation()) {
+                ((ExternalCatalog) catalog).beginExclusiveConstraintMetadataMutation()) {
             replayAlterCatalogNameInternal(log, catalog);
         }
     }
@@ -684,12 +696,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
-        cleanupRemovedCatalog(removedCatalog);
+        cleanupRenamedCatalog(removedCatalog);
 
         if (removedCatalog == null) {
             throw new IllegalStateException("No catalog found with id: " + log.getCatalogId());
         }
         CatalogIf catalog = removedCatalog.catalog;
+        Env.getCurrentEnv().getConstraintManager().renameCatalog(
+                removedCatalog.catalogName, log.getNewCatalogName());
         catalog.modifyCatalogName(log.getNewCatalogName());
 
         writeLock();

@@ -991,28 +991,88 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                 .collect(Collectors.toMap(
                         tableInfo -> tableInfo,
                         tableInfo -> new TableNameInfo(catalogName, newDbName, tableInfo.getTbl())));
-        for (Entry<TableNameInfo, TableNameInfo> renamedTable : renamedTables.entrySet()) {
-            Map<String, Constraint> tableConstraints = constraintsMap.remove(toKey(renamedTable.getKey()));
-            constraintsMap.put(toKey(renamedTable.getValue()), tableConstraints);
+        renameTablesWithoutLock(renamedTables);
+        LOG.info("Reconciled database constraints from {}.{} to {}.{}",
+                catalogName, oldDbName, catalogName, newDbName);
+    }
+
+    /** Move every qualified table key and cross-table reference when a catalog is renamed. */
+    public void renameCatalog(String oldCatalogName, String newCatalogName) {
+        writeLock();
+        try {
+            String oldPrefix = oldCatalogName + ".";
+            Map<TableNameInfo, TableNameInfo> renamedTables = constraintsMap.keySet().stream()
+                    .filter(key -> key.startsWith(oldPrefix))
+                    .map(TableNameInfo::new)
+                    .collect(Collectors.toMap(
+                            tableInfo -> tableInfo,
+                            tableInfo -> new TableNameInfo(
+                                    newCatalogName, tableInfo.getDb(), tableInfo.getTbl())));
+            renameTablesWithoutLock(renamedTables);
+            if (untrustedExternalCatalogs.remove(oldCatalogName)) {
+                untrustedExternalCatalogs.add(newCatalogName);
+            }
+            LOG.info("Reconciled catalog constraints from {} to {}", oldCatalogName, newCatalogName);
+        } finally {
+            writeUnlock();
         }
+    }
+
+    private void renameTablesWithoutLock(Map<TableNameInfo, TableNameInfo> renamedTables) {
+        Set<TableNameInfo> conflictingTables = new LinkedHashSet<>();
+        Map<TableNameInfo, TableNameInfo> movableTables = new LinkedHashMap<>();
+        for (Entry<TableNameInfo, TableNameInfo> renamedTable : renamedTables.entrySet()) {
+            String oldKey = toKey(renamedTable.getKey());
+            Map<String, Constraint> sourceConstraints = constraintsMap.get(oldKey);
+            if (sourceConstraints == null) {
+                continue;
+            }
+            String newKey = toKey(renamedTable.getValue());
+            if (oldKey.equals(newKey)) {
+                continue;
+            }
+            if (constraintsMap.containsKey(newKey)) {
+                LOG.warn("Discarding source constraints {} while renaming table {} to {} because the target"
+                                + " already has constraints",
+                        sourceConstraints.keySet(), oldKey, newKey);
+                conflictingTables.add(renamedTable.getKey());
+            } else {
+                movableTables.put(renamedTable.getKey(), renamedTable.getValue());
+            }
+        }
+
+        // Drop collisions before moving any source so cascaded FK cleanup can still find every old key.
+        for (TableNameInfo conflictingTable : conflictingTables) {
+            dropTableConstraintsWithoutLock(toKey(conflictingTable), conflictingTable);
+        }
+
+        Map<TableNameInfo, TableNameInfo> movedTables = new LinkedHashMap<>();
+        for (Entry<TableNameInfo, TableNameInfo> movableTable : movableTables.entrySet()) {
+            Map<String, Constraint> tableConstraints = constraintsMap.remove(toKey(movableTable.getKey()));
+            // Collision cleanup can cascade-drop a movable source's only foreign key before this phase.
+            if (tableConstraints == null) {
+                continue;
+            }
+            constraintsMap.put(toKey(movableTable.getValue()), tableConstraints);
+            movedTables.put(movableTable.getKey(), movableTable.getValue());
+        }
+
         for (Map<String, Constraint> tableConstraints : constraintsMap.values()) {
             for (Constraint constraint : tableConstraints.values()) {
                 if (constraint instanceof ForeignKeyConstraint) {
                     ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) constraint;
                     TableNameInfo referencedTable = foreignKey.getReferencedTableName();
                     if (referencedTable != null) {
-                        TableNameInfo renamedTable = renamedTables.get(referencedTable);
+                        TableNameInfo renamedTable = movedTables.get(referencedTable);
                         if (renamedTable != null) {
                             foreignKey.setReferencedTableInfo(renamedTable);
                         }
                     }
                 } else if (constraint instanceof PrimaryKeyConstraint) {
-                    ((PrimaryKeyConstraint) constraint).renameForeignTables(renamedTables);
+                    ((PrimaryKeyConstraint) constraint).renameForeignTables(movedTables);
                 }
             }
         }
-        LOG.info("Renamed database constraints from {}.{} to {}.{}",
-                catalogName, oldDbName, catalogName, newDbName);
     }
 
     /** Apply one connector-event constraint change and enqueue its old-opcode replay records. */
@@ -1239,24 +1299,8 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
     private void renameTableWithoutLock(TableNameInfo oldTableInfo, TableNameInfo newTableInfo) {
         String oldKey = toKey(oldTableInfo);
         String newKey = toKey(newTableInfo);
-        Map<String, Constraint> tableConstraints = constraintsMap.remove(oldKey);
-        if (tableConstraints != null) {
-            constraintsMap.put(newKey, tableConstraints);
-        }
-        for (Map.Entry<String, Map<String, Constraint>> entry : constraintsMap.entrySet()) {
-            for (Constraint constraint : entry.getValue().values()) {
-                if (constraint instanceof ForeignKeyConstraint) {
-                    ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) constraint;
-                    TableNameInfo referencedTable = foreignKey.getReferencedTableName();
-                    if (referencedTable != null && oldTableInfo.equals(referencedTable)) {
-                        foreignKey.setReferencedTableInfo(newTableInfo);
-                    }
-                } else if (constraint instanceof PrimaryKeyConstraint) {
-                    ((PrimaryKeyConstraint) constraint).renameForeignTable(oldTableInfo, newTableInfo);
-                }
-            }
-        }
-        LOG.info("Renamed table constraints from {} to {}", oldKey, newKey);
+        renameTablesWithoutLock(ImmutableMap.of(oldTableInfo, newTableInfo));
+        LOG.info("Reconciled table constraints from {} to {}", oldKey, newKey);
     }
 
     /**

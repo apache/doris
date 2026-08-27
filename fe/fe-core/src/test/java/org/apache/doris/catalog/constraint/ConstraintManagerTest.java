@@ -599,6 +599,30 @@ class ConstraintManagerTest {
                 ImmutableSet.copyOf(primaryKey.getForeignTableInfos()));
     }
 
+    @Test
+    void renameDatabaseKeepsTargetConstraintsAndCleansConflictingSourceReferences() {
+        TableNameInfo oldParent = new TableNameInfo("ctl", "old_db", "parent");
+        TableNameInfo targetParent = new TableNameInfo("ctl", "new_db", "parent");
+        TableNameInfo oldChild = new TableNameInfo("ctl", "old_db", "child");
+        TableNameInfo newChild = new TableNameInfo("ctl", "new_db", "child");
+        mgr.addConstraint(oldParent, "source_pk", newPk("source_pk", "k1"), true);
+        mgr.addConstraint(targetParent, "target_uk",
+                new UniqueConstraint("target_uk", ImmutableSet.of("value")), true);
+        mgr.addConstraint(oldChild, "source_fk",
+                newFk("source_fk", oldParent, "parent_key", "k1"), true);
+        mgr.addConstraint(oldChild, "moved_uk",
+                new UniqueConstraint("moved_uk", ImmutableSet.of("value")), true);
+
+        mgr.renameDatabase("ctl", "old_db", "new_db");
+
+        Assertions.assertTrue(mgr.getConstraints(oldParent).isEmpty());
+        Assertions.assertTrue(mgr.getConstraints(oldChild).isEmpty());
+        Assertions.assertNotNull(mgr.getConstraint(targetParent, "target_uk"));
+        Assertions.assertNull(mgr.getConstraint(targetParent, "source_pk"));
+        Assertions.assertNotNull(mgr.getConstraint(newChild, "moved_uk"));
+        Assertions.assertNull(mgr.getConstraint(newChild, "source_fk"));
+    }
+
     // ==================== dropTableConstraints ====================
 
     @Test
@@ -856,6 +880,50 @@ class ConstraintManagerTest {
         Assertions.assertTrue(affectedTables.isEmpty());
     }
 
+    @Test
+    void renameCatalogMovesConstraintsAndUpdatesCrossCatalogReferences() {
+        TableNameInfo oldParent = new TableNameInfo("old_ctl", "db", "parent");
+        TableNameInfo newParent = new TableNameInfo("new_ctl", "db", "parent");
+        TableNameInfo oldChild = new TableNameInfo("old_ctl", "db", "child");
+        TableNameInfo newChild = new TableNameInfo("new_ctl", "db", "child");
+        TableNameInfo externalParent = new TableNameInfo("other_ctl", "db", "parent");
+        TableNameInfo externalChild = new TableNameInfo("other_ctl", "db", "child");
+        mgr.addConstraint(oldParent, "old_pk", newPk("old_pk", "k1"), true);
+        mgr.addConstraint(externalChild, "external_fk",
+                newFk("external_fk", oldParent, "parent_key", "k1"), true);
+        mgr.addConstraint(externalParent, "external_pk", newPk("external_pk", "k2"), true);
+        mgr.addConstraint(oldChild, "old_fk",
+                newFk("old_fk", externalParent, "parent_key", "k2"), true);
+
+        mgr.renameCatalog("old_ctl", "new_ctl");
+
+        Assertions.assertTrue(mgr.getConstraints(oldParent).isEmpty());
+        Assertions.assertTrue(mgr.getConstraints(oldChild).isEmpty());
+        Assertions.assertNotNull(mgr.getConstraint(newParent, "old_pk"));
+        ForeignKeyConstraint externalForeignKey =
+                (ForeignKeyConstraint) mgr.getConstraint(externalChild, "external_fk");
+        Assertions.assertEquals(newParent, externalForeignKey.getReferencedTableName());
+        Assertions.assertNotNull(mgr.getConstraint(newChild, "old_fk"));
+        PrimaryKeyConstraint externalPrimaryKey =
+                (PrimaryKeyConstraint) mgr.getConstraint(externalParent, "external_pk");
+        Assertions.assertEquals(List.of(newChild), externalPrimaryKey.getForeignTableInfos());
+    }
+
+    @Test
+    void renameCatalogMovesConstraintQuarantine() {
+        TableNameInfo oldTable = new TableNameInfo("old_ctl", "db", "table");
+        TableNameInfo newTable = new TableNameInfo("new_ctl", "db", "table");
+        mgr.addConstraint(oldTable, "pk", newPk("pk", "k1"), true);
+        mgr.markCatalogConstraintsUntrusted("old_ctl");
+
+        mgr.renameCatalog("old_ctl", "new_ctl");
+
+        Assertions.assertEquals(List.of(newTable), mgr.getCatalogConstraintRelatedTables("new_ctl"));
+        Assertions.assertTrue(mgr.reconcileUntrustedCatalogConstraints("old_ctl").isEmpty());
+        Assertions.assertEquals(List.of(newTable), mgr.reconcileUntrustedCatalogConstraints("new_ctl"));
+        Assertions.assertTrue(mgr.getConstraints(newTable).isEmpty());
+    }
+
     // ==================== dropDatabaseConstraints ====================
 
     @Test
@@ -932,6 +1000,32 @@ class ConstraintManagerTest {
                 .anyMatch(t -> t.getTbl().equals("t1_renamed")));
         Assertions.assertFalse(pk.getForeignTableInfos().stream()
                 .anyMatch(t -> t.getTbl().equals("t1")));
+    }
+
+    @Test
+    void renameTableKeepsTargetConstraintsAndCleansSourceReferences() {
+        TableNameInfo target = new TableNameInfo("ctl", "db", "target");
+        TableNameInfo crossCatalogChild = new TableNameInfo("other_ctl", "db", "child");
+        mgr.addConstraint(T1, "source_pk", newPk("source_pk", "k1"), true);
+        mgr.addConstraint(target, "target_pk", newPk("target_pk", "k2"), true);
+        mgr.addConstraint(crossCatalogChild, "source_fk",
+                newFk("source_fk", T1, "parent_key", "k1"), true);
+
+        mgr.renameTable(T1, target);
+
+        Assertions.assertTrue(mgr.getConstraints(T1).isEmpty());
+        Assertions.assertNotNull(mgr.getConstraint(target, "target_pk"));
+        Assertions.assertNull(mgr.getConstraint(target, "source_pk"));
+        Assertions.assertTrue(mgr.getConstraints(crossCatalogChild).isEmpty());
+    }
+
+    @Test
+    void renameTableToSameNameIsNoop() {
+        mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
+
+        mgr.renameTable(T1, T1);
+
+        Assertions.assertNotNull(mgr.getConstraint(T1, "pk"));
     }
 
     @Test

@@ -21,13 +21,17 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.ConstraintManager;
+import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.datasource.log.InitCatalogLog;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.OperationType;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -45,6 +49,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class CatalogMgrTest {
 
@@ -74,6 +79,18 @@ public class CatalogMgrTest {
                         CatalogIf<? extends DatabaseIf<? extends TableIf>>>)
                         nameToCatalogField.get(catalogMgr);
         nameToCatalog.put(name, catalog);
+    }
+
+    private static ExternalCatalog mockExternalCatalog(long catalogId, String initialName) {
+        AtomicReference<String> catalogName = new AtomicReference<>(initialName);
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.when(catalog.getId()).thenReturn(catalogId);
+        Mockito.when(catalog.getName()).thenAnswer(invocation -> catalogName.get());
+        Mockito.doAnswer(invocation -> {
+            catalogName.set(invocation.getArgument(0));
+            return null;
+        }).when(catalog).modifyCatalogName(Mockito.anyString());
+        return catalog;
     }
 
     private static void assertReplacementRejected(
@@ -161,6 +178,120 @@ public class CatalogMgrTest {
                     affectedTables, "after removing catalog " + catalogName));
         }
         Mockito.verify(constraintManager).dropCatalogConstraints(catalogName);
+    }
+
+    @Test
+    void testAlterCatalogNameRenamesConstraintsWithoutDroppingThem() throws Exception {
+        CatalogMgr catalogMgr = new CatalogMgr();
+        long catalogId = 42L;
+        String oldCatalogName = "rename_catalog";
+        String newCatalogName = "renamed_catalog";
+        ExternalCatalog catalog = mockExternalCatalog(catalogId, oldCatalogName);
+        addCatalog(catalogMgr, catalog);
+        addCatalogByName(catalogMgr, oldCatalogName, catalog);
+
+        ConstraintManager constraintManager = Mockito.spy(new ConstraintManager());
+        TableNameInfo oldTable = new TableNameInfo(oldCatalogName, "db", "table");
+        TableNameInfo newTable = new TableNameInfo(newCatalogName, "db", "table");
+        constraintManager.addConstraint(oldTable, "pk",
+                new PrimaryKeyConstraint("pk", ImmutableSet.of("key")), true);
+        Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+
+            catalogMgr.alterCatalogName(oldCatalogName, newCatalogName);
+        }
+
+        Assertions.assertNull(catalogMgr.getCatalog(oldCatalogName));
+        Assertions.assertSame(catalog, catalogMgr.getCatalog(newCatalogName));
+        Assertions.assertTrue(constraintManager.getConstraints(oldTable).isEmpty());
+        Assertions.assertNotNull(constraintManager.getConstraint(newTable, "pk"));
+        Mockito.verify(constraintManager).renameCatalog(oldCatalogName, newCatalogName);
+        Mockito.verify(constraintManager, Mockito.never()).dropCatalogConstraints(oldCatalogName);
+        Mockito.verify(catalog).beginExclusiveConstraintMetadataMutation();
+        Mockito.verify(editLog).logCatalogLog(
+                Mockito.eq(OperationType.OP_ALTER_CATALOG_NAME), Mockito.any(CatalogLog.class));
+    }
+
+    @Test
+    void testReplayAlterCatalogNameUsesSameConstraintMigration() throws Exception {
+        CatalogMgr catalogMgr = new CatalogMgr();
+        long catalogId = 43L;
+        String oldCatalogName = "replay_rename_catalog";
+        String newCatalogName = "replayed_catalog";
+        ExternalCatalog catalog = mockExternalCatalog(catalogId, oldCatalogName);
+        addCatalog(catalogMgr, catalog);
+        addCatalogByName(catalogMgr, oldCatalogName, catalog);
+
+        ConstraintManager constraintManager = Mockito.spy(new ConstraintManager());
+        TableNameInfo oldTable = new TableNameInfo(oldCatalogName, "db", "table");
+        TableNameInfo newTable = new TableNameInfo(newCatalogName, "db", "table");
+        constraintManager.addConstraint(oldTable, "pk",
+                new PrimaryKeyConstraint("pk", ImmutableSet.of("key")), true);
+        Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        CatalogLog log = new CatalogLog();
+        log.setCatalogId(catalogId);
+        log.setNewCatalogName(newCatalogName);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+
+            catalogMgr.replayAlterCatalogName(log);
+        }
+
+        Assertions.assertNull(catalogMgr.getCatalog(oldCatalogName));
+        Assertions.assertSame(catalog, catalogMgr.getCatalog(newCatalogName));
+        Assertions.assertTrue(constraintManager.getConstraints(oldTable).isEmpty());
+        Assertions.assertNotNull(constraintManager.getConstraint(newTable, "pk"));
+        Mockito.verify(constraintManager).renameCatalog(oldCatalogName, newCatalogName);
+        Mockito.verify(constraintManager, Mockito.never()).dropCatalogConstraints(oldCatalogName);
+        Mockito.verify(catalog).beginExclusiveConstraintMetadataMutation();
+    }
+
+    @Test
+    void testAlterCatalogNameConflictDuringCleanupKeepsOldConstraints() throws Exception {
+        CatalogMgr catalogMgr = new CatalogMgr();
+        long catalogId = 44L;
+        String oldCatalogName = "rename_conflict_catalog";
+        String newCatalogName = "rename_conflict_target";
+        ExternalCatalog catalog = mockExternalCatalog(catalogId, oldCatalogName);
+        CatalogIf<? extends DatabaseIf<? extends TableIf>> targetCatalog = Mockito.mock(CatalogIf.class);
+        addCatalog(catalogMgr, catalog);
+        addCatalogByName(catalogMgr, oldCatalogName, catalog);
+        Mockito.doAnswer(invocation -> {
+            addCatalogByName(catalogMgr, newCatalogName, targetCatalog);
+            return null;
+        }).when(catalog).onClose();
+
+        ConstraintManager constraintManager = Mockito.spy(new ConstraintManager());
+        TableNameInfo oldTable = new TableNameInfo(oldCatalogName, "db", "table");
+        TableNameInfo newTable = new TableNameInfo(newCatalogName, "db", "table");
+        constraintManager.addConstraint(oldTable, "pk",
+                new PrimaryKeyConstraint("pk", ImmutableSet.of("key")), true);
+        Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+
+            Assertions.assertThrows(DdlException.class,
+                    () -> catalogMgr.alterCatalogName(oldCatalogName, newCatalogName));
+        }
+
+        Assertions.assertSame(catalog, catalogMgr.getCatalog(oldCatalogName));
+        Assertions.assertSame(targetCatalog, catalogMgr.getCatalog(newCatalogName));
+        Assertions.assertNotNull(constraintManager.getConstraint(oldTable, "pk"));
+        Assertions.assertTrue(constraintManager.getConstraints(newTable).isEmpty());
+        Mockito.verify(constraintManager, Mockito.never())
+                .renameCatalog(oldCatalogName, newCatalogName);
+        Mockito.verifyNoInteractions(editLog);
     }
 
     @Test

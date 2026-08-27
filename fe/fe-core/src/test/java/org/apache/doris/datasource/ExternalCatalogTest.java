@@ -62,6 +62,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ExternalCatalogTest extends TestWithFeService {
@@ -1529,6 +1530,38 @@ public class ExternalCatalogTest extends TestWithFeService {
         try (ExternalCatalog.ConstraintMetadataReadGuard ignored =
                 catalog.lockConstraintMetadata(catalog.snapshotConstraintMetadata())) {
             // Both mutation scopes completed and the catalog can be locked again.
+        }
+    }
+
+    @Test
+    public void testExclusiveConstraintMetadataMutationWaitsForOrdinaryMutation() throws Exception {
+        TestExternalCatalog catalog =
+                newFenceTestCatalog(1204L, "constraint_exclusive_test");
+        ExternalCatalog.ConstraintMetadataMutationGuard ordinary =
+                catalog.beginConstraintMetadataMutation();
+        boolean ordinaryClosed = false;
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch exclusiveAttempted = new CountDownLatch(1);
+        try {
+            Future<?> exclusive = executor.submit(() -> {
+                exclusiveAttempted.countDown();
+                try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
+                        catalog.beginExclusiveConstraintMetadataMutation()) {
+                    // The exclusive scope starts only after the ordinary mutation completes.
+                }
+            });
+            Assertions.assertTrue(exclusiveAttempted.await(5, TimeUnit.SECONDS));
+            Assertions.assertThrows(TimeoutException.class,
+                    () -> exclusive.get(200, TimeUnit.MILLISECONDS));
+
+            ordinary.close();
+            ordinaryClosed = true;
+            exclusive.get(5, TimeUnit.SECONDS);
+        } finally {
+            if (!ordinaryClosed) {
+                ordinary.close();
+            }
+            executor.shutdownNow();
         }
     }
 

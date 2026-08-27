@@ -98,6 +98,33 @@ class ConstraintManagerMetastoreMutationTest {
     }
 
     @Test
+    void tableRenameCollisionTransitionPreservesTargetOnFollower() {
+        TableNameInfo target = new TableNameInfo("ctl", "db", "target");
+        ConstraintManager leader = managerWithPrimaryAndForeignKey(PARENT, CHILD);
+        ConstraintManager follower = managerWithPrimaryAndForeignKey(PARENT, CHILD);
+        leader.addConstraint(target, "target_uk",
+                new UniqueConstraint("target_uk", ImmutableSet.of("value")), true);
+        follower.addConstraint(target, "target_uk",
+                new UniqueConstraint("target_uk", ImmutableSet.of("value")), true);
+
+        List<EditLog.EditLogOperation> operations = captureTransition(leader,
+                ConstraintManager.MetastoreConstraintMutation.renameTable(PARENT, target));
+
+        Assertions.assertEquals(List.of(
+                OperationType.OP_DROP_CONSTRAINT,
+                OperationType.OP_DROP_CONSTRAINT), operationCodes(operations));
+        assertConstraintLog(operations.get(0), CHILD, "fk");
+        assertConstraintLog(operations.get(1), PARENT, "pk");
+        replayConstraintOperations(follower, operations);
+        for (ConstraintManager manager : List.of(leader, follower)) {
+            Assertions.assertTrue(manager.getConstraints(PARENT).isEmpty());
+            Assertions.assertTrue(manager.getConstraints(CHILD).isEmpty());
+            Assertions.assertNotNull(manager.getConstraint(target, "target_uk"));
+            Assertions.assertNull(manager.getConstraint(target, "pk"));
+        }
+    }
+
+    @Test
     void renameTransitionAndCursorUseOneAtomicRequest() {
         TableNameInfo renamedParent = new TableNameInfo("ctl", "db", "renamed_parent");
         ConstraintManager manager = managerWithPrimaryAndForeignKey(PARENT, CHILD);
