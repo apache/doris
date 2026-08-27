@@ -25,6 +25,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -411,10 +412,10 @@ public class StreamingJobUtils {
                 }
 
                 // Resolve target (Doris) table name; defaults to source table name if not configured
-                String targetTableName = properties.getOrDefault(
+                String targetTableName = new TableNameInfo(targetDb, properties.getOrDefault(
                         DataSourceConfigKeys.TABLE + "." + table + "."
                                 + DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX,
-                        table).trim();
+                        table).trim()).getTbl();
 
                 // Validate and apply exclude_columns for this table
                 Set<String> excludeColumns = parseExcludeColumns(properties, table);
