@@ -95,6 +95,27 @@ TEST(VTimestampFunctionsTest, year_test) {
 
     static_cast<void>(check_function<DataTypeInt16, true>(func_name, input_types, data_set));
 }
+
+TEST(VTimestampFunctionsTest, nanosecond_v2_test) {
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATEV2}};
+        DataSet data_set = {{{std::string("0000-01-01")}, int32_t {0}},
+                            {{std::string("1970-01-01")}, int32_t {0}},
+                            {{std::string("9999-12-31")}, int32_t {0}}};
+
+        static_cast<void>(check_function<DataTypeInt32, true>("nanosecond", input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6}};
+        DataSet data_set = {{{std::string("0000-01-01 00:00:00.000001")}, int32_t {1000}},
+                            {{std::string("1970-01-01 00:00:00.000000")}, int32_t {0}},
+                            {{std::string("2026-08-27 17:50:00.123456")}, int32_t {123456000}},
+                            {{std::string("9999-12-31 23:59:59.999999")}, int32_t {999999000}}};
+
+        static_cast<void>(check_function<DataTypeInt32, true>("nanosecond", input_types, data_set));
+    }
+}
+
 TEST(VTimestampFunctionsTest, century_test) {
     std::string func_name = "century";
 
