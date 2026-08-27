@@ -278,4 +278,3 @@ class InsertIntoTableCommandTest {
         Deencapsulation.invoke(command, "runInternal", Mockito.mock(ConnectContext.class), stmtExecutor);
     }
 }
-}
