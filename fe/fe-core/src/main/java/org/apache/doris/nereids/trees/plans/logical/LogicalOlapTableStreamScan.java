@@ -150,12 +150,19 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
             if (col.getName().startsWith(Column.BINLOG_BEFORE_PREFIX)) {
                 continue;
             }
-            // Keep visible columns, and IVM row-id during IVM rewrite. Skip all other hidden columns.
-            // for reset, we could use get full schema of base table;
-            // otherwise, we only need to get the schema without hidden columns
-            if (!col.isVisible()
-                    && !isReset()
-                    && !(Column.IVM_ROW_ID_COL.equals(col.getName()) && ivmRewriteEnabled)) {
+            // Keep visible columns, and IVM row-id / row lsn during IVM rewrite.
+            // Skip all other hidden columns. For reset, we could use get full schema of
+            // base table; otherwise, we only need to get the schema without hidden columns.
+            // DUP detail tables always carry __DORIS_ROW_LSN_COL__ (added at create time when
+            // row binlog is enabled); IVM needs it as the stable row identity. RESET/SNAPSHOT
+            // stream scans are expanded from the base table olap scan, which carries the row
+            // lsn column directly. INCREMENTAL stream scans are expanded from the row-binlog
+            // (which carries the value as __DORIS_BINLOG_LSN__), so they expose the stream lsn
+            // virtual column instead; the IVM delta rewrite maps it back to the row lsn slot.
+            boolean ivmRewriteColumn = ivmRewriteEnabled
+                    && (Column.IVM_ROW_ID_COL.equals(col.getName())
+                            || (Column.ROW_LSN_COL.equals(col.getName()) && !isIncremental()));
+            if (!col.isVisible() && !isReset() && !ivmRewriteColumn) {
                 continue;
             }
             Pair<Long, String> key = Pair.of(selectedIndexId, col.getName());

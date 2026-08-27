@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.OlapTableFactory;
@@ -57,6 +58,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -81,6 +83,7 @@ import com.google.common.collect.Sets;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -210,16 +213,26 @@ abstract class IvmDeltaTestBase {
     // is no longer used; delta scans use real __DORIS_BINLOG_OP__ via the stream path.
 
     protected LogicalResultSink<LogicalProject<LogicalOlapScan>> buildScanPlan(LogicalOlapScan scan) {
-        ImmutableList<NamedExpression> exprs = ImmutableList.copyOf(scan.getOutput());
+        // Mimic `SELECT *`: only visible columns reach the plan, hidden columns such as
+        // __DORIS_ROW_LSN_COL__ stay out of the MV definition (they only feed the row-id).
+        ImmutableList<NamedExpression> exprs = visibleOutputs(scan);
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(exprs, scan);
         return new LogicalResultSink<>(exprs, project);
     }
 
     protected LogicalResultSink<LogicalProject<LogicalProject<LogicalOlapScan>>> buildProjectScanPlan(LogicalOlapScan scan) {
-        ImmutableList<NamedExpression> exprs = ImmutableList.copyOf(scan.getOutput());
+        // Same `SELECT *` semantics as buildScanPlan: only visible columns reach the plan.
+        ImmutableList<NamedExpression> exprs = visibleOutputs(scan);
         LogicalProject<LogicalOlapScan> innerProject = new LogicalProject<>(exprs, scan);
         LogicalProject<LogicalProject<LogicalOlapScan>> outerProject = new LogicalProject<>(exprs, innerProject);
         return new LogicalResultSink<>(exprs, outerProject);
+    }
+
+    private ImmutableList<NamedExpression> visibleOutputs(LogicalOlapScan scan) {
+        return scan.getOutput().stream()
+                .filter(slot -> slot instanceof SlotReference && ((SlotReference) slot).isVisible())
+                .map(NamedExpression.class::cast)
+                .collect(ImmutableList.toImmutableList());
     }
 
     protected LogicalResultSink<LogicalProject<LogicalFilter<LogicalOlapScan>>> buildFilterScanPlan(
@@ -353,6 +366,20 @@ abstract class IvmDeltaTestBase {
     protected void enableRowBinlog(OlapTable table) {
         table.getBinlogConfig().setEnable(true);
         table.getBinlogConfig().setBinlogFormat(BinlogConfig.BinlogFormat.ROW);
+        if (table.getKeysType() == KeysType.DUP_KEYS) {
+            addRowLsnColumn(table);
+        }
+    }
+
+    private void addRowLsnColumn(OlapTable table) {
+        MaterializedIndexMeta baseMeta = table.getIndexMetaByIndexId(table.getBaseIndexId());
+        List<Column> schema = new ArrayList<>(baseMeta.getSchema());
+        schema.add(new Column(Column.ROW_LSN_COL, Type.BIGINT, false, AggregateType.NONE, false,
+                "doris row lsn hidden column", false));
+        table.setIndexMeta(baseMeta.getIndexId(), table.getName(), schema,
+                baseMeta.getSchemaVersion(), baseMeta.getSchemaHash(),
+                baseMeta.getShortKeyColumnCount(), baseMeta.getStorageType(), baseMeta.getKeysType());
+        table.rebuildFullSchema();
     }
 
     /** Scalar MIN — no group-by keys. */

@@ -427,6 +427,8 @@ public class IvmDeltaRewriteHelper {
      */
     Expression hiddenColumnFallbackExpression(NamedExpression oldExpr) {
         String name = oldExpr.getName();
+        // ROW_LSN_COL is a common hidden slot, so getCommonHiddenSlotDefault fails loudly
+        // for it instead of defaulting to 0.
         if (IvmUtil.isCommonHiddenSlot(name)) {
             return IvmUtil.getCommonHiddenSlotDefault(name, oldExpr.getDataType());
         }

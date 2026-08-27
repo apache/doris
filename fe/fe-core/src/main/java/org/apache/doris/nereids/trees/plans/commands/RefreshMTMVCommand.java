@@ -46,6 +46,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
@@ -112,9 +113,7 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
 
         ConnectContext internalCtx = MTMVPlanUtil.createMTMVContext(
                 mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-        StatementContext stmtCtx = new StatementContext(
-                internalCtx, new OriginStatement(mtmv.getQuerySql(), 0));
-        stmtCtx.setIvmRewriteContext(Optional.of(IvmRewriteContext.incrementalDryRun(mtmv, dryRunLimit)));
+        StatementContext stmtCtx = createDryRunStatementContext(mtmv, internalCtx);
 
         LogicalPlan queryPlan = new IvmIncrRefreshManager().buildQueryPlan(mtmv);
         LogicalPlanAdapter adapter = new LogicalPlanAdapter(queryPlan, stmtCtx);
@@ -126,6 +125,16 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
         internalCtx.setExecutor(internalExecutor);
         internalExecutor.executeInternalQueryAndSend(adapter, ctx.getMysqlChannel());
         ctx.getState().setEof();
+    }
+
+    @VisibleForTesting
+    StatementContext createDryRunStatementContext(MTMV mtmv, ConnectContext internalCtx) {
+        StatementContext stmtCtx = new StatementContext(
+                internalCtx, new OriginStatement(mtmv.getQuerySql(), 0));
+        stmtCtx.setIvmRewriteContext(Optional.of(IvmRewriteContext.incrementalDryRun(mtmv, dryRunLimit)));
+        // Excluded trigger tables must not be validated for binlog / key-type support.
+        stmtCtx.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
+        return stmtCtx;
     }
 
     @Override
@@ -160,6 +169,8 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
                 }
                 statementContext.setIvmRewriteContext(Optional.of(
                         IvmRewriteContext.incremental(mtmv, includeExhaustedStreams)));
+                // Excluded trigger tables must not be validated for binlog / key-type support.
+                statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
                 return createIvmIncrRefreshManager().buildInsertCommand(mtmv);
             case COMPLETE:
                 if (mtmv.isIvm()) {

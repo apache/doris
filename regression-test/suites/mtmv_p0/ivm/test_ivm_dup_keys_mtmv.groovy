@@ -20,7 +20,8 @@ suite("test_ivm_dup_keys_mtmv") {
     sql """drop table if exists test_ivm_dup_keys_mtmv_base;"""
 
     // 1. Create base table (DUPLICATE KEY)
-    //    For DUP_KEYS base tables, IVM generates row_id = uuid_numeric() (non-deterministic).
+    //    For DUP_KEYS base tables, IVM uses the row-binlog lsn column
+    //    (__DORIS_ROW_LSN_COL__) as the deterministic row-id.
     //    This case validates COMPLETE refresh on a simple scan MV, where INSERT OVERWRITE
     //    replaces all MV data and preserves the correct DUP_KEYS rows.
     sql """
@@ -88,8 +89,8 @@ suite("test_ivm_dup_keys_mtmv") {
     def rowCount = sql """SELECT COUNT(*) FROM test_ivm_dup_keys_mtmv_mv"""
     assertEquals(5, rowCount[0][0] as int)
 
-    // 10. Verify row_ids changed between the two COMPLETE refreshes
-    //     (DUP_KEYS row_id is uuid_numeric, non-deterministic)
+    // 10. Verify row_ids are the base table's row lsn values (DUP_KEYS row-id is the
+    //     __DORIS_ROW_LSN_COL__ slot, deterministic)
     sql """SET show_hidden_columns = true;"""
     def rowIds = sql """SELECT __DORIS_IVM_ROW_ID_COL__ FROM test_ivm_dup_keys_mtmv_mv ORDER BY __DORIS_IVM_ROW_ID_COL__"""
     sql """SET show_hidden_columns = false;"""

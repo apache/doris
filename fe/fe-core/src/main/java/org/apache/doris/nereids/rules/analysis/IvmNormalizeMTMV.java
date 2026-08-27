@@ -83,6 +83,7 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -145,7 +146,9 @@ import java.util.stream.Collectors;
  * <ul>
  *   <li>MOW (UNIQUE_KEYS + merge-on-write): hash(uk columns) → deterministic
  *   <li>Excluded AGG_KEYS table: hash(agg key columns) → deterministic
- *   <li>DUP_KEYS: uuid_numeric() → non-deterministic
+ *   <li>DUP_KEYS: row lsn column (__DORIS_ROW_LSN_COL__) is the identity key → deterministic.
+ *       DUP tables with row binlog always carry this hidden column at create time, so it is
+ *       treated like a UNIQUE table's key columns.
  *   <li>Other key types: not supported, throws.
  * </ul>
  *
@@ -1088,7 +1091,10 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
      * Computes the scan-level IVM row-id expression, the remaining identity key slots, and
      * whether the row-id is deterministic:
      * - UNIQUE_KEYS (MOW or excluded): (row-id over the uk slots, uk slots minus row-id, true)
-     * - DUP_KEYS: (UuidNumeric(), empty, false)
+     * - DUP_KEYS with row binlog: (row-id over the row lsn column, [row lsn slot], true).
+     *   The row lsn slot is the identity key, exactly like a UNIQUE table's key columns.
+     * - DUP_KEYS without row binlog: (uuid_numeric(), empty, false) — legacy fallback;
+     *   validateBinlogEnabled rejects such tables unless they are excluded trigger tables.
      * - Excluded AGG_KEYS: (row-id over the agg-key slots, agg-key slots, true)
      * - Other key types: throws IvmException
      *
@@ -1101,6 +1107,7 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
     private ScanRowId computeScanRowIdAndKeys(OlapTable table, LogicalOlapScan scan) {
         KeysType keysType = table.getKeysType();
         boolean isExcluded = isExcludedTriggerTable(scan);
+        Set<String> keyColNames;
         if (keysType == KeysType.UNIQUE_KEYS) {
             if (!table.getEnableUniqueKeyMergeOnWrite() && !isExcluded) {
                 throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
@@ -1110,29 +1117,42 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                                 + " If this table does not participate in incremental refresh, "
                                 + "add it to 'excluded_trigger_tables'.");
             }
-            return buildDeterministicScanRowIdAndKeys(table, scan);
+            keyColNames = baseSchemaKeyColNames(table);
+        } else if (keysType == KeysType.DUP_KEYS) {
+            if (!table.getBinlogConfig().isEnableForStreaming()) {
+                // A DUP table without row binlog has no __DORIS_ROW_LSN_COL__ column.
+                // Keep the legacy non-deterministic uuid row-id; validateBinlogEnabled
+                // rejects such tables right after this.
+                return new ScanRowId(new UuidNumeric(), ImmutableList.of(), false, Optional.empty());
+            }
+            // DUP_KEYS with row binlog always carries __DORIS_ROW_LSN_COL__ at create time
+            // (binlog is not yet released, so no legacy table lacks it). The row lsn is the
+            // stable per-row identity of a detail table, equivalent to a UNIQUE table's key
+            // columns, and flows through the same deterministic row-id construction.
+            keyColNames = ImmutableSet.of(Column.ROW_LSN_COL);
+        } else if (keysType == KeysType.AGG_KEYS && isExcluded) {
+            keyColNames = baseSchemaKeyColNames(table);
+        } else {
+            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                    "INCREMENTAL materialized view requires base tables to be "
+                            + "UNIQUE_KEYS with Merge-On-Write or DUP_KEYS. Table '"
+                            + table.getName() + "' is " + keysType
+                            + ". If this table does not participate in incremental refresh, "
+                            + "add it to 'excluded_trigger_tables'.");
         }
-        if (keysType == KeysType.DUP_KEYS) {
-            return new ScanRowId(new UuidNumeric(), ImmutableList.of(), false, Optional.empty());
-        }
-        if (keysType == KeysType.AGG_KEYS && isExcluded) {
-            return buildDeterministicScanRowIdAndKeys(table, scan);
-        }
-        throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                "INCREMENTAL materialized view requires base tables to be "
-                        + "UNIQUE_KEYS with Merge-On-Write or DUP_KEYS. Table '"
-                        + table.getName() + "' is " + keysType
-                        + ". If this table does not participate in incremental refresh, "
-                        + "add it to 'excluded_trigger_tables'.");
+        return buildDeterministicScanRowIdAndKeys(table, scan, keyColNames);
     }
 
-    private ScanRowId buildDeterministicScanRowIdAndKeys(
-            OlapTable table, LogicalOlapScan scan) {
+    private Set<String> baseSchemaKeyColNames(OlapTable table) {
         // Use full schema because MTMV key columns (row-id) are hidden.
-        Set<String> keyColNames = table.getBaseSchema(true).stream()
+        return table.getBaseSchema(true).stream()
                 .filter(Column::isKey)
                 .map(Column::getName)
                 .collect(Collectors.toSet());
+    }
+
+    private ScanRowId buildDeterministicScanRowIdAndKeys(
+            OlapTable table, LogicalOlapScan scan, Set<String> keyColNames) {
         List<Slot> keySlots = new ArrayList<>();
         List<Slot> remainKeys = new ArrayList<>();
         Optional<Slot> baseTableRowId = Optional.empty();

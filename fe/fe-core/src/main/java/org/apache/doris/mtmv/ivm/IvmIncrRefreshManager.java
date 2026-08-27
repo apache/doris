@@ -93,6 +93,9 @@ public class IvmIncrRefreshManager {
         StatementContext statementContext = new StatementContext(
                 context.getConnectContext(), new OriginStatement(mtmv.getQuerySql(), 0));
         statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.incremental(mtmv, false)));
+        // Excluded trigger tables do not produce delta and must not be validated for
+        // binlog / key-type support during the incremental analyze.
+        statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
         InsertIntoTableCommand command = buildInsertCommand(mtmv);
         MTMVPlanUtil.executeCommand(context.getConnectContext(), command,
                 statementContext, context.getAuditStmt(), context.getExecutorConsumer());

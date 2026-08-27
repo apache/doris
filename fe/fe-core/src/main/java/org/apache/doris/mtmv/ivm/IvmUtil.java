@@ -112,6 +112,16 @@ public class IvmUtil {
             throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                     "not an IVM common hidden slot: " + columnName);
         }
+        if (Column.ROW_LSN_COL.equals(columnName)) {
+            // The row lsn column is the stable row identity of DUP detail tables and must be
+            // mapped from the corresponding scan output (base olap scan / RESET-SNAPSHOT
+            // stream scan, or the stream lsn virtual column on the incremental side).
+            // Defaulting it to 0 would silently break row-id based delete/update handling.
+            // Missing it is a plan bug that must fail loudly.
+            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                    "IVM: row lsn column " + columnName
+                            + " must be mapped from the scan output, not defaulted");
+        }
         Expression defaultValue = SPECIAL_HIDDEN_SLOT_DEFAULTS.get(columnName);
         if (defaultValue != null) {
             return defaultValue.castTo(targetType);

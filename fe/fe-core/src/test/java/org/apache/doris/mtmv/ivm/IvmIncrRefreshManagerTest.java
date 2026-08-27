@@ -19,6 +19,9 @@ package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.mtmv.MTMVPlanUtil;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -26,11 +29,14 @@ import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class IvmIncrRefreshManagerTest {
 
@@ -54,6 +60,34 @@ public class IvmIncrRefreshManagerTest {
         Assertions.assertNotNull(context.getExecutorConsumer());
         context.getExecutorConsumer().accept(executor);
         Assertions.assertTrue(consumed.get());
+    }
+
+    @Test
+    public void testExecuteInternalRefreshPassesExcludedTriggerTables() throws Exception {
+        MTMV mtmv = mockMtmv();
+        Set<TableNameInfo> excluded = Collections.singleton(new TableNameInfo("internal", "db", "dup_t"));
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(excluded);
+        Mockito.when(mtmv.getQuerySql()).thenReturn("SELECT 1 AS k1");
+        Mockito.when(mtmv.getInsertedColumnNames()).thenReturn(List.of("k1"));
+
+        IvmIncrRefreshContext context = new IvmIncrRefreshContext(mtmv, new ConnectContext(), "audit",
+                queryId -> { }, null);
+        IvmIncrRefreshManager manager = new IvmIncrRefreshManager();
+
+        AtomicReference<StatementContext> captured = new AtomicReference<>();
+        try (MockedStatic<MTMVPlanUtil> mockedUtil = Mockito.mockStatic(MTMVPlanUtil.class)) {
+            mockedUtil.when(() -> MTMVPlanUtil.executeCommand(
+                    Mockito.<ConnectContext>any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                    .thenAnswer(inv -> {
+                        captured.set(inv.getArgument(2));
+                        return null;
+                    });
+            manager.executeInternalRefresh(context);
+        }
+        // The incremental analyze must see the MTMV's excluded trigger tables, otherwise
+        // excluded base tables would be validated for binlog / key-type support.
+        Assertions.assertNotNull(captured.get(), "executeCommand should have been invoked");
+        Assertions.assertEquals(excluded, captured.get().getExcludedTriggerTables());
     }
 
     @Test

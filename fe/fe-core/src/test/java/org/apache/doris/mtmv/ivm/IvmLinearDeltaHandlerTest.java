@@ -102,8 +102,13 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         }
     }
 
-    private static IvmIncrRefreshContext dummyCtx() {
-        return new IvmIncrRefreshContext(mockMtmv(), new ConnectContext(), null, false);
+    private IvmIncrRefreshContext dummyCtx() {
+        // Use a ConnectContext with an IVM rewrite statement context so stream scan
+        // output computation exposes the row lsn / stream lsn columns exactly like
+        // incremental refresh analysis does.
+        ConnectContext ctx = newConnectContext();
+        ctx.setThreadLocalInfo();
+        return new IvmIncrRefreshContext(mockMtmv(), ctx, null, false);
     }
 
     private static MTMV mockMtmv() {

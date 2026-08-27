@@ -87,8 +87,20 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
                 ImmutableList.of("test_db"));
     }
 
+    /**
+     * User outputs of a join plan: the row lsn hidden column of DUP scans is internal
+     * (like a UNIQUE table's key column is when not selected) and must not appear in the
+     * sink's user-visible output list.
+     */
+    private ImmutableList<NamedExpression> userOutputs(Plan plan) {
+        return plan.getOutput().stream()
+                .filter(slot -> !Column.ROW_LSN_COL.equals(slot.getName()))
+                .map(NamedExpression.class::cast)
+                .collect(ImmutableList.toImmutableList());
+    }
+
     private Plan normalizeJoinPlan(Plan joinPlan) {
-        ImmutableList<NamedExpression> exprs = ImmutableList.copyOf(joinPlan.getOutput());
+        ImmutableList<NamedExpression> exprs = userOutputs(joinPlan);
         LogicalProject<?> project = new LogicalProject<>(exprs, joinPlan);
         LogicalResultSink<?> sink = new LogicalResultSink<>(exprs, project);
         ConnectContext ctx = newConnectContext();
@@ -97,7 +109,7 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
     }
 
     private IvmRewriteResult getRewriteResult(Plan joinPlan) {
-        ImmutableList<NamedExpression> exprs = ImmutableList.copyOf(joinPlan.getOutput());
+        ImmutableList<NamedExpression> exprs = userOutputs(joinPlan);
         LogicalProject<?> project = new LogicalProject<>(exprs, joinPlan);
         LogicalResultSink<?> sink = new LogicalResultSink<>(exprs, project);
         ConnectContext ctx = newConnectContext();
@@ -107,7 +119,7 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
     }
 
     private IvmRewriteResult getRewriteResult(Plan joinPlan, ImmutableSet<TableNameInfo> excludedTriggerTables) {
-        ImmutableList<NamedExpression> exprs = ImmutableList.copyOf(joinPlan.getOutput());
+        ImmutableList<NamedExpression> exprs = userOutputs(joinPlan);
         LogicalProject<?> project = new LogicalProject<>(exprs, joinPlan);
         LogicalResultSink<?> sink = new LogicalResultSink<>(exprs, project);
         ConnectContext ctx = newConnectContext();
@@ -229,25 +241,25 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testNormalizeMowDupNonDeterministic() {
+    void testNormalizeMowDupDeterministic() {
         LogicalOlapScan scanMow = buildMowScan(1, "mow_t");
         LogicalOlapScan scanDup = buildDupScan(2, "dup_t");
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanMow, scanDup, JoinReorderContext.EMPTY);
 
-        Assertions.assertFalse(isComposedRowIdDeterministic(join),
-                "MOW × DUP join should be non-deterministic");
+        Assertions.assertTrue(isComposedRowIdDeterministic(join),
+                "MOW × DUP join should be deterministic (DUP row-id is row lsn)");
     }
 
     @Test
-    void testNormalizeDupDupNonDeterministic() {
+    void testNormalizeDupDupDeterministic() {
         LogicalOlapScan scanA = buildDupScan(1, "dup_a");
         LogicalOlapScan scanB = buildDupScan(2, "dup_b");
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
 
-        Assertions.assertFalse(isComposedRowIdDeterministic(join),
-                "DUP × DUP join should be non-deterministic");
+        Assertions.assertTrue(isComposedRowIdDeterministic(join),
+                "DUP × DUP join should be deterministic (DUP row-id is row lsn)");
     }
 
     @Test
@@ -269,9 +281,9 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
         Assertions.assertEquals(1, rowIdCount,
                 "Nested join should have one composed row_id");
 
-        // A(MOW) × B(MOW) × C(DUP) → non-deterministic
-        Assertions.assertFalse(isComposedRowIdDeterministic(abcJoin),
-                "Nested join with DUP should be non-deterministic");
+        // A(MOW) × B(MOW) × C(DUP) → deterministic (DUP row-id is row lsn)
+        Assertions.assertTrue(isComposedRowIdDeterministic(abcJoin),
+                "Nested join with DUP should be deterministic");
     }
 
     @Test
@@ -336,16 +348,15 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testNormalizeLeftOuterJoinWithNonDetRetainedSideThrows() {
+    void testNormalizeLeftOuterJoinWithDupRetainedSide() {
         LogicalOlapScan scanA = buildDupScan(1, "a");
         LogicalOlapScan scanB = buildMowScan(2, "b");
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                 ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
 
-        IvmException ex = Assertions.assertThrows(IvmException.class, () -> normalizeJoinPlan(join));
-        Assertions.assertEquals(IvmFailureReason.NON_DETERMINISTIC_ROW_ID, ex.getFailureReason());
-        Assertions.assertTrue(ex.getMessage().contains("retained side"),
-                "unexpected message: " + ex.getMessage());
+        Plan normalized = normalizeJoinPlan(join);
+        Assertions.assertNotNull(normalized,
+                "LEFT OUTER JOIN with DUP retained side should normalize (row-id is row lsn)");
     }
 
     @Test
@@ -425,16 +436,15 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testNormalizeRightOuterJoinWithNonDetRetainedSideThrows() {
+    void testNormalizeRightOuterJoinWithDupRetainedSide() {
         LogicalOlapScan scanA = buildMowScan(1, "a");
         LogicalOlapScan scanB = buildDupScan(2, "b");
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN,
                 ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
 
-        IvmException ex = Assertions.assertThrows(IvmException.class, () -> normalizeJoinPlan(join));
-        Assertions.assertEquals(IvmFailureReason.NON_DETERMINISTIC_ROW_ID, ex.getFailureReason());
-        Assertions.assertTrue(ex.getMessage().contains("retained side"),
-                "unexpected message: " + ex.getMessage());
+        Plan normalized = normalizeJoinPlan(join);
+        Assertions.assertNotNull(normalized,
+                "RIGHT OUTER JOIN with DUP retained side should normalize (row-id is row lsn)");
     }
 
     @Test
@@ -484,26 +494,22 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testNormalizeFullOuterJoinRequiresBothSidesDeterministic() {
+    void testNormalizeFullOuterJoinWithDupSides() {
         LogicalOlapScan scanA = buildDupScan(1, "a");
         LogicalOlapScan scanB = buildMowScan(2, "b");
-        LogicalJoin<?, ?> leftNonDetJoin = new LogicalJoin<>(JoinType.FULL_OUTER_JOIN,
+        LogicalJoin<?, ?> leftJoin = new LogicalJoin<>(JoinType.FULL_OUTER_JOIN,
                 ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
 
-        IvmException leftEx = Assertions.assertThrows(IvmException.class, () -> normalizeJoinPlan(leftNonDetJoin));
-        Assertions.assertEquals(IvmFailureReason.NON_DETERMINISTIC_ROW_ID, leftEx.getFailureReason());
-        Assertions.assertTrue(leftEx.getMessage().contains("left side"),
-                "unexpected message: " + leftEx.getMessage());
+        Assertions.assertNotNull(normalizeJoinPlan(leftJoin),
+                "FULL OUTER JOIN with DUP left side should normalize (row-id is row lsn)");
 
         LogicalOlapScan scanC = buildMowScan(3, "c");
         LogicalOlapScan scanD = buildDupScan(4, "d");
-        LogicalJoin<?, ?> rightNonDetJoin = new LogicalJoin<>(JoinType.FULL_OUTER_JOIN,
+        LogicalJoin<?, ?> rightJoin = new LogicalJoin<>(JoinType.FULL_OUTER_JOIN,
                 ImmutableList.of(), scanC, scanD, JoinReorderContext.EMPTY);
 
-        IvmException rightEx = Assertions.assertThrows(IvmException.class, () -> normalizeJoinPlan(rightNonDetJoin));
-        Assertions.assertEquals(IvmFailureReason.NON_DETERMINISTIC_ROW_ID, rightEx.getFailureReason());
-        Assertions.assertTrue(rightEx.getMessage().contains("right side"),
-                "unexpected message: " + rightEx.getMessage());
+        Assertions.assertNotNull(normalizeJoinPlan(rightJoin),
+                "FULL OUTER JOIN with DUP right side should normalize (row-id is row lsn)");
     }
 
     @Test
@@ -758,8 +764,8 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.CROSS_JOIN,
                 scanA, scanB, JoinReorderContext.EMPTY);
 
-        Assertions.assertFalse(isComposedRowIdDeterministic(join),
-                "DUP × DUP cross join should be non-deterministic");
+        Assertions.assertTrue(isComposedRowIdDeterministic(join),
+                "DUP × DUP cross join should be deterministic (DUP row-id is row lsn)");
     }
 
     /**

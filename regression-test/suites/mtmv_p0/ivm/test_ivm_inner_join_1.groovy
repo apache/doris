@@ -282,7 +282,8 @@ suite("test_ivm_inner_join_1") {
     """
 
     // =========================================================
-    // Part 4: MOW x DUP — matched delete on MOW side should fail explicit INCREMENTAL
+    // Part 4: MOW x DUP — matched delete on MOW side is applied incrementally
+    // (DUP_KEYS row-id is the deterministic row lsn)
     // =========================================================
     sql """drop materialized view if exists ivm_ij1_matched_mv;"""
     sql """drop table if exists ivm_ij1_matched_t1;"""
@@ -367,13 +368,12 @@ suite("test_ivm_inner_join_1") {
         return st != 'PENDING' && st != 'RUNNING'
     })
     def matchedTaskStatus = matchedTaskResult[0][1].toString()
-    def matchedErrorMsg = matchedTaskResult[0][2].toString()
-    assertTrue(matchedTaskStatus == "FAILED",
-            "Expected explicit INCREMENTAL to fail for matched delete on non-deterministic row_id, but got: "
+    assertTrue(matchedTaskStatus == "SUCCESS",
+            "Expected explicit INCREMENTAL to succeed for matched delete with deterministic (row lsn) DUP row-id, but got: "
                     + matchedTaskStatus)
-    assertTrue(matchedErrorMsg.contains("IVM fallback: delete on non-deterministic row_id")
-                    || matchedErrorMsg.contains("assert_true"),
-            "Expected join fallback message in task error, but got: " + matchedErrorMsg)
+    order_qt_mow_dup_matched_after_delete """
+        SELECT k1, left_v1, right_v2 FROM ivm_ij1_matched_mv
+    """
 
     sql """REFRESH MATERIALIZED VIEW ivm_ij1_matched_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_ij1_matched_mv")
