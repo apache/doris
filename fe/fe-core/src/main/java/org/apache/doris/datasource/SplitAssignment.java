@@ -209,9 +209,6 @@ public class SplitAssignment {
             }
         });
         notifyAssignment();
-        if (exception != null) {
-            throw new RuntimeException(exception);
-        }
     }
 
     public boolean isStop() {
