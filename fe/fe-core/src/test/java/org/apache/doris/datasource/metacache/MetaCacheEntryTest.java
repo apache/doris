@@ -1009,6 +1009,38 @@ public class MetaCacheEntryTest {
     }
 
     @Test
+    public void testResourceOwningWeightedCacheCanUseStrongValues() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExternalMetaCacheBudgetManager manager = new ExternalMetaCacheBudgetManager(OptionalLong.of(2_000L));
+        AtomicReference<byte[]> retired = new AtomicReference<>();
+        AtomicInteger retireCount = new AtomicInteger();
+        CountDownLatch retiredLatch = new CountDownLatch(1);
+        ResourceOwningWeightedExternalMetaCache cache = new ResourceOwningWeightedExternalMetaCache(
+                refreshExecutor, manager, retired, retireCount, retiredLatch);
+        try {
+            cache.initCatalog(1L, Maps.newHashMap());
+            MetaCacheEntry<String, byte[]> entry = cache.entry(
+                    1L, "resource", String.class, byte[].class);
+            byte[] value = new byte[1];
+            entry.put("k", value);
+            Object node = extractNode(extractLoadingCache(entry));
+            Object valueReference = findMethod(node.getClass(), "getValueReference").invoke(node);
+
+            Assert.assertSame(value, findMethod(node.getClass(), "getValue").invoke(node));
+            Assert.assertSame("strong-value node must not wrap V in a java.lang.ref.Reference",
+                    value, valueReference);
+
+            entry.invalidateAll();
+            Assert.assertTrue(retiredLatch.await(3L, TimeUnit.SECONDS));
+            Assert.assertSame(value, retired.get());
+            Assert.assertEquals(1, retireCount.get());
+        } finally {
+            cache.close();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testAutomaticEvictionTelemetryKeepsExactWeightAboveWeigherLimit() throws Exception {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         long hugeEstimate = 3L << 30; // above Caffeine's int weigher limit
@@ -2155,14 +2187,18 @@ public class MetaCacheEntryTest {
     }
 
     private Reference<?> extractValueReference(LoadingCache<?, ?> loadingCache) throws Exception {
-        Object boundedLocalCache = readField(loadingCache, "cache");
-        Map<?, ?> nodes = (Map<?, ?>) readField(boundedLocalCache, "data");
-        Assert.assertEquals(1, nodes.size());
-        Object node = nodes.values().iterator().next();
+        Object node = extractNode(loadingCache);
         Method valueReferenceMethod = findMethod(node.getClass(), "getValueReference");
         Object valueReference = valueReferenceMethod.invoke(node);
         Assert.assertTrue(valueReference instanceof Reference);
         return (Reference<?>) valueReference;
+    }
+
+    private Object extractNode(LoadingCache<?, ?> loadingCache) throws Exception {
+        Object boundedLocalCache = readField(loadingCache, "cache");
+        Map<?, ?> nodes = (Map<?, ?>) readField(boundedLocalCache, "data");
+        Assert.assertEquals(1, nodes.size());
+        return nodes.values().iterator().next();
     }
 
     private Object readField(Object target, String name) throws Exception {
@@ -2202,5 +2238,23 @@ public class MetaCacheEntryTest {
 
     private static long accountedWeight(long estimatedPayloadBytes) {
         return estimatedPayloadBytes + MetaCacheEntry.FIXED_ENTRY_ACCOUNTING_OVERHEAD_BYTES;
+    }
+
+    private static final class ResourceOwningWeightedExternalMetaCache extends AbstractExternalMetaCache {
+        private ResourceOwningWeightedExternalMetaCache(ExecutorService refreshExecutor,
+                ExternalMetaCacheBudgetManager budgetManager, AtomicReference<byte[]> retired,
+                AtomicInteger retireCount, CountDownLatch retiredLatch) {
+            super("strong_value_plumbing", refreshExecutor, budgetManager);
+            registerEntry(MetaCacheEntryDef.of(
+                    "resource", String.class, byte[].class, key -> new byte[1],
+                    CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 10L, 2_000L))
+                    .withSizeEstimator((key, value) -> MetaCacheSizeEstimate.complete(value.length))
+                    .withRemovalListener(value -> value, (key, value) -> {
+                        retired.set(value);
+                        retireCount.incrementAndGet();
+                        retiredLatch.countDown();
+                    })
+                    .withStrongValues());
+        }
     }
 }

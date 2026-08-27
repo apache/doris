@@ -592,11 +592,13 @@ public class HudiScanNode extends HiveScanNode {
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
         ensureHmsRuntimeGeneration();
-        acquireFsView();
         try {
             if (incrementalRead && !incrementalRelation.fallbackFullTableScan()) {
-                return getIncrementalSplits();
+                List<Split> splits = getIncrementalSplits();
+                ensureHmsRuntimeGeneration();
+                return splits;
             }
+            acquireFsView();
             List<Split> splits = Collections.synchronizedList(new ArrayList<>());
             initPrunedPartitions();
             hmsTable.getCatalog().getExecutionAuthenticator().execute(() -> {

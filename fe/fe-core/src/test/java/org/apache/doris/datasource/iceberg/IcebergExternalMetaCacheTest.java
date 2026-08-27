@@ -503,6 +503,45 @@ public class IcebergExternalMetaCacheTest {
     }
 
     @Test
+    public void testSnapshotPartitionLoadUsesCapturedAuthenticator() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.isValidRelatedTable()).thenReturn(true);
+        Table projectionTable = Mockito.mock(Table.class);
+        Snapshot snapshot = Mockito.mock(Snapshot.class);
+        Schema schema = Mockito.mock(Schema.class);
+        Mockito.when(projectionTable.currentSnapshot()).thenReturn(snapshot);
+        Mockito.when(snapshot.snapshotId()).thenReturn(11L);
+        Mockito.when(projectionTable.schema()).thenReturn(schema);
+        Mockito.when(schema.schemaId()).thenReturn(3);
+        ExecutionAuthenticator capturedAuthenticator = new ExecutionAuthenticator() {
+        };
+        Method loader = IcebergExternalMetaCache.class.getDeclaredMethod(
+                "loadSnapshotProjection", ExternalTable.class, Table.class, Table.class,
+                String.class, boolean.class, ExecutionAuthenticator.class);
+        loader.setAccessible(true);
+        try (MockedStatic<IcebergUtils> icebergUtils = Mockito.mockStatic(
+                IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            icebergUtils.when(() -> IcebergUtils.loadPartitionInfo(
+                            dorisTable, projectionTable, 11L, 3L, capturedAuthenticator))
+                    .thenReturn(IcebergPartitionInfo.empty());
+            icebergUtils.when(() -> IcebergUtils.getNameMapping(projectionTable))
+                    .thenReturn(Optional.empty());
+            icebergUtils.clearInvocations();
+
+            loader.invoke(cache, dorisTable, projectionTable, projectionTable,
+                    null, false, capturedAuthenticator);
+
+            icebergUtils.verify(() -> IcebergUtils.loadPartitionInfo(
+                    dorisTable, projectionTable, 11L, 3L, capturedAuthenticator));
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testRetainedExecutionContextAllowanceAndPlanningFence() {
         ExecutionAuthenticator captured = new ExecutionAuthenticator() {
             @Override

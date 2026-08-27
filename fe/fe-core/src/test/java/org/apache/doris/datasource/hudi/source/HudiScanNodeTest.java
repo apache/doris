@@ -22,6 +22,7 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
@@ -33,6 +34,7 @@ import com.google.common.collect.ImmutableMap;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
+import org.apache.hudi.common.util.Option;
 import org.apache.hudi.storage.StoragePath;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -48,6 +50,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
@@ -260,12 +263,50 @@ public class HudiScanNodeTest {
         Assertions.assertEquals(Collections.singletonList("p=1"), duplicateSplit.getPartitionValues());
     }
 
+    @Test
+    public void testIncrementalPlanningDoesNotAcquireUnusedFsView() throws Exception {
+        AtomicInteger loads = new AtomicInteger();
+        IncrementalRelation relation = incrementalRelation(
+                "10", "20", ImmutableMap.of("hoodie.datasource.query.type", "incremental"),
+                loads, "incremental.parquet");
+        Mockito.when(relation.fallbackFullTableScan()).thenReturn(false);
+        HudiScanNode node = incrementalScanNode(
+                new StatementContext.ExternalScanTaskCache(), relation, true);
+        setField(node, HudiScanNode.class, "incrementalRead", true);
+
+        List<Split> splits = node.getSplits(1);
+
+        Assertions.assertEquals(1, loads.get());
+        Assertions.assertEquals(1, splits.size());
+        Assertions.assertNull(getField(node, HudiScanNode.class, "fsViewLease"));
+    }
+
+    @Test
+    public void testEmptyMorIncrementalPlanningDoesNotAcquireUnusedFsView() throws Exception {
+        IncrementalRelation relation = Mockito.mock(IncrementalRelation.class);
+        Mockito.when(relation.fallbackFullTableScan()).thenReturn(false);
+        Mockito.when(relation.collectFileSlices()).thenReturn(Collections.emptyList());
+        HudiScanNode node = incrementalScanNode(
+                new StatementContext.ExternalScanTaskCache(), relation, false);
+        HoodieTableMetaClient metaClient = Mockito.mock(HoodieTableMetaClient.class, Answers.RETURNS_DEEP_STUBS);
+        Mockito.when(metaClient.getTableConfig().getPartitionFields()).thenReturn(Option.empty());
+        setField(node, HudiScanNode.class, "hudiClient", metaClient);
+        setField(node, HudiScanNode.class, "incrementalRead", true);
+
+        List<Split> splits = node.getSplits(1);
+
+        Assertions.assertTrue(splits.isEmpty());
+        Assertions.assertNull(getField(node, HudiScanNode.class, "fsViewLease"));
+    }
+
     private static HudiScanNode partitionScanNode(
             StatementContext.ExternalScanTaskCache cache, HoodieTableFileSystemView fsView,
             String queryInstant, boolean nativeReader, boolean runtimePrune) throws Exception {
         HudiScanNode node = Mockito.mock(HudiScanNode.class, Answers.CALLS_REAL_METHODS);
         HMSExternalTable table = Mockito.mock(HMSExternalTable.class, Answers.RETURNS_DEEP_STUBS);
-        Mockito.when(table.getCatalog().getId()).thenReturn(1L);
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getId()).thenReturn(1L);
         Mockito.when(table.getId()).thenReturn(2L);
         Mockito.when(table.getStoragePropertiesMap()).thenReturn(Collections.emptyMap());
         SessionVariable sessionVariable = new SessionVariable();
@@ -302,7 +343,9 @@ public class HudiScanNodeTest {
             boolean nativeReader) throws Exception {
         HudiScanNode node = Mockito.mock(HudiScanNode.class, Answers.CALLS_REAL_METHODS);
         HMSExternalTable table = Mockito.mock(HMSExternalTable.class, Answers.RETURNS_DEEP_STUBS);
-        Mockito.when(table.getCatalog().getId()).thenReturn(1L);
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getId()).thenReturn(1L);
         Mockito.when(table.getId()).thenReturn(2L);
         SessionVariable sessionVariable = new SessionVariable();
         sessionVariable.setForceJniScanner(!nativeReader);
@@ -314,6 +357,7 @@ public class HudiScanNodeTest {
         setField(node, HudiScanNode.class, "isCowTable", true);
         setField(node, HudiScanNode.class, "incrementalRelation", relation);
         setField(node, HudiScanNode.class, "noLogsSplitNum", new AtomicLong());
+        setField(node, HudiScanNode.class, "fsViewReleased", new AtomicBoolean());
         return node;
     }
 
@@ -420,5 +464,11 @@ public class HudiScanNodeTest {
         Field field = owner.getDeclaredField(name);
         field.setAccessible(true);
         field.set(target, value);
+    }
+
+    private static Object getField(Object target, Class<?> owner, String name) throws Exception {
+        Field field = owner.getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(target);
     }
 }

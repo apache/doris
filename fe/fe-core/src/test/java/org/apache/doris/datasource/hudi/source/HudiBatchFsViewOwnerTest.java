@@ -91,6 +91,7 @@ class HudiBatchFsViewOwnerTest {
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch interrupted = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch terminal = new CountDownLatch(1);
         HudiScanNode.TerminalTask task = new HudiScanNode.TerminalTask(() -> {
             started.countDown();
             while (release.getCount() > 0) {
@@ -100,7 +101,10 @@ class HudiBatchFsViewOwnerTest {
                     interrupted.countDown();
                 }
             }
-        }, owner::finish);
+        }, () -> {
+            owner.finish();
+            terminal.countDown();
+        });
         owner.track(task);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
@@ -113,7 +117,8 @@ class HudiBatchFsViewOwnerTest {
             Assertions.assertTrue(interrupted.await(3, TimeUnit.SECONDS));
             Mockito.verify(lease, Mockito.never()).close();
             release.countDown();
-            Mockito.verify(lease, Mockito.timeout(3000)).close();
+            Assertions.assertTrue(terminal.await(3, TimeUnit.SECONDS));
+            Mockito.verify(lease).close();
         } finally {
             release.countDown();
             executor.shutdownNow();
@@ -130,6 +135,7 @@ class HudiBatchFsViewOwnerTest {
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch interrupted = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch terminal = new CountDownLatch(1);
         HudiScanNode.TerminalTask task = new HudiScanNode.TerminalTask(() -> {
             started.countDown();
             while (release.getCount() > 0) {
@@ -139,7 +145,10 @@ class HudiBatchFsViewOwnerTest {
                     interrupted.countDown();
                 }
             }
-        }, owner::finish);
+        }, () -> {
+            owner.finish();
+            terminal.countDown();
+        });
         owner.track(task);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
@@ -151,7 +160,8 @@ class HudiBatchFsViewOwnerTest {
             Assertions.assertTrue(interrupted.await(3, TimeUnit.SECONDS));
             Mockito.verify(lease, Mockito.never()).close();
             release.countDown();
-            Mockito.verify(lease, Mockito.timeout(3000)).close();
+            Assertions.assertTrue(terminal.await(3, TimeUnit.SECONDS));
+            Mockito.verify(lease).close();
         } finally {
             release.countDown();
             executor.shutdownNow();
