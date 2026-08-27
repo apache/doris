@@ -58,6 +58,7 @@
 #include "io/fs/s3_file_system.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
+#include "storage/index/bloom_filter/bloom_filter_index_writer.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
 #include "testutil/mock/obj_storage_client_test_stub.h"
@@ -1518,6 +1519,64 @@ TEST_F(S3FileWriterTest, write_buffer_boundary) {
     test('1', 2 * config::s3_write_buffer_size, fpath(__FILE__, __LINE__, ".dat"));
     test('2', 2 * config::s3_write_buffer_size + 1, fpath(__FILE__, __LINE__, ".dat"));
     // clang-format on
+}
+
+TEST_F(S3FileWriterTest, primary_key_bloom_filter_create_multipart_error) {
+    constexpr size_t buffer_size = 5 * 1024 * 1024;
+    constexpr size_t bytes_appended_before_failure = 5'203'052;
+    constexpr size_t buffered_but_unaccounted_bytes = 39'828;
+    static_assert(bytes_appended_before_failure + buffered_but_unaccounted_bytes == buffer_size);
+
+    bool enable_file_cache = config::enable_file_cache;
+    auto s3_write_buffer_size = config::s3_write_buffer_size;
+    config::enable_file_cache = false;
+    config::s3_write_buffer_size = buffer_size;
+    Defer restore_config {[&]() {
+        config::enable_file_cache = enable_file_cache;
+        config::s3_write_buffer_size = s3_write_buffer_size;
+    }};
+
+    auto [mock_client, file_writer] = create_s3_client("pk_bf_create_multipart_error");
+    std::string prefix(bytes_appended_before_failure, 'a');
+    ASSERT_EQ(Status::OK(), file_writer->append(prefix));
+    ASSERT_EQ(bytes_appended_before_failure, file_writer->bytes_appended());
+    ASSERT_EQ(bytes_appended_before_failure, file_writer->_pending_buf->get_size());
+
+    mock_client->default_upload_response = {
+            .resp = {.status = {ObjStorageStatus::IO_ERROR, "injected CreateMultipartUpload error"},
+                     .http_code = 500}};
+
+    BloomFilterOptions bf_options;
+    bf_options.fpp = 0.05;
+    std::unique_ptr<BloomFilterIndexWriter> bloom_filter_writer;
+    ASSERT_EQ(Status::OK(),
+              PrimaryKeyBloomFilterIndexWriterImpl::create(
+                      bf_options, FieldType::OLAP_FIELD_TYPE_VARCHAR, &bloom_filter_writer));
+
+    constexpr size_t num_values = 50'000;
+    std::string key = "pk";
+    std::vector<Slice> keys(num_values, Slice(key));
+    ASSERT_EQ(Status::OK(), bloom_filter_writer->add_values(keys.data(), keys.size()));
+    ASSERT_EQ(Status::OK(), bloom_filter_writer->flush());
+    ASSERT_GT(bloom_filter_writer->size(), buffered_but_unaccounted_bytes);
+
+    ColumnIndexMetaPB index_meta;
+    auto st = bloom_filter_writer->finish(file_writer.get(), &index_meta);
+    ASSERT_FALSE(st.ok());
+    EXPECT_TRUE(st.is<ErrorCode::IO_ERROR>()) << st;
+    EXPECT_TRUE(st.to_string().contains("injected CreateMultipartUpload error")) << st;
+
+    EXPECT_EQ(1, mock_client->create_multipart_count);
+    EXPECT_EQ(0, mock_client->upload_part_count);
+    EXPECT_EQ(0, mock_client->complete_multipart_count);
+    ASSERT_NE(nullptr, file_writer->_pending_buf);
+    EXPECT_EQ(buffer_size, file_writer->_pending_buf->get_size());
+    EXPECT_EQ(bytes_appended_before_failure, file_writer->bytes_appended());
+    EXPECT_EQ(buffered_but_unaccounted_bytes,
+              file_writer->_pending_buf->get_size() - file_writer->bytes_appended());
+
+    ASSERT_TRUE(index_meta.has_bloom_filter_index());
+    EXPECT_FALSE(index_meta.bloom_filter_index().has_bloom_filter());
 }
 
 TEST_F(S3FileWriterTest, test_empty_file) {
