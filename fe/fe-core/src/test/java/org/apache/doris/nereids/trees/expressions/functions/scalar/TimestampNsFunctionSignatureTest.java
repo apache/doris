@@ -64,10 +64,14 @@ class TimestampNsFunctionSignatureTest {
 
     @Test
     void testTimestampNsScalarFunctionSignatures() {
+        Expression dateV2 = SlotReference.of("datev2", DateV2Type.INSTANCE);
+        Expression dateTimeV2 = SlotReference.of("datetimev2", DateTimeV2Type.MAX);
         assertSignature(new WeeksAdd(timestampNs, new IntegerLiteral(1)),
                 TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE, IntegerType.INSTANCE);
         assertSignature(new Year(timestampNs), SmallIntType.INSTANCE, TimeStampNsType.INSTANCE);
         assertSignature(new Nanosecond(timestampNs), IntegerType.INSTANCE, TimeStampNsType.INSTANCE);
+        assertSignature(new Nanosecond(dateV2), IntegerType.INSTANCE, DateV2Type.INSTANCE);
+        assertSignature(new Nanosecond(dateTimeV2), IntegerType.INSTANCE, DateTimeV2Type.MAX);
         assertSignature(new Date(timestampNs), DateV2Type.INSTANCE, TimeStampNsType.INSTANCE);
         assertSignature(new DateFormat(timestampNs, new VarcharLiteral("%Y-%m-%d")),
                 VarcharType.SYSTEM_DEFAULT, TimeStampNsType.INSTANCE, VarcharType.SYSTEM_DEFAULT);

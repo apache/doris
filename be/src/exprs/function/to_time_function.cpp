@@ -38,6 +38,8 @@ using FunctionWeekV2 =
 using FunctionHourV2 = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToHourImpl<TYPE_DATEV2>>;
 using FunctionMinuteV2 = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToMinuteImpl<TYPE_DATEV2>>;
 using FunctionSecondV2 = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToSecondImpl<TYPE_DATEV2>>;
+using FunctionNanoSecondV2 =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToNanoSecondImpl<TYPE_DATEV2>>;
 using FunctionToDaysV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<TYPE_DATEV2>>;
 using FunctionToDateV2 = FunctionDateOrDateTimeToSomething<DataTypeDateV2, ToDateImpl<TYPE_DATEV2>>;
 using FunctionDateV2 = FunctionDateOrDateTimeToSomething<DataTypeDateV2, DateImpl<TYPE_DATEV2>>;
@@ -62,6 +64,8 @@ using FunctionDateTimeV2Second =
         FunctionDateOrDateTimeToSomething<DataTypeInt8, ToSecondImpl<TYPE_DATETIMEV2>>;
 using FunctionDateTimeV2MicroSecond =
         FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMicroSecondImpl<TYPE_DATETIMEV2>>;
+using FunctionDateTimeV2NanoSecond =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToNanoSecondImpl<TYPE_DATETIMEV2>>;
 using FunctionDateTimeV2ToDate =
         FunctionDateOrDateTimeToSomething<DataTypeDateV2, ToDateImpl<TYPE_DATETIMEV2>>;
 using FunctionDateTimeV2Date =
@@ -111,6 +115,7 @@ using FunctionTimestampNsToSeconds =
 void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionTimeStampV2>();
     factory.register_function<FunctionSecondV2>();
+    factory.register_function<FunctionNanoSecondV2>();
     factory.register_function<FunctionMinuteV2>();
     factory.register_function<FunctionHourV2>();
     factory.register_function<FunctionDayV2>();
@@ -123,6 +128,7 @@ void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToDateV2>();
     factory.register_function<FunctionDateV2>();
     factory.register_function<FunctionDateTimeV2MicroSecond>();
+    factory.register_function<FunctionDateTimeV2NanoSecond>();
     factory.register_function<FunctionDateTimeV2Second>();
     factory.register_function<FunctionDateTimeV2Minute>();
     factory.register_function<FunctionDateTimeV2Hour>();

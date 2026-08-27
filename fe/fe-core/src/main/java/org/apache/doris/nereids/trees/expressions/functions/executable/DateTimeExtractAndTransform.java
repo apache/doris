@@ -295,9 +295,19 @@ public class DateTimeExtractAndTransform {
         return new IntegerLiteral(((int) time.getMicroSecond()));
     }
 
-    /**
-     * Executable timestamp_ns extract nanosecond.
-     */
+    /** Executable datev2 extract nanosecond. */
+    @ExecFunction(name = "nanosecond")
+    public static Expression nanosecond(DateV2Literal date) {
+        return new IntegerLiteral(0);
+    }
+
+    /** Executable datetimev2 extract nanosecond. */
+    @ExecFunction(name = "nanosecond")
+    public static Expression nanosecond(DateTimeV2Literal date) {
+        return new IntegerLiteral((int) date.getNanoSecond());
+    }
+
+    /** Executable timestamp_ns extract nanosecond. */
     @ExecFunction(name = "nanosecond")
     public static Expression nanosecond(TimeStampNsLiteral date) {
         return new IntegerLiteral((int) date.getNanoSecond());
