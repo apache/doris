@@ -750,12 +750,12 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                 org.apache.doris.nereids.exceptions.AnalysisException exception = Assertions.assertThrows(
                         org.apache.doris.nereids.exceptions.AnalysisException.class,
                         () -> Deencapsulation.invoke(
-                                CloudTableStreamReadStateHook.class, "resolve", analyzedPlan));
+                                CloudTableStreamReadStateHook.class, "installReadStates", analyzedPlan));
                 Assertions.assertTrue(exception.getMessage()
                         .contains("did not return all Cloud Table Stream bindings"));
                 Assertions.assertTrue(wrappers.stream().noneMatch(OlapTableStreamWrapper::hasCloudReadStates));
 
-                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "resolve", analyzedPlan);
+                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "installReadStates", analyzedPlan);
                 Assertions.assertTrue(wrappers.stream().allMatch(OlapTableStreamWrapper::hasCloudReadStates));
                 ArgumentCaptor<Cloud.GetTableStreamOffsetRequest> requestCaptor =
                         ArgumentCaptor.forClass(Cloud.GetTableStreamOffsetRequest.class);
@@ -820,7 +820,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                 connectContext.setQueryId(
                         new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
                 PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
-                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "resolve", checker.getPlan());
+                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "installReadStates", checker.getPlan());
                 checker.getCascadesContext().getStatementContext().setForceRecordTmpPlan(true);
                 checker.rewrite();
 
@@ -897,7 +897,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                         new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
                 PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
                 Plan analyzedPlan = checker.getPlan();
-                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "resolve", analyzedPlan);
+                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "installReadStates", analyzedPlan);
                 checker.rewrite();
 
                 List<TableStreamUpdateInfo> updates = StreamConsumptionInfoExtractor.extract(analyzedPlan);
@@ -962,7 +962,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                         new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
                 PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
                 Plan analyzedPlan = checker.getPlan();
-                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "resolve", analyzedPlan);
+                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "installReadStates", analyzedPlan);
                 checker.rewrite();
 
                 List<TableStreamUpdateInfo> updates = StreamConsumptionInfoExtractor.extract(analyzedPlan);
