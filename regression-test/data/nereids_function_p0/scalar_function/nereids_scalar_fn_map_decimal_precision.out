@@ -53,3 +53,11 @@ true
 -- !struct_independent_fields --
 {"col1":9999999999999999999999999999999999999999999999999999999999999999999999999999, "col2":[0.125000000000000000]}
 
+-- !map_contains_value_collision --
+1	false
+2	false
+
+-- !map_contains_entry_collision --
+1	true
+2	false
+

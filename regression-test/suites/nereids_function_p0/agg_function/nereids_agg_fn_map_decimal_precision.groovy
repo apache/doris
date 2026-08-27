@@ -39,20 +39,21 @@ suite("nereids_agg_fn_map_decimal_precision") {
         insert into map_agg_dec_precision values
             (1, 99999999999999999999999999999999999999, 0.125000000000000000),
             (2, 12345678901234567890123456789012345678, 2.000000000000000001),
-            (2, 12345678901234567890123456789012345678, 3.000000000000000000)
+            (3, 12345678901234567890123456789012345679, 3.000000000000000000)
     """
 
     // the 38-digit integral key must be preserved, and the value must keep all 18
-    // fractional digits
+    // fractional digits. map_agg is registered as an alias of MapAggV2, so exercise
+    // the distinct MapAggV1 typed-column path here and map_agg_v2 in the next query.
     order_qt_map_agg_decimal_precision """
-        select map_agg(k, v) from map_agg_dec_precision where g = 1;
+        select map_agg_v1(k, v) from map_agg_dec_precision where g = 1;
     """
 
     order_qt_map_agg_v2_decimal_precision """
         select map_agg_v2(k, v) from map_agg_dec_precision where g = 1;
     """
 
-    // duplicate keys are overwritten by the last value, still without precision loss
+    // every group has a unique key, so no unordered duplicate-key winner is asserted
     order_qt_map_agg_group_by_decimal_precision """
         select g, map_agg(k, v) from map_agg_dec_precision group by g order by g;
     """
