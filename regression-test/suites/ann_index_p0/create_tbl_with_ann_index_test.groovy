@@ -37,6 +37,28 @@ suite("create_tbl_with_ann_index_test") {
         """
     }
 
+    sql "drop table if exists ann_tbl_mor"
+    test {
+        sql """
+            CREATE TABLE ann_tbl_mor (
+                id INT NOT NULL COMMENT "",
+                vec ARRAY<FLOAT> NOT NULL COMMENT "",
+                INDEX ann_idx_mor (vec) USING ANN PROPERTIES(
+                    "index_type" = "hnsw",
+                    "metric_type" = "l2_distance",
+                    "dim" = "128"
+                )
+            ) ENGINE=OLAP
+            UNIQUE KEY(id) COMMENT "OLAP"
+            DISTRIBUTED BY HASH(id) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "false"
+            );
+        """
+        exception "ANN index can only be used in DUP_KEYS table or UNIQUE_KEYS table with merge-on-write enabled"
+    }
+
     sql "drop table if exists ann_tbl2"
     test {
         sql """

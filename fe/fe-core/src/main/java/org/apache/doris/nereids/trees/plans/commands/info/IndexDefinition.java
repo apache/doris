@@ -148,8 +148,11 @@ public class IndexDefinition {
             if (!itemType.isFloatType()) {
                 throw new AnalysisException("ANN index column item type must be float type, invalid index: " + name);
             }
-            if (keysType != KeysType.DUP_KEYS) {
-                throw new AnalysisException("ANN index can only be used in DUP_KEYS table");
+            if (keysType != KeysType.DUP_KEYS
+                    && !(keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite)) {
+                throw new AnalysisException(
+                        "ANN index can only be used in DUP_KEYS table or UNIQUE_KEYS table with"
+                                + " merge-on-write enabled");
             }
             return;
         }
