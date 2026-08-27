@@ -73,6 +73,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -738,6 +739,78 @@ public class IcebergExternalMetaCacheTest {
             Assert.assertSame(schemaValue, cache.getIcebergSchemaCacheValue(
                     mapping, 0L, rejected.getRetainedIcebergTable()));
             Assert.assertNull(schemas.peekIfPresent(schemaKey));
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRejectedTableRefreshKeepsCurrentGenerationProjections() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        IcebergMetadataOps metadataOps = Mockito.mock(IcebergMetadataOps.class);
+        Mockito.when(catalog.getMetadataOps()).thenReturn(metadataOps);
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(Callable<T> task) throws Exception {
+                return task.call();
+            }
+        });
+        stubTableLoadContext(catalog);
+        Mockito.when(metadataOps.loadTable("remote_db", "remote_tbl"))
+                .thenReturn(tableWithMetadataLocation("/metadata/rejected-refresh.json"));
+        AtomicBoolean rejectRefresh = new AtomicBoolean(false);
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor) {
+            @Override
+            protected CatalogIf<?> getCatalog(long catalogId) {
+                return catalog;
+            }
+
+            @Override
+            MetaCacheSizeEstimate prepareTableForCachePublication(
+                    NameMapping nameMapping, IcebergTableCacheValue value) {
+                if (rejectRefresh.get()) {
+                    return MetaCacheSizeEstimate.incomplete("test_refresh_rejection");
+                }
+                return super.prepareTableForCachePublication(nameMapping, value);
+            }
+        };
+        try {
+            cache.initCatalog(1L, Collections.singletonMap(
+                    "meta.cache.iceberg.table.max-weight", "4MB"));
+            NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
+            IcebergTableCacheValue current = new IcebergTableCacheValue(
+                    tableWithMetadataLocation("/metadata/current.json"));
+            MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables = cache.entry(
+                    1L, IcebergExternalMetaCache.ENTRY_TABLE, NameMapping.class, IcebergTableCacheValue.class);
+            MetaCacheEntry<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> snapshots = cache.entry(
+                    1L, IcebergExternalMetaCache.ENTRY_SNAPSHOT,
+                    IcebergSnapshotEntryKey.class, IcebergSnapshotCacheValue.class);
+            MetaCacheEntry<IcebergSchemaCacheKey, SchemaCacheValue> schemas = cache.entry(
+                    1L, IcebergExternalMetaCache.ENTRY_SCHEMA,
+                    IcebergSchemaCacheKey.class, SchemaCacheValue.class);
+            tables.put(mapping, current);
+            IcebergSnapshotEntryKey snapshotKey = IcebergSnapshotEntryKey.tryCreate(
+                    mapping, current.getRetainedIcebergTable()).get();
+            IcebergSnapshotCacheValue snapshotValue = new IcebergSnapshotCacheValue(
+                    IcebergPartitionInfo.empty(), new IcebergSnapshot(-1L, 0L));
+            snapshots.put(snapshotKey, snapshotValue);
+            IcebergSchemaCacheKey schemaKey = new IcebergSchemaCacheKey(
+                    mapping, current.getTableUuid().get(), 0L);
+            SchemaCacheValue schemaValue = new SchemaCacheValue(Collections.emptyList());
+            schemas.put(schemaKey, schemaValue);
+
+            rejectRefresh.set(true);
+            Method triggerRefresh = MetaCacheEntry.class.getDeclaredMethod("triggerRefreshForTest", Object.class);
+            triggerRefresh.setAccessible(true);
+            triggerRefresh.invoke(tables, mapping);
+            executor.submit(() -> { }).get(3L, TimeUnit.SECONDS);
+
+            Assert.assertSame(current, tables.peekIfPresent(mapping));
+            Assert.assertSame(snapshotValue, snapshots.peekIfPresent(snapshotKey));
+            Assert.assertSame(schemaValue, schemas.peekIfPresent(schemaKey));
+            Assert.assertEquals(1L, tables.stats().getWeightAdmissionRejectedCount());
         } finally {
             cache.close();
             executor.shutdownNow();

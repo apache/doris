@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.metacache;
 
 import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
@@ -109,13 +110,15 @@ public final class MetaCacheEntryDef<K, V> {
     private final Function<V, ?> removalTokenExtractor;
     @Nullable
     private final MetaCacheEntryRemovalListener<K, ?> removalListener;
+    @Nullable
+    private final Consumer<V> unpublishedValueRetirer;
 
     private MetaCacheEntryDef(String name, Class<K> keyType, Class<V> valueType,
             @Nullable Function<K, V> loader, CacheSpec defaultCacheSpec, boolean autoRefresh, boolean contextualOnly,
             MetaCacheEntryInvalidation<K> invalidation, @Nullable MetaCacheSizeEstimator<K, V> sizeEstimator,
             @Nullable MetaCacheEntryReplacementListener<K, V> replacementListener) {
         this(name, keyType, valueType, loader, defaultCacheSpec, autoRefresh, contextualOnly, invalidation,
-                sizeEstimator, replacementListener, null, null);
+                sizeEstimator, replacementListener, null, null, null);
     }
 
     private MetaCacheEntryDef(String name, Class<K> keyType, Class<V> valueType,
@@ -123,7 +126,8 @@ public final class MetaCacheEntryDef<K, V> {
             MetaCacheEntryInvalidation<K> invalidation, @Nullable MetaCacheSizeEstimator<K, V> sizeEstimator,
             @Nullable MetaCacheEntryReplacementListener<K, V> replacementListener,
             @Nullable Function<V, ?> removalTokenExtractor,
-            @Nullable MetaCacheEntryRemovalListener<K, ?> removalListener) {
+            @Nullable MetaCacheEntryRemovalListener<K, ?> removalListener,
+            @Nullable Consumer<V> unpublishedValueRetirer) {
         this.name = Objects.requireNonNull(name, "entry name is required");
         this.keyType = Objects.requireNonNull(keyType, "entry key type is required");
         this.valueType = Objects.requireNonNull(valueType, "entry value type is required");
@@ -146,6 +150,7 @@ public final class MetaCacheEntryDef<K, V> {
         this.replacementListener = replacementListener;
         this.removalTokenExtractor = removalTokenExtractor;
         this.removalListener = removalListener;
+        this.unpublishedValueRetirer = unpublishedValueRetirer;
     }
 
     /**
@@ -210,7 +215,7 @@ public final class MetaCacheEntryDef<K, V> {
         return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec,
                 autoRefresh, contextualOnly, invalidation,
                 Objects.requireNonNull(estimator, "estimator"), replacementListener,
-                removalTokenExtractor, removalListener);
+                removalTokenExtractor, removalListener, unpublishedValueRetirer);
     }
 
     /** Return a definition that synchronously retires dependencies after a value replacement. */
@@ -218,7 +223,8 @@ public final class MetaCacheEntryDef<K, V> {
             MetaCacheEntryReplacementListener<K, V> listener) {
         return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec,
                 autoRefresh, contextualOnly, invalidation, sizeEstimator,
-                Objects.requireNonNull(listener, "listener"), removalTokenExtractor, removalListener);
+                Objects.requireNonNull(listener, "listener"), removalTokenExtractor, removalListener,
+                unpublishedValueRetirer);
     }
 
     /**
@@ -230,7 +236,14 @@ public final class MetaCacheEntryDef<K, V> {
         return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec,
                 autoRefresh, contextualOnly, invalidation, sizeEstimator, replacementListener,
                 Objects.requireNonNull(tokenExtractor, "tokenExtractor"),
-                Objects.requireNonNull(listener, "listener"));
+                Objects.requireNonNull(listener, "listener"), unpublishedValueRetirer);
+    }
+
+    /** Return a definition that retires a refresh value whose ownership was never published. */
+    public MetaCacheEntryDef<K, V> withUnpublishedValueRetirer(Consumer<V> retirer) {
+        return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec,
+                autoRefresh, contextualOnly, invalidation, sizeEstimator, replacementListener,
+                removalTokenExtractor, removalListener, Objects.requireNonNull(retirer, "retirer"));
     }
 
     /**
@@ -302,5 +315,10 @@ public final class MetaCacheEntryDef<K, V> {
     @Nullable
     public MetaCacheEntryRemovalListener<K, ?> getRemovalListener() {
         return removalListener;
+    }
+
+    @Nullable
+    public Consumer<V> getUnpublishedValueRetirer() {
+        return unpublishedValueRetirer;
     }
 }
