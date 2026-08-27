@@ -33,6 +33,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/runtime_state.h"
+#include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/olap_common.h"
 #include "storage/tablet/tablet_schema.h"
@@ -86,11 +87,24 @@ public:
         return Status::OK();
     }
 
+    Status evaluate_ann_range_search(
+            const segment_v2::AnnRangeSearchRuntime&,
+            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>&,
+            const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>&, size_t,
+            roaring::Roaring&, segment_v2::AnnIndexStats&, bool,
+            AnnRangeSearchEvaluationResult& result) override {
+        ++_ann_eval_count;
+        result.executed = false;
+        return Status::OK();
+    }
+
     int eval_count() const { return _eval_count; }
+    int ann_eval_count() const { return _ann_eval_count; }
 
 private:
     std::vector<uint32_t> _rows;
     int _eval_count = 0;
+    int _ann_eval_count = 0;
 };
 
 TabletSchemaSPtr make_tablet_schema() {
@@ -183,6 +197,106 @@ TEST_F(SegmentIteratorConjunctShortCircuitTest, empty_bitmap_short_circuits_rema
     // The skip is visible in reader statistics (profile:
     // InvertedIndexConjunctsShortCircuited).
     EXPECT_EQ(_stats.inverted_index_conjuncts_short_circuited, 1);
+}
+
+// Once the candidate bitmap is empty, virtual-column MATCH projections must
+// not run their whole-segment index evaluation either: with zero surviving
+// rows their result column is never materialized, so the postings walk is
+// pure waste (SELECT msg MATCH_PHRASE_PREFIX '...' WHERE ns MATCH 'no-hit').
+TEST_F(SegmentIteratorConjunctShortCircuitTest, empty_bitmap_skips_virtual_column_projections) {
+    _iter->_row_bitmap.addRange(0, 100);
+
+    auto empty_expr = std::make_shared<BitmapEvalExpr>(std::vector<uint32_t> {});
+    auto projection_expr = std::make_shared<BitmapEvalExpr>(std::vector<uint32_t> {1, 2});
+    _iter->_common_expr_ctxs_push_down = {make_bitmap_ctx(empty_expr)};
+    _iter->_virtual_column_exprs[0] = make_bitmap_ctx(projection_expr);
+
+    ASSERT_TRUE(_iter->_apply_index_expr().ok());
+
+    EXPECT_TRUE(_iter->_row_bitmap.isEmpty());
+    EXPECT_EQ(projection_expr->eval_count(), 0);
+}
+
+// The ANN range-search pass iterates the same conjunct list; on an empty
+// bitmap a range search cannot produce rows, so with the small-candidate
+// fallback thresholds disabled it must still not load or search the index.
+TEST_F(SegmentIteratorConjunctShortCircuitTest, empty_bitmap_skips_ann_range_search) {
+    _iter->_row_bitmap.addRange(0, 100);
+
+    auto empty_expr = std::make_shared<BitmapEvalExpr>(std::vector<uint32_t> {});
+    auto ann_expr = std::make_shared<BitmapEvalExpr>(std::vector<uint32_t> {1, 2});
+    // The short circuit keeps the second conjunct away from the inverted-index
+    // loop; only the ANN pass below it iterates the (uncleared) list.
+    _iter->_common_expr_ctxs_push_down = {make_bitmap_ctx(empty_expr), make_bitmap_ctx(ann_expr)};
+
+    ASSERT_TRUE(_iter->_apply_index_expr().ok());
+
+    EXPECT_TRUE(_iter->_row_bitmap.isEmpty());
+    EXPECT_EQ(ann_expr->ann_eval_count(), 0);
+}
+
+// An indexed prefix that empties the bitmap proves the WHOLE conjunction
+// false, which is exactly what the condition cache wants to remember. The
+// consumed-list clear must therefore keep the digest alive (an empty result
+// is correct for the full conjunction) instead of letting the empty list
+// zero it, which would silently drop the all-false cache entry that repeated
+// scans relied on before the short circuit existed.
+TEST_F(SegmentIteratorConjunctShortCircuitTest, exhausted_prefix_preserves_condition_cache_digest) {
+    _iter->_row_bitmap.addRange(0, 100);
+    _iter->_opts.condition_cache_digest = 12345;
+    TQueryOptions query_options;
+    query_options.__set_enable_fallback_on_missing_inverted_index(true);
+    query_options.__set_enable_inverted_index_query(true);
+    _runtime_state.set_query_options(query_options);
+
+    auto empty_expr = std::make_shared<BitmapEvalExpr>(std::vector<uint32_t> {});
+    auto residual_expr = std::make_shared<BitmapEvalExpr>(std::vector<uint32_t> {0, 1});
+    _iter->_common_expr_ctxs_push_down = {make_bitmap_ctx(empty_expr),
+                                          make_bitmap_ctx(residual_expr)};
+
+    ASSERT_TRUE(_iter->_get_row_ranges_by_column_conditions().ok());
+
+    EXPECT_TRUE(_iter->_row_bitmap.isEmpty());
+    EXPECT_TRUE(_iter->_common_expr_ctxs_push_down.empty());
+    EXPECT_EQ(_iter->_opts.condition_cache_digest, 12345)
+            << "the all-false result is valid for the full conjunction and must stay cacheable";
+}
+
+// Counter-case guarding against an over-wide digest fix: when every conjunct
+// is consumed normally (no short circuit, surviving rows remain), the digest
+// still zeroes exactly as before -- the preserved digest is only for the
+// proved-empty conjunction.
+TEST_F(SegmentIteratorConjunctShortCircuitTest, fully_consumed_conjuncts_still_zero_digest) {
+    _iter->_row_bitmap.addRange(0, 100);
+    _iter->_opts.condition_cache_digest = 12345;
+    TQueryOptions query_options;
+    query_options.__set_enable_fallback_on_missing_inverted_index(true);
+    query_options.__set_enable_inverted_index_query(true);
+    _runtime_state.set_query_options(query_options);
+
+    auto first_expr = std::make_shared<BitmapEvalExpr>(std::vector<uint32_t> {1, 2, 3});
+    auto second_expr = std::make_shared<BitmapEvalExpr>(std::vector<uint32_t> {2, 3, 4});
+    _iter->_common_expr_ctxs_push_down = {make_bitmap_ctx(first_expr),
+                                          make_bitmap_ctx(second_expr)};
+
+    ASSERT_TRUE(_iter->_get_row_ranges_by_column_conditions().ok());
+
+    EXPECT_EQ(_iter->_row_bitmap.cardinality(), 2);
+    EXPECT_TRUE(_iter->_common_expr_ctxs_push_down.empty());
+    EXPECT_EQ(_iter->_opts.condition_cache_digest, 0);
+}
+
+// ANN TopN falls back before touching the index once the candidate bitmap is
+// empty: there is nothing to select, and the veto that residual conjuncts
+// used to provide is gone after the consumed-list clear. The fixture leaves
+// _index_iterators empty, so reaching past the guard would index out of
+// bounds -- passing proves the guard runs before any ANN state is touched.
+TEST_F(SegmentIteratorConjunctShortCircuitTest, empty_bitmap_skips_ann_topn) {
+    auto order_expr = std::make_shared<BitmapEvalExpr>(std::vector<uint32_t> {});
+    _iter->_ann_topn_runtime =
+            std::make_shared<AnnTopNRuntime>(true, 10, make_bitmap_ctx(order_expr));
+
+    ASSERT_TRUE(_iter->_apply_ann_topn_predicate().ok());
 }
 
 // A conjunct whose index result does not empty the bitmap must not stop

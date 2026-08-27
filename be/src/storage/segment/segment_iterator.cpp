@@ -858,7 +858,9 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                 }
             }
             _opts.condition_cache_digest =
-                    _common_expr_ctxs_push_down.empty() ? 0 : _opts.condition_cache_digest;
+                    _common_expr_ctxs_push_down.empty() && !_index_conjuncts_proved_empty
+                            ? 0
+                            : _opts.condition_cache_digest;
             _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
             for (uint32_t cid = 0; cid < _schema->num_read_columns(); ++cid) {
                 bool result_true = _check_all_conditions_passed_inverted_index_for_column(cid);
@@ -923,6 +925,13 @@ bool SegmentIterator::_column_has_ann_index(int32_t cid) {
 
 Status SegmentIterator::_apply_ann_topn_predicate() {
     if (_ann_topn_runtime == nullptr) {
+        return Status::OK();
+    }
+    if (_row_bitmap.isEmpty()) {
+        // Zero candidates: nothing for TopN to select, and the residual
+        // conjuncts that used to veto this path may have been consumed by the
+        // proved-empty short circuit. Fall back before touching the ANN index
+        // (the small-candidate fallback may be disabled by its thresholds).
         return Status::OK();
     }
 
@@ -1279,6 +1288,11 @@ Status SegmentIterator::_apply_index_expr() {
     // Unlike common exprs which filter rows, these only compute index result bitmaps
     // for later materialization via fast_execute().
     for (auto& [cid, expr_ctx] : _virtual_column_exprs) {
+        if (_row_bitmap.isEmpty()) {
+            // Zero surviving rows: the projection column is never materialized,
+            // so its whole-segment index evaluation would be pure waste.
+            break;
+        }
         if (expr_ctx->get_index_context() == nullptr) {
             continue;
         }
@@ -1296,6 +1310,13 @@ Status SegmentIterator::_apply_index_expr() {
 
     // Apply ann range search
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
+        if (_row_bitmap.isEmpty()) {
+            // A range search intersects into the bitmap; with zero candidates
+            // it cannot add rows, so loading and searching the ANN index
+            // (bypassing the small-candidate fallback when its thresholds are
+            // disabled) would be pure waste.
+            break;
+        }
         segment_v2::AnnIndexStats ann_index_stats;
         size_t origin_rows = _row_bitmap.cardinality();
         bool ann_range_search_executed = false;
@@ -1329,9 +1350,11 @@ Status SegmentIterator::_apply_index_expr() {
     if (bitmap_exhausted) {
         // Zero surviving rows satisfy every remaining conjunct, so the whole
         // list is consumed -- mirroring the column-predicate short circuit.
-        // This keeps the "all conditions consumed by the index" contract and
-        // leaves the condition-cache digest valid: an empty result is correct
-        // for the full conjunction.
+        // This keeps the "all conditions consumed by the index" contract, and
+        // _index_conjuncts_proved_empty keeps the condition-cache digest
+        // alive: the all-false result is correct for the full conjunction, so
+        // clearing the list must not degrade it to "nothing left to cache".
+        _index_conjuncts_proved_empty = true;
         _common_expr_ctxs_push_down.clear();
     } else if (!consumed_by_index.empty()) {
         std::erase_if(_common_expr_ctxs_push_down, [&](const VExprContextSPtr& ctx) {
