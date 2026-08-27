@@ -50,6 +50,7 @@ import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -503,6 +504,69 @@ public class ComputeSignatureHelperTest {
     }
 
     @Test
+    void testMapContainsValueLinkedProbeKeepsValueGroup() {
+        // map_contains_value(m, x): the MAP value is Any(0) and the probe x is Follow(0).
+        // Any resolution widens both to DECIMAL(10,3), which also happens to equal the
+        // independent MAP key type. The probe must still be linked to the value group by
+        // the original Any/Follow index (not the resolved type), otherwise the value
+        // regresses to DECIMAL(9,2) and the BE compares a Decimal32 value array with a
+        // Decimal64 probe.
+        FunctionSignature template = FunctionSignature.ret(BooleanType.INSTANCE)
+                .args(MapType.of(AnyDataType.INSTANCE_WITHOUT_INDEX, new AnyDataType(0)),
+                        new FollowToAnyDataType(0));
+        // resolved signature (after implementAnyDataTypeWithIndex)
+        FunctionSignature signature = FunctionSignature.ret(BooleanType.INSTANCE)
+                .args(MapType.of(DecimalV3Type.createDecimalV3Type(10, 3),
+                                DecimalV3Type.createDecimalV3Type(10, 3)),
+                        DecimalV3Type.createDecimalV3Type(10, 3));
+        Map<Literal, Literal> map = Maps.newLinkedHashMap();
+        map.put(new DecimalV3Literal(new BigDecimal("1234567.890")),
+                new DecimalV3Literal(new BigDecimal("12.34")));
+        List<Expression> arguments = Lists.newArrayList(
+                new MapLiteral(map),
+                new DecimalV3Literal(new BigDecimal("1234567.890")));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(template), signature, arguments);
+        Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
+        MapType mapType = (MapType) signature.getArgType(0);
+        // the MAP key keeps DECIMAL(10,3)
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(10, 3), mapType.getKeyType());
+        // the MAP value is promoted together with the linked probe to DECIMAL(10,3)
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(10, 3), mapType.getValueType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(10, 3), signature.getArgType(1));
+    }
+
+    @Test
+    void testMapContainsEntryLinkedScalarsKeepOwnGroups() {
+        // map_contains_entry(m, k, v): the MAP key/value are Any(0)/Any(1) and k/v are
+        // Follow(0)/Follow(1). After resolution the key and the value can both become
+        // DECIMAL(10,3); k/v must still link to their own groups by the Any/Follow index
+        // instead of the resolved type, otherwise the value regresses to DECIMAL(9,2)
+        // while v stays DECIMAL(10,3).
+        FunctionSignature template = FunctionSignature.ret(BooleanType.INSTANCE)
+                .args(MapType.of(new AnyDataType(0), new AnyDataType(1)),
+                        new FollowToAnyDataType(0), new FollowToAnyDataType(1));
+        FunctionSignature signature = FunctionSignature.ret(BooleanType.INSTANCE)
+                .args(MapType.of(DecimalV3Type.createDecimalV3Type(10, 3),
+                                DecimalV3Type.createDecimalV3Type(10, 3)),
+                        DecimalV3Type.createDecimalV3Type(10, 3),
+                        DecimalV3Type.createDecimalV3Type(10, 3));
+        Map<Literal, Literal> map = Maps.newLinkedHashMap();
+        map.put(new DecimalV3Literal(new BigDecimal("1234567.890")),
+                new DecimalV3Literal(new BigDecimal("12.34")));
+        List<Expression> arguments = Lists.newArrayList(
+                new MapLiteral(map),
+                new DecimalV3Literal(new BigDecimal("1234567.890")),
+                new DecimalV3Literal(new BigDecimal("2345678.901")));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(template), signature, arguments);
+        Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
+        MapType mapType = (MapType) signature.getArgType(0);
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(10, 3), mapType.getKeyType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(10, 3), mapType.getValueType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(10, 3), signature.getArgType(1));
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(10, 3), signature.getArgType(2));
+    }
+
+    @Test
     void testMapNestedArrayDecimalV3ComputePrecision() {
         // the item of an ARRAY nested in a MAP value keeps its own precision/scale
         // instead of being merged with the MAP key into the global wider type, otherwise
@@ -779,6 +843,16 @@ public class ComputeSignatureHelperTest {
     }
 
     private static class FakeComputeSignature implements ComputeSignature {
+        private final FunctionSignature template;
+
+        FakeComputeSignature() {
+            this(null);
+        }
+
+        FakeComputeSignature(FunctionSignature template) {
+            this.template = template;
+        }
+
         @Override
         public List<Expression> children() {
             return null;
@@ -811,7 +885,7 @@ public class ComputeSignatureHelperTest {
 
         @Override
         public List<FunctionSignature> getSignatures() {
-            return null;
+            return template == null ? null : ImmutableList.of(template);
         }
 
         @Override

@@ -191,4 +191,37 @@ suite("nereids_scalar_fn_map_decimal_precision") {
             ARRAY(CAST('0.125000000000000000' AS DECIMAL(76,18)))
         ) AS STRING) AS s;
     """
+
+    // 14. nonconstant map_contains_value / map_contains_entry: the probe (Follow(0)) and
+    // the MAP value (Any(0)) are one logical group. When the probe and the independent key
+    // resolve to the same type (DECIMAL(10,3)), the probe must still be linked to the value
+    // group by the original Any/Follow index, otherwise the value regresses to DECIMAL(9,2)
+    // and the BE compares a Decimal32 value array with a Decimal64 probe.
+    sql "drop table if exists fn_test_map_contains_collision_decimal"
+    sql """
+        create table fn_test_map_contains_collision_decimal (
+            id int null,
+            m map<decimal(10,3), decimal(9,2)> null,
+            x decimal(10,3) null,
+            k decimal(10,3) null,
+            v decimal(9,2) null
+        ) engine=olap
+        distributed by hash(id) buckets 1
+        properties('replication_num' = '1')
+    """
+    sql """
+        insert into fn_test_map_contains_collision_decimal values
+        (1, map(cast('1234567.890' as decimal(10,3)), cast('12.34' as decimal(9,2))),
+            cast('1234567.890' as decimal(10,3)),
+            cast('1234567.890' as decimal(10,3)), cast('12.34' as decimal(9,2))),
+        (2, map(cast('1.230' as decimal(10,3)), cast('0.01' as decimal(9,2))),
+            cast('9.999' as decimal(10,3)),
+            cast('9.999' as decimal(10,3)), cast('0.02' as decimal(9,2)));
+    """
+    order_qt_map_contains_value_collision """
+        select id, map_contains_value(m, x) as r from fn_test_map_contains_collision_decimal order by id
+    """
+    order_qt_map_contains_entry_collision """
+        select id, map_contains_entry(m, k, v) as r from fn_test_map_contains_collision_decimal order by id
+    """
 }
