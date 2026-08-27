@@ -404,6 +404,40 @@ public class ComputeSignatureHelperTest {
     }
 
     @Test
+    void testTopLevelScalarDecimalGroupsKeepIndependent() {
+        // Simulate the signature after Any/Follow resolution of map_agg(k, v): the key
+        // and the value are independent top-level decimal slots (Any(0) and Any(1)) and
+        // must keep their own precision/scale instead of being merged into one wider
+        // type, otherwise the key (DECIMAL(38,0)) is widened to a scale that cannot hold
+        // a 38-digit integral key and the value (DECIMAL(38,18)) is truncated before
+        // aggregation.
+        FunctionSignature signature = FunctionSignature.ret(DecimalV3Type.createDecimalV3Type(38, 0))
+                .args(DecimalV3Type.createDecimalV3Type(38, 0),
+                        DecimalV3Type.createDecimalV3Type(38, 18));
+        List<Expression> arguments = Lists.newArrayList(
+                new DecimalV3Literal(new BigDecimal("99999999999999999999999999999999999999")),
+                new DecimalV3Literal(new BigDecimal("99999999999999999999.125000000000000000")));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(38, 0), signature.getArgType(0));
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(38, 18), signature.getArgType(1));
+    }
+
+    @Test
+    void testTopLevelScalarDecimalSameResolvedTypeMerges() {
+        // top-level scalar slots resolved to the same type (e.g. the operands of
+        // greatest/least after common-type resolution) form one logical group and are
+        // promoted together to the wider type of the group
+        FunctionSignature signature = FunctionSignature.ret(DecimalV3Type.createDecimalV3Type(7, 2))
+                .args(DecimalV3Type.createDecimalV3Type(7, 2), DecimalV3Type.createDecimalV3Type(7, 2));
+        List<Expression> arguments = Lists.newArrayList(
+                new DecimalV3Literal(new BigDecimal("123.45")),
+                new DecimalV3Literal(new BigDecimal("1234.5678")));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(8, 4), signature.getArgType(0));
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(8, 4), signature.getArgType(1));
+    }
+
+    @Test
     void testFieldDecimalV3VarArgOneType() {
         // field declares varArgs(DECIMALV3, DECIMALV3): its fixed first operand and the
         // repeated tail are one comparison type and must be promoted to one type

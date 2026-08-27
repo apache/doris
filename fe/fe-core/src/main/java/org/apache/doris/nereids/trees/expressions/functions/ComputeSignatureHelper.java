@@ -593,11 +593,17 @@ public class ComputeSignatureHelper {
         // type must also be folded into the linked MAP leaf group.
         List<DecimalLeaf> scalarLeaves = Lists.newArrayList();
 
+        // Top-level scalar decimal slots are independent logical type variables
+        // (e.g. the key/value of map_agg(k, v) are Any(0) and Any(1)); group them by
+        // the resolved type so the slots of one logical group aggregate while the slots
+        // of different groups keep their own precision/scale.
+        Map<DecimalV3Type, DecimalV3Type> scalarGroupWider = Maps.newHashMap();
+
         DecimalV3Type[] widerHolder = new DecimalV3Type[1];
         for (int i = 0; i < arguments.size(); i++) {
             DataType targetType = getSignatureArgumentType(signature, i);
             collectDecimalLeaf(targetType, arguments.get(i).getDataType(), arguments.get(i),
-                    "", mapLeafGroupByType, groupWider, scalarLeaves, widerHolder);
+                    "", mapLeafGroupByType, groupWider, scalarGroupWider, scalarLeaves, widerHolder);
         }
         widerType = widerHolder[0];
         if (widerType == null) {
@@ -618,7 +624,7 @@ public class ComputeSignatureHelper {
         List<DataType> newArgTypes = Lists.newArrayListWithCapacity(signature.argumentsTypes.size());
         for (int i = 0; i < signature.argumentsTypes.size(); i++) {
             newArgTypes.add(replaceDecimalV3Leaf(signature.argumentsTypes.get(i), "",
-                    mapLeafGroupByType, groupWider, widerType));
+                    mapLeafGroupByType, groupWider, scalarGroupWider, widerType));
         }
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
         if (signature.returnType instanceof DecimalV3Type
@@ -659,8 +665,8 @@ public class ComputeSignatureHelper {
      */
     private static void collectDecimalLeaf(DataType sigType, DataType argType, Expression arg,
             String path, Map<DecimalV3Type, String> mapLeafGroupByType,
-            Map<String, DecimalV3Type> groupWider, List<DecimalLeaf> scalarLeaves,
-            DecimalV3Type[] widerHolder) {
+            Map<String, DecimalV3Type> groupWider, Map<DecimalV3Type, DecimalV3Type> scalarGroupWider,
+            List<DecimalLeaf> scalarLeaves, DecimalV3Type[] widerHolder) {
         if (sigType instanceof DecimalV3Type) {
             DecimalV3Type sigDecimal = (DecimalV3Type) sigType;
             DecimalV3Type promoted = null;
@@ -669,10 +675,14 @@ public class ComputeSignatureHelper {
                 widerHolder[0] = mergeDecimalV3Type(widerHolder[0], promoted);
             }
             if (path.isEmpty()) {
-                // top-level scalar slot: keep the original behavior of the single wider
-                // type, but a concrete resolved type may be linked with a MAP leaf below
+                // top-level scalar slot: a concrete resolved type may be linked with a
+                // MAP leaf below, and otherwise the slots of the same resolved type form
+                // one logical group (e.g. the two arguments of map_agg) and stay
+                // independent from the slots of other groups
                 if (promoted != null && sigDecimal.getPrecision() > 0) {
                     scalarLeaves.add(new DecimalLeaf(sigDecimal, promoted));
+                    scalarGroupWider.merge(sigDecimal, promoted,
+                            ComputeSignatureHelper::mergeDecimalV3Type);
                 }
             } else if (isMapNested(path) && promoted != null) {
                 String groupKey = path + ":" + sigDecimal;
@@ -689,17 +699,17 @@ public class ComputeSignatureHelper {
                 MapType argMapType = (MapType) argType;
                 collectDecimalLeaf(mapType.getKeyType(), argMapType.getKeyType(), arg,
                         appendPath(path, MAP_KEY), mapLeafGroupByType, groupWider,
-                        scalarLeaves, widerHolder);
+                        scalarGroupWider, scalarLeaves, widerHolder);
                 collectDecimalLeaf(mapType.getValueType(), argMapType.getValueType(), arg,
                         appendPath(path, MAP_VALUE), mapLeafGroupByType, groupWider,
-                        scalarLeaves, widerHolder);
+                        scalarGroupWider, scalarLeaves, widerHolder);
             } else if (argType instanceof NullType) {
                 collectDecimalLeaf(mapType.getKeyType(), argType, arg,
                         appendPath(path, MAP_KEY), mapLeafGroupByType, groupWider,
-                        scalarLeaves, widerHolder);
+                        scalarGroupWider, scalarLeaves, widerHolder);
                 collectDecimalLeaf(mapType.getValueType(), argType, arg,
                         appendPath(path, MAP_VALUE), mapLeafGroupByType, groupWider,
-                        scalarLeaves, widerHolder);
+                        scalarGroupWider, scalarLeaves, widerHolder);
             }
             return;
         } else if (sigType instanceof ArrayType) {
@@ -715,20 +725,21 @@ public class ComputeSignatureHelper {
             // value stay in the value group
             collectDecimalLeaf(((ArrayType) sigType).getItemType(), itemArgType, arg,
                     appendPath(path, ARRAY_ITEM), mapLeafGroupByType, groupWider,
-                    scalarLeaves, widerHolder);
+                    scalarGroupWider, scalarLeaves, widerHolder);
         }
         // StructType and other types are not supported
     }
 
     /**
      * Replace every decimal leaf in {@code sigType}: leaves inside a MAP use the wider
-     * type of their own structural group, all other leaves (scalar, ARRAY item, etc.)
-     * keep the original behavior of using the single wider type across all decimal
-     * slots.
+     * type of their own structural group, top-level scalar slots use the wider type of
+     * their own logical group (slots of the same resolved type), and all other leaves
+     * (e.g. ARRAY items not nested in a MAP) keep the original behavior of using the
+     * single wider type across all decimal slots.
      */
     private static DataType replaceDecimalV3Leaf(DataType sigType, String path,
             Map<DecimalV3Type, String> mapLeafGroupByType, Map<String, DecimalV3Type> groupWider,
-            DecimalV3Type widerType) {
+            Map<DecimalV3Type, DecimalV3Type> scalarGroupWider, DecimalV3Type widerType) {
         if (sigType instanceof DecimalV3Type) {
             DecimalV3Type sigDecimal = (DecimalV3Type) sigType;
             if (path.isEmpty()) {
@@ -742,6 +753,13 @@ public class ComputeSignatureHelper {
                             return linkedWider;
                         }
                     }
+                    // independent logical Any groups (e.g. the key/value arguments of
+                    // map_agg) keep their own precision/scale instead of being merged
+                    // into one wider type
+                    DecimalV3Type scalarWider = scalarGroupWider.get(sigDecimal);
+                    if (scalarWider != null) {
+                        return scalarWider;
+                    }
                 }
                 return widerType;
             }
@@ -754,14 +772,15 @@ public class ComputeSignatureHelper {
             return widerType;
         } else if (sigType instanceof ArrayType) {
             return ArrayType.of(replaceDecimalV3Leaf(((ArrayType) sigType).getItemType(),
-                    appendPath(path, ARRAY_ITEM), mapLeafGroupByType, groupWider, widerType));
+                    appendPath(path, ARRAY_ITEM), mapLeafGroupByType, groupWider,
+                    scalarGroupWider, widerType));
         } else if (sigType instanceof MapType) {
             MapType mapType = (MapType) sigType;
             return MapType.of(
                     replaceDecimalV3Leaf(mapType.getKeyType(), appendPath(path, MAP_KEY),
-                            mapLeafGroupByType, groupWider, widerType),
+                            mapLeafGroupByType, groupWider, scalarGroupWider, widerType),
                     replaceDecimalV3Leaf(mapType.getValueType(), appendPath(path, MAP_VALUE),
-                            mapLeafGroupByType, groupWider, widerType));
+                            mapLeafGroupByType, groupWider, scalarGroupWider, widerType));
         }
         return sigType;
     }
