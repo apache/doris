@@ -255,6 +255,18 @@ TEST_F(JsonbParserTest, ParseJsonWithInvalidNumberFormat) {
     EXPECT_FALSE(parse_json_and_check(json_with_invalid_number, json_with_invalid_number));
 }
 
+TEST_F(JsonbParserTest, ParseJsonWithOverflowingNumber) {
+    std::string_view json_with_overflowing_exponent = R"({"overflowing_exponent": 1e9999})";
+    EXPECT_FALSE(
+            parse_json_and_check(json_with_overflowing_exponent, json_with_overflowing_exponent));
+
+    const std::string huge_integer(400, '9');
+    const std::string json_with_overflowing_integer =
+            R"({"overflowing_integer": )" + huge_integer + R"(})";
+    EXPECT_FALSE(
+            parse_json_and_check(json_with_overflowing_integer, json_with_overflowing_integer));
+}
+
 TEST_F(JsonbParserTest, ParseJsonWithInvalidBoolean) {
     std::string_view json_with_invalid_boolean = R"({"invalid_bool": True})";
     EXPECT_FALSE(parse_json_and_check(json_with_invalid_boolean, json_with_invalid_boolean));

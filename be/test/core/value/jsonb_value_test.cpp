@@ -29,7 +29,8 @@ TEST(JsonBinaryValueTest, TestValidation) {
     JsonBinaryValue json_val;
 
     // Empty string and non-JSON text should fail to parse
-    std::vector<string> invalid_strs = {"", "abc"};
+    std::vector<string> invalid_strs = {"",         "abc",       "not",
+                                        "not json", "null junk", R"({"a":1} junk)"};
     for (size_t i = 0; i < invalid_strs.size(); i++) {
         auto status = json_val.from_json_string(invalid_strs[i].c_str(), invalid_strs[i].size());
         EXPECT_FALSE(status.ok()) << "Should fail for: [" << invalid_strs[i] << "]";
