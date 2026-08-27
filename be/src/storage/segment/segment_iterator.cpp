@@ -1272,8 +1272,29 @@ Status SegmentIterator::_apply_index_expr() {
             !_opts.runtime_state->query_options().__isset.enable_ann_index_result_cache ||
             _opts.runtime_state->query_options().enable_ann_index_result_cache;
 
+    // Three-valued compound shortcuts (VCompoundPred) treat an empty TRUE
+    // bitmap as a whole-segment fact; a candidate-restricted TRUE bitmap can
+    // spuriously trigger them and mis-type candidate rows (NOT(A AND B) with
+    // nullable A: FALSE becomes NULL and the row is dropped). Compound roots
+    // are therefore evaluated without the candidate; the top-level
+    // single-predicate consumption stays exact within the candidate.
+    auto evaluate_without_candidate_for_compound = [&](const VExprContextSPtr& expr_ctx) {
+        const bool suppress = _index_query_context != nullptr &&
+                              _index_query_context->candidate_rows != nullptr &&
+                              expr_ctx->root()->node_type() == TExprNodeType::COMPOUND_PRED;
+        const roaring::Roaring* saved = suppress ? _index_query_context->candidate_rows : nullptr;
+        if (suppress) {
+            _index_query_context->candidate_rows = nullptr;
+        }
+        Status st = expr_ctx->evaluate_inverted_index(num_rows());
+        if (suppress) {
+            _index_query_context->candidate_rows = saved;
+        }
+        return st;
+    };
+
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
-        if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
+        if (Status st = evaluate_without_candidate_for_compound(expr_ctx); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                 continue;
             } else {
@@ -1293,7 +1314,7 @@ Status SegmentIterator::_apply_index_expr() {
         if (expr_ctx->get_index_context() == nullptr) {
             continue;
         }
-        if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
+        if (Status st = evaluate_without_candidate_for_compound(expr_ctx); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                 continue;
             } else {

@@ -246,6 +246,40 @@ TEST_F(SegmentIteratorCandidatePushdownTest, refreshes_after_index_conjuncts_shr
     EXPECT_EQ(_iter->_index_query_context->candidate_rows, nullptr);
 }
 
+// Three-valued compound shortcuts (VCompoundPred) treat an empty TRUE bitmap
+// as a whole-segment fact; under a candidate restriction that inference is
+// wrong for candidate rows (NOT(A AND B) with nullable A can turn FALSE into
+// NULL and drop rows whose SQL result is TRUE). Compound roots must therefore
+// be evaluated without the candidate -- in the conjunct loop and the
+// virtual-column projection loop alike -- while simple roots keep it.
+TEST_F(SegmentIteratorCandidatePushdownTest, compound_root_evaluates_without_candidate) {
+    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    _iter->_row_bitmap.addRange(0, 5); // 5% of 100 rows: candidate engages
+
+    auto compound_expr = std::make_shared<CapturingExpr>(_iter.get());
+    compound_expr->set_node_type(TExprNodeType::COMPOUND_PRED);
+    _iter->_common_expr_ctxs_push_down.push_back(make_capturing_ctx(compound_expr));
+
+    auto vcol_compound_expr = std::make_shared<CapturingExpr>(_iter.get());
+    vcol_compound_expr->set_node_type(TExprNodeType::COMPOUND_PRED);
+    _iter->_virtual_column_exprs[0] = make_capturing_ctx(vcol_compound_expr);
+
+    ASSERT_TRUE(_iter->_get_row_ranges_by_column_conditions().ok());
+
+    ASSERT_TRUE(_expr->captured());
+    EXPECT_EQ(_expr->captured_candidate(), &_iter->_row_bitmap)
+            << "a simple root stays candidate-restricted";
+    ASSERT_TRUE(compound_expr->captured());
+    EXPECT_EQ(compound_expr->captured_candidate(), nullptr)
+            << "a candidate-restricted TRUE bitmap must not feed three-valued "
+               "compound shortcuts";
+    ASSERT_TRUE(vcol_compound_expr->captured());
+    EXPECT_EQ(vcol_compound_expr->captured_candidate(), nullptr)
+            << "the virtual-column projection loop must suppress the candidate "
+               "for compound roots too";
+    EXPECT_EQ(_iter->_index_query_context->candidate_rows, nullptr);
+}
+
 // A non-finite configured ratio must never engage the pushdown (the multiply
 // and integer conversion would otherwise be undefined behavior).
 TEST_F(SegmentIteratorCandidatePushdownTest, non_finite_ratio_never_engages) {

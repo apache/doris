@@ -59,6 +59,7 @@ void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
     // phrase semantics stay with the real term iterators.
     if (_context->candidate_rows != nullptr) {
         _iterators.emplace_back(std::make_shared<RoaringDocIdIterator>(_context->candidate_rows));
+        _context->candidate_rows_consumed = true;
     }
 
     std::sort(_iterators.begin(), _iterators.end(), [](const DISI& a, const DISI& b) {
@@ -174,6 +175,11 @@ void PhraseQuery::search(roaring::Roaring& roaring) {
 }
 
 void PhraseQuery::search_by_skiplist(roaring::Roaring& roaring) {
+    if (_phrase_similarity) {
+        // _norm_source is fixed once in add(); validate it before the loop so
+        // the per-document path below stays free of release-mode checks.
+        DORIS_CHECK(_norm_source != nullptr);
+    }
     int32_t doc = 0;
     while ((doc = do_next(visit_node(*_lead1, NextDoc {}))) != INT32_MAX) {
         if (_phrase_similarity) {
@@ -182,7 +188,6 @@ void PhraseQuery::search_by_skiplist(roaring::Roaring& roaring) {
                 continue;
             }
             roaring.add(doc);
-            DORIS_CHECK(_norm_source != nullptr);
             int32_t norm = visit_node(*_norm_source, Norm {});
             float score = _phrase_similarity->score(phrase_freq, static_cast<int64_t>(norm));
 
