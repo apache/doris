@@ -194,17 +194,16 @@ struct CastToDatetimeV2 {
 
     // this code follow rules of strict mode, but whether it RUNNING IN strict mode or not depends on the `IsStrict`
     // parameter. if it's false, we dont set error code for performance and we dont need.
-    template <DatelikeParseMode ParseMode>
-    static inline bool from_string_strict_mode(const StringRef& str,
-                                               DateV2Value<DateTimeV2ValueType>& res,
+    template <DatelikeParseMode ParseMode, typename ResultType>
+    static inline bool from_string_strict_mode(const StringRef& str, ResultType& res,
                                                const cctz::time_zone* local_time_zone,
                                                uint32_t to_scale, CastParameters& params) {
         return from_string_strict_mode_internal<ParseMode, DataTimeCastEnumType::DATE_TIME>(
                 str, res, local_time_zone, to_scale, params);
     }
 
-    static inline bool from_string_non_strict_mode(const StringRef& str,
-                                                   DateV2Value<DateTimeV2ValueType>& res,
+    template <typename ResultType>
+    static inline bool from_string_non_strict_mode(const StringRef& str, ResultType& res,
                                                    const cctz::time_zone* local_time_zone,
                                                    uint32_t to_scale, CastParameters& params) {
         return CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::NON_STRICT>(
@@ -215,15 +214,28 @@ struct CastToDatetimeV2 {
     }
 
 private:
-    template <DatelikeParseMode ParseMode, DataTimeCastEnumType type>
-    static inline bool from_string_strict_mode_internal(const StringRef& str,
-                                                        DateV2Value<DateTimeV2ValueType>& res,
+    template <typename ResultType>
+    static constexpr bool is_timestamp_ns_result =
+            std::is_same_v<std::remove_cvref_t<ResultType>, TimeStampNsValue>;
+
+    template <DatelikeParseMode ParseMode, typename ResultType>
+    static inline bool parse_fractional_seconds(const char* start, size_t length,
+                                                DateV2Value<DateTimeV2ValueType>& datetime,
+                                                uint16_t& nanosecond_remainder, uint32_t to_scale,
+                                                CastParameters& params);
+
+    template <DatelikeParseMode ParseMode, typename ResultType>
+    static inline bool finalize_string_result(DateV2Value<DateTimeV2ValueType>& datetime,
+                                              uint16_t nanosecond_remainder, ResultType& result,
+                                              CastParameters& params);
+
+    template <DatelikeParseMode ParseMode, DataTimeCastEnumType type, typename ResultType>
+    static inline bool from_string_strict_mode_internal(const StringRef& str, ResultType& res,
                                                         const cctz::time_zone* local_time_zone,
                                                         uint32_t to_scale, CastParameters& params);
 
-    template <DataTimeCastEnumType type>
-    static inline bool from_string_non_strict_mode_internal(const StringRef& str,
-                                                            DateV2Value<DateTimeV2ValueType>& res,
+    template <DataTimeCastEnumType type, typename ResultType>
+    static inline bool from_string_non_strict_mode_internal(const StringRef& str, ResultType& res,
                                                             const cctz::time_zone* local_time_zone,
                                                             uint32_t to_scale,
                                                             CastParameters& params);
@@ -299,6 +311,62 @@ inline bool CastToDatetimeV2::from_integer(T input, DateV2Value<DateTimeV2ValueT
     return true;
 }
 
+template <DatelikeParseMode ParseMode, typename ResultType>
+inline bool CastToDatetimeV2::parse_fractional_seconds(const char* start, size_t length,
+                                                       DateV2Value<DateTimeV2ValueType>& datetime,
+                                                       uint16_t& nanosecond_remainder,
+                                                       uint32_t to_scale, CastParameters& params) {
+    constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
+    constexpr uint32_t ResultScale =
+            is_timestamp_ns_result<ResultType> ? TimeStampNsValue::FRACTIONAL_DIGITS : 6;
+    DCHECK_LE(to_scale, ResultScale);
+
+    StringParser::ParseResult success;
+    auto fraction = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
+            start, std::min<int>(static_cast<int>(length), static_cast<int>(to_scale)), &success);
+    SET_PARAMS_RET_FALSE_IFN(success == StringParser::PARSE_SUCCESS,
+                             "invalid fractional part in datetime string '{}'",
+                             std::string {start, start + length});
+
+    if (length > to_scale) {
+        if (*(start + to_scale) - '0' >= 5) {
+            ++fraction;
+            DCHECK_LE(fraction, common::exp10_i32(to_scale));
+            if (fraction == common::exp10_i32(to_scale)) {
+                SET_PARAMS_RET_FALSE_IFN(datetime.date_add_interval<TimeUnit::SECOND>(
+                                                 TimeInterval {TimeUnit::SECOND, 1, false}),
+                                         "datetime overflow when rounding up to next second");
+                fraction = 0;
+            }
+        }
+    } else {
+        fraction *= common::exp10_i32(to_scale - static_cast<uint32_t>(length));
+    }
+
+    fraction *= common::exp10_i32(ResultScale - to_scale);
+    if constexpr (is_timestamp_ns_result<ResultType>) {
+        datetime.unchecked_set_time_unit<TimeUnit::MICROSECOND>(
+                fraction / TimeStampNsValue::NANOS_PER_MICROSECOND);
+        nanosecond_remainder =
+                static_cast<uint16_t>(fraction % TimeStampNsValue::NANOS_PER_MICROSECOND);
+    } else {
+        datetime.unchecked_set_time_unit<TimeUnit::MICROSECOND>(fraction);
+    }
+    return true;
+}
+
+template <DatelikeParseMode ParseMode, typename ResultType>
+inline bool CastToDatetimeV2::finalize_string_result(DateV2Value<DateTimeV2ValueType>& datetime,
+                                                     uint16_t nanosecond_remainder,
+                                                     ResultType& result, CastParameters& params) {
+    constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
+    if constexpr (is_timestamp_ns_result<ResultType>) {
+        SET_PARAMS_RET_FALSE_IFN(result.from_datetime(datetime, nanosecond_remainder),
+                                 "timestamp_ns value is outside the signed epoch-nanosecond range");
+    }
+    return true;
+}
+
 /**
 <datetime>       ::= <date> (("T" | " ") <time> <whitespace>* <offset>?)?
 
@@ -351,11 +419,21 @@ inline bool CastToDatetimeV2::from_integer(T input, DateV2Value<DateTimeV2ValueT
 <alpha>          ::= "A" | … | "Z" | "a" | … | "z"
 <whitespace>     ::= " " | "\t" | "\n" | "\r" | "\v" | "\f"
 */
-template <DatelikeParseMode ParseMode, DataTimeCastEnumType type>
+template <DatelikeParseMode ParseMode, DataTimeCastEnumType type, typename ResultType>
 inline bool CastToDatetimeV2::from_string_strict_mode_internal(
-        const StringRef& str, DateV2Value<DateTimeV2ValueType>& res,
-        const cctz::time_zone* local_time_zone, uint32_t to_scale, CastParameters& params) {
+        const StringRef& str, ResultType& result, const cctz::time_zone* local_time_zone,
+        uint32_t to_scale, CastParameters& params) {
     constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
+    static_assert(
+            std::is_same_v<std::remove_cvref_t<ResultType>, DateV2Value<DateTimeV2ValueType>> ||
+            is_timestamp_ns_result<ResultType>);
+    DateV2Value<DateTimeV2ValueType> timestamp_ns_datetime;
+    DateV2Value<DateTimeV2ValueType>* datetime = &timestamp_ns_datetime;
+    if constexpr (!is_timestamp_ns_result<ResultType>) {
+        datetime = &result;
+    }
+    auto& res = *datetime;
+    uint16_t nanosecond_remainder = 0;
     const char* ptr = str.data;
     const char* end = ptr + str.size;
     AsanPoisonGuard defer(end, 1);
@@ -599,33 +677,8 @@ FRAC:
         auto length = ptr - start;
 
         if (length > 0) {
-            StringParser::ParseResult success;
-            auto frac_literal = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
-                    start, std::min<int>((int)length, to_scale), &success);
-            SET_PARAMS_RET_FALSE_IFN(success == StringParser::PARSE_SUCCESS,
-                                     "invalid fractional part in datetime string '{}'",
-                                     std::string {start, ptr});
-
-            if (length > to_scale) { // to_scale is up to 6
-                // round off to at most `to_scale` digits
-                if (*(start + to_scale) - '0' >= 5) {
-                    frac_literal++;
-                    DCHECK(frac_literal <= 1000000);
-                    if (frac_literal == common::exp10_i32(to_scale)) {
-                        // overflow, round up to next second
-                        SET_PARAMS_RET_FALSE_IFN(
-                                res.date_add_interval<TimeUnit::SECOND>(
-                                        TimeInterval {TimeUnit::SECOND, 1, false}),
-                                "datetime overflow when rounding up to next second");
-                        frac_literal = 0;
-                    }
-                }
-                res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(
-                        (int32_t)frac_literal * common::exp10_i32(6 - (int)to_scale));
-            } else { // length <= to_scale
-                res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(
-                        (int32_t)frac_literal * common::exp10_i32(6 - (int)length));
-            }
+            PROPAGATE_FALSE((parse_fractional_seconds<ParseMode, ResultType>(
+                    start, length, res, nanosecond_remainder, to_scale, params)));
         }
     } else {
         res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(0);
@@ -716,7 +769,7 @@ FRAC:
                                  "invalid datetime string '{}', extra characters after timezone",
                                  std::string {ptr, end});
 
-        return true;
+        return finalize_string_result<ParseMode>(res, nanosecond_remainder, result, params);
     }
 
 POST_PROCESS:
@@ -738,7 +791,7 @@ POST_PROCESS:
         SET_PARAMS_RET_FALSE_IFN(res.year() <= 9999, "datetime year {} out of range [0, 9999]",
                                  res.year());
     }
-    return true;
+    return finalize_string_result<ParseMode>(res, nanosecond_remainder, result, params);
 }
 
 /**
@@ -784,11 +837,21 @@ POST_PROCESS:
 <alpha>          ::= "A" | … | "Z" | "a" | … | "z"
 */
 
-template <DataTimeCastEnumType type>
+template <DataTimeCastEnumType type, typename ResultType>
 inline bool CastToDatetimeV2::from_string_non_strict_mode_internal(
-        const StringRef& str, DateV2Value<DateTimeV2ValueType>& res,
-        const cctz::time_zone* local_time_zone, uint32_t to_scale, CastParameters& params) {
+        const StringRef& str, ResultType& result, const cctz::time_zone* local_time_zone,
+        uint32_t to_scale, CastParameters& params) {
     constexpr bool IsStrict = false;
+    static_assert(
+            std::is_same_v<std::remove_cvref_t<ResultType>, DateV2Value<DateTimeV2ValueType>> ||
+            is_timestamp_ns_result<ResultType>);
+    DateV2Value<DateTimeV2ValueType> timestamp_ns_datetime;
+    DateV2Value<DateTimeV2ValueType>* datetime = &timestamp_ns_datetime;
+    if constexpr (!is_timestamp_ns_result<ResultType>) {
+        datetime = &result;
+    }
+    auto& res = *datetime;
+    uint16_t nanosecond_remainder = 0;
     const char* ptr = str.data;
     const char* end = ptr + str.size;
     AsanPoisonGuard defer(end, 1);
@@ -877,33 +940,8 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_internal(
         auto length = ptr - start;
 
         if (length > 0) {
-            StringParser::ParseResult success;
-            auto frac_literal = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
-                    start, std::min<int>((int)length, to_scale), &success);
-            SET_PARAMS_RET_FALSE_IFN(success == StringParser::PARSE_SUCCESS,
-                                     "invalid fractional part in datetime string '{}'",
-                                     std::string {start, ptr});
-
-            if (length > to_scale) { // to_scale is up to 6
-                // round off to at most `to_scale` digits
-                if (*(start + to_scale) - '0' >= 5) {
-                    frac_literal++;
-                    DCHECK(frac_literal <= 1000000);
-                    if (frac_literal == common::exp10_i32(to_scale)) {
-                        // overflow, round up to next second
-                        SET_PARAMS_RET_FALSE_IFN(
-                                res.date_add_interval<TimeUnit::SECOND>(
-                                        TimeInterval {TimeUnit::SECOND, 1, false}),
-                                "datetime overflow when rounding up to next second");
-                        frac_literal = 0;
-                    }
-                }
-                res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(
-                        (int32_t)frac_literal * common::exp10_i32(6 - (int)to_scale));
-            } else { // length <= to_scale
-                res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(
-                        (int32_t)frac_literal * common::exp10_i32(6 - (int)length));
-            }
+            PROPAGATE_FALSE((parse_fractional_seconds<DatelikeParseMode::NON_STRICT, ResultType>(
+                    start, length, res, nanosecond_remainder, to_scale, params)));
         } else {
             res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(0);
         }
@@ -997,7 +1035,8 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_internal(
                                  "invalid datetime string '{}', extra characters after parsing",
                                  std::string {ptr, end});
 
-        return true;
+        return finalize_string_result<DatelikeParseMode::NON_STRICT>(res, nanosecond_remainder,
+                                                                     result, params);
     }
 
     // skip trailing whitespace
@@ -1026,7 +1065,8 @@ POST_PROCESS:
                                  res.year());
     }
 
-    return true;
+    return finalize_string_result<DatelikeParseMode::NON_STRICT>(res, nanosecond_remainder, result,
+                                                                 params);
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)
