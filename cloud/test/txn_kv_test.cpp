@@ -417,7 +417,7 @@ TEST(TxnKvTest, PutLargeValueTest) {
     auto key = meta_schema_key({instance_id, 10005, 1});
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-    doris::cloud::blob_put(txn.get(), key, schema, 1, 100);
+    doris::cloud::blob_put(txn.get(), key, schema, 1, doris::cloud::MIN_BLOB_SPLIT_SIZE);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
     // Check get
@@ -439,7 +439,7 @@ TEST(TxnKvTest, PutLargeValueTest) {
     // Check multi range get
     sp->set_call_back("memkv::Transaction::get", [](auto&& args) {
         auto* limit = doris::try_any_cast<int*>(args[0]);
-        *limit = 100;
+        *limit = 1;
     });
     err = doris::cloud::blob_get(txn.get(), key, &val_buf);
     ASSERT_EQ(err, TxnErrorCode::TXN_OK);

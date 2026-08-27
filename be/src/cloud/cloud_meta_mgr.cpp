@@ -2206,8 +2206,10 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
 
 Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(
         const CloudTablet& tablet, DeleteBitmap* delete_bitmap,
-        std::map<std::string, int64_t>& rowset_to_versions, int64_t table_id,
-        int64_t pre_rowset_agg_start_version, int64_t pre_rowset_agg_end_version) {
+        std::map<std::string, int64_t>& rowset_to_versions,
+        const CloudTablet::PreRowsetDeleteBitmapStats* pre_rowset_delete_bitmap_stats,
+        int64_t table_id, int64_t pre_rowset_agg_start_version,
+        int64_t pre_rowset_agg_end_version) {
     if (config::delete_bitmap_store_write_version == 2) {
         VLOG_DEBUG << "no need to agg delete bitmap v1 in ms because use v2";
         return Status::OK();
@@ -2223,6 +2225,10 @@ Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(
     // use a fake lock id to resolve compatibility issues
     req.set_lock_id(-3);
     req.set_without_lock(true);
+    req.set_enable_remove_agg_pre_rowsets_delete_bitmap_by_keys(
+            config::enable_remove_agg_pre_rowsets_delete_bitmap_by_keys);
+    req.set_enable_remove_pre_rowsets_delete_bitmap_by_keys(pre_rowset_delete_bitmap_stats !=
+                                                            nullptr);
     for (auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
         req.add_rowset_ids(std::get<0>(key).to_string());
         req.add_segment_ids(std::get<1>(key));
@@ -2246,6 +2252,23 @@ Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(
         req.set_pre_rowset_agg_start_version(pre_rowset_agg_start_version);
         req.set_pre_rowset_agg_end_version(pre_rowset_agg_end_version);
     }
+    if (pre_rowset_delete_bitmap_stats != nullptr) {
+        for (const auto& [rowset_id, delete_bitmap_stats] : *pre_rowset_delete_bitmap_stats) {
+            if (delete_bitmap_stats.empty()) {
+                continue;
+            }
+            auto* rowset_stats_pb = req.add_pre_rowset_delete_bitmap_stats();
+            rowset_stats_pb->set_rowset_id(rowset_id);
+            for (const auto& [segment_id, version, delete_bitmap_size] : delete_bitmap_stats) {
+                auto* delete_bitmap_stat_pb = rowset_stats_pb->add_delete_bitmap_stats();
+                delete_bitmap_stat_pb->set_segment_id(segment_id);
+                delete_bitmap_stat_pb->set_version(version);
+                delete_bitmap_stat_pb->set_delete_bitmap_size(delete_bitmap_size);
+            }
+        }
+    }
+    TEST_SYNC_POINT_RETURN_WITH_VALUE(
+            "CloudMetaMgr::cloud_update_delete_bitmap_without_lock.before_rpc", Status::OK(), &req);
     return retry_rpc(MetaServiceRPC::UPDATE_DELETE_BITMAP, req, &res,
                      &MetaService_Stub::update_delete_bitmap,
                      {

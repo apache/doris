@@ -1534,6 +1534,12 @@ DEFINE_mBool(enable_mow_get_agg_by_cache, "true");
 DEFINE_mBool(enable_mow_get_agg_correctness_check_core, "false");
 DEFINE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap, "true");
 DEFINE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap, "false");
+// Remove pre-rowset delete bitmaps in [end_version, end_version] before writing aggregated delete
+// bitmaps. True: point delete; false: range delete.
+DEFINE_mBool(enable_remove_agg_pre_rowsets_delete_bitmap_by_keys, "true");
+// Remove pre-rowset delete bitmaps in [start_version, end_version). True: point delete; false:
+// range delete.
+DEFINE_mBool(enable_remove_pre_rowsets_delete_bitmap_by_keys, "true");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_String(user_files_secure_path, "${DORIS_HOME}");

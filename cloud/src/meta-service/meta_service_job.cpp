@@ -1274,7 +1274,10 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                     meta_delete_bitmap_key({instance_id, tablet_id, rs.rowset_id_v2(), 0, 0});
             auto delete_bitmap_end = meta_delete_bitmap_key(
                     {instance_id, tablet_id, rs.rowset_id_v2(), INT64_MAX, INT64_MAX});
-            txn->remove(delete_bitmap_start, delete_bitmap_end);
+            INSTANCE_LOG(INFO) << "skip removing delete bitmap range, tablet_id=" << tablet_id
+                               << " rowset_id=" << rs.rowset_id_v2() << " range=["
+                               << hex(delete_bitmap_start) << "," << hex(delete_bitmap_end) << ")";
+            // txn->remove(delete_bitmap_start, delete_bitmap_end);
         }
 
         auto recycle_key = recycle_rowset_key({instance_id, tablet_id, rs.rowset_id_v2()});
