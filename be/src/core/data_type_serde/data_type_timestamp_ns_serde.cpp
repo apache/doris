@@ -20,13 +20,7 @@
 #include <arrow/builder.h>
 #include <cctz/time_zone.h>
 
-#include <algorithm>
-#include <cctype>
-#include <limits>
 #include <string>
-#include <string_view>
-#include <tuple>
-#include <utility>
 
 #include "common/config.h"
 #include "common/exception.h"
@@ -35,7 +29,7 @@
 #include "core/column/column_string.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/value/vdatetime_value.h"
-#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
+#include "exprs/function/cast/cast_to_timestamp_ns.h"
 #include "util/mysql_row_buffer.h"
 #include "util/unaligned.h"
 
@@ -64,178 +58,30 @@ Status get_nanos_per_arrow_timestamp_unit(arrow::TimeUnit::type unit, int64_t* n
     return Status::OK();
 }
 
-struct FractionRange {
-    bool recognized = false;
-    size_t begin = std::string::npos;
-    size_t end = std::string::npos;
-};
-
-bool consume_digits(std::string_view input, size_t& position, size_t min_digits,
-                    size_t max_digits) {
-    const size_t begin = position;
-    while (position < input.size() && position - begin < max_digits &&
-           std::isdigit(static_cast<unsigned char>(input[position]))) {
-        ++position;
-    }
-    return position - begin >= min_digits;
-}
-
-bool consume_non_alnum_separator(std::string_view input, size_t& position) {
-    if (position == input.size() || std::isalnum(static_cast<unsigned char>(input[position]))) {
-        return false;
-    }
-    ++position;
-    return true;
-}
-
-// Locate the fractional token in the extra string grammar accepted by DATETIMEV2 non-strict
-// casts. Unlike strict formats, both date and time fields may use '.', so rfind('.') cannot
-// distinguish the second separator from the fractional point.
-FractionRange find_non_strict_fraction(std::string_view input) {
-    size_t position = 0;
-    while (position < input.size() && std::isspace(static_cast<unsigned char>(input[position]))) {
-        ++position;
-    }
-
-    if (!consume_digits(input, position, 2, 2)) {
-        return {};
-    }
-    if (position < input.size() && std::isdigit(static_cast<unsigned char>(input[position]))) {
-        if (!consume_digits(input, position, 2, 2)) {
-            return {};
-        }
-    }
-    if (!consume_non_alnum_separator(input, position) || !consume_digits(input, position, 1, 2) ||
-        !consume_non_alnum_separator(input, position) || !consume_digits(input, position, 1, 2)) {
-        return {};
-    }
-
-    size_t trailing = position;
-    while (trailing < input.size() && std::isspace(static_cast<unsigned char>(input[trailing]))) {
-        ++trailing;
-    }
-    if (trailing == input.size()) {
-        return {.recognized = true};
-    }
-
-    if (position == input.size() ||
-        (input[position] != ' ' && input[position] != 'T' && input[position] != ':')) {
-        return {};
-    }
-    ++position;
-    if (!consume_digits(input, position, 1, 2) || !consume_non_alnum_separator(input, position) ||
-        !consume_digits(input, position, 1, 2) || !consume_non_alnum_separator(input, position) ||
-        !consume_digits(input, position, 1, 2)) {
-        return {};
-    }
-
-    FractionRange range {.recognized = true};
-    if (position < input.size() && input[position] == '.') {
-        range.begin = ++position;
-        while (position < input.size() &&
-               std::isdigit(static_cast<unsigned char>(input[position]))) {
-            ++position;
-        }
-        range.end = position;
-    }
-    return range;
-}
-
-std::pair<size_t, size_t> find_strict_fraction(std::string_view input) {
-    const size_t dot = input.rfind('.');
-    if (dot == std::string::npos || dot + 1 == input.size() ||
-        !std::isdigit(static_cast<unsigned char>(input[dot + 1]))) {
-        return {std::string::npos, std::string::npos};
-    }
-
-    size_t fraction_end = dot + 1;
-    while (fraction_end < input.size() &&
-           std::isdigit(static_cast<unsigned char>(input[fraction_end]))) {
-        ++fraction_end;
-    }
-    return {dot + 1, fraction_end};
-}
-
-uint32_t extract_fractional_nanoseconds(std::string& input, size_t fraction_begin,
-                                        size_t fraction_end) {
-    if (fraction_begin == std::string::npos) {
-        return {};
-    }
-
-    const size_t fraction_length = fraction_end - fraction_begin;
-    const size_t copied_digits =
-            std::min<size_t>(fraction_length, TimeStampNsValue::FRACTIONAL_DIGITS);
-    uint32_t nanos = 0;
-    for (size_t i = 0; i < copied_digits; ++i) {
-        nanos = nanos * 10 + static_cast<uint32_t>(input[fraction_begin + i] - '0');
-    }
-    for (size_t i = copied_digits; i < TimeStampNsValue::FRACTIONAL_DIGITS; ++i) {
-        nanos *= 10;
-    }
-    if (fraction_length > TimeStampNsValue::FRACTIONAL_DIGITS &&
-        input[fraction_begin + TimeStampNsValue::FRACTIONAL_DIGITS] >= '5') {
-        ++nanos;
-    }
-
-    const bool carry_second = nanos == TimeStampNsValue::NANOS_PER_SECOND;
-    // Keep the fractional token in place so the DATETIMEV2 parser validates its position and
-    // trailing syntax. Its scale-0 rounding performs the nanosecond carry before timezone
-    // conversion, so a DST transition is crossed on the source instant timeline.
-    std::fill(input.begin() + fraction_begin, input.begin() + fraction_end, '0');
-    if (carry_second) {
-        input[fraction_begin] = '5';
-    }
-    return carry_second ? 0 : nanos;
-}
-
 template <DatelikeParseMode ParseMode>
 Status parse_timestamp_ns_impl(StringRef str, int64_t& epoch_nanos,
                                const cctz::time_zone* local_time_zone) {
     constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
-    std::string input(str.data, str.size);
-    size_t fraction_begin = std::string::npos;
-    size_t fraction_end = std::string::npos;
-    if constexpr (!IsStrict) {
-        const auto range = find_non_strict_fraction(input);
-        if (range.recognized) {
-            fraction_begin = range.begin;
-            fraction_end = range.end;
-        } else {
-            std::tie(fraction_begin, fraction_end) = find_strict_fraction(input);
-        }
-    } else {
-        std::tie(fraction_begin, fraction_end) = find_strict_fraction(input);
-    }
-
-    const uint32_t nanos = extract_fractional_nanoseconds(input, fraction_begin, fraction_end);
-    const StringRef input_ref(input.data(), input.size());
-    DateV2Value<DateTimeV2ValueType> datetime;
     CastParameters params {.status = Status::OK(), .is_strict = IsStrict};
+    TimeStampNsValue value;
     bool parsed = false;
     if constexpr (IsStrict) {
-        parsed = CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
-                input_ref, datetime, local_time_zone, 0, params);
+        parsed = CastToTimestampNs::from_string_strict_mode<ParseMode>(
+                str, value, local_time_zone, TimeStampNsValue::FRACTIONAL_DIGITS, params);
     } else {
-        parsed = CastToDatetimeV2::from_string_non_strict_mode(input_ref, datetime, local_time_zone,
-                                                               0, params);
+        parsed = CastToTimestampNs::from_string_non_strict_mode(
+                str, value, local_time_zone, TimeStampNsValue::FRACTIONAL_DIGITS, params);
     }
     if (!parsed) {
-        if (!params.status.ok() && fraction_begin == std::string::npos) {
-            return params.status;
+        if (!params.status.ok()) {
+            return Status::InvalidArgument("Invalid TIMESTAMP_NS value '{}': {}",
+                                           std::string(str.data, str.size),
+                                           params.status.to_string());
         }
         return Status::InvalidArgument("Invalid TIMESTAMP_NS value '{}'",
                                        std::string(str.data, str.size));
     }
 
-    datetime.set_microsecond(nanos / TimeStampNsValue::NANOS_PER_MICROSECOND);
-    TimeStampNsValue value;
-    if (!value.from_datetime(
-                datetime, static_cast<uint16_t>(nanos % TimeStampNsValue::NANOS_PER_MICROSECOND))) {
-        return Status::InvalidArgument(
-                "TIMESTAMP_NS value '{}' is outside [{}, {}]", std::string(str.data, str.size),
-                TimeStampNsValue(std::numeric_limits<int64_t>::min()).to_string(),
-                TimeStampNsValue(std::numeric_limits<int64_t>::max()).to_string());
-    }
     epoch_nanos = value.epoch_nanos();
     return Status::OK();
 }
