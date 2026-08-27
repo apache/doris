@@ -19,10 +19,19 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.proto.Types.PScalarType;
+import org.apache.doris.proto.Types.PStructField;
+import org.apache.doris.proto.Types.PTypeNode;
+import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -30,10 +39,43 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
 public class ExternalFileTableValuedFunctionTest {
+    @Test
+    public void testFileSchemaPreservesNestedFieldSpelling() throws Exception {
+        ExternalFileTableValuedFunction tvf = Mockito.mock(
+                ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        PTypeNode structNode = PTypeNode.newBuilder()
+                .setType(TTypeNodeType.STRUCT.getValue())
+                .setScalarType(PScalarType.newBuilder().setType(TPrimitiveType.STRUCT.getValue()))
+                .addStructFields(PStructField.newBuilder()
+                        .setName("CaseSensitive")
+                        .setComment("mixed-case child")
+                        .setContainsNull(true))
+                .build();
+        PTypeNode intNode = PTypeNode.newBuilder()
+                .setType(TTypeNodeType.SCALAR.getValue())
+                .setScalarType(PScalarType.newBuilder().setType(TPrimitiveType.INT.getValue()))
+                .build();
+
+        Method getColumnType = ExternalFileTableValuedFunction.class
+                .getDeclaredMethod("getColumnType", List.class, int.class);
+        getColumnType.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Pair<Type, Integer> parsed = (Pair<Type, Integer>) getColumnType.invoke(
+                tvf, Arrays.asList(structNode, intNode), 0);
+
+        StructField field = ((StructType) parsed.key()).getFields().get(0);
+        Assert.assertEquals("casesensitive", field.getName());
+        Assert.assertEquals("CaseSensitive", field.getOriginalName());
+        Assert.assertEquals("mixed-case child", field.getComment());
+        Assert.assertTrue(field.getContainsNull());
+    }
+
     @Test
     public void testHiveParquetTimeZoneIsCanonicalizedAndRemovedFromStorageProperties()
             throws AnalysisException {

@@ -156,7 +156,64 @@ suite("test_iceberg_write_ctas_format_boundary",
     }
     assertEquals(0, (sql """show tables like 'ctas_failed_atomicity'""").size())
 
-    // WC01-S03: Iceberg allows Avro, but the current Doris writer supports
+    // WC01-S03: FILE TVF must keep the Parquet schema spelling until Iceberg CTAS persists it.
+    // The normalized names remain available for Doris runtime lookup.
+    spark_iceberg_multi """
+        DROP TABLE IF EXISTS demo.${dbName}.file_tvf_case_source;
+        CREATE TABLE demo.${dbName}.file_tvf_case_source (
+            id INT,
+            payload STRUCT<CaseSensitive:BIGINT,
+                           NestedArray:ARRAY<STRUCT<ArrayChild:BIGINT>>,
+                           NestedMap:MAP<STRING,STRUCT<MapChild:BIGINT>>>
+        ) USING iceberg
+        TBLPROPERTIES ('write.format.default' = 'parquet');
+        INSERT INTO demo.${dbName}.file_tvf_case_source VALUES (
+            1,
+            NAMED_STRUCT(
+                'CaseSensitive', CAST(7 AS BIGINT),
+                'NestedArray', ARRAY(NAMED_STRUCT('ArrayChild', CAST(8 AS BIGINT))),
+                'NestedMap', MAP('k', NAMED_STRUCT('MapChild', CAST(9 AS BIGINT)))
+            )
+        );
+    """
+    sql """refresh catalog ${catalogName}"""
+    String sourceFile = (sql """
+        select file_path from file_tvf_case_source\$files order by file_path limit 1
+    """)[0][0].toString()
+
+    sql """drop table if exists ctas_file_tvf_case"""
+    sql """
+        create table ctas_file_tvf_case as
+        select payload from file (
+            "uri" = "${sourceFile}",
+            "format" = "parquet",
+            "s3.endpoint" = "http://${externalEnvIp}:${minioPort}",
+            "s3.region" = "us-east-1",
+            "s3.access_key" = "admin",
+            "s3.secret_key" = "password",
+            "use_path_style" = "true"
+        )
+    """
+
+    def ctasSchema = spark_iceberg """describe demo.${dbName}.ctas_file_tvf_case"""
+    def payloadRow = ctasSchema.find { row -> row[0].toString() == "payload" }
+    assertNotNull(payloadRow, "payload column should exist in the Iceberg CTAS schema")
+    String payloadType = payloadRow[1].toString()
+    assertTrue(payloadType.contains("CaseSensitive"), payloadType)
+    assertTrue(payloadType.contains("NestedArray"), payloadType)
+    assertTrue(payloadType.contains("ArrayChild"), payloadType)
+    assertTrue(payloadType.contains("NestedMap"), payloadType)
+    assertTrue(payloadType.contains("MapChild"), payloadType)
+
+    def nestedValues = sql """
+        select element_at(payload, 'casesensitive'),
+               element_at(element_at(payload, 'nestedarray')[1], 'arraychild'),
+               element_at(element_at(payload, 'nestedmap')['k'], 'mapchild')
+        from ctas_file_tvf_case
+    """
+    assertEquals([[7L, 8L, 9L]], nestedValues)
+
+    // WC01-S04: Iceberg allows Avro, but the current Doris writer supports
     // Parquet and ORC only. Reject Avro explicitly instead of silently falling back.
     sql """drop table if exists avro_write_boundary"""
     sql """

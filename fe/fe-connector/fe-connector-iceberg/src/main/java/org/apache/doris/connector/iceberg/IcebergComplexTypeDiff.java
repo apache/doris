@@ -172,11 +172,11 @@ public final class IcebergComplexTypeDiff {
             Types.NestedField oldField = oldFields.get(i);
             Types.NestedField newField = newFields.get(i);
             String fieldPath = path + "." + oldField.name();
-            existingNames.add(oldField.name().toLowerCase(Locale.ROOT));
+            existingNames.add(lowercaseName(oldField.name()));
 
-            // A full-type MODIFY is case-insensitive and must preserve existing Iceberg spelling; only the
-            // dedicated RENAME operation is allowed to change a field name.
-            if (!oldField.name().equalsIgnoreCase(newField.name())) {
+            // Iceberg defines case-insensitive identity with ROOT-lowercase keys. Java equalsIgnoreCase is
+            // broader for some Unicode characters and could otherwise route an update to the wrong field.
+            if (!lowercaseName(oldField.name()).equals(lowercaseName(newField.name()))) {
                 throw new DorisConnectorException("Cannot rename struct field from '" + oldField.name()
                         + "' to '" + newField.name() + "'");
             }
@@ -217,7 +217,7 @@ public final class IcebergComplexTypeDiff {
         // Append the new fields (legacy parity: must be nullable and not clash with an existing name).
         for (int i = oldFields.size(); i < newFields.size(); i++) {
             Types.NestedField newField = newFields.get(i);
-            if (!existingNames.add(newField.name().toLowerCase(Locale.ROOT))) {
+            if (!existingNames.add(lowercaseName(newField.name()))) {
                 throw new DorisConnectorException("Added struct field '" + newField.name()
                         + "' conflicts with existing field");
             }
@@ -226,6 +226,10 @@ public final class IcebergComplexTypeDiff {
             }
             updateSchema.addColumn(path, newField.name(), newField.type(), newField.doc());
         }
+    }
+
+    private static String lowercaseName(String name) {
+        return name.toLowerCase(Locale.ROOT);
     }
 
     private static void applyListChange(UpdateSchema updateSchema, String path,

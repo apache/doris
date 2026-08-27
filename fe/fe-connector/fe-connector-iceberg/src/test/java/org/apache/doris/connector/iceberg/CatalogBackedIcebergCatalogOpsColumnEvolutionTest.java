@@ -497,6 +497,25 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
     }
 
     @Test
+    public void testModifyStructUsesIcebergLowercaseIdentity() {
+        createTable("s_unicode_identity", new ConnectorColumn("st",
+                structType(Arrays.asList("Σ", "ς"),
+                        Arrays.asList(ConnectorType.of("INT"), ConnectorType.of("INT")),
+                        Arrays.asList(true, true), Arrays.asList(null, null)), "", true, null, false));
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> modifyComplex("s_unicode_identity", "st",
+                        structType(Arrays.asList("ς", "Σ"),
+                                Arrays.asList(ConnectorType.of("BIGINT"), ConnectorType.of("INT")),
+                                Arrays.asList(true, true), Arrays.asList(null, null)), true));
+
+        Assertions.assertTrue(ex.getMessage().contains("Cannot rename struct field"), ex.getMessage());
+        Types.StructType fields = reload("s_unicode_identity").findField("st").type().asStructType();
+        Assertions.assertEquals(Type.TypeID.INTEGER, fields.field("Σ").type().typeId());
+        Assertions.assertEquals(Type.TypeID.INTEGER, fields.field("ς").type().typeId());
+    }
+
+    @Test
     public void testModifyStructFieldWidensNotNullToNullable() {
         createTable("s_null", new ConnectorColumn("st",
                 structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("INT")),
