@@ -904,6 +904,10 @@ TEST(FileScannerV2Test, PartitionSlotClassificationMatrix) {
                                                        BeConsts::ICEBERG_FILE_PATH_COL));
     EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(legacy_partition,
                                                        BeConsts::ICEBERG_ROW_POSITION_COL));
+    EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(legacy_partition, "_FILE"));
+    EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(legacy_partition, "_POS"));
+    EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(legacy_partition, "__PAIMON_FILE_PATH"));
+    EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(legacy_partition, "__PAIMON_ROW_INDEX"));
 }
 
 // Scenario: data-file slots are the complement of partition/default/synthesized columns for
@@ -944,6 +948,10 @@ TEST(FileScannerV2Test, DataFileSlotClassificationMatrix) {
             FileScannerV2::TEST_is_data_file_slot(legacy_file, BeConsts::ICEBERG_FILE_PATH_COL));
     EXPECT_FALSE(
             FileScannerV2::TEST_is_data_file_slot(legacy_file, BeConsts::ICEBERG_ROW_POSITION_COL));
+    EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(legacy_file, "_FILE"));
+    EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(legacy_file, "_POS"));
+    EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(legacy_file, "__PAIMON_FILE_PATH"));
+    EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(legacy_file, "__PAIMON_ROW_INDEX"));
 }
 
 // Scenario: table conjuncts are cloned into global-index space before they are handed to

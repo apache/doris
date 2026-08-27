@@ -323,7 +323,7 @@ Status PaimonReader::materialize_virtual_columns(Block* table_block) {
     return Status::OK();
 }
 
-std::string PaimonReader::_data_file_path() const {
+const std::string& PaimonReader::_data_file_path() const {
     DORIS_CHECK(!_original_file_path.empty());
     return _original_file_path;
 }
@@ -339,6 +339,8 @@ Status PaimonReader::_materialize_file_path(Block* table_block, size_t column_id
     DORIS_CHECK(_row_position_block_position < _data_reader.block_template.columns());
     const auto& row_position_column = assert_cast<const ColumnInt64&>(
             *_data_reader.block_template.get_by_position(_row_position_block_position).column);
+    const auto rows = table_block->rows();
+    DORIS_CHECK(row_position_column.size() == rows);
     auto column = table_block->get_by_position(column_idx).type->create_column();
     auto* nullable_column = check_and_get_column<ColumnNullable>(*column);
     auto* string_column = nullable_column != nullptr
@@ -346,13 +348,12 @@ Status PaimonReader::_materialize_file_path(Block* table_block, size_t column_id
                                             nullable_column->get_nested_column_ptr().get())
                                   : check_and_get_column<ColumnString>(column.get());
     DORIS_CHECK(string_column != nullptr);
-    const auto file_path = _data_file_path();
+    const auto& file_path = _data_file_path();
     string_column->insert_data(file_path.data(), file_path.size());
     if (nullable_column != nullptr) {
         nullable_column->get_null_map_data().resize_fill(1, 0);
     }
-    table_block->replace_by_position(
-            column_idx, ColumnConst::create(std::move(column), row_position_column.size()));
+    table_block->replace_by_position(column_idx, ColumnConst::create(std::move(column), rows));
     return Status::OK();
 }
 
@@ -360,6 +361,8 @@ Status PaimonReader::_materialize_row_position(Block* table_block, size_t column
     DORIS_CHECK(_row_position_block_position < _data_reader.block_template.columns());
     const auto& row_position_column = assert_cast<const ColumnInt64&>(
             *_data_reader.block_template.get_by_position(_row_position_block_position).column);
+    const auto rows = table_block->rows();
+    DORIS_CHECK(row_position_column.size() == rows);
     auto column = table_block->get_by_position(column_idx).type->create_column();
     auto* nullable_column = check_and_get_column<ColumnNullable>(*column);
     auto* int_column = nullable_column != nullptr
@@ -368,9 +371,9 @@ Status PaimonReader::_materialize_row_position(Block* table_block, size_t column
                                : check_and_get_column<ColumnInt64>(column.get());
     DORIS_CHECK(int_column != nullptr);
     int_column->get_data().assign(row_position_column.get_data().begin(),
-                                  row_position_column.get_data().end());
+                                  row_position_column.get_data().begin() + rows);
     if (nullable_column != nullptr) {
-        nullable_column->get_null_map_data().resize_fill(row_position_column.size(), 0);
+        nullable_column->get_null_map_data().resize_fill(rows, 0);
     }
     table_block->replace_by_position(column_idx, std::move(column));
     return Status::OK();

@@ -75,6 +75,7 @@
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "storage/id_manager.h"
+#include "util/string_util.h"
 
 namespace doris {
 namespace {
@@ -196,11 +197,11 @@ bool is_wal_format(TFileFormatType::type format_type) {
 
 bool is_partition_slot(const TFileScanSlotInfo& slot_info, const std::string& column_name) {
     if (column_name.starts_with(BeConsts::GLOBAL_ROWID_COL) ||
-        column_name == BeConsts::ICEBERG_ROWID_COL ||
-        column_name == BeConsts::ICEBERG_FILE_PATH_COL ||
-        column_name == BeConsts::ICEBERG_ROW_POSITION_COL ||
-        column_name == BeConsts::PAIMON_FILE_PATH_COL ||
-        column_name == BeConsts::PAIMON_ROW_POSITION_COL) {
+        iequal(column_name, BeConsts::ICEBERG_ROWID_COL) ||
+        iequal(column_name, BeConsts::ICEBERG_FILE_PATH_COL) ||
+        iequal(column_name, BeConsts::ICEBERG_ROW_POSITION_COL) ||
+        iequal(column_name, BeConsts::PAIMON_FILE_PATH_COL) ||
+        iequal(column_name, BeConsts::PAIMON_ROW_POSITION_COL)) {
         return false;
     }
     return slot_info.__isset.category ? slot_info.category == TColumnCategory::PARTITION_KEY
@@ -209,11 +210,11 @@ bool is_partition_slot(const TFileScanSlotInfo& slot_info, const std::string& co
 
 bool is_data_file_slot(const TFileScanSlotInfo& slot_info, const std::string& column_name) {
     if (column_name.starts_with(BeConsts::GLOBAL_ROWID_COL) ||
-        column_name == BeConsts::ICEBERG_ROWID_COL ||
-        column_name == BeConsts::ICEBERG_FILE_PATH_COL ||
-        column_name == BeConsts::ICEBERG_ROW_POSITION_COL ||
-        column_name == BeConsts::PAIMON_FILE_PATH_COL ||
-        column_name == BeConsts::PAIMON_ROW_POSITION_COL) {
+        iequal(column_name, BeConsts::ICEBERG_ROWID_COL) ||
+        iequal(column_name, BeConsts::ICEBERG_FILE_PATH_COL) ||
+        iequal(column_name, BeConsts::ICEBERG_ROW_POSITION_COL) ||
+        iequal(column_name, BeConsts::PAIMON_FILE_PATH_COL) ||
+        iequal(column_name, BeConsts::PAIMON_ROW_POSITION_COL)) {
         return false;
     }
     // CSV and other non-self-describing formats need FE slot descriptors for only the columns that

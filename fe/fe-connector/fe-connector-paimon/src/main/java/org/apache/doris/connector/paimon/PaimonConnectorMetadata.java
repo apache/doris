@@ -381,6 +381,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      */
     private ConnectorTableSchema buildTableSchema(String tableName, Table table, List<DataField> fields,
             List<String> partitionKeys, List<String> primaryKeys, boolean appendDataFileMetadataColumns) {
+        if (appendDataFileMetadataColumns) {
+            rejectMetadataColumnCollisions(fields);
+        }
         List<ConnectorColumn> columns = mapFields(fields, primaryKeys);
         if (appendDataFileMetadataColumns) {
             columns.add(new ConnectorColumn(PAIMON_FILE_PATH_COL, ConnectorType.of("STRING"),
@@ -1249,6 +1252,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
 
     private static Map<String, ConnectorColumnHandle> buildColumnHandles(List<DataField> fields,
             boolean appendDataFileMetadataColumns) {
+        if (appendDataFileMetadataColumns) {
+            rejectMetadataColumnCollisions(fields);
+        }
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(fields.size() + 2);
         for (int i = 0; i < fields.size(); i++) {
             String name = fields.get(i).name();
@@ -1260,6 +1266,25 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                     new PaimonColumnHandle(PAIMON_ROW_POSITION_COL, -1));
         }
         return handles;
+    }
+
+    /**
+     * Paimon does not reserve the metadata column names. An externally-created table can therefore
+     * contain a real physical column with one of these names. Appending a synthetic handle in that
+     * case would overwrite the physical handle and make a query return file metadata instead of the
+     * stored value. Fail while exposing the data-table schema/handles so the collision cannot reach
+     * the scan planner.
+     */
+    private static void rejectMetadataColumnCollisions(List<DataField> fields) {
+        for (DataField field : fields) {
+            String name = field.name();
+            if (PAIMON_FILE_PATH_COL.equalsIgnoreCase(name)
+                    || PAIMON_ROW_POSITION_COL.equalsIgnoreCase(name)) {
+                throw new DorisConnectorException(
+                        "Paimon physical column '" + name
+                                + "' conflicts with a reserved metadata column name");
+            }
+        }
     }
 
     @Override

@@ -65,7 +65,7 @@ protected:
                                        bool* has_delete_file) override;
 
 private:
-    std::string _data_file_path() const;
+    const std::string& _data_file_path() const;
     Status _append_row_position_output_column(format::FileScanRequest* request);
     Status _materialize_file_path(Block* table_block, size_t column_idx);
     Status _materialize_row_position(Block* table_block, size_t column_idx);

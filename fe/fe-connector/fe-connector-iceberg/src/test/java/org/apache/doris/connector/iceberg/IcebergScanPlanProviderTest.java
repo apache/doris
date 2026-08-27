@@ -937,6 +937,41 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void metadataColumnsRejectForceJniInStreamingPath() throws IOException {
+        IcebergScanPlanProvider provider = providerOver(
+                createTable("stream_metadata", SCHEMA, PartitionSpec.unpartitioned()));
+        ConnectorSession session = new FakeScanSession("UTC",
+                Collections.singletonMap("force_jni_scanner", "true"));
+        List<ConnectorColumnHandle> columns = Collections.singletonList(new IcebergColumnHandle("_file", -1));
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.streamSplits(session,
+                        new IcebergTableHandle("db1", "stream_metadata"), columns,
+                        Optional.empty(), -1L));
+        Assertions.assertEquals(
+                "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC reader; "
+                        + "actual reader is JNI",
+                ex.getMessage());
+    }
+
+    @Test
+    public void metadataColumnsRejectDisabledFileScannerV2InStreamingPath() throws IOException {
+        IcebergScanPlanProvider provider = providerOver(
+                createTable("stream_metadata_v2", SCHEMA, PartitionSpec.unpartitioned()));
+        ConnectorSession session = new FakeScanSession("UTC",
+                Collections.singletonMap("enable_file_scanner_v2", "false"));
+        List<ConnectorColumnHandle> columns = Collections.singletonList(new IcebergColumnHandle("_pos", -1));
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.streamSplits(session,
+                        new IcebergTableHandle("db1", "stream_metadata_v2"), columns,
+                        Optional.empty(), -1L));
+        Assertions.assertEquals(
+                "Iceberg metadata columns require FileScannerV2 native Parquet/ORC reader",
+                ex.getMessage());
+    }
+
+    @Test
     public void ordinaryColumnsAllowDisabledFileScannerV2InProperties() {
         IcebergScanPlanProvider provider = providerOver(
                 createTable("t1", SCHEMA, PartitionSpec.unpartitioned()));

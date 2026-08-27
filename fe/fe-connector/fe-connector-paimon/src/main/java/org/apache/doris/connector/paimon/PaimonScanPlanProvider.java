@@ -609,6 +609,31 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                         || scanOptions.containsKey("incremental-between-timestamp"));
     }
 
+    private static void validateMetadataColumnReader(ConnectorSession session,
+            PaimonTableHandle handle, boolean requiresMetadataColumns) {
+        if (!requiresMetadataColumns) {
+            return;
+        }
+        if (handle.isForceJni() || isForceJniScannerEnabled(session)) {
+            throw new DorisConnectorException(
+                    "Paimon metadata columns are only supported by FileScannerV2 native Parquet/ORC "
+                            + "reader; actual reader is JNI");
+        }
+        if (!isFileScannerV2Enabled(session)) {
+            throw new DorisConnectorException(
+                    "Paimon metadata columns require FileScannerV2 native Parquet/ORC reader");
+        }
+    }
+
+    private static void validateMetadataColumnReader(boolean requiresMetadataColumns,
+            boolean nativeReader) {
+        if (requiresMetadataColumns && !nativeReader) {
+            throw new DorisConnectorException(
+                    "Paimon metadata columns are only supported by FileScannerV2 native Parquet/ORC "
+                            + "reader; actual reader is JNI");
+        }
+    }
+
     private List<ConnectorScanRange> planScanInternal(
             ConnectorSession session,
             ConnectorTableHandle handle,
@@ -622,6 +647,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 .map(column -> ((PaimonColumnHandle) column).getName())
                 .anyMatch(name -> PAIMON_FILE_PATH_COL.equalsIgnoreCase(name)
                         || PAIMON_ROW_POSITION_COL.equalsIgnoreCase(name));
+        validateMetadataColumnReader(session, paimonHandle, requiresMetadataColumns);
         Map<String, String> pinnedOptions = paimonHandle.getScanOptions();
         boolean optionsPin = PaimonScanParams.isOptionsPin(pinnedOptions);
         if (countPushdown && isIncrementalBinlogScan(paimonHandle, pinnedOptions)) {
@@ -637,16 +663,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
         Table table = resolveScanTable(paimonHandle);
 
-        if (requiresMetadataColumns
-                && (paimonHandle.isForceJni() || isForceJniScannerEnabled(session))) {
-            throw new DorisConnectorException(
-                    "Paimon metadata columns are only supported by FileScannerV2 native Parquet/ORC "
-                            + "reader; actual reader is JNI");
-        }
-        if (requiresMetadataColumns && !isFileScannerV2Enabled(session)) {
-            throw new DorisConnectorException(
-                    "Paimon metadata columns require FileScannerV2 native Parquet/ORC reader");
-        }
         // Metadata predicates must be evaluated against actual rows. A merged-row-count range has no
         // file path or physical row positions, so it cannot satisfy the predicate correctly.
         if (requiresMetadataColumns) {
@@ -761,9 +777,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 continue;
             }
             if (requiresMetadataColumns) {
-                throw new DorisConnectorException(
-                        "Paimon metadata columns are only supported by FileScannerV2 native Parquet/ORC "
-                                + "reader; actual reader is JNI");
+                validateMetadataColumnReader(true, false);
             }
             if (hasVariantProjection) {
                 throw new DorisConnectorException(
@@ -850,9 +864,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     continue;
                 }
                 if (requiresMetadataColumns) {
-                    throw new DorisConnectorException(
-                            "Paimon metadata columns are only supported by FileScannerV2 native Parquet/ORC "
-                                    + "reader; actual reader is JNI");
+                    validateMetadataColumnReader(true, false);
                 }
                 if (hasVariantProjection) {
                     throw new DorisConnectorException(

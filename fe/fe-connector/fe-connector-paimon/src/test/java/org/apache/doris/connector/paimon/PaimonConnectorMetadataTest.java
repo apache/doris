@@ -19,6 +19,7 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
@@ -213,6 +214,26 @@ public class PaimonConnectorMetadataTest {
         Assertions.assertEquals(Arrays.asList("id", "name", "__paimon_file_path", "__paimon_row_index"), new java.util.ArrayList<>(handles.keySet()));
         Assertions.assertTrue(ops.log.stream().noneMatch(e -> e.startsWith("getTable")),
                 "with a present transient table, no remote getTable reload must happen");
+    }
+
+    @Test
+    public void externalPhysicalMetadataColumnNameFailsSafely() {
+        for (String physicalName : Arrays.asList("__paimon_file_path", "__PAIMON_ROW_INDEX")) {
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = new FakePaimonTable(
+                    "external_table",
+                    rowType("id", physicalName),
+                    Collections.emptyList(),
+                    Collections.emptyList());
+            PaimonConnectorMetadata metadata = metadataWith(ops);
+            ConnectorTableHandle handle = metadata.getTableHandle(null, "db1", "external_table").get();
+
+            DorisConnectorException schemaError = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata.getTableSchema(null, handle));
+            Assertions.assertTrue(schemaError.getMessage().contains("conflicts with a reserved metadata"));
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata.getColumnHandles(null, handle));
+        }
     }
 
     @Test
