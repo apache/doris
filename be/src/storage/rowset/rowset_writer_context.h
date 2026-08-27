@@ -139,6 +139,10 @@ struct RowsetWriterContext {
     // This describes whether we *want* to try small-file merging.
     bool allow_packed_file = true;
 
+    // Physical id of the first segment in this rowset. It can be nonzero for writers that
+    // allocate segment ids from a configured range.
+    int64_t first_segment_id = 0;
+
     // Effective flag: whether this context actually ends up using MergeFileSystem for writes.
     // This is decided inside fs() based on enable_merge_file plus other conditions
     // (cloud mode, S3 filesystem, V1 inverted index, global config, etc.), and once
@@ -149,6 +153,12 @@ struct RowsetWriterContext {
     // This prevents creating multiple MergeFileSystem instances and ensures
     // packed_file_active flag remains consistent.
     mutable io::FileSystemSPtr _cached_fs = nullptr;
+
+    void set_first_segment_id(int64_t segment_id) {
+        DORIS_CHECK_GE(segment_id, 0);
+        DORIS_CHECK(_cached_fs == nullptr);
+        first_segment_id = segment_id;
+    }
 
     // For collect segment statistics for compaction
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
@@ -235,6 +245,7 @@ struct RowsetWriterContext {
             io::PackedAppendContext append_info;
             append_info.tablet_id = tablet_id;
             append_info.rowset_id = rowset_id.to_string();
+            append_info.first_segment_id = first_segment_id;
             append_info.txn_id = txn_id;
             append_info.expiration_time = file_cache_ttl_sec > 0 && newest_write_timestamp > 0
                                                   ? newest_write_timestamp + file_cache_ttl_sec

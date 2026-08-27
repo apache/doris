@@ -7681,6 +7681,88 @@ TEST(RecyclerTest, delete_rowset_data) {
     }
 }
 
+TEST(RecyclerTest, delete_v2_inverted_index_with_segment_list) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr std::string_view resource_id = "delete_v2_index_with_segment_list";
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id(std::string(resource_id));
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix(std::string(resource_id));
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+    auto index = schema.add_index();
+    index->set_index_id(100);
+    index->set_index_type(IndexType::INVERTED);
+
+    constexpr int num_segments = 2;
+    constexpr std::array<int64_t, num_segments> segment_ids = {10, 12};
+    auto rowset = create_rowset(std::string(resource_id), 10002, 10001, num_segments, schema);
+    for (auto segment_id : segment_ids) {
+        rowset.add_segment_ids(segment_id);
+        ASSERT_EQ(accessor->put_file(
+                          segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), segment_id), ""),
+                  0);
+        ASSERT_EQ(accessor->put_file(inverted_index_path_v2(rowset.tablet_id(),
+                                                            rowset.rowset_id_v2(), segment_id),
+                                     ""),
+                  0);
+    }
+
+    ASSERT_EQ(recycler.delete_rowset_data(rowset), 0);
+    for (auto segment_id : segment_ids) {
+        EXPECT_EQ(accessor->exists(
+                          segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), segment_id)),
+                  1);
+        EXPECT_EQ(accessor->exists(inverted_index_path_v2(rowset.tablet_id(), rowset.rowset_id_v2(),
+                                                          segment_id)),
+                  1);
+    }
+
+    auto batch_rowset = create_rowset(std::string(resource_id), 10003, 10001, num_segments, schema);
+    for (auto segment_id : segment_ids) {
+        batch_rowset.add_segment_ids(segment_id);
+        ASSERT_EQ(accessor->put_file(segment_path(batch_rowset.tablet_id(),
+                                                  batch_rowset.rowset_id_v2(), segment_id),
+                                     ""),
+                  0);
+        ASSERT_EQ(
+                accessor->put_file(inverted_index_path_v2(batch_rowset.tablet_id(),
+                                                          batch_rowset.rowset_id_v2(), segment_id),
+                                   ""),
+                0);
+    }
+
+    std::map<std::string, doris::RowsetMetaCloudPB> rowsets;
+    rowsets.emplace(batch_rowset.rowset_id_v2(), batch_rowset);
+    RecyclerMetricsContext metrics_context;
+    ASSERT_EQ(recycler.delete_rowset_data(rowsets, RowsetRecyclingState::FORMAL_ROWSET,
+                                          metrics_context),
+              0);
+    for (auto segment_id : segment_ids) {
+        EXPECT_EQ(accessor->exists(segment_path(batch_rowset.tablet_id(),
+                                                batch_rowset.rowset_id_v2(), segment_id)),
+                  1);
+        EXPECT_EQ(accessor->exists(inverted_index_path_v2(batch_rowset.tablet_id(),
+                                                          batch_rowset.rowset_id_v2(), segment_id)),
+                  1);
+    }
+}
+
 TEST(RecyclerTest, delete_rowset_data_without_delete_bitmap_meta) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);

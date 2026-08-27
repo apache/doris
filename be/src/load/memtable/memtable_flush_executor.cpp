@@ -184,8 +184,8 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
         shared_memtable = std::make_shared<SharedMemtable>();
         shared_memtable->memtable = mem_table;
         // Keep data/binlog segment_id allocators in sync.
-        auto segment_id = data_writer->allocate_segment_id();
-        auto binlog_segment_id = binlog_writer->allocate_segment_id();
+        auto segment_id = DORIS_TRY(data_writer->allocate_segment_id());
+        auto binlog_segment_id = DORIS_TRY(binlog_writer->allocate_segment_id());
         DCHECK_EQ(segment_id, binlog_segment_id);
         shared_memtable->segment_id = segment_id;
 
@@ -195,9 +195,9 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
                 shared_from_this(), shared_memtable, WriteRequestType::ROW_BINLOG,
                 submit_task_time));
     } else {
+        auto segment_id = DORIS_TRY(_rowset_writer->allocate_segment_id());
         tasks.emplace_back(MemtableFlushTask::create_shared(shared_from_this(), mem_table,
-                                                            _rowset_writer->allocate_segment_id(),
-                                                            submit_task_time));
+                                                            segment_id, submit_task_time));
     }
     // NOTE: we should guarantee WorkloadGroup is not deconstructed when submit memtable flush task.
     // because currently WorkloadGroup's can only be destroyed when all queries in the group is finished,

@@ -86,12 +86,14 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
     return Status::OK();
 }
 
-Status CloudRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num) {
+Status CloudRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num,
+                                             std::vector<int64_t>* completed_segment_ids) {
     VLOG_NOTICE << "start to build rowset meta. tablet_id=" << rowset_meta->tablet_id()
                 << ", rowset_id=" << rowset_meta->rowset_id()
                 << ", check_segment_num=" << check_segment_num;
     // Call base class implementation
-    RETURN_IF_ERROR(BaseBetaRowsetWriter::_build_rowset_meta(rowset_meta, check_segment_num));
+    RETURN_IF_ERROR(BaseBetaRowsetWriter::_build_rowset_meta(rowset_meta, check_segment_num,
+                                                             completed_segment_ids));
 
     // Collect packed file segment index information for interim rowsets as well.
     return _collect_all_packed_slice_locations(rowset_meta);

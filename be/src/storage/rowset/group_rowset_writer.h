@@ -108,7 +108,7 @@ public:
         return Status::NotSupported("GroupRowsetWriter::get_segment_num_rows to be implemented");
     }
 
-    int32_t allocate_segment_id() override;
+    Result<int32_t> allocate_segment_id() override;
 
     int32_t get_allocated_segment_id() override {
         DCHECK(_txn_rowset_writer != nullptr);
@@ -118,7 +118,8 @@ public:
         return seg_id;
     }
 
-    void set_segment_start_id(int num_segment) override {
+    void set_segment_start_id(int32_t start_seg_id,
+                              int32_t max_seg_num = MAX_SEGMENT_NUM) override {
         LOG(FATAL) << "GroupRowsetWriter::set_segment_start_id not supported";
     }
 
