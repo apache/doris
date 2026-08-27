@@ -95,7 +95,8 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
         fsViewEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_FS_VIEW, HudiFsViewCacheKey.class,
                 HudiFsViewCacheValue.class, this::createFsView, defaultEntryCacheSpec(),
                 false, MetaCacheEntryInvalidation.forNameMapping(HudiFsViewCacheKey::getNameMapping))
-                .withRemovalListener(value -> value, this::evictFsView));
+                .withRemovalListener(value -> value, this::evictFsView)
+                .withStrongValues());
         metaClientEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_META_CLIENT, HudiMetaClientCacheKey.class,
                 HoodieTableMetaClient.class, this::createHoodieTableMetaClient, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(HudiMetaClientCacheKey::getNameMapping)));
