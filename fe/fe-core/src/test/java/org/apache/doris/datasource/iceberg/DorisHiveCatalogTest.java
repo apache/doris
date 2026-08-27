@@ -17,7 +17,10 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.iceberg.BaseMetastoreCatalog;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.metrics.MetricsReporter;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -36,6 +39,28 @@ class DorisHiveCatalogTest {
         catalog.close();
         catalog.close();
 
+        Mockito.verify(fileIO, Mockito.times(1)).close();
+    }
+
+    @Test
+    void closesOwnedFileIOWhenConfiguredReporterThrows() throws Exception {
+        DorisHiveCatalog catalog = new DorisHiveCatalog();
+        FileIO fileIO = Mockito.mock(FileIO.class);
+        Field ownedFileIO = DorisHiveCatalog.class.getDeclaredField("ownedFileIO");
+        ownedFileIO.setAccessible(true);
+        ownedFileIO.set(catalog, fileIO);
+        MetricsReporter reporter = Mockito.mock(MetricsReporter.class);
+        RuntimeException reporterFailure = new RuntimeException("reporter close failed");
+        Mockito.doThrow(reporterFailure).when(reporter).close();
+        Field metricsReporter = BaseMetastoreCatalog.class.getDeclaredField("metricsReporter");
+        metricsReporter.setAccessible(true);
+        metricsReporter.set(catalog, reporter);
+
+        RuntimeException actual = Assertions.assertThrows(RuntimeException.class, catalog::close);
+        Assertions.assertSame(reporterFailure, actual);
+        Mockito.verify(fileIO).close();
+
+        catalog.close();
         Mockito.verify(fileIO, Mockito.times(1)).close();
     }
 }

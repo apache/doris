@@ -92,6 +92,21 @@ public class SplitAssignmentTest {
         Assertions.assertTrue(closed.get());
     }
 
+    @Test
+    void testStopAfterPlanningFailureClosesEveryResourceWithoutThrowing() {
+        AtomicBoolean firstClosed = new AtomicBoolean();
+        AtomicBoolean secondClosed = new AtomicBoolean();
+        splitAssignment.addCloseable(() -> firstClosed.set(true));
+        splitAssignment.addCloseable(() -> secondClosed.set(true));
+        splitAssignment.setException(new UserException("planning failed"));
+
+        Assertions.assertDoesNotThrow(splitAssignment::stop);
+
+        Assertions.assertTrue(firstClosed.get());
+        Assertions.assertTrue(secondClosed.get());
+        Assertions.assertTrue(splitAssignment.isStop());
+    }
+
     // ==================== init() method tests ====================
 
     @Test

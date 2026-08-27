@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import com.google.common.base.Throwables;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.io.FileIO;
 
@@ -41,27 +42,29 @@ public class DorisHiveCatalog extends HiveCatalog {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
-        IOException closeFailure = null;
+        Throwable closeFailure = null;
         try {
             super.close();
-        } catch (IOException e) {
+        } catch (Throwable e) {
             closeFailure = e;
         }
         try {
             if (ownedFileIO != null) {
                 ownedFileIO.close();
             }
-        } catch (RuntimeException e) {
+        } catch (Throwable e) {
             if (closeFailure != null) {
                 closeFailure.addSuppressed(e);
             } else {
-                throw e;
+                closeFailure = e;
             }
         } finally {
             ownedFileIO = null;
         }
         if (closeFailure != null) {
-            throw closeFailure;
+            Throwables.throwIfInstanceOf(closeFailure, IOException.class);
+            Throwables.throwIfUnchecked(closeFailure);
+            throw new IOException(closeFailure);
         }
     }
 
