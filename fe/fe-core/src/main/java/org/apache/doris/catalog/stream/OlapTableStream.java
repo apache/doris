@@ -62,6 +62,7 @@ public class OlapTableStream extends BaseTableStream {
 
     public OlapTableStream(long id, String streamName, TableIf baseTable) {
         super(id, streamName, baseTable);
+        Preconditions.checkArgument(baseTable instanceof OlapTable);
         this.partitionOffset = new HashMap<>();
         this.partitionConsumptionTime = new HashMap<>();
         this.historicalPartitionTSO = new HashMap<>();
@@ -106,11 +107,10 @@ public class OlapTableStream extends BaseTableStream {
         changeTypeColumn.setIsVisible(false);
         builder.add(changeTypeColumn);
         // Only expose stream LSN when the base table stores row LSN, e.g. dup table with binlog.
-        if (baseTable instanceof OlapTable
-                && baseTable.hasRowLsnColumn()) {
+        if (baseTable.hasRowLsnColumn()) {
             Column lsnColumn = new Column(Column.STREAM_LSN_COL, Type.BIGINT);
             lsnColumn.setIsVisible(false);
-            builder.add(changeTypeColumn);
+            builder.add(lsnColumn);
         }
         return builder.build();
     }
@@ -135,15 +135,15 @@ public class OlapTableStream extends BaseTableStream {
         }
         if (!showInitialRows) {
             // set partition offset
-            (baseTable).getPartitions()
+            baseTable.getPartitions()
                     .forEach(p -> partitionOffset.put(p.getId(), p.getTso()));
         } else {
-            (baseTable).getPartitions()
+            baseTable.getPartitions()
                     .stream()
                     .filter(p -> p.getVisibleVersion() > Partition.PARTITION_INIT_VERSION)
                     .forEach(p -> {
                                 historicalPartitionTSO.put(p.getId(), p.getTso());
-                                    }
+                                }
                     );
         }
     }
