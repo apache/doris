@@ -15,24 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.connector.hms;
+package org.apache.doris.connector.spi;
 
-import org.apache.doris.connector.spi.DorisConnectorException;
+/** Cooperative cancellation and deadline control for connector metadata operations. */
+public interface ConnectorOperationControl {
 
-/**
- * Exception thrown when an HMS client operation fails.
- */
-public class HmsClientException extends DorisConnectorException {
+    ConnectorOperationControl NONE = new ConnectorOperationControl() {
+        @Override
+        public void checkActive() {
+        }
 
-    public HmsClientException(String message) {
-        super(message);
-    }
+        @Override
+        public long remainingTimeMillis() {
+            return Long.MAX_VALUE;
+        }
+    };
 
-    public HmsClientException(String message, Throwable cause) {
-        super(message, cause);
-    }
+    /** Throws {@link ConnectorOperationAbortedException} when the operation must stop. */
+    void checkActive();
 
-    public HmsClientException(String formatString, Object... args) {
-        super(String.format(formatString, args));
-    }
+    /** Returns the remaining operation time, or {@link Long#MAX_VALUE} when no deadline is known. */
+    long remainingTimeMillis();
 }

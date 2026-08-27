@@ -619,7 +619,7 @@ public class HiveConnector implements Connector {
         // always map hive BINARY -> STRING / timestamp -> non-TZ. Commit 5672d7c0209 read the dot-keys but only
         // into a dead metadata field; the fix is to build the options here where the client is constructed.
         return wrapWithCache(new ThriftHmsClient(config, authAction,
-                HiveConnectorMetadata.buildTypeMappingOptions(props)));
+                HiveConnectorMetadata.buildTypeMappingOptions(props), context.getMetadataAccessObserver()));
     }
 
     HmsClientConfig buildHmsClientConfig() {
@@ -654,7 +654,7 @@ public class HiveConnector implements Connector {
      * {@code HiveConnector}, and {@link #createClient()} wraps its {@code ThriftHmsClient} here.
      */
     HmsClient wrapWithCache(HmsClient raw) {
-        return new CachingHmsClient(raw, properties);
+        return new CachingHmsClient(raw, properties, props.getHmsClientPoolSize());
     }
 
     /**

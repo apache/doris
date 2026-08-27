@@ -53,8 +53,10 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -476,12 +478,48 @@ public class PartitionsProcDir implements ProcDirInterface {
             }
             needLocked.sort(Comparator.comparing(TableIf::getId));
         }
+        MTMVRefreshContext mtmvRefreshContext = null;
+        boolean buildContextUnderLock = olapTable instanceof MTMV && Config.isNotCloudMode()
+                && needLocked.stream().noneMatch(MvccTable.class::isInstance);
+        if (olapTable instanceof MTMV && !buildContextUnderLock) {
+            try {
+                // Context construction can materialize external partition mappings and fetch cloud table
+                // versions. It copies the state consumed by the lock-protected display calculation below.
+                mtmvRefreshContext = MTMVRefreshContext.buildContext((MTMV) olapTable);
+            } catch (AnalysisException e) {
+                mtmvPartitionSyncErrorMsg = e.getMessage();
+            }
+            if (mtmvRefreshContext != null) {
+                try {
+                    // Hive freshness may wait on HMS. It must never run while the MTMV/base-table locks are held.
+                    mtmvRefreshContext.preloadSnapshots();
+                } catch (AnalysisException e) {
+                    mtmvPartitionSyncErrorMsg = e.getMessage();
+                }
+            }
+        }
+
         MetaLockUtils.readLockTables(needLocked);
         try {
-            if (olapTable instanceof MTMV) {
+            if (buildContextUnderLock) {
                 try {
-                    partitionsUnSyncTables = MTMVPartitionUtil
-                            .getPartitionsUnSyncTables((MTMV) olapTable);
+                    // This branch contains only non-cloud local tables, so construction and preloading are local
+                    // reads. Capture their partition mapping and versions atomically under the existing locks.
+                    mtmvRefreshContext = MTMVRefreshContext.buildContext((MTMV) olapTable);
+                    mtmvRefreshContext.preloadSnapshots();
+                } catch (AnalysisException e) {
+                    mtmvPartitionSyncErrorMsg = e.getMessage();
+                }
+            } else if (mtmvRefreshContext != null && StringUtils.isEmpty(mtmvPartitionSyncErrorMsg)) {
+                try {
+                    mtmvRefreshContext.refreshLocalBaseVersions();
+                } catch (AnalysisException e) {
+                    mtmvPartitionSyncErrorMsg = e.getMessage();
+                }
+            }
+            if (mtmvRefreshContext != null && StringUtils.isEmpty(mtmvPartitionSyncErrorMsg)) {
+                try {
+                    partitionsUnSyncTables = MTMVPartitionUtil.getPartitionsUnSyncTables(mtmvRefreshContext);
                 } catch (AnalysisException e) {
                     mtmvPartitionSyncErrorMsg = e.getMessage();
                 }

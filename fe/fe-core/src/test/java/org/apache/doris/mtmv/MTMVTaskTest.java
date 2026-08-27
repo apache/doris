@@ -44,8 +44,10 @@ import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.Closeable;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MTMVTaskTest {
     private String poneName = "p1";
@@ -215,6 +217,33 @@ public class MTMVTaskTest {
         } finally {
             Config.cloud_unique_id = originCloudUniqueId;
         }
+    }
+
+    @Test
+    public void testRefreshStageInstallsStatementContextForMvccPins() {
+        ConnectContext ctx = new ConnectContext();
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+
+        Deencapsulation.invoke(task, "installRefreshStatementContext", ctx);
+
+        Assert.assertNotNull(ctx.getStatementContext());
+        Assert.assertSame(ctx, ctx.getStatementContext().getConnectContext());
+    }
+
+    @Test
+    public void testRefreshStageClosesStatementScopedConnectorResources() {
+        ConnectContext ctx = new ConnectContext();
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Deencapsulation.invoke(task, "installRefreshStatementContext", ctx);
+        AtomicBoolean closed = new AtomicBoolean();
+        Closeable resource = () -> closed.set(true);
+        ctx.getStatementContext().getOrCreateConnectorStatementScope()
+                .computeIfAbsent("metadata:test", () -> resource);
+
+        Deencapsulation.invoke(task, "closeRefreshStatementContext", ctx);
+
+        Assert.assertTrue(closed.get());
+        Assert.assertNull(ctx.getStatementContext());
     }
 
     @Test

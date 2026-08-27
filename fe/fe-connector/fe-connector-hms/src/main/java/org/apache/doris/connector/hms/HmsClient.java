@@ -17,10 +17,13 @@
 
 package org.apache.doris.connector.hms;
 
+import org.apache.doris.connector.spi.ConnectorSession;
+
 import java.io.Closeable;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 
 /**
@@ -163,6 +166,29 @@ public interface HmsClient extends Closeable {
      */
     List<HmsPartitionInfo> getPartitions(String dbName, String tableName,
             List<String> partNames);
+
+    /**
+     * Gets partition metadata with request-scoped query control and an observability source. Callers describe
+     * only the logical access; the HMS implementation owns chunking, adaptive fallback and result validation.
+     * Implementations without those facilities remain compatible through the legacy three-argument method.
+     */
+    default List<HmsPartitionInfo> getPartitions(ConnectorSession session, HmsPartitionAccessSource source,
+            String dbName, String tableName, List<String> partNames) {
+        Objects.requireNonNull(source, "source");
+        if (session != null) {
+            session.getOperationControl().checkActive();
+        }
+        List<HmsPartitionInfo> partitions = getPartitions(dbName, tableName, partNames);
+        if (session != null) {
+            session.getOperationControl().checkActive();
+        }
+        return partitions;
+    }
+
+    /** Internal logical-request bridge used by HMS client decorators. */
+    default List<HmsPartitionInfo> getPartitions(HmsPartitionRequest request) {
+        return getPartitions(request.getDbName(), request.getTableName(), request.getPartitionNames());
+    }
 
     /**
      * Get a single partition by its values.

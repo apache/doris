@@ -17,22 +17,10 @@
 
 package org.apache.doris.connector.hms;
 
-import org.apache.doris.connector.spi.DorisConnectorException;
+/** Marks an exception as originating in the remote HMS action, rather than pool or authentication setup. */
+final class HmsRemoteCallException extends HmsClientException {
 
-/**
- * Exception thrown when an HMS client operation fails.
- */
-public class HmsClientException extends DorisConnectorException {
-
-    public HmsClientException(String message) {
-        super(message);
-    }
-
-    public HmsClientException(String message, Throwable cause) {
+    HmsRemoteCallException(String message, Throwable cause) {
         super(message, cause);
-    }
-
-    public HmsClientException(String formatString, Object... args) {
-        super(String.format(formatString, args));
     }
 }

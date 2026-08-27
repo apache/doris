@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -84,6 +85,24 @@ public interface MTMVRelatedTableIf extends TableIf {
      */
     MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
             Optional<MvccSnapshot> snapshot) throws AnalysisException;
+
+    /**
+     * Gets multiple partition snapshots before a caller enters its per-partition loop. External metadata
+     * implementations should override this with one logical batch request; the default preserves local tables.
+     */
+    default Map<String, MTMVSnapshotIf> getPartitionSnapshots(List<String> partitionNames,
+            MTMVRefreshContext context, Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        Map<String, MTMVSnapshotIf> result = new LinkedHashMap<>();
+        for (String partitionName : partitionNames) {
+            result.put(partitionName, getPartitionSnapshot(partitionName, context, snapshot));
+        }
+        return result;
+    }
+
+    /** Whether this table can safely bulk-load partition snapshots outside the FE table read lock. */
+    default boolean supportsPartitionSnapshotBatchLoading() {
+        return false;
+    }
 
     /**
      * getTableSnapshot

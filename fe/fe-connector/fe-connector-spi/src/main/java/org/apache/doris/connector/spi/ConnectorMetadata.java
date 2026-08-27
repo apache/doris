@@ -26,6 +26,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -133,6 +134,27 @@ public interface ConnectorMetadata extends
     default OptionalLong getPartitionFreshnessMillis(
             ConnectorSession session, ConnectorTableHandle handle, String partitionName) {
         return OptionalLong.empty();
+    }
+
+    /**
+     * Bulk form of {@link #getPartitionFreshnessMillis}. The compatibility default preserves existing
+     * connectors; metadata stores with a batch API must override it to avoid one remote call per partition.
+     * A partition the connector cannot resolve is either omitted from the returned map (the default, built on
+     * the single-partition method's empty result) or fails the whole request with a
+     * {@link DorisConnectorException} (a strict batch implementation, e.g. hive's validated HMS batch).
+     * Cooperative cancellation and deadline failures use {@link ConnectorOperationAbortedException} instead
+     * and must retain that control-flow meaning rather than being normalized as an ordinary metadata failure.
+     */
+    default Map<String, Long> getPartitionFreshnessMillis(
+            ConnectorSession session, ConnectorTableHandle handle, List<String> partitionNames) {
+        Map<String, Long> result = new LinkedHashMap<>();
+        for (String partitionName : partitionNames) {
+            OptionalLong freshness = getPartitionFreshnessMillis(session, handle, partitionName);
+            if (freshness.isPresent()) {
+                result.put(partitionName, freshness.getAsLong());
+            }
+        }
+        return result;
     }
 
     /**

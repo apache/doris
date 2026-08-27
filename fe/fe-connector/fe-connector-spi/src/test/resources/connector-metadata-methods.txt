@@ -35,6 +35,7 @@ getColumnStatistics(org.apache.doris.connector.spi.ConnectorSession,org.apache.d
 getDatabase(org.apache.doris.connector.spi.ConnectorSession,java.lang.String)
 getMvccPartitionView(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle)
 getPartitionFreshnessMillis(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.lang.String)
+getPartitionFreshnessMillis(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.List)
 getSyntheticScanPredicates(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot)
 getSysTableHandle(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.lang.String)
 getTableComment(org.apache.doris.connector.spi.ConnectorSession,java.lang.String,java.lang.String)

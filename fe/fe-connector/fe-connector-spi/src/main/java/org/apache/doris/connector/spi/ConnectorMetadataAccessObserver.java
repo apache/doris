@@ -15,24 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.connector.hms;
+package org.apache.doris.connector.spi;
 
-import org.apache.doris.connector.spi.DorisConnectorException;
+/** Receives completed logical connector metadata-access events. */
+@FunctionalInterface
+public interface ConnectorMetadataAccessObserver {
 
-/**
- * Exception thrown when an HMS client operation fails.
- */
-public class HmsClientException extends DorisConnectorException {
+    ConnectorMetadataAccessObserver NOOP = event -> { };
 
-    public HmsClientException(String message) {
-        super(message);
-    }
-
-    public HmsClientException(String message, Throwable cause) {
-        super(message, cause);
-    }
-
-    public HmsClientException(String formatString, Object... args) {
-        super(String.format(formatString, args));
-    }
+    void record(ConnectorMetadataAccessEvent event);
 }

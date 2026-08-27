@@ -18,6 +18,7 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.hms.HmsClient;
+import org.apache.doris.connector.hms.HmsPartitionAccessSource;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -135,7 +136,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         String dbName = hiveHandle.getDbName();
         String tableName = hiveHandle.getTableName();
 
-        List<PartitionScanInfo> partitions = resolvePartitions(hiveHandle);
+        List<PartitionScanInfo> partitions = resolvePartitions(session, hiveHandle);
         if (partitions.isEmpty()) {
             return Collections.emptyList();
         }
@@ -243,7 +244,8 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         String tableName = hiveHandle.getTableName();
 
         // Resolve ONLY this batch's partitions (scoped to partitionBatch), NOT handle.getPrunedPartitions().
-        List<HmsPartitionInfo> hmsPartitions = hmsClient.getPartitions(dbName, tableName, partitionBatch);
+        List<HmsPartitionInfo> hmsPartitions = hmsClient.getPartitions(
+                session, HmsPartitionAccessSource.QUERY, dbName, tableName, partitionBatch);
         List<PartitionScanInfo> partitions = convertPartitions(
                 hmsPartitions, hiveHandle.getPartitionKeyNames());
         if (partitions.isEmpty()) {
@@ -478,7 +480,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      * Resolves the partitions to scan, using pruned partitions from the handle
      * if available, or listing all partitions from HMS.
      */
-    private List<PartitionScanInfo> resolvePartitions(HiveTableHandle handle) {
+    private List<PartitionScanInfo> resolvePartitions(ConnectorSession session, HiveTableHandle handle) {
         List<String> partKeyNames = handle.getPartitionKeyNames();
 
         if (partKeyNames == null || partKeyNames.isEmpty()) {
@@ -500,6 +502,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             return Collections.emptyList();
         }
         List<HmsPartitionInfo> hmsPartitions = hmsClient.getPartitions(
+                session, HmsPartitionAccessSource.QUERY,
                 handle.getDbName(), handle.getTableName(), partNames);
         return convertPartitions(hmsPartitions, partKeyNames);
     }

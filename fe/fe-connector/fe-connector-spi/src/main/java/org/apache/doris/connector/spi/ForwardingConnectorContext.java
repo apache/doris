@@ -109,4 +109,9 @@ public abstract class ForwardingConnectorContext implements ConnectorContext {
     public ConnectorStorageContext getStorageContext() {
         return delegate.getStorageContext();
     }
+
+    @Override
+    public ConnectorMetadataAccessObserver getMetadataAccessObserver() {
+        return delegate.getMetadataAccessObserver();
+    }
 }

@@ -81,6 +81,8 @@ public class MTMVPartitionUtilTest {
 
         Mockito.when(context.getBaseTableSnapshotCache()).thenReturn(Maps.newHashMap());
 
+        Mockito.when(context.getBaseTable(Mockito.any(BaseTableInfo.class))).thenReturn(baseOlapTable);
+
         Mockito.when(mtmv.getPartitions()).thenReturn(Lists.newArrayList(p1));
 
         Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet("name1"));
@@ -108,6 +110,15 @@ public class MTMVPartitionUtilTest {
 
         Mockito.when(baseOlapTable.getPartitionSnapshot(Mockito.anyString(), Mockito.any(MTMVRefreshContext.class), Mockito.any(Optional.class)))
                 .thenReturn(baseSnapshotIf);
+
+        Mockito.when(context.getPartitionSnapshots(Mockito.eq(baseOlapTable), Mockito.anySet(),
+                Mockito.any(Optional.class))).thenAnswer(invocation -> {
+                    Map<String, MTMVSnapshotIf> result = Maps.newHashMap();
+                    for (String partitionName : invocation.<Set<String>>getArgument(1)) {
+                        result.put(partitionName, baseSnapshotIf);
+                    }
+                    return result;
+                });
 
         Mockito.when(refreshSnapshot.equalsWithPct(Mockito.anyString(), Mockito.anyString(), Mockito.any(MTMVSnapshotIf.class),
                 Mockito.any(BaseTableInfo.class)))
@@ -237,6 +248,8 @@ public class MTMVPartitionUtilTest {
                 MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl2", "db1", "table1")));
         Assert.assertFalse(
                 MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db1", "table2")));
+        Assert.assertTrue(MTMVPartitionUtil.isTableExcluded(excludedTriggerTables,
+                new BaseTableInfo(new TableNameInfo("ctl1", "db1", "table1"))));
     }
 
     @Test

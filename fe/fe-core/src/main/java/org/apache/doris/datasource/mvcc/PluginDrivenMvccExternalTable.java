@@ -32,9 +32,11 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorOperationAbortedException;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
@@ -68,6 +70,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -767,11 +770,50 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     @Override
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
             Optional<MvccSnapshot> snapshot) throws AnalysisException {
-        PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
-        Long value = pin.getNameToLastModifiedMillis().get(partitionName);
-        if (value == null) {
-            throw new AnalysisException("can not find partition: " + partitionName);
+        if (context != null) {
+            MTMVSnapshotIf cached = context.getCachedPartitionSnapshot(this, partitionName);
+            if (cached != null) {
+                return cached;
+            }
         }
+        return getPartitionSnapshots(Collections.singletonList(partitionName), context, snapshot)
+                .get(partitionName);
+    }
+
+    @Override
+    public Map<String, MTMVSnapshotIf> getPartitionSnapshots(List<String> partitionNames,
+            MTMVRefreshContext context, Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        try {
+            PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
+            Map<String, Long> onDemandFreshness = Collections.emptyMap();
+            if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
+                onDemandFreshness = queryPartitionFreshnessMillis(partitionNames);
+            }
+            Map<String, MTMVSnapshotIf> result = new LinkedHashMap<>();
+            for (String partitionName : partitionNames) {
+                Long value = pin.getNameToLastModifiedMillis().get(partitionName);
+                if (value == null) {
+                    throw new AnalysisException("can not find partition: " + partitionName);
+                }
+                result.put(partitionName, toPartitionSnapshot(
+                        partitionName, value, pin, onDemandFreshness));
+            }
+            return result;
+        } catch (ConnectorOperationAbortedException e) {
+            throw e;
+        } catch (DorisConnectorException e) {
+            throw new AnalysisException("failed to load partition freshness for " + partitionNames.size()
+                    + " partition(s) of " + getName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public boolean supportsPartitionSnapshotBatchLoading() {
+        return true;
+    }
+
+    private MTMVSnapshotIf toPartitionSnapshot(String partitionName, long value,
+            PluginDrivenMvccSnapshot pin, Map<String, Long> onDemandFreshness) throws AnalysisException {
         if (pin.isSnapshotIdFreshness()) {
             // Range-view path with snapshot-id freshness pins the per-partition snapshot id (parity master
             // IcebergExternalTable.getPartitionSnapshot -> MTMVSnapshotIdSnapshot). The connector pre-resolved
@@ -786,11 +828,11 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             // gates this, so a snapshot-id connector (paimon/iceberg) NEVER reaches the probe. An empty return
             // means the partition vanished after the materialize-time existence check above (a refresh-time
             // race): raise the legacy "can not find partition" (parity checkPartitionExists).
-            OptionalLong onDemand = queryPartitionFreshnessMillis(partitionName);
-            if (!onDemand.isPresent()) {
+            Long onDemand = onDemandFreshness.get(partitionName);
+            if (onDemand == null) {
                 throw new AnalysisException("can not find partition: " + partitionName);
             }
-            return new MTMVTimestampSnapshot(onDemand.getAsLong());
+            return new MTMVTimestampSnapshot(onDemand);
         }
         // Pin-timestamp connector (paimon): the pin's per-partition last-modified millis is authoritative
         // (byte-unchanged — no probe).
@@ -813,15 +855,22 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // snapshot id is a constant -1, so an MV over a hive base table would never detect change. A snapshot-id
         // connector (paimon/iceberg) leaves the flag false and keeps the snapshot-id table snapshot, taking the
         // EXACT pre-change path (getOrMaterialize was already required for the id — no added round-trip).
-        PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
-        if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
-            Optional<ConnectorTableFreshness> tableFreshness = queryTableFreshness();
-            if (tableFreshness.isPresent()) {
-                return new MTMVMaxTimestampSnapshot(tableFreshness.get().getName(),
-                        tableFreshness.get().getTimestampMillis());
+        try {
+            PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
+            if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
+                Optional<ConnectorTableFreshness> tableFreshness = queryTableFreshness();
+                if (tableFreshness.isPresent()) {
+                    return new MTMVMaxTimestampSnapshot(tableFreshness.get().getName(),
+                            tableFreshness.get().getTimestampMillis());
+                }
             }
+            return new MTMVSnapshotIdSnapshot(pin.getConnectorSnapshot().getSnapshotId());
+        } catch (ConnectorOperationAbortedException e) {
+            throw e;
+        } catch (DorisConnectorException e) {
+            throw new AnalysisException(
+                    "failed to load table freshness for " + getName() + ": " + e.getMessage(), e);
         }
-        return new MTMVSnapshotIdSnapshot(pin.getConnectorSnapshot().getSnapshotId());
     }
 
     // ──────────────────── on-demand freshness (last-modified connectors) ────────────────────
@@ -844,13 +893,13 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
      * empty for a snapshot-id connector / a dropped catalog/table. See
      * {@link ConnectorMetadata#getPartitionFreshnessMillis}.
      */
-    private OptionalLong queryPartitionFreshnessMillis(String partitionName) {
+    private Map<String, Long> queryPartitionFreshnessMillis(List<String> partitionNames) {
         Optional<FreshnessProbe> probe = resolveFreshnessProbe();
         if (!probe.isPresent()) {
-            return OptionalLong.empty();
+            return Collections.emptyMap();
         }
         FreshnessProbe p = probe.get();
-        return p.metadata.getPartitionFreshnessMillis(p.session, p.handle, partitionName);
+        return p.metadata.getPartitionFreshnessMillis(p.session, p.handle, partitionNames);
     }
 
     /**
@@ -942,12 +991,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // refresh loud (parity master IcebergExternalTable.isValidRelatedTable). The connector encodes its
         // eligibility verdict in the range view's style: a valid related table is RANGE, an ineligible one is
         // UNPARTITIONED. The legacy path (no range view) keeps the interface default (always valid; paimon does
-        // not override isValidRelatedTable either). Probe LATEST, bypassing any context pin, like the gate does.
-        // Cost note: unlike master's cached spec-only check, this materializes (a remote partition enumeration for
-        // a valid table; an invalid one early-returns before the scan). Bounded — the only generic caller is
-        // MTMVTask, once per refresh — so the extra listing is acceptable. A cheap specs-only eligibility SPI is a
-        // possible future optimization if it ever matters.
-        PluginDrivenMvccSnapshot pin = materializeLatest();
+        // not override isValidRelatedTable either). MTMV refresh installs a latest pin before taking FE table
+        // locks; callers without a pin still materialize latest here.
+        PluginDrivenMvccSnapshot pin = getOrMaterialize(MvccUtil.getSnapshotFromContext(this));
         if (pin.getPartitionType() != null) {
             return pin.getPartitionType() == PartitionType.RANGE;
         }

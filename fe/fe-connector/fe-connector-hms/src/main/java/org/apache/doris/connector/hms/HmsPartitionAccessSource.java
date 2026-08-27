@@ -17,22 +17,12 @@
 
 package org.apache.doris.connector.hms;
 
-import org.apache.doris.connector.spi.DorisConnectorException;
-
-/**
- * Exception thrown when an HMS client operation fails.
- */
-public class HmsClientException extends DorisConnectorException {
-
-    public HmsClientException(String message) {
-        super(message);
-    }
-
-    public HmsClientException(String message, Throwable cause) {
-        super(message, cause);
-    }
-
-    public HmsClientException(String formatString, Object... args) {
-        super(String.format(formatString, args));
-    }
+/** Logical source of an HMS partition-object access. */
+public enum HmsPartitionAccessSource {
+    QUERY,
+    MTMV,
+    STATISTICS,
+    DISPLAY,
+    WRITE,
+    UNKNOWN
 }

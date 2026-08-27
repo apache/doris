@@ -15,24 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.connector.hms;
+package org.apache.doris.connector.spi;
 
-import org.apache.doris.connector.spi.DorisConnectorException;
+/** Raised when a connector metadata operation must stop because its query was cancelled or timed out. */
+public class ConnectorOperationAbortedException extends RuntimeException {
 
-/**
- * Exception thrown when an HMS client operation fails.
- */
-public class HmsClientException extends DorisConnectorException {
+    public enum Reason {
+        CANCELLED,
+        DEADLINE_EXCEEDED
+    }
 
-    public HmsClientException(String message) {
+    private final Reason reason;
+
+    public ConnectorOperationAbortedException(Reason reason, String message) {
         super(message);
+        this.reason = reason;
     }
 
-    public HmsClientException(String message, Throwable cause) {
-        super(message, cause);
-    }
-
-    public HmsClientException(String formatString, Object... args) {
-        super(String.format(formatString, args));
+    public Reason getReason() {
+        return reason;
     }
 }

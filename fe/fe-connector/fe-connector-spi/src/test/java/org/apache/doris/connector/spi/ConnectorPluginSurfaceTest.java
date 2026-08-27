@@ -73,8 +73,9 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Write binding gained execution-capability methods in this surface revision. A plugin built against
-        // major 5 must be refused rather than run against a contract it did not compile against.
+        // Write binding gained execution-capability methods, while metadata access gained operation control,
+        // telemetry and bulk partition freshness. A plugin built against major 5 must be refused rather than
+        // run against a contract it did not compile against.
         Assertions.assertEquals("6.0", version.getProperty("api.version"));
     }
 

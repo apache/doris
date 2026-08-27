@@ -155,4 +155,14 @@ public interface ConnectorSession {
     default ConnectorStatementScope getStatementScope() {
         return ConnectorStatementScope.NONE;
     }
+
+    /** Returns cooperative cancellation and deadline control for connector metadata operations. */
+    default ConnectorOperationControl getOperationControl() {
+        return ConnectorOperationControl.NONE;
+    }
+
+    /** Returns the request-scoped observer used to publish connector metadata access into the query profile. */
+    default ConnectorMetadataAccessObserver getMetadataAccessObserver() {
+        return ConnectorMetadataAccessObserver.NOOP;
+    }
 }

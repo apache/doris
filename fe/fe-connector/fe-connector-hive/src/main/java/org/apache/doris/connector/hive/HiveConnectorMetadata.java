@@ -25,6 +25,7 @@ import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsColumnStatistics;
 import org.apache.doris.connector.hms.HmsCreateDatabaseRequest;
 import org.apache.doris.connector.hms.HmsCreateTableRequest;
+import org.apache.doris.connector.hms.HmsPartitionAccessSource;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.hms.HmsTypeMapping;
@@ -35,6 +36,7 @@ import org.apache.doris.connector.spi.ConnectorColumnStatistics;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorDatabaseMetadata;
 import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorOperationAbortedException;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
@@ -220,8 +222,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // the on/off feature gate (enable_get_row_count_from_file_list) is still honored, fe-core side.
     private static final int STATS_PARTITION_SAMPLE_SIZE = 30;
 
-    // Upper bound on partitions listed from HMS for the file-list estimate, matching HiveScanPlanProvider.
-    private static final int MAX_PARTITIONS_FOR_STATS = 100000;
+    // HMS uses a negative max-parts value for "all". The estimate needs the complete lightweight name list so
+    // its 30-name sample can be scaled against the real partition count; only those sampled names are resolved
+    // to heavyweight partition objects.
+    private static final int ALL_PARTITIONS = -1;
 
     // A Supplier installed by the 3-arg constructor when no iceberg sibling is available (hive-only
     // construction, e.g. unit tests exercising only hive-handle paths). It is invoked only when a NON-hive
@@ -987,7 +991,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             // catch(RuntimeException)->-1 region: statistics collection must degrade to -1, never fail a query,
             // if getFileSystem throws. (context.getFileSystem returns the cached per-catalog FS, so per-location
             // calls are cheap.)
-            return estimateDataSize(hiveHandle, STATS_PARTITION_SAMPLE_SIZE,
+            return estimateDataSize(session, hiveHandle, STATS_PARTITION_SAMPLE_SIZE,
                     (location, values) -> sumCachedFileSizes(
                             hiveHandle, location, values, storage().getFileSystem(session)));
         } finally {
@@ -1023,7 +1027,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
             FileSystem fs = storage().getFileSystem(session);
             List<Long> sizes = new ArrayList<>();
-            for (PartitionRef ref : resolvePartitionRefs(hiveHandle)) {
+            for (PartitionRef ref : resolvePartitionRefs(session, hiveHandle, 0).refs) {
                 for (HiveFileStatus file : fileListingCache.listDataFiles(
                         hiveHandle.getDbName(), hiveHandle.getTableName(),
                         ref.location, ref.partitionValues, fs)) {
@@ -1042,31 +1046,31 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * when the size cannot be estimated (no listable location, a zero/negative sum, or any error).
      */
     long estimateDataSize(HiveTableHandle handle, int sampleSize, ToLongBiFunction<String, List<String>> sizeOf) {
+        return estimateDataSize(null, handle, sampleSize, sizeOf);
+    }
+
+    private long estimateDataSize(ConnectorSession session, HiveTableHandle handle, int sampleSize,
+            ToLongBiFunction<String, List<String>> sizeOf) {
         try {
-            List<PartitionRef> refs = resolvePartitionRefs(handle);
-            if (refs.isEmpty()) {
+            PartitionRefSelection selection = resolvePartitionRefs(session, handle, sampleSize);
+            if (selection.refs.isEmpty()) {
                 return -1;
             }
-            int totalPartitions = refs.size();
-            boolean sampled = sampleSize > 0 && sampleSize < totalPartitions;
-            List<PartitionRef> chosen = refs;
-            if (sampled) {
-                List<PartitionRef> shuffled = new ArrayList<>(refs);
-                Collections.shuffle(shuffled);
-                chosen = shuffled.subList(0, sampleSize);
-            }
             long totalSize = 0;
-            for (PartitionRef ref : chosen) {
+            for (PartitionRef ref : selection.refs) {
                 totalSize += Math.max(0, sizeOf.applyAsLong(ref.location, ref.partitionValues));
             }
             if (totalSize <= 0) {
                 return -1;
             }
             // Scale the sampled size up to the whole table (legacy: totalSize * total / sampled).
-            if (sampled) {
-                totalSize = scaleSampledSize(totalSize, totalPartitions, chosen.size());
+            if (selection.sampled) {
+                totalSize = scaleSampledSize(
+                        totalSize, selection.totalPartitions, selection.selectedPartitions);
             }
             return totalSize;
+        } catch (ConnectorOperationAbortedException e) {
+            throw e;
         } catch (RuntimeException e) {
             LOG.warn("Failed to estimate hive data size for {}.{} from file list",
                     handle.getDbName(), handle.getTableName(), e);
@@ -1086,25 +1090,35 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Resolves the data locations to list: the table location for an unpartitioned table, else every
-     * partition's location (bounded by {@link #MAX_PARTITIONS_FOR_STATS}). A partition or table with no
-     * location contributes nothing.
+     * Resolves the data locations to list. For an estimate, sampling happens on lightweight partition names
+     * before any partition object is requested. A non-positive sample size means that the explicit file-size
+     * path needs every partition object. A partition or table with no location contributes nothing.
      */
-    private List<PartitionRef> resolvePartitionRefs(HiveTableHandle handle) {
+    private PartitionRefSelection resolvePartitionRefs(
+            ConnectorSession session, HiveTableHandle handle, int sampleSize) {
         List<String> partKeyNames = handle.getPartitionKeyNames();
         if (partKeyNames == null || partKeyNames.isEmpty()) {
             String location = handle.getLocation();
-            return (location == null || location.isEmpty())
+            List<PartitionRef> refs = (location == null || location.isEmpty())
                     ? Collections.emptyList()
                     : Collections.singletonList(new PartitionRef(location, Collections.emptyList()));
+            return new PartitionRefSelection(refs, refs.size(), refs.size(), false);
         }
         List<String> partNames = hmsClient.listPartitionNames(
-                handle.getDbName(), handle.getTableName(), MAX_PARTITIONS_FOR_STATS);
+                handle.getDbName(), handle.getTableName(), ALL_PARTITIONS);
         if (partNames.isEmpty()) {
-            return Collections.emptyList();
+            return PartitionRefSelection.EMPTY;
+        }
+        boolean sampled = sampleSize > 0 && sampleSize < partNames.size();
+        List<String> selectedNames = partNames;
+        if (sampled) {
+            List<String> shuffled = new ArrayList<>(partNames);
+            Collections.shuffle(shuffled);
+            selectedNames = shuffled.subList(0, sampleSize);
         }
         List<HmsPartitionInfo> partitions = hmsClient.getPartitions(
-                handle.getDbName(), handle.getTableName(), partNames);
+                session, HmsPartitionAccessSource.STATISTICS,
+                handle.getDbName(), handle.getTableName(), selectedNames);
         List<PartitionRef> refs = new ArrayList<>(partitions.size());
         for (HmsPartitionInfo partition : partitions) {
             String location = partition.getLocation();
@@ -1112,7 +1126,25 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                 refs.add(new PartitionRef(location, partition.getValues()));
             }
         }
-        return refs;
+        return new PartitionRefSelection(refs, partNames.size(), selectedNames.size(), sampled);
+    }
+
+    private static final class PartitionRefSelection {
+        private static final PartitionRefSelection EMPTY = new PartitionRefSelection(
+                Collections.emptyList(), 0, 0, false);
+
+        private final List<PartitionRef> refs;
+        private final int totalPartitions;
+        private final int selectedPartitions;
+        private final boolean sampled;
+
+        private PartitionRefSelection(List<PartitionRef> refs, int totalPartitions,
+                int selectedPartitions, boolean sampled) {
+            this.refs = refs;
+            this.totalPartitions = totalPartitions;
+            this.selectedPartitions = selectedPartitions;
+            this.sampled = sampled;
+        }
     }
 
     /**
@@ -1184,8 +1216,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
 
         List<HmsPartitionInfo> prunedPartitions = matchedPartNames.isEmpty()
                 ? Collections.emptyList()
-                : hmsClient.getPartitions(hiveHandle.getDbName(),
-                        hiveHandle.getTableName(), matchedPartNames);
+                : hmsClient.getPartitions(
+                        session, HmsPartitionAccessSource.QUERY,
+                        hiveHandle.getDbName(), hiveHandle.getTableName(), matchedPartNames);
 
         LOG.info("Partition pruning: {}.{} all={} pruned={}",
                 hiveHandle.getDbName(), hiveHandle.getTableName(),
@@ -1393,8 +1426,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             // Parity: an empty partition list yields MTMVMaxTimestampSnapshot(tableName, 0).
             return Optional.of(new ConnectorTableFreshness(hiveHandle.getTableName(), 0L));
         }
-        List<HmsPartitionInfo> partitions =
-                hmsClient.getPartitions(hiveHandle.getDbName(), hiveHandle.getTableName(), partitionNames);
+        List<HmsPartitionInfo> partitions = hmsClient.getPartitions(
+                session, HmsPartitionAccessSource.MTMV,
+                hiveHandle.getDbName(), hiveHandle.getTableName(), partitionNames);
         String maxName = hiveHandle.getTableName();
         long maxMillis = 0L;
         for (HmsPartitionInfo partition : partitions) {
@@ -1422,13 +1456,34 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         if (!(handle instanceof HiveTableHandle)) {
             return siblingMetadata(session, handle).getPartitionFreshnessMillis(session, handle, partitionName);
         }
-        HiveTableHandle hiveHandle = (HiveTableHandle) handle;
-        List<HmsPartitionInfo> partitions = hmsClient.getPartitions(hiveHandle.getDbName(),
-                hiveHandle.getTableName(), Collections.singletonList(partitionName));
-        if (partitions.isEmpty()) {
+        Map<String, Long> freshness = getPartitionFreshnessMillis(
+                session, handle, Collections.singletonList(partitionName));
+        Long partitionFreshness = freshness.get(partitionName);
+        if (partitionFreshness == null) {
             return OptionalLong.empty();
         }
-        return OptionalLong.of(lastDdlMillis(partitions.get(0).getParameters()));
+        return OptionalLong.of(partitionFreshness);
+    }
+
+    @Override
+    public Map<String, Long> getPartitionFreshnessMillis(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> partitionNames) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session, handle)
+                    .getPartitionFreshnessMillis(session, handle, partitionNames);
+        }
+        if (partitionNames.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        List<HmsPartitionInfo> partitions = hmsClient.getPartitions(
+                session, HmsPartitionAccessSource.MTMV,
+                hiveHandle.getDbName(), hiveHandle.getTableName(), partitionNames);
+        Map<String, Long> result = new LinkedHashMap<>();
+        for (int i = 0; i < partitions.size(); i++) {
+            result.put(partitionNames.get(i), lastDdlMillis(partitions.get(i).getParameters()));
+        }
+        return result;
     }
 
     /**

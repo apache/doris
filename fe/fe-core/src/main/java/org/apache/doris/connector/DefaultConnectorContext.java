@@ -29,6 +29,7 @@ import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorHttpSecurityHook;
+import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.datasource.CatalogIf;
@@ -90,6 +91,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
 
     private final String catalogName;
     private final long catalogId;
+    private final ConnectorMetadataAccessMetrics metadataAccessMetrics;
     private final Map<String, String> environment;
     private final Supplier<ExecutionAuthenticator> authSupplier;
     // Lazily supplies the catalog's static storage-properties map for storage-URI normalization
@@ -164,6 +166,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         this.rawStoragePropsSupplier =
                 Objects.requireNonNull(rawStoragePropsSupplier, "rawStoragePropsSupplier");
         this.environment = buildEnvironment();
+        this.metadataAccessMetrics = new ConnectorMetadataAccessMetrics(catalogName);
     }
 
     @Override
@@ -210,6 +213,11 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     @Override
     public ConnectorStorageContext getStorageContext() {
         return this;
+    }
+
+    @Override
+    public ConnectorMetadataAccessObserver getMetadataAccessObserver() {
+        return metadataAccessMetrics::record;
     }
 
     @Override
@@ -399,6 +407,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
             fs = catalogFileSystem;
             catalogFileSystem = null;
         }
+        metadataAccessMetrics.close();
         if (fs != null) {
             fs.close();
         }

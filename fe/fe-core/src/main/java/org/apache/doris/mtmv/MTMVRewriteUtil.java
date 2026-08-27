@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -87,6 +88,10 @@ public class MTMVRewriteUtil {
                 try {
                     mtmvNeedComparePartitions = getMtmvPartitionsByRelatedPartitions(mtmv, refreshContext,
                             queryUsedPartitions);
+                    Set<TableNameInfo> excludeTables = forceConsistent
+                            ? ImmutableSet.of() : mtmv.getQueryRewriteConsistencyRelaxedTables();
+                    refreshContext.preloadSnapshots(mtmvNeedComparePartitions,
+                            mtmvRelation.getBaseTablesOneLevelAndFromView(), excludeTables);
                 } catch (AnalysisException e) {
                     LOG.warn(e);
                     return res;

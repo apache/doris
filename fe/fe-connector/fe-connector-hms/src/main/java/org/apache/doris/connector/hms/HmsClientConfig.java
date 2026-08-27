@@ -41,6 +41,16 @@ public final class HmsClientConfig {
     /** Standard HMS (Thrift). */
     public static final String METASTORE_TYPE_HMS = "hms";
 
+    /** Maximum number of partition names sent by one getPartitionsByNames RPC. */
+    public static final String PARTITION_BATCH_SIZE_KEY = "hive.hms_partitions_batch_size_per_rpc";
+
+    /** Safety budget that starts after the first degradable partition-batch failure. */
+    public static final String PARTITION_BATCH_FALLBACK_TIMEOUT_MS_KEY =
+            "hive.hms_partitions_batch_fallback_timeout_ms";
+
+    public static final int DEFAULT_PARTITION_BATCH_SIZE = 5000;
+    public static final long DEFAULT_PARTITION_BATCH_FALLBACK_TIMEOUT_MS = 30_000L;
+
     /**
      * Metastore types that have been REMOVED and are no longer routable, mapped to what each one was.
      *
@@ -85,6 +95,8 @@ public final class HmsClientConfig {
     private final Map<String, String> properties;
     private final String confResources;
     private final int poolSize;
+    private final int partitionBatchSize;
+    private final long partitionBatchFallbackTimeoutMillis;
 
     /**
      * Creates a new HMS client configuration.
@@ -106,6 +118,11 @@ public final class HmsClientConfig {
             throw new IllegalArgumentException("poolSize must be >= 0, got " + poolSize);
         }
         this.poolSize = poolSize;
+        this.partitionBatchSize = parsePositiveInt(
+                properties, PARTITION_BATCH_SIZE_KEY, DEFAULT_PARTITION_BATCH_SIZE);
+        this.partitionBatchFallbackTimeoutMillis = parsePositiveLong(
+                properties, PARTITION_BATCH_FALLBACK_TIMEOUT_MS_KEY,
+                DEFAULT_PARTITION_BATCH_FALLBACK_TIMEOUT_MS);
     }
 
     public Map<String, String> getProperties() {
@@ -128,10 +145,53 @@ public final class HmsClientConfig {
         return properties.getOrDefault(METASTORE_TYPE_KEY, METASTORE_TYPE_HMS);
     }
 
+    public int getPartitionBatchSize() {
+        return partitionBatchSize;
+    }
+
+    public long getPartitionBatchFallbackTimeoutMillis() {
+        return partitionBatchFallbackTimeoutMillis;
+    }
+
+    private static int parsePositiveInt(Map<String, String> properties, String key, int defaultValue) {
+        String value = properties.get(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        int parsed;
+        try {
+            parsed = Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(key + " must be a positive integer, got " + value, e);
+        }
+        if (parsed <= 0) {
+            throw new IllegalArgumentException(key + " must be a positive integer, got " + value);
+        }
+        return parsed;
+    }
+
+    private static long parsePositiveLong(Map<String, String> properties, String key, long defaultValue) {
+        String value = properties.get(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        long parsed;
+        try {
+            parsed = Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(key + " must be a positive long, got " + value, e);
+        }
+        if (parsed <= 0) {
+            throw new IllegalArgumentException(key + " must be a positive long, got " + value);
+        }
+        return parsed;
+    }
+
     @Override
     public String toString() {
         return "HmsClientConfig{uri=" + getMetastoreUri()
                 + ", type=" + getMetastoreType()
-                + ", poolSize=" + poolSize + "}";
+                + ", poolSize=" + poolSize
+                + ", partitionBatchSize=" + partitionBatchSize + "}";
     }
 }

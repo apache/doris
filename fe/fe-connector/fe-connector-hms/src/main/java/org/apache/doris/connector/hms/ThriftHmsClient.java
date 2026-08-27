@@ -18,6 +18,10 @@
 package org.apache.doris.connector.hms;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
+import org.apache.doris.connector.spi.ConnectorOperationAbortedException;
+import org.apache.doris.connector.spi.ConnectorOperationControl;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorType;
 
 import org.apache.commons.pool2.BasePooledObjectFactory;
@@ -32,7 +36,6 @@ import org.apache.hadoop.hive.common.ValidTxnWriteIdList;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaHookLoader;
-import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.LockComponentBuilder;
 import org.apache.hadoop.hive.metastore.LockRequestBuilder;
@@ -73,7 +76,9 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.concurrent.Callable;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -97,6 +102,7 @@ public class ThriftHmsClient implements HmsClient {
 
     private static final HiveMetaHookLoader DUMMY_HOOK_LOADER = tbl -> null;
     private static final long POOL_BORROW_TIMEOUT_MS = 60_000L;
+    private static final long POOL_BORROW_CHECK_MILLIS = 100L;
     private static final int ADD_PARTITIONS_BATCH_SIZE = 20;
     private static final String TRANSIENT_LAST_DDL_TIME = "transient_lastDdlTime";
 
@@ -105,6 +111,7 @@ public class ThriftHmsClient implements HmsClient {
     private final AuthAction authAction;
     private final MetaStoreClientProvider clientProvider;
     private final HmsTypeMapping.Options typeMappingOptions;
+    private final HmsPartitionBatchLoader partitionBatchLoader;
     private volatile boolean closed;
 
     /**
@@ -115,7 +122,7 @@ public class ThriftHmsClient implements HmsClient {
      */
     public ThriftHmsClient(HmsClientConfig config, AuthAction authAction) {
         this(config, authAction, new DefaultMetaStoreClientProvider(),
-                HmsTypeMapping.Options.DEFAULT);
+                HmsTypeMapping.Options.DEFAULT, ConnectorMetadataAccessObserver.NOOP);
     }
 
     /**
@@ -128,7 +135,12 @@ public class ThriftHmsClient implements HmsClient {
     public ThriftHmsClient(HmsClientConfig config, AuthAction authAction,
             HmsTypeMapping.Options typeMappingOptions) {
         this(config, authAction, new DefaultMetaStoreClientProvider(),
-                typeMappingOptions);
+                typeMappingOptions, ConnectorMetadataAccessObserver.NOOP);
+    }
+
+    public ThriftHmsClient(HmsClientConfig config, AuthAction authAction,
+            HmsTypeMapping.Options typeMappingOptions, ConnectorMetadataAccessObserver observer) {
+        this(config, authAction, new DefaultMetaStoreClientProvider(), typeMappingOptions, observer);
     }
 
     /**
@@ -137,11 +149,24 @@ public class ThriftHmsClient implements HmsClient {
     ThriftHmsClient(HmsClientConfig config, AuthAction authAction,
             MetaStoreClientProvider clientProvider,
             HmsTypeMapping.Options typeMappingOptions) {
+        this(config, authAction, clientProvider, typeMappingOptions, ConnectorMetadataAccessObserver.NOOP);
+    }
+
+    ThriftHmsClient(HmsClientConfig config, AuthAction authAction,
+            MetaStoreClientProvider clientProvider,
+            HmsTypeMapping.Options typeMappingOptions,
+            ConnectorMetadataAccessObserver observer) {
         this.hiveConf = HmsConfHelper.createHiveConfWithResources(
                 config.getConfResources(), config.getProperties());
         this.authAction = authAction != null ? authAction : Callable::call;
         this.clientProvider = clientProvider;
         this.typeMappingOptions = typeMappingOptions;
+        this.partitionBatchLoader = HmsPartitionBatchLoader.builder()
+                .maxBatchSize(config.getPartitionBatchSize())
+                .fallbackTimeoutMillis(config.getPartitionBatchFallbackTimeoutMillis())
+                .trackedFetcher(this::fetchPartitions)
+                .observer(observer)
+                .build();
         if (config.getPoolSize() > 0) {
             this.clientPool = new GenericObjectPool<>(
                     new HmsClientFactory(), createPoolConfig(config.getPoolSize()));
@@ -240,11 +265,39 @@ public class ThriftHmsClient implements HmsClient {
     @Override
     public List<HmsPartitionInfo> getPartitions(String dbName,
             String tableName, List<String> partNames) {
-        return execute(client -> {
-            List<Partition> partitions =
-                    client.getPartitionsByNames(dbName, tableName, partNames);
+        return getPartitions(null, HmsPartitionAccessSource.UNKNOWN, dbName, tableName, partNames);
+    }
+
+    @Override
+    public List<HmsPartitionInfo> getPartitions(ConnectorSession session, HmsPartitionAccessSource source,
+            String dbName, String tableName, List<String> partNames) {
+        return getPartitions(HmsPartitionRequest.from(session, source, dbName, tableName, partNames));
+    }
+
+    @Override
+    public List<HmsPartitionInfo> getPartitions(HmsPartitionRequest request) {
+        return partitionBatchLoader.load(request);
+    }
+
+    private List<HmsPartitionInfo> fetchPartitions(String dbName, String tableName, List<String> partNames,
+            ConnectorOperationControl operationControl,
+            HmsPartitionBatchLoader.RemoteCallTracker remoteCallTracker) {
+        return execute(operationControl, client -> {
+            List<Partition> partitions;
+            if (clientProvider.supportsPartitionWireCallTracking()) {
+                partitions = HmsRemoteCallTracking.withTracker(remoteCallTracker, partNames.size(), operationControl,
+                        () -> client.getPartitionsByNames(dbName, tableName, partNames));
+            } else {
+                partitions = remoteCallTracker.call(partNames.size(),
+                        () -> client.getPartitionsByNames(dbName, tableName, partNames));
+            }
+            if (partitions == null) {
+                return null;
+            }
+            // Preserve malformed null elements for the common batch loader. It owns the typed integrity
+            // classification; dereferencing here would turn INVALID_RESULT into an unrelated remote-call NPE.
             return partitions.stream()
-                    .map(ThriftHmsClient::convertPartition)
+                    .map(partition -> partition == null ? null : convertPartition(partition))
                     .collect(Collectors.toList());
         });
     }
@@ -674,17 +727,43 @@ public class ThriftHmsClient implements HmsClient {
     // ========== Internal execution framework ==========
 
     private <T> T execute(HmsAction<T> action) {
+        return execute(ConnectorOperationControl.NONE, action);
+    }
+
+    private <T> T execute(ConnectorOperationControl operationControl, HmsAction<T> action) {
         if (closed) {
             throw new HmsClientException("HMS client is closed");
         }
-        try (PooledHmsClient pooled = borrowClient()) {
+        operationControl.checkActive();
+        try (PooledHmsClient pooled = borrowClient(operationControl)) {
+            operationControl.checkActive();
+            T result;
             try {
-                return doAs(() -> action.call(pooled.client));
+                result = doAs(() -> {
+                    try {
+                        return action.call(pooled.client);
+                    } catch (Exception e) {
+                        ConnectorOperationAbortedException operationAbort = findOperationAbort(e);
+                        if (operationAbort != null) {
+                            throw operationAbort;
+                        }
+                        throw new HmsRemoteCallException("Remote HMS operation failed: " + e.getMessage(), e);
+                    }
+                });
             } catch (Exception e) {
+                ConnectorOperationAbortedException operationAbort = findOperationAbort(e);
+                if (operationAbort != null) {
+                    if (HmsRemoteCallTracking.shouldTaintClient(operationAbort)) {
+                        pooled.taint(operationAbort);
+                    }
+                    throw operationAbort;
+                }
                 pooled.taint(e);
                 throw e;
             }
-        } catch (HmsClientException e) {
+            operationControl.checkActive();
+            return result;
+        } catch (ConnectorOperationAbortedException | HmsClientException e) {
             throw e;
         } catch (Exception e) {
             throw new HmsClientException("HMS operation failed: "
@@ -782,15 +861,47 @@ public class ThriftHmsClient implements HmsClient {
 
     // ========== Pool management ==========
 
-    private PooledHmsClient borrowClient() {
+    private PooledHmsClient borrowClient(ConnectorOperationControl operationControl) {
         if (clientPool == null) {
             return createFreshClient();
         }
-        try {
-            return clientPool.borrowObject();
-        } catch (Exception e) {
-            throw new HmsClientException(withRootCause("Failed to borrow HMS client "
-                    + "from pool: " + e.getMessage(), e), e);
+        long poolWaitDeadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(POOL_BORROW_TIMEOUT_MS);
+        while (true) {
+            operationControl.checkActive();
+            long operationRemainingMillis = operationControl.remainingTimeMillis();
+            if (operationRemainingMillis <= 0) {
+                throw new ConnectorOperationAbortedException(
+                        ConnectorOperationAbortedException.Reason.DEADLINE_EXCEEDED,
+                        "HMS client pool wait deadline exceeded");
+            }
+            long poolRemainingNanos = poolWaitDeadlineNanos - System.nanoTime();
+            if (poolRemainingNanos <= 0) {
+                throw new HmsClientException("Timed out waiting for an HMS client from the pool");
+            }
+            long poolRemainingMillis = Math.max(1L,
+                    TimeUnit.NANOSECONDS.toMillis(poolRemainingNanos));
+            long waitMillis = Math.min(POOL_BORROW_CHECK_MILLIS, poolRemainingMillis);
+            if (operationRemainingMillis != Long.MAX_VALUE) {
+                waitMillis = Math.min(waitMillis, operationRemainingMillis);
+            }
+            try {
+                return clientPool.borrowObject(waitMillis);
+            } catch (InterruptedException e) {
+                // GenericObjectPool clears the interrupted status when its blocking deque throws. Restore it before
+                // translating the wait into the connector cancellation contract.
+                Thread.currentThread().interrupt();
+                throw new ConnectorOperationAbortedException(
+                        ConnectorOperationAbortedException.Reason.CANCELLED,
+                        "HMS client pool wait was interrupted");
+            } catch (NoSuchElementException e) {
+                // A short poll timed out while the pool remains exhausted. Re-check statement cancellation and
+                // deadline instead of hiding KILL QUERY behind the pool's full 60-second wait budget.
+                operationControl.checkActive();
+            } catch (Exception e) {
+                operationControl.checkActive();
+                throw new HmsClientException(withRootCause("Failed to borrow HMS client "
+                        + "from pool: " + e.getMessage(), e), e);
+            }
         }
     }
 
@@ -817,7 +928,8 @@ public class ThriftHmsClient implements HmsClient {
      * {@code Util.getRootCauseMessage(cause)} in the same {@code className: message} form.
      *
      * <p>The guard avoids duplicating the reason when a fresh-client failure is re-wrapped by the
-     * pool's {@link #borrowClient()} (the inner message already carries the appended root cause).
+     * pool's {@link #borrowClient(ConnectorOperationControl)} (the inner message already carries the
+     * appended root cause).
      */
     static String withRootCause(String message, Throwable cause) {
         if (cause == null) {
@@ -834,6 +946,21 @@ public class ThriftHmsClient implements HmsClient {
             return message;
         }
         return message + ". reason: " + rootDescription;
+    }
+
+    private static ConnectorOperationAbortedException findOperationAbort(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof ConnectorOperationAbortedException) {
+                return (ConnectorOperationAbortedException) current;
+            }
+            Throwable cause = current.getCause();
+            if (cause == current) {
+                return null;
+            }
+            current = cause;
+        }
+        return null;
     }
 
     private GenericObjectPoolConfig createPoolConfig(
@@ -962,6 +1089,10 @@ public class ThriftHmsClient implements HmsClient {
      */
     interface MetaStoreClientProvider {
         IMetaStoreClient create(HiveConf hiveConf) throws MetaException;
+
+        default boolean supportsPartitionWireCallTracking() {
+            return false;
+        }
     }
 
     /** Default provider using RetryingMetaStoreClient over the standard HMS thrift client. */
@@ -972,7 +1103,12 @@ public class ThriftHmsClient implements HmsClient {
                 throws MetaException {
             return RetryingMetaStoreClient.getProxy(
                     hiveConf, DUMMY_HOOK_LOADER,
-                    HiveMetaStoreClient.class.getName());
+                    TrackingHiveMetaStoreClient.class.getName());
+        }
+
+        @Override
+        public boolean supportsPartitionWireCallTracking() {
+            return true;
         }
     }
 }

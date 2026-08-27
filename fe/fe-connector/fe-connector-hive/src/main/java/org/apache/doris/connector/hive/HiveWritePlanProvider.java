@@ -18,6 +18,7 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.hms.HmsClient;
+import org.apache.doris.connector.hms.HmsPartitionAccessSource;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
@@ -255,7 +256,7 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
         tSink.setColumns(buildColumns(table));
 
         // Existing partitions (partitioned table only; empty otherwise).
-        tSink.setPartitions(buildExistingPartitions(table));
+        tSink.setPartitions(buildExistingPartitions(session, table));
 
         // Bucket info.
         THiveBucket bucketInfo = new THiveBucket();
@@ -321,7 +322,7 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
     // Port of legacy HiveTableSink.setPartitionValues: for a partitioned table, list live partitions and
     // convert each to a THivePartition (values + per-partition file format + in-place location). Live/uncached
     // (matches the scan path; registered deviation DV-INC4-livepart). HmsClient calls self-authenticate.
-    private List<THivePartition> buildExistingPartitions(HmsTableInfo table) {
+    private List<THivePartition> buildExistingPartitions(ConnectorSession session, HmsTableInfo table) {
         List<THivePartition> partitions = new ArrayList<>();
         if (table.getPartitionKeys().isEmpty()) {
             return partitions;
@@ -329,6 +330,7 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
         List<String> partitionNames = hmsClient.listPartitionNames(
                 table.getDbName(), table.getTableName(), -1);
         List<HmsPartitionInfo> hmsPartitions = hmsClient.getPartitions(
+                session, HmsPartitionAccessSource.WRITE,
                 table.getDbName(), table.getTableName(), partitionNames);
         for (HmsPartitionInfo partition : hmsPartitions) {
             THivePartition hivePartition = new THivePartition();

@@ -26,6 +26,7 @@ org.apache.doris.connector.spi.ConnectorContext#getCatalogName():java.lang.Strin
 org.apache.doris.connector.spi.ConnectorContext#getConnectorConfig():java.util.Map
 org.apache.doris.connector.spi.ConnectorContext#getEnvironment():java.util.Map
 org.apache.doris.connector.spi.ConnectorContext#getHttpSecurityHook():org.apache.doris.connector.spi.ConnectorHttpSecurityHook
+org.apache.doris.connector.spi.ConnectorContext#getMetadataAccessObserver():org.apache.doris.connector.spi.ConnectorMetadataAccessObserver
 org.apache.doris.connector.spi.ConnectorContext#getStorageContext():org.apache.doris.connector.spi.ConnectorStorageContext
 org.apache.doris.connector.spi.ConnectorContext#sanitizeOutboundUrl(java.lang.String):java.lang.String
 org.apache.doris.connector.spi.ConnectorProvider#acceptedCreateTableEngineNames():java.util.Set
