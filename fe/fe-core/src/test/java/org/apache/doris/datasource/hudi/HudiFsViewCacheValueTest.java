@@ -22,6 +22,12 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+
 public class HudiFsViewCacheValueTest {
 
     @Test
@@ -67,5 +73,36 @@ public class HudiFsViewCacheValueTest {
         secondLease.close();
 
         Mockito.verify(view, Mockito.times(2)).sync();
+    }
+
+    @Test
+    public void testEvictionDoesNotWaitForBlockedSync() throws Exception {
+        HoodieTableFileSystemView view = Mockito.mock(HoodieTableFileSystemView.class);
+        HudiFsViewCacheValue value = new HudiFsViewCacheValue(view);
+        CountDownLatch syncStarted = new CountDownLatch(1);
+        CountDownLatch allowSync = new CountDownLatch(1);
+        Mockito.doAnswer(invocation -> {
+            syncStarted.countDown();
+            Assert.assertTrue(allowSync.await(3L, TimeUnit.SECONDS));
+            return null;
+        }).when(view).sync();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<HudiFsViewCacheValue.Lease> acquisition = executor.submit(value::tryAcquire);
+            Assert.assertTrue(syncStarted.await(3L, TimeUnit.SECONDS));
+
+            Future<?> eviction = executor.submit(value::evict);
+            eviction.get(3L, TimeUnit.SECONDS);
+            Mockito.verify(view, Mockito.never()).close();
+
+            allowSync.countDown();
+            HudiFsViewCacheValue.Lease lease = acquisition.get(3L, TimeUnit.SECONDS);
+            Mockito.verify(view, Mockito.never()).close();
+            lease.close();
+            Mockito.verify(view).close();
+        } finally {
+            allowSync.countDown();
+            executor.shutdownNow();
+        }
     }
 }
