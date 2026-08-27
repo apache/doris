@@ -42,6 +42,7 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,12 +71,18 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public static final long DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND = 48 * 60 * 60;
     protected String icebergCatalogType;
     protected Catalog catalog;
-    private final IcebergCatalogResourceTracker resourceTracker = new IcebergCatalogResourceTracker();
+    private IcebergCatalogResourceTracker resourceTracker = new IcebergCatalogResourceTracker();
 
     private AbstractIcebergProperties msProperties;
 
     public IcebergExternalCatalog(long catalogId, String name, String comment) {
         super(catalogId, name, InitCatalogLog.Type.ICEBERG, comment);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        resourceTracker = new IcebergCatalogResourceTracker();
     }
 
     // Create catalog based on catalog type
