@@ -115,6 +115,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping))
                 .withSizeEstimator(this::prepareTableForCachePublication)
                 .withReplacementListener(this::retireTableGeneration)
+                .withUnpublishedValueRetirer(IcebergTableCacheValue::retire)
                 .withRemovalListener(value -> value, (key, value) -> {
                     if (value != null) {
                         retireRemovedTableGeneration(key, value);

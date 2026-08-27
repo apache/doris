@@ -1700,11 +1700,21 @@ public class MetaCacheEntryTest {
         ExternalMetaCacheBudgetManager.EntryBudget budget = manager.createEntryBudget(
                 1L, "test", "refresh-reject", OptionalLong.empty(), OptionalLong.empty());
         byte[] current = new byte[1];
+        AtomicReference<byte[]> refreshedValue = new AtomicReference<>();
+        AtomicReference<byte[]> retiredValue = new AtomicReference<>();
+        AtomicReference<byte[]> removedValue = new AtomicReference<>();
+        MetaCacheEntryRemovalListener<String, byte[]> removalListener =
+                (key, value) -> removedValue.compareAndSet(null, value);
         MetaCacheEntry<String, byte[]> entry = new MetaCacheEntry<>(
-                "refresh-reject", key -> new byte[100],
+                "refresh-reject", key -> {
+                    byte[] value = new byte[100];
+                    refreshedValue.set(value);
+                    return value;
+                },
                 CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 10L, 600L),
                 refreshExecutor, true, false,
-                (key, value) -> MetaCacheSizeEstimate.complete(value.length), budget);
+                (key, value) -> MetaCacheSizeEstimate.complete(value.length), budget, null,
+                value -> value, removalListener, value -> retiredValue.compareAndSet(null, value));
         try {
             entry.put("k", current);
             entry.triggerRefreshForTest("k");
@@ -1713,7 +1723,53 @@ public class MetaCacheEntryTest {
             Assert.assertSame(current, entry.peekIfPresent("k"));
             Assert.assertEquals(accountedWeight(1L), manager.getGlobalUsedWeight());
             Assert.assertEquals(1L, entry.stats().getWeightAdmissionRejectedCount());
+            Assert.assertSame(refreshedValue.get(), retiredValue.get());
+            Assert.assertNull(removedValue.get());
         } finally {
+            entry.close();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testFencedNonWeightedRefreshRetiresUnpublishedValue() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch refreshStarted = new CountDownLatch(1);
+        CountDownLatch allowRefresh = new CountDownLatch(1);
+        String current = new String("current");
+        String refreshed = new String("refreshed");
+        AtomicBoolean refreshedRetired = new AtomicBoolean();
+        AtomicReference<String> removedValue = new AtomicReference<>();
+        MetaCacheEntryRemovalListener<String, String> removalListener =
+                (key, value) -> removedValue.set(value);
+        MetaCacheEntry<String, String> entry = new MetaCacheEntry<>(
+                "refresh-fenced", key -> {
+                    refreshStarted.countDown();
+                    try {
+                        Assert.assertTrue(allowRefresh.await(3L, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(e);
+                    }
+                    return refreshed;
+                }, CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                refreshExecutor, true, false, null, null, null,
+                value -> value, removalListener,
+                value -> refreshedRetired.set(value == refreshed));
+        try {
+            entry.put("k", current);
+            entry.triggerRefreshForTest("k");
+            Assert.assertTrue(refreshStarted.await(3L, TimeUnit.SECONDS));
+
+            entry.invalidateKey("k");
+            allowRefresh.countDown();
+            refreshExecutor.submit(() -> { }).get(3L, TimeUnit.SECONDS);
+
+            Assert.assertNull(entry.peekIfPresent("k"));
+            Assert.assertTrue(refreshedRetired.get());
+            Assert.assertNotSame(refreshed, removedValue.get());
+        } finally {
+            allowRefresh.countDown();
             entry.close();
             refreshExecutor.shutdownNow();
         }
