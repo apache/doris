@@ -239,7 +239,7 @@ suite("test_routine_load_compute_group", "p0") {
             }
             sleep(1000)
         }
-        assertTrue("the job must be running before its privilege is revoked", runningBeforeRevoke)
+        assertTrue(runningBeforeRevoke, "the job must be running before its privilege is revoked")
 
         sql """REVOKE USAGE_PRIV ON COMPUTE GROUP `${cgName}` FROM ${revokeUser}"""
 
@@ -261,17 +261,17 @@ suite("test_routine_load_compute_group", "p0") {
             }
             sleep(1000)
         }
-        assertTrue("revoking USAGE must fail the next task with the real reason, last seen: ${lastSeen}",
-                pausedForComputeGroup)
-        assertFalse("a compute group problem must never be reported as a BE availability problem",
-                sawBeAvailabilityReason)
+        assertTrue(pausedForComputeGroup,
+                "revoking USAGE must fail the next task with the real reason, last seen: ${lastSeen}".toString())
+        assertFalse(sawBeAvailabilityReason,
+                "a compute group problem must never be reported as a BE availability problem")
 
         // Nothing undoes a REVOKE by itself, so the pause carries CANNOT_RESUME_ERR and the job
         // must stay down instead of being auto resumed into the same failure every few minutes.
         for (int i = 0; i < 15; i++) {
             def state = sql_return_maparray("SHOW ROUTINE LOAD FOR ${revokeJob}").get(0).State
-            assertEquals("a job paused by a revoked privilege must not be auto resumed",
-                    "PAUSED", state)
+            assertEquals("PAUSED", state,
+                    "a job paused by a revoked privilege must not be auto resumed")
             sleep(1000)
         }
     } finally {
