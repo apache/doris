@@ -1212,6 +1212,12 @@ void IcebergTableReader::_prepare_physical_reader_predicates(
             }
         }
     }
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && !_required_validation_slot_ids.empty()) {
+        // A physical COUNT block contains only row-count placeholders. Decode the selected
+        // required field so requiredness validation observes real values instead of synthetic
+        // NULLs, including files that have no applicable delete file of their own.
+        _file_format_reader->set_push_down_agg_type(TPushAggOp::type::NONE);
+    }
 }
 
 // This helper keeps V1/V2 equality-delete fallback semantics together; DORIS_CHECK expansion

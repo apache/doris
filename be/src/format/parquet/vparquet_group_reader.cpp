@@ -849,6 +849,11 @@ Status RowGroupReader::_fill_partition_columns(
 Status RowGroupReader::_fill_missing_columns(
         Block* block, size_t rows,
         const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
+    // Row-id fetch appends batches to one Block. Its final EOF probe has no new rows and must not
+    // evaluate a default expression that replaces an already accumulated missing column.
+    if (rows == 0) {
+        return Status::OK();
+    }
     for (const auto& kv : missing_columns) {
         uint32_t block_pos = 0;
         RETURN_IF_ERROR(_get_block_column_pos(*block, kv.first, &block_pos));

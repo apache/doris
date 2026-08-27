@@ -82,6 +82,8 @@ public:
         return Status::OK();
     }
 
+    TPushAggOp::type push_down_agg_type() const { return _push_down_agg_type; }
+
     VExprContextSPtr payload_default;
 };
 
@@ -1388,7 +1390,12 @@ TEST_F(IcebergReaderTest, defers_required_field_predicates_from_v1_physical_read
     schema.__set_root_field(root);
     scan_params.__set_history_schema_info({schema});
     TFileRangeDesc scan_range;
-    IcebergMaterializationTestReader reader(&profile, &runtime_state, scan_params, scan_range);
+    auto file_reader = std::make_unique<CapturingMissingColumnReader>();
+    file_reader->set_push_down_agg_type(TPushAggOp::type::COUNT);
+    auto* file_reader_ptr = file_reader.get();
+    IcebergMaterializationTestReader reader(std::move(file_reader), &profile, &runtime_state,
+                                            scan_params, scan_range);
+    reader.set_push_down_agg_type(TPushAggOp::type::COUNT);
 
     DescriptorTbl* desc_tbl;
     ObjectPool obj_pool;
@@ -1420,6 +1427,7 @@ TEST_F(IcebergReaderTest, defers_required_field_predicates_from_v1_physical_read
               1);
     EXPECT_FALSE(reader.physical_reader_slot_id_to_filter_conjuncts().contains(0));
     EXPECT_TRUE(reader.physical_reader_slot_id_to_filter_conjuncts().contains(1));
+    EXPECT_EQ(file_reader_ptr->push_down_agg_type(), TPushAggOp::type::NONE);
 }
 
 TEST_F(IcebergReaderTest, materializes_missing_equality_key_from_split_schema_using_block_rows) {
