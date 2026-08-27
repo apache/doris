@@ -1123,7 +1123,11 @@ bool IcebergTableReader::_supports_aggregate_pushdown(TPushAggOp::type agg_type)
     if (!TableReader::_supports_aggregate_pushdown(agg_type)) {
         return false;
     }
-    return _equality_delete_filters.empty();
+    if (!_equality_delete_filters.empty()) {
+        return false;
+    }
+    return std::ranges::none_of(_data_reader.column_mapper->mappings(),
+                                requires_required_field_validation);
 }
 
 Status IcebergTableReader::_parse_deletion_vector_file(const TTableFormatFileDesc& t_desc,

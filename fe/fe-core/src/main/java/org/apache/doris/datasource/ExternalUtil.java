@@ -266,9 +266,18 @@ public class ExternalUtil {
                 subNameToSubColumn.put(subColumn.getName(), subColumn);
             }
 
-            for (StructField subField : dorisStructType.getFields()) {
+            List<StructField> subFields = dorisStructType.getFields();
+            List<Column> subColumns = dorisColumn.getChildren();
+            boolean preservesCompleteStructOrder = subFields.size() == subColumns.size();
+            for (int i = 0; i < subFields.size(); i++) {
+                StructField subField = subFields.get(i);
                 TFieldPtr fieldPtr = new TFieldPtr();
-                Column subColumn = subNameToSubColumn.get(subField.getName());
+                // Full schema carriers preserve Iceberg field identity by position. A synthesized
+                // struct may legitimately contain a dropped field and its same-name replacement;
+                // name lookup would bind both entries to the last Column and lose one field ID.
+                // Pruned slot types can contain only a subset, so retain their name-based lookup.
+                Column subColumn = preservesCompleteStructOrder
+                        ? subColumns.get(i) : subNameToSubColumn.get(subField.getName());
                 fieldPtr.setFieldPtr(getExternalSchema(
                         subField.getType(), subColumn, nameMapping, hasNameMapping,
                         initialDefaults, binaryLikeFieldIds, requiredFieldIds));

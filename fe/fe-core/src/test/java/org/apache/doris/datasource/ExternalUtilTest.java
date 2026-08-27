@@ -305,6 +305,27 @@ public class ExternalUtilTest {
     }
 
     @Test
+    public void testInitSchemaInfoForAllColumnPreservesDuplicateNameFieldIds() {
+        StructType structType = new StructType(
+                new StructField("reused", Type.INT, null, true),
+                new StructField("reused", Type.INT, null, true));
+        Column payload = new Column("payload", structType, true);
+        payload.setUniqueId(1);
+        payload.getChildren().get(0).setUniqueId(7);
+        payload.getChildren().get(1).setUniqueId(9);
+
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        ExternalUtil.initSchemaInfoForAllColumn(
+                params, 12L, Collections.singletonList(payload), Collections.emptyMap());
+
+        List<TFieldPtr> fields = params.getHistorySchemaInfo().get(0).getRootField().getFields()
+                .get(0).getFieldPtr().getNestedField().getStructField().getFields();
+        Assert.assertEquals(2, fields.size());
+        Assert.assertEquals(7, fields.get(0).getFieldPtr().getId());
+        Assert.assertEquals(9, fields.get(1).getFieldPtr().getId());
+    }
+
+    @Test
     public void testInitSchemaInfoForAllColumnCarriesIcebergRequirednessSeparately() {
         StructType structType = new StructType(
                 new StructField("required_child", Type.INT, null, true),

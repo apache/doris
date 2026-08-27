@@ -252,6 +252,24 @@ public:
     using IcebergTableReader::_validate_required_mapping_column;
 };
 
+class IcebergAggregatePushdownMapper final : public TableColumnMapper {
+public:
+    void set_mappings(std::vector<ColumnMapping> mappings) { _mappings = std::move(mappings); }
+};
+
+class IcebergAggregatePushdownTestHelper final : public doris::format::iceberg::IcebergTableReader {
+public:
+    bool supports_aggregate(TPushAggOp::type agg_type, std::vector<ColumnMapping> mappings) {
+        auto mapper = std::make_unique<IcebergAggregatePushdownMapper>();
+        mapper->set_mappings(std::move(mappings));
+        _data_reader.column_mapper = std::move(mapper);
+        if (agg_type == TPushAggOp::type::COUNT) {
+            _push_down_count_columns = std::vector<GlobalIndex> {GlobalIndex {0}};
+        }
+        return _supports_aggregate_pushdown(agg_type);
+    }
+};
+
 TEST(IcebergV2ReaderTest, RequiredMappingRejectsVisibleScalarAndCollectionNulls) {
     const auto nullable_int_type = make_nullable(std::make_shared<DataTypeInt32>());
 
@@ -347,6 +365,33 @@ TEST(IcebergV2ReaderTest, RequiredMappingAllowsNullHiddenByOptionalParent) {
     const auto status = IcebergRequiredFieldValidationTestHelper::_validate_required_mapping_column(
             struct_mapping, struct_column);
     EXPECT_TRUE(status.ok()) << status;
+}
+
+TEST(IcebergV2ReaderTest, RequiredMappingDisablesFooterAggregatePushdown) {
+    const auto nullable_int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    ColumnMapping direct_mapping;
+    direct_mapping.global_index = GlobalIndex {0};
+    direct_mapping.table_column_name = "required_value";
+    direct_mapping.file_local_id = 0;
+    direct_mapping.file_column_name = "required_value";
+    direct_mapping.file_type = nullable_int_type;
+    direct_mapping.table_type = nullable_int_type;
+    direct_mapping.is_trivial = true;
+
+    IcebergAggregatePushdownTestHelper reader;
+    EXPECT_TRUE(reader.supports_aggregate(TPushAggOp::type::COUNT, {direct_mapping}));
+    EXPECT_TRUE(reader.supports_aggregate(TPushAggOp::type::MINMAX, {direct_mapping}));
+
+    direct_mapping.reject_null_value = true;
+    EXPECT_FALSE(reader.supports_aggregate(TPushAggOp::type::COUNT, {direct_mapping}));
+    EXPECT_FALSE(reader.supports_aggregate(TPushAggOp::type::MINMAX, {direct_mapping}));
+
+    direct_mapping.reject_null_value = false;
+    ColumnMapping required_child;
+    required_child.table_column_name = "required_child";
+    required_child.reject_null_value = true;
+    direct_mapping.child_mappings = {required_child};
+    EXPECT_FALSE(reader.supports_aggregate(TPushAggOp::type::MINMAX, {direct_mapping}));
 }
 
 std::shared_ptr<arrow::Array> finish_array(arrow::ArrayBuilder* builder) {
