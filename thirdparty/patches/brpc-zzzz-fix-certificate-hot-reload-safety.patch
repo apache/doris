@@ -1,0 +1,549 @@
+diff --git a/src/brpc/channel.cpp b/src/brpc/channel.cpp
+index a94c09b5b8c7132aa061310390029cd19197cad9..9be42224792beb13b56002f91668ba30e2ef98ef 100644
+--- a/src/brpc/channel.cpp
++++ b/src/brpc/channel.cpp
+@@ -301,7 +301,7 @@ static int CreateSocketSSLContext(const ChannelOptions& options,
+             return -1;
+         }
+         *ssl_ctx = std::make_shared<SocketSSLContext>();
+-        (*ssl_ctx)->raw_ctx = raw_ctx;
++        (*ssl_ctx)->ResetRawContext(raw_ctx);
+         (*ssl_ctx)->sni_name = options.ssl_options().sni_name;
+     } else {
+         (*ssl_ctx) = NULL;
+diff --git a/src/brpc/details/mesalink_ssl_helper.cpp b/src/brpc/details/mesalink_ssl_helper.cpp
+index afc3861359b13ec173c6d39257f3b0bc1ec27334..8192d329f841ceed76bc70306d1fc73ae438577a 100644
+--- a/src/brpc/details/mesalink_ssl_helper.cpp
++++ b/src/brpc/details/mesalink_ssl_helper.cpp
+@@ -266,6 +266,11 @@ SSL_CTX* CreateClientSSLContext(const ChannelSSLOptions& options) {
+         return NULL;
+     }
+ 
++    if (!options.client_cert.private_key_passwd.empty()) {
++        LOG(ERROR) << "Encrypted private keys are not supported with MesaLink";
++        return NULL;
++    }
++
+     if (!options.client_cert.certificate.empty()
+         && LoadCertificate(ssl_ctx.get(),
+                            options.client_cert.certificate,
+diff --git a/src/brpc/details/ssl_helper.cpp b/src/brpc/details/ssl_helper.cpp
+index 0a715aa34a6ea385990db6738c63a141221c3555..7c57e6366ee94e78c8e2601885387f8741e0f59e 100644
+--- a/src/brpc/details/ssl_helper.cpp
++++ b/src/brpc/details/ssl_helper.cpp
+@@ -573,9 +573,6 @@ SSL_CTX* CreateClientSSLContext(const ChannelSSLOptions& options) {
+         return NULL;
+     }
+ 
+-    if (!options.client_cert.private_key_passwd.empty()) {
+-
+-    }
+     std::string parsed_private_key;
+     const std::string* private_key_in_use = &options.client_cert.private_key;
+     if (!options.client_cert.private_key_passwd.empty()) {
+diff --git a/src/brpc/server.cpp b/src/brpc/server.cpp
+index a32cfe253b107435ce8d68dcb013015a406007ac..c07c4752c73c1ff3fe1bfe7282394692a6cd5d78 100644
+--- a/src/brpc/server.cpp
++++ b/src/brpc/server.cpp
+@@ -1980,44 +1980,48 @@ Server::FindServicePropertyByName(const butil::StringPiece& name) const {
+     return _service_map.seek(name);
+ }
+ 
+-static void* DelayedFreeSSLContext(void* arg) {
+-    SSL_CTX* ctx = static_cast<SSL_CTX*>(arg);
+-    if (ctx == NULL) {
+-        return NULL;
++static bool PreparePrivateKey(const CertInfo& cert,
++                              std::string* parsed_private_key,
++                              const std::string** private_key_in_use) {
++    *private_key_in_use = &cert.private_key;
++    if (cert.private_key_passwd.empty()) {
++        return true;
+     }
+-
+-    const int64_t cleanup_delay_us = 300000000;  // 300s grace period
+-    bthread_usleep(cleanup_delay_us);
+-    SSL_CTX_free(ctx);
+-    LOG(INFO) << "Released previous SSL_CTX after certificate reload";
+-    return NULL;
++#ifdef USE_MESALINK
++    LOG(ERROR) << "Encrypted private keys are not supported with MesaLink";
++    return false;
++#else
++    if (!ParsePrivateKeyWithPassword(cert.private_key,
++                                     cert.private_key_passwd,
++                                     parsed_private_key)) {
++        LOG(ERROR) << "Failed to parse private key with password";
++        return false;
++    }
++    *private_key_in_use = parsed_private_key;
++    return true;
++#endif
+ }
+ 
+-void Server::ReloadCertificate() {
++bool Server::ReloadCertificate() {
+     // check open SSL
+     if (_default_ssl_ctx == NULL) {
+         LOG(WARNING) << "Server not start with ssl";
+-        return;
++        return false;
+     }
+ 
+     // get default cert
+     const CertInfo& default_cert = _options.ssl_options().default_cert;
+     if (default_cert.certificate.empty()) {
+         LOG(ERROR) << "Default certificate is empty";
+-        return;
++        return false;
+     }
+ 
+     // create a temp SSL context for verify new cert
+     std::string parsed_private_key;
+-    const std::string* private_key_in_use = &default_cert.private_key;
+-    if (!default_cert.private_key_passwd.empty()) {
+-        if (!ParsePrivateKeyWithPassword(default_cert.private_key,
+-                                         default_cert.private_key_passwd,
+-                                         &parsed_private_key)) {
+-            LOG(ERROR) << "Failed to parse private key with password";
+-            return;
+-        }
+-        private_key_in_use = &parsed_private_key;
++    const std::string* private_key_in_use = NULL;
++    if (!PreparePrivateKey(default_cert, &parsed_private_key,
++                           &private_key_in_use)) {
++        return false;
+     }
+ 
+     std::vector<std::string> temp_filters = default_cert.sni_filters;
+@@ -2027,50 +2031,31 @@ void Server::ReloadCertificate() {
+ 
+     if (new_raw_ctx == NULL) {
+         LOG(ERROR) << "Failed to create new SSL context";
+-        return;
++        return false;
+     }
+ 
+-    // get origin SSL_CTX for release defer
+-    SSL_CTX* origin_ctx = _default_ssl_ctx->raw_ctx;
+-
+-    {
+-        // replace default_ssl_ctx's raw_ctx
+-        BAIDU_SCOPED_LOCK(_default_ssl_ctx_mutex);
+-        _default_ssl_ctx->raw_ctx = new_raw_ctx;
+-    }
+-    
+-    // set SNI call back
++    // Finish configuring the new context before making it visible to any
++    // concurrently accepted connection.
+ #ifdef SSL_CTRL_SET_TLSEXT_HOSTNAME
+     SSL_CTX_set_tlsext_servername_callback(new_raw_ctx, SSLSwitchCTXByHostname);
+     SSL_CTX_set_tlsext_servername_arg(new_raw_ctx, this);
+ #endif
+-    
+-    // update SSL context mapping
++
+     std::string cert_key(default_cert.certificate);
+     cert_key.append(default_cert.private_key);
+     SSLContext* ssl_ctx = _ssl_ctx_map.seek(cert_key);
+-    if (ssl_ctx != NULL) {
+-        std::atomic_store_explicit(
+-            reinterpret_cast<std::atomic<SSL_CTX*>*>(&ssl_ctx->ctx->raw_ctx),
+-            new_raw_ctx,
+-            std::memory_order_release
+-        );
+-    }
+-    
+-    // defer release the old SSL_CTX to avoid connection suffer trouble
+-    if (origin_ctx != NULL) {
+-        bthread_t cleanup_thread = INVALID_BTHREAD;
+-        bthread_attr_t cleanup_attr = BTHREAD_ATTR_NORMAL;
+-        if (bthread_start_background(&cleanup_thread, &cleanup_attr,
+-                                     DelayedFreeSSLContext,
+-                                     reinterpret_cast<void*>(origin_ctx)) != 0) {
+-            LOG(ERROR) << "Failed to start cleanup bthread for previous SSL_CTX, "
+-                       "releasing immediately";
+-            SSL_CTX_free(origin_ctx);
+-        }
+-    }
+-    
++    if (ssl_ctx == NULL || ssl_ctx->ctx != _default_ssl_ctx) {
++        LOG(ERROR) << "Default SSL context is missing from the certificate map";
++        SSL_CTX_free(new_raw_ctx);
++        return false;
++    }
++
++    // ResetRawContext serializes against SSL_new/SSL_set_SSL_CTX. Those calls
++    // take their own OpenSSL reference before the old owner reference is freed.
++    _default_ssl_ctx->ResetRawContext(new_raw_ctx);
++
+     LOG(INFO) << "Successfully reloaded default SSL certificate";
++    return true;
+ }
+ 
+ int Server::AddCertificate(const CertInfo& cert) {
+@@ -2086,15 +2071,9 @@ int Server::AddCertificate(const CertInfo& cert) {
+     }
+ 
+     std::string parsed_private_key;
+-    const std::string* private_key_in_use = &cert.private_key;
+-    if (!cert.private_key_passwd.empty()) {
+-        if (!ParsePrivateKeyWithPassword(cert.private_key,
+-                cert.private_key_passwd,
+-                &parsed_private_key)) {
+-            LOG(ERROR) << "Failed to parse private key with password";
+-            return -1;
+-        }
+-        private_key_in_use = &parsed_private_key;
++    const std::string* private_key_in_use = NULL;
++    if (!PreparePrivateKey(cert, &parsed_private_key, &private_key_in_use)) {
++        return -1;
+     }
+ 
+     SSLContext ssl_ctx;
+@@ -2106,12 +2085,11 @@ int Server::AddCertificate(const CertInfo& cert) {
+     if (raw_ctx == NULL) {
+         return -1;
+     }
+-    ssl_ctx.ctx->raw_ctx = raw_ctx;
+-
+ #ifdef SSL_CTRL_SET_TLSEXT_HOSTNAME
+-    SSL_CTX_set_tlsext_servername_callback(ssl_ctx.ctx->raw_ctx, SSLSwitchCTXByHostname);
+-    SSL_CTX_set_tlsext_servername_arg(ssl_ctx.ctx->raw_ctx, this);
++    SSL_CTX_set_tlsext_servername_callback(raw_ctx, SSLSwitchCTXByHostname);
++    SSL_CTX_set_tlsext_servername_arg(raw_ctx, this);
+ #endif
++    ssl_ctx.ctx->ResetRawContext(raw_ctx);
+ 
+     if (!_reload_cert_maps.Modify(AddCertMapping, ssl_ctx)) {
+         LOG(ERROR) << "Fail to add mappings into _reload_cert_maps";
+@@ -2225,17 +2203,24 @@ int Server::ResetCertificates(const std::vector<CertInfo>& certs) {
+         SSLContext ssl_ctx;
+         ssl_ctx.filters = certs[i].sni_filters;
+         ssl_ctx.ctx = std::make_shared<SocketSSLContext>();
+-        ssl_ctx.ctx->raw_ctx = CreateServerSSLContext(
+-            certs[i].certificate, certs[i].private_key,
++        std::string parsed_private_key;
++        const std::string* private_key_in_use = NULL;
++        if (!PreparePrivateKey(certs[i], &parsed_private_key,
++                               &private_key_in_use)) {
++            return -1;
++        }
++        SSL_CTX* raw_ctx = CreateServerSSLContext(
++            certs[i].certificate, *private_key_in_use,
+             _options.ssl_options(), &_raw_alpns, &ssl_ctx.filters);
+-        if (ssl_ctx.ctx->raw_ctx == NULL) {
++        if (raw_ctx == NULL) {
+             return -1;
+         }
+ 
+ #ifdef SSL_CTRL_SET_TLSEXT_HOSTNAME
+-        SSL_CTX_set_tlsext_servername_callback(ssl_ctx.ctx->raw_ctx, SSLSwitchCTXByHostname);
+-        SSL_CTX_set_tlsext_servername_arg(ssl_ctx.ctx->raw_ctx, this);
++        SSL_CTX_set_tlsext_servername_callback(raw_ctx, SSLSwitchCTXByHostname);
++        SSL_CTX_set_tlsext_servername_arg(raw_ctx, this);
+ #endif
++        ssl_ctx.ctx->ResetRawContext(raw_ctx);
+         tmp_map[cert_key] = ssl_ctx;
+     }
+ 
+@@ -2410,8 +2395,8 @@ int Server::SSLSwitchCTXByHostname(struct ssl_st* ssl,
+     }
+ 
+     // Switch SSL_CTX to the one with correct hostname
+-    SSL_set_SSL_CTX(ssl, (*pctx)->raw_ctx);
+-    return SSL_TLSEXT_ERR_OK;
++    return (*pctx)->SetSessionContext(ssl)
++        ? SSL_TLSEXT_ERR_OK : SSL_TLSEXT_ERR_ALERT_FATAL;
+ }
+ #endif // SSL_CTRL_SET_TLSEXT_HOSTNAME
+ 
+@@ -2485,6 +2470,9 @@ void* Server::SSLCertificateReloadWorker(void* arg) {
+         bool cert_changed = false;
+         bool key_changed = false;
+         bool ca_changed = false;
++        time_t observed_cert_mtime = last_cert_mtime;
++        time_t observed_key_mtime = last_key_mtime;
++        time_t observed_ca_mtime = last_ca_mtime;
+ 
+         if (!cert_path.empty()) {
+             struct stat cert_stat;
+@@ -2493,7 +2481,7 @@ void* Server::SSLCertificateReloadWorker(void* arg) {
+                     last_cert_mtime = cert_stat.st_mtime;
+                     cert_time_valid = true;
+                 } else if (cert_stat.st_mtime != last_cert_mtime) {
+-                    last_cert_mtime = cert_stat.st_mtime;
++                    observed_cert_mtime = cert_stat.st_mtime;
+                     cert_changed = true;
+                 }
+             } else {
+@@ -2509,7 +2497,7 @@ void* Server::SSLCertificateReloadWorker(void* arg) {
+                     last_key_mtime = key_stat.st_mtime;
+                     key_time_valid = true;
+                 } else if (key_stat.st_mtime != last_key_mtime) {
+-                    last_key_mtime = key_stat.st_mtime;
++                    observed_key_mtime = key_stat.st_mtime;
+                     key_changed = true;
+                 }
+             } else {
+@@ -2526,7 +2514,7 @@ void* Server::SSLCertificateReloadWorker(void* arg) {
+                     last_ca_mtime = ca_stat.st_mtime;
+                     ca_time_valid = true;
+                 } else if (ca_stat.st_mtime != last_ca_mtime) {
+-                    last_ca_mtime = ca_stat.st_mtime;
++                    observed_ca_mtime = ca_stat.st_mtime;
+                     ca_changed = true;
+                 }
+             } else {
+@@ -2537,7 +2525,19 @@ void* Server::SSLCertificateReloadWorker(void* arg) {
+ 
+         if (cert_changed || key_changed || ca_changed) {
+             LOG(INFO) << "Detected certificate changed, reloading SSL context...";
+-            ReloadCertificate();
++            if (ReloadCertificate()) {
++                if (cert_changed) {
++                    last_cert_mtime = observed_cert_mtime;
++                }
++                if (key_changed) {
++                    last_key_mtime = observed_key_mtime;
++                }
++                if (ca_changed) {
++                    last_ca_mtime = observed_ca_mtime;
++                }
++            } else {
++                LOG(WARNING) << "Failed to reload SSL certificate; will retry";
++            }
+         }
+ 
+         if (bthread_usleep(sleep_us) != 0 && errno == ESTOP) {
+diff --git a/src/brpc/server.h b/src/brpc/server.h
+index fdbc5e5a9ece3f46f0e82bf6e3185571af914863..7dd89e1e012e4a17c6ad26d03c4247a859177dc0 100644
+--- a/src/brpc/server.h
++++ b/src/brpc/server.h
+@@ -462,10 +462,12 @@ public:
+     void ClearServices();
+ 
+     // Reload the default SSL certificate without restarting the server.
+-    // This method creates a new SSL context with the updated certificate
+-    // and safely replaces the old one with delayed cleanup.
+-    // Can be called while the server is running, but it's not thread-safe by itself.
+-    void ReloadCertificate();
++    // This method creates a fully configured SSL context and atomically replaces
++    // the default context. Existing sessions keep their OpenSSL references.
++    // Can be called while the server is running. Concurrent calls to this method
++    // or changes to the certificate options must be serialized by the caller.
++    // Returns true on success, false otherwise.
++    bool ReloadCertificate();
+ 
+     // Dynamically add a new certificate into server. It can be called
+     // while the server is running, but it's not thread-safe by itself.
+@@ -725,9 +727,6 @@ friend class Controller;
+     mutable bvar::PerSecond<bvar::Adder<int64_t> > _eps_bvar;
+     BAIDU_CACHELINE_ALIGNMENT mutable int32_t _concurrency;
+ 
+-    // SSL context cleanup members
+-    butil::Mutex _ssl_cleanup_mutex;
+-    butil::Mutex _default_ssl_ctx_mutex;
+     butil::Mutex _ssl_reload_cert_mutex;
+     bthread_t _ssl_reload_cert_thread;
+     bool _ssl_reload_cert_thread_started;
+diff --git a/src/brpc/socket.cpp b/src/brpc/socket.cpp
+index e9e934635dc568664db357104e56e46f9ead065f..e421ad0383b753fac52f518fcda1ec73b5793988 100644
+--- a/src/brpc/socket.cpp
++++ b/src/brpc/socket.cpp
+@@ -1869,7 +1869,7 @@ int Socket::SSLHandshake(int fd, bool server_mode) {
+         // Free the last session, which may be deprecated when socket failed
+         SSL_free(_ssl_session);
+     }
+-    _ssl_session = CreateSSLSession(_ssl_ctx->raw_ctx, id(), fd, server_mode);
++    _ssl_session = _ssl_ctx->CreateSession(id(), fd, server_mode);
+     if (_ssl_session == NULL) {
+         LOG(ERROR) << "Fail to CreateSSLSession";
+         return -1;
+@@ -2278,7 +2278,7 @@ void Socket::DebugSocket(std::ostream& os, SocketId id) {
+        << "\nssl_state=" << SSLStateToString(ssl_state);
+     const SocketSSLContext* ssl_ctx = ptr->_ssl_ctx.get();
+     if (ssl_ctx) {
+-        os << "\ninitial_ssl_ctx=" << ssl_ctx->raw_ctx;
++        os << "\ninitial_ssl_ctx=" << ssl_ctx->raw_ctx_address();
+         if (!ssl_ctx->sni_name.empty()) {
+             os << "\nsni_name=" << ssl_ctx->sni_name;
+         }
+@@ -2798,15 +2798,41 @@ std::string Socket::description() const {
+ }
+ 
+ SocketSSLContext::SocketSSLContext()
+-    : raw_ctx(NULL)
++    : _raw_ctx(NULL)
+ {}
+ 
+ SocketSSLContext::~SocketSSLContext() {
+-    if (raw_ctx) {
+-        SSL_CTX_free(raw_ctx);
++    ResetRawContext(NULL);
++}
++
++SSL* SocketSSLContext::CreateSession(SocketId socket_id, int fd,
++                                     bool server_mode) const {
++    BAIDU_SCOPED_LOCK(_raw_ctx_mutex);
++    return CreateSSLSession(_raw_ctx, socket_id, fd, server_mode);
++}
++
++bool SocketSSLContext::SetSessionContext(SSL* ssl) const {
++    BAIDU_SCOPED_LOCK(_raw_ctx_mutex);
++    return SSL_set_SSL_CTX(ssl, _raw_ctx) != NULL;
++}
++
++void SocketSSLContext::ResetRawContext(SSL_CTX* raw_ctx) {
++    SSL_CTX* old_raw_ctx = NULL;
++    {
++        BAIDU_SCOPED_LOCK(_raw_ctx_mutex);
++        old_raw_ctx = _raw_ctx;
++        _raw_ctx = raw_ctx;
++    }
++    if (old_raw_ctx != NULL) {
++        SSL_CTX_free(old_raw_ctx);
+     }
+ }
+ 
++const void* SocketSSLContext::raw_ctx_address() const {
++    BAIDU_SCOPED_LOCK(_raw_ctx_mutex);
++    return _raw_ctx;
++}
++
+ } // namespace brpc
+ 
+ 
+diff --git a/src/brpc/socket.h b/src/brpc/socket.h
+index c535669c20434d9e8826f62a5f9d663519f53f01..5dbc33cf377d3ef734f469caa41e71920f5ebf37 100644
+--- a/src/brpc/socket.h
++++ b/src/brpc/socket.h
+@@ -24,6 +24,7 @@
+ #include <set>                                 // std::set
+ #include "butil/atomicops.h"                    // butil::atomic
+ #include "bthread/types.h"                      // bthread_id_t
++#include "bthread/mutex.h"                      // butil::Mutex
+ #include "butil/iobuf.h"                        // butil::IOBuf, IOPortal
+ #include "butil/macros.h"                       // DISALLOW_COPY_AND_ASSIGN
+ #include "butil/endpoint.h"                     // butil::EndPoint
+@@ -169,8 +170,19 @@ struct SocketSSLContext {
+     SocketSSLContext();
+     ~SocketSSLContext();
+ 
+-    SSL_CTX* raw_ctx;           // owned
++    // All operations which acquire or replace the owned SSL_CTX are
++    // serialized so a reload cannot free the context between a reader
++    // loading the pointer and OpenSSL taking its own reference.
++    SSL* CreateSession(SocketId socket_id, int fd, bool server_mode) const;
++    bool SetSessionContext(SSL* ssl) const;
++    void ResetRawContext(SSL_CTX* raw_ctx);
++    const void* raw_ctx_address() const;
++
+     std::string sni_name;       // useful for clients
++
++private:
++    mutable butil::Mutex _raw_ctx_mutex;
++    SSL_CTX* _raw_ctx;          // owned
+ };
+ 
+ // TODO: Comment fields
+diff --git a/test/brpc_ssl_unittest.cpp b/test/brpc_ssl_unittest.cpp
+index e101f534ec23e7ff231ad4e5e9ddc8e84fe68f0c..b0022cc17f5804bc9c94a177ecca179af11b8106 100644
+--- a/test/brpc_ssl_unittest.cpp
++++ b/test/brpc_ssl_unittest.cpp
+@@ -26,6 +26,7 @@
+ #include <butil/macros.h>
+ #include <butil/fd_guard.h>
+ #include <butil/files/scoped_file.h>
++#include <butil/files/temp_file.h>
+ #include "brpc/global.h"
+ #include "brpc/socket.h"
+ #include "brpc/server.h"
+@@ -338,6 +339,87 @@ TEST_F(SSLTest, ssl_reload) {
+     server.Join();
+ }
+ 
++struct CertificateReloadTraffic {
++    int port;
++    butil::atomic<bool> stop;
++
++    CertificateReloadTraffic() : port(0), stop(false) {}
++};
++
++void* SendRPCWhileReloadingCertificate(void* arg) {
++    CertificateReloadTraffic* traffic =
++        static_cast<CertificateReloadTraffic*>(arg);
++    while (!traffic->stop.load(butil::memory_order_acquire)) {
++        brpc::Channel channel;
++        brpc::ChannelOptions options;
++        options.connection_type = brpc::CONNECTION_TYPE_SHORT;
++        options.mutable_ssl_options()->sni_name = "reload.test";
++        if (channel.Init("127.0.0.1", traffic->port, &options) != 0) {
++            ADD_FAILURE() << "Fail to initialize TLS channel during reload";
++            break;
++        }
++
++        brpc::Controller cntl;
++        test::EchoRequest req;
++        test::EchoResponse res;
++        req.set_message(EXP_REQUEST);
++        test::EchoService_Stub stub(&channel);
++        stub.Echo(&cntl, &req, &res, NULL);
++        if (cntl.Failed() || res.message() != EXP_RESPONSE) {
++            ADD_FAILURE() << cntl.ErrorText();
++            break;
++        }
++    }
++    return NULL;
++}
++
++TEST_F(SSLTest, hot_reload_default_certificate_during_handshakes) {
++    const int port = 8613;
++    const std::string cert1 = GetRawPemString("cert1.crt");
++    const std::string key1 = GetRawPemString("cert1.key");
++    const std::string cert2 = GetRawPemString("cert2.crt");
++    const std::string key2 = GetRawPemString("cert2.key");
++    butil::TempFile cert_file("crt");
++    butil::TempFile key_file("key");
++    ASSERT_EQ(0, cert_file.save_bin(cert1.data(), cert1.size()));
++    ASSERT_EQ(0, key_file.save_bin(key1.data(), key1.size()));
++
++    brpc::Server server;
++    brpc::ServerOptions options;
++    options.mutable_ssl_options()->default_cert.certificate = cert_file.fname();
++    options.mutable_ssl_options()->default_cert.private_key = key_file.fname();
++    EchoServiceImpl echo_svc;
++    ASSERT_EQ(0, server.AddService(
++        &echo_svc, brpc::SERVER_DOESNT_OWN_SERVICE));
++    ASSERT_EQ(0, server.Start(port, &options));
++
++    CertificateReloadTraffic traffic;
++    traffic.port = port;
++    pthread_t tid;
++    ASSERT_EQ(0, pthread_create(
++        &tid, NULL, SendRPCWhileReloadingCertificate, &traffic));
++
++    bool reload_ok = true;
++    for (int i = 0; i < 20; ++i) {
++        const std::string& cert = i % 2 == 0 ? cert2 : cert1;
++        const std::string& key = i % 2 == 0 ? key2 : key1;
++        if (cert_file.save_bin(cert.data(), cert.size()) != 0
++            || key_file.save_bin(key.data(), key.size()) != 0
++            || !server.ReloadCertificate()) {
++            reload_ok = false;
++            break;
++        }
++    }
++
++    traffic.stop.store(true, butil::memory_order_release);
++    ASSERT_EQ(0, pthread_join(tid, NULL));
++    ASSERT_TRUE(reload_ok);
++    ASSERT_GT(echo_svc.count.load(butil::memory_order_relaxed), 0);
++    CheckCert("reload.test", "cert1");
++    ASSERT_EQ(0, server.Stop(0));
++    ASSERT_EQ(0, server.Join());
++}
++
+ #endif  // SSL_CTRL_SET_TLSEXT_HOSTNAME
+ 
+ const int BUFSIZE[] = {64, 128, 256, 1024, 4096};
