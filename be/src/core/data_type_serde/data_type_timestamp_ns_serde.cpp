@@ -59,11 +59,10 @@ Status get_nanos_per_arrow_timestamp_unit(arrow::TimeUnit::type unit, int64_t* n
 }
 
 template <DatelikeParseMode ParseMode>
-Status parse_timestamp_ns_impl(StringRef str, int64_t& epoch_nanos,
+Status parse_timestamp_ns_impl(StringRef str, TimeStampNsValue& value,
                                const cctz::time_zone* local_time_zone) {
     constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
     CastParameters params {.status = Status::OK(), .is_strict = IsStrict};
-    TimeStampNsValue value;
     bool parsed = false;
     if constexpr (IsStrict) {
         parsed = CastToTimestampNs::from_string_strict_mode<ParseMode>(
@@ -82,21 +81,19 @@ Status parse_timestamp_ns_impl(StringRef str, int64_t& epoch_nanos,
                                        std::string(str.data, str.size));
     }
 
-    epoch_nanos = value.epoch_nanos();
     return Status::OK();
 }
 
-Status parse_timestamp_ns_non_strict(StringRef str, int64_t* epoch_nanos,
+Status parse_timestamp_ns_non_strict(StringRef str, TimeStampNsValue& value,
                                      const cctz::time_zone* local_time_zone) {
-    return parse_timestamp_ns_impl<DatelikeParseMode::NON_STRICT>(str, *epoch_nanos,
-                                                                  local_time_zone);
+    return parse_timestamp_ns_impl<DatelikeParseMode::NON_STRICT>(str, value, local_time_zone);
 }
 
 } // namespace
 
-Status parse_timestamp_ns(StringRef str, int64_t* epoch_nanos,
+Status parse_timestamp_ns(StringRef str, TimeStampNsValue* value,
                           const cctz::time_zone* local_time_zone) {
-    return parse_timestamp_ns_impl<DatelikeParseMode::STRICT>(str, *epoch_nanos, local_time_zone);
+    return parse_timestamp_ns_impl<DatelikeParseMode::STRICT>(str, *value, local_time_zone);
 }
 
 Status DataTypeTimeStampNsSerDe::from_string_batch(const ColumnString& strings,
@@ -106,11 +103,11 @@ Status DataTypeTimeStampNsSerDe::from_string_batch(const ColumnString& strings,
     auto& null_map = result.get_null_map_column().get_data();
     result.resize(strings.size());
     for (size_t i = 0; i < strings.size(); ++i) {
-        int64_t value = 0;
+        TimeStampNsValue value;
         const auto status =
-                parse_timestamp_ns_non_strict(strings.get_data_at(i), &value, options.timezone);
+                parse_timestamp_ns_non_strict(strings.get_data_at(i), value, options.timezone);
         null_map[i] = !status.ok();
-        data[i] = TimeStampNsValue(value);
+        data[i] = value;
     }
     return Status::OK();
 }
@@ -124,26 +121,26 @@ Status DataTypeTimeStampNsSerDe::from_string_strict_mode_batch(
         if (null_map != nullptr && null_map[i]) {
             continue;
         }
-        int64_t value = 0;
+        TimeStampNsValue value;
         RETURN_IF_ERROR(parse_timestamp_ns(strings.get_data_at(i), &value, options.timezone));
-        data[i] = TimeStampNsValue(value);
+        data[i] = value;
     }
     return Status::OK();
 }
 
 Status DataTypeTimeStampNsSerDe::from_string(StringRef& str, IColumn& column,
                                              const FormatOptions& options) const {
-    int64_t value = 0;
-    RETURN_IF_ERROR(parse_timestamp_ns_non_strict(str, &value, options.timezone));
-    assert_cast<ColumnTimeStampNs&>(column).insert_value(TimeStampNsValue(value));
+    TimeStampNsValue value;
+    RETURN_IF_ERROR(parse_timestamp_ns_non_strict(str, value, options.timezone));
+    assert_cast<ColumnTimeStampNs&>(column).insert_value(value);
     return Status::OK();
 }
 
 Status DataTypeTimeStampNsSerDe::from_string_strict_mode(StringRef& str, IColumn& column,
                                                          const FormatOptions& options) const {
-    int64_t value = 0;
+    TimeStampNsValue value;
     RETURN_IF_ERROR(parse_timestamp_ns(str, &value, options.timezone));
-    assert_cast<ColumnTimeStampNs&>(column).insert_value(TimeStampNsValue(value));
+    assert_cast<ColumnTimeStampNs&>(column).insert_value(value);
     return Status::OK();
 }
 
@@ -315,9 +312,9 @@ std::string DataTypeTimeStampNsSerDe::to_olap_string(const Field& field) const {
 
 Status DataTypeTimeStampNsSerDe::from_olap_string(const std::string& str, Field& field,
                                                   const FormatOptions& options) const {
-    int64_t value = 0;
+    TimeStampNsValue value;
     RETURN_IF_ERROR(parse_timestamp_ns(StringRef(str.data(), str.size()), &value));
-    field = Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(value));
+    field = Field::create_field<TYPE_TIMESTAMP_NS>(value);
     return Status::OK();
 }
 

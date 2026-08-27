@@ -61,10 +61,23 @@ TEST_F(FunctionCastTest, numeric_to_timestamp_ns) {
         check_function_for_cast<DataTypeTimeStampNs>(input_types, data_set);
     }
     {
+        const InputTypeSet input_types = {PrimitiveType::TYPE_FLOAT};
+        const DataSet data_set = {
+                {{float(101.125F)}, std::string("2000-01-01 00:00:00.125000000")},
+        };
+        check_function_for_cast<DataTypeTimeStampNs>(input_types, data_set);
+    }
+    {
         const InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
         const DataSet data_set = {
                 {{double(19700101000000.125)}, std::string("1970-01-01 00:00:00.125000000")},
                 {{double(20240229123456.5)}, std::string("2024-02-29 12:34:56.500000000")},
+                // Keep the shortest round-trippable decimal semantics instead of exposing the
+                // binary residual 0.12109375 at this magnitude.
+                {{double(20240229123456.123)}, std::string("2024-02-29 12:34:56.120000000")},
+                {{double(101.1234567894)}, std::string("2000-01-01 00:00:00.123456789")},
+                {{double(101.1234567895)}, std::string("2000-01-01 00:00:00.123456790")},
+                {{double(101.9999999995)}, std::string("2000-01-01 00:00:01.000000000")},
                 {{double(22620412000000.0)}, Null()},
         };
         check_function_for_cast<DataTypeTimeStampNs>(input_types, data_set);

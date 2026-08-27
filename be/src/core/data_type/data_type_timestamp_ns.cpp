@@ -17,7 +17,6 @@
 
 #include "core/data_type/data_type_timestamp_ns.h"
 
-#include <cstdint>
 #include <typeinfo>
 
 #include "common/exception.h"
@@ -31,7 +30,7 @@ DataTypeSerDeSPtr DataTypeTimeStampNs::get_serde(int nesting_level) const {
 }
 
 Field DataTypeTimeStampNs::get_field(const TExprNode& node) const {
-    int64_t value = 0;
+    TimeStampNsValue value;
     const StringRef string_value(node.date_literal.value.data(), node.date_literal.value.size());
     const auto status = parse_timestamp_ns(string_value, &value);
     if (!status.ok()) {
@@ -39,7 +38,7 @@ Field DataTypeTimeStampNs::get_field(const TExprNode& node) const {
                                "Invalid value: {} for type TimeStampNs: {}",
                                node.date_literal.value, status.to_string());
     }
-    return Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(value));
+    return Field::create_field<TYPE_TIMESTAMP_NS>(value);
 }
 
 bool DataTypeTimeStampNs::equals(const IDataType& rhs) const {

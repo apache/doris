@@ -649,11 +649,9 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
             }
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);
         } else if (primitive_type == TYPE_TIMESTAMP_NS) {
-            int64_t epoch_nanos = 0;
+            TimeStampNsValue dt;
             RETURN_IF_ERROR(parse_timestamp_ns(
-                    {t_expr.date_literal.value.data(), t_expr.date_literal.value.size()},
-                    &epoch_nanos));
-            const TimeStampNsValue dt(epoch_nanos);
+                    {t_expr.date_literal.value.data(), t_expr.date_literal.value.size()}, &dt));
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);
         } else if (primitive_type == TYPE_TIMESTAMPTZ) {
             TimestampTzValue res;

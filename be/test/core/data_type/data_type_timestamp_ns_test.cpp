@@ -118,9 +118,8 @@ TEST(DataTypeTimeStampNsTest, EpochDerivedAndCivilAccessorsAgreeAtBoundaries) {
     };
 
     for (const auto& test_case : cases) {
-        int64_t raw = 0;
-        ASSERT_TRUE(parse_timestamp_ns(StringRef(test_case.input), &raw).ok()) << test_case.input;
-        const TimeStampNsValue value(raw);
+        TimeStampNsValue value;
+        ASSERT_TRUE(parse_timestamp_ns(StringRef(test_case.input), &value).ok()) << test_case.input;
         const auto civil_date = value.to_date();
         const auto civil_value = value.to_datetime();
         const int64_t expected_daynr = calc_daynr(test_case.year, test_case.month, test_case.day);
@@ -158,19 +157,19 @@ TEST(DataTypeTimeStampNsTest, EpochDerivedAndCivilAccessorsAgreeAtBoundaries) {
 }
 
 TEST(DataTypeTimeStampNsTest, ParseAtFixedNanosecondPrecision) {
-    int64_t value = 0;
+    TimeStampNsValue value;
 
     ASSERT_TRUE(parse_timestamp_ns(StringRef("1970-01-01 00:00:00.12345675"), &value).ok());
-    EXPECT_EQ(TimeStampNsValue(value).to_string(), "1970-01-01 00:00:00.123456750");
+    EXPECT_EQ(value.to_string(), "1970-01-01 00:00:00.123456750");
 
     ASSERT_TRUE(parse_timestamp_ns(StringRef("1969-12-31 23:59:59.999999999"), &value).ok());
-    EXPECT_EQ(value, -1);
+    EXPECT_EQ(value.epoch_nanos(), -1);
 
     ASSERT_TRUE(parse_timestamp_ns(StringRef("1970-01-01 00:00:00.999999995"), &value).ok());
-    EXPECT_EQ(TimeStampNsValue(value).to_string(), "1970-01-01 00:00:00.999999995");
+    EXPECT_EQ(value.to_string(), "1970-01-01 00:00:00.999999995");
 
     ASSERT_TRUE(parse_timestamp_ns(StringRef("1970-01-01 00:00:00.9999999995"), &value).ok());
-    EXPECT_EQ(TimeStampNsValue(value).to_string(), "1970-01-01 00:00:01.000000000");
+    EXPECT_EQ(value.to_string(), "1970-01-01 00:00:01.000000000");
 }
 
 TEST(DataTypeTimeStampNsTest, ParseTimezoneSuffixInSessionTimezone) {
@@ -178,16 +177,16 @@ TEST(DataTypeTimeStampNsTest, ParseTimezoneSuffixInSessionTimezone) {
     cctz::time_zone shanghai;
     ASSERT_TRUE(cctz::load_time_zone("Asia/Shanghai", &shanghai));
 
-    int64_t value = 0;
+    TimeStampNsValue value;
     auto status =
             parse_timestamp_ns(StringRef("2023-08-17T01:41:18.123456789Z"), &value, &shanghai);
     ASSERT_TRUE(status.ok()) << status.to_string();
-    EXPECT_EQ(TimeStampNsValue(value).to_string(), "2023-08-17 09:41:18.123456789");
+    EXPECT_EQ(value.to_string(), "2023-08-17 09:41:18.123456789");
 
     ASSERT_TRUE(parse_timestamp_ns(StringRef("2023-08-17T01:41:18.123456789America/Los_Angeles"),
                                    &value, &shanghai)
                         .ok());
-    EXPECT_EQ(TimeStampNsValue(value).to_string(), "2023-08-17 16:41:18.123456789");
+    EXPECT_EQ(value.to_string(), "2023-08-17 16:41:18.123456789");
 
     EXPECT_FALSE(
             parse_timestamp_ns(StringRef("1677-09-21T00:12:43.145224192+14:00"), &value, &shanghai)
@@ -202,14 +201,14 @@ TEST(DataTypeTimeStampNsTest, RoundZonedInputBeforeSessionTimezoneConversion) {
     cctz::time_zone new_york;
     ASSERT_TRUE(cctz::load_time_zone("America/New_York", &new_york));
 
-    int64_t value = 0;
+    TimeStampNsValue value;
     ASSERT_TRUE(parse_timestamp_ns(StringRef("2024-03-10T06:59:59.9999999995Z"), &value, &new_york)
                         .ok());
-    EXPECT_EQ(TimeStampNsValue(value).to_string(), "2024-03-10 03:00:00.000000000");
+    EXPECT_EQ(value.to_string(), "2024-03-10 03:00:00.000000000");
 
     ASSERT_TRUE(parse_timestamp_ns(StringRef("2024-11-03T05:59:59.9999999995Z"), &value, &new_york)
                         .ok());
-    EXPECT_EQ(TimeStampNsValue(value).to_string(), "2024-11-03 01:00:00.000000000");
+    EXPECT_EQ(value.to_string(), "2024-11-03 01:00:00.000000000");
 }
 
 TEST(DataTypeTimeStampNsTest, ParseAcceptsFractionalWidthsAndRejectsMalformedValues) {
@@ -227,9 +226,9 @@ TEST(DataTypeTimeStampNsTest, ParseAcceptsFractionalWidthsAndRejectsMalformedVal
     };
 
     for (const auto& test_case : valid_cases) {
-        int64_t value = 0;
+        TimeStampNsValue value;
         ASSERT_TRUE(parse_timestamp_ns(StringRef(test_case.input), &value).ok()) << test_case.input;
-        EXPECT_EQ(TimeStampNsValue(value).to_string(), test_case.expected);
+        EXPECT_EQ(value.to_string(), test_case.expected);
     }
 
     const std::vector<const char*> invalid_values = {
@@ -244,13 +243,13 @@ TEST(DataTypeTimeStampNsTest, ParseAcceptsFractionalWidthsAndRejectsMalformedVal
             "2024.01-01 00:00:00",
     };
     for (const char* input : invalid_values) {
-        int64_t value = 0;
+        TimeStampNsValue value;
         EXPECT_FALSE(parse_timestamp_ns(StringRef(input), &value).ok()) << input;
     }
 }
 
 TEST(DataTypeTimeStampNsTest, RejectValuesOutsideEpochRange) {
-    int64_t value = 0;
+    TimeStampNsValue value;
     EXPECT_FALSE(parse_timestamp_ns(StringRef("0000-01-01 00:00:00.000000000"), &value).ok());
     EXPECT_FALSE(parse_timestamp_ns(StringRef("1677-09-21 00:12:43.145224191"), &value).ok());
     EXPECT_FALSE(parse_timestamp_ns(StringRef("2262-04-11 23:47:16.854775808"), &value).ok());
@@ -388,9 +387,8 @@ TEST(DataTypeTimeStampNsTest, DataTypeLiteralField) {
 }
 
 TEST(DataTypeTimeStampNsTest, FormattingAndHash) {
-    int64_t raw = 0;
-    ASSERT_TRUE(parse_timestamp_ns(StringRef("2024-02-29 12:34:56.123456789"), &raw).ok());
-    TimeStampNsValue value(raw);
+    TimeStampNsValue value;
+    ASSERT_TRUE(parse_timestamp_ns(StringRef("2024-02-29 12:34:56.123456789"), &value).ok());
 
     EXPECT_TRUE(value.is_valid_date());
 

@@ -9,3 +9,10 @@
 -- !timestamp_ns_sequence_type --
 1	newer	1970-01-01 00:00:00.000000001
 2	maximum	2262-04-11 23:47:16.854775807
+
+-- !timestamp_ns_sequence_mapping --
+1	newer	1970-01-01 00:00:00.000000001
+2	maximum	2262-04-11 23:47:16.854775807
+3	maximum	2262-04-11 23:47:16.854775807
+4	normal-newer	2024-02-29 12:34:56.123456789
+
