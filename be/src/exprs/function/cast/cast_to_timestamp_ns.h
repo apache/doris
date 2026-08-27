@@ -143,6 +143,21 @@ struct CastToTimestampNs {
                 "timestamp_ns value is outside the signed epoch-nanosecond range");
         return true;
     }
+
+    template <DatelikeParseMode ParseMode>
+    static inline bool from_string_strict_mode(const StringRef& str, TimeStampNsValue& res,
+                                               const cctz::time_zone* local_time_zone,
+                                               uint32_t to_scale, CastParameters& params) {
+        return CastToDatetimeV2::from_string_strict_mode<ParseMode>(str, res, local_time_zone,
+                                                                    to_scale, params);
+    }
+
+    static inline bool from_string_non_strict_mode(const StringRef& str, TimeStampNsValue& res,
+                                                   const cctz::time_zone* local_time_zone,
+                                                   uint32_t to_scale, CastParameters& params) {
+        return CastToDatetimeV2::from_string_non_strict_mode(str, res, local_time_zone, to_scale,
+                                                             params);
+    }
 };
 
 template <CastModeType CastMode, typename FromDataType>
