@@ -88,6 +88,13 @@ class IvmLinearDeltaHandler {
             Slot deltaSlot = helper.findSlotByNameOrNull(deltaProject.getOutput(), originalSlot.getName());
             if (deltaSlot != null) {
                 remappedOutputs.add(new Alias(originalSlot.getExprId(), deltaSlot, originalSlot.getName()));
+            } else if (Column.ROW_LSN_COL.equals(originalSlot.getName())) {
+                // The incremental delta scan is expanded from the row-binlog, which does not
+                // carry __DORIS_ROW_LSN_COL__; its value is the stream lsn virtual column
+                // (__DORIS_STREAM_LSN_COL__). Map it back to the base row lsn slot so the
+                // normalized plan's row-id expression keeps evaluating to the row lsn.
+                Slot streamLsnSlot = helper.findSlotByName(deltaProject.getOutput(), Column.STREAM_LSN_COL);
+                remappedOutputs.add(new Alias(originalSlot.getExprId(), streamLsnSlot, originalSlot.getName()));
             } else if (originalSlot.getName().startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
                 remappedOutputs.add(new Alias(originalSlot.getExprId(),
                         helper.hiddenColumnFallbackExpression(originalSlot), originalSlot.getName()));

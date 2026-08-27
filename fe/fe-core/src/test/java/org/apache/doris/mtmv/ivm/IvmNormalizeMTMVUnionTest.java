@@ -90,8 +90,15 @@ class IvmNormalizeMTMVUnionTest extends IvmDeltaTestBase {
                 ImmutableList.of(), false, ImmutableList.copyOf(children));
     }
 
+    private ImmutableList<NamedExpression> userOutputs(Plan plan) {
+        return plan.getOutput().stream()
+                .filter(slot -> !Column.ROW_LSN_COL.equals(slot.getName()))
+                .map(NamedExpression.class::cast)
+                .collect(ImmutableList.toImmutableList());
+    }
+
     private Plan normalizeUnionPlan(Plan unionPlan) {
-        ImmutableList<NamedExpression> exprs = ImmutableList.copyOf(unionPlan.getOutput());
+        ImmutableList<NamedExpression> exprs = userOutputs(unionPlan);
         LogicalProject<?> project = new LogicalProject<>(exprs, unionPlan);
         LogicalResultSink<?> sink = new LogicalResultSink<>(exprs, project);
         ConnectContext ctx = newConnectContext();
@@ -100,7 +107,7 @@ class IvmNormalizeMTMVUnionTest extends IvmDeltaTestBase {
     }
 
     private IvmRewriteResult getRewriteResult(Plan unionPlan) {
-        ImmutableList<NamedExpression> exprs = ImmutableList.copyOf(unionPlan.getOutput());
+        ImmutableList<NamedExpression> exprs = userOutputs(unionPlan);
         LogicalProject<?> project = new LogicalProject<>(exprs, unionPlan);
         LogicalResultSink<?> sink = new LogicalResultSink<>(exprs, project);
         ConnectContext ctx = newConnectContext();
@@ -156,23 +163,23 @@ class IvmNormalizeMTMVUnionTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testNormalizeUnionAllMowDupNonDeterministic() {
+    void testNormalizeUnionAllMowDupDeterministic() {
         LogicalOlapScan scanMow = buildMowScan(1, "mow_t");
         LogicalOlapScan scanDup = buildDupScan(2, "dup_t");
         LogicalUnion union = buildUnionAll(scanMow, scanDup);
 
-        Assertions.assertFalse(isUnionRowIdDeterministic(union),
-                "MOW + DUP union should be non-deterministic");
+        Assertions.assertTrue(isUnionRowIdDeterministic(union),
+                "MOW + DUP union should be deterministic (DUP row-id is row lsn)");
     }
 
     @Test
-    void testNormalizeUnionAllDupDupNonDeterministic() {
+    void testNormalizeUnionAllDupDupDeterministic() {
         LogicalOlapScan scanA = buildDupScan(1, "dup_a");
         LogicalOlapScan scanB = buildDupScan(2, "dup_b");
         LogicalUnion union = buildUnionAll(scanA, scanB);
 
-        Assertions.assertFalse(isUnionRowIdDeterministic(union),
-                "DUP + DUP union should be non-deterministic");
+        Assertions.assertTrue(isUnionRowIdDeterministic(union),
+                "DUP + DUP union should be deterministic (DUP row-id is row lsn)");
     }
 
     @Test

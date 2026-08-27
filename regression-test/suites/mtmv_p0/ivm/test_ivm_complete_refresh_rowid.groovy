@@ -86,8 +86,9 @@ suite("test_ivm_complete_refresh_rowid", "mtmv") {
         assertEquals(firstRow[1], secondRow[1])
         assertEquals(firstRow[2], secondRow[2])
         assertEquals(firstRow[3], secondRow[3])
-        assertTrue(firstRow[0].toString() != secondRow[0].toString(),
-                "row id should change after complete refresh for row: ${firstRow}")
+        // DUP_KEYS row-id is the base table's row lsn, so it is stable across refreshes.
+        assertEquals(firstRow[0].toString(), secondRow[0].toString(),
+                "row id should be stable (row lsn) after complete refresh for row: ${firstRow}")
     }
 
 }

@@ -56,6 +56,9 @@
 1	10	100
 2	20	200
 
+-- !mow_dup_matched_after_delete --
+1	10	100
+
 -- !mow_dup_matched_after_complete_recovery --
 1	10	100
 

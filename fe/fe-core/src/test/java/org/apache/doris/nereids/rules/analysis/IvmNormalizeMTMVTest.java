@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableProperty;
@@ -110,7 +111,7 @@ import java.util.stream.Collectors;
 
 class IvmNormalizeMTMVTest {
 
-    // DUP_KEYS table — row-id = UuidNumeric(), non-deterministic
+    // DUP_KEYS table with row binlog — row-id = __DORIS_ROW_LSN_COL__, deterministic
     private final LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
 
     @BeforeEach
@@ -193,14 +194,19 @@ class IvmNormalizeMTMVTest {
         Slot rowIdSlot = outputs.get(0);
         Assertions.assertEquals(Column.IVM_ROW_ID_COL, rowIdSlot.getName());
 
-        // row-id expression is UuidNumeric for DUP_KEYS
+        // row-id expression is the row lsn slot for DUP_KEYS
         Alias rowIdAlias = (Alias) project.getProjects().get(0);
-        Assertions.assertInstanceOf(UuidNumeric.class, rowIdAlias.child());
+        Assertions.assertInstanceOf(SlotReference.class, rowIdAlias.child());
+        Assertions.assertEquals(Column.ROW_LSN_COL, ((SlotReference) rowIdAlias.child()).getName());
 
-        // IvmRewriteResult records non-deterministic for DUP_KEYS
+        // the raw row lsn slot survives as the DUP identity key (same as a UNIQUE table's key)
+        Assertions.assertTrue(project.getOutput().stream()
+                .anyMatch(slot -> Column.ROW_LSN_COL.equals(slot.getName())));
+
+        // IvmRewriteResult records deterministic for DUP_KEYS
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
         Assertions.assertEquals(1, rewriteResult.getRowIdDeterminism().size());
-        Assertions.assertFalse(rewriteResult.getRowIdDeterminism().values().iterator().next());
+        Assertions.assertTrue(rewriteResult.getRowIdDeterminism().values().iterator().next());
     }
 
     @Test
@@ -429,6 +435,26 @@ class IvmNormalizeMTMVTest {
     }
 
     @Test
+    void testExcludedDupWithoutBinlogUsesUuidRowId() {
+        // An excluded DUP trigger table without row binlog has no __DORIS_ROW_LSN_COL__
+        // column, so it keeps the legacy non-deterministic uuid row-id.
+        OlapTable dupTable = newDupTableWithoutBinlogWithBoundDb(19, "excluded_dup", "test");
+        LogicalOlapScan dupScan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), dupTable, ImmutableList.of("test"));
+
+        JobContext jobContext = newJobContextForRoot(dupScan, true,
+                Collections.singleton(new TableNameInfo("internal", "test", "excluded_dup")));
+        Plan result = new IvmNormalizeMTMV().rewriteRoot(dupScan, jobContext);
+
+        Assertions.assertInstanceOf(LogicalProject.class, result);
+        LogicalProject<?> project = (LogicalProject<?>) result;
+        Alias rowIdAlias = (Alias) project.getProjects().get(0);
+        Assertions.assertInstanceOf(UuidNumeric.class, rowIdAlias.child());
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
+        Assertions.assertFalse(rewriteResult.getRowIdDeterminism().values().iterator().next());
+    }
+
+    @Test
     void testBaseTableWithoutBinlogThrowsIvmException() {
         OlapTable noBinlogTable = PlanConstructor.newOlapTable(15, "no_binlog", 0, KeysType.DUP_KEYS);
         LogicalOlapScan noBinlogScan = new LogicalOlapScan(
@@ -500,8 +526,8 @@ class IvmNormalizeMTMVTest {
         Assertions.assertEquals(Column.IVM_ROW_ID_COL, rewrittenAlias.getOutput().get(0).getName());
 
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
-        Assertions.assertFalse(rewriteResult.isDeterministic(rewrittenAlias.getOutput().get(0)));
-        Assertions.assertEquals(Boolean.FALSE,
+        Assertions.assertTrue(rewriteResult.isDeterministic(rewrittenAlias.getOutput().get(0)));
+        Assertions.assertEquals(Boolean.TRUE,
                 rewriteResult.getRowIdDeterminism().get(rewrittenAlias.getOutput().get(0)));
     }
 
@@ -683,7 +709,9 @@ class IvmNormalizeMTMVTest {
         Assertions.assertTrue(aggMeta.getAggTargets().get(0).getExprArgs().isEmpty());
 
         // Row-id determinism: scalar agg → non-deterministic
-        Assertions.assertFalse(rewriteResult.getRowIdDeterminism().values().iterator().next());
+        Assertions.assertFalse(rewriteResult.isDeterministic(topProject.getOutput().get(0)));
+        Assertions.assertEquals(Boolean.FALSE,
+                rewriteResult.getRowIdDeterminism().get(topProject.getOutput().get(0)));
     }
 
     @Test
@@ -1165,15 +1193,19 @@ class IvmNormalizeMTMVTest {
     }
 
     @Test
-    void testDupScanIdentityKeysEmptyWithUseFullKeys() {
+    void testDupScanIdentityKeyIsRowLsnWithUseFullKeys() {
         LogicalResultSink<Plan> sink = new LogicalResultSink<>(
                 ImmutableList.of(scan.getOutput().get(0), scan.getOutput().get(1)), scan);
 
         JobContext jobContext = newJobContextWithFullKeys(sink);
         new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
-        // DUP_KEYS tables have no identity keys; row-id remains the only key.
-        Assertions.assertTrue(rewriteResult.getIdentityKeySlots().isEmpty());
+        // DUP_KEYS row lsn is the identity key, exactly like a UNIQUE table's key columns.
+        // The sink renames it into a hidden key column (__DORIS_IVM_KEY_1_ROW_LSN_COL__).
+        List<String> keyNames = rewriteResult.getIdentityKeySlots().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        Assertions.assertEquals(
+                ImmutableList.of(Column.IVM_KEY_COL_PREFIX + "1_ROW_LSN_COL__"), keyNames);
     }
 
     @Test
@@ -1363,6 +1395,25 @@ class IvmNormalizeMTMVTest {
         return table;
     }
 
+    private OlapTable newDupTableWithoutBinlogWithBoundDb(long tableId, String tableName, String dbName) {
+        Database database = new Database(1L, dbName);
+        List<Column> columns = ImmutableList.of(
+                new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
+                new Column("name", Type.STRING, true, AggregateType.NONE, "", ""));
+        HashDistributionInfo distributionInfo = new HashDistributionInfo(3, ImmutableList.of(columns.get(0)));
+        OlapTable table = new OlapTable(tableId, tableName, columns, KeysType.DUP_KEYS,
+                new PartitionInfo(), distributionInfo) {
+            @Override
+            public Database getDatabase() {
+                return database;
+            }
+        };
+        table.setIndexMeta(-1, tableName, table.getFullSchema(), 0, 0, (short) 0,
+                TStorageType.COLUMN, KeysType.DUP_KEYS);
+        table.setQualifiedDbName(dbName);
+        return table;
+    }
+
     private OlapTable newAggKeyOlapTableWithBoundDb(long tableId, String tableName, String dbName) {
         Database database = new Database(1L, dbName);
         List<Column> columns = ImmutableList.of(
@@ -1385,5 +1436,19 @@ class IvmNormalizeMTMVTest {
     private void enableBinlog(OlapTable table) {
         table.getBinlogConfig().setEnable(true);
         table.getBinlogConfig().setBinlogFormat(BinlogConfig.BinlogFormat.ROW);
+        if (table.getKeysType() == KeysType.DUP_KEYS) {
+            addRowLsnColumn(table);
+        }
+    }
+
+    private void addRowLsnColumn(OlapTable table) {
+        MaterializedIndexMeta baseMeta = table.getIndexMetaByIndexId(table.getBaseIndexId());
+        List<Column> schema = new ArrayList<>(baseMeta.getSchema());
+        schema.add(new Column(Column.ROW_LSN_COL, Type.BIGINT, false, AggregateType.NONE, false,
+                "doris row lsn hidden column", false));
+        table.setIndexMeta(baseMeta.getIndexId(), table.getName(), schema,
+                baseMeta.getSchemaVersion(), baseMeta.getSchemaHash(),
+                baseMeta.getShortKeyColumnCount(), baseMeta.getStorageType(), baseMeta.getKeysType());
+        table.rebuildFullSchema();
     }
 }

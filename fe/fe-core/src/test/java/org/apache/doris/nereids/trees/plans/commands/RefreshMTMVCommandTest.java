@@ -18,16 +18,26 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.mtmv.ivm.IvmIncrRefreshManager;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
+import java.util.Collections;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * Tests for REFRESH MATERIALIZED VIEW command parsing with INCREMENTAL/PARTITIONS modes.
@@ -146,5 +156,64 @@ public class RefreshMTMVCommandTest {
 
         RefreshMTMVInfo autoInfo = extractRefreshInfo("REFRESH MATERIALIZED VIEW db1.mv1 AUTO");
         Assertions.assertFalse(autoInfo.isComplete());
+    }
+
+    @Test
+    public void testDryRunStatementContextCarriesExcludedTriggerTables() throws Exception {
+        RefreshMTMVInfo info = extractRefreshInfo("REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL");
+        TestRefreshMTMVCommand command = new TestRefreshMTMVCommand(info, true);
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Set<TableNameInfo> excluded = Collections.singleton(new TableNameInfo("internal", "db", "dup_t"));
+        Mockito.when(mtmv.getQuerySql()).thenReturn("SELECT 1 AS k1");
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(excluded);
+
+        StatementContext stmtCtx = command.createDryRunStatementContext(mtmv, new ConnectContext());
+
+        Assertions.assertEquals(excluded, stmtCtx.getExcludedTriggerTables());
+    }
+
+    @Test
+    public void testIncrementalExplainCarriesExcludedTriggerTables() throws Exception {
+        RefreshMTMVInfo info = extractRefreshInfo("REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL");
+        IvmIncrRefreshManager manager = new IvmIncrRefreshManager() {
+            @Override
+            public InsertIntoTableCommand buildInsertCommand(MTMV mtmv) {
+                return Mockito.mock(InsertIntoTableCommand.class);
+            }
+        };
+        TestRefreshMTMVCommand command = new TestRefreshMTMVCommand(info, manager);
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Set<TableNameInfo> excluded = Collections.singleton(new TableNameInfo("internal", "db", "dup_t"));
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(excluded);
+        StatementContext stmtCtx = new StatementContext(new ConnectContext(), null);
+
+        command.createRefreshCommand(mtmv, stmtCtx);
+
+        Assertions.assertEquals(excluded, stmtCtx.getExcludedTriggerTables());
+    }
+
+    private static class TestRefreshMTMVCommand extends RefreshMTMVCommand {
+        private final IvmIncrRefreshManager manager;
+
+        TestRefreshMTMVCommand(RefreshMTMVInfo info, boolean dryRun) {
+            super(info, false, dryRun, Optional.empty());
+            this.manager = new IvmIncrRefreshManager();
+        }
+
+        TestRefreshMTMVCommand(RefreshMTMVInfo info, IvmIncrRefreshManager manager) {
+            super(info, false, false, Optional.empty());
+            this.manager = manager;
+        }
+
+        @Override
+        IvmIncrRefreshManager createIvmIncrRefreshManager() {
+            return manager;
+        }
+
+        @Override
+        public LogicalPlan createRefreshCommand(MTMV mtmv, StatementContext statementContext) throws Exception {
+            return super.createRefreshCommand(mtmv, statementContext);
+        }
     }
 }
