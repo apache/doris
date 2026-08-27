@@ -238,4 +238,42 @@ TEST_F(FunctionCastTest, unsupported_timestamp_ns_cast) {
     check_function_for_cast<DataTypeInt32>(input_types, data_set, -1, -1, true, true);
 }
 
+TEST_F(FunctionCastTest, string_to_timestamp_ns_non_strict_formats) {
+    const InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    const DataSet data_set = {
+            {{std::string("2023$07$16T19:20:30.123+08:00")},
+             std::string("2023-07-16 19:20:30.123000000")},
+            {{std::string("  2023-7-4T9-5-3.123456789Z  ")},
+             std::string("2023-07-04 17:05:03.123456789")},
+            {{std::string("99.12.31 23.59.59+05:30")},
+             std::string("2000-01-01 02:29:59.000000000")},
+            {{std::string("2000/01/01T00/00/00-230")},
+             std::string("2000-01-01 10:30:00.000000000")},
+            {{std::string("85 1 1T0 0 0. cst")}, std::string("1985-01-01 00:00:00.000000000")},
+            {{std::string("2024-02-29T23:59:59.999999 UTC")},
+             std::string("2024-03-01 07:59:59.999999000")},
+            {{std::string("70-01-01T00:00:00+14")}, std::string("1969-12-31 18:00:00.000000000")},
+            {{std::string("0023-1-1T1:2:3. -00:00")}, Null()},
+            {{std::string("2023-1-1T1:2:3. -00:00")}, std::string("2023-01-01 09:02:03.000000000")},
+            {{std::string("2025/06/15T00:00:00.0-0")},
+             std::string("2025-06-15 08:00:00.000000000")},
+            {{std::string("2025/06/15T00:00:00.99999999999")},
+             std::string("2025-06-15 00:00:01.000000000")},
+            {{std::string("2024-02-29T23-59-60ZULU")}, Null()},
+            {{std::string("2024 12 31T121212.123456 America/New_York")}, Null()},
+            {{std::string("123.123")}, Null()},
+            {{std::string("12121")}, Null()},
+    };
+    check_function_for_cast<DataTypeTimeStampNs>(input_types, data_set);
+}
+
+TEST_F(FunctionCastTest, string_to_timestamp_ns_strict_rejects_non_strict_formats) {
+    const InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    const DataSet data_set = {
+            {{std::string("2023$07$16T19:20:30.123+08:00")}, Null()},
+    };
+    check_function_for_cast_strict_mode<DataTypeTimeStampNs>(input_types, data_set,
+                                                             "Invalid TIMESTAMP_NS value");
+}
+
 } // namespace doris
