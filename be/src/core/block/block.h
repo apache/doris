@@ -677,7 +677,7 @@ public:
 
     // Clear owned mutable columns in place. MutableBlock already owns its
     // columns exclusively, so this does not perform COW detaching or cloning.
-    void clear_column_data() noexcept;
+    void clear_column_data();
 
     size_t allocated_bytes() const;
 
