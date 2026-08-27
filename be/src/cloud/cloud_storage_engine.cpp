@@ -353,10 +353,10 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
     LOG(INFO) << "sync tablets thread started";
 
     RETURN_IF_ERROR(Thread::create(
-            "CloudStorageEngine", "evict_querying_rowset_thread",
-            [this]() { this->_evict_quring_rowset_thread_callback(); },
-            &_evict_quering_rowset_thread));
-    LOG(INFO) << "evict quering thread started";
+            "CloudStorageEngine", "id_file_map_gc_thread",
+            [this]() { this->_gc_expired_id_file_map_thread_callback(); },
+            &_id_file_map_gc_thread));
+    LOG(INFO) << "id file map gc thread started";
 
     // add calculate tablet delete bitmap task thread pool
     RETURN_IF_ERROR(ThreadPoolBuilder("TabletCalDeleteBitmapThreadPool")

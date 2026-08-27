@@ -27,7 +27,6 @@ import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DistributionInfo;
@@ -42,7 +41,6 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -1168,22 +1166,6 @@ public class OlapScanNode extends ScanNode {
             columnsDesc.add(globalRowIdColumn.toThrift());
         } else {
             olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes);
-
-            // Add extra row id column
-            ArrayList<SlotDescriptor> slots = desc.getSlots();
-            Column lastColumn = slots.get(slots.size() - 1).getColumn();
-            if (lastColumn != null && lastColumn.getName().equalsIgnoreCase(Column.ROWID_COL)) {
-                TColumn tColumn = new TColumn();
-                tColumn.setColumnName(Column.ROWID_COL);
-                tColumn.setColumnType(ScalarType.createStringType().toColumnTypeThrift());
-                tColumn.setAggregationType(AggregateType.REPLACE.toThrift());
-                tColumn.setIsKey(false);
-                tColumn.setIsAllowNull(false);
-                // keep compatibility
-                tColumn.setVisible(false);
-                tColumn.setColUniqueId(Integer.MAX_VALUE);
-                columnsDesc.add(tColumn);
-            }
         }
 
         // Add virtual column to ColumnsDesc so that backend could
