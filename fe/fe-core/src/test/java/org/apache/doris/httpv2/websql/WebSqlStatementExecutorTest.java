@@ -19,9 +19,9 @@ package org.apache.doris.httpv2.websql;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.mariadb.jdbc.client.Context;
 import org.mariadb.jdbc.util.constants.ServerStatus;
+import org.mockito.Mockito;
 
 import java.sql.Connection;
 import java.sql.ResultSet;

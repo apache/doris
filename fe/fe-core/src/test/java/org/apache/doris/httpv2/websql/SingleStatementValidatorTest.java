@@ -25,8 +25,8 @@ public class SingleStatementValidatorTest {
     void acceptsOneStatementAndSemicolonsInsideLiteralsOrComments() {
         Assertions.assertEquals("SELECT ';' AS value;",
                 SingleStatementValidator.requireSingleStatement(" SELECT ';' AS value; "));
-        Assertions.assertEquals("SELECT 1 /* ; */; -- trailing comment", SingleStatementValidator.requireSingleStatement(
-                "SELECT 1 /* ; */; -- trailing comment"));
+        Assertions.assertEquals("SELECT 1 /* ; */; -- trailing comment",
+                SingleStatementValidator.requireSingleStatement("SELECT 1 /* ; */; -- trailing comment"));
         Assertions.assertEquals("SELECT 1 /* outer /* ; */ inner */;",
                 SingleStatementValidator.requireSingleStatement("SELECT 1 /* outer /* ; */ inner */;"));
     }
