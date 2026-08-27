@@ -135,7 +135,7 @@ suite("test_routine_load_compute_group", "p0") {
         // visible in the job properties so operators can inventory pinned jobs before an upgrade.
         def show = sql_return_maparray("SHOW ROUTINE LOAD FOR ${jobName}").get(0)
         logger.info("show routine load: ${show}")
-        assertEquals(cgName, show.CloudCluster)
+        assertEquals(cgName, show.ComputeGroup)
         assertTrue(show.JobProperties.contains("compute_group"))
         assertTrue(show.JobProperties.contains(cgName))
 
@@ -168,7 +168,7 @@ suite("test_routine_load_compute_group", "p0") {
 
         sql """ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES("compute_group" = "${cgName}");"""
         def showAfterAlter = sql_return_maparray("SHOW ROUTINE LOAD FOR ${jobName}").get(0)
-        assertEquals(cgName, showAfterAlter.CloudCluster)
+        assertEquals(cgName, showAfterAlter.ComputeGroup)
 
         sql "RESUME ROUTINE LOAD FOR ${jobName}"
     } finally {
