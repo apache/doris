@@ -170,8 +170,7 @@ public class JoinReorderGreedy extends JoinOrder {
                 : new PlanInfo(join, leftGroup, rightGroup));
     }
 
-    protected void getOrCreateGroupInfo(JoinLevel joinLevel, BitSet atoms,
-            PlanInfo planInfo) {
+    protected void getOrCreateGroupInfo(JoinLevel joinLevel, BitSet atoms, PlanInfo planInfo) {
         GroupInfo groupInfo;
         if (bitSetToGroupInfo.containsKey(atoms)) {
             groupInfo = bitSetToGroupInfo.get(atoms);
