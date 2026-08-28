@@ -108,4 +108,22 @@ public class LancePropertiesTest {
                     "unexpected message: " + thrown.getMessage());
         }
     }
+
+    /**
+     * OSS-HDFS is the one oss:// form whose qualified authority is required rather than incidental,
+     * so the bucket rewrite must not touch it.
+     */
+    @Test
+    public void testOssHdfsWarehouseKeepsItsQualifiedAuthority() throws Exception {
+        String warehouse = "oss://bkt.cn-hangzhou.oss-dls.aliyuncs.com/lance";
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "lance");
+        properties.put(LanceFileSystemMetastoreProperties.WAREHOUSE, warehouse);
+
+        AbstractLanceProperties lanceProperties =
+                (AbstractLanceProperties) MetastoreProperties.create(properties);
+
+        Assertions.assertEquals(warehouse,
+                ((LanceFileSystemMetastoreProperties) lanceProperties).getWarehouse());
+    }
 }

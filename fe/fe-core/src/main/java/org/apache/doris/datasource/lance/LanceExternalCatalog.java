@@ -34,6 +34,8 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.lance.namespace.LanceNamespace;
 import org.lance.namespace.errors.NamespaceNotFoundException;
 import org.lance.namespace.errors.TableNotFoundException;
@@ -60,6 +62,7 @@ import java.util.Set;
 
 /** Read-only Lance Directory or REST Namespace catalog. */
 public class LanceExternalCatalog extends ExternalCatalog {
+    private static final Logger LOG = LogManager.getLogger(LanceExternalCatalog.class);
     public static final String LANCE_CATALOG_TYPE = AbstractLanceProperties.LANCE_CATALOG_TYPE;
     public static final String LANCE_FILESYSTEM = AbstractLanceProperties.LANCE_FILESYSTEM;
     public static final String LANCE_REST = AbstractLanceProperties.LANCE_REST;
@@ -145,9 +148,10 @@ public class LanceExternalCatalog extends ExternalCatalog {
             }
         } catch (Exception e) {
             // The catalog is not initialized yet, so the namespace options this test just built are
-            // the only ones the sanitizer can see.
-            String sanitizedMessage = sanitizedRootCauseMessage(
-                    e, properties.getNamespaceStorageUri(), storageOptions);
+            // the only ones the sanitizer can see. The warehouse is deliberately not passed as the
+            // dataset URI: it came from this very DDL, and blanking it would hide the mistyped
+            // bucket the operator needs to see.
+            String sanitizedMessage = sanitizedRootCauseMessage(e, null, storageOptions);
             throw new DdlException("Lance " + type + " catalog connectivity test failed: "
                     + sanitizedMessage, sanitizedCause(e, sanitizedMessage));
         }
@@ -489,8 +493,9 @@ public class LanceExternalCatalog extends ExternalCatalog {
         List<String> sensitiveValues = new ArrayList<>();
         sensitiveValues.add(catalogProperty.getOrDefault(REST_BEARER_TOKEN, ""));
         sensitiveValues.add(catalogProperty.getOrDefault(REST_API_KEY, ""));
-        // Lance also accepts these options scoped to one base, as base_<id>.oss_secret_access_key,
-        // so match on the suffix rather than looking each bare key up exactly.
+        // Match on a trailing dotted segment as well as the bare key, so any namespace that scopes
+        // an option to one store still has its secret redacted. Over-redaction costs nothing here,
+        // while an exact-key lookup would print a secret it did not recognize.
         nonNullStorageOptions.forEach((key, value) -> {
             if (key == null) {
                 return;
@@ -521,6 +526,13 @@ public class LanceExternalCatalog extends ExternalCatalog {
     }
 
     private static Throwable sanitizedCause(Throwable throwable, String sanitizedMessage) {
+        // The rebuilt cause keeps the provider's credentials out of the user-visible error, but it
+        // also drops the original type, stack and suppressed exceptions. Keep them at debug level:
+        // the untouched text can hold those same credentials, so it must not reach the log by
+        // default, and an operator debugging a provider failure can turn it on deliberately.
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Lance provider failure, replaced by a redacted cause", throwable);
+        }
         return throwable instanceof IllegalArgumentException
                 ? new IllegalArgumentException(sanitizedMessage)
                 : new RuntimeException(sanitizedMessage);

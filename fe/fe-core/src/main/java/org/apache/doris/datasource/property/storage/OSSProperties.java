@@ -21,7 +21,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
@@ -344,13 +343,6 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
      *
      * @param uri the original URI string
      * @return the rewritten URI string, or the original URI if no rewrite is needed
-     */
-    @VisibleForTesting
-    /**
-     * Collapses the qualified {@code oss://bucket.oss-<region>.aliyuncs.com/path} form Doris
-     * accepts down to {@code oss://bucket/path}. Public so that callers outside this package
-     * which take an OSS URL before any {@link OSSProperties} instance exists - the Lance
-     * directory namespace root, for one - can apply the same contract.
      */
     public static String rewriteOssBucketIfNecessary(String uri) {
         if (uri == null || uri.isEmpty()) {

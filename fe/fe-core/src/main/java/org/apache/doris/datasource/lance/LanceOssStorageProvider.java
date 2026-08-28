@@ -77,16 +77,20 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
         // Doris reads a blank key pair as a request for anonymous access. Lance forwards options it
         // does not recognize straight to OpenDAL, whose OSS service only skips request signing when
         // allow_anonymous is set; without it the open fails in credential loading instead of
-        // issuing the unsigned request Doris asked for.
-        if (StringUtils.isBlank(properties.getAccessKey())
-                && StringUtils.isBlank(properties.getSecretKey())) {
+        // issuing the unsigned request Doris asked for. Decide from what was actually emitted above
+        // rather than re-testing the properties, so a credential this class considers present can
+        // never be paired with a claim that there is none.
+        if (!result.containsKey(ACCESS_KEY_ID) && !result.containsKey(SECRET_ACCESS_KEY)) {
             result.put(ALLOW_ANONYMOUS, "true");
         }
 
-        // OpenDAL's OSS service addresses buckets virtual-host style by default, which is also
-        // Doris's default, so only an explicit path-style request needs translating.
-        if (Boolean.parseBoolean(properties.getUsePathStyle())) {
-            result.put(ADDRESSING_STYLE, "path");
+        // Lance snapshots the host's OSS_*/AWS_*/ALIBABA_CLOUD_* environment into the same config
+        // map before storage options are applied, so state both addressing styles explicitly the
+        // way the S3 provider does. Leaving the default implicit would let an exported
+        // OSS_ADDRESSING_STYLE outrank an explicit oss.use_path_style=false.
+        String usePathStyle = properties.getUsePathStyle();
+        if (StringUtils.isNotEmpty(usePathStyle)) {
+            result.put(ADDRESSING_STYLE, Boolean.parseBoolean(usePathStyle) ? "path" : "virtual");
         }
         return result;
     }

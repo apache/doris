@@ -34,6 +34,7 @@ import java.util.Map;
 /** Properties for a Lance directory namespace backed by a filesystem warehouse. */
 public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties {
     public static final String WAREHOUSE = "warehouse";
+    private static final String OSS_HDFS_MARKER = ".oss-dls.aliyuncs.com";
 
     @ConnectorProperty(
             names = {WAREHOUSE},
@@ -135,6 +136,12 @@ public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties 
             return warehouse;
         }
         if (uri.getScheme() == null || !"oss".equals(uri.getScheme().toLowerCase(Locale.ROOT))) {
+            return warehouse;
+        }
+        // OSS-HDFS is the one oss:// form whose qualified authority is the required spelling -
+        // OSSHdfsProperties validates such a URL without ever rewriting it - so leave it alone.
+        String authority = uri.getAuthority();
+        if (authority != null && authority.toLowerCase(Locale.ROOT).contains(OSS_HDFS_MARKER)) {
             return warehouse;
         }
         return OSSProperties.rewriteOssBucketIfNecessary(warehouse);
