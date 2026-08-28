@@ -296,6 +296,109 @@ TEST_F(AsyncCacheWriteManagerTest, SubmitBlockRejectsStaleEpochAndAllocationFail
               AsyncCacheWriteBlockSubmitResult::BUFFER_ALLOCATION_FAILED);
 }
 
+TEST_F(AsyncCacheWriteManagerTest, SubmitOwnedBlockPreservesBufferIdentity) {
+    auto cache = create_cache("async_write_manager_submit_owned_block");
+    auto* manager = cache->async_write_manager();
+    auto* index = cache->inflight_write_buffer_index();
+    ASSERT_NE(manager, nullptr);
+    ASSERT_NE(index, nullptr);
+
+    OneShotSyncPointGate worker_gate;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteManager::_persist_task:before_get_or_set",
+            [&](auto&&) { worker_gate.arrive_and_wait(); }, &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        worker_gate.release();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    const auto hash = BlockFileCache::hash("submit_owned_block");
+    AsyncCacheWriteBufferPtr buffer;
+    ASSERT_TRUE(manager->allocate_tracked_buffer(4096, &buffer).ok());
+    memset(buffer->data(), 'o', buffer->size());
+    const auto* buffer_identity = buffer.get();
+
+    EXPECT_EQ(manager->try_submit_owned_block(AsyncCacheWriteOwnedBlockRequest {
+                      .cache_hash = hash,
+                      .file_offset = 0,
+                      .write_size = 4096,
+                      .buffer = std::move(buffer),
+                      .admission_ctx = {},
+                      .write_epoch = manager->current_write_epoch(hash),
+                      .inflight_index = index,
+              }),
+              AsyncCacheWriteBlockSubmitResult::SUBMITTED);
+    EXPECT_EQ(buffer, nullptr);
+    ASSERT_TRUE(worker_gate.wait_until_arrived());
+
+    auto inflight = index->lookup(hash, 0);
+    ASSERT_NE(inflight, nullptr);
+    EXPECT_EQ(inflight->buffer.get(), buffer_identity);
+    EXPECT_EQ(std::string_view(inflight->buffer->data(), inflight->buffer_size),
+              std::string(4096, 'o'));
+
+    worker_gate.release();
+    for (int attempt = 0; attempt < 100 && index->lookup(hash, 0) != nullptr; ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_EQ(index->lookup(hash, 0), nullptr);
+}
+
+TEST_F(AsyncCacheWriteManagerTest, ReportsOnlyUnusedPendingCapacity) {
+    auto cache = create_cache("async_write_manager_spare_capacity");
+    auto* manager = cache->async_write_manager();
+    ASSERT_NE(manager, nullptr);
+    auto options = manager->options();
+    options.worker_count = 1;
+    options.max_pending_bytes = 8192;
+    ASSERT_TRUE(manager->update_options(options).ok());
+
+    OneShotSyncPointGate worker_gate;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteManager::_persist_task:before_get_or_set",
+            [&](auto&&) { worker_gate.arrive_and_wait(); }, &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        worker_gate.release();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    const auto submit = [&](std::string_view key) {
+        const auto hash = BlockFileCache::hash(std::string(key));
+        const std::string payload(4096, 'c');
+        return manager->try_submit_block(AsyncCacheWriteBlockRequest {
+                .cache_hash = hash,
+                .file_offset = 0,
+                .data = Slice(payload),
+                .buffer_size = 4096,
+                .admission_ctx = {},
+                .write_epoch = manager->current_write_epoch(hash),
+                .inflight_index = nullptr,
+        });
+    };
+
+    EXPECT_TRUE(manager->can_accept_without_eviction(4096));
+    EXPECT_EQ(submit("spare_capacity_active"), AsyncCacheWriteBlockSubmitResult::SUBMITTED);
+    ASSERT_TRUE(worker_gate.wait_until_arrived());
+    EXPECT_TRUE(manager->can_accept_without_eviction(4096));
+    EXPECT_EQ(submit("spare_capacity_queued"), AsyncCacheWriteBlockSubmitResult::SUBMITTED);
+    EXPECT_FALSE(manager->can_accept_without_eviction(4096));
+
+    worker_gate.release();
+    for (int attempt = 0; attempt < 100 && manager->pending_count() != 0; ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_EQ(manager->pending_count(), 0);
+    EXPECT_TRUE(manager->can_accept_without_eviction(4096));
+}
+
 TEST(AsyncCacheWriteConfigTest, ResolveMaxPendingBytes) {
     constexpr int64_t kMiB = 1024 * 1024;
     constexpr int64_t kGiB = 1024 * kMiB;
