@@ -310,9 +310,9 @@ public class StatementContext implements Closeable {
 
     // Record mtmv and valid partitions map because this is time-consuming behavior
     private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
-    // Cloud MTMV versions are loaded before planner table locks and revalidated from their local caches later.
     private final Map<BaseTableInfo, MTMVRefreshContext> preloadedMtmvRefreshContexts = new HashMap<>();
     private long mtmvRewriteEpochMillis;
+    private boolean cloudVersionCacheDisabled;
 
     /// for dictionary sink.
     private List<Backend> usedBackendsDistributing; // report used backends after done distribute planning.
@@ -910,6 +910,7 @@ public class StatementContext implements Closeable {
 
     public void resetMtmvPreloadHints() {
         mtmvPreloadHints.clear();
+        hints.removeIf(UseMvHint.class::isInstance);
     }
 
     public List<Expression> getJoinFilters() {
@@ -1135,11 +1136,20 @@ public class StatementContext implements Closeable {
         latestSnapshots.clear();
         latestSnapshotFences.clear();
         resolvedSnapshotScanParams.clear();
+        mvCanRewritePartitionsMap.clear();
         preloadedMtmvRefreshContexts.clear();
         mtmvRewriteEpochMillis = 0L;
         // PREPARE keeps preload candidates, but completion belongs to one analysis pass and must
         // not suppress preloading after the next EXECUTE resets its snapshot generation.
         externalMetadataPreloadResult = null;
+    }
+
+    public boolean isCloudVersionCacheDisabled() {
+        return cloudVersionCacheDisabled;
+    }
+
+    public void setCloudVersionCacheDisabled(boolean disabled) {
+        cloudVersionCacheDisabled = disabled;
     }
 
     /**

@@ -18,6 +18,8 @@
 package org.apache.doris.job.executor;
 
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.ConnectContext;
 
 import lombok.extern.log4j.Log4j2;
 
@@ -69,6 +71,7 @@ public class TaskProcessor {
     }
 
     private void runTask(AbstractTask task) {
+        ConnectContext previousContext = ConnectContext.get();
         try {
             if (task == null) {
                 log.warn("Task is null, ignore. Maybe it has been canceled.");
@@ -82,6 +85,8 @@ public class TaskProcessor {
             task.runTask();
         } catch (Exception e) {
             log.warn("Execute task error, task id: {}", task.getTaskId(), e);
+        } finally {
+            AutoCloseConnectContext.restoreThreadLocalContext(previousContext);
         }
     }
 }

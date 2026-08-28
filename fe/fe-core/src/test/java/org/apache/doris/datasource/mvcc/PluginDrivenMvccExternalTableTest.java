@@ -200,7 +200,6 @@ public class PluginDrivenMvccExternalTableTest {
 
     @Test
     public void testGetTableSnapshotConnectorFailureNormalizedToAnalysisException() {
-        // Hive's typed HMS failure is normalized at the table boundary so transparent rewrite degrades per-MV.
         Fixture f = Fixture.partitioned();
         flagPinLastModified(f);
         DorisConnectorException connectorFailure =
@@ -265,11 +264,6 @@ public class PluginDrivenMvccExternalTableTest {
 
     @Test
     public void testGetPartitionSnapshotConnectorFailureNormalizedToAnalysisException() {
-        // A strict batch connector (hive's validated HMS batch) reports a concurrently dropped partition as a
-        // connector RuntimeException, not an empty map. The table boundary must normalize it to the checked
-        // AnalysisException this interface declares: the transparent-rewrite path only handles
-        // AnalysisException, and a raw RuntimeException escaping here disables EVERY MV candidate at the
-        // planner-hook boundary instead of skipping just this table's MV.
         Fixture f = Fixture.with(Collections.singletonList(
                 cpi("dt=2024-01-01", ConnectorPartitionInfo.UNKNOWN)));
         flagPinLastModified(f);

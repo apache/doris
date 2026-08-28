@@ -998,13 +998,6 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
 
     @Override
     public boolean isValidRelatedTable() {
-        // MTMV refresh safety gate (MTMVTask): a base table that evolved into an unsupported partitioning
-        // (e.g. a single time transform changed to bucket, or gained a second partition column) must stop the
-        // refresh loud (parity master IcebergExternalTable.isValidRelatedTable). The connector encodes its
-        // eligibility verdict in the range view's style: a valid related table is RANGE, an ineligible one is
-        // UNPARTITIONED. The legacy path (no range view) keeps the interface default (always valid; paimon does
-        // not override isValidRelatedTable either). MTMV refresh installs a latest pin before taking FE table
-        // locks; callers without a pin still materialize latest here.
         PluginDrivenMvccSnapshot pin = getOrMaterialize(MvccUtil.getSnapshotFromContext(this));
         if (pin.getPartitionType() != null) {
             return pin.getPartitionType() == PartitionType.RANGE;

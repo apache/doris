@@ -74,8 +74,6 @@ import java.util.function.Predicate;
  *       callers pass the unbounded {@code maxParts}, so this is effectively one entry per table; keeping
  *       {@code maxParts} in the key keeps a bounded request from ever being served a fuller list.</li>
  *   <li>{@code getPartitions} — one entry PER PARTITION, keyed by {@code (db, table, partition-values)} →
- *       {@link HmsPartitionInfo}. A bulk request looks up each requested name (parsed to its values) and
- *       fetches bounded miss windows so overlapping requests share per-partition entries.
  *       {@link HmsPartitionInfo} carries {@code transient_lastDdlTime} in its parameters, which a later step
  *       reads through this cache for the table max-modify-time.</li>
  *   <li>{@code getTableColumnStatistics} — keyed by {@code (db, table, requested-column-list)} → the
@@ -564,7 +562,7 @@ public class CachingHmsClient implements HmsClient {
             try {
                 batch.future.get(PARTITION_LOAD_WAIT_CHECK_MILLIS, TimeUnit.MILLISECONDS);
             } catch (TimeoutException e) {
-                // Recheck invalidation and preserve FIFO wait order.
+                // Retry the invalidation check.
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new HmsClientException("HMS in-flight partition load wait was interrupted", e);

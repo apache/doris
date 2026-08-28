@@ -49,10 +49,8 @@ public class HmsPartitionBatchExecutorTest {
             Collections.reverse(result);
             return result;
         });
-
         List<String> names = names(120_000);
         List<HmsPartitionInfo> result = load(executor, request(names));
-
         Assertions.assertEquals(24, batchSizes.size());
         Assertions.assertTrue(batchSizes.stream().allMatch(size -> size == 5000));
         Assertions.assertEquals(names.stream().map(HmsPartitionIdentity::fromName).collect(Collectors.toList()),
@@ -69,7 +67,6 @@ public class HmsPartitionBatchExecutorTest {
             }
             return infos(names);
         });
-
         Assertions.assertEquals(10, load(executor, request(names(10))).size());
         Assertions.assertEquals(Arrays.asList(8, 4, 2, 2, 2, 2, 2), batchSizes);
     }
@@ -84,7 +81,6 @@ public class HmsPartitionBatchExecutorTest {
             }
             return infos(names);
         });
-
         load(executor, request(names(8)));
         Assertions.assertEquals(names(4), attempts.get(0));
         Assertions.assertEquals(1, attempts.stream().filter(names(4)::equals).count());
@@ -97,7 +93,6 @@ public class HmsPartitionBatchExecutorTest {
             batchSizes.add(names.size());
             throw remoteFailure("frame too large");
         });
-
         HmsClientException failure = Assertions.assertThrows(
                 HmsClientException.class, () -> load(executor, request(names(2))));
         Assertions.assertEquals(Arrays.asList(2, 1), batchSizes);
@@ -131,7 +126,6 @@ public class HmsPartitionBatchExecutorTest {
     public void reportsOverlappingMismatchTypesPrecisely() {
         HmsPartitionBatchExecutor executor = executor(10, (db, table, names) -> Arrays.asList(
                 info("a"), info("c"), info("c")));
-
         HmsPartitionResultException failure = Assertions.assertThrows(
                 HmsPartitionResultException.class,
                 () -> load(executor, request(Arrays.asList("p=a", "p=b"))));
@@ -153,7 +147,6 @@ public class HmsPartitionBatchExecutorTest {
     public void reportsInvalidResultIdentity() {
         HmsPartitionBatchExecutor executor = executor(10, (db, table, names) -> Collections.singletonList(
                 new HmsPartitionInfo(Arrays.asList("a", "extra"), null, null, null, null, null)));
-
         HmsPartitionResultException failure = Assertions.assertThrows(
                 HmsPartitionResultException.class,
                 () -> load(executor, request(Collections.singletonList("p=a"))));
@@ -197,14 +190,12 @@ public class HmsPartitionBatchExecutorTest {
                                 HmsRemoteCallTracking.trackWireAttempt(() -> {
                                     throw new shade.doris.hive.org.apache.thrift.TException("retry");
                                 });
-                            } catch (shade.doris.hive.org.apache.thrift.TException expected) {
-                                // Simulate RetryingMetaStoreClient swallowing one wire failure.
+                            } catch (shade.doris.hive.org.apache.thrift.TException ignored) { // Expected retry.
                             }
                             return HmsRemoteCallTracking.trackWireAttempt(() -> infos(names));
                         }))
                 .build();
         HmsPartitionBatchExecutor.Access access = new HmsPartitionBatchExecutor.Access(executor, event::set);
-
         Assertions.assertEquals(2, access.load(request(names(2))).size());
         Assertions.assertEquals(2, event.get().getRpcCount());
         Assertions.assertEquals(4, event.get().getRpcItems());
@@ -242,7 +233,6 @@ public class HmsPartitionBatchExecutorTest {
                 .build();
         HmsPartitionBatchExecutor.Access access = new HmsPartitionBatchExecutor.Access(
                 executor, event::set, () -> time.getAndAdd(10_000_000L));
-
         HmsPartitionRequest request = HmsPartitionRequest.builder()
                 .database("db")
                 .table("table")
@@ -283,7 +273,6 @@ public class HmsPartitionBatchExecutorTest {
                     throw new IllegalStateException("profile failure");
                 })
                 .build();
-
         Assertions.assertEquals(2, access.load(request).size());
         Assertions.assertEquals(2, observerCalls.get());
     }

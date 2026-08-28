@@ -994,6 +994,9 @@ public class ConnectContext {
 
     public void clear() {
         executor = null;
+        if (statementContext != null) {
+            statementContext.close();
+        }
         statementContext = null;
         loadBackendSelectionDecision = null;
         loadBackendSelectionHint = null;

@@ -55,6 +55,11 @@ public class SelectHintSetVar extends SelectHint {
         sessionVariable.setIsSingleSetVar(true);
         for (Map.Entry<String, Optional<String>> kv : getParameters().entrySet()) {
             String key = kv.getKey();
+            if (context.isCloudVersionCacheDisabled()
+                    && (SessionVariable.CLOUD_PARTITION_VERSION_CACHE_TTL_MS.equalsIgnoreCase(key)
+                            || SessionVariable.CLOUD_TABLE_VERSION_CACHE_TTL_MS.equalsIgnoreCase(key))) {
+                continue;
+            }
             Optional<String> value = kv.getValue();
             if (value.isPresent()) {
                 try {

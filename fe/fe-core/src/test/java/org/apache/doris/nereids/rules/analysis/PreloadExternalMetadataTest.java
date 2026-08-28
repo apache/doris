@@ -179,9 +179,15 @@ public class PreloadExternalMetadataTest {
         StatementContext statementContext = new StatementContext();
         SelectHintUseMv first = new SelectHintUseMv("USE_MV", Collections.emptyList(), true);
         SelectHintUseMv duplicate = new SelectHintUseMv("USE_MV", Collections.emptyList(), true);
+        Hint other = new Hint("OTHER");
+        statementContext.addHint(other);
+        statementContext.addHint(EliminateLogicalSelectHint.createMvHint(first, statementContext.getHints()));
         statementContext.addMtmvPreloadHint(first);
         statementContext.resetMtmvPreloadHints();
         Assertions.assertTrue(statementContext.getMtmvPreloadHints().isEmpty());
+        Assertions.assertEquals(Collections.singletonList(other), statementContext.getHints());
+        Assertions.assertFalse(EliminateLogicalSelectHint.createMvHint(first,
+                statementContext.getHints()).isSyntaxError());
         statementContext.addMtmvPreloadHint(first);
         statementContext.addMtmvPreloadHint(duplicate);
         statementContext.addMtmvPreloadHint(first);

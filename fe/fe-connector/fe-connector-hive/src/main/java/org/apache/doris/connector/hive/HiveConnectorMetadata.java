@@ -221,9 +221,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // the on/off feature gate (enable_get_row_count_from_file_list) is still honored, fe-core side.
     private static final int STATS_PARTITION_SAMPLE_SIZE = 30;
 
-    // HMS uses a negative max-parts value for "all". The estimate needs the complete lightweight name list so
-    // its 30-name sample can be scaled against the real partition count; only those sampled names are resolved
-    // to heavyweight partition objects.
     private static final int ALL_PARTITIONS = -1;
 
     // A Supplier installed by the 3-arg constructor when no iceberg sibling is available (hive-only
@@ -1086,11 +1083,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         return sampledSize * totalPartitions / sampledPartitions;
     }
 
-    /**
-     * Resolves the data locations to list. For an estimate, sampling happens on lightweight partition names
-     * before any partition object is requested. A non-positive sample size means that the explicit file-size
-     * path needs every partition object. A partition or table with no location contributes nothing.
-     */
     private PartitionRefSelection resolvePartitionRefs(
             ConnectorSession session, HiveTableHandle handle, int sampleSize) {
         List<String> partKeyNames = handle.getPartitionKeyNames();

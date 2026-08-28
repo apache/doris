@@ -43,13 +43,6 @@ import java.util.TreeSet;
  * Freezes the CONNECTOR plugin API surface, so that changing it cannot happen without also deciding the
  * version consequence.
  *
- * <p><b>Why this exists.</b> Every method here has a default body or is implemented by eight shipped connectors, so the compiler forces nothing on a plugin author and nothing fails when a method quietly appears, disappears, or changes shape. The plugin API version in
- * {@code <connector.plugin.api.version>} is the contract that says which FE a given plugin may load into,
- * and any published-surface change is MAJOR. An unreleased surface may evolve, but each delta must stay visible.
- *
- * <p><b>Regenerating.</b> Run this test, copy the "actual" block out of the failure message into
- * {@code src/test/resources/connector-plugin-surface.txt}; bump the API major if it is already published.
- *
  * <p>{@code Plugin} / {@code PluginFactory} / {@code PluginContext} from fe-extension-spi are frozen here
  * too, and identically in the other three families' baselines. They are loaded parent-first for every family
  * (see {@code ChildFirstClassLoader.DEFAULT_PARENT_FIRST_PACKAGES}), so a change to them breaks all four

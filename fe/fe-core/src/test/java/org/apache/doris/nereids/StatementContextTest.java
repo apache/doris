@@ -26,6 +26,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.nereids.rules.analysis.PreloadExternalMetadata;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
@@ -362,7 +363,6 @@ public class StatementContextTest {
     @Test
     public void testResetMvccSnapshotsClearsPreloadCompletionButKeepsCandidates() {
         StatementContext statementContext = new StatementContext();
-        // Keep this test on the connector-neutral table seam available across FE branches.
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(table.getId()).thenReturn(42L);
         Mockito.when(table.supportsExternalMetadataPreload()).thenReturn(true);
@@ -382,16 +382,15 @@ public class StatementContextTest {
         Mockito.when(catalog.getName()).thenReturn("ctl");
         MTMVRefreshContext refreshContext = Mockito.mock(MTMVRefreshContext.class);
         statementContext.putPreloadedMtmvRefreshContext(mtmv, refreshContext);
-
+        statementContext.getMvCanRewritePartitionsMap().put(new BaseTableInfo(mtmv), Collections.emptyList());
         statementContext.resetMvccSnapshots();
-
         org.junit.jupiter.api.Assertions.assertFalse(
                 statementContext.getExternalMetadataPreloadResult().isPresent());
         org.junit.jupiter.api.Assertions.assertEquals(1,
                 statementContext.getExternalTablePreloadCandidateCount());
         org.junit.jupiter.api.Assertions.assertFalse(
                 statementContext.getPreloadedMtmvRefreshContext(mtmv).isPresent());
-
+        org.junit.jupiter.api.Assertions.assertTrue(statementContext.getMvCanRewritePartitionsMap().isEmpty());
         statementContext.setExternalMetadataPreloadResult(
                 ExternalMetadataPreloadResult.executed(1, 1, 1L));
         statementContext.resetMvccSnapshots();

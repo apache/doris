@@ -156,7 +156,6 @@ public interface ConnectorSession {
         return ConnectorStatementScope.NONE;
     }
 
-    /** Returns the request-scoped observer used to publish connector metadata access into the query profile. */
     default ConnectorMetadataAccessObserver getMetadataAccessObserver() {
         return ConnectorMetadataAccessObserver.NOOP;
     }

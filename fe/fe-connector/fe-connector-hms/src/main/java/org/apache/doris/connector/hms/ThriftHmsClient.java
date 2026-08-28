@@ -285,8 +285,6 @@ public class ThriftHmsClient implements HmsClient, HmsPartitionBatchExecutor.Tra
             if (partitions == null) {
                 return null;
             }
-            // Preserve malformed null elements for the common batch executor. It owns the typed integrity
-            // classification; dereferencing here would turn INVALID_RESULT into an unrelated remote-call NPE.
             return partitions.stream()
                     .map(partition -> partition == null ? null : convertPartition(partition))
                     .collect(Collectors.toList());
@@ -865,10 +863,6 @@ public class ThriftHmsClient implements HmsClient, HmsPartitionBatchExecutor.Tra
      * with no hint of the SASL/GSS/transport root cause. This mirrors the legacy
      * {@code ThriftHMSCachedClient}/{@code HMSClientException}, which appended
      * {@code Util.getRootCauseMessage(cause)} in the same {@code className: message} form.
-     *
-     * <p>The guard avoids duplicating the reason when a fresh-client failure is re-wrapped by the
-     * pool's {@link #borrowClient()} (the inner message already carries the
-     * appended root cause).
      */
     static String withRootCause(String message, Throwable cause) {
         if (cause == null) {

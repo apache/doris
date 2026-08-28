@@ -645,6 +645,8 @@ public class StmtExecutor {
                 if (this.coord != null && this.coord.isQueryCancelled()) {
                     throw e;
                 }
+                statementContext.resetConnectorStatementScope();
+                statementContext.resetMvccSnapshots();
                 disableCloudVersionCacheOnRetry = shouldDisableCloudVersionCacheOnRetry(e.getMessage());
                 TUniqueId lastQueryId = queryId;
                 queryId = UniqueIdUtils.fastUniqueId();
@@ -666,13 +668,12 @@ public class StmtExecutor {
         }
     }
 
-    // Temporarily disable the cloud version cache for this single attempt so that the retry
-    // re-fetches the visible version from meta-service, then restore the user-set TTLs.
-    private void executeWithVersionCacheDisabled(TUniqueId queryId) throws Exception {
+    void executeWithVersionCacheDisabled(TUniqueId queryId) throws Exception {
         SessionVariable sessionVariable = context.getSessionVariable();
         long oldPartitionTtl = sessionVariable.cloudPartitionVersionCacheTtlMs;
         long oldTableTtl = sessionVariable.cloudTableVersionCacheTtlMs;
         try {
+            statementContext.setCloudVersionCacheDisabled(true);
             sessionVariable.cloudPartitionVersionCacheTtlMs = 0;
             sessionVariable.cloudTableVersionCacheTtlMs = 0;
             LOG.info("temporarily set {} from {} to 0 and {} from {} to 0 before retry. {}",
@@ -681,6 +682,7 @@ public class StmtExecutor {
                     context.getQueryIdentifier());
             execute(queryId);
         } finally {
+            statementContext.setCloudVersionCacheDisabled(false);
             sessionVariable.cloudPartitionVersionCacheTtlMs = oldPartitionTtl;
             sessionVariable.cloudTableVersionCacheTtlMs = oldTableTtl;
         }
@@ -689,9 +691,7 @@ public class StmtExecutor {
     boolean shouldDisableCloudVersionCacheOnRetry(String errorMessage) {
         return Config.isCloudMode()
                 && errorMessage != null
-                && errorMessage.contains(SystemInfoService.ERROR_E230)
-                && (context.getSessionVariable().cloudPartitionVersionCacheTtlMs != 0
-                || context.getSessionVariable().cloudTableVersionCacheTtlMs != 0);
+                && errorMessage.contains(SystemInfoService.ERROR_E230);
     }
 
     public void execute(TUniqueId queryId) throws Exception {

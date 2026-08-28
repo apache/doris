@@ -86,10 +86,6 @@ public interface MTMVRelatedTableIf extends TableIf {
     MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
             Optional<MvccSnapshot> snapshot) throws AnalysisException;
 
-    /**
-     * Gets multiple partition snapshots before a caller enters its per-partition loop. External metadata
-     * implementations should override this with one logical batch request; the default preserves local tables.
-     */
     default Map<String, MTMVSnapshotIf> getPartitionSnapshots(List<String> partitionNames,
             MTMVRefreshContext context, Optional<MvccSnapshot> snapshot) throws AnalysisException {
         Map<String, MTMVSnapshotIf> result = new LinkedHashMap<>();

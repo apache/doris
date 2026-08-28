@@ -27,6 +27,8 @@ import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.AbstractStreamingTask;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.ConnectContext;
 
 import lombok.extern.log4j.Log4j2;
 
@@ -85,6 +87,7 @@ public class StreamingTaskScheduler extends MasterDaemon {
     private void scheduleTasks(List<AbstractStreamingTask> tasks) {
         for (AbstractStreamingTask task : tasks) {
             threadPool.execute(() -> {
+                ConnectContext previousContext = ConnectContext.get();
                 try {
                     scheduleOneTask(task);
                 } catch (Exception e) {
@@ -99,6 +102,8 @@ public class StreamingTaskScheduler extends MasterDaemon {
                         log.warn("Failed to pause job {} after task {} scheduling failed",
                                 task.getJobId(), task.getTaskId(), ex);
                     }
+                } finally {
+                    AutoCloseConnectContext.restoreThreadLocalContext(previousContext);
                 }
             });
         }

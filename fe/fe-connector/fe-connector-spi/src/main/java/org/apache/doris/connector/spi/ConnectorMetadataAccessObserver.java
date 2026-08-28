@@ -17,7 +17,6 @@
 
 package org.apache.doris.connector.spi;
 
-/** Receives completed logical connector metadata-access events. */
 @FunctionalInterface
 public interface ConnectorMetadataAccessObserver {
 

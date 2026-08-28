@@ -27,7 +27,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Function;
 
 final class HmsPartitionRequest {
 
@@ -42,7 +41,7 @@ final class HmsPartitionRequest {
         this.dbName = builder.dbName;
         this.tableName = builder.tableName;
         this.partitions = builder.partitions == null
-                ? parsePartitions(builder.partitionNames, builder.partitionParser)
+                ? parsePartitions(builder.partitionNames)
                 : Collections.unmodifiableList(new ArrayList<>(builder.partitions));
         List<String> names = new ArrayList<>(partitions.size());
         for (HmsPartitionIdentity.ParsedPartitionName partition : partitions) {
@@ -100,8 +99,6 @@ final class HmsPartitionRequest {
         private List<HmsPartitionIdentity.ParsedPartitionName> partitions;
         private ConnectorMetadataAccessSource source = ConnectorMetadataAccessSource.UNKNOWN;
         private ConnectorMetadataAccessObserver metadataAccessObserver = ConnectorMetadataAccessObserver.NOOP;
-        private Function<String, HmsPartitionIdentity.ParsedPartitionName> partitionParser
-                = HmsPartitionIdentity::parse;
 
         private Builder() {
         }
@@ -123,12 +120,6 @@ final class HmsPartitionRequest {
 
         Builder partitions(List<HmsPartitionIdentity.ParsedPartitionName> partitions) {
             this.partitions = partitions;
-            return this;
-        }
-
-        Builder partitionParserForTest(
-                Function<String, HmsPartitionIdentity.ParsedPartitionName> partitionParser) {
-            this.partitionParser = partitionParser;
             return this;
         }
 
@@ -160,13 +151,12 @@ final class HmsPartitionRequest {
         }
     }
 
-    private static List<HmsPartitionIdentity.ParsedPartitionName> parsePartitions(List<String> names,
-            Function<String, HmsPartitionIdentity.ParsedPartitionName> parser) {
+    private static List<HmsPartitionIdentity.ParsedPartitionName> parsePartitions(List<String> names) {
         List<HmsPartitionIdentity.ParsedPartitionName> parsedPartitions = new ArrayList<>(names.size());
         Set<List<String>> identities = new HashSet<>();
         List<String> partitionKeys = null;
         for (int i = 0; i < names.size(); i++) {
-            HmsPartitionIdentity.ParsedPartitionName parsed = parser.apply(names.get(i));
+            HmsPartitionIdentity.ParsedPartitionName parsed = HmsPartitionIdentity.parse(names.get(i));
             if (partitionKeys == null) {
                 partitionKeys = parsed.getKeys();
             } else if (!partitionKeys.equals(parsed.getKeys())) {

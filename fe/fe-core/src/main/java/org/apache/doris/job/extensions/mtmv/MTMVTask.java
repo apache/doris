@@ -62,6 +62,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.qe.AuditLogHelper;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -204,7 +205,6 @@ public class MTMVTask extends AbstractTask {
             // Every time a task is run, the relation is regenerated because baseTables and baseViews may change,
             // such as deleting a table and creating a view with the same name
             Pair<Set<TableIf>, Set<TableIf>> tablesInPlan = MTMVPlanUtil.getBaseTableFromQuery(mtmv.getQuerySql(), ctx);
-            // Install the refresh context after the temporary planner context is restored.
             installRefreshStatementContext(ctx);
             this.relation = MTMVPlanUtil.generateMTMVRelation(tablesInPlan.first, tablesInPlan.second);
             beforeMTMVRefresh();
@@ -222,7 +222,6 @@ public class MTMVTask extends AbstractTask {
                     MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, ctx);
                 }
                 if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
-                    // External pins were loaded before this lock; mapping reads consume their frozen objects.
                     Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
                     for (MTMVRelatedTableIf pctTable : pctTables) {
                         if (!pctTable.isValidRelatedTable()) {
@@ -248,7 +247,6 @@ public class MTMVTask extends AbstractTask {
             boolean buildContextUnderLock = Config.isNotCloudMode()
                     && tablesInPlan.first.stream().noneMatch(MvccTable.class::isInstance);
             if (!buildContextUnderLock) {
-                // Build remote mappings/versions before FE locks; local-only state is captured under the lock.
                 context = MTMVRefreshContext.buildContext(
                         mtmv, relation.getBaseTablesOneLevelAndFromView());
                 if (!calculateNeedRefreshPartitionsWithoutFreshness().isPresent()) {
@@ -276,7 +274,6 @@ public class MTMVTask extends AbstractTask {
             if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
                 return;
             }
-            // Batch the persistence union before the per-MV-partition generation loop.
             context.preloadSnapshotsForPersistence(Sets.newHashSet(needRefreshPartitions),
                     relation.getBaseTablesOneLevelAndFromView());
             Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
@@ -377,6 +374,16 @@ public class MTMVTask extends AbstractTask {
 
     private void exec(Set<String> refreshPartitionNames,
             Map<TableIf, String> tableWithPartKey)
+            throws Exception {
+        ConnectContext previousContext = ConnectContext.get();
+        try {
+            execWithContext(refreshPartitionNames, tableWithPartKey);
+        } finally {
+            AutoCloseConnectContext.restoreThreadLocalContext(previousContext);
+        }
+    }
+
+    private void execWithContext(Set<String> refreshPartitionNames, Map<TableIf, String> tableWithPartKey)
             throws Exception {
         ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
         setComputeGroup(ctx);
@@ -712,7 +719,6 @@ public class MTMVTask extends AbstractTask {
     }
 
     private Optional<List<String>> calculateNeedRefreshPartitionsWithoutFreshness() {
-        // check whether the user manually triggers it
         if (taskContext.getTriggerMode() == MTMVTaskTriggerMode.MANUAL) {
             if (taskContext.isComplete()) {
                 return Optional.of(Lists.newArrayList(mtmv.getPartitionNames()));
@@ -721,11 +727,9 @@ public class MTMVTask extends AbstractTask {
                 return Optional.of(taskContext.getPartitions());
             }
         }
-        // if refreshMethod is COMPLETE, we must FULL refresh, avoid external table MTMV always not refresh
         if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
             return Optional.of(Lists.newArrayList(mtmv.getPartitionNames()));
         }
-        // An incomplete baseline requires a full refresh before exclude rules can be trusted.
         if (!mtmv.hasCompleteRefreshSnapshot()) {
             return Optional.of(Lists.newArrayList(mtmv.getPartitionNames()));
         }

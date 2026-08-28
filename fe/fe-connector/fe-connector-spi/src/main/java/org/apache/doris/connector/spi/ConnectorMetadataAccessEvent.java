@@ -20,7 +20,6 @@ package org.apache.doris.connector.spi;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
-/** One completed connector metadata access, emitted once for a logical request. */
 public final class ConnectorMetadataAccessEvent {
 
     private static final Pattern OPERATION_PATTERN = Pattern.compile("[a-z][a-z0-9_.-]{0,127}");
@@ -122,7 +121,6 @@ public final class ConnectorMetadataAccessEvent {
         private Builder() {
         }
 
-        /** Sets a stable lower-case operation kind without request-specific identifiers. */
         public Builder operation(String operation) {
             this.operation = operation;
             return this;

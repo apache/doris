@@ -483,14 +483,12 @@ public class PartitionsProcDir implements ProcDirInterface {
                 && needLocked.stream().noneMatch(MvccTable.class::isInstance);
         if (olapTable instanceof MTMV && !buildContextUnderLock) {
             try {
-                // Materialize remote state before the display locks.
                 mtmvRefreshContext = MTMVRefreshContext.buildContextForDisplay((MTMV) olapTable);
             } catch (AnalysisException e) {
                 mtmvPartitionSyncErrorMsg = e.getMessage();
             }
             if (mtmvRefreshContext != null) {
                 try {
-                    // Hive freshness may wait on HMS. It must never run while the MTMV/base-table locks are held.
                     mtmvRefreshContext.preloadSnapshots();
                 } catch (AnalysisException e) {
                     mtmvPartitionSyncErrorMsg = e.getMessage();
@@ -502,7 +500,6 @@ public class PartitionsProcDir implements ProcDirInterface {
         try {
             if (buildContextUnderLock) {
                 try {
-                    // Capture non-cloud local mapping and versions atomically under the display locks.
                     mtmvRefreshContext = MTMVRefreshContext.buildContextForDisplay((MTMV) olapTable);
                     mtmvRefreshContext.preloadSnapshots();
                 } catch (AnalysisException e) {
