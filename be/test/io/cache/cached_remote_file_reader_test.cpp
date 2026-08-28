@@ -22,6 +22,11 @@
 #include "cloud/config.h"
 #include "io/cache/async_cache_write_manager_metrics.h"
 #include "io/cache/inflight_write_buffer_index.h"
+#include "io/cache/partial_block_writeback_manager.h"
+#include "io/cache/range_cache_writeback.h"
+#include "io/fs/read_ahead_metrics.h"
+#include "storage/iterators.h"
+#include "storage/segment/segment_read_ahead.h"
 #include "util/time.h"
 
 namespace doris::io {
@@ -238,6 +243,150 @@ TEST_F(AsyncCachedRemoteFileReaderTest, preallocated_cache_block_can_cover_the_s
     EXPECT_EQ(cached_stats.probe_downloaded_hit, 2);
     EXPECT_EQ(cached_stats.probe_miss, 0);
     EXPECT_EQ(cached_stats.async_cache_write_submitted, 0);
+}
+
+TEST_F(AsyncCachedRemoteFileReaderTest, builds_consumed_range_writeback_context) {
+    create_cache("cached_remote_reader_range_writeback_context");
+    auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(counting_reader);
+    std::unique_ptr<PartialBlockWritebackManager> partial_manager;
+    ASSERT_TRUE(PartialBlockWritebackManager::create(
+                        {.block_size = 1_mb,
+                         .worker_count = 1,
+                         .max_pending_bytes = 2_mb,
+                         .hole_fill_coalesce = {.max_gap_bytes = 32_kb,
+                                                .max_range_bytes = 1_mb,
+                                                .max_read_amplification_ratio = 2.0}},
+                        &partial_manager)
+                        .ok());
+    TUniqueId query_id;
+    query_id.hi = 123;
+    query_id.lo = 456;
+    IOContext io_context;
+    io_context.query_id = &query_id;
+    io_context.expiration_time = 789;
+    io_context.is_warmup = true;
+
+    auto writeback = reader->make_range_cache_writeback(io_context, partial_manager.get());
+
+    ASSERT_NE(writeback, nullptr);
+    EXPECT_EQ(writeback->_options.write_manager, cache()->async_write_manager());
+    EXPECT_EQ(writeback->_options.partial_block_manager, partial_manager.get());
+    EXPECT_EQ(writeback->_options.inflight_index, cache()->inflight_write_buffer_index());
+    EXPECT_EQ(writeback->_options.source_reader, counting_reader);
+    EXPECT_EQ(writeback->_options.cache_hash, reader->_cache_hash);
+    EXPECT_EQ(writeback->_options.file_size, reader->size());
+    EXPECT_EQ(writeback->_options.block_size, 1_mb);
+    EXPECT_EQ(writeback->_options.admission_ctx.query_id, query_id);
+    EXPECT_EQ(writeback->_options.admission_ctx.cache_type, FileCacheType::TTL);
+    EXPECT_EQ(writeback->_options.admission_ctx.expiration_time, 789);
+    EXPECT_EQ(writeback->_options.admission_ctx.tablet_id, 10086);
+    EXPECT_TRUE(writeback->_options.admission_ctx.is_warmup);
+    ASSERT_NE(writeback->_options.io_context.query_id, nullptr);
+    EXPECT_EQ(*writeback->_options.io_context.query_id, query_id);
+    EXPECT_NE(writeback->_options.io_context.io_context.query_id, &query_id);
+    EXPECT_EQ(writeback->_options.io_context.io_context.cache_write_mode_override,
+              CacheWriteMode::NO_WRITE);
+}
+
+TEST_F(AsyncCachedRemoteFileReaderTest, cached_read_ahead_does_not_submit_writeback) {
+    create_cache("cached_read_ahead_no_writeback");
+    auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(counting_reader);
+    std::string data(16, '\0');
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader->read_at(1024, Slice(data), &bytes_read).ok());
+    wait_for_async_writes();
+    const auto remote_reads = counting_reader->read_count();
+
+    auto* env = ExecEnv::GetInstance();
+    const auto old_deploy_mode = config::deploy_mode;
+    const bool old_read_ahead = config::enable_query_read_ahead;
+    auto old_scheduler = std::move(env->_file_range_read_scheduler);
+    auto old_partial_manager = std::move(env->_partial_block_writeback_manager);
+    std::unique_ptr<ThreadPool> executor;
+    Defer restore {[&]() {
+        env->_file_range_read_scheduler = std::move(old_scheduler);
+        env->_partial_block_writeback_manager = std::move(old_partial_manager);
+        config::deploy_mode = old_deploy_mode;
+        config::enable_query_read_ahead = old_read_ahead;
+    }};
+    config::deploy_mode = "cloud";
+    config::enable_query_read_ahead = true;
+    ASSERT_TRUE(ThreadPoolBuilder("CachedReadAheadTest").set_max_threads(1).build(&executor).ok());
+    ASSERT_TRUE(
+            FileRangeReadScheduler::create({.max_bytes_per_query = 1_mb, .max_bytes_per_be = 1_mb},
+                                           executor.get(), &env->_file_range_read_scheduler)
+                    .ok());
+    ASSERT_TRUE(PartialBlockWritebackManager::create(
+                        {.block_size = 1_mb,
+                         .worker_count = 1,
+                         .max_pending_bytes = 2_mb,
+                         .hole_fill_coalesce = {.max_gap_bytes = 32_kb,
+                                                .max_range_bytes = 1_mb,
+                                                .max_read_amplification_ratio = 1.0}},
+                        &env->_partial_block_writeback_manager)
+                        .ok());
+
+    OlapReaderStatistics statistics;
+    FileCacheStatistics cache_statistics;
+    StorageReadOptions read_options;
+    read_options.stats = &statistics;
+    read_options.use_page_cache = false;
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    read_options.io_ctx.file_cache_stats = &cache_statistics;
+    std::unique_ptr<segment_v2::SegmentReadAhead> read_ahead;
+    ASSERT_TRUE(segment_v2::SegmentReadAhead::create_for_query(
+                        reader, env, env->file_range_read_scheduler()->create_context(),
+                        read_options, &read_ahead)
+                        .ok());
+    ASSERT_NE(read_ahead, nullptr);
+    std::unique_ptr<segment_v2::ColumnReadAhead> column;
+    ASSERT_TRUE(
+            segment_v2::ColumnReadAhead::create({{.page_index = 0,
+                                                  .first_ordinal = 0,
+                                                  .last_ordinal = 99,
+                                                  .range = {.offset = 1024, .size = data.size()}}},
+                                                {.window_bytes = data.size()}, false, &column)
+                    .ok());
+    const segment_v2::rowid_t rowid = 0;
+    roaring::Roaring rows;
+    rows.addRange(0, 100);
+    segment_v2::ColumnReadAheadPlan plan;
+    column->plan(&rowid, 1, rows, &plan);
+    ASSERT_TRUE(read_ahead->apply_plans({std::move(plan)}).accepted());
+    ASSERT_TRUE(read_ahead->file_reader()->read_at(1024, Slice(data), &bytes_read).ok());
+
+    EXPECT_EQ(cache_statistics.bytes_read_from_remote, 0);
+    EXPECT_EQ(cache_statistics.bytes_read_from_local, data.size());
+    EXPECT_EQ(counting_reader->read_count(), remote_reads);
+    EXPECT_EQ(statistics.read_ahead_stats->partial_blocks_queued.value(), 0);
+    EXPECT_EQ(statistics.read_ahead_stats->complete_blocks_submitted.value(), 0);
+    EXPECT_EQ(statistics.read_ahead_stats->writeback_deduplicated_blocks.value(), 0);
+    EXPECT_EQ(env->partial_block_writeback_manager()->pending_count(), 0);
+}
+
+TEST_F(AsyncCachedRemoteFileReaderTest, skips_consumed_range_writeback_for_no_write_reads) {
+    create_cache("cached_remote_reader_no_range_writeback");
+    auto reader = create_reader(open_remote_file());
+    std::unique_ptr<PartialBlockWritebackManager> partial_manager;
+    ASSERT_TRUE(PartialBlockWritebackManager::create(
+                        {.block_size = 1_mb,
+                         .worker_count = 1,
+                         .max_pending_bytes = 2_mb,
+                         .hole_fill_coalesce = {.max_gap_bytes = 32_kb,
+                                                .max_range_bytes = 1_mb,
+                                                .max_read_amplification_ratio = 2.0}},
+                        &partial_manager)
+                        .ok());
+
+    IOContext io_context;
+    io_context.file_cache_miss_policy = FileCacheMissPolicy::REMOTE_ONLY_ON_MISS;
+    EXPECT_EQ(reader->make_range_cache_writeback(io_context, partial_manager.get()), nullptr);
+
+    io_context.file_cache_miss_policy = FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
+    io_context.cache_write_mode_override = CacheWriteMode::NO_WRITE;
+    EXPECT_EQ(reader->make_range_cache_writeback(io_context, partial_manager.get()), nullptr);
 }
 
 TEST_F(AsyncCachedRemoteFileReaderTest,

@@ -31,6 +31,7 @@
 #include "common/cast_set.h"
 #include "io/fs/read_ahead_metrics.h"
 #include "storage/olap_common.h"
+#include "storage/segment/column_reader.h"
 #include "storage/segment/page_handle.h"
 #include "storage/segment/page_io.h"
 #include "util/coding.h"
@@ -149,12 +150,14 @@ std::unique_ptr<io::FileRangeReadScheduler> make_scheduler(size_t max_bytes_per_
     return scheduler;
 }
 
-std::unique_ptr<SegmentReadAhead> make_segment_read_ahead(const io::FileReaderSPtr& source,
-                                                          io::FileRangeReadScheduler* scheduler,
-                                                          SegmentReadAheadOptions options) {
+std::unique_ptr<SegmentReadAhead> make_segment_read_ahead(
+        const io::FileReaderSPtr& source, io::FileRangeReadScheduler* scheduler,
+        SegmentReadAheadOptions options, ColumnReadAheadOptions eager_options = {},
+        ColumnReadAheadOptions lazy_options = {}) {
     auto context = scheduler->create_context();
     return std::make_unique<SegmentReadAhead>(source, scheduler, std::move(context),
-                                              io::FileRangeReadIOContext {}, std::move(options));
+                                              io::FileRangeReadIOContext {}, std::move(options),
+                                              eager_options, lazy_options);
 }
 
 roaring::Roaring rows(size_t count) {
@@ -169,12 +172,14 @@ TEST(SegmentReadAheadTest, CoalescesColumnsAndServesExactPageSlices) {
     auto scheduler = make_scheduler();
     size_t consumer_factory_calls = 0;
     std::vector<io::FileRange> consumed_ranges;
+    io::FileRangeReadStats consumed_stats;
     auto read_ahead = make_segment_read_ahead(
             source, scheduler.get(),
             {.range_plan = plan_options(), .page_cache_probe = {}, .range_consumer_factory = [&]() {
                  ++consumer_factory_calls;
-                 return [&](const io::FileRange& range, Slice) {
-                     consumed_ranges.push_back(range);
+                 return [&](const io::FileRangeRead& read) {
+                     consumed_ranges.push_back(read.range());
+                     consumed_stats = read.stats();
                  };
              }});
     auto first = make_window(1, 16, 0);
@@ -197,6 +202,10 @@ TEST(SegmentReadAheadTest, CoalescesColumnsAndServesExactPageSlices) {
     EXPECT_EQ(bytes_read, sizeof(first_data));
     ASSERT_EQ(consumed_ranges.size(), 1);
     EXPECT_EQ(consumed_ranges[0], (io::FileRange {.offset = 0, .size = 40}));
+    EXPECT_EQ(consumed_stats.file_cache.num_remote_io_total, 1);
+    EXPECT_EQ(consumed_stats.file_cache.bytes_read_from_remote, 40);
+    EXPECT_EQ(consumed_stats.file_reader.read_calls, 1);
+    EXPECT_EQ(consumed_stats.file_reader.read_bytes, 40);
 
     char second_data[16] {};
     ASSERT_TRUE(read_ahead->file_reader()
@@ -459,7 +468,7 @@ TEST(SegmentReadAheadTest, DiscardedUnusedRangeIsNotPublished) {
     auto read_ahead = make_segment_read_ahead(
             source, scheduler.get(),
             {.range_plan = plan_options(), .page_cache_probe = {}, .range_consumer_factory = [&]() {
-                 return [&](const io::FileRange&, Slice) { ++published; };
+                 return [&](const io::FileRangeRead&) { ++published; };
              }});
     auto window = make_window(2, 16);
     const auto scan_rows = rows(200);
