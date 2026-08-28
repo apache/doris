@@ -1104,13 +1104,29 @@ Status IcebergTableReader::materialize_virtual_columns(Block* table_block) {
         }
     }
     for (size_t column_idx = 0; column_idx < mappings.size(); ++column_idx) {
-        if (!requires_required_field_validation(mappings[column_idx])) {
+        const auto& mapping = mappings[column_idx];
+        if (!requires_required_field_validation(mapping)) {
+            continue;
+        }
+        // COUNT(*) retains its projected columns only to carry the surviving row count; their file
+        // values are never decoded, so the block holds placeholders. Validating a placeholder
+        // reports a required-field violation the data does not have.
+        if (_is_count_star_placeholder_column(mapping)) {
             continue;
         }
         RETURN_IF_ERROR(_validate_required_mapping_column(
-                mappings[column_idx], table_block->get_by_position(column_idx).column));
+                mapping, table_block->get_by_position(column_idx).column));
     }
     return Status::OK();
+}
+
+bool IcebergTableReader::_is_count_star_placeholder_column(
+        const format::ColumnMapping& mapping) const {
+    if (_file_scan_request == nullptr || !mapping.file_local_id.has_value()) {
+        return false;
+    }
+    return _file_scan_request->is_count_star_placeholder(
+            format::LocalColumnId(*mapping.file_local_id));
 }
 
 Status IcebergTableReader::customize_file_scan_request(format::FileScanRequest* file_request) {
