@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "common/cast_set.h"
+#include "storage/segment/column_reader.h"
 #include "util/threadpool.h"
 
 namespace doris::segment_v2 {
@@ -53,7 +54,7 @@ public:
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                        const io::IOContext*) override {
+                        const io::IOContext* io_context) override {
         std::lock_guard lock(_mutex);
         ++_read_calls;
         _reads.push_back({.offset = offset, .size = result.size});
@@ -65,6 +66,14 @@ protected:
         const size_t length = std::min(result.size, _data.size() - offset);
         std::memcpy(result.data, _data.data() + offset, length);
         *bytes_read = length;
+        if (io_context != nullptr && io_context->file_cache_stats != nullptr) {
+            ++io_context->file_cache_stats->num_remote_io_total;
+            io_context->file_cache_stats->bytes_read_from_remote += length;
+        }
+        if (io_context != nullptr && io_context->file_reader_stats != nullptr) {
+            ++io_context->file_reader_stats->read_calls;
+            io_context->file_reader_stats->read_bytes += length;
+        }
         return Status::OK();
     }
 
@@ -138,12 +147,14 @@ std::unique_ptr<io::FileRangeReadScheduler> make_scheduler(size_t max_bytes_per_
     return scheduler;
 }
 
-std::unique_ptr<SegmentReadAhead> make_segment_read_ahead(const io::FileReaderSPtr& source,
-                                                          io::FileRangeReadScheduler* scheduler,
-                                                          SegmentReadAheadOptions options) {
+std::unique_ptr<SegmentReadAhead> make_segment_read_ahead(
+        const io::FileReaderSPtr& source, io::FileRangeReadScheduler* scheduler,
+        SegmentReadAheadOptions options, ColumnReadAheadOptions eager_options = {},
+        ColumnReadAheadOptions lazy_options = {}) {
     auto context = scheduler->create_context();
     return std::make_unique<SegmentReadAhead>(source, scheduler, std::move(context),
-                                              io::FileRangeReadIOContext {}, std::move(options));
+                                              io::FileRangeReadIOContext {}, std::move(options),
+                                              eager_options, lazy_options);
 }
 
 roaring::Roaring rows(size_t count) {
@@ -157,12 +168,14 @@ TEST(SegmentReadAheadTest, CoalescesColumnsAndServesExactPageSlices) {
     auto scheduler = make_scheduler();
     size_t consumer_factory_calls = 0;
     std::vector<io::FileRange> consumed_ranges;
+    io::FileRangeReadStats consumed_stats;
     auto read_ahead = make_segment_read_ahead(
             source, scheduler.get(),
             {.range_plan = plan_options(), .page_cache_probe = {}, .range_consumer_factory = [&]() {
                  ++consumer_factory_calls;
-                 return [&](const io::FileRange& range, Slice) {
-                     consumed_ranges.push_back(range);
+                 return [&](const io::FileRangeRead& read) {
+                     consumed_ranges.push_back(read.range());
+                     consumed_stats = read.stats();
                  };
              }});
     auto first = make_window(1, 16, 0);
@@ -185,6 +198,10 @@ TEST(SegmentReadAheadTest, CoalescesColumnsAndServesExactPageSlices) {
     EXPECT_EQ(bytes_read, sizeof(first_data));
     ASSERT_EQ(consumed_ranges.size(), 1);
     EXPECT_EQ(consumed_ranges[0], (io::FileRange {.offset = 0, .size = 40}));
+    EXPECT_EQ(consumed_stats.file_cache.num_remote_io_total, 1);
+    EXPECT_EQ(consumed_stats.file_cache.bytes_read_from_remote, 40);
+    EXPECT_EQ(consumed_stats.file_reader.read_calls, 1);
+    EXPECT_EQ(consumed_stats.file_reader.read_bytes, 40);
 
     char second_data[16] {};
     ASSERT_TRUE(read_ahead->file_reader()
@@ -320,7 +337,7 @@ TEST(SegmentReadAheadTest, DiscardedUnusedRangeIsNotPublished) {
     auto read_ahead = make_segment_read_ahead(
             source, scheduler.get(),
             {.range_plan = plan_options(), .page_cache_probe = {}, .range_consumer_factory = [&]() {
-                 return [&](const io::FileRange&, Slice) { ++published; };
+                 return [&](const io::FileRangeRead&) { ++published; };
              }});
     auto window = make_window(2, 16);
     const auto scan_rows = rows(200);

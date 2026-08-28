@@ -679,8 +679,8 @@ TEST_F(ColumnReaderTest, FileColumnIteratorFallsBackAfterReadAheadChecksumFailur
                                    .block_fill_min_coverage = 1.0},
                     .page_cache_probe = {},
                     .range_consumer_factory = [&]() {
-                        return [&](const io::FileRange& range, Slice) {
-                            consumed_ranges.push_back(range);
+                        return [&](const io::FileRangeRead& read) {
+                            consumed_ranges.push_back(read.range());
                         };
                     }});
 
