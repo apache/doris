@@ -381,9 +381,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      */
     private ConnectorTableSchema buildTableSchema(String tableName, Table table, List<DataField> fields,
             List<String> partitionKeys, List<String> primaryKeys, boolean appendDataFileMetadataColumns) {
-        if (appendDataFileMetadataColumns) {
-            rejectMetadataColumnCollisions(fields);
-        }
+        rejectMetadataColumnCollisions(fields);
         List<ConnectorColumn> columns = mapFields(fields, primaryKeys);
         if (appendDataFileMetadataColumns) {
             columns.add(new ConnectorColumn(PAIMON_FILE_PATH_COL, ConnectorType.of("STRING"),
@@ -1252,9 +1250,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
 
     private static Map<String, ConnectorColumnHandle> buildColumnHandles(List<DataField> fields,
             boolean appendDataFileMetadataColumns) {
-        if (appendDataFileMetadataColumns) {
-            rejectMetadataColumnCollisions(fields);
-        }
+        rejectMetadataColumnCollisions(fields);
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(fields.size() + 2);
         for (int i = 0; i < fields.size(); i++) {
             String name = fields.get(i).name();
@@ -1272,8 +1268,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * Paimon does not reserve the metadata column names. An externally-created table can therefore
      * contain a real physical column with one of these names. Appending a synthetic handle in that
      * case would overwrite the physical handle and make a query return file metadata instead of the
-     * stored value. Fail while exposing the data-table schema/handles so the collision cannot reach
-     * the scan planner.
+     * stored value. System tables may inherit a base table's fields (for example {@code $ro}), and
+     * {@link PaimonScanPlanProvider#classifyColumn(String)} also recognizes these names before a
+     * reader exists. Fail while exposing any schema/handles so an inherited physical field cannot
+     * reach the scan planner as a virtual metadata column.
      */
     private static void rejectMetadataColumnCollisions(List<DataField> fields) {
         for (DataField field : fields) {

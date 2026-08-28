@@ -237,6 +237,26 @@ public class PaimonConnectorMetadataTest {
     }
 
     @Test
+    public void inheritedSystemTablePhysicalMetadataColumnNameFailsSafely() {
+        for (String physicalName : Arrays.asList("__paimon_file_path", "__PAIMON_ROW_INDEX")) {
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            FakePaimonTable systemTable = new FakePaimonTable(
+                    "external_table$ro",
+                    rowType("rowkind", "id", physicalName),
+                    Collections.emptyList(), Collections.emptyList());
+            PaimonTableHandle handle = PaimonTableHandle.forSystemTable("db1", "external_table", "ro", false);
+            handle.setPaimonTable(systemTable);
+            PaimonConnectorMetadata metadata = metadataWith(ops);
+
+            DorisConnectorException schemaError = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata.getTableSchema(null, handle));
+            Assertions.assertTrue(schemaError.getMessage().contains("conflicts with a reserved metadata"));
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata.getColumnHandles(null, handle));
+        }
+    }
+
+    @Test
     public void disablesCastPredicatePushdown() {
         PaimonConnectorMetadata metadata =
                 new PaimonConnectorMetadata(null, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());

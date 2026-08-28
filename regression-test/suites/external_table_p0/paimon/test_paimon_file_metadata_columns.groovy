@@ -25,6 +25,7 @@ suite("test_paimon_file_metadata_columns", "p0,external") {
     String catalogName = "test_paimon_file_metadata_columns"
     String hdfsPort = context.config.otherConfigs.get("hive2HdfsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String crossFileTable = "file_metadata_cross_file_positions"
 
     def verifyMetadata = { String tableName ->
         def rows = sql """
@@ -71,6 +72,19 @@ suite("test_paimon_file_metadata_columns", "p0,external") {
     }
 
     try {
+        // Two independent append commits create two physical data files.  The selected rows omit
+        // the first row in each file, so their reported positions must remain physical 1/2 rather
+        // than being renumbered after filtering or scanner-range splitting.
+        spark_paimon_multi """
+            drop table if exists paimon.db1.${crossFileTable};
+            create table paimon.db1.${crossFileTable} (id int, payload string)
+                using paimon tblproperties ('bucket'='1', 'file.format'='parquet');
+            insert into paimon.db1.${crossFileTable} values
+                (1, 'first-1'), (2, 'first-2'), (3, 'first-3');
+            insert into paimon.db1.${crossFileTable} values
+                (4, 'second-1'), (5, 'second-2'), (6, 'second-3');
+        """
+
         sql """drop catalog if exists ${catalogName}"""
         sql """create catalog ${catalogName} properties (
             "type" = "paimon",
@@ -86,6 +100,22 @@ suite("test_paimon_file_metadata_columns", "p0,external") {
 
         verifyMetadata("deletion_vector_orc")
         verifyMetadata("deletion_vector_parquet")
+
+        def crossFileRows = sql """
+            select id, `__paimon_file_path`, `__paimon_row_index`
+            from ${crossFileTable}
+            where id in (2, 3, 5, 6)
+            order by id
+        """
+        assertEquals(4, crossFileRows.size())
+        assertEquals([1L, 2L, 1L, 2L], crossFileRows.collect { it[2].toString().toLong() })
+        def firstFile = crossFileRows[0][1].toString()
+        def secondFile = crossFileRows[2][1].toString()
+        assertTrue(firstFile.contains("/data/") && secondFile.contains("/data/"),
+                "metadata columns must expose raw Paimon data-file paths")
+        assertEquals(firstFile, crossFileRows[1][1].toString())
+        assertEquals(secondFile, crossFileRows[3][1].toString())
+        assertTrue(firstFile != secondFile, "two append commits must retain distinct source-file paths")
 
         sql """set force_jni_scanner=true"""
         test {
