@@ -28,10 +28,14 @@ import org.apache.doris.metric.MetricRepo;
 
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 final class ConnectorMetadataAccessMetrics implements AutoCloseable {
 
+    static final int MAX_DISTINCT_OPERATIONS_PER_CATALOG = 64;
+    static final String OVERFLOW_OPERATION = "other";
     private static final Map<Pair<Long, String>, SharedCatalogMetrics> SHARED_METRICS = new HashMap<>();
 
     private final Pair<Long, String> catalogIdentity;
@@ -78,6 +82,7 @@ final class ConnectorMetadataAccessMetrics implements AutoCloseable {
         private final String catalogName;
         private final long catalogId;
         private final Map<String, MetricSet> metrics = new HashMap<>();
+        private final Set<String> operations = new HashSet<>();
         private int references;
 
         private SharedCatalogMetrics(String catalogName, long catalogId) {
@@ -89,9 +94,10 @@ final class ConnectorMetadataAccessMetrics implements AutoCloseable {
             if (!MetricRepo.isInit) {
                 return;
             }
-            String key = event.getOperation() + '\0' + event.getSource() + '\0' + event.isSuccess();
+            String operation = normalizeOperation(event.getOperation());
+            String key = operation + '\0' + event.getSource() + '\0' + event.isSuccess();
             MetricSet metricSet = metrics.computeIfAbsent(
-                    key, ignored -> new MetricSet(catalogName, catalogId, event));
+                    key, ignored -> new MetricSet(catalogName, catalogId, operation, event));
             metricSet.requests.increase(1L);
             metricSet.requestedItems.increase((long) event.getRequestedItems());
             metricSet.rpcs.increase((long) event.getRpcCount());
@@ -102,6 +108,14 @@ final class ConnectorMetadataAccessMetrics implements AutoCloseable {
             metricSet.latestMaxRpcElapsedMillis.setValue(event.getMaxRpcElapsedMillis());
             metricSet.latestLargestBatch.setValue(event.getLargestBatchSize());
             metricSet.latestSmallestBatch.setValue(event.getSmallestBatchSize());
+        }
+
+        private String normalizeOperation(String operation) {
+            if (operations.contains(operation) || operations.size() < MAX_DISTINCT_OPERATIONS_PER_CATALOG) {
+                operations.add(operation);
+                return operation;
+            }
+            return OVERFLOW_OPERATION;
         }
 
         private synchronized void unregister() {
@@ -122,49 +136,49 @@ final class ConnectorMetadataAccessMetrics implements AutoCloseable {
         private final GaugeMetricImpl<Integer> latestLargestBatch;
         private final GaugeMetricImpl<Integer> latestSmallestBatch;
 
-        private MetricSet(String catalog, long catalogId, ConnectorMetadataAccessEvent event) {
+        private MetricSet(String catalog, long catalogId, String operation, ConnectorMetadataAccessEvent event) {
             requests = counter("connector_metadata_access_requests_total", MetricUnit.REQUESTS,
-                    "Logical connector metadata requests", catalog, catalogId, event);
+                    "Logical connector metadata requests", catalog, catalogId, operation, event);
             requestedItems = counter("connector_metadata_access_requested_items_total", MetricUnit.NOUNIT,
-                    "Items requested by logical connector metadata requests", catalog, catalogId, event);
+                    "Items requested by logical connector metadata requests", catalog, catalogId, operation, event);
             rpcs = counter("connector_metadata_access_rpc_total", MetricUnit.REQUESTS,
-                    "Physical connector metadata RPCs", catalog, catalogId, event);
+                    "Physical connector metadata RPCs", catalog, catalogId, operation, event);
             rpcItems = counter("connector_metadata_access_rpc_items_total", MetricUnit.NOUNIT,
-                    "Items sent by connector metadata RPCs", catalog, catalogId, event);
+                    "Items sent by connector metadata RPCs", catalog, catalogId, operation, event);
             fallbacks = counter("connector_metadata_access_fallback_total", MetricUnit.OPERATIONS,
-                    "Connector metadata adaptive fallbacks", catalog, catalogId, event);
+                    "Connector metadata adaptive fallbacks", catalog, catalogId, operation, event);
             logicalElapsedMillis = counter("connector_metadata_access_elapsed_ms_total", MetricUnit.MILLISECONDS,
-                    "Cumulative logical connector metadata request time", catalog, catalogId, event);
+                    "Cumulative logical connector metadata request time", catalog, catalogId, operation, event);
             rpcElapsedMillis = counter("connector_metadata_access_rpc_elapsed_ms_total", MetricUnit.MILLISECONDS,
-                    "Cumulative physical connector metadata RPC attempt time", catalog, catalogId, event);
+                    "Cumulative physical connector metadata RPC attempt time", catalog, catalogId, operation, event);
             latestMaxRpcElapsedMillis = new GaugeMetricImpl<>("connector_metadata_access_max_rpc_elapsed_ms",
                     MetricUnit.MILLISECONDS, "Slowest physical RPC attempt in the latest request", 0L);
-            addLabels(latestMaxRpcElapsedMillis, catalog, catalogId, event);
+            addLabels(latestMaxRpcElapsedMillis, catalog, catalogId, operation, event);
             MetricRepo.DORIS_METRIC_REGISTER.addMetrics(latestMaxRpcElapsedMillis);
             latestLargestBatch = new GaugeMetricImpl<>("connector_metadata_access_largest_batch_size",
                     MetricUnit.NOUNIT, "Largest physical batch in the latest request", 0);
-            addLabels(latestLargestBatch, catalog, catalogId, event);
+            addLabels(latestLargestBatch, catalog, catalogId, operation, event);
             MetricRepo.DORIS_METRIC_REGISTER.addMetrics(latestLargestBatch);
             latestSmallestBatch = new GaugeMetricImpl<>("connector_metadata_access_smallest_batch_size",
                     MetricUnit.NOUNIT, "Smallest physical batch in the latest request", 0);
-            addLabels(latestSmallestBatch, catalog, catalogId, event);
+            addLabels(latestSmallestBatch, catalog, catalogId, operation, event);
             MetricRepo.DORIS_METRIC_REGISTER.addMetrics(latestSmallestBatch);
         }
 
         private static LongCounterMetric counter(String name, MetricUnit unit, String description,
-                String catalog, long catalogId, ConnectorMetadataAccessEvent event) {
+                String catalog, long catalogId, String operation, ConnectorMetadataAccessEvent event) {
             LongCounterMetric metric = new LongCounterMetric(name, unit, description);
-            addLabels(metric, catalog, catalogId, event);
+            addLabels(metric, catalog, catalogId, operation, event);
             MetricRepo.DORIS_METRIC_REGISTER.addMetrics(metric);
             return metric;
         }
 
         private static void addLabels(org.apache.doris.metric.Metric<?> metric, String catalog,
-                long catalogId, ConnectorMetadataAccessEvent event) {
+                long catalogId, String operation, ConnectorMetadataAccessEvent event) {
             metric.setLabels(Arrays.asList(
                     new MetricLabel("catalog", catalog),
                     new MetricLabel("catalog_id", String.valueOf(catalogId)),
-                    new MetricLabel("operation", event.getOperation()),
+                    new MetricLabel("operation", operation),
                     new MetricLabel("source", event.getSource()),
                     new MetricLabel("status", event.isSuccess() ? "success" : "failure")));
         }

@@ -67,6 +67,7 @@ public class ConnectorStatementScopeImpl implements ConnectorStatementScope {
             return;
         }
         closed = true;
+        Error firstError = null;
         // Pass 1: finalize the statement's write transaction(s) first, so a transaction aborted mid-flight is
         // rolled back / released before pass 2 closes the shared metadata instance it was minted from. On every
         // normal path the executor already finished the transaction, so this is a no-op.
@@ -74,8 +75,9 @@ public class ConnectorStatementScopeImpl implements ConnectorStatementScope {
             if (value instanceof CatalogStatementTransaction) {
                 try {
                     ((CatalogStatementTransaction) value).finalizeAtStatementEnd();
-                } catch (Exception e) {
-                    LOG.warn("failed to finalize per-statement transaction; continuing", e);
+                } catch (Throwable t) {
+                    LOG.warn("failed to finalize per-statement transaction; continuing", t);
+                    firstError = retainError(firstError, t);
                 }
             }
         }
@@ -88,12 +90,23 @@ public class ConnectorStatementScopeImpl implements ConnectorStatementScope {
             if (value instanceof AutoCloseable) {
                 try {
                     ((AutoCloseable) value).close();
-                } catch (Exception e) {
+                } catch (Throwable t) {
                     LOG.warn("failed to close per-statement scope value of type {}; continuing",
-                            value.getClass().getName(), e);
+                            value.getClass().getName(), t);
+                    firstError = retainError(firstError, t);
                 }
             }
         }
         cache.clear();
+        if (firstError != null) {
+            throw firstError;
+        }
+    }
+
+    private static Error retainError(Error firstError, Throwable failure) {
+        if (firstError != null && firstError != failure) {
+            firstError.addSuppressed(failure);
+        }
+        return firstError != null ? firstError : failure instanceof Error ? (Error) failure : null;
     }
 }
