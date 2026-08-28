@@ -224,4 +224,48 @@ suite("nereids_scalar_fn_map_decimal_precision") {
     order_qt_map_contains_entry_collision """
         select id, map_contains_entry(m, k, v) as r from fn_test_map_contains_collision_decimal order by id
     """
+
+    // 15. array_pushfront(ARRAY<Any(0)>, Any(0)) with ARRAY-of-MAP and MAP inputs: the
+    // container Any identity must be propagated into the descendant-relative MAP keys so
+    // both slots stay one compatible MAP type instead of regressing to incompatible types.
+    sql "drop table if exists fn_test_arr_push_map_decimal"
+    sql """
+        create table fn_test_arr_push_map_decimal (
+            id int null,
+            arr array<map<decimal(10,3), decimal(5,2)>> null,
+            m map<decimal(9,2), decimal(9,2)> null
+        ) engine=olap
+        distributed by hash(id) buckets 1
+        properties('replication_num' = '1')
+    """
+    sql """
+        insert into fn_test_arr_push_map_decimal values
+        (1, array(map(cast('1234567.890' as decimal(10,3)), cast('12.345' as decimal(5,2)))),
+            map(cast('12.34' as decimal(9,2)), cast('1.23' as decimal(9,2))));
+    """
+    order_qt_array_pushfront_map_container """
+        select id, array_pushfront(arr, m) as r from fn_test_arr_push_map_decimal order by id
+    """
+
+    // 16. array_contains(ARRAY<Any(0)>, Any(0)): the ARRAY item and the probe are one
+    // logical group, so a wider ARRAY<DECIMAL(27,9)> with a DECIMAL(9,3) probe must keep
+    // both at DECIMAL(27,9) instead of regressing only the probe to Decimal32.
+    sql "drop table if exists fn_test_arr_contains_decimal"
+    sql """
+        create table fn_test_arr_contains_decimal (
+            id int null,
+            arr array<decimal(27,9)> null,
+            probe decimal(9,3) null
+        ) engine=olap
+        distributed by hash(id) buckets 1
+        properties('replication_num' = '1')
+    """
+    sql """
+        insert into fn_test_arr_contains_decimal values
+        (1, array(cast('123456789012345678.123456789' as decimal(27,9))), cast('123456.789' as decimal(9,3))),
+        (2, array(cast('123456789012345678.123456789' as decimal(27,9))), cast('123456789012345678.123' as decimal(27,3)));
+    """
+    order_qt_array_contains_array_group """
+        select id, array_contains(arr, probe) as r from fn_test_arr_contains_decimal order by id
+    """
 }
