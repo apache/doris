@@ -31,14 +31,21 @@ suite('test_compute_group_binding_isolation', 'multi_cluster,docker') {
 
     docker(options) {
         def secondGroup = "cg_isolation_b"
-        cluster.addBackend(1, secondGroup)
 
+        // Resolve the session's own compute group before the second group exists. A session with no
+        // explicit group picks the first group with an alive backend, and that list is sorted by
+        // name, so once cg_isolation_b is up it would win over the default group and the two names
+        // below would collide.
         def groups = sql_return_maparray """show clusters"""
         logger.info("clusters: ${groups}")
         def firstGroup = groups.stream()
                 .filter(cg -> cg.is_current == "TRUE").findFirst().orElse(null)?.cluster
         assertNotNull(firstGroup)
         assertNotEquals(firstGroup, secondGroup)
+
+        cluster.addBackend(1, secondGroup)
+        // Keep this session on its original group now that a second one exists.
+        sql """use @${firstGroup}"""
 
         def tableName = "test_cg_isolation_tbl"
         def mvOnFirst = "test_cg_isolation_mv_a"
@@ -97,8 +104,10 @@ suite('test_compute_group_binding_isolation', 'multi_cluster,docker') {
 
         // The declaration wins over the triggering session: refreshing from inside the second group
         // must still send the first MV to the first group.
+        // COMPLETE, not AUTO: the base table has not changed since the first refresh, so AUTO would
+        // resolve to NOT_REFRESH and never report a compute group to assert on.
         sql """use @${secondGroup}"""
-        sql """REFRESH MATERIALIZED VIEW ${mvOnFirst} AUTO;"""
+        sql """REFRESH MATERIALIZED VIEW ${mvOnFirst} COMPLETE;"""
         waitingMTMVTaskFinishedByMvName(mvOnFirst)
         assertEquals(firstGroup, computeGroupOfLastTask(mvOnFirst))
 
