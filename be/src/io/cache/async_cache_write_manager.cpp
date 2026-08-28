@@ -511,12 +511,32 @@ AsyncCacheWriteBlockSubmitResult AsyncCacheWriteManager::try_submit_block(
     }
     std::memcpy(buffer->data(), request.data.data, request.data.size);
 
+    return try_submit_owned_block(AsyncCacheWriteOwnedBlockRequest {
+            .cache_hash = request.cache_hash,
+            .file_offset = request.file_offset,
+            .write_size = request.data.size,
+            .buffer = std::move(buffer),
+            .admission_ctx = std::move(request.admission_ctx),
+            .write_epoch = std::move(request.write_epoch),
+            .inflight_index = request.inflight_index,
+    });
+}
+
+AsyncCacheWriteBlockSubmitResult AsyncCacheWriteManager::try_submit_owned_block(
+        AsyncCacheWriteOwnedBlockRequest request) {
+    DORIS_CHECK(request.buffer != nullptr);
+    DORIS_CHECK(request.write_size > 0);
+    DORIS_CHECK(request.write_size <= request.buffer->size());
+    if (!check_write_epoch(request.write_epoch)) {
+        return AsyncCacheWriteBlockSubmitResult::STALE_EPOCH;
+    }
+
     const int64_t submit_ts_us = MonotonicMicros();
     AsyncCacheWriteTask task {
             .cache_hash = request.cache_hash,
             .file_offset = request.file_offset,
-            .write_size = request.data.size,
-            .buffer = buffer,
+            .write_size = request.write_size,
+            .buffer = request.buffer,
             .admission_ctx = std::move(request.admission_ctx),
             .submit_ts_us = submit_ts_us,
             .write_epoch = std::move(request.write_epoch),
@@ -524,8 +544,8 @@ AsyncCacheWriteBlockSubmitResult AsyncCacheWriteManager::try_submit_block(
     };
     std::shared_ptr<InflightWriteBufferEntry> entry;
     if (request.inflight_index != nullptr) {
-        entry = std::make_shared<InflightWriteBufferEntry>(buffer, request.file_offset,
-                                                           request.data.size, submit_ts_us);
+        entry = std::make_shared<InflightWriteBufferEntry>(request.buffer, request.file_offset,
+                                                           request.write_size, submit_ts_us);
         TEST_SYNC_POINT_CALLBACK(
                 "CachedRemoteFileReader::_submit_async_write_tasks:before_inflight_insert", &task);
         auto existing = request.inflight_index->insert_if_absent(request.cache_hash,
@@ -548,6 +568,18 @@ AsyncCacheWriteBlockSubmitResult AsyncCacheWriteManager::try_submit_block(
         return AsyncCacheWriteBlockSubmitResult::REJECTED;
     }
     return AsyncCacheWriteBlockSubmitResult::SUBMITTED;
+}
+
+bool AsyncCacheWriteManager::can_accept_without_eviction(size_t buffer_size) const {
+    DORIS_CHECK(buffer_size > 0);
+    std::lock_guard lock(_queue_mutex);
+    if (!_started.load(std::memory_order_acquire) || !_accepting.load(std::memory_order_acquire)) {
+        return false;
+    }
+    DORIS_CHECK(_task_buffer_size == 0 || _task_buffer_size == buffer_size);
+    const size_t max_pending_bytes = _options.load(std::memory_order_acquire)->max_pending_bytes;
+    const size_t pending_bytes = _pending_bytes.load(std::memory_order_relaxed);
+    return buffer_size <= max_pending_bytes && pending_bytes <= max_pending_bytes - buffer_size;
 }
 
 Status AsyncCacheWriteManager::allocate_tracked_buffer(size_t size,
