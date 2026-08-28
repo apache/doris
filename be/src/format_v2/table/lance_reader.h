@@ -36,20 +36,16 @@ struct LanceBatch;
 struct LanceDataset;
 struct LanceScanner;
 
+namespace doris {
+class ShardedKVCache;
+}
+
 namespace arrow {
 class Array;
 class RecordBatch;
-class Schema;
 } // namespace arrow
 
 namespace doris::format::lance {
-
-// Convert every top-level field without discarding unsupported columns. Malformed schemas still
-// return an error and leave both output vectors unchanged. DataTypeNothing is the local sentinel
-// for a valid Arrow field whose logical type Doris does not support.
-Status convert_arrow_schema_to_doris(const std::shared_ptr<arrow::Schema>& arrow_schema,
-                                     std::vector<std::string>* column_names,
-                                     std::vector<DataTypePtr>* column_types);
 
 // A FORMAT_LANCE table reader. Unlike file formats such as Parquet, a Lance split is not a
 // physical-file range. It either selects fragments from a fixed snapshot or scans the whole
@@ -98,13 +94,11 @@ private:
                                          Block* block, size_t* rows);
     Status _append_global_row_ids(const std::shared_ptr<arrow::Array>& row_ids,
                                   MutableColumnPtr& output_column) const;
-    static Status _storage_options(const TFileScanRangeParams* scan_params,
-                                   std::vector<std::string>* options);
     Status _dataset_key(const TFileRangeDesc& range, DatasetKey* key) const;
-    static Status _lance_error(std::string_view operation);
 
     LanceDataset* _dataset = nullptr;
     LanceScanner* _scanner = nullptr;
+    ShardedKVCache* _runtime_filter_cache = nullptr;
     std::optional<DatasetKey> _opened_dataset_key;
     std::unordered_map<std::string, size_t> _output_name_to_idx;
     std::optional<size_t> _global_rowid_output_idx;

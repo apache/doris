@@ -57,7 +57,13 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "exec/common/endian.h"
+#include "exprs/hybrid_set.h"
+#include "exprs/runtime_filter_expr.h"
+#include "exprs/vdirect_in_predicate.h"
 #include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vslot_ref.h"
+#include "format_v2/lance/lance_reader_helper.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/utils.h"
@@ -164,6 +170,26 @@ ColumnDefinition projected_column(std::string name, DataTypePtr type) {
 ColumnDefinition projected_column(std::string name, PrimitiveType type, bool nullable) {
     return projected_column(std::move(name),
                             DataTypeFactory::instance().create_data_type(type, nullable));
+}
+
+VExprContextSPtr create_int64_runtime_in_conjunct(std::string column_name,
+                                                  const std::vector<int64_t>& values,
+                                                  int filter_id) {
+    std::shared_ptr<HybridSetBase> filter(create_set(TYPE_BIGINT, false));
+    for (const auto value : values) {
+        filter->insert(&value);
+    }
+    TExprNode node;
+    node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    node.__set_node_type(TExprNodeType::IN_PRED);
+    node.in_predicate.__set_is_not_in(false);
+    node.__set_opcode(TExprOpcode::FILTER_IN);
+    node.__set_is_nullable(false);
+    auto predicate = VDirectInPredicate::create_shared(node, std::move(filter), true);
+    predicate->add_child(VSlotRef::create_shared(
+            0, 0, -1, make_nullable(std::make_shared<DataTypeInt64>()), std::move(column_name)));
+    return VExprContext::create_shared(
+            RuntimeFilterExpr::create_shared(node, std::move(predicate), 0.0, false, filter_id));
 }
 
 void add_output_columns(Block* block, const Columns& columns) {
@@ -635,7 +661,7 @@ TEST(LanceTableReaderVectorSearchTest, ReadsOnlyGlobalRowIdVirtualColumn) {
     EXPECT_TRUE(reader.close().ok());
 }
 
-TEST(LanceTableReaderFilterTest, PushesFilterOnNonProjectedColumn) {
+TEST(LanceTableReaderFilterTest, CombinesStaticSubstraitFilterWithRuntimeFilter) {
     const std::filesystem::path dataset_uri =
             "./be/test/format_v2/table/lance/data/all_types.lance";
     LanceFixtureInfo fixture;
@@ -711,6 +737,85 @@ TEST(LanceTableReaderFilterTest, PushesFilterOnNonProjectedColumn) {
     }
     std::ranges::sort(labels);
     EXPECT_EQ((std::vector<std::string> {"extra", "mixed"}), labels);
+    EXPECT_TRUE(reader.close().ok());
+
+    // The static Substrait prefilter and a later runtime filter must both remain active. Static
+    // row_id >= 3 yields {3, 4}; runtime row_id IN (2, 4) yields {2, 4}; their intersection is {4}.
+    std::string combined_substrait_filter;
+    ASSERT_TRUE(base64_decode(substrait_filter_base64, &combined_substrait_filter));
+    TLanceScanParams combined_lance_scan_params;
+    combined_lance_scan_params.__set_lance_substrait_filter(std::move(combined_substrait_filter));
+    TFileScanRangeParams combined_scan_params;
+    combined_scan_params.__set_lance_scan_params(std::move(combined_lance_scan_params));
+    const Columns row_id_columns {projected_column("row_id", TYPE_BIGINT, false)};
+    RuntimeProfile combined_profile("lance_substrait_and_runtime_filter_fixture");
+    const auto combined_runtime_filter = create_int64_runtime_in_conjunct("row_id", {2, 4}, 42);
+
+    LanceTableReader combined_reader;
+    ASSERT_TRUE(init_reader(&combined_reader, row_id_columns, &state, &combined_profile,
+                            &combined_scan_params, {combined_runtime_filter})
+                        .ok());
+    ASSERT_TRUE(prepare_fixture(&combined_reader, dataset_uri, fixture, fixture.fragment_ids).ok());
+
+    Block combined_block;
+    add_output_columns(&combined_block, row_id_columns);
+    std::vector<int64_t> combined_row_ids;
+    eos = false;
+    while (!eos) {
+        ASSERT_TRUE(combined_reader.get_block(&combined_block, &eos).ok());
+        if (eos) {
+            continue;
+        }
+        const auto& row_ids =
+                assert_cast<const ColumnInt64&>(*combined_block.get_by_position(0).column);
+        combined_row_ids.insert(combined_row_ids.end(), row_ids.get_data().begin(),
+                                row_ids.get_data().end());
+    }
+    EXPECT_EQ((std::vector<int64_t> {4}), combined_row_ids);
+    ASSERT_NE(combined_profile.get_info_string("LanceRuntimeFilterPushedIds"), nullptr);
+    EXPECT_EQ("42", *combined_profile.get_info_string("LanceRuntimeFilterPushedIds"));
+    EXPECT_TRUE(combined_reader.close().ok());
+}
+
+TEST(LanceTableReaderFilterTest, PushesRuntimeInFilterIntoLanceScanner) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    TQueryOptions query_options;
+    query_options.__set_batch_size(4);
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    state.set_query_options(query_options);
+    RuntimeProfile profile("lance_runtime_filter_pushdown_fixture");
+    TFileScanRangeParams scan_params;
+    const auto runtime_filter = create_int64_runtime_in_conjunct("row_id", {2, 4}, 41);
+
+    LanceTableReader reader;
+    ASSERT_TRUE(
+            init_reader(&reader, columns, &state, &profile, &scan_params, {runtime_filter}).ok());
+    ASSERT_TRUE(prepare_fixture(&reader, dataset_uri, fixture, fixture.fragment_ids).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    std::vector<int64_t> actual_row_ids;
+    bool eos = false;
+    while (!eos) {
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        if (eos) {
+            continue;
+        }
+        const auto& row_ids = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+        actual_row_ids.insert(actual_row_ids.end(), row_ids.get_data().begin(),
+                              row_ids.get_data().end());
+    }
+    std::ranges::sort(actual_row_ids);
+    EXPECT_EQ((std::vector<int64_t> {2, 4}), actual_row_ids);
+    ASSERT_NE(profile.get_info_string("LanceRuntimeFilterPushedIds"), nullptr);
+    EXPECT_EQ("41", *profile.get_info_string("LanceRuntimeFilterPushedIds"));
+    EXPECT_EQ(profile.get_info_string("LanceRuntimeFilterSkippedIds"), nullptr);
     EXPECT_TRUE(reader.close().ok());
 }
 
