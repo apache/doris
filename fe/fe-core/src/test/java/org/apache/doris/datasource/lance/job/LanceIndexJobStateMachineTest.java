@@ -86,7 +86,7 @@ public class LanceIndexJobStateMachineTest {
         Assertions.assertEquals(2L, committed.getRevision());
         Assertions.assertEquals(LanceIndexJobResultCode.NATIVE_OK, committed.getResult().getResultCode());
         Assertions.assertEquals(LanceIndexJobCompletionReason.NONE, committed.getResult().getCompletionReason());
-        Assertions.assertTrue(manager.getJobsNeedingRefresh().contains(committed));
+        Assertions.assertTrue(containsJob(manager.getJobsNeedingRefresh(), committed.getJobId()));
     }
 
     @Test
@@ -229,7 +229,7 @@ public class LanceIndexJobStateMachineTest {
         Assertions.assertEquals(LanceIndexJobRefreshState.FAILED, failed.getRefreshState());
         Assertions.assertTrue(manager.isFenceHeld(fenceKey));
         Assertions.assertEquals(1L, manager.getQuota().getGlobalCount());
-        Assertions.assertTrue(manager.getUnresolvedJobs().contains(failed));
+        Assertions.assertTrue(containsJob(manager.getUnresolvedJobs(), failed.getJobId()));
 
         // FAILED -> RUNNING is the retry entry through the idempotent refresh path.
         Assertions.assertTrue(manager.markRefreshRunning(1L, 4L));
@@ -322,9 +322,12 @@ public class LanceIndexJobStateMachineTest {
         LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
         Assertions.assertTrue(manager.getJob(1L).holdsPossibleLiveSlot());
 
-        Assertions.assertFalse(manager.recordTerminationProof(1L, 1L, LanceIndexTerminationProof.NONE));
-        Assertions.assertFalse(manager.recordTerminationProof(1L, 99L, LanceIndexTerminationProof.CHILD_REAPED));
-        Assertions.assertTrue(manager.recordTerminationProof(1L, 1L, LanceIndexTerminationProof.CHILD_REAPED));
+        Assertions.assertFalse(manager.recordTerminationProof(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                LanceIndexTerminationProof.NONE));
+        Assertions.assertFalse(manager.recordTerminationProof(1L, 99L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                LanceIndexTerminationProof.CHILD_REAPED));
+        Assertions.assertTrue(manager.recordTerminationProof(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                LanceIndexTerminationProof.CHILD_REAPED));
 
         LanceIndexJob stored = manager.getJob(1L);
         Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, stored.getMutationState());
@@ -334,7 +337,8 @@ public class LanceIndexJobStateMachineTest {
         Assertions.assertEquals(1L, manager.getQuota().getGlobalCount());
 
         // A slot may be proven exactly once.
-        Assertions.assertFalse(manager.recordTerminationProof(1L, 2L, LanceIndexTerminationProof.BE_PROCESS_EPOCH_GONE));
+        Assertions.assertFalse(manager.recordTerminationProof(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                LanceIndexTerminationProof.BE_PROCESS_EPOCH_GONE));
     }
 
     @Test
@@ -385,7 +389,7 @@ public class LanceIndexJobStateMachineTest {
         Assertions.assertTrue(manager.markRefreshFailed(1L, 3L));
 
         // FAILED still owes the idempotent retry: the driver must see the job.
-        Assertions.assertTrue(manager.getJobsNeedingRefresh().contains(manager.getJob(1L)));
+        Assertions.assertTrue(containsJob(manager.getJobsNeedingRefresh(), 1L));
 
         Assertions.assertTrue(manager.markRefreshRunning(1L, 4L));
         Assertions.assertTrue(manager.markRefreshDone(1L, 5L));
@@ -469,7 +473,8 @@ public class LanceIndexJobStateMachineTest {
         manager.createJob(newCreateJob(1L, "IdxA"), 100, 100, 100);
 
         // PENDING owns no possible-live slot: a proof has nothing to release.
-        Assertions.assertFalse(manager.recordTerminationProof(1L, 0L, LanceIndexTerminationProof.CHILD_REAPED));
+        Assertions.assertFalse(manager.recordTerminationProof(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                LanceIndexTerminationProof.CHILD_REAPED));
         Assertions.assertEquals(0L, manager.getJob(1L).getRevision());
         Assertions.assertEquals(1, manager.editLog.size());
 
@@ -482,7 +487,8 @@ public class LanceIndexJobStateMachineTest {
         Assertions.assertTrue(committed.holdsPossibleLiveSlot());
         LanceIndexFenceKey fenceKey = committed.fenceKey();
 
-        Assertions.assertTrue(manager.recordTerminationProof(1L, 2L, LanceIndexTerminationProof.CHILD_REAPED));
+        Assertions.assertTrue(manager.recordTerminationProof(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                LanceIndexTerminationProof.CHILD_REAPED));
         LanceIndexJob proven = manager.getJob(1L);
         Assertions.assertFalse(proven.holdsPossibleLiveSlot());
         // Fence and quota still follow the refresh rule, not the proof.
@@ -493,6 +499,78 @@ public class LanceIndexJobStateMachineTest {
         Assertions.assertTrue(manager.markRefreshDone(1L, 4L));
         Assertions.assertFalse(manager.isFenceHeld(fenceKey));
         Assertions.assertEquals(0L, manager.getQuota().getGlobalCount());
+    }
+
+    @Test
+    public void terminationProofAndResultUseTheImmutableDispatchRevisionInEitherOrder() throws DdlException {
+        TestManager proofFirst = new TestManager();
+        createAndRun(proofFirst, 1L, "IdxA");
+        Assertions.assertEquals(1L, proofFirst.getJob(1L).getDispatchRevision());
+
+        Assertions.assertFalse(proofFirst.recordTerminationProof(1L, 1L, BACKEND_ID + 1, BE_EPOCH,
+                INVOCATION_ID, LanceIndexTerminationProof.CHILD_REAPED));
+        Assertions.assertFalse(proofFirst.recordTerminationProof(1L, 1L, BACKEND_ID, BE_EPOCH + 1,
+                INVOCATION_ID, LanceIndexTerminationProof.CHILD_REAPED));
+        Assertions.assertFalse(proofFirst.recordTerminationProof(1L, 1L, BACKEND_ID, BE_EPOCH,
+                "wrong-invocation", LanceIndexTerminationProof.CHILD_REAPED));
+        Assertions.assertEquals(1L, proofFirst.getJob(1L).getRevision());
+
+        Assertions.assertTrue(proofFirst.recordTerminationProof(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                LanceIndexTerminationProof.CHILD_REAPED));
+        Assertions.assertEquals(2L, proofFirst.getJob(1L).getRevision());
+        Assertions.assertEquals(1L, proofFirst.getJob(1L).getDispatchRevision());
+        Assertions.assertTrue(proofFirst.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.NATIVE_OK)));
+        Assertions.assertEquals(LanceIndexJobMutationState.COMMITTED,
+                proofFirst.getJob(1L).getMutationState());
+
+        TestManager resultFirst = new TestManager();
+        createAndRun(resultFirst, 2L, "IdxB");
+        Assertions.assertTrue(resultFirst.completeWithResult(2L, 1L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.NATIVE_OK)));
+        Assertions.assertTrue(resultFirst.recordTerminationProof(2L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                LanceIndexTerminationProof.CHILD_REAPED));
+        Assertions.assertFalse(resultFirst.getJob(2L).holdsPossibleLiveSlot());
+        Assertions.assertEquals(1L, resultFirst.getJob(2L).getDispatchRevision());
+
+        TestManager legacyResultFirst = new TestManager();
+        createAndRun(legacyResultFirst, 3L, "IdxC");
+        LanceIndexJob legacyRunning = legacyResultFirst.getJob(3L);
+        legacyRunning.setDispatchRevision(null);
+        legacyResultFirst.replayUpsertJob(legacyRunning);
+        Assertions.assertTrue(legacyResultFirst.completeWithResult(3L, 1L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.NATIVE_OK)));
+        Assertions.assertEquals(1L, legacyResultFirst.getJob(3L).getDispatchRevision());
+        Assertions.assertTrue(legacyResultFirst.recordTerminationProof(3L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                LanceIndexTerminationProof.CHILD_REAPED));
+        Assertions.assertFalse(legacyResultFirst.getJob(3L).holdsPossibleLiveSlot());
+    }
+
+    @Test
+    public void refreshTransitionsRejectNonTerminalMutationState() {
+        TestManager manager = new TestManager();
+        LanceIndexJob corrupt = newCreateJob(1L, "IdxA");
+        corrupt.setMutationState(LanceIndexJobMutationState.PENDING);
+        corrupt.setRefreshState(LanceIndexJobRefreshState.REQUIRED);
+        manager.replayUpsertJob(corrupt);
+
+        Assertions.assertFalse(manager.markRefreshRunning(1L, 0L));
+        Assertions.assertEquals(LanceIndexJobRefreshState.REQUIRED, manager.getJob(1L).getRefreshState());
+        Assertions.assertTrue(manager.editLog.isEmpty());
+    }
+
+    @Test
+    public void admissionRejectsNonPositiveQuotaLimitsBeforeDurableWrite() {
+        TestManager manager = new TestManager();
+        Assertions.assertThrows(DdlException.class,
+                () -> manager.createJob(newCreateJob(1L, "IdxA"), 0, 1, 1));
+        Assertions.assertThrows(DdlException.class,
+                () -> manager.createJob(newCreateJob(1L, "IdxA"), 1, 0, 1));
+        Assertions.assertThrows(DdlException.class,
+                () -> manager.createJob(newCreateJob(1L, "IdxA"), 1, 1, -1));
+        Assertions.assertEquals(0, manager.getJobCount());
+        Assertions.assertEquals(0L, manager.getQuota().getGlobalCount());
+        Assertions.assertTrue(manager.editLog.isEmpty());
     }
 
     @Test
@@ -509,7 +587,7 @@ public class LanceIndexJobStateMachineTest {
         LanceIndexFenceKey fenceKey = stored.fenceKey();
         Assertions.assertTrue(manager.isFenceHeld(fenceKey));
         Assertions.assertEquals(1L, manager.getQuota().getGlobalCount());
-        Assertions.assertTrue(manager.getJobsNeedingRefresh().contains(stored));
+        Assertions.assertTrue(containsJob(manager.getJobsNeedingRefresh(), stored.getJobId()));
 
         Assertions.assertTrue(manager.markRefreshRunning(1L, 2L));
         Assertions.assertTrue(manager.markRefreshDone(1L, 3L));
@@ -524,6 +602,10 @@ public class LanceIndexJobStateMachineTest {
                 displayName, LanceIndexNameNormalizer.normalize(displayName),
                 LanceIndexJobMutationType.CREATE, false, false, "IVF_PQ", "v",
                 null, 7L, null);
+    }
+
+    private static boolean containsJob(List<LanceIndexJob> jobs, long jobId) {
+        return jobs.stream().anyMatch(job -> job.getJobId() == jobId);
     }
 
     private static LanceIndexJob newDropJob(long jobId, String displayName, boolean ifExists) {

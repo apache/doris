@@ -59,6 +59,10 @@ public class LanceIndexJob implements Writable {
     public static final int MAX_PROPERTIES_JSON_BYTES = 4096;
     /** Bound on the FORCE_RELEASE operator note and the late-commit warning text. */
     public static final int MAX_FORCE_TEXT_BYTES = 1024;
+    /** Bound on persisted creator, target-name, mutation, and FORCE-actor text. */
+    public static final int MAX_DURABLE_TEXT_BYTES = 1024;
+    /** Dispatch identities are UUID-like tokens, not arbitrary worker output. */
+    public static final int MAX_INVOCATION_ID_BYTES = 256;
 
     // ------------------------------------------------------------------
     // Identity
@@ -166,6 +170,14 @@ public class LanceIndexJob implements Writable {
     @SerializedName(value = "bpe")
     private Long beProcessEpoch;
 
+    /**
+     * Immutable revision established by PENDING -> RUNNING. Result and
+     * termination-proof callbacks use this dispatch identity rather than racing
+     * on the record's global revision. Null only before dispatch or in old data.
+     */
+    @SerializedName(value = "drv")
+    private Long dispatchRevision;
+
     /** Immutable per-dispatch UUID; callbacks must present the matching identity. */
     @SerializedName(value = "iid")
     private String invocationId;
@@ -217,10 +229,10 @@ public class LanceIndexJob implements Writable {
             String columnName, String propertiesJson, long admittedDatasetVersion,
             LanceIndexSchemaContract schemaContract) {
         this.jobId = jobId;
-        this.creator = creator;
+        this.creator = checkRequiredBytes(creator, MAX_DURABLE_TEXT_BYTES, "creator");
         this.catalogId = catalogId;
-        this.dbName = dbName;
-        this.tableName = tableName;
+        this.dbName = checkRequiredBytes(dbName, MAX_DURABLE_TEXT_BYTES, "dbName");
+        this.tableName = checkRequiredBytes(tableName, MAX_DURABLE_TEXT_BYTES, "tableName");
         this.provider = Objects.requireNonNull(provider, "provider");
         this.normalizedLocator = Objects.requireNonNull(normalizedLocator, "normalizedLocator");
         setDisplayIndexName(displayIndexName);
@@ -228,11 +240,12 @@ public class LanceIndexJob implements Writable {
         this.mutationType = Objects.requireNonNull(mutationType, "mutationType");
         this.ifNotExists = ifNotExists;
         this.ifExists = ifExists;
-        this.indexType = indexType;
-        this.columnName = columnName;
+        setIndexType(indexType);
+        setColumnName(columnName);
         setPropertiesJson(propertiesJson);
         this.admittedDatasetVersion = admittedDatasetVersion;
         this.schemaContract = schemaContract;
+        validateForAdmission();
     }
 
     /**
@@ -269,6 +282,7 @@ public class LanceIndexJob implements Writable {
         this.result = other.result;
         this.backendId = other.backendId;
         this.beProcessEpoch = other.beProcessEpoch;
+        this.dispatchRevision = other.dispatchRevision;
         this.invocationId = other.invocationId;
         this.deadlineMs = other.deadlineMs;
         this.possibleLiveOwned = other.possibleLiveOwned;
@@ -336,6 +350,52 @@ public class LanceIndexJob implements Writable {
                 && !forceReleased;
     }
 
+    /**
+     * Validate the invariant-bearing and bounded fields before this record is
+     * admitted. This is intentionally separate from Gson replay, which must
+     * remain tolerant of old or corrupt records in the safe direction.
+     */
+    public void validateForAdmission() {
+        checkRequiredBytes(creator, MAX_DURABLE_TEXT_BYTES, "creator");
+        checkRequiredBytes(dbName, MAX_DURABLE_TEXT_BYTES, "dbName");
+        checkRequiredBytes(tableName, MAX_DURABLE_TEXT_BYTES, "tableName");
+        if (provider == null) {
+            throw new IllegalArgumentException("lance index job provider must not be null");
+        }
+        if (!LanceIndexFenceKey.PROVIDER_DIRECTORY.equals(provider)) {
+            throw new IllegalArgumentException("lance index job provider must be DIRECTORY");
+        }
+        if (normalizedLocator == null) {
+            throw new IllegalArgumentException("normalized dataset locator must not be null");
+        }
+        String canonicalLocator = LanceIndexDatasetLocator.normalize(normalizedLocator);
+        if (!canonicalLocator.equals(normalizedLocator)) {
+            throw new IllegalArgumentException("dataset locator is not in canonical identity form");
+        }
+        LanceIndexNameNormalizer.validateDisplayName(displayIndexName);
+        validateNormalizedIndexName(normalizedIndexName);
+        String expectedNormalizedName = LanceIndexNameNormalizer.normalize(displayIndexName);
+        if (!expectedNormalizedName.equals(normalizedIndexName)) {
+            throw new IllegalArgumentException("normalized index name does not match the display name");
+        }
+        if (mutationType == null) {
+            throw new IllegalArgumentException("mutation type must not be null");
+        }
+        checkBytes(indexType, MAX_DURABLE_TEXT_BYTES, "indexType");
+        checkBytes(columnName, MAX_DURABLE_TEXT_BYTES, "columnName");
+        checkBytes(propertiesJson, MAX_PROPERTIES_JSON_BYTES, "propertiesJson");
+        checkBytes(invocationId, MAX_INVOCATION_ID_BYTES, "invocationId");
+        checkBytes(forceActor, MAX_DURABLE_TEXT_BYTES, "forceActor");
+        checkBytes(forceNote, MAX_FORCE_TEXT_BYTES, "forceNote");
+        checkBytes(forceWarning, MAX_FORCE_TEXT_BYTES, "forceWarning");
+        if (result != null) {
+            checkBytes(result.getSanitizedMessage(), LanceIndexJobResult.MAX_MESSAGE_BYTES, "sanitizedMessage");
+        }
+        if (schemaContract != null) {
+            schemaContract.validateForAdmission();
+        }
+    }
+
     // ------------------------------------------------------------------
     // Accessors. Setters for bounded text fields re-validate the bound.
     // ------------------------------------------------------------------
@@ -353,7 +413,7 @@ public class LanceIndexJob implements Writable {
     }
 
     public void setCreator(String creator) {
-        this.creator = creator;
+        this.creator = checkBytes(creator, MAX_DURABLE_TEXT_BYTES, "creator");
     }
 
     public long getRevision() {
@@ -414,6 +474,11 @@ public class LanceIndexJob implements Writable {
     }
 
     public final void setNormalizedIndexName(String normalizedIndexName) {
+        validateNormalizedIndexName(normalizedIndexName);
+        this.normalizedIndexName = normalizedIndexName;
+    }
+
+    private static void validateNormalizedIndexName(String normalizedIndexName) {
         if (normalizedIndexName == null || normalizedIndexName.isEmpty()) {
             throw new IllegalArgumentException("normalized index name must not be null or empty");
         }
@@ -422,7 +487,6 @@ public class LanceIndexJob implements Writable {
             throw new IllegalArgumentException(
                     "normalized index name exceeds " + LanceIndexNameNormalizer.MAX_INDEX_NAME_BYTES + " UTF-8 bytes");
         }
-        this.normalizedIndexName = normalizedIndexName;
     }
 
     public LanceIndexJobMutationType getMutationType() {
@@ -442,7 +506,7 @@ public class LanceIndexJob implements Writable {
     }
 
     public void setIndexType(String indexType) {
-        this.indexType = indexType;
+        this.indexType = checkBytes(indexType, MAX_DURABLE_TEXT_BYTES, "indexType");
     }
 
     public String getColumnName() {
@@ -450,7 +514,7 @@ public class LanceIndexJob implements Writable {
     }
 
     public void setColumnName(String columnName) {
-        this.columnName = columnName;
+        this.columnName = checkBytes(columnName, MAX_DURABLE_TEXT_BYTES, "columnName");
     }
 
     public String getPropertiesJson() {
@@ -509,12 +573,20 @@ public class LanceIndexJob implements Writable {
         this.beProcessEpoch = beProcessEpoch;
     }
 
+    public Long getDispatchRevision() {
+        return dispatchRevision;
+    }
+
+    public void setDispatchRevision(Long dispatchRevision) {
+        this.dispatchRevision = dispatchRevision;
+    }
+
     public String getInvocationId() {
         return invocationId;
     }
 
     public void setInvocationId(String invocationId) {
-        this.invocationId = invocationId;
+        this.invocationId = checkBytes(invocationId, MAX_INVOCATION_ID_BYTES, "invocationId");
     }
 
     public Long getDeadlineMs() {
@@ -554,7 +626,7 @@ public class LanceIndexJob implements Writable {
     }
 
     public void setForceActor(String forceActor) {
-        this.forceActor = forceActor;
+        this.forceActor = checkBytes(forceActor, MAX_DURABLE_TEXT_BYTES, "forceActor");
     }
 
     public Long getForceTimeMs() {
@@ -586,6 +658,13 @@ public class LanceIndexJob implements Writable {
             throw new IllegalArgumentException(fieldName + " exceeds " + maxBytes + " UTF-8 bytes");
         }
         return value;
+    }
+
+    private static String checkRequiredBytes(String value, int maxBytes, String fieldName) {
+        if (value == null || value.isEmpty()) {
+            throw new IllegalArgumentException(fieldName + " must not be null or empty");
+        }
+        return checkBytes(value, maxBytes, fieldName);
     }
 
     // ------------------------------------------------------------------

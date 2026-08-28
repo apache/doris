@@ -19,6 +19,7 @@ package org.apache.doris.datasource.lance.job;
 
 import com.google.gson.annotations.SerializedName;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -37,6 +38,10 @@ import java.util.Objects;
 public class LanceIndexSchemaContract {
     /** The only schema contract version defined. */
     public static final int SCHEMA_CONTRACT_VERSION_V1 = 1;
+    /** A finite representation bound; 4.2 admission may impose a smaller type-specific arity. */
+    public static final int MAX_INDEXED_FIELDS = 64;
+    /** Bound for every persisted schema-contract string. */
+    public static final int MAX_FIELD_STRING_BYTES = 1024;
 
     @SerializedName(value = "scv")
     private int schemaContractVersion = SCHEMA_CONTRACT_VERSION_V1;
@@ -52,7 +57,52 @@ public class LanceIndexSchemaContract {
 
     public LanceIndexSchemaContract(List<IndexedField> fields) {
         this.schemaContractVersion = SCHEMA_CONTRACT_VERSION_V1;
-        this.fields = Collections.unmodifiableList(new ArrayList<>(Objects.requireNonNull(fields, "fields")));
+        this.fields = validatedFields(fields);
+    }
+
+    /**
+     * Revalidate a possibly Gson-created contract before it enters a new durable
+     * admission record. Replay remains tolerant, but newly journaled records must
+     * use the supported version and bounded representation.
+     */
+    public void validateForAdmission() {
+        if (schemaContractVersion != SCHEMA_CONTRACT_VERSION_V1) {
+            throw new IllegalArgumentException("unsupported schema contract version: " + schemaContractVersion);
+        }
+        validatedFields(fields);
+    }
+
+    private static List<IndexedField> validatedFields(List<IndexedField> source) {
+        if (source == null) {
+            throw new IllegalArgumentException("schema contract fields must not be null");
+        }
+        if (source.size() > MAX_INDEXED_FIELDS) {
+            throw new IllegalArgumentException(
+                    "schema contract exceeds " + MAX_INDEXED_FIELDS + " indexed fields");
+        }
+        List<IndexedField> copy = new ArrayList<>(source.size());
+        for (IndexedField field : source) {
+            if (field == null) {
+                throw new IllegalArgumentException("schema contract indexed field must not be null");
+            }
+            field.validateForAdmission();
+            copy.add(field);
+        }
+        return Collections.unmodifiableList(copy);
+    }
+
+    private static String checkString(String value, boolean nullable, String fieldName) {
+        if (value == null) {
+            if (nullable) {
+                return null;
+            }
+            throw new IllegalArgumentException(fieldName + " must not be null");
+        }
+        if (value.getBytes(StandardCharsets.UTF_8).length > MAX_FIELD_STRING_BYTES) {
+            throw new IllegalArgumentException(
+                    fieldName + " exceeds " + MAX_FIELD_STRING_BYTES + " UTF-8 bytes");
+        }
+        return value;
     }
 
     public int getSchemaContractVersion() {
@@ -122,12 +172,18 @@ public class LanceIndexSchemaContract {
         public IndexedField(long fieldId, String normalizedName, String normalizedType, boolean nullable,
                 Integer fixedSizeListDimension, String vectorElementType, Boolean vectorElementNullable) {
             this.fieldId = fieldId;
-            this.normalizedName = Objects.requireNonNull(normalizedName, "normalizedName");
-            this.normalizedType = Objects.requireNonNull(normalizedType, "normalizedType");
+            this.normalizedName = checkString(normalizedName, false, "normalizedName");
+            this.normalizedType = checkString(normalizedType, false, "normalizedType");
             this.nullable = nullable;
             this.fixedSizeListDimension = fixedSizeListDimension;
-            this.vectorElementType = vectorElementType;
+            this.vectorElementType = checkString(vectorElementType, true, "vectorElementType");
             this.vectorElementNullable = vectorElementNullable;
+        }
+
+        private void validateForAdmission() {
+            checkString(normalizedName, false, "normalizedName");
+            checkString(normalizedType, false, "normalizedType");
+            checkString(vectorElementType, true, "vectorElementType");
         }
 
         public long getFieldId() {

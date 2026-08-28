@@ -151,6 +151,54 @@ public class LanceIndexJobManagerPersistTest {
     }
 
     @Test
+    public void schemaContractIsBoundedNullFreeAndImmutable() {
+        LanceIndexSchemaContract.IndexedField field = new LanceIndexSchemaContract.IndexedField(
+                1L, "v", "fixed_size_list[float;192]", false, 192, "float", false);
+        List<LanceIndexSchemaContract.IndexedField> atLimit = new ArrayList<>();
+        for (int index = 0; index < LanceIndexSchemaContract.MAX_INDEXED_FIELDS; index++) {
+            atLimit.add(field);
+        }
+        LanceIndexSchemaContract contractAtLimit = new LanceIndexSchemaContract(atLimit);
+        Assertions.assertEquals(LanceIndexSchemaContract.MAX_INDEXED_FIELDS, contractAtLimit.getFields().size());
+
+        atLimit.add(field);
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new LanceIndexSchemaContract(atLimit));
+        List<LanceIndexSchemaContract.IndexedField> withNull = new ArrayList<>();
+        withNull.add(null);
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new LanceIndexSchemaContract(withNull));
+
+        List<LanceIndexSchemaContract.IndexedField> source = new ArrayList<>();
+        source.add(field);
+        LanceIndexSchemaContract copied = new LanceIndexSchemaContract(source);
+        source.clear();
+        Assertions.assertEquals(1, copied.getFields().size());
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> copied.getFields().add(field));
+    }
+
+    @Test
+    public void schemaContractStringBoundsCountUtf8Bytes() {
+        String atLimit = StringUtils.repeat("é", LanceIndexSchemaContract.MAX_FIELD_STRING_BYTES / 2);
+        new LanceIndexSchemaContract.IndexedField(1L, atLimit, atLimit, false, null, atLimit, null);
+
+        String overLimit = atLimit + "é";
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new LanceIndexSchemaContract.IndexedField(
+                        1L, overLimit, "type", false, null, null, null));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new LanceIndexSchemaContract.IndexedField(
+                        1L, "name", overLimit, false, null, null, null));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new LanceIndexSchemaContract.IndexedField(
+                        1L, "name", "type", false, null, overLimit, null));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new LanceIndexSchemaContract.IndexedField(
+                        1L, null, "type", false, null, null, null));
+    }
+
+    @Test
     public void journalEntityRoundtripUsesOpCode500() throws Exception {
         LanceIndexJob job = fullyPopulatedJob();
 
@@ -233,6 +281,16 @@ public class LanceIndexJobManagerPersistTest {
 
         LanceIndexJob job = newCreateJob(1L, "IdxA");
         Assertions.assertThrows(IllegalArgumentException.class,
+                () -> job.setCreator(StringUtils.repeat("c", LanceIndexJob.MAX_DURABLE_TEXT_BYTES + 1)));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> job.setIndexType(StringUtils.repeat("t", LanceIndexJob.MAX_DURABLE_TEXT_BYTES + 1)));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> job.setColumnName(StringUtils.repeat("c", LanceIndexJob.MAX_DURABLE_TEXT_BYTES + 1)));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> job.setInvocationId(StringUtils.repeat("i", LanceIndexJob.MAX_INVOCATION_ID_BYTES + 1)));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> job.setForceActor(StringUtils.repeat("a", LanceIndexJob.MAX_DURABLE_TEXT_BYTES + 1)));
+        Assertions.assertThrows(IllegalArgumentException.class,
                 () -> job.setPropertiesJson(StringUtils.repeat("p", LanceIndexJob.MAX_PROPERTIES_JSON_BYTES + 1)));
         job.setPropertiesJson(StringUtils.repeat("p", LanceIndexJob.MAX_PROPERTIES_JSON_BYTES));
         Assertions.assertThrows(IllegalArgumentException.class,
@@ -247,6 +305,19 @@ public class LanceIndexJobManagerPersistTest {
                         StringUtils.repeat("d", LanceIndexNameNormalizer.MAX_INDEX_NAME_BYTES + 1)));
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> newCreateJob(2L, StringUtils.repeat("d", LanceIndexNameNormalizer.MAX_INDEX_NAME_BYTES + 1)));
+
+        // Optional durable text remains nullable; required creator identity does not.
+        job.setCreator(null);
+        Assertions.assertThrows(IllegalArgumentException.class, job::validateForAdmission);
+        job.setCreator("tester");
+        job.setIndexType(null);
+        job.setColumnName(null);
+        job.setInvocationId(null);
+        job.setForceActor(null);
+        job.setForceNote(null);
+        job.setForceWarning(null);
+        job.setPropertiesJson(null);
+        job.validateForAdmission();
     }
 
     @Test
@@ -289,6 +360,7 @@ public class LanceIndexJobManagerPersistTest {
                 LanceIndexJobCompletionReason.NONE, "io error", true));
         job.setBackendId(BACKEND_ID);
         job.setBeProcessEpoch(BE_EPOCH);
+        job.setDispatchRevision(7L);
         job.setInvocationId(INVOCATION_ID);
         job.setDeadlineMs(123456L);
         job.setPossibleLiveOwned(true);
@@ -338,6 +410,7 @@ public class LanceIndexJobManagerPersistTest {
                 actual.getResult().isExternalMetadataAdvanced());
         Assertions.assertEquals(expected.getBackendId(), actual.getBackendId());
         Assertions.assertEquals(expected.getBeProcessEpoch(), actual.getBeProcessEpoch());
+        Assertions.assertEquals(expected.getDispatchRevision(), actual.getDispatchRevision());
         Assertions.assertEquals(expected.getInvocationId(), actual.getInvocationId());
         Assertions.assertEquals(expected.getDeadlineMs(), actual.getDeadlineMs());
         Assertions.assertEquals(expected.isPossibleLiveOwned(), actual.isPossibleLiveOwned());

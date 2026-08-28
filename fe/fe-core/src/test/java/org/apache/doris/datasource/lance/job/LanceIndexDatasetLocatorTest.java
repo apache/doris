@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.lance.job;
 
+import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -92,6 +93,60 @@ public class LanceIndexDatasetLocatorTest {
                 () -> LanceIndexDatasetLocator.normalize("s3://user:secret@bucket/path"));
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> LanceIndexDatasetLocator.normalize("https://user:secret@example.com/ds"));
+    }
+
+    @Test
+    public void rejectsQueriesAndFragmentsThatCouldCarryCredentials() {
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceIndexDatasetLocator.normalize(
+                        "https://bucket.example/ds?X-Amz-Credential=AKIA_TEST&X-Amz-Signature=secret"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceIndexDatasetLocator.normalize("https://account.blob.core.windows.net/ds?sig=secret"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceIndexDatasetLocator.normalize("s3://bucket/ds#credential-fragment"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceIndexDatasetLocator.normalize("/data/ds?token=secret"));
+    }
+
+    @Test
+    public void malformedLocatorErrorsDoNotEchoPotentialSecrets() {
+        String malformed = "s 3://user:top-secret@bucket/path";
+        IllegalArgumentException malformedError = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceIndexDatasetLocator.normalize(malformed));
+        Assertions.assertFalse(malformedError.getMessage().contains(malformed));
+        Assertions.assertFalse(malformedError.getMessage().contains("top-secret"));
+
+        String relative = "access-key:top-secret@bucket/path";
+        IllegalArgumentException relativeError = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceIndexDatasetLocator.normalize(relative));
+        Assertions.assertFalse(relativeError.getMessage().contains(relative));
+        Assertions.assertFalse(relativeError.getMessage().contains("top-secret"));
+    }
+
+    @Test
+    public void rejectsMalformedOrNonHierarchicalSchemes() {
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceIndexDatasetLocator.normalize("1s3://bucket/path"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceIndexDatasetLocator.normalize("s3:/bucket/path"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceIndexDatasetLocator.normalize("s3:bucket/path"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceIndexDatasetLocator.normalize("https://[malformed/path"));
+    }
+
+    @Test
+    public void locatorBoundCountsUtf8Bytes() {
+        String prefix = "s3://bucket/";
+        String atLimit = prefix + StringUtils.repeat(
+                "a", LanceIndexDatasetLocator.MAX_LOCATOR_BYTES - prefix.length());
+        Assertions.assertEquals(atLimit, LanceIndexDatasetLocator.normalize(atLimit));
+
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceIndexDatasetLocator.normalize(atLimit + "a"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceIndexDatasetLocator.normalize(prefix + StringUtils.repeat("é",
+                        (LanceIndexDatasetLocator.MAX_LOCATOR_BYTES - prefix.length()) / 2 + 1)));
     }
 
     @Test

@@ -17,6 +17,9 @@
 
 package org.apache.doris.datasource.lance.job;
 
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 /**
@@ -46,6 +49,8 @@ import java.util.Locale;
  */
 public final class LanceIndexDatasetLocator {
     private static final String SCHEME_SEPARATOR = "://";
+    /** Finite bound for the stable locator persisted in every durable job record. */
+    public static final int MAX_LOCATOR_BYTES = 4096;
 
     private LanceIndexDatasetLocator() {
     }
@@ -53,9 +58,10 @@ public final class LanceIndexDatasetLocator {
     /**
      * Normalize a raw dataset locator into its durable identity form.
      *
-     * @throws IllegalArgumentException if the locator is null/empty, carries
-     *         userinfo, has an empty scheme, has neither an authority nor a
-     *         path, or is a scheme-less relative path
+     * @throws IllegalArgumentException if the locator is null/empty/oversized,
+     *         is not a valid hierarchical URI or absolute path, carries
+     *         userinfo/query/fragment data, has neither an authority nor a path,
+     *         or is a scheme-less relative path
      */
     public static String normalize(String rawLocator) {
         if (rawLocator == null) {
@@ -65,34 +71,66 @@ public final class LanceIndexDatasetLocator {
         if (locator.isEmpty()) {
             throw new IllegalArgumentException("dataset locator must not be empty");
         }
-        int separator = locator.indexOf(SCHEME_SEPARATOR);
-        if (separator < 0) {
-            if (!locator.startsWith("/")) {
-                throw new IllegalArgumentException(
-                        "dataset locator without a scheme must be an absolute path: " + abbreviate(locator));
-            }
-            return stripTrailingSlashes(locator, 1);
+        if (locator.getBytes(StandardCharsets.UTF_8).length > MAX_LOCATOR_BYTES) {
+            throw new IllegalArgumentException(
+                    "dataset locator exceeds " + MAX_LOCATOR_BYTES + " UTF-8 bytes");
         }
-        String scheme = locator.substring(0, separator);
-        if (scheme.isEmpty()) {
-            throw new IllegalArgumentException("dataset locator has an empty scheme: " + abbreviate(locator));
+
+        // Preserve the established spelling of the scheme-less filesystem root.
+        // java.net.URI rejects "//" as a network-path reference without an
+        // authority, while it is a valid absolute filesystem path here.
+        if (containsOnlySlashes(locator)) {
+            return "/";
         }
-        String rest = locator.substring(separator + SCHEME_SEPARATOR.length());
-        int pathStart = rest.indexOf('/');
-        String authority = pathStart < 0 ? rest : rest.substring(0, pathStart);
-        if (authority.contains("@")) {
-            // Never persist or key on a credential-bearing URL.
+
+        URI uri;
+        try {
+            uri = new URI(locator);
+        } catch (URISyntaxException e) {
+            // Do not include the raw locator: it may contain credentials.
+            throw new IllegalArgumentException("dataset locator is not a valid URI or absolute path");
+        }
+        if (uri.getRawUserInfo() != null) {
             throw new IllegalArgumentException(
                     "credential-bearing dataset locators are never identity (userinfo is not allowed)");
         }
-        String path = pathStart < 0 ? "" : stripTrailingSlashes(rest.substring(pathStart), 0);
+        if (uri.getRawQuery() != null) {
+            // Presigned object-store URLs and SAS URLs carry credentials here.
+            throw new IllegalArgumentException("dataset locator query parameters are not allowed");
+        }
+        if (uri.getRawFragment() != null) {
+            throw new IllegalArgumentException("dataset locator fragments are not allowed");
+        }
+
+        String scheme = uri.getScheme();
+        if (scheme == null) {
+            if (!locator.startsWith("/")) {
+                throw new IllegalArgumentException("dataset locator without a scheme must be an absolute path");
+            }
+            return stripTrailingSlashes(locator, 1);
+        }
+        if (uri.isOpaque() || !locator.regionMatches(scheme.length(), SCHEME_SEPARATOR, 0,
+                SCHEME_SEPARATOR.length())) {
+            throw new IllegalArgumentException("dataset locator scheme must use hierarchical '://' syntax");
+        }
+        String authority = uri.getRawAuthority() == null ? "" : uri.getRawAuthority();
+        String rawPath = uri.getRawPath() == null ? "" : uri.getRawPath();
+        String path = stripTrailingSlashes(rawPath, 0);
         if (authority.isEmpty() && path.isEmpty()) {
             // "s3://" / "file://" carry no identity at all; "file:///x" (empty
             // authority, non-empty path) is legal and does not reach this.
-            throw new IllegalArgumentException(
-                    "dataset locator has neither an authority nor a path: " + abbreviate(locator));
+            throw new IllegalArgumentException("dataset locator has neither an authority nor a path");
         }
         return scheme.toLowerCase(Locale.ROOT) + SCHEME_SEPARATOR + authority + path;
+    }
+
+    private static boolean containsOnlySlashes(String value) {
+        for (int index = 0; index < value.length(); index++) {
+            if (value.charAt(index) != '/') {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String stripTrailingSlashes(String value, int minLength) {
@@ -101,9 +139,5 @@ public final class LanceIndexDatasetLocator {
             end--;
         }
         return value.substring(0, end);
-    }
-
-    private static String abbreviate(String locator) {
-        return locator.length() <= 64 ? locator : locator.substring(0, 64) + "...";
     }
 }
