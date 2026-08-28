@@ -144,6 +144,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         String tableName = tbl.getTbl();
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrException(ctlName, catalogName -> new DdlException("Unknown catalog " + catalogName));
+        validateLanceRestIndexOperations(catalog);
         DatabaseIf dbIf = catalog.getDbOrDdlException(dbName);
         TableIf tableIf = dbIf.getTableOrDdlException(tableName);
         if (tableIf.isTemporary()) {
@@ -159,11 +160,10 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                     IndexDefinition indexDef = ((CreateIndexOp) op).getIndexDef();
                     LanceIndexMutationValidator.validateCreateIndex((LanceExternalCatalog) catalog,
                             (LanceExternalTable) tableIf, indexDef);
-                    throw new AnalysisException((indexDef.isOrReplace() ? "CREATE OR REPLACE INDEX" : "CREATE INDEX")
-                            + " is not supported for Lance catalog tables");
+                    LanceIndexMutationValidator.rejectUnsupportedOperation(
+                            indexDef.isOrReplace() ? "CREATE OR REPLACE INDEX" : "CREATE INDEX", "catalog tables");
                 } else if (op instanceof DropIndexOp && !((DropIndexOp) op).isAlter()) {
-                    LanceIndexMutationValidator.validateDropIndex((LanceExternalCatalog) catalog);
-                    throw new AnalysisException("DROP INDEX is not supported for Lance catalog tables");
+                    LanceIndexMutationValidator.rejectUnsupportedOperation("DROP INDEX", "catalog tables");
                 }
             }
         }
@@ -175,6 +175,20 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
             rewriteAlterOpForOlapTable(ctx, (OlapTable) tableIf);
         } else {
             checkExternalTableOperationAllow(tableIf);
+        }
+    }
+
+    private void validateLanceRestIndexOperations(CatalogIf catalog) throws AnalysisException {
+        if (!(catalog instanceof LanceExternalCatalog)) {
+            return;
+        }
+        for (AlterTableOp op : ops) {
+            if (op instanceof CreateIndexOp && !((CreateIndexOp) op).isAlter()) {
+                LanceIndexMutationValidator.validateCreateIndexCatalog((LanceExternalCatalog) catalog,
+                        ((CreateIndexOp) op).getIndexDef());
+            } else if (op instanceof DropIndexOp && !((DropIndexOp) op).isAlter()) {
+                LanceIndexMutationValidator.validateDropIndex((LanceExternalCatalog) catalog);
+            }
         }
     }
 

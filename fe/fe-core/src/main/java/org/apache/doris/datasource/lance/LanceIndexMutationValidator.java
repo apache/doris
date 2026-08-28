@@ -23,6 +23,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 
 import com.google.common.collect.ImmutableSet;
@@ -58,30 +60,27 @@ public final class LanceIndexMutationValidator {
      */
     public static void validateCreateIndex(LanceExternalCatalog catalog, LanceExternalTable table,
             IndexDefinition def) throws AnalysisException {
-        if (catalog.isRestCatalogConfigured()) {
-            throw new AnalysisException((def.isOrReplace() ? "CREATE OR REPLACE INDEX" : "CREATE INDEX")
-                    + " is not supported for Lance REST catalogs");
-        }
+        validateCreateIndexCatalog(catalog, def);
         String lanceType = def.getLanceIndexType();
         if (lanceType == null) {
             lanceType = def.getIndexType() == IndexDef.IndexType.ANN ? "ANN" : null;
         }
         if (lanceType == null) {
-            throw new AnalysisException("Lance catalog tables only support USING ANN, BTREE, or BITMAP");
+            rejectInvalidDefinition("Lance catalog tables only support USING ANN, BTREE, or BITMAP");
         }
         if (def.getCols() == null || def.getCols().size() != 1) {
-            throw new AnalysisException("Lance index must be built on exactly one column");
+            rejectInvalidDefinition("Lance index must be built on exactly one column");
         }
         if (def.getIndexName().getBytes(StandardCharsets.UTF_8).length > MAX_INDEX_NAME_BYTES) {
-            throw new AnalysisException("index name too long, the index name length at most is 64.");
+            rejectInvalidDefinition("index name too long, the index name length at most is 64.");
         }
         String columnName = def.getCols().get(0);
         Column column = table.getColumn(columnName);
         if (column == null) {
-            throw new AnalysisException("Index column '" + columnName + "' does not exist");
+            rejectInvalidDefinition("Index column '" + columnName + "' does not exist");
         }
         if (column.isAllowNull()) {
-            throw new AnalysisException(lanceType + " index must be built on a column that is not nullable");
+            rejectInvalidDefinition(lanceType + " index must be built on a column that is not nullable");
         }
         switch (lanceType) {
             case "ANN":
@@ -94,7 +93,18 @@ public final class LanceIndexMutationValidator {
                 validateBitmapIndex(column, def.getProperties());
                 break;
             default:
-                throw new AnalysisException("Lance catalog tables only support USING ANN, BTREE, or BITMAP");
+                rejectInvalidDefinition("Lance catalog tables only support USING ANN, BTREE, or BITMAP");
+        }
+    }
+
+    /**
+     * Rejects CREATE INDEX against a Lance REST catalog without resolving its database or table.
+     */
+    public static void validateCreateIndexCatalog(LanceExternalCatalog catalog, IndexDefinition def)
+            throws AnalysisException {
+        if (catalog.isRestCatalogConfigured()) {
+            rejectUnsupportedOperation(def.isOrReplace() ? "CREATE OR REPLACE INDEX" : "CREATE INDEX",
+                    "REST catalogs");
         }
     }
 
@@ -103,7 +113,7 @@ public final class LanceIndexMutationValidator {
      */
     public static void validateDropIndex(LanceExternalCatalog catalog) throws AnalysisException {
         if (catalog.isRestCatalogConfigured()) {
-            throw new AnalysisException("DROP INDEX is not supported for Lance REST catalogs");
+            rejectUnsupportedOperation("DROP INDEX", "REST catalogs");
         }
     }
 
@@ -111,11 +121,11 @@ public final class LanceIndexMutationValidator {
             throws AnalysisException {
         Type columnType = column.getType();
         if (!(columnType instanceof ArrayType)) {
-            throw new AnalysisException("ANN index column must be array type");
+            rejectInvalidDefinition("ANN index column must be array type");
         }
         Type itemType = ((ArrayType) columnType).getItemType();
         if (!itemType.isScalarType(PrimitiveType.FLOAT)) {
-            throw new AnalysisException("ANN index column item type must be float type");
+            rejectInvalidDefinition("ANN index column item type must be float type");
         }
         // Keys match case-insensitively; the normalized view below is validation-local only.
         // Persisting normalized keys/values into the admitted job spec is owned by admission.
@@ -123,32 +133,32 @@ public final class LanceIndexMutationValidator {
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey().toLowerCase(Locale.ROOT);
             if (!ANN_PROPERTY_KEYS.contains(key)) {
-                throw new AnalysisException("Unknown property '" + entry.getKey() + "' for Lance ANN index");
+                rejectInvalidDefinition("Unknown property '" + entry.getKey() + "' for Lance ANN index");
             }
             if (lowerCaseProperties.put(key, entry.getValue()) != null) {
-                throw new AnalysisException("Duplicate property '" + entry.getKey() + "' for Lance ANN index");
+                rejectInvalidDefinition("Duplicate property '" + entry.getKey() + "' for Lance ANN index");
             }
         }
         String indexType = lowerCaseProperties.get("index_type");
         if (indexType == null || !indexType.equalsIgnoreCase("IVF_PQ")) {
-            throw new AnalysisException("Lance ANN index requires property \"index_type\" = \"IVF_PQ\"");
+            rejectInvalidDefinition("Lance ANN index requires property \"index_type\" = \"IVF_PQ\"");
         }
         String metric = lowerCaseProperties.get("metric");
         if (metric != null && !ANN_METRICS.contains(metric.toLowerCase(Locale.ROOT))) {
-            throw new AnalysisException("metric must be one of l2, cosine, dot");
+            rejectInvalidDefinition("metric must be one of l2, cosine, dot");
         }
         checkRequiredPositiveInt(lowerCaseProperties, "num_partitions");
         checkRequiredPositiveInt(lowerCaseProperties, "num_sub_vectors");
         String numBits = lowerCaseProperties.get("num_bits");
         if (numBits != null && parsePositiveInt(numBits) != 8) {
-            throw new AnalysisException("num_bits must be 8");
+            rejectInvalidDefinition("num_bits must be 8");
         }
     }
 
     private static void validateBtreeIndex(Column column, Map<String, String> properties)
             throws AnalysisException {
         if (!properties.isEmpty()) {
-            throw new AnalysisException("BTREE indexes do not support properties");
+            rejectInvalidDefinition("BTREE indexes do not support properties");
         }
         Type columnType = column.getType();
         // LARGEINT (Arrow uint64) and TIMESTAMPTZ are included deliberately.
@@ -156,20 +166,20 @@ public final class LanceIndexMutationValidator {
                 && !columnType.isFloatingPointType() && !columnType.isDecimalV3()
                 && !columnType.isStringType() && !columnType.isDateV2()
                 && !columnType.isDatetimeV2() && !columnType.isTimeStampTz()) {
-            throw new AnalysisException("BTREE index does not support column type " + columnType);
+            rejectInvalidDefinition("BTREE index does not support column type " + columnType);
         }
     }
 
     private static void validateBitmapIndex(Column column, Map<String, String> properties)
             throws AnalysisException {
         if (!properties.isEmpty()) {
-            throw new AnalysisException("BITMAP indexes do not support properties");
+            rejectInvalidDefinition("BITMAP indexes do not support properties");
         }
         Type columnType = column.getType();
         // LARGEINT (Arrow uint64) is integral, included here exactly as in the BTREE matrix.
         if (!columnType.isBoolean() && !columnType.isIntegerType() && !columnType.isLargeIntType()
                 && !columnType.isStringType() && !columnType.isDateV2()) {
-            throw new AnalysisException("BITMAP index does not support column type " + columnType);
+            rejectInvalidDefinition("BITMAP index does not support column type " + columnType);
         }
     }
 
@@ -177,8 +187,21 @@ public final class LanceIndexMutationValidator {
             throws AnalysisException {
         String value = properties.get(key);
         if (value == null || parsePositiveInt(value) <= 0) {
-            throw new AnalysisException(key + " must be a positive integer");
+            rejectInvalidDefinition(key + " must be a positive integer");
         }
+    }
+
+    /**
+     * Rejects a Lance index operation with a stable client-visible error code.
+     */
+    public static void rejectUnsupportedOperation(String operation, String target)
+            throws AnalysisException {
+        ErrorReport.reportAnalysisException(ErrorCode.ERR_LANCE_INDEX_OPERATION_NOT_SUPPORTED,
+                operation, target);
+    }
+
+    private static void rejectInvalidDefinition(String detail) throws AnalysisException {
+        ErrorReport.reportAnalysisException(ErrorCode.ERR_LANCE_INDEX_INVALID, detail);
     }
 
     private static int parsePositiveInt(String value) {
