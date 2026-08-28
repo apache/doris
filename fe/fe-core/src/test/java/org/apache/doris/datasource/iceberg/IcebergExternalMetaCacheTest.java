@@ -110,8 +110,10 @@ public class IcebergExternalMetaCacheTest {
                 new IcebergSchemaCacheKey(mapping, "table-uuid", 7L, 3, false, false),
                 new IcebergSchemaCacheKey(mapping, "table-uuid", 7L, 4, false, false));
     }
+
     // U+0130 (LATIN CAPITAL LETTER I WITH DOT ABOVE) lower-cases to two characters in Locale.ROOT.
     private static final String DOTTED_CAPITAL_I = String.valueOf((char) 0x0130);
+
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
