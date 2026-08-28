@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
-/** Builds vector-search splits from physical Lance index segments and unindexed fragments. */
+/** Builds external-search splits from physical Lance index segments and optional fragments. */
 final class IndexSegmentSplitPlan {
     private final String datasetUri;
     private final long version;
