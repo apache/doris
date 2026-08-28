@@ -209,13 +209,32 @@ bool PipelineFragmentContext::notify_close() {
 // Method like exchange sink buffer will call query ctx cancel. If we add lock here
 // There maybe dead lock.
 void PipelineFragmentContext::cancel(const Status reason) {
+    if (notify_close()) {
+        return;
+    }
+    auto expected = LifecycleState::CREATED;
+    if (!_lifecycle_state.compare_exchange_strong(expected, LifecycleState::CANCELLING,
+                                                  std::memory_order_acq_rel,
+                                                  std::memory_order_acquire)) {
+        return;
+    }
+
+    if (auto error_url = get_load_error_url(); !error_url.empty()) {
+        _query_ctx->set_load_error_url(error_url);
+    }
+
+    if (auto first_error_msg = get_first_error_msg(); !first_error_msg.empty()) {
+        _query_ctx->set_first_error_msg(first_error_msg);
+    }
+
+    // Publish the query error before potentially expensive fragment diagnostics. Other tasks can
+    // continue closing after they observe CANCELLING, so reports must see the failed query status.
+    _query_ctx->cancel(reason, _fragment_id);
+
     LOG_INFO("PipelineFragmentContext::cancel")
             .tag("query_id", print_id(_query_id))
             .tag("fragment_id", _fragment_id)
             .tag("reason", reason.to_string());
-    if (notify_close()) {
-        return;
-    }
     // Timeout is a special error code, we need print current stack to debug timeout issue.
     if (reason.is<ErrorCode::TIMEOUT>()) {
         auto dbg_str = fmt::format("PipelineFragmentContext is cancelled due to timeout:\n{}",
@@ -233,15 +252,6 @@ void PipelineFragmentContext::cancel(const Status reason) {
         print_profile("cancel pipeline, reason: " + reason.to_string());
     }
 
-    if (auto error_url = get_load_error_url(); !error_url.empty()) {
-        _query_ctx->set_load_error_url(error_url);
-    }
-
-    if (auto first_error_msg = get_first_error_msg(); !first_error_msg.empty()) {
-        _query_ctx->set_first_error_msg(first_error_msg);
-    }
-
-    _query_ctx->cancel(reason, _fragment_id);
     if (!reason.is<ErrorCode::LIMIT_REACH>() && !reason.is<ErrorCode::FINISHED>()) {
         for (auto& id : _fragment_instance_ids) {
             LOG(WARNING) << "PipelineFragmentContext cancel instance: " << print_id(id);
@@ -2232,6 +2242,19 @@ void PipelineFragmentContext::print_profile(const std::string& extra_info) {
         LOG_LONG_STRING(INFO, profile_str);
     }
 }
+
+bool PipelineFragmentContext::_try_start_close() {
+    auto state = _lifecycle_state.load(std::memory_order_acquire);
+    while (state == LifecycleState::CREATED || state == LifecycleState::CANCELLING) {
+        if (_lifecycle_state.compare_exchange_weak(state, LifecycleState::CLOSING,
+                                                   std::memory_order_acq_rel,
+                                                   std::memory_order_acquire)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // If all pipeline tasks binded to the fragment instance are finished, then we could
 // close the fragment instance.
 // Returns true if the caller should call remove_pipeline_context() **after** releasing
@@ -2241,10 +2264,11 @@ void PipelineFragmentContext::print_profile(const std::string& extra_info) {
 // dump_pipeline_tasks(), which acquires _pipeline_map first and then _task_mutex
 // (via debug_string()).
 bool PipelineFragmentContext::_close_fragment_instance() {
-    if (_is_fragment_instance_closed) {
+    if (!_try_start_close()) {
         return false;
     }
-    Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
+    Defer defer_op {
+            [&]() { _lifecycle_state.store(LifecycleState::CLOSED, std::memory_order_release); }};
     _fragment_level_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     if (!_need_notify_close) {
         auto st = send_report(true);
