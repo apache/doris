@@ -23,8 +23,15 @@
 #include <cstring>
 #include <utility>
 
+#include "common/cast_set.h"
+#include "common/config.h"
 #include "common/logging.h"
+#include "io/cache/cached_remote_file_reader.h"
+#include "io/cache/range_cache_writeback.h"
+#include "runtime/exec_env.h"
 #include "storage/cache/page_cache.h"
+#include "storage/iterators.h"
+#include "storage/segment/column_reader.h"
 
 namespace doris::segment_v2 {
 namespace {
@@ -130,7 +137,7 @@ void SegmentReadAheadFileReader::_finish_page(const PageKey& key, bool consumed)
     }
     if (consumed_range != nullptr && consumed_range->consumer) {
         auto consumer = std::move(consumed_range->consumer);
-        consumer(consumed_range->read->range(), consumed_range->read->data());
+        consumer(*consumed_range->read);
     }
 }
 
@@ -156,17 +163,107 @@ SegmentReadAhead::SegmentReadAhead(io::FileReaderSPtr source_reader,
                                    io::FileRangeReadScheduler* scheduler,
                                    std::shared_ptr<io::FileRangeReadContext> context,
                                    io::FileRangeReadIOContext io_context,
-                                   SegmentReadAheadOptions options)
+                                   SegmentReadAheadOptions options,
+                                   ColumnReadAheadOptions eager_options,
+                                   ColumnReadAheadOptions lazy_options)
         : _source_reader(std::move(source_reader)),
           _scheduler(scheduler),
           _context(std::move(context)),
           _io_context(std::move(io_context)),
           _options(std::move(options)),
           _reader(std::shared_ptr<SegmentReadAheadFileReader>(
-                  new SegmentReadAheadFileReader(_source_reader))) {
+                  new SegmentReadAheadFileReader(_source_reader))),
+          _column_context {
+                  .eager_options = eager_options, .lazy_options = lazy_options, .segment = this} {
     DORIS_CHECK(_source_reader != nullptr);
     DORIS_CHECK(_scheduler != nullptr);
     DORIS_CHECK(_context != nullptr);
+}
+
+bool SegmentReadAhead::enabled() {
+    return config::enable_query_read_ahead && config::is_cloud_mode();
+}
+
+Status SegmentReadAhead::create_for_query(io::FileReaderSPtr source_reader, ExecEnv* exec_env,
+                                          std::shared_ptr<io::FileRangeReadContext> context,
+                                          const StorageReadOptions& read_options,
+                                          std::unique_ptr<SegmentReadAhead>* output) {
+    DORIS_CHECK(source_reader != nullptr);
+    DORIS_CHECK(exec_env != nullptr);
+    DORIS_CHECK(output != nullptr);
+    output->reset();
+    if (!enabled() || read_options.io_ctx.reader_type != ReaderType::READER_QUERY) {
+        return Status::OK();
+    }
+    DORIS_CHECK(context != nullptr);
+
+    ColumnReadAheadOptions eager_options {
+            .high_watermark_bytes = cast_set<size_t>(config::read_ahead_eager_high_watermark_bytes),
+            .low_watermark_bytes = cast_set<size_t>(config::read_ahead_eager_low_watermark_bytes),
+    };
+    ColumnReadAheadOptions lazy_options {
+            .high_watermark_bytes = cast_set<size_t>(config::read_ahead_lazy_high_watermark_bytes),
+            .low_watermark_bytes = cast_set<size_t>(config::read_ahead_lazy_low_watermark_bytes),
+    };
+    RETURN_IF_ERROR(eager_options.validate());
+    RETURN_IF_ERROR(lazy_options.validate());
+
+    auto* file_cache_stats = read_options.io_ctx.file_cache_stats;
+    auto* file_reader_stats = read_options.io_ctx.file_reader_stats;
+    std::shared_ptr<io::RangeCacheWriteback> range_writeback;
+    auto cached_reader = std::dynamic_pointer_cast<io::CachedRemoteFileReader>(source_reader);
+    if (cached_reader != nullptr) {
+        auto* partial_block_manager = exec_env->partial_block_writeback_manager();
+        DORIS_CHECK(partial_block_manager != nullptr);
+        range_writeback = cached_reader->make_range_cache_writeback(read_options.io_ctx,
+                                                                    partial_block_manager);
+    }
+    ReadAheadRangeConsumerFactory range_consumer_factory;
+    if (file_cache_stats != nullptr || file_reader_stats != nullptr || range_writeback != nullptr) {
+        range_consumer_factory = [file_cache_stats, file_reader_stats,
+                                  range_writeback]() -> ReadAheadRangeConsumer {
+            std::optional<io::AsyncCacheWriteEpoch> write_epoch;
+            if (range_writeback != nullptr) {
+                write_epoch = range_writeback->capture_write_epoch();
+            }
+            return [file_cache_stats, file_reader_stats, range_writeback,
+                    write_epoch = std::move(write_epoch)](const io::FileRangeRead& read) {
+                const auto stats = read.stats();
+                if (file_cache_stats != nullptr) {
+                    file_cache_stats->merge_from(stats.file_cache);
+                }
+                if (file_reader_stats != nullptr) {
+                    file_reader_stats->merge_from(stats.file_reader);
+                }
+                if (write_epoch.has_value()) {
+                    static_cast<void>(range_writeback->submit_consumed_range(
+                            read.range(), read.data(), *write_epoch));
+                }
+            };
+        };
+    }
+
+    SegmentReadAheadOptions options {
+            .range_plan = {.coalesce_options =
+                                   {.max_gap_bytes =
+                                            cast_set<size_t>(config::read_ahead_max_gap_bytes),
+                                    .max_range_bytes =
+                                            cast_set<size_t>(config::read_ahead_max_range_bytes),
+                                    .max_read_amplification_ratio =
+                                            config::read_ahead_max_read_amplification_ratio},
+                           .cache_block_size = cast_set<size_t>(config::file_cache_each_block_size),
+                           .block_fill_min_coverage = config::read_ahead_block_fill_min_coverage},
+            .page_cache_probe = read_options.use_page_cache
+                                        ? make_storage_page_cache_probe(source_reader)
+                                        : ReadAheadPageCacheProbe {},
+            .range_consumer_factory = std::move(range_consumer_factory),
+    };
+    auto* scheduler = exec_env->file_range_read_scheduler();
+    DORIS_CHECK(scheduler != nullptr);
+    output->reset(new SegmentReadAhead(std::move(source_reader), scheduler, std::move(context),
+                                       io::FileRangeReadIOContext::from_caller(read_options.io_ctx),
+                                       std::move(options), eager_options, lazy_options));
+    return Status::OK();
 }
 
 SegmentReadAheadResult SegmentReadAhead::apply_plans(std::vector<ColumnReadAheadPlan> plans) {

@@ -55,6 +55,13 @@ struct FileReaderStats {
     size_t read_bytes = 0;
     int64_t read_time_ns = 0;
     size_t read_rows = 0;
+
+    void merge_from(const FileReaderStats& other) {
+        read_calls += other.read_calls;
+        read_bytes += other.read_bytes;
+        read_time_ns += other.read_time_ns;
+        read_rows += other.read_rows;
+    }
 };
 
 struct FileCacheStatistics {
