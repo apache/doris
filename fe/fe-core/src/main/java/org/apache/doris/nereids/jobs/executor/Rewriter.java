@@ -763,6 +763,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new MergePercentileToArray())
                 ),
                 topic("add projection for volatile expression",
+                        // separate AddProjectForVolatileExpression and MergeProjectable
+                        // to avoid dead loop if code has bug
                         topDown(new AddProjectForVolatileExpression()),
                         topDown(new MergeProjectable())
                 ),
