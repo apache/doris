@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 
 import org.junit.jupiter.api.Assertions;
@@ -107,6 +108,7 @@ public class LanceIndexMutationValidatorTest {
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> LanceIndexMutationValidator.validateCreateIndex(filesystemCatalog(), table, def));
         Assertions.assertEquals(expectedMessage, exception.getDetailMessage());
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_INVALID, exception.getMysqlErrorCode());
     }
 
     @Test
@@ -392,6 +394,8 @@ public class LanceIndexMutationValidatorTest {
                 () -> LanceIndexMutationValidator.validateCreateIndex(restCatalog(), annTable(), createDef));
         Assertions.assertEquals("CREATE INDEX is not supported for Lance REST catalogs",
                 createException.getDetailMessage());
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_OPERATION_NOT_SUPPORTED,
+                createException.getMysqlErrorCode());
 
         IndexDefinition orReplaceDef = new IndexDefinition("idx", false, Collections.singletonList("v"),
                 "BTREE", Collections.emptyMap(), "", true);
@@ -399,11 +403,15 @@ public class LanceIndexMutationValidatorTest {
                 () -> LanceIndexMutationValidator.validateCreateIndex(restCatalog(), annTable(), orReplaceDef));
         Assertions.assertEquals("CREATE OR REPLACE INDEX is not supported for Lance REST catalogs",
                 orReplaceException.getDetailMessage());
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_OPERATION_NOT_SUPPORTED,
+                orReplaceException.getMysqlErrorCode());
 
         AnalysisException dropException = Assertions.assertThrows(AnalysisException.class,
                 () -> LanceIndexMutationValidator.validateDropIndex(restCatalog()));
         Assertions.assertEquals("DROP INDEX is not supported for Lance REST catalogs",
                 dropException.getDetailMessage());
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_OPERATION_NOT_SUPPORTED,
+                dropException.getMysqlErrorCode());
     }
 
     @Test
