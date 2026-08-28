@@ -39,6 +39,8 @@ struct AsyncCacheWriteEpoch;
 struct IOContext;
 struct FileCacheStatistics;
 struct PeerFetchResult;
+class PartialBlockWritebackManager;
+class RangeCacheWriteback;
 
 } // namespace doris::io
 
@@ -86,6 +88,12 @@ public:
     /// Expose the wrapped remote reader.
     /// @return Raw pointer to the underlying reader owned by this object.
     FileReader* get_remote_reader() { return _remote_file_reader.get(); }
+
+    /// Build the immutable cache metadata used to write back consumed query read-ahead ranges.
+    /// The returned object retains the underlying remote reader for background hole fills. A
+    /// no-write request returns nullptr.
+    std::shared_ptr<RangeCacheWriteback> make_range_cache_writeback(
+            const IOContext& io_context, PartialBlockWritebackManager* partial_block_manager) const;
 
     /// Align a read range to file-cache block boundaries.
     /// @param[in] offset Requested read offset in bytes.
