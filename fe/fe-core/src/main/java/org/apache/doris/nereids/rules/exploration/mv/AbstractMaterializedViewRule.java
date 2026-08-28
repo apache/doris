@@ -470,28 +470,31 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         return rewriteResults;
     }
 
-    // Partition compensation only supports one global limit/topN in the whole plan. The rewritten
-    // and base plans must each contain exactly one operator of the same kind. When this invariant
+    // Partition compensation only supports one global limit/topN in each plan. When this invariant
     // is not met, return null so the caller skips the rewrite instead of changing query semantics.
     Plan buildPartitionCompensationPlan(Plan rewrittenPlan, Plan baseTablePlan, Plan queryPlan) {
         List<Plan> queryGlobalLimits = queryPlan.collectToList(node -> isGlobalLimitOrTopN((Plan) node));
+        List<Plan> rewrittenGlobalLimits = rewrittenPlan.collectToList(
+                node -> isGlobalLimitOrTopN((Plan) node));
+        List<Plan> baseTableGlobalLimits = baseTablePlan.collectToList(
+                node -> isGlobalLimitOrTopN((Plan) node));
         if (queryGlobalLimits.isEmpty()) {
-            return buildCompensationUnion(queryPlan, Lists.newArrayList(rewrittenPlan, baseTablePlan));
+            return rewrittenGlobalLimits.isEmpty() && baseTableGlobalLimits.isEmpty()
+                    ? buildCompensationUnion(queryPlan, Lists.newArrayList(rewrittenPlan, baseTablePlan)) : null;
         }
-        if (queryGlobalLimits.size() > 1) {
+        if (queryGlobalLimits.size() != 1
+                || rewrittenGlobalLimits.size() != 1 || baseTableGlobalLimits.size() != 1) {
             return null;
         }
         Plan queryGlobalLimit = queryGlobalLimits.get(0);
-        List<Plan> rewrittenGlobalLimits = rewrittenPlan.collectToList(
-                node -> isSameGlobalLimitOrTopN((Plan) node, queryGlobalLimit));
-        List<Plan> baseTableGlobalLimits = baseTablePlan.collectToList(
-                node -> isSameGlobalLimitOrTopN((Plan) node, queryGlobalLimit));
-        if (rewrittenGlobalLimits.size() != 1 || baseTableGlobalLimits.size() != 1) {
-            return null;
-        }
         Plan rewrittenGlobalLimit = rewrittenGlobalLimits.get(0);
         Plan baseTableGlobalLimit = baseTableGlobalLimits.get(0);
-        if (getOffset(rewrittenGlobalLimit) != getOffset(queryGlobalLimit)) {
+        // Rewriting can change the limit value and order-key expressions, but preserves the outer
+        // operator kind. The offset must still match because it cannot be safely adjusted after UNION.
+        if (rewrittenGlobalLimit.getType() != queryGlobalLimit.getType()
+                || baseTableGlobalLimit.getType() != queryGlobalLimit.getType()
+                || getOffset(rewrittenGlobalLimit) != getOffset(queryGlobalLimit)
+                || getOffset(baseTableGlobalLimit) != getOffset(queryGlobalLimit)) {
             return null;
         }
         Plan compensationUnion = buildCompensationUnion(queryGlobalLimit.child(0), Lists.newArrayList(
@@ -503,12 +506,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     private boolean isGlobalLimitOrTopN(Plan plan) {
         return plan instanceof LogicalTopN
                 || plan instanceof LogicalLimit && ((LogicalLimit<?>) plan).getPhase() == LimitPhase.GLOBAL;
-    }
-
-    private boolean isSameGlobalLimitOrTopN(Plan plan, Plan queryGlobalLimit) {
-        // Rewriting can change the limit value and order-key expressions, but preserves the outer
-        // operator kind. The offset must still match because it cannot be safely adjusted after UNION.
-        return plan.getType() == queryGlobalLimit.getType() && isGlobalLimitOrTopN(plan);
     }
 
     private long getOffset(Plan plan) {

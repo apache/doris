@@ -322,6 +322,8 @@ public class MvExplorationSuiteTest extends SqlTestBase {
 
         Assertions.assertNull(TEST_RULE.buildPartitionCompensationPlan(
                 queryTopN.withLimitChild(queryTopN.getLimit(), 0, queryTopN.child()), queryPlan, queryPlan));
+        Assertions.assertNull(TEST_RULE.buildPartitionCompensationPlan(
+                queryPlan, queryTopN.withLimitChild(queryTopN.getLimit(), 0, queryTopN.child()), queryPlan));
     }
 
     @Test
@@ -336,6 +338,20 @@ public class MvExplorationSuiteTest extends SqlTestBase {
     }
 
     @Test
+    void testPartitionUnionRejectsUnexpectedGlobalOperatorInBranches() {
+        Plan queryPlan = PlanChecker.from(connectContext)
+                .analyze("select id from T1")
+                .rewrite()
+                .getPlan().child(0);
+        Plan planWithGlobalLimit = new LogicalLimit<>(3, 0, LimitPhase.GLOBAL, queryPlan);
+
+        Assertions.assertNull(TEST_RULE.buildPartitionCompensationPlan(
+                planWithGlobalLimit, queryPlan, queryPlan));
+        Assertions.assertNull(TEST_RULE.buildPartitionCompensationPlan(
+                queryPlan, planWithGlobalLimit, queryPlan));
+    }
+
+    @Test
     void testPartitionUnionRejectsMultipleGlobalLimits() {
         Plan scan = PlanChecker.from(connectContext)
                 .analyze("select id from T1")
@@ -345,6 +361,23 @@ public class MvExplorationSuiteTest extends SqlTestBase {
         Plan queryPlan = new LogicalLimit<>(2, 0, LimitPhase.GLOBAL, innerLimit);
 
         Assertions.assertNull(TEST_RULE.buildPartitionCompensationPlan(queryPlan, queryPlan, queryPlan));
+    }
+
+    @Test
+    void testPartitionUnionRejectsMixedGlobalOperatorsInBranches() {
+        Plan queryPlan = PlanChecker.from(connectContext)
+                .analyze("select id from T1 order by id limit 2")
+                .rewrite()
+                .getPlan().child(0);
+        Plan globalLimit = new LogicalLimit<>(3, 0, LimitPhase.GLOBAL, queryPlan.child(0));
+        Plan planWithGlobalLimit = queryPlan.withChildren(globalLimit);
+
+        Assertions.assertNull(TEST_RULE.buildPartitionCompensationPlan(globalLimit, queryPlan, queryPlan));
+        Assertions.assertNull(TEST_RULE.buildPartitionCompensationPlan(queryPlan, globalLimit, queryPlan));
+        Assertions.assertNull(TEST_RULE.buildPartitionCompensationPlan(
+                planWithGlobalLimit, queryPlan, queryPlan));
+        Assertions.assertNull(TEST_RULE.buildPartitionCompensationPlan(
+                queryPlan, planWithGlobalLimit, queryPlan));
     }
 
     // -------------------------------------------------------------------------
