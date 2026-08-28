@@ -211,6 +211,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
         tbl.writeLockOrAlterCancelException();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
+            reserveWatershedTxnId();
             addShadowIndexToCatalog(tbl);
         } finally {
             tbl.writeUnlock();

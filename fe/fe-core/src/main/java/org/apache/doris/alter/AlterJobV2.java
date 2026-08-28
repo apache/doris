@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugPointUtil;
@@ -36,6 +37,7 @@ import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -196,6 +198,15 @@ public abstract class AlterJobV2 implements Writable {
 
     public long getWatershedTxnId() {
         return watershedTxnId;
+    }
+
+    protected void reserveWatershedTxnId() throws AlterCancelException {
+        Preconditions.checkState(watershedTxnId == -1, watershedTxnId);
+        try {
+            watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
+        } catch (UserException e) {
+            throw new AlterCancelException(e.getMessage());
+        }
     }
 
     public boolean isTimeout() {
