@@ -67,7 +67,6 @@
 #include "exprs/virtual_slot_ref.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
-#include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
@@ -375,8 +374,7 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
 }
 
 Status SegmentIterator::_init_query_read_ahead() {
-    if (!config::enable_query_read_ahead || !config::is_cloud_mode() ||
-        _opts.io_ctx.reader_type != ReaderType::READER_QUERY) {
+    if (!SegmentReadAhead::enabled() || _opts.io_ctx.reader_type != ReaderType::READER_QUERY) {
         return Status::OK();
     }
 
@@ -387,48 +385,18 @@ Status SegmentIterator::_init_query_read_ahead() {
     DORIS_CHECK(scheduler != nullptr);
     auto* query_context = _opts.runtime_state->get_query_ctx();
     DORIS_CHECK(query_context != nullptr);
-
-    ColumnReadAheadOptions eager_options {
-            .high_watermark_bytes = cast_set<size_t>(config::read_ahead_eager_high_watermark_bytes),
-            .low_watermark_bytes = cast_set<size_t>(config::read_ahead_eager_low_watermark_bytes),
-    };
-    ColumnReadAheadOptions lazy_options {
-            .high_watermark_bytes = cast_set<size_t>(config::read_ahead_lazy_high_watermark_bytes),
-            .low_watermark_bytes = cast_set<size_t>(config::read_ahead_lazy_low_watermark_bytes),
-    };
-    const auto eager_status = eager_options.validate();
-    const auto lazy_status = lazy_options.validate();
-    if (!eager_status.ok() || !lazy_status.ok()) {
-        LOG_EVERY_N(WARNING, 100) << "invalid query read-ahead byte windows; feature disabled for "
-                                     "this segment: eager="
-                                  << eager_status << ", lazy=" << lazy_status;
+    auto read_context = query_context->get_or_create_file_range_read_context(scheduler);
+    const auto status = SegmentReadAhead::create_for_query(
+            _file_reader, exec_env, std::move(read_context), _opts, &_segment_read_ahead);
+    if (!status.ok()) {
+        LOG_EVERY_N(WARNING, 100)
+                << "failed to initialize query read-ahead; use the original read path: " << status;
         return Status::OK();
     }
-
-    SegmentReadAheadOptions options {
-            .range_plan = {.coalesce_options =
-                                   {.max_gap_bytes =
-                                            cast_set<size_t>(config::read_ahead_max_gap_bytes),
-                                    .max_range_bytes =
-                                            cast_set<size_t>(config::read_ahead_max_range_bytes),
-                                    .max_read_amplification_ratio =
-                                            config::read_ahead_max_read_amplification_ratio},
-                           .cache_block_size = cast_set<size_t>(config::file_cache_each_block_size),
-                           .block_fill_min_coverage = config::read_ahead_block_fill_min_coverage},
-            .page_cache_probe = _opts.use_page_cache ? make_storage_page_cache_probe(_file_reader)
-                                                     : ReadAheadPageCacheProbe {},
-            .range_consumer_factory = {},
-    };
-    auto read_context = query_context->get_or_create_file_range_read_context(scheduler);
-    _segment_read_ahead = std::make_unique<SegmentReadAhead>(
-            _file_reader, scheduler, std::move(read_context),
-            io::FileRangeReadIOContext::from_caller(_opts.io_ctx), std::move(options));
+    DORIS_CHECK(_segment_read_ahead != nullptr);
     _file_reader = _segment_read_ahead->file_reader();
-    _column_read_ahead_context = std::make_unique<ColumnReadAheadContext>(ColumnReadAheadContext {
-            .eager_options = eager_options,
-            .lazy_options = lazy_options,
-            .segment = _segment_read_ahead.get(),
-    });
+    _column_read_ahead_context =
+            std::make_unique<ColumnReadAheadContext>(_segment_read_ahead->column_context());
     return Status::OK();
 }
 
