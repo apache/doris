@@ -192,6 +192,7 @@ DEFINE_mBool(enable_file_cache_write_cumu_compaction_index_only, "false");
 
 // MS RPC rate limiting config
 DEFINE_mBool(enable_ms_rpc_host_level_rate_limit, "false");
+DEFINE_mBool(enable_ms_rpc_host_level_rate_limit_dry_run, "true");
 
 // Per-RPC QPS limit configs (per CPU core)
 // QPS limit = config_value * num_cores
@@ -223,6 +224,7 @@ DEFINE_mInt32(ms_rpc_qps_update_packed_file_info, "-1");
 
 // Table-level backpressure handling config
 DEFINE_mBool(enable_ms_backpressure_handling, "false");
+DEFINE_mBool(enable_ms_backpressure_handling_dry_run, "true");
 DEFINE_Int32(ms_rpc_table_qps_window_sec, "3");
 
 // Throttle upgrade config
