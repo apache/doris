@@ -17,6 +17,11 @@
 
 package org.apache.doris.resource.workloadschedpolicy;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TQueryStatisticsResult;
 import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
@@ -25,8 +30,12 @@ import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Unit test for WorkloadRuntimeStatusMgr.
@@ -256,6 +265,129 @@ public class WorkloadRuntimeStatusMgrTest {
         Assert.assertEquals(2, merged.get("q1").getFinishedTasksNum());
     }
 
+    @Test
+    public void testExternalDmlAuditWaitsForEveryBackendFinalSnapshot() {
+        int originalAuditTimeout = Config.query_audit_log_timeout_ms;
+        try {
+            Config.query_audit_log_timeout_ms = 10;
+            AuditEvent event = new AuditEvent.AuditEventBuilder().setQueryId("q1").build();
+            Deencapsulation.invoke(mgr, "submitFinishQueryToAudit", event,
+                    Set.of(10001L, 10002L));
+            event.pushToAuditLogQueueTime = System.currentTimeMillis() - 20;
+
+            mgr.updateBeQueryStats(buildParams(10001L, "q1", buildStats(10, 3), true));
+            mgr.updateBeQueryStats(buildParams(10002L, "q1", buildStats(20, 4), false));
+
+            List<AuditEvent> events = Deencapsulation.invoke(mgr, "getQueryNeedAudit");
+            Assert.assertTrue("external DML audit must wait for every participating BE", events.isEmpty());
+
+            mgr.updateBeQueryStats(buildParams(10002L, "q1", buildStats(20, 4), true));
+            events = Deencapsulation.invoke(mgr, "getQueryNeedAudit");
+            Assert.assertEquals(1, events.size());
+            Assert.assertSame(event, events.get(0));
+        } finally {
+            Config.query_audit_log_timeout_ms = originalAuditTimeout;
+        }
+    }
+
+    @Test
+    public void testExternalDmlAuditUsesBoundedFallback() {
+        int originalAuditTimeout = Config.query_audit_log_timeout_ms;
+        int originalReportTimeout = Config.be_report_query_statistics_timeout_ms;
+        try {
+            Config.query_audit_log_timeout_ms = 10;
+            Config.be_report_query_statistics_timeout_ms = 30;
+            AuditEvent event = new AuditEvent.AuditEventBuilder().setQueryId("q1").build();
+            mgr.submitFinishQueryToAudit(event, Set.of(10001L));
+            event.pushToAuditLogQueueTime = System.currentTimeMillis() - 40;
+
+            List<AuditEvent> events = Deencapsulation.invoke(mgr, "getQueryNeedAudit");
+            Assert.assertEquals(1, events.size());
+            Assert.assertSame(event, events.get(0));
+        } finally {
+            Config.query_audit_log_timeout_ms = originalAuditTimeout;
+            Config.be_report_query_statistics_timeout_ms = originalReportTimeout;
+        }
+    }
+
+    @Test
+    public void testExternalDmlAuditUsesFinalCumulativeStatistics() {
+        int originalAuditTimeout = Config.query_audit_log_timeout_ms;
+        try {
+            Config.query_audit_log_timeout_ms = 10;
+            AuditEvent event = new AuditEvent.AuditEventBuilder().setQueryId("q1").build();
+            mgr.submitFinishQueryToAudit(event, Set.of(10001L));
+            event.pushToAuditLogQueueTime = System.currentTimeMillis() - 20;
+
+            TQueryStatistics finalStatistics = buildStats(10, 10);
+            finalStatistics.setScanRows(100);
+            finalStatistics.setScanBytes(110);
+            finalStatistics.setScanBytesFromLocalStorage(120);
+            finalStatistics.setScanBytesFromRemoteStorage(130);
+            finalStatistics.setCpuMs(20);
+            finalStatistics.setMaxPeakMemoryBytes(30);
+            mgr.updateBeQueryStats(buildParams(10001L, "q1", finalStatistics, true));
+
+            Env env = Mockito.mock(Env.class);
+            AuditEventProcessor processor = Mockito.mock(AuditEventProcessor.class);
+            Mockito.when(env.getAuditEventProcessor()).thenReturn(processor);
+            Mockito.when(processor.handleAuditEvent(event)).thenReturn(true);
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                mockedEnv.when(Env::getCurrentAuditEventProcessor).thenReturn(processor);
+                Deencapsulation.invoke(mgr, "runAfterCatalogReady");
+            }
+
+            Mockito.verify(processor).handleAuditEvent(event);
+            Assert.assertEquals(100, event.scanRows);
+            Assert.assertEquals(110, event.scanBytes);
+            Assert.assertEquals(120, event.scanBytesFromLocalStorage);
+            Assert.assertEquals(130, event.scanBytesFromRemoteStorage);
+            Assert.assertEquals(20, event.cpuTimeMs);
+            Assert.assertEquals(30, event.peakMemoryBytes);
+        } finally {
+            Config.query_audit_log_timeout_ms = originalAuditTimeout;
+        }
+    }
+
+    @Test
+    public void testRegularAuditKeepsExistingTimeoutBehavior() {
+        int originalAuditTimeout = Config.query_audit_log_timeout_ms;
+        try {
+            Config.query_audit_log_timeout_ms = 10;
+            AuditEvent event = new AuditEvent.AuditEventBuilder().setQueryId("q1").build();
+            mgr.submitFinishQueryToAudit(event);
+            event.pushToAuditLogQueueTime = System.currentTimeMillis() - 20;
+
+            List<AuditEvent> events = Deencapsulation.invoke(mgr, "getQueryNeedAudit");
+            Assert.assertEquals(1, events.size());
+            Assert.assertSame(event, events.get(0));
+        } finally {
+            Config.query_audit_log_timeout_ms = originalAuditTimeout;
+        }
+    }
+
+    @Test
+    public void testAuditScanDoesNotAssumeWallClockInsertionOrder() {
+        int originalAuditTimeout = Config.query_audit_log_timeout_ms;
+        try {
+            Config.query_audit_log_timeout_ms = 10;
+            AuditEvent futureHead = new AuditEvent.AuditEventBuilder().setQueryId("future").build();
+            AuditEvent dueEvent = new AuditEvent.AuditEventBuilder().setQueryId("due").build();
+            mgr.submitFinishQueryToAudit(futureHead);
+            mgr.submitFinishQueryToAudit(dueEvent);
+            futureHead.pushToAuditLogQueueTime = System.currentTimeMillis() + 1000;
+            dueEvent.pushToAuditLogQueueTime = System.currentTimeMillis() - 20;
+
+            List<AuditEvent> events = Deencapsulation.invoke(mgr, "getQueryNeedAudit");
+
+            Assert.assertEquals(1, events.size());
+            Assert.assertSame(dueEvent, events.get(0));
+        } finally {
+            Config.query_audit_log_timeout_ms = originalAuditTimeout;
+        }
+    }
+
     // ---- helper methods ----
 
     private TQueryStatistics buildStats(int totalTasks, int finishedTasks) {
@@ -266,8 +398,14 @@ public class WorkloadRuntimeStatusMgrTest {
     }
 
     private TReportWorkloadRuntimeStatusParams buildParams(long beId, String queryId, TQueryStatistics stats) {
+        return buildParams(beId, queryId, stats, false);
+    }
+
+    private TReportWorkloadRuntimeStatusParams buildParams(long beId, String queryId,
+            TQueryStatistics stats, boolean queryFinished) {
         TQueryStatisticsResult result = new TQueryStatisticsResult();
         result.setStatistics(stats);
+        result.setQueryFinished(queryFinished);
 
         TReportWorkloadRuntimeStatusParams params = new TReportWorkloadRuntimeStatusParams();
         params.setBackendId(beId);

@@ -332,6 +332,13 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 } else if (childTrait.isUniform(slot)) {
                     builder.addUniformSlot(proj.toSlot());
                 }
+            } else {
+                // e.g. project `days_sub(begin_time, 1)` over a uniform constant slot `begin_time`:
+                // substitute the constant values so the projected slot also becomes a uniform
+                // constant, then downstream constant propagation can fold predicates over it.
+                Optional<Expression> constantExpr = ExpressionUtils.foldToConstantByUniformValues(
+                        proj.child(0), child(0).getLogicalProperties().getTrait());
+                constantExpr.ifPresent(expr -> builder.addUniformSlotAndLiteral(proj.toSlot(), expr));
             }
         }
     }

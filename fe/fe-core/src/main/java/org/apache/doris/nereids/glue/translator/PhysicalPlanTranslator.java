@@ -3084,10 +3084,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     /**
      * An {@code @incr} read folds all changes to a row into one record: TSO is the tie-break column
      * ordering them, and the folded result is written back into OP as the change kind the user
-     * sees, so every scan type needs both slots present. {@code SELECT k, v FROM
-     * t@incr("incrementType" = "DETAIL")} also needs the keys to group by and, when the table keeps
-     * historical values, {@code __BEFORE__v__} to report what v was before the change; APPEND_ONLY
-     * never groups and needs neither.
+     * sees, so every scan type needs both slots present. MIN_DELTA compares the complete first
+     * BEFORE and last AFTER row images, including value columns omitted by the SQL projection.
+     * DETAIL needs BEFORE images only for projected values. APPEND_ONLY never groups and needs
+     * neither keys nor BEFORE images.
      */
     private void preserveRowBinlogSemanticSlots(OlapScanNode scanNode, Set<SlotId> requiredSlotIds) {
         RowBinlogTableWrapper wrapper = (RowBinlogTableWrapper) scanNode.getOlapTable();
@@ -3121,12 +3121,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // are no before-image storage dependencies to preserve.
             return;
         }
+        boolean preserveCompleteRow = scanType == TBinlogScanType.MIN_DELTA;
         for (SlotDescriptor slot : scanSlots) {
             Column column = slot.getColumn();
-            if (column == null || column.isKey() || !requiredSlotIds.contains(slot.getId())
-                    || isRowBinlogInternalColumn(column)) {
+            if (column == null || column.isKey() || isRowBinlogInternalColumn(column)
+                    || (!preserveCompleteRow && !requiredSlotIds.contains(slot.getId()))) {
                 continue;
             }
+            preserveStorageSlot(slot, requiredSlotIds);
             preserveStorageSlot(slotByName.get(Column.generateBeforeColName(column.getName())),
                     requiredSlotIds);
         }
@@ -3427,14 +3429,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     // (e.g. GROUP_CONCAT(... ORDER BY ...)) needs sort-info
                     // metadata, which BucketedAggregationNode does not carry.
                     foundOnePhaseOnly.set(true);
-                    return false;
+                    return true;
                 }
                 if (c instanceof AggregateExpression) {
                     AggregateFunction func = ((AggregateExpression) c).getFunction();
                     if (!func.supportAggregatePhase(AggregatePhase.TWO)) {
                         foundOnePhaseOnly.set(true);
+                        return true;
                     }
-                    return true;
                 }
                 return false;
             });

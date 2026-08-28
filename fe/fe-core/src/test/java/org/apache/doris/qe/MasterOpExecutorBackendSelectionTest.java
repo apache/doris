@@ -33,6 +33,9 @@ import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.List;
+import java.util.Set;
+
 public class MasterOpExecutorBackendSelectionTest {
 
     @After
@@ -127,6 +130,25 @@ public class MasterOpExecutorBackendSelectionTest {
     }
 
     @Test
+    public void testForwardResultExposesExternalDmlAuditBackendIds() throws Exception {
+        TMasterOpResult result = new TMasterOpResult();
+        result.setMaxJournalId(0L);
+        result.setAuditStatisticsBackendIds(List.of(10001L, 10002L));
+        ConnectContext context = mockConnectContext();
+        Env env = context.getEnv();
+        Mockito.when(env.getSelfNode()).thenReturn(new HostInfo("127.0.0.1", 9010));
+        TestingMasterOpExecutor executor = new TestingMasterOpExecutor(context, result);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            executor.installForwardResult();
+
+            Assert.assertEquals(Set.of(10001L, 10002L), executor.getAuditStatisticsBackendIds());
+        }
+    }
+
+    @Test
     public void testDisabledLoadSelectionDoesNotPopulateForwardedInfo() {
         ConnectContext context = new ConnectContext();
         TGroupCommitInfo info = new TGroupCommitInfo();
@@ -211,6 +233,10 @@ public class MasterOpExecutorBackendSelectionTest {
         protected TMasterOpResult forward(TMasterOpRequest params) {
             capturedRequest = params;
             return forwardResult;
+        }
+
+        private void installForwardResult() {
+            result = forwardResult;
         }
     }
 }

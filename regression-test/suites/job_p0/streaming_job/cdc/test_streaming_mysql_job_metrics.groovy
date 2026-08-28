@@ -201,21 +201,42 @@ suite("test_streaming_mysql_job_metrics",
                         metricCount++
                     }
 
-                    def perJobLag = result.find {
-                        it.tags?.metric == "doris_fe_streaming_job_per_job_lag" &&
+                    def perJobLagBytes = result.find {
+                        it.tags?.metric == "doris_fe_streaming_job_per_job_lag_bytes" &&
                         it.tags?.job_name == "${jobName}"
                     }
-                    if (perJobLag != null) {
-                        log.info("per-job lag: ${perJobLag}".toString())
+                    if (perJobLagBytes != null && perJobLagBytes.value != null
+                            && new BigDecimal(perJobLagBytes.value.toString()).signum() >= 0) {
+                        log.info("per-job lag_bytes: ${perJobLagBytes}".toString())
                         metricCount++
                     }
 
+                    def perJobLastSourceEventTimestamp = result.find {
+                        it.tags?.metric ==
+                                "doris_fe_streaming_job_per_job_last_source_event_timestamp_seconds" &&
+                        it.tags?.job_name == "${jobName}"
+                    }
+                    if (perJobLastSourceEventTimestamp != null
+                            && perJobLastSourceEventTimestamp.value != null
+                            && new BigDecimal(perJobLastSourceEventTimestamp.value.toString()).signum() >= 0) {
+                        log.info("per-job last_source_event_timestamp: ${perJobLastSourceEventTimestamp}".toString())
+                        metricCount++
+                    }
 
+                    def perJobLastTaskSuccessTime = result.find {
+                        it.tags?.metric == "doris_fe_streaming_job_per_job_last_task_success_time_seconds" &&
+                        it.tags?.job_name == "${jobName}"
+                    }
+                    if (perJobLastTaskSuccessTime != null && perJobLastTaskSuccessTime.value != null
+                            && new BigDecimal(perJobLastTaskSuccessTime.value.toString()).signum() > 0) {
+                        log.info("per-job last_task_success_time: ${perJobLastTaskSuccessTime}".toString())
+                        metricCount++
+                    }
                 }
             }
 
-            // 9 streaming_job_* counters + 1 doris_fe_job RUNNING gauge + 6 per-job metrics
-            if (metricCount >= 16) {
+            // 9 streaming_job_* counters + 1 doris_fe_job RUNNING gauge + 8 per-job metrics
+            if (metricCount >= 18) {
                 break
             }
 

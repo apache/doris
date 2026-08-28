@@ -31,7 +31,6 @@ constexpr int64_t STREAM_CHANGE_INSERT = 0;
 constexpr int64_t STREAM_CHANGE_DELETE = 1;
 constexpr int64_t STREAM_CHANGE_UPDATE_BEFORE = 2;
 constexpr int64_t STREAM_CHANGE_UPDATE_AFTER = 3;
-
 enum class MinDeltaResultType { SKIP, INSERT, DELETE, UPDATE_BEFORE_AFTER };
 
 // MIN_DELTA uses row binlog op codes as indices into a 2D lookup table, so we guard the op layout here.

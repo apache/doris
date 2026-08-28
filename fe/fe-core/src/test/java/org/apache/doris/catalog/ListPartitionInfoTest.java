@@ -24,7 +24,9 @@ import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.DebugPointUtil;
 
 import com.google.common.collect.Lists;
 import org.junit.Assert;
@@ -251,58 +253,91 @@ public class ListPartitionInfoTest {
 
     @Test
     public void testListPartitionNullMax() throws AnalysisException, DdlException {
-        PartitionItem partitionItem = null;
+        // MAXVALUE is rejected at DDL time now; this test exercises the catalog-level
+        // handling of legacy metadata (tables created by older versions that allowed
+        // MAXVALUE in LIST partitions), so bypass the DDL check with a debug point.
+        boolean originalEnableDebugPoints = Config.enable_debug_points;
+        Config.enable_debug_points = true;
+        try {
+            DebugPointUtil.addDebugPoint("FE.skipCheckMaxValueInListPartition");
+            PartitionItem partitionItem = null;
+            Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "");
+            Column k2 = new Column("k2", new ScalarType(PrimitiveType.INT), true, null, "", "");
+            partitionColumns.add(k1);
+            partitionColumns.add(k2);
+            partitionInfo = new ListPartitionInfo(partitionColumns);
+
+            List<List<PartitionValue>> inValues = new ArrayList<>();
+            inValues.add(Lists.newArrayList(new PartitionValue("", true), PartitionValue.MAX_VALUE));
+            SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(false, "p1",
+                    PartitionKeyDesc.createIn(inValues), null);
+            singlePartitionDesc.analyze(2, null);
+            partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
+
+            Assert.assertEquals("((NULL, MAXVALUE))", ((ListPartitionItem) partitionItem).toSql());
+
+            inValues = new ArrayList<>();
+            inValues.add(Lists.newArrayList(new PartitionValue("", true), new PartitionValue("", true)));
+            singlePartitionDesc = new SinglePartitionDesc(false, "p2",
+            PartitionKeyDesc.createIn(inValues), null);
+            singlePartitionDesc.analyze(2, null);
+            partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
+
+            Assert.assertEquals("((NULL, NULL))", ((ListPartitionItem) partitionItem).toSql());
+
+            inValues = new ArrayList<>();
+            inValues.add(Lists.newArrayList(PartitionValue.MAX_VALUE, new PartitionValue("", true)));
+            singlePartitionDesc = new SinglePartitionDesc(false, "p3",
+            PartitionKeyDesc.createIn(inValues), null);
+            singlePartitionDesc.analyze(2, null);
+            partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
+
+            Assert.assertEquals("((MAXVALUE, NULL))", ((ListPartitionItem) partitionItem).toSql());
+
+            inValues = new ArrayList<>();
+            inValues.add(Lists.newArrayList(PartitionValue.MAX_VALUE, PartitionValue.MAX_VALUE));
+            singlePartitionDesc = new SinglePartitionDesc(false, "p4",
+            PartitionKeyDesc.createIn(inValues), null);
+            singlePartitionDesc.analyze(2, null);
+            partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
+
+            Assert.assertEquals("((MAXVALUE, MAXVALUE))", ((ListPartitionItem) partitionItem).toSql());
+
+            inValues = new ArrayList<>();
+            inValues.add(Lists.newArrayList(new PartitionValue("", true), new PartitionValue("", true)));
+            inValues.add(Lists.newArrayList(PartitionValue.MAX_VALUE, new PartitionValue("", true)));
+            inValues.add(Lists.newArrayList(new PartitionValue("", true), PartitionValue.MAX_VALUE));
+            singlePartitionDesc = new SinglePartitionDesc(false, "p5",
+            PartitionKeyDesc.createIn(inValues), null);
+            singlePartitionDesc.analyze(2, null);
+            partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
+
+            Assert.assertEquals("((NULL, NULL),(MAXVALUE, NULL),(NULL, MAXVALUE))", ((ListPartitionItem) partitionItem).toSql());
+        } finally {
+            DebugPointUtil.removeDebugPoint("FE.skipCheckMaxValueInListPartition");
+            Config.enable_debug_points = originalEnableDebugPoints;
+        }
+    }
+
+    @Test
+    public void testRejectMaxValueInListPartition() throws AnalysisException {
         Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "");
-        Column k2 = new Column("k2", new ScalarType(PrimitiveType.INT), true, null, "", "");
         partitionColumns.add(k1);
-        partitionColumns.add(k2);
-        partitionInfo = new ListPartitionInfo(partitionColumns);
 
         List<List<PartitionValue>> inValues = new ArrayList<>();
-        inValues.add(Lists.newArrayList(new PartitionValue("", true), PartitionValue.MAX_VALUE));
+        inValues.add(Lists.newArrayList(new PartitionValue("1"), PartitionValue.MAX_VALUE));
         SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(false, "p1",
                 PartitionKeyDesc.createIn(inValues), null);
-        singlePartitionDesc.analyze(2, null);
-        partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
 
-        Assert.assertEquals("((NULL, MAXVALUE))", ((ListPartitionItem) partitionItem).toSql());
+        AnalysisException ex = Assert.assertThrows(AnalysisException.class,
+                () -> singlePartitionDesc.analyze(1, null));
+        Assert.assertTrue(ex.getMessage().contains("MAXVALUE is not allowed in LIST partition values"));
 
-        inValues = new ArrayList<>();
-        inValues.add(Lists.newArrayList(new PartitionValue("", true), new PartitionValue("", true)));
-        singlePartitionDesc = new SinglePartitionDesc(false, "p2",
-        PartitionKeyDesc.createIn(inValues), null);
-        singlePartitionDesc.analyze(2, null);
-        partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
-
-        Assert.assertEquals("((NULL, NULL))", ((ListPartitionItem) partitionItem).toSql());
-
-        inValues = new ArrayList<>();
-        inValues.add(Lists.newArrayList(PartitionValue.MAX_VALUE, new PartitionValue("", true)));
-        singlePartitionDesc = new SinglePartitionDesc(false, "p3",
-        PartitionKeyDesc.createIn(inValues), null);
-        singlePartitionDesc.analyze(2, null);
-        partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
-
-        Assert.assertEquals("((MAXVALUE, NULL))", ((ListPartitionItem) partitionItem).toSql());
-
-        inValues = new ArrayList<>();
-        inValues.add(Lists.newArrayList(PartitionValue.MAX_VALUE, PartitionValue.MAX_VALUE));
-        singlePartitionDesc = new SinglePartitionDesc(false, "p4",
-        PartitionKeyDesc.createIn(inValues), null);
-        singlePartitionDesc.analyze(2, null);
-        partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
-
-        Assert.assertEquals("((MAXVALUE, MAXVALUE))", ((ListPartitionItem) partitionItem).toSql());
-
-        inValues = new ArrayList<>();
-        inValues.add(Lists.newArrayList(new PartitionValue("", true), new PartitionValue("", true)));
-        inValues.add(Lists.newArrayList(PartitionValue.MAX_VALUE, new PartitionValue("", true)));
-        inValues.add(Lists.newArrayList(new PartitionValue("", true), PartitionValue.MAX_VALUE));
-        singlePartitionDesc = new SinglePartitionDesc(false, "p5",
-        PartitionKeyDesc.createIn(inValues), null);
-        singlePartitionDesc.analyze(2, null);
-        partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
-
-        Assert.assertEquals("((NULL, NULL),(MAXVALUE, NULL),(NULL, MAXVALUE))", ((ListPartitionItem) partitionItem).toSql());
+        // NULL is still a valid LIST partition value.
+        List<List<PartitionValue>> nullValues = new ArrayList<>();
+        nullValues.add(Lists.newArrayList(new PartitionValue("", true)));
+        SinglePartitionDesc nullPartitionDesc = new SinglePartitionDesc(false, "p2",
+                PartitionKeyDesc.createIn(nullValues), null);
+        nullPartitionDesc.analyze(1, null);
     }
 }

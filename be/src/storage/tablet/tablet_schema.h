@@ -522,6 +522,7 @@ public:
     int32_t skip_bitmap_col_idx() const { return _skip_bitmap_col_idx; }
     bool is_tso_enabled() const { return _commit_tso_col_idx != -1 || _binlog_tso_col_idx != -1; }
     int32_t commit_tso_col_idx() const { return _commit_tso_col_idx; }
+    int32_t row_lsn_col_idx() const { return _row_lsn_col_idx; }
     int32_t binlog_tso_col_idx() const { return _binlog_tso_col_idx; }
     int32_t binlog_lsn_col_idx() const { return _binlog_lsn_col_idx; }
     int32_t binlog_op_col_idx() const { return _binlog_op_col_idx; }
@@ -624,6 +625,8 @@ public:
 
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
+    double get_bloom_filter_fpp(int32_t col_unique_id) const;
+    double get_bloom_filter_fpp(const TabletColumn& column) const;
     const TabletIndex* get_index(int32_t col_unique_id, IndexType index_type,
                                  const std::string& suffix_path) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);
@@ -821,6 +824,7 @@ private:
     int32_t _version_col_idx = -1;
     int32_t _skip_bitmap_col_idx = -1;
     int32_t _commit_tso_col_idx = -1;
+    int32_t _row_lsn_col_idx = -1;
     int32_t _binlog_tso_col_idx = -1;
     int32_t _binlog_lsn_col_idx = -1;
     int32_t _binlog_op_col_idx = -1;

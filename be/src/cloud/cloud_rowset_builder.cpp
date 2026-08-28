@@ -139,6 +139,7 @@ Status CloudGroupRowsetBuilder::init() {
     RETURN_IF_ERROR(RowsetFactory::create_empty_group_rowset_writer(&group_writer));
     group_writer->set_data_writer(_data_builder->rowset_writer());
     group_writer->set_row_binlog_writer(_row_binlog_builder->rowset_writer());
+    RETURN_IF_ERROR(group_writer->init(_data_builder->rowset_writer()->context()));
 
     {
         const auto& data_ctx = _data_builder->rowset_writer()->context();

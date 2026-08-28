@@ -237,10 +237,9 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 .collect(Collectors.toList());
 
         Assertions.assertTrue(scanColumns.containsAll(ImmutableList.of(
-                "k1", "k2", "v1", Column.generateBeforeColName("v1"),
+                "k1", "k2", "v1", "v2", Column.generateBeforeColName("v1"),
+                Column.generateBeforeColName("v2"),
                 Column.BINLOG_OPERATION_COL, Column.BINLOG_TSO_COL)));
-        Assertions.assertFalse(scanColumns.contains("v2"));
-        Assertions.assertFalse(scanColumns.contains(Column.generateBeforeColName("v2")));
         Assertions.assertFalse(scanColumns.contains(Column.BINLOG_LSN_COL));
 
         Assertions.assertTrue(scanNode.getExtraKeyColumnSlotIds().isEmpty());
@@ -404,7 +403,7 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         boolean oldDisableJoinReorder = connectContext.getSessionVariable().isDisableJoinReorder();
         try {
             connectContext.getSessionVariable().setRuntimeFilterType(TRuntimeFilterType.MIN_MAX.getValue());
-            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(false);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(true);
             connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
             connectContext.getSessionVariable().setDisableJoinReorder(true);
 
@@ -423,7 +422,7 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                     .orElseThrow();
             Assertions.assertEquals(2, partitionedScan.getSelectedPartitionIds().size());
 
-            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(true);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(false);
             TPlanNode thriftScanNode = partitionedScan.treeToThrift().getNodes().get(0);
 
             Assertions.assertTrue(thriftScanNode.olap_scan_node.isSetPartitionBoundaries());

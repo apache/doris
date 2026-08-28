@@ -19,6 +19,8 @@ package org.apache.doris.encryption;
 
 import com.google.gson.annotations.SerializedName;
 
+import java.security.MessageDigest;
+import java.util.Base64;
 import java.util.Objects;
 
 public class RootKeyInfo {
@@ -71,6 +73,9 @@ public class RootKeyInfo {
         this.ak = info.ak;
         this.sk = info.sk;
         this.password = info.password;
+        this.rootKeyFilePath = info.rootKeyFilePath;
+        this.rootKeyHash = info.rootKeyHash;
+        this.rootKeyBase64 = info.rootKeyBase64;
     }
 
     @SerializedName(value = "type")
@@ -96,4 +101,39 @@ public class RootKeyInfo {
 
     @SerializedName(value = "password")
     public String password;
+
+    // File path of the local root key. This is a persisted key reference, similar to cmkId for KMS.
+    @SerializedName(value = "rootKeyFilePath")
+    public String rootKeyFilePath;
+
+    // SHA-256 hash of the root key (Base64 encoded). Used to verify the root key on FE restart.
+    @SerializedName(value = "rootKeyHash")
+    public String rootKeyHash;
+
+    // Root key in Base64 encoding. Used for passing the key during rotation, not persisted to the edit log.
+    public transient String rootKeyBase64;
+
+    public void setRootKeyHashFromKey(byte[] rootKeyBytes) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(rootKeyBytes);
+            this.rootKeyHash = Base64.getEncoder().encodeToString(hash);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to compute root key hash", e);
+        }
+    }
+
+    public boolean verifyRootKey(byte[] rootKeyBytes) {
+        if (this.rootKeyHash == null || this.rootKeyHash.isEmpty()) {
+            return true;
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(rootKeyBytes);
+            String inputHash = Base64.getEncoder().encodeToString(hash);
+            return this.rootKeyHash.equals(inputHash);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to verify root key", e);
+        }
+    }
 }
