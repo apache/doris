@@ -34,6 +34,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
@@ -535,5 +536,36 @@ public class IcebergConnectorMetadataMvccTest {
         Assertions.assertThrows(RuntimeException.class, () -> md.listPartitionNames(null, handle()));
         Assertions.assertEquals(1, ctx.authCount);
         Assertions.assertFalse(ops.log.contains("loadTable:db1.t1"), "loadTable must sit inside executeAuthenticated");
+    }
+
+    @Test
+    public void listPartitionNamesNormalizesDeepMetadataNotFoundFailure() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.loadTableFailure = new RuntimeException("catalog wrapper",
+                new RuntimeException("storage wrapper", new NotFoundException("metadata is missing")));
+        IcebergConnectorMetadata md = new IcebergConnectorMetadata(
+                ops, IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.listPartitionNames(null, handle()));
+        Assertions.assertEquals("Metadata not found in metadata location for table db1.t1", ex.getMessage());
+    }
+
+    @Test
+    public void parallelPartitionReadersNormalizeDeepMetadataNotFoundFailure() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.loadTableFailure = new RuntimeException("catalog wrapper",
+                new RuntimeException("storage wrapper", new NotFoundException("metadata is missing")));
+        IcebergConnectorMetadata md = new IcebergConnectorMetadata(
+                ops, IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
+
+        DorisConnectorException listFailure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.listPartitions(null, handle(), Optional.empty()));
+        Assertions.assertEquals("Metadata not found in metadata location for table db1.t1",
+                listFailure.getMessage());
+        DorisConnectorException mvccFailure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.getMvccPartitionView(null, handle()));
+        Assertions.assertEquals("Metadata not found in metadata location for table db1.t1",
+                mvccFailure.getMessage());
     }
 }

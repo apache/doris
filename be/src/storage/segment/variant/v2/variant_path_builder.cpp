@@ -74,6 +74,34 @@ enum class ValueKind : uint8_t {
     ARRAY,
 };
 
+enum class ScalarPhysicalKind : uint8_t { OTHER, NULL_VALUE, SHORT_STRING, PRIMITIVE };
+
+struct ScalarPhysical {
+    ScalarPhysicalKind kind;
+    VariantPrimitiveId primitive_id = VariantPrimitiveId::NULL_VALUE;
+};
+
+ScalarPhysical scalar_physical(VariantRef value) {
+    switch (value.basic_type()) {
+    case VariantBasicType::SHORT_STRING:
+        return {.kind = ScalarPhysicalKind::SHORT_STRING};
+    case VariantBasicType::PRIMITIVE: {
+        const VariantPrimitiveId primitive_id = value.primitive_id();
+        return {.kind = primitive_id == VariantPrimitiveId::NULL_VALUE
+                                ? ScalarPhysicalKind::NULL_VALUE
+                                : ScalarPhysicalKind::PRIMITIVE,
+                .primitive_id = primitive_id};
+    }
+    case VariantBasicType::OBJECT:
+    case VariantBasicType::ARRAY:
+        return {.kind = ScalarPhysicalKind::OTHER};
+    }
+    // Match VariantRef::is_null(): an unknown basic type is not null. The
+    // authoritative slow path reports the corrupt type after preserving
+    // row-validation ordering.
+    return {.kind = ScalarPhysicalKind::OTHER};
+}
+
 const DataTypePtr& jsonb_type() {
     static const DataTypePtr type = std::make_shared<DataTypeJsonb>();
     return type;
@@ -197,37 +225,8 @@ DataTypePtr infer_type(VariantRef value, const DataTypePtr& reusable_type = null
         return type;
     }
     case ValueKind::INT64: {
-        PrimitiveType primitive = TYPE_BIGINT;
-        switch (value.primitive_id()) {
-        case VariantPrimitiveId::INT8:
-            primitive = TYPE_TINYINT;
-            break;
-        case VariantPrimitiveId::INT16:
-            primitive = TYPE_SMALLINT;
-            break;
-        case VariantPrimitiveId::INT32:
-            primitive = TYPE_INT;
-            break;
-        case VariantPrimitiveId::INT64:
-            break;
-        default:
-            throw Exception(ErrorCode::CORRUPTION, "Invalid Variant integer primitive id");
-        }
-        static const std::array<DataTypePtr, 4> types {
-                std::make_shared<DataTypeInt8>(), std::make_shared<DataTypeInt16>(),
-                std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt64>()};
-        switch (primitive) {
-        case TYPE_TINYINT:
-            return types[0];
-        case TYPE_SMALLINT:
-            return types[1];
-        case TYPE_INT:
-            return types[2];
-        case TYPE_BIGINT:
-            return types[3];
-        default:
-            throw Exception(ErrorCode::CORRUPTION, "Invalid Variant integer type {}", primitive);
-        }
+        static const DataTypePtr type = std::make_shared<DataTypeInt64>();
+        return type;
     }
     case ValueKind::LARGEINT: {
         static const DataTypePtr type = std::make_shared<DataTypeInt128>();
@@ -694,6 +693,72 @@ void append_timestamp(VariantRef value, PrimitiveType target_type, IColumn* targ
     assert_cast<ColumnTimeStampTz&>(*target).insert_value(converted);
 }
 
+template <typename Value>
+bool stable_scalar_matches_type(const Value& value, const ScalarPhysical& physical,
+                                const DataTypePtr& target_type) {
+    const PrimitiveType target_primitive = target_type->get_primitive_type();
+    if (target_primitive == TYPE_JSONB) {
+        return physical.kind == ScalarPhysicalKind::SHORT_STRING ||
+               physical.kind == ScalarPhysicalKind::PRIMITIVE;
+    }
+    if (physical.kind == ScalarPhysicalKind::SHORT_STRING) {
+        return target_primitive == TYPE_STRING;
+    }
+    if (physical.kind != ScalarPhysicalKind::PRIMITIVE) {
+        return false;
+    }
+
+    switch (physical.primitive_id) {
+    case VariantPrimitiveId::TRUE_VALUE:
+    case VariantPrimitiveId::FALSE_VALUE:
+        return target_primitive == TYPE_BOOLEAN;
+    case VariantPrimitiveId::INT8:
+    case VariantPrimitiveId::INT16:
+    case VariantPrimitiveId::INT32:
+    case VariantPrimitiveId::INT64:
+        // Encoded integer widths are a physical detail. Integer paths use BIGINT from their first
+        // value, avoiding repeated inference and column rewrites when later values use a wider or
+        // narrower physical width. LARGEINT remains valid after a real 128-bit promotion.
+        return target_primitive == TYPE_BIGINT || target_primitive == TYPE_LARGEINT;
+    case VariantPrimitiveId::FLOAT:
+        return target_primitive == TYPE_FLOAT;
+    case VariantPrimitiveId::DOUBLE:
+        return target_primitive == TYPE_DOUBLE;
+    case VariantPrimitiveId::DECIMAL4:
+    case VariantPrimitiveId::DECIMAL8:
+    case VariantPrimitiveId::DECIMAL16: {
+        const VariantDecimal decimal = value.get_decimal();
+        if (physical.primitive_id == VariantPrimitiveId::DECIMAL16 && decimal.scale == 0) {
+            return target_primitive == TYPE_LARGEINT;
+        }
+        if (target_primitive != TYPE_DECIMAL128I || target_type->get_precision() != 38 ||
+            target_type->get_scale() != decimal.scale) {
+            return false;
+        }
+        __int128 converted = 0;
+        return try_rescale_decimal_value(value, target_type, &converted);
+    }
+    case VariantPrimitiveId::DATE:
+        return target_primitive == TYPE_DATEV2 && date_fits_doris_range(value.get_date());
+    case VariantPrimitiveId::TIMESTAMP_MICROS:
+        return target_primitive == TYPE_TIMESTAMPTZ &&
+               timestamp_fits_doris_range(value.get_timestamp_micros());
+    case VariantPrimitiveId::TIMESTAMP_NTZ_MICROS:
+        return target_primitive == TYPE_DATETIMEV2 &&
+               timestamp_fits_doris_range(value.get_timestamp_ntz_micros());
+    case VariantPrimitiveId::STRING:
+        return target_primitive == TYPE_STRING;
+    case VariantPrimitiveId::NULL_VALUE:
+    case VariantPrimitiveId::BINARY:
+    case VariantPrimitiveId::TIME_NTZ_MICROS:
+    case VariantPrimitiveId::TIMESTAMP_NANOS:
+    case VariantPrimitiveId::TIMESTAMP_NTZ_NANOS:
+    case VariantPrimitiveId::UUID:
+        return false;
+    }
+    throw Exception(ErrorCode::CORRUPTION, "Unknown Variant primitive id");
+}
+
 void append_value(VariantRef value, const DataTypePtr& target_type, IColumn* target);
 
 void append_array(VariantRef value, const DataTypePtr& target_type, IColumn* target) {
@@ -849,10 +914,6 @@ size_t dotted_path_depth(const PathInData& path) {
     return path.get_parts().size();
 }
 
-size_t path_allocated_bytes(const PathInData& path) {
-    return path.get_path().capacity() + path.get_parts().capacity() * sizeof(PathInData::Part);
-}
-
 size_t recursive_null_count(const IColumn& column) {
     if (const auto* nullable = check_and_get_column<ColumnNullable>(column)) {
         size_t count = 0;
@@ -934,6 +995,7 @@ struct VariantPathBuilder::Impl {
         type = remove_nullable(initial_type);
         nullable_type = make_nullable(type);
         column = nullable_type->create_column();
+        binary_serde.reset();
         return Status::OK();
     }
 
@@ -991,6 +1053,7 @@ struct VariantPathBuilder::Impl {
         column = IColumn::mutate(std::move(promoted));
         type = std::move(target);
         nullable_type = make_nullable(type);
+        binary_serde.reset();
 #ifdef BE_TEST
         ++promotions;
 #endif
@@ -1000,11 +1063,15 @@ struct VariantPathBuilder::Impl {
     PathInData path;
     DataTypePtr type;
     DataTypePtr nullable_type;
+    DataTypeSerDeSPtr binary_serde;
     MutableColumnPtr column;
     DorisVector<uint32_t> rowids;
     size_t logical_rows = 0;
 #ifdef BE_TEST
     size_t promotions = 0;
+#endif
+#if defined(BE_TEST) && !defined(BE_BENCHMARK)
+    size_t stable_scalar_appends = 0;
 #endif
 };
 
@@ -1016,7 +1083,8 @@ VariantPathBuilder& VariantPathBuilder::operator=(VariantPathBuilder&&) noexcept
 
 Status VariantPathBuilder::append(VariantRef value, size_t row) {
     try {
-        if (value.is_null()) {
+        const ScalarPhysical physical = scalar_physical(value);
+        if (physical.kind == ScalarPhysicalKind::NULL_VALUE) {
             return Status::InvalidArgument("Variant path builder {} must not append JSON null",
                                            _impl->path.get_path());
         }
@@ -1028,16 +1096,26 @@ Status VariantPathBuilder::append(VariantRef value, size_t row) {
             return Status::InvalidArgument("Variant path builder {} row {} exceeds uint32 limit",
                                            _impl->path.get_path(), row);
         }
-        RETURN_IF_ERROR(complete_rows(row));
+        _impl->logical_rows = row;
 
-        if (!_impl->column) {
-            RETURN_IF_ERROR(_impl->initialize(infer_type(value)));
-        } else if (_impl->type->get_primitive_type() != TYPE_JSONB) {
-            DataTypePtr inferred_type = infer_type(value, _impl->type);
-            DataTypePtr common_type = path_least_common_type(_impl->type, inferred_type);
-            RETURN_IF_ERROR(_impl->promote(common_type, false));
+        const bool stable_scalar =
+                _impl->column && stable_scalar_matches_type(value, physical, _impl->type);
+        if (!stable_scalar) {
+            if (!_impl->column) {
+                RETURN_IF_ERROR(_impl->initialize(infer_type(value)));
+            } else if (_impl->type->get_primitive_type() != TYPE_JSONB) {
+                DataTypePtr inferred_type = infer_type(value, _impl->type);
+                if (_impl->type.get() != inferred_type.get() &&
+                    !_impl->type->equals(*inferred_type)) {
+                    DataTypePtr common_type = path_least_common_type(_impl->type, inferred_type);
+                    if (_impl->type.get() != common_type.get() &&
+                        !_impl->type->equals(*common_type)) {
+                        RETURN_IF_ERROR(_impl->promote(common_type, false));
+                    }
+                }
+            }
         }
-        const bool is_array = value.basic_type() == VariantBasicType::ARRAY;
+        const bool is_array = !stable_scalar && value_kind(value) == ValueKind::ARRAY;
         if (is_array && !value_is_representable(value, _impl->type)) {
             RETURN_IF_ERROR(_impl->promote(jsonb_type(), false));
         }
@@ -1057,6 +1135,9 @@ Status VariantPathBuilder::append(VariantRef value, size_t row) {
         }
         _impl->rowids.push_back(static_cast<uint32_t>(row));
         _impl->logical_rows = row + 1;
+#if defined(BE_TEST) && !defined(BE_BENCHMARK)
+        _impl->stable_scalar_appends += stable_scalar;
+#endif
         return Status::OK();
     } catch (const Exception& exception) {
         return exception.to_status();
@@ -1107,6 +1188,12 @@ size_t VariantPathBuilder::rows() const {
 
 size_t VariantPathBuilder::promotion_count() const {
     return _impl->promotions;
+}
+#endif
+
+#if defined(BE_TEST) && !defined(BE_BENCHMARK)
+size_t VariantPathBuilder::stable_scalar_append_count() const {
+    return _impl->stable_scalar_appends;
 }
 #endif
 
@@ -1181,8 +1268,11 @@ Status VariantPathBuilder::write_sparse_cell(size_t value_index, ColumnString::C
                                      _impl->path.get_path());
     }
     try {
-        _impl->type->get_serde(2)->write_one_cell_to_binary(nullable.get_nested_column(), *chars,
-                                                            value_index);
+        if (!_impl->binary_serde) {
+            _impl->binary_serde = _impl->type->get_serde(2);
+        }
+        _impl->binary_serde->write_one_cell_to_binary(nullable.get_nested_column(), *chars,
+                                                      value_index);
         return Status::OK();
     } catch (const Exception& exception) {
         return exception.to_status();

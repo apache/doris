@@ -189,7 +189,15 @@ public class AnalysisInfo implements Writable {
     @SerializedName("tv")
     public final long tableVersion;
 
-    public final Map<Long, Long> partitionUpdateRows = new ConcurrentHashMap<>();
+    /**
+     * Number of updated rows per partition. This map is shared between a job and all
+     * of its tasks: each task's AnalysisInfo holds the same reference as the job's,
+     * instead of a deep copy, so that a single clear at the job terminal state (see
+     * AnalysisManager#updateTaskStatus) releases the memory retained by every task
+     * record at once. It is null when the job is recovered from the image because the
+     * field is not persisted.
+     */
+    public final Map<Long, Long> partitionUpdateRows;
 
     @SerializedName("tblUpdateTime")
     public final long tblUpdateTime;
@@ -254,9 +262,11 @@ public class AnalysisInfo implements Writable {
         this.updateRows = updateRows;
         this.tableVersion = tableVersion;
         this.priority = priority;
-        if (partitionUpdateRows != null) {
-            this.partitionUpdateRows.putAll(partitionUpdateRows);
-        }
+        // Share the same partitionUpdateRows map reference between the job and all its
+        // tasks instead of deep-copying it per task, so that clearing it once at the
+        // job terminal state releases the memory retained by every task record at once.
+        this.partitionUpdateRows = partitionUpdateRows == null
+                ? new ConcurrentHashMap<>() : partitionUpdateRows;
         this.enablePartition = enablePartition;
     }
 

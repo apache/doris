@@ -825,7 +825,8 @@ public class CreateTableInfo {
                 if (indexDef.getIndexType() == IndexType.ANN) {
                     if (invertedIndexFileStorageFormat != null
                             && invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
-                        throw new AnalysisException("ANN index is not supported in index format V1");
+                        throw new AnalysisException("ANN index is not supported in index format "
+                                + invertedIndexFileStorageFormat);
                     }
                 }
                 for (String indexColName : indexDef.getColumnNames()) {
@@ -1627,16 +1628,17 @@ public class CreateTableInfo {
     }
 
     /**
-     * check if add Commit TSO Column
+     * Add hidden columns required by row binlog.
      */
-    public void createCommitTSOColumnIfNecessary(BinlogConfig binlogConfig) {
-        // __DORIS_COMMIT_TSO_COL__ injection for time-travel:
-        // only on dup / mow tables with row binlog enabled (binlog.enable=true && binlog.format=ROW).
-        if (keysType.equals(KeysType.DUP_KEYS)
-                || (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite)) {
-            if (binlogConfig.isRowFormat()) {
-                columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
-            }
+    public void createRowBinlogHiddenColumnsIfNecessary(BinlogConfig binlogConfig) {
+        if (!binlogConfig.isRowFormat()) {
+            return;
+        }
+        if (keysType.equals(KeysType.DUP_KEYS)) {
+            columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
+            columns.add(ColumnDefinition.newRowLsnColumnDefinition(AggregateType.NONE));
+        } else if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
+            columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
         }
     }
 }

@@ -2404,7 +2404,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException("Cannot create temporary table with binlog enable");
         }
         createTableInfo.getProperties().putAll(createTableBinlogConfig.toProperties());
-        createTableInfo.createCommitTSOColumnIfNecessary(createTableBinlogConfig);
+        createTableInfo.createRowBinlogHiddenColumnsIfNecessary(createTableBinlogConfig);
 
         // get keys type
         KeysDesc keysDesc = createTableInfo.getKeysDesc();
@@ -4096,13 +4096,13 @@ public class InternalCatalog implements CatalogIf<Database> {
                         .withBaseTable(baseTable)
                         .build();
                 newStream.setComment(createStreamInfo.getComment());
-                // check base table type is supported for stream
-                baseTable.checkAsTableStreamBaseTable(newStream.getStreamScanType());
                 try {
                     setTableStreamProperties(newStream, properties);
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage(), e);
                 }
+                // check base table type is supported for stream
+                baseTable.checkAsTableStreamBaseTable(newStream.getStreamScanType());
                 if (properties != null && !properties.isEmpty()) {
                     // before here, all properties should be checked
                     throw new DdlException("Unknown properties: " + properties);

@@ -20,13 +20,24 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <pdqsort.h>
 
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstring>
+#include <functional>
+#include <memory>
+#include <string_view>
+#include <vector>
 
+#include "common/check.h"
+#include "common/compare.h"
 #include "common/object_pool.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/primitive_type.h"
+#include "core/field.h"
+#include "core/string_ref.h"
 #include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "exec/runtime_filter/utils.h"
 #include "exprs/bitset_container.h"
@@ -34,6 +45,49 @@
 
 namespace doris {
 constexpr int FIXED_CONTAINER_MAX_SIZE = 8;
+
+namespace detail {
+
+template <typename Container, typename Less, typename FieldFactory>
+void get_hybrid_set_min_max(const Container& container, Less&& less, FieldFactory&& field_factory,
+                            Field& min_value, Field& max_value) {
+    min_value = Field {};
+    max_value = Field {};
+
+    auto iterator = container.begin();
+    const auto end = container.end();
+    if (iterator == end) {
+        return;
+    }
+
+    auto min_iterator = iterator;
+    auto max_iterator = iterator;
+    for (; iterator != end; ++iterator) {
+        const auto& value = *iterator;
+        if (less(value, *min_iterator)) {
+            min_iterator = iterator;
+        }
+        if (less(*max_iterator, value)) {
+            max_iterator = iterator;
+        }
+    }
+    min_value = field_factory(*min_iterator);
+    max_value = field_factory(*max_iterator);
+}
+
+template <PrimitiveType T>
+bool hybrid_set_value_less(const typename PrimitiveTypeTraits<T>::CppType& lhs,
+                           const typename PrimitiveTypeTraits<T>::CppType& rhs) {
+    if constexpr (T == TYPE_DATEV2 || T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
+        return lhs.to_date_int_val() < rhs.to_date_int_val();
+    } else if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+        return Compare::less(lhs, rhs);
+    } else {
+        return lhs < rhs;
+    }
+}
+
+} // namespace detail
 
 /**
  * Fix Container can use simd to improve performance. 1 <= N <= 8 can be improved performance by test. FIXED_CONTAINER_MAX_SIZE = 8.
@@ -47,6 +101,7 @@ public:
     using ElementType = T;
 
     class Iterator;
+    class ConstIterator;
 
     FixedContainer() { static_assert(N >= 0 && N <= FIXED_CONTAINER_MAX_SIZE); }
 
@@ -75,6 +130,14 @@ public:
     ALWAYS_INLINE bool find(const T& value) const {
         DCHECK_EQ(N, _size);
         return _find_impl(value, std::make_index_sequence<N> {});
+    }
+
+    template <typename Less>
+    bool contains_any_in_range(const T& min_value, const T& max_value, Less&& less) const {
+        DCHECK(!less(max_value, min_value));
+        return std::ranges::any_of(_data.begin(), _data.begin() + _size, [&](const T& value) {
+            return !less(value, min_value) && !less(max_value, value);
+        });
     }
 
 private:
@@ -122,6 +185,38 @@ public:
     Iterator begin() { return Iterator(_data, 0); }
     Iterator end() { return Iterator(_data, _size); }
 
+    class ConstIterator {
+    public:
+        ConstIterator() = default;
+        explicit ConstIterator(const std::array<T, N>& data, size_t index)
+                : _data(&data), _index(index) {}
+        ConstIterator& operator++() {
+            ++_index;
+            return *this;
+        }
+        ConstIterator operator++(int) {
+            ConstIterator ret_val = *this;
+            ++(*this);
+            return ret_val;
+        }
+        bool operator==(ConstIterator other) const { return _index == other._index; }
+        bool operator!=(ConstIterator other) const { return !(*this == other); }
+        const T& operator*() const { return (*_data)[_index]; }
+        const T* operator->() const { return &operator*(); }
+
+        using iterator_category = std::forward_iterator_tag;
+        using difference_type = std::ptrdiff_t;
+        using value_type = T;
+        using pointer = const T*;
+        using reference = const T&;
+
+    private:
+        const std::array<T, N>* _data = nullptr;
+        size_t _index = 0;
+    };
+    ConstIterator begin() const { return ConstIterator(_data, 0); }
+    ConstIterator end() const { return ConstIterator(_data, _size); }
+
     void clear() {
         std::array<T, N> {}.swap(_data);
         _size = 0;
@@ -144,15 +239,30 @@ struct IsBitSetContainer : std::false_type {};
 template <typename T>
 struct IsBitSetContainer<BitSetContainer<T>> : std::true_type {};
 
+template <typename T>
+struct DynamicContainerHash {
+    size_t operator()(const T& value) const {
+        if constexpr (std::is_floating_point_v<T>) {
+            T normalized = value;
+            // The hash must collapse NaN payloads and signed zeros exactly as Doris equality does.
+            NormalizeFloat(normalized);
+            return phmap::Hash<T> {}(normalized);
+        }
+        return phmap::Hash<T> {}(value);
+    }
+};
+
 /**
  * Dynamic Container uses phmap::flat_hash_set.
  * @tparam T Element Type
  */
-template <typename T>
+template <typename T, typename Hash = DynamicContainerHash<T>, typename Eq = doris::EqualTo<T>>
 class DynamicContainer {
 public:
+    using Set = flat_hash_set<T, Hash, Eq>;
     using Self = DynamicContainer;
-    using Iterator = typename flat_hash_set<T>::iterator;
+    using Iterator = typename Set::iterator;
+    using ConstIterator = typename Set::const_iterator;
     using ElementType = T;
 
     DynamicContainer() = default;
@@ -162,7 +272,19 @@ public:
 
     void insert(Iterator begin, Iterator end) { _set.insert(begin, end); }
 
-    bool find(const T& value) const { return _set.contains(value); }
+    template <typename Key>
+        requires requires(const Set& set, const Key& key) { set.find(key); }
+    bool find(const Key& value) const {
+        return _set.find(value) != _set.end();
+    }
+
+    template <typename Less>
+    bool contains_any_in_range(const T& min_value, const T& max_value, Less&& less) const {
+        DCHECK(!less(max_value, min_value));
+        return std::ranges::any_of(_set, [&](const T& value) {
+            return !less(value, min_value) && !less(max_value, value);
+        });
+    }
 
     void clear() { _set.clear(); }
 
@@ -170,15 +292,44 @@ public:
 
     Iterator end() { return _set.end(); }
 
+    ConstIterator begin() const { return _set.begin(); }
+
+    ConstIterator end() const { return _set.end(); }
+
     size_t size() const { return _set.size(); }
 
 private:
-    flat_hash_set<T> _set;
+    Set _set;
+};
+
+struct HybridSetStringHash {
+    using is_transparent = void;
+
+    size_t operator()(const StringRef& value) const { return StringRefHash {}(value); }
+    size_t operator()(const std::string& value) const {
+        return operator()(StringRef(value.data(), value.size()));
+    }
+};
+
+struct HybridSetStringEqual {
+    using is_transparent = void;
+
+    static std::string_view to_view(const StringRef& value) {
+        return {value.size == 0 ? "" : value.data, value.size};
+    }
+    static std::string_view to_view(const std::string& value) { return value; }
+
+    template <typename Lhs, typename Rhs>
+    bool operator()(const Lhs& lhs, const Rhs& rhs) const {
+        return to_view(lhs) == to_view(rhs);
+    }
 };
 
 // TODO Maybe change void* parameter to template parameter better.
 class HybridSetBase : public FilterBase {
 public:
+    using RawValuePredicate = std::function<bool(const char* data, size_t size)>;
+
     HybridSetBase(bool null_aware) : FilterBase(null_aware) {}
     virtual ~HybridSetBase() = default;
     virtual void insert(const void* data) = 0;
@@ -200,11 +351,27 @@ public:
     }
 
     virtual void clear() = 0;
-    bool empty() { return !_contain_null && size() == 0; }
-    virtual int size() = 0;
+    bool empty() const { return !_contain_null && size() == 0; }
+    virtual int size() const = 0;
     virtual bool find(const void* data) const = 0;
     // use in vectorize execute engine
     virtual bool find(const void* data, size_t) const = 0;
+    virtual bool find(const Field& value) const = 0;
+
+    // Return owning non-NaN bounds, or two null Fields when the set has no orderable values.
+    // Exact range checks continue to read the typed set directly.
+    virtual void get_min_max(Field& min_value, Field& max_value, bool& contains_nan) const = 0;
+
+    // Dense-domain containers may require scanning their whole value domain even for a small set.
+    // Callers on metadata hot paths should use min/max-only pruning when this returns false.
+    virtual bool supports_fast_range_lookup() const = 0;
+    virtual bool contains_any_in_range(const Field& min_value, const Field& max_value) const = 0;
+
+    // Apply a byte-oriented predicate directly to each non-null native value and stop at the first
+    // match. The predicate and raw bytes are consumed synchronously because string sets may borrow
+    // their storage.
+    virtual bool any_match_raw(PrimitiveType value_type,
+                               const RawValuePredicate& predicate) const = 0;
 
     virtual void find_batch_raw_fixed(const uint8_t* values, size_t rows, size_t value_width,
                                       uint8_t* matches) const {
@@ -319,7 +486,7 @@ public:
         }
     }
 
-    int size() override { return (int)_set.size(); }
+    int size() const override { return (int)_set.size(); }
 
     bool find(const void* data) const override {
         return _set.find(*reinterpret_cast<const ElementType*>(data));
@@ -327,8 +494,95 @@ public:
 
     bool find(const void* data, size_t /*unused*/) const override { return find(data); }
 
-    void find_batch_raw_fixed(const uint8_t* values, size_t rows, size_t value_width,
-                              uint8_t* matches) const override {
+    bool find(const Field& value) const override {
+        DORIS_CHECK_EQ(value.get_type(), T);
+        return _set.find(value.template get<T>());
+    }
+
+    void get_min_max(Field& min_value, Field& max_value, bool& contains_nan) const override {
+        contains_nan = false;
+        if constexpr (std::is_floating_point_v<ElementType>) {
+            min_value = Field {};
+            max_value = Field {};
+            bool found_ordered_value = false;
+            ElementType typed_min {};
+            ElementType typed_max {};
+            for (const auto& value : _set) {
+                if (std::isnan(value)) {
+                    contains_nan = true;
+                    continue;
+                }
+                if (!found_ordered_value) {
+                    typed_min = value;
+                    typed_max = value;
+                    found_ordered_value = true;
+                    continue;
+                }
+                typed_min = std::min(typed_min, value);
+                typed_max = std::max(typed_max, value);
+            }
+            if (found_ordered_value) {
+                min_value = Field::create_field<T>(typed_min);
+                max_value = Field::create_field<T>(typed_max);
+            }
+            return;
+        }
+        detail::get_hybrid_set_min_max(
+                _set,
+                [](const ElementType& lhs, const ElementType& rhs) {
+                    return detail::hybrid_set_value_less<T>(lhs, rhs);
+                },
+                [](const ElementType& value) { return Field::create_field<T>(value); }, min_value,
+                max_value);
+    }
+
+    bool supports_fast_range_lookup() const override {
+        // BitSetContainer::Iterator searches the dense value domain for the next set bit. A
+        // SMALLINT lookup may therefore inspect up to 65,536 positions even for a tiny set.
+        return !IsBitSetContainer<ContainerType>::value;
+    }
+
+    bool contains_any_in_range(const Field& min_value, const Field& max_value) const override {
+        DORIS_CHECK_EQ(min_value.get_type(), T);
+        DORIS_CHECK_EQ(max_value.get_type(), T);
+        const auto& typed_min = min_value.template get<T>();
+        const auto& typed_max = max_value.template get<T>();
+        const auto less = [](const ElementType& lhs, const ElementType& rhs) {
+            return detail::hybrid_set_value_less<T>(lhs, rhs);
+        };
+        DORIS_CHECK(!less(typed_max, typed_min));
+        if constexpr (std::is_floating_point_v<ElementType>) {
+            return std::ranges::any_of(_set, [&](const auto& value) {
+                return !std::isnan(value) && !less(value, typed_min) && !less(typed_max, value);
+            });
+        }
+        if constexpr (requires { _set.contains_any_in_range(typed_min, typed_max, less); }) {
+            return _set.contains_any_in_range(typed_min, typed_max, less);
+        }
+        for (const auto& value : _set) {
+            if (!less(value, typed_min) && !less(typed_max, value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool any_match_raw(PrimitiveType value_type,
+                       const RawValuePredicate& predicate) const override {
+        DORIS_CHECK_EQ(value_type, T);
+        for (const auto& value : _set) {
+            if (predicate(reinterpret_cast<const char*>(&value), sizeof(value))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // matches is an in/out selection mask updated in place; the checker cannot see that contract
+    // through this templated override.
+    void find_batch_raw_fixed(
+            const uint8_t* values, size_t rows, size_t value_width,
+            uint8_t* matches) const override { // NOLINT(readability-non-const-parameter)
         DORIS_CHECK_EQ(value_width, sizeof(ElementType));
         for (size_t row = 0; row < rows; ++row) {
             ElementType value;
@@ -337,8 +591,11 @@ public:
         }
     }
 
-    void find_batch_raw_fixed_negative(const uint8_t* values, size_t rows, size_t value_width,
-                                       uint8_t* matches) const override {
+    // matches is an in/out selection mask updated in place; the checker cannot see that contract
+    // through this templated override.
+    void find_batch_raw_fixed_negative(
+            const uint8_t* values, size_t rows, size_t value_width,
+            uint8_t* matches) const override { // NOLINT(readability-non-const-parameter)
         DORIS_CHECK_EQ(value_width, sizeof(ElementType));
         for (size_t row = 0; row < rows; ++row) {
             ElementType value;
@@ -441,7 +698,7 @@ public:
     uint64_t get_digest(uint64_t seed) override {
         std::vector<ElementType> elems(_set.begin(), _set.end());
         pdqsort(elems.begin(), elems.end());
-        if constexpr (std::is_same<ElementType, bool>::value) {
+        if constexpr (std::is_same_v<ElementType, bool>) {
             for (bool v : elems) {
                 seed = HashUtil::crc_hash64(&v, sizeof(v), seed);
             }
@@ -458,7 +715,8 @@ private:
     ObjectPool _pool;
 };
 
-template <typename _ContainerType = DynamicContainer<std::string>>
+template <typename _ContainerType =
+                  DynamicContainer<std::string, HybridSetStringHash, HybridSetStringEqual>>
 class StringSet : public HybridSetBase {
 public:
     using ContainerType = _ContainerType;
@@ -533,17 +791,66 @@ public:
         }
     }
 
-    int size() override { return (int)_set.size(); }
+    int size() const override { return (int)_set.size(); }
 
     bool find(const void* data) const override {
         const auto* value = reinterpret_cast<const StringRef*>(data);
-        std::string str_value(value->data, value->size);
-        return _set.find(str_value);
+        if constexpr (requires { _set.find(*value); }) {
+            return _set.find(*value);
+        } else {
+            return _set.find(std::string(value->data, value->size));
+        }
     }
 
     bool find(const void* data, size_t size) const override {
-        std::string str_value(reinterpret_cast<const char*>(data), size);
-        return _set.find(str_value);
+        const StringRef value(reinterpret_cast<const char*>(data), size);
+        if constexpr (requires { _set.find(value); }) {
+            return _set.find(value);
+        } else {
+            return _set.find(std::string(value.data, value.size));
+        }
+    }
+
+    bool find(const Field& value) const override {
+        DORIS_CHECK(is_string_type(value.get_type()));
+        const auto string_value = value.as_string_view();
+        return find(string_value.data(), string_value.size());
+    }
+
+    void get_min_max(Field& min_value, Field& max_value, bool& contains_nan) const override {
+        contains_nan = false;
+        detail::get_hybrid_set_min_max(
+                _set, [](const std::string& lhs, const std::string& rhs) { return lhs < rhs; },
+                [](const std::string& value) {
+                    return Field::create_field<TYPE_STRING>(String(value.data(), value.size()));
+                },
+                min_value, max_value);
+    }
+
+    bool supports_fast_range_lookup() const override { return true; }
+
+    bool contains_any_in_range(const Field& min_value, const Field& max_value) const override {
+        DORIS_CHECK(is_string_type(min_value.get_type()));
+        DORIS_CHECK(is_string_type(max_value.get_type()));
+        const auto typed_min = min_value.as_string_view();
+        const auto typed_max = max_value.as_string_view();
+        DORIS_CHECK(typed_min <= typed_max);
+        return std::ranges::any_of(_set, [&](const std::string& value) {
+            const std::string_view typed_value(value.data(), value.size());
+            return typed_value >= typed_min && typed_value <= typed_max;
+        });
+    }
+
+    bool any_match_raw(PrimitiveType value_type,
+                       const RawValuePredicate& predicate) const override {
+        DORIS_CHECK(is_string_type(value_type));
+        for (const auto& value : _set) {
+            const char* data = value.empty() ? "" : value.data();
+            if (predicate(data, value.size())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     void find_batch(const doris::IColumn& column, size_t rows,
@@ -587,15 +894,15 @@ public:
         auto* __restrict result_data = results.data();
 
         auto update_value = [&](size_t i) {
-            const auto& string_data = col.get_data_at(i).to_string();
+            const auto string_data = col.get_data_at(i);
             if constexpr (!is_nullable && !is_negative) {
-                result_data[i] = _set.find(string_data);
+                result_data[i] = find(string_data.data, string_data.size);
             } else if constexpr (!is_nullable && is_negative) {
-                result_data[i] = !_set.find(string_data);
+                result_data[i] = !find(string_data.data, string_data.size);
             } else if constexpr (is_nullable && !is_negative) {
-                result_data[i] = _set.find(string_data) & (!null_map_data[i]);
+                result_data[i] = find(string_data.data, string_data.size) & (!null_map_data[i]);
             } else { // (is_nullable && is_negative)
-                result_data[i] = !(_set.find(string_data) & (!null_map_data[i]));
+                result_data[i] = !(find(string_data.data, string_data.size) & (!null_map_data[i]));
             }
         };
 
@@ -736,7 +1043,7 @@ public:
         }
     }
 
-    int size() override { return (int)_set.size(); }
+    int size() const override { return (int)_set.size(); }
 
     bool find(const void* data) const override {
         const auto* value = reinterpret_cast<const StringRef*>(data);
@@ -746,6 +1053,49 @@ public:
     bool find(const void* data, size_t size) const override {
         StringRef sv(reinterpret_cast<const char*>(data), size);
         return _set.find(sv);
+    }
+
+    bool find(const Field& value) const override {
+        DORIS_CHECK(is_string_type(value.get_type()));
+        const auto string_value = value.as_string_view();
+        return find(string_value.data(), string_value.size());
+    }
+
+    void get_min_max(Field& min_value, Field& max_value, bool& contains_nan) const override {
+        contains_nan = false;
+        detail::get_hybrid_set_min_max(
+                _set, [](const StringRef& lhs, const StringRef& rhs) { return lhs < rhs; },
+                [](const StringRef& value) {
+                    return Field::create_field<TYPE_STRING>(
+                            String(value.size == 0 ? "" : value.data, value.size));
+                },
+                min_value, max_value);
+    }
+
+    bool supports_fast_range_lookup() const override { return true; }
+
+    bool contains_any_in_range(const Field& min_value, const Field& max_value) const override {
+        DORIS_CHECK(is_string_type(min_value.get_type()));
+        DORIS_CHECK(is_string_type(max_value.get_type()));
+        const auto typed_min = min_value.as_string_view();
+        const auto typed_max = max_value.as_string_view();
+        DORIS_CHECK(typed_min <= typed_max);
+        return std::ranges::any_of(_set, [&](const StringRef& value) {
+            const std::string_view typed_value(value.size == 0 ? "" : value.data, value.size);
+            return typed_value >= typed_min && typed_value <= typed_max;
+        });
+    }
+
+    bool any_match_raw(PrimitiveType value_type,
+                       const RawValuePredicate& predicate) const override {
+        DORIS_CHECK(is_string_type(value_type));
+        for (const auto& value : _set) {
+            const char* data = value.size == 0 ? "" : value.data;
+            if (predicate(data, value.size)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     void find_batch(const doris::IColumn& column, size_t rows,

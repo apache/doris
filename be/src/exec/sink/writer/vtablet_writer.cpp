@@ -127,8 +127,6 @@ static const std::vector<int32_t>& adaptive_local_bucket_seqs(const VOlapTablePa
     return partition.local_bucket_seqs;
 }
 
-static constexpr int64_t CLOSE_WAIT_EVENT_FALLBACK_MS = 1000;
-
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets,
                           bool incremental) {
     SCOPED_CONSUME_MEM_TRACKER(_index_channel_tracker.get());
@@ -939,8 +937,8 @@ Status VNodeChannel::add_block(Block* block, const Payload* payload) {
             _cur_add_block_request->add_tablet_ids(row_part_tablet_ids->tablet_ids[route_idx]);
         }
     }
-    for (auto row_binlog_lsn : payload->row_binlog_lsns) {
-        _cur_add_block_request->add_row_binlog_lsns(row_binlog_lsn);
+    for (auto allocated_lsn : payload->allocated_lsns) {
+        _cur_add_block_request->add_allocated_lsns(allocated_lsn);
     }
     _write_bytes.fetch_add(_cur_mutable_block->bytes());
 
@@ -966,7 +964,7 @@ Status VNodeChannel::add_block(Block* block, const Payload* payload) {
         _cur_mutable_block = MutableBlock::create_unique(block->clone_empty());
         _cur_add_block_request->clear_tablet_ids();
         _cur_add_block_request->clear_partition_ids();
-        _cur_add_block_request->clear_row_binlog_lsns();
+        _cur_add_block_request->clear_allocated_lsns();
     }
 
     return Status::OK();
@@ -1646,7 +1644,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     bool has_row_binlog = std::any_of(_schema->indexes().begin(), _schema->indexes().end(),
                                       [](const auto* index) { return index->row_binlog_id > 0; });
     if (has_row_binlog) {
-        _row_binlog_lsn_buffer = GlobalAutoIncBuffers::GetInstance()->get_auto_inc_buffer(
+        _allocated_lsn_buffer = GlobalAutoIncBuffers::GetInstance()->get_auto_inc_buffer(
                 _schema->db_id(), _schema->table_id(), kBinlogLsnAutoIncId);
     }
     _schema->set_timestamp_ms(state->timestamp_ms());
@@ -2162,10 +2160,10 @@ Status VTabletWriter::_generate_one_index_channel_payload(
 
     size_t row_cnt = row_ids.size();
     bool has_row_binlog = _schema->indexes()[index_idx]->row_binlog_id > 0;
-    std::vector<int64_t> row_binlog_lsns;
+    std::vector<int64_t> allocated_lsns;
     if (has_row_binlog && row_cnt > 0) {
-        DCHECK(_row_binlog_lsn_buffer != nullptr);
-        RETURN_IF_ERROR(allocate_binlog_lsn(_row_binlog_lsn_buffer, row_cnt, row_binlog_lsns));
+        DCHECK(_allocated_lsn_buffer != nullptr);
+        RETURN_IF_ERROR(allocate_lsn(_allocated_lsn_buffer, row_cnt, allocated_lsns));
     }
 
     for (size_t i = 0; i < row_ids.size(); i++) {
@@ -2187,13 +2185,13 @@ Status VTabletWriter::_generate_one_index_channel_payload(
                 payload_it->second.row_ids->reserve(row_cnt);
                 payload_it->second.route_idxs.reserve(row_cnt);
                 if (has_row_binlog) {
-                    payload_it->second.row_binlog_lsns.reserve(row_cnt);
+                    payload_it->second.allocated_lsns.reserve(row_cnt);
                 }
             }
             payload_it->second.row_ids->push_back(row_ids[i]);
             payload_it->second.route_idxs.push_back(cast_set<uint32_t>(i));
             if (has_row_binlog) {
-                payload_it->second.row_binlog_lsns.push_back(row_binlog_lsns[i]);
+                payload_it->second.allocated_lsns.push_back(allocated_lsns[i]);
             }
             continue;
         }
@@ -2218,13 +2216,13 @@ Status VTabletWriter::_generate_one_index_channel_payload(
                 payload_it->second.row_ids->reserve(row_cnt);
                 payload_it->second.route_idxs.reserve(row_cnt);
                 if (has_row_binlog) {
-                    payload_it->second.row_binlog_lsns.reserve(row_cnt);
+                    payload_it->second.allocated_lsns.reserve(row_cnt);
                 }
             }
             payload_it->second.row_ids->push_back(row_ids[i]);
             payload_it->second.route_idxs.push_back(cast_set<uint32_t>(i));
             if (has_row_binlog) {
-                payload_it->second.row_binlog_lsns.push_back(row_binlog_lsns[i]);
+                payload_it->second.allocated_lsns.push_back(allocated_lsns[i]);
             }
         }
     }

@@ -26,7 +26,6 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
-#include <numeric>
 #include <ostream>
 #include <shared_mutex>
 #include <string>
@@ -50,6 +49,7 @@
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_writer.h"
+#include "storage/schema.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_writer.h"
 #include "storage/storage_engine.h"
@@ -77,6 +77,12 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
     reader_params.read_row_binlog = tablet->is_row_binlog_tablet();
+    if (reader_params.read_row_binlog) {
+        // Row-binlog horizontal (non-vertical) compaction must produce a globally
+        // (key, TSO)-ordered output.
+        reader_params.read_orderby_key = true;
+        reader_params.force_key_ordered_read = true;
+    }
 
     TabletReadSource read_source;
     read_source.rs_splits.reserve(src_rowset_readers.size());
@@ -88,14 +94,8 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
 
     reader_params.version = dst_rowset_writer->version();
 
-    TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
-    merge_tablet_schema->copy_from(cur_tablet_schema);
-
-    // Merge the columns in delete predicate that not in latest schema in to current tablet schema
-    for (auto& del_pred_rs : reader_params.delete_predicates) {
-        merge_tablet_schema->merge_dropped_columns(*del_pred_rs->tablet_schema());
-    }
-    reader_params.tablet_schema = merge_tablet_schema;
+    reader_params.tablet_schema = std::make_shared<TabletSchema>();
+    reader_params.tablet_schema->copy_from(cur_tablet_schema);
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
@@ -109,20 +109,18 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
         stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
     }
 
-    reader_params.return_columns.resize(cur_tablet_schema.num_columns());
-    std::iota(reader_params.return_columns.begin(), reader_params.return_columns.end(), 0);
-    reader_params.origin_return_columns = &reader_params.return_columns;
+    reader_params.read_schema = std::make_shared<ReadSchema>(cur_tablet_schema.columns());
     RETURN_IF_ERROR(reader.init(reader_params));
 
-    Block block = cur_tablet_schema.create_block(reader_params.return_columns);
+    Block block = reader_params.read_schema->create_read_block();
     size_t output_rows = 0;
     bool eof = false;
     while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
         auto tablet_state = tablet->tablet_state();
         if (tablet_state != TABLET_RUNNING && tablet_state != TABLET_NOTREADY) {
             tablet->clear_cache();
-            return Status::Error<INTERNAL_ERROR>("tablet {} is not used any more",
-                                                 tablet->tablet_id());
+            return Status::Error<ErrorCode::INTERNAL_ERROR>("tablet {} is not used any more",
+                                                            tablet->tablet_id());
         }
 
         // Read one block from block reader
@@ -144,8 +142,8 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
         block.clear_column_data();
     }
     if (ExecEnv::GetInstance()->storage_engine().stopped()) {
-        return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
-                                             tablet->tablet_id());
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "tablet {} failed to do compaction, engine stopped", tablet->tablet_id());
     }
 
     if (stats_output != nullptr) {
@@ -277,14 +275,8 @@ Status Merger::vertical_compact_one_group(
 
     reader_params.version = dst_rowset_writer->version();
 
-    TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
-    merge_tablet_schema->copy_from(tablet_schema);
-
-    for (auto& del_pred_rs : reader_params.delete_predicates) {
-        merge_tablet_schema->merge_dropped_columns(*del_pred_rs->tablet_schema());
-    }
-
-    reader_params.tablet_schema = merge_tablet_schema;
+    reader_params.tablet_schema = std::make_shared<TabletSchema>();
+    reader_params.tablet_schema->copy_from(tablet_schema);
     bool has_cluster_key = false;
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
@@ -300,20 +292,20 @@ Status Merger::vertical_compact_one_group(
         stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
     }
 
-    reader_params.return_columns = column_group;
-    reader_params.origin_return_columns = &reader_params.return_columns;
+    reader_params.read_schema = std::make_shared<ReadSchema>(
+            project_columns_by_ordinal(tablet_schema.columns(), column_group));
     reader_params.batch_size = batch_size;
     RETURN_IF_ERROR(reader.init(reader_params, sample_info));
 
-    Block block = tablet_schema.create_block(reader_params.return_columns);
+    Block block = reader_params.read_schema->create_read_block();
     size_t output_rows = 0;
     bool eof = false;
     while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
         auto tablet_state = tablet->tablet_state();
         if (tablet_state != TABLET_RUNNING && tablet_state != TABLET_NOTREADY) {
             tablet->clear_cache();
-            return Status::Error<INTERNAL_ERROR>("tablet {} is not used any more",
-                                                 tablet->tablet_id());
+            return Status::Error<ErrorCode::INTERNAL_ERROR>("tablet {} is not used any more",
+                                                            tablet->tablet_id());
         }
         // Read one block from block reader
         RETURN_NOT_OK_STATUS_WITH_WARN(reader.next_block_with_aggregation(&block, &eof),
@@ -335,8 +327,8 @@ Status Merger::vertical_compact_one_group(
         block.clear_column_data();
     }
     if (ExecEnv::GetInstance()->storage_engine().stopped()) {
-        return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
-                                             tablet->tablet_id());
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "tablet {} failed to do compaction, engine stopped", tablet->tablet_id());
     }
 
     if (stats_output != nullptr) {
@@ -363,13 +355,12 @@ Status Merger::vertical_compact_one_group(
 
 // for segcompaction
 Status Merger::vertical_compact_one_group(
-        int64_t tablet_id, ReaderType reader_type, const TabletSchema& tablet_schema, bool is_key,
-        const std::vector<uint32_t>& column_group, RowSourcesBuffer* row_source_buf,
-        VerticalBlockReader& src_block_reader, segment_v2::SegmentWriter& dst_segment_writer,
-        Statistics* stats_output, uint64_t* index_size, KeyBoundsPB& key_bounds,
-        SimpleRowIdConversion* rowid_conversion) {
+        int64_t tablet_id, ReaderType reader_type, const ReadSchema& read_schema, bool is_key,
+        RowSourcesBuffer* row_source_buf, VerticalBlockReader& src_block_reader,
+        segment_v2::SegmentWriter& dst_segment_writer, Statistics* stats_output,
+        uint64_t* index_size, KeyBoundsPB& key_bounds, SimpleRowIdConversion* rowid_conversion) {
     // TODO: record_rowids
-    Block block = tablet_schema.create_block(column_group);
+    Block block = read_schema.create_read_block();
     size_t output_rows = 0;
     bool eof = false;
     while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
@@ -391,8 +382,8 @@ Status Merger::vertical_compact_one_group(
         block.clear_column_data();
     }
     if (ExecEnv::GetInstance()->storage_engine().stopped()) {
-        return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
-                                             tablet_id);
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "tablet {} failed to do compaction, engine stopped", tablet_id);
     }
 
     if (stats_output != nullptr) {

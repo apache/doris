@@ -38,6 +38,7 @@
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
+#include "storage/schema.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_fwd.h"
@@ -237,14 +238,12 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
 
     // FIXME(cyx): Should trigger compaction on base_tablet if there are too many rowsets to convert.
 
-    // Create a new tablet schema, should merge with dropped columns in light weight schema change
+    // Build the visible base schema. Historical delete columns are resolved by DeleteHandler.
     _base_tablet_schema = std::make_shared<TabletSchema>();
     _base_tablet_schema->update_tablet_columns(*_base_tablet->tablet_schema(), request.columns);
     _new_tablet_schema = _new_tablet->tablet_schema();
 
-    std::vector<ColumnId> return_columns;
-    return_columns.resize(_base_tablet_schema->num_columns());
-    std::iota(return_columns.begin(), return_columns.end(), 0);
+    ReadSchemaSPtr read_schema = std::make_shared<ReadSchema>(_base_tablet_schema->columns());
 
     // delete handlers to filter out deleted rows
     DeleteHandler delete_handler;
@@ -252,12 +251,13 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     for (auto& split : rs_splits) {
         auto& rs_meta = split.rs_reader->rowset()->rowset_meta();
         if (rs_meta->has_delete_predicate()) {
-            _base_tablet_schema->merge_dropped_columns(*rs_meta->tablet_schema());
             delete_predicates.push_back(rs_meta);
         }
     }
-    RETURN_IF_ERROR(delete_handler.init(_base_tablet_schema, delete_predicates,
-                                        start_resp.alter_version()));
+    std::vector<TabletColumn> dropped_columns;
+    RETURN_IF_ERROR(delete_handler.init(delete_predicates, start_resp.alter_version(), read_schema,
+                                        &dropped_columns));
+    read_schema->append_dropped_columns(std::move(dropped_columns));
 
     // reader_context is stack variables, it's lifetime MUST keep the same with rs_readers
     RowsetReaderContext reader_context;
@@ -265,8 +265,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     reader_context.tablet_schema = _base_tablet_schema;
     reader_context.need_ordered_result = true;
     reader_context.delete_handler = &delete_handler;
-    reader_context.return_columns = &return_columns;
-    reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
+    reader_context.read_schema = read_schema;
     reader_context.is_unique = _base_tablet->keys_type() == UNIQUE_KEYS;
     reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
     reader_context.delete_bitmap = _base_tablet->tablet_meta()->delete_bitmap_ptr();
@@ -274,11 +273,11 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     std::vector<uint32_t> cluster_key_idxes;
     if (!_base_tablet_schema->cluster_key_uids().empty()) {
         for (const auto& uid : _base_tablet_schema->cluster_key_uids()) {
-            cluster_key_idxes.emplace_back(_base_tablet_schema->field_index(uid));
+            cluster_key_idxes.emplace_back(read_schema->ordinal_by_uid(uid));
         }
         reader_context.read_orderby_key_columns = &cluster_key_idxes;
         reader_context.is_unique = false;
-        reader_context.sequence_id_idx = -1;
+        reader_context.use_sequence_column_for_merge_order = false;
     }
 
     for (auto& split : rs_splits) {

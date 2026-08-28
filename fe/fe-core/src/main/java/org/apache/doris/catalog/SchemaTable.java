@@ -257,7 +257,9 @@ public class SchemaTable extends Table {
                             .column("INDEX_TYPE", ScalarType.createVarchar(16))
                             .column("COMMENT", ScalarType.createVarchar(16))
                             // for datagrip
-                            .column("INDEX_COMMENT", ScalarType.createVarchar(1024)).build()))
+                            .column("INDEX_COMMENT", ScalarType.createVarchar(1024))
+                            .column("IS_VISIBLE", ScalarType.createVarchar(3))
+                            .column("EXPRESSION", ScalarType.createVarchar(1024)).build()))
             // Compatible with mysql for mysqldump
             .put("column_statistics",
                     new SchemaTable(SystemIdGenerator.getNextId(), "column_statistics", TableType.SCHEMA,

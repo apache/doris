@@ -197,6 +197,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
                 ctx.srcExpr, scanSlot, ctx.probeExpr,
                 type, ctx.exprOrder, ctx.builderNode, ctx.buildSideNdv,
                 !ctx.hasUnknownColStats, ctx.singleSideMinMax, scan);
+        ctx.rfContext.generateRuntimeFilterPruneMetadata(filter);
         scan.addAppliedRuntimeFilter(filter);
         ctx.rfContext.addJoinToTargetMap(ctx.builderNode, scanSlot.getExprId());
         ctx.rfContext.setTargetExprIdToFilter(scanSlot.getExprId(), filter);

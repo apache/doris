@@ -33,6 +33,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "exec/sink/sink_common.h"
 #include "exec/sink/viceberg_delete_sink.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 #include "exprs/vexpr_context.h"
@@ -46,6 +47,16 @@
 #include "util/debug_points.h"
 
 namespace doris {
+
+class IcebergWriteMockRuntimeState : public MockRuntimeState {
+public:
+    IcebergWriteMockRuntimeState() {
+        auto query_options = this->query_options();
+        // Successful writer tests must model a coordinator that can accept file ownership.
+        query_options.__set_supports_external_file_report_ack(true);
+        set_query_options(query_options);
+    }
+};
 
 class VIcebergMergeSinkTest : public testing::Test {
 protected:
@@ -172,7 +183,7 @@ protected:
 
 TEST_F(VIcebergMergeSinkTest, TestUpdateProducesDeleteAndInsert) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
@@ -200,9 +211,48 @@ TEST_F(VIcebergMergeSinkTest, TestUpdateProducesDeleteAndInsert) {
     ASSERT_TRUE(sink->close(Status::OK()).ok());
 }
 
+TEST_F(VIcebergMergeSinkTest, TestDeleteOnlySkipsVariantDataWriter) {
+    ObjectPool pool;
+    // Opening the retained delete writer still requires the coordinator ownership handshake.
+    IcebergWriteMockRuntimeState state;
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    TDataSink t_sink = build_sink();
+    t_sink.iceberg_merge_sink.__set_writes_data_files(false);
+    t_sink.iceberg_merge_sink.__set_schema_json(
+            "{\"type\":\"struct\",\"schema-id\":0,\"fields\":["
+            "{\"id\":1,\"name\":\"payload\",\"required\":false,\"type\":\"variant\"}"
+            "]}");
+
+    auto sink = std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
+    sink->set_skip_io(true);
+
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    EXPECT_EQ(nullptr, sink->_table_writer);
+    RuntimeProfile profile("iceberg_merge_sink");
+    const Status open_status = sink->open(&state, &profile);
+    ASSERT_TRUE(open_status.ok()) << open_status;
+
+    // Delete-only plans must never use the insert opcode, which intentionally requires a data writer.
+    Block block = build_block_with_ops({kDeleteOperation});
+    Status status = sink->write(&state, block);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(1, sink->_delete_row_count);
+    EXPECT_EQ(0, sink->_insert_row_count);
+
+    ASSERT_TRUE(sink->close(Status::OK()).ok());
+}
+
 TEST_F(VIcebergMergeSinkTest, TestMissingOperationColumn) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
@@ -225,7 +275,7 @@ TEST_F(VIcebergMergeSinkTest, TestMissingOperationColumn) {
 
 TEST_F(VIcebergMergeSinkTest, TestMissingRowIdColumn) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
@@ -248,7 +298,7 @@ TEST_F(VIcebergMergeSinkTest, TestMissingRowIdColumn) {
 
 TEST_F(VIcebergMergeSinkTest, TestUnknownOperation) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
@@ -275,7 +325,7 @@ TEST_F(VIcebergMergeSinkTest, TestUnknownOperation) {
 
 TEST_F(VIcebergMergeSinkTest, TestUpdateInsertAndDeleteOperations) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
@@ -305,7 +355,7 @@ TEST_F(VIcebergMergeSinkTest, TestUpdateInsertAndDeleteOperations) {
 
 TEST_F(VIcebergMergeSinkTest, TestSchemaMismatch) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
@@ -332,7 +382,7 @@ TEST_F(VIcebergMergeSinkTest, TestSchemaMismatch) {
 
 TEST_F(VIcebergMergeSinkTest, TestRejectsDuplicateMatchedTargetAcrossBlocks) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
@@ -361,7 +411,7 @@ TEST_F(VIcebergMergeSinkTest, TestRejectsDuplicateMatchedTargetAcrossBlocks) {
 
 TEST_F(VIcebergMergeSinkTest, TestUpdateSkipsCardinalityState) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
@@ -389,7 +439,7 @@ TEST_F(VIcebergMergeSinkTest, TestUpdateSkipsCardinalityState) {
 
 TEST_F(VIcebergMergeSinkTest, TestOldFePlanSkipsCardinalityState) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
@@ -413,7 +463,7 @@ TEST_F(VIcebergMergeSinkTest, TestOldFePlanSkipsCardinalityState) {
 
 TEST_F(VIcebergMergeSinkTest, TestRollingUpgradeSkipsCardinalityState) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
     state.set_be_exec_version(SUPPORT_ICEBERG_MERGE_CARDINALITY_VERSION - 1);
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
@@ -435,9 +485,39 @@ TEST_F(VIcebergMergeSinkTest, TestRollingUpgradeSkipsCardinalityState) {
     EXPECT_TRUE(sink->_matched_row_positions.empty());
 }
 
+TEST_F(VIcebergMergeSinkTest, TestRollingUpgradeWriterOmissionFenceIsVariantOnly) {
+    ObjectPool pool;
+    // The rolling-version assertion must run after the ordinary writer handshake succeeds.
+    IcebergWriteMockRuntimeState state;
+    state.set_be_exec_version(SUPPORT_ICEBERG_VARIANT_VERSION - 1);
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    auto t_sink = build_sink();
+    t_sink.iceberg_merge_sink.__set_writes_data_files(false);
+    auto non_variant_sink =
+            std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
+
+    ASSERT_TRUE(non_variant_sink->init_properties(&pool, row_desc).ok());
+    RuntimeProfile profile("rolling_upgrade_delete_only_iceberg_merge_sink");
+    const Status non_variant_status = non_variant_sink->open(&state, &profile);
+    EXPECT_TRUE(non_variant_status.ok()) << non_variant_status;
+
+    t_sink.iceberg_merge_sink.__set_has_variant_schema(true);
+    auto variant_sink = std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
+    ASSERT_TRUE(variant_sink->init_properties(&pool, row_desc).ok());
+    const Status status = variant_sink->open(&state, &profile);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+}
+
 TEST_F(VIcebergMergeSinkTest, TestErrorCloseRemovesRolledDataFiles) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
@@ -469,7 +549,7 @@ TEST_F(VIcebergMergeSinkTest, TestErrorCloseRemovesRolledDataFiles) {
 
 TEST_F(VIcebergMergeSinkTest, TestDeleteCloseFailureRemovesBothInnerSinkFiles) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
@@ -519,7 +599,7 @@ TEST_F(VIcebergMergeSinkTest, TestDeleteCloseFailureRemovesBothInnerSinkFiles) {
 
 TEST_F(VIcebergMergeSinkTest, TestMatchedRowIdsUseCompactRetainedState) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
@@ -548,7 +628,7 @@ TEST_F(VIcebergMergeSinkTest, TestMatchedRowIdsUseCompactRetainedState) {
 
 TEST_F(VIcebergMergeSinkTest, TestMatchedRowIdStateAcrossManyFilesAndWrites) {
     ObjectPool pool;
-    MockRuntimeState state;
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),

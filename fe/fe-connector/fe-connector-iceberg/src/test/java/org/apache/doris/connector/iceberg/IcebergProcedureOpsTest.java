@@ -41,6 +41,7 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -86,7 +87,8 @@ public class IcebergProcedureOpsTest {
                         "expire_snapshots",
                         "rewrite_data_files",
                         "publish_changes",
-                        "rewrite_manifests"),
+                        "rewrite_manifests",
+                        "remove_orphan_files"),
                 newOps().getSupportedProcedures());
     }
 
@@ -120,7 +122,8 @@ public class IcebergProcedureOpsTest {
         Assertions.assertEquals(
                 "Unsupported Iceberg procedure: no_such_proc. Supported procedures: rollback_to_snapshot, "
                         + "rollback_to_timestamp, set_current_snapshot, cherrypick_snapshot, fast_forward, "
-                        + "expire_snapshots, rewrite_data_files, publish_changes, rewrite_manifests",
+                        + "expire_snapshots, rewrite_data_files, publish_changes, rewrite_manifests, "
+                        + "remove_orphan_files",
                 e.getMessage());
     }
 
@@ -166,6 +169,7 @@ public class IcebergProcedureOpsTest {
         // WHY: manifest reads run under the catalog auth context (Kerberos), like the procedure bodies.
         // MUTATION: planning outside auth scope -> authCount 0 -> red.
         Assertions.assertEquals(1, ctx.authCount, "planning runs in one auth scope");
+        Assertions.assertEquals(1, ops.tableCleanupCount, "rewrite planning releases its operation-owned table");
     }
 
     @Test
@@ -291,6 +295,7 @@ public class IcebergProcedureOpsTest {
         Assertions.assertEquals(ImmutableList.of(String.valueOf(snap2), String.valueOf(snap1)),
                 result.getRows().get(0));
         Assertions.assertEquals(snap1, catalog.loadTable(id).currentSnapshot().snapshotId());
+        Assertions.assertEquals(1, ops.tableCleanupCount, "procedure execution releases its operation-owned table");
     }
 
     @Test
@@ -407,6 +412,29 @@ public class IcebergProcedureOpsTest {
                         ImmutableMap.of("snapshot_id", "999999999"), null, Collections.emptyList()));
         Assertions.assertEquals("Snapshot 999999999 not found in table " + ops.table.name(), e.getMessage());
         Assertions.assertEquals(1, ctx.authCount, "the load ran under auth (body executed, then threw)");
+        Assertions.assertEquals(1, ops.tableCleanupCount, "a failed procedure still releases its loaded table");
+    }
+
+    @Test
+    public void releasesOperationOwnedTableBeforeOuterCatalogLease() {
+        InMemoryCatalog catalog = catalogWithTwoSnapshots();
+        TableIdentifier id = TableIdentifier.of("db1", "t");
+        long snapshot = catalog.loadTable(id).currentSnapshot().snapshotId();
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        List<String> releases = new ArrayList<>();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = catalog.loadTable(id);
+        ops.beforeTableOperation = () -> tracker.rotate(
+                () -> releases.add("catalog-generation"), () -> { });
+        ops.onTableCleanup = () -> releases.add("table");
+        IcebergProcedureOps procOps = new IcebergProcedureOps(
+                Collections.emptyMap(), session -> ops, new RecordingConnectorContext(), tracker);
+
+        procOps.execute(SESSION, new IcebergTableHandle("db1", "t"), "rollback_to_snapshot",
+                ImmutableMap.of("snapshot_id", String.valueOf(snapshot)), null, Collections.emptyList());
+
+        Assertions.assertEquals(ImmutableList.of("table", "catalog-generation"), releases,
+                "the table owner must be released before the outer catalog generation lease");
     }
 
     private static InMemoryCatalog tableWithThreeSmallFiles() {

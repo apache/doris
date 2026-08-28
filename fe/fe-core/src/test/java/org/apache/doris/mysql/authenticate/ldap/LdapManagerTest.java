@@ -24,6 +24,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.Role;
 
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -47,6 +48,11 @@ public class LdapManagerTest {
     public void setUp() {
         Config.authentication_type = "ldap";
         LdapConfig.ldap_default_roles = new String[0];
+    }
+
+    @After
+    public void tearDown() {
+        LdapConfig.ldap_allow_empty_pass = false;
     }
 
     private void mockClient(boolean userExist, boolean passwd) {
@@ -106,6 +112,77 @@ public class LdapManagerTest {
 
         mockClient(true, false);
         Assert.assertFalse(ldapManager.checkUserPasswd(USER2, "123"));
+    }
+
+    @Test
+    public void testCheckUserEmptyPasswdAllowed() throws Exception {
+        //test checks - that user with empty ldap password can login with ldap_allow_empty_pass = true
+        LdapConfig.ldap_allow_empty_pass = true;
+        LdapManager ldapManager = new LdapManager();
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
+        mockClient(true, true);
+        Assert.assertTrue(ldapManager.checkUserPasswd(USER1, ""));
+        LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
+        Assert.assertNotNull(ldapUserInfo);
+        Assert.assertTrue(ldapUserInfo.isSetPasswd());
+        Assert.assertEquals("", ldapUserInfo.getPasswd());
+    }
+
+    @Test
+    public void testCheckUserEmptyPasswdDisabled() throws Exception {
+        //test checks - that login with empty ldap password is prohibited by default
+        //corresponding property is set to false - so login with empty password is not allowed
+        //if password is not empty - user can login as usual
+        LdapManager ldapManager = new LdapManager();
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
+        mockClient(true, true);
+        Assert.assertFalse(ldapManager.checkUserPasswd(USER1, ""));
+
+        Assert.assertTrue(ldapManager.checkUserPasswd(USER1, "123"));
+        LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
+        Assert.assertNotNull(ldapUserInfo);
+        Assert.assertTrue(ldapUserInfo.isSetPasswd());
+        Assert.assertEquals("123", ldapUserInfo.getPasswd());
+    }
+
+    @Test
+    public void testCachedEmptyPasswordIsRejectedAfterFlagDisabled() {
+        LdapConfig.ldap_allow_empty_pass = true;
+        LdapManager ldapManager = new LdapManager();
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
+        mockClient(true, true);
+        //empty password succeeds and gets cached while the flag is still enabled.
+        Assert.assertTrue(ldapManager.checkUserPasswd(USER1, ""));
+        Assert.assertEquals("", ldapManager.getUserInfo(USER1).getPasswd());
+
+        //once disabled, the cached entry must not short-circuit the new check
+        LdapConfig.ldap_allow_empty_pass = false;
+        Assert.assertFalse(ldapManager.checkUserPasswd(USER1, ""));
+        //a non-empty password still authenticates against the same cached entry
+        Assert.assertTrue(ldapManager.checkUserPasswd(USER1, "123"));
+    }
+
+    @Test
+    public void testEmptyPasswordIsRejectedBeforeCacheLookup() throws Exception {
+        //the empty password check must run before getUserInfo(), which is what keeps a cached
+        //empty password from short-circuiting the check and letting the login through
+        LdapManager ldapManager = new LdapManager();
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
+        mockClient(true, true);
+
+        LdapManager spyManager = Mockito.spy(ldapManager);
+        Assert.assertFalse(spyManager.checkUserPasswd(USER1, ""));
+        Mockito.verify(spyManager, Mockito.times(0)).getUserInfo(USER1);
+    }
+
+    @Test
+    public void testCheckUserNullPasswd() throws Exception {
+        //test check existing feature that user with null ldap password can't login in any case
+        //because this is first check in checkUserPasswd() method
+        LdapManager ldapManager = new LdapManager();
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
+        mockClient(true, true);
+        Assert.assertFalse(ldapManager.checkUserPasswd(USER1, null));
     }
 
     @Test

@@ -50,6 +50,7 @@
 #include "format_v2/native/native_reader.h"
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
+#include "format_v2/table/schema_history_util.h" // get_field_ptr
 #include "runtime/file_scan_profile.h"
 #include "storage/segment/condition_cache.h"
 #include "util/debug_points.h"
@@ -138,13 +139,6 @@ std::string partition_values_debug_string(const std::map<std::string, Field>& pa
     }
     out << "}";
     return out.str();
-}
-
-const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr& field_ptr) {
-    if (!field_ptr.__isset.field_ptr || field_ptr.field_ptr == nullptr) {
-        return nullptr;
-    }
-    return field_ptr.field_ptr.get();
 }
 
 const schema::external::TField* find_external_field_by_id(
@@ -1061,8 +1055,15 @@ Status TableReader::_build_table_filters_from_conjuncts() {
         if (in_safe_prefix && !_is_safe_to_pre_execute(conjunct)) {
             in_safe_prefix = false;
         }
+        const size_t first_new_filter = _table_filters.size();
         RETURN_IF_ERROR(
                 build_table_filters_from_conjunct(conjunct, _runtime_state, &_table_filters));
+        for (size_t filter_idx = first_new_filter; filter_idx < _table_filters.size();
+             ++filter_idx) {
+            // Preserve the original conjunct-order fence even when the unsafe expression itself
+            // had no slot and therefore produced no TableFilter entry.
+            _table_filters[filter_idx].metadata_pruning_safe = in_safe_prefix;
+        }
         if (in_safe_prefix) {
             _constant_pruning_safe_filter_count = _table_filters.size();
         }
@@ -1072,26 +1073,19 @@ Status TableReader::_build_table_filters_from_conjuncts() {
 
 namespace {
 
-bool same_scan_projection(const LocalColumnIndex& lhs, const LocalColumnIndex& rhs) {
-    if (lhs.index != rhs.index || lhs.project_all_children != rhs.project_all_children ||
-        lhs.children.size() != rhs.children.size()) {
-        return false;
-    }
-    for (size_t index = 0; index < lhs.children.size(); ++index) {
-        if (!same_scan_projection(lhs.children[index], rhs.children[index])) {
-            return false;
-        }
-    }
-    return true;
-}
-
-const LocalColumnIndex* find_scan_projection(const FileScanRequest& request,
-                                             LocalColumnId column_id) {
+const LocalColumnIndex* scan_projection_at_position(const FileScanRequest& request,
+                                                    LocalColumnId column_id,
+                                                    bool deferred_non_predicate) {
     const auto find_by_id = [column_id](const std::vector<LocalColumnIndex>& projections) {
         return std::ranges::find_if(projections, [column_id](const LocalColumnIndex& projection) {
             return projection.column_id() == column_id;
         });
     };
+    if (deferred_non_predicate) {
+        const auto it = find_by_id(request.non_predicate_columns);
+        return it == request.non_predicate_columns.end() ? nullptr : &*it;
+    }
+
     auto it = find_by_id(request.predicate_columns);
     if (it != request.predicate_columns.end()) {
         return &*it;
@@ -1101,14 +1095,29 @@ const LocalColumnIndex* find_scan_projection(const FileScanRequest& request,
 }
 
 bool same_physical_scan_layout(const FileScanRequest& lhs, const FileScanRequest& rhs) {
-    if (lhs.local_positions != rhs.local_positions) {
+    if (lhs.local_positions != rhs.local_positions ||
+        lhs.non_predicate_positions != rhs.non_predicate_positions) {
         return false;
     }
+    const auto same_projection = [&](LocalColumnId column_id, bool deferred_non_predicate) {
+        const auto* lhs_projection =
+                scan_projection_at_position(lhs, column_id, deferred_non_predicate);
+        const auto* rhs_projection =
+                scan_projection_at_position(rhs, column_id, deferred_non_predicate);
+        return lhs_projection != nullptr && rhs_projection != nullptr &&
+               same_local_column_index(*lhs_projection, *rhs_projection);
+    };
     for (const auto& [column_id, _] : lhs.local_positions) {
-        const auto* lhs_projection = find_scan_projection(lhs, column_id);
-        const auto* rhs_projection = find_scan_projection(rhs, column_id);
-        if (lhs_projection == nullptr || rhs_projection == nullptr ||
-            !same_scan_projection(*lhs_projection, *rhs_projection)) {
+        // A late filter may reclassify a root as a predicate without moving its physical slot.
+        // Category membership is therefore not part of the immutable reader layout.
+        if (!same_projection(column_id, false)) {
+            return false;
+        }
+    }
+    for (const auto& [column_id, _] : lhs.non_predicate_positions) {
+        // Deferred complex roots have a second physical slot whose output projection must remain
+        // stable independently from the eager predicate projection above.
+        if (!same_projection(column_id, true)) {
             return false;
         }
     }
@@ -1141,7 +1150,9 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
     auto refreshed_request = std::make_shared<FileScanRequest>();
     RETURN_IF_ERROR(refreshed_mapper->create_scan_request(
             _table_filters, _projected_columns, refreshed_request.get(), _runtime_state,
-            _file_scan_request == nullptr ? nullptr : &_file_scan_request->local_positions));
+            _file_scan_request == nullptr ? nullptr : &_file_scan_request->local_positions,
+            _file_scan_request == nullptr ? nullptr
+                                          : &_file_scan_request->non_predicate_positions));
     // A refresh does not prove that every future runtime filter has arrived. Keep carrier values
     // available whenever the split started with pending filters.
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&

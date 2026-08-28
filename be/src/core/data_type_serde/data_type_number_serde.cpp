@@ -696,12 +696,12 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
     } else if constexpr (T == TYPE_LARGEINT) {
         auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         for (size_t i = start; i < end; ++i) {
-            auto& data_value = col_data[i];
-            std::string value_str = fmt::format("{}", data_value);
             if (null_map && (*null_map)[i]) {
                 RETURN_IF_ERROR(
                         checkArrowStatus(string_builder.AppendNull(), column, *array_builder));
             } else {
+                const auto& data_value = col_data[i];
+                std::string value_str = fmt::format("{}", data_value);
                 RETURN_IF_ERROR(checkArrowStatus(
                         string_builder.Append(value_str.data(),
                                               cast_set<int, size_t, false>(value_str.length())),
@@ -1661,10 +1661,6 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
     const auto size = str.size();
     column.resize(size);
 
-    size_t current_offset = 0;
-    const ColumnString::Chars* chars = &str.get_chars();
-    const IColumn::Offsets* offsets = &str.get_offsets();
-
     auto& column_to = assert_cast<ColumnType&>(column);
     auto& vec_to = column_to.get_data();
     CastParameters params;
@@ -1673,16 +1669,10 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
         if (null_map && null_map[i]) {
             continue;
         }
-        size_t next_offset = (*offsets)[i];
-        size_t string_size = next_offset - current_offset;
-
-        StringRef str_ref(&(*chars)[current_offset], string_size);
+        const auto str_ref = str.get_data_at(i);
         if (!try_parse_impl<T, true>(vec_to[i], str_ref, params)) {
-            return Status::InvalidArgument(
-                    "parse number fail, string: '{}'",
-                    std::string((char*)&(*chars)[current_offset], string_size));
+            return Status::InvalidArgument("parse number fail, string: '{}'", str_ref.to_string());
         }
-        current_offset = next_offset;
     }
     return Status::OK();
 }

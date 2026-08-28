@@ -55,9 +55,9 @@ permissions:
 jobs:
   code-review:
     runs-on: ubuntu-latest
-    # Pre-finalization steps can use 153 minutes and auth sync can use 8 more,
+    # Pre-finalization steps can use 183 minutes and auth sync can use 8 more,
     # leaving 12 minutes for runner setup and post-job cleanup.
-    timeout-minutes: 173
+    timeout-minutes: 203
     if: >-
       inputs.pr_number != '' ||
       (
@@ -219,6 +219,25 @@ jobs:
           install -m 700 -d "$RUNNER_TEMP/codex-home"
           printf 'CODEX_HOME=%s\n' "$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
 
+          auth_prefix='oss://doris-community-ci/codex/auth.json.'
+          auth_listing="$(mktemp "$RUNNER_TEMP/codex-auth-objects.XXXXXX")"
+          if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" ls "$auth_prefix" -s > "$auth_listing"; then
+            auth_failure_reason="Failed to list Codex review auth objects from OSS."
+            echo "failure_reason=$auth_failure_reason" >> "$GITHUB_OUTPUT"
+            echo "::error::$auth_failure_reason"
+            exit 1
+          fi
+
+          auth_candidates="$(mktemp "$RUNNER_TEMP/codex-auth-candidates.XXXXXX")"
+          awk '$0 ~ /^oss:\/\/doris-community-ci\/codex\/auth\.json\.[0-9]+$/ { print }' \
+            "$auth_listing" > "$auth_candidates"
+          if [ ! -s "$auth_candidates" ]; then
+            auth_failure_reason="No numbered Codex review auth objects were found in OSS."
+            echo "failure_reason=$auth_failure_reason" >> "$GITHUB_OUTPUT"
+            echo "::error::$auth_failure_reason"
+            exit 1
+          fi
+
           auth_object=""
           earliest_retry_after_epoch=""
           now_epoch="$(date +%s)"
@@ -252,13 +271,7 @@ jobs:
 
             auth_object="$candidate"
             break
-          done < <(printf '%s\n' \
-            'oss://doris-community-ci/codex/auth.json.1' \
-            'oss://doris-community-ci/codex/auth.json.2' \
-            'oss://doris-community-ci/codex/auth.json.3' \
-            'oss://doris-community-ci/codex/auth.json.4' \
-            'oss://doris-community-ci/codex/auth.json.5' \
-            | shuf)
+          done < <(shuf "$auth_candidates")
 
           if [ -z "$auth_object" ]; then
             retry_at="$(date -u -d "@$earliest_retry_after_epoch" +%Y-%m-%dT%H:%M:%SZ)"
@@ -657,7 +670,7 @@ jobs:
 
       - name: Run automated code review
         id: review
-        timeout-minutes: 60
+        timeout-minutes: 90
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -22,6 +22,7 @@
 #include <gen_cpp/types.pb.h>
 
 #include <functional>
+#include <limits>
 #include <memory>
 #include <optional>
 
@@ -69,6 +70,8 @@ using SegmentStatisticsSharedPtr = std::shared_ptr<SegmentStatistics>;
 
 class RowsetWriter {
 public:
+    static constexpr int32_t MAX_SEGMENT_NUM = std::numeric_limits<int32_t>::max();
+
     RowsetWriter() = default;
     virtual ~RowsetWriter() = default;
 
@@ -175,14 +178,16 @@ public:
         return Status::NotSupported("to be implemented");
     }
 
-    virtual int32_t allocate_segment_id() = 0;
+    virtual Result<int32_t> allocate_segment_id() = 0;
 
     // Return the next segment id to be allocated without advancing internal state.
     // NOTE: This value equals the one that would be returned by the next
     // `allocate_segment_id()` call.
     virtual int32_t get_allocated_segment_id() = 0;
 
-    virtual void set_segment_start_id(int num_segment) {
+    // Set the first physical segment id and the maximum number of ids this writer may allocate.
+    // The default maximum preserves the original unbounded allocation behavior.
+    virtual void set_segment_start_id(int32_t start_seg_id, int32_t max_seg_num = MAX_SEGMENT_NUM) {
         throw Exception(Status::FatalError("not supported!"));
     }
 

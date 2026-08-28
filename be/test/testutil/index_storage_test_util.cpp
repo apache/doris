@@ -55,6 +55,7 @@
 #include "storage/rowset/rowset_reader.h"
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/schema.h"
 #include "storage/segment/segment.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_meta.h"
@@ -624,7 +625,8 @@ void collect_variant_column_layout(const ColumnMetaPB& column_meta, IndexSegment
 }
 
 Result<IndexSegmentLayout> probe_segment(const RowsetSharedPtr& rowset, int64_t segment_id) {
-    auto segment_path = rowset->segment_path(segment_id);
+    auto seg = rowset->segment(rowset->rowset_meta()->position_of(segment_id));
+    auto segment_path = seg.path();
     if (!segment_path.has_value()) {
         return ResultError(segment_path.error());
     }
@@ -634,8 +636,7 @@ Result<IndexSegmentLayout> probe_segment(const RowsetSharedPtr& rowset, int64_t 
     auto status = segment_v2::Segment::open(
             rowset->rowset_meta()->fs(), segment_path.value(), rowset->rowset_meta()->tablet_id(),
             static_cast<uint32_t>(segment_id), rowset->rowset_id(), rowset->tablet_schema(),
-            io::FileReaderOptions {}, &segment,
-            rowset->rowset_meta()->inverted_index_file_info(static_cast<int>(segment_id)), &stats);
+            io::FileReaderOptions {}, &segment, seg.inverted_index_file_info(), &stats);
     if (!status.ok()) {
         return ResultError(status);
     }
@@ -1236,7 +1237,7 @@ Result<RowsetSharedPtr> IndexStorageTestFixture::write_rowset(const IndexRowsetS
                     tablet_options.variant_columns.size(), batch.variant_columns_by_column.size()));
         }
 
-        Block block = _tablet_schema->create_block();
+        Block block = _tablet_schema->create_storage_block();
         RETURN_RESULT_IF_ERROR(
                 fill_block(*_tablet_schema, tablet_options, batch, &next_key, &block));
         RETURN_RESULT_IF_ERROR(rowset_writer->add_block(&block));
@@ -1277,16 +1278,31 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
         return_columns.resize(_tablet_schema->num_columns());
         std::iota(return_columns.begin(), return_columns.end(), 0);
     }
-
-    TabletSchemaSPtr read_schema = _tablet_schema;
+    TabletSchemaSPtr tablet_schema = _tablet_schema;
     if (options.use_variant_v2) {
-        read_schema = std::make_shared<TabletSchema>(*_tablet_schema);
-        for (int32_t column_id = 0; column_id < read_schema->num_columns(); ++column_id) {
-            auto& column = read_schema->mutable_column(column_id);
+        tablet_schema = std::make_shared<TabletSchema>(*_tablet_schema);
+        for (int32_t column_id = 0; column_id < tablet_schema->num_columns(); ++column_id) {
+            auto& column = tablet_schema->mutable_column(column_id);
             if (column.is_variant_type()) {
                 column.set_variant_is_v2(true);
             }
         }
+    }
+    auto read_schema = std::make_shared<ReadSchema>(
+            project_columns_by_ordinal(tablet_schema->columns(), return_columns));
+    // Test specs express predicate columns as tablet cids; the read path wants
+    // ordinals into the read schema, so rebase them here (the role TabletReader
+    // plays for real queries). Predicate columns must be read columns.
+    std::vector<std::shared_ptr<ColumnPredicate>> predicates;
+    predicates.reserve(options.predicates.size());
+    for (const auto& pred : options.predicates) {
+        auto pos = std::find(return_columns.begin(), return_columns.end(), pred->column_id());
+        if (pos == return_columns.end()) {
+            return ResultError(Status::InvalidArgument("predicate column {} not in return columns",
+                                                       pred->column_id()));
+        }
+        auto ordinal = static_cast<uint32_t>(std::distance(return_columns.begin(), pos));
+        predicates.push_back(ordinal == pred->column_id() ? pred : pred->clone(ordinal));
     }
 
     RuntimeState runtime_state;
@@ -1305,10 +1321,10 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
 
         RowsetReaderContext context;
         context.reader_type = options.reader_type;
-        context.tablet_schema = read_schema;
+        context.tablet_schema = tablet_schema;
         context.need_ordered_result = options.need_ordered_result;
-        context.return_columns = &return_columns;
-        context.predicates = &options.predicates;
+        context.read_schema = read_schema;
+        context.predicates = &predicates;
         context.stats = &result.stats;
         context.target_cast_type_for_variants = options.target_cast_type_for_variants;
         context.all_access_paths = options.all_access_paths;
@@ -1319,17 +1335,17 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
         RETURN_RESULT_IF_ERROR(reader->init(&context));
 
         while (true) {
-            Block block = read_schema->create_block_by_cids(return_columns);
+            Block block = read_schema->create_read_block();
             auto status = reader->next_batch(&block);
             if (status.is<ErrorCode::END_OF_FILE>()) {
                 break;
             }
             RETURN_RESULT_IF_ERROR(status);
             if (options.collect_string_values) {
-                collect_string_values_from_block(*read_schema, return_columns, block, &result);
+                collect_string_values_from_block(*tablet_schema, return_columns, block, &result);
             }
             if (options.collect_variant_values) {
-                collect_variant_values_from_block(*read_schema, return_columns, block, &result);
+                collect_variant_values_from_block(*tablet_schema, return_columns, block, &result);
             }
             result.rows_read += block.rows();
         }
@@ -1547,8 +1563,8 @@ Result<IndexRowsetProbe> IndexStorageTestFixture::probe_rowset(const RowsetShare
     }
     probe.index_files = std::move(index_files).value();
 
-    for (int64_t segment_id = 0; segment_id < rowset->num_segments(); ++segment_id) {
-        auto segment_probe = probe_segment(rowset, segment_id);
+    for (auto seg : rowset->segments()) {
+        auto segment_probe = probe_segment(rowset, seg.id());
         if (!segment_probe.has_value()) {
             return ResultError(segment_probe.error());
         }

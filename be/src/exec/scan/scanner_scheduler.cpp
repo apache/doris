@@ -176,6 +176,13 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 
     Status status = Status::OK();
     bool eos = false;
+    auto append_late_arrival_runtime_filter = [&] {
+        Status rf_status = scanner->try_append_late_arrival_runtime_filter();
+        if (!rf_status.ok()) {
+            LOG(WARNING) << "Failed to append late arrival runtime filter: "
+                         << rf_status.to_string();
+        }
+    };
 
     ASSIGN_STATUS_IF_CATCH_EXCEPTION(
             RuntimeState* state = ctx->state(); DCHECK(nullptr != state);
@@ -183,11 +190,26 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             // so better to also check low memory and clear free blocks here.
             if (ctx->low_memory_mode()) { ctx->clear_free_blocks(); }
 
-            if (scanner->check_partition_pruned()) { eos = true; }
+            if (scanner->is_pruned_by_runtime_filter()) {
+                if (!scanner->is_open()) {
+                    scanner->release_unopened_resources();
+                }
+                eos = true;
+            }
 
             if (!eos && !scanner->has_prepared()) {
                 status = scanner->prepare();
                 if (!status.ok()) {
+                    eos = true;
+                }
+            }
+
+            // A filter may become ready while prepare() is doing tablet setup. Apply it before
+            // open() so a newly pruned OLAP scanner never initializes its reader or eagerly reads.
+            if (!eos && !scanner->is_open()) {
+                append_late_arrival_runtime_filter();
+                if (scanner->is_pruned_by_runtime_filter()) {
+                    scanner->release_unopened_resources();
                     eos = true;
                 }
             }
@@ -200,16 +222,10 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 scanner->set_opened();
             }
 
-            if (!eos) {
-                Status rf_status = scanner->try_append_late_arrival_runtime_filter();
-                if (!rf_status.ok()) {
-                    LOG(WARNING) << "Failed to append late arrival runtime filter: "
-                                 << rf_status.to_string();
-                }
-            }
+            if (!eos) { append_late_arrival_runtime_filter(); }
 
-            // After processing late RFs, check if this scanner's partition was pruned.
-            if (!eos && scanner->check_partition_pruned()) { eos = true; }
+            // After processing late RFs, check whether this scanner's scan range was pruned.
+            if (!eos && scanner->is_pruned_by_runtime_filter()) { eos = true; }
 
             size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
             if (ctx->low_memory_mode()) {
@@ -368,11 +384,8 @@ void ScannerScheduler::_make_sure_virtual_col_is_materialized(
         }
 
         std::string error_msg = fmt::format(
-                "Column in idx {} is nothing, block columns {}, normal_columns "
-                "{}, "
-                "virtual_column_ids [{}]",
-                idx, free_block->columns(), olap_scanner->_return_columns.size(),
-                fmt::join(virtual_column_ids, ","));
+                "Column in idx {} is nothing, block columns {}, virtual_column_ids [{}]", idx,
+                free_block->columns(), fmt::join(virtual_column_ids, ","));
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, error_msg);
     }
 #endif

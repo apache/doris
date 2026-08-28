@@ -4568,7 +4568,7 @@ protected:
 
     struct DirectInScanResult {
         std::vector<int32_t> ids;
-        size_t materialize_calls = 0;
+        size_t begin_calls = 0;
         size_t prepare_literals_calls = 0;
         int64_t filtered_row_groups = 0;
         int64_t filtered_row_groups_by_min_max = 0;
@@ -4703,7 +4703,7 @@ protected:
             }
         }
 
-        result->materialize_calls = filter->begin_calls();
+        result->begin_calls = filter->begin_calls();
         result->filtered_row_groups = reader->reader_statistics().filtered_row_groups;
         result->filtered_row_groups_by_min_max =
                 reader->reader_statistics().filtered_row_groups_by_min_max;
@@ -7147,11 +7147,11 @@ TEST_F(NewOrcReaderTest, SargDirectInCompoundMaterializesLiteralsOnce) {
                                           shape, &disabled)
                             .ok());
 
-        EXPECT_EQ(enabled.materialize_calls, 1);
+        EXPECT_EQ(enabled.begin_calls, 1);
         EXPECT_EQ(enabled.prepare_literals_calls, 1);
         EXPECT_EQ(enabled.filtered_row_groups, 1);
         EXPECT_EQ(enabled.filtered_row_groups_by_min_max, 1);
-        EXPECT_EQ(disabled.materialize_calls, 0);
+        EXPECT_EQ(disabled.begin_calls, 0);
         EXPECT_EQ(disabled.prepare_literals_calls, 0);
         EXPECT_EQ(disabled.filtered_row_groups, 0);
         EXPECT_EQ(disabled.filtered_row_groups_by_min_max, 0);
@@ -7177,11 +7177,11 @@ TEST_F(NewOrcReaderTest, SargDirectInNullSafeOrFallsBackBeforeLiteralConversion)
                                       DirectInPredicateShape::OR_WITH_NULL_SAFE_EQUAL, &disabled)
                         .ok());
 
-    EXPECT_EQ(enabled.materialize_calls, 1);
+    EXPECT_EQ(enabled.begin_calls, 1);
     EXPECT_EQ(enabled.prepare_literals_calls, 0);
     EXPECT_EQ(enabled.filtered_row_groups, 0);
     EXPECT_EQ(enabled.filtered_row_groups_by_min_max, 0);
-    EXPECT_EQ(disabled.materialize_calls, 0);
+    EXPECT_EQ(disabled.begin_calls, 0);
     EXPECT_EQ(disabled.prepare_literals_calls, 0);
     EXPECT_EQ(disabled.filtered_row_groups, 0);
     EXPECT_EQ(disabled.filtered_row_groups_by_min_max, 0);
@@ -7209,11 +7209,11 @@ TEST_F(NewOrcReaderTest, SargDirectInOverLimitFallsBackBeforeMaterialization) {
                                       DirectInPredicateShape::ROOT, &disabled)
                         .ok());
 
-    EXPECT_EQ(enabled.materialize_calls, 0);
+    EXPECT_EQ(enabled.begin_calls, 0);
     EXPECT_EQ(enabled.prepare_literals_calls, 0);
     EXPECT_EQ(enabled.filtered_row_groups, 0);
     EXPECT_EQ(enabled.filtered_row_groups_by_min_max, 0);
-    EXPECT_EQ(disabled.materialize_calls, 0);
+    EXPECT_EQ(disabled.begin_calls, 0);
     EXPECT_EQ(disabled.prepare_literals_calls, 0);
     EXPECT_EQ(disabled.filtered_row_groups, 0);
     EXPECT_EQ(disabled.filtered_row_groups_by_min_max, 0);
@@ -10078,6 +10078,36 @@ TEST_F(NewOrcReaderTest, SargConjunctReturnsEofWhenAllStripesArePruned) {
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 2);
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 2);
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 400);
+}
+
+TEST_F(NewOrcReaderTest, SargSafePrefixPreservesEarlierRowFilterError) {
+    const auto multi_stripe_file_path = (_test_dir / "sarg_safe_prefix.orc").string();
+    write_multi_stripe_orc_int_file(multi_stripe_file_path);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+
+    auto reader = create_reader_for_path(multi_stripe_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<FailingRowFilterExpr>()));
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(0, 5000)));
+    request->metadata_pruning_safe_conjunct_count = 0;
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    const Status status = reader->get_block(&block, &rows, &eof);
+    EXPECT_NE(status.to_string().find("synthetic row filter failure"), std::string::npos) << status;
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 0);
 }
 
 TEST_F(NewOrcReaderTest, CloseClearsFileLocalState) {

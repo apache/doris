@@ -168,6 +168,12 @@ Status Env::GetJNIEnvSlowPath(JNIEnv** env) {
     DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";
 
 #ifdef USE_LIBHDFS3
+    // libhdfs3 is a pure native HDFS client that does not manage any JVM lifecycle.
+    // However, Doris still relies on features such as Java UDFs, so it has to implement its own
+    // `FindOrCreateJavaVM()` logic. When encountering the `JNI_EDETACHED` error code, Doris is
+    // responsible for invoking `AttachCurrentThread()` on its own.
+    // This only used on MacOS, so even though there maybe memory leak (because we do not
+    // detach the thread), do not care about it.
     std::call_once(g_vm_once, FindOrCreateJavaVM);
     int rc = g_vm->GetEnv(reinterpret_cast<void**>(&tls_env_), JNI_VERSION_1_8);
     if (rc == JNI_EDETACHED) {
@@ -177,7 +183,9 @@ Status Env::GetJNIEnvSlowPath(JNIEnv** env) {
         return Status::JniError("Unable to get JVM: {}", rc);
     }
 #else
-    // the hadoop libhdfs will do all the stuff
+    // The `getJNIEnv()` function of Hadoop libhdfs creates a POSIX TLS `ThreadLocalState` for every
+    // native thread that invokes it, and registers a destructor with the TLS key.
+    // The pthread library automatically invokes this destructor upon thread exit.
     std::call_once(g_jvm_conf_once, SetEnvIfNecessary);
     tls_env_ = getJNIEnv();
 #endif
@@ -315,7 +323,7 @@ Status Util::_init_jni_scanner_loader() {
             jni_scanner_loader_cls.get_method(env, "loadAllScannerJars", "()V", &load_jni_scanner));
 
     RETURN_IF_ERROR(jni_scanner_loader_cls.get_method(
-            env, "cleanUdfClassLoader", "(Ljava/lang/String;)V", &_clean_udf_cache_method_id));
+            env, "cleanUdfClassLoader", "(Ljava/lang/String;J)V", &_clean_udf_cache_method_id));
 
     RETURN_IF_ERROR(jni_scanner_loader_cls.new_object(env, jni_scanner_loader_constructor)
                             .call(&jni_scanner_loader_obj_));
@@ -324,7 +332,8 @@ Status Util::_init_jni_scanner_loader() {
     return Status::OK();
 }
 
-Status Util::clean_udf_class_load_cache(const std::string& function_signature) {
+Status Util::clean_udf_class_load_cache(const std::string& function_signature,
+                                        int64_t function_id) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
 
@@ -334,6 +343,7 @@ Status Util::clean_udf_class_load_cache(const std::string& function_signature) {
 
     RETURN_IF_ERROR(jni_scanner_loader_obj_.call_void_method(env, _clean_udf_cache_method_id)
                             .with_arg(function_signature_jstr)
+                            .with_arg((jlong)function_id)
                             .call());
 
     return Status::OK();

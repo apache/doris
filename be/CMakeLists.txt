@@ -80,6 +80,20 @@ add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
 option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
 option(USE_LIBCPP "Use libc++" OFF)
 option(USE_JEMALLOC "Use jemalloc" ON)
+# Merge groups of .cpp files into jumbo translation units for much faster full
+# builds. Turn OFF for precise per-file diagnostics, per-file tooling
+# (clang-tidy/coverage), or the finest-grained incremental rebuilds.
+option(ENABLE_UNITY_BUILD "Enable CMake unity builds for BE targets" ON)
+# Normalize to a strict ON/OFF. Every pilot target sets its UNITY_BUILD property
+# unconditionally from this value: OFF must be an explicit OFF, otherwise a
+# cache that also carries CMake's own CMAKE_UNITY_BUILD=ON leaves the property
+# ON (it initializes UNITY_BUILD at add_library time) and the escape hatch does
+# nothing.
+if (ENABLE_UNITY_BUILD)
+    set(DORIS_UNITY_BUILD ON)
+else()
+    set(DORIS_UNITY_BUILD OFF)
+endif()
 if (OS_MACOSX)
     set(GLIBC_COMPATIBILITY OFF)
     set(USE_LIBCPP ON)
@@ -103,6 +117,7 @@ message(STATUS "USE_LIBCPP is ${USE_LIBCPP}")
 message(STATUS "USE_JEMALLOC is ${USE_JEMALLOC}")
 message(STATUS "USE_UNWIND is ${USE_UNWIND}")
 message(STATUS "ENABLE_PCH is ${ENABLE_PCH}")
+message(STATUS "ENABLE_UNITY_BUILD is ${ENABLE_UNITY_BUILD}")
 message(STATUS "USE_AVX2 is ${USE_AVX2}")
 
 # set CMAKE_BUILD_TYPE
@@ -143,6 +158,32 @@ if (NOT DEFINED ENV{DORIS_THIRDPARTY})
 endif()
 set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed")
 message(STATUS "THIRDPARTY_DIR is ${THIRDPARTY_DIR}")
+
+# Build-hygiene gates: seconds-level, zero-build-dependency text checks that
+# keep the backend's compile-time invariants from regressing (header layering
+# rules and budgets, extern-template pairing, unity-skip coverage for
+# test-included sources). Running them at configure time makes a violation a
+# build error on every path that builds the BE -- CI, build.sh, the UT build --
+# with no separate wiring, and it fails in the first seconds instead of
+# somewhere inside a long compile. Every failure message carries the mechanism
+# and the fix path; see build-support/check-build-hygiene.sh.
+option(ENABLE_BUILD_HYGIENE "Run the build-hygiene gates at configure time" ON)
+message(STATUS "ENABLE_BUILD_HYGIENE is ${ENABLE_BUILD_HYGIENE}")
+if (ENABLE_BUILD_HYGIENE)
+    execute_process(
+        COMMAND bash "${BASE_DIR}/../build-support/check-build-hygiene.sh"
+        ERROR_VARIABLE BUILD_HYGIENE_ERRORS
+        RESULT_VARIABLE BUILD_HYGIENE_RESULT
+    )
+    if (NOT BUILD_HYGIENE_RESULT EQUAL 0)
+        message(FATAL_ERROR
+            "build-hygiene gates failed (exit ${BUILD_HYGIENE_RESULT}):\n"
+            "${BUILD_HYGIENE_ERRORS}"
+            "Fix the violation (each message ends with its fix path), or "
+            "configure with -DENABLE_BUILD_HYGIENE=OFF to bypass in an "
+            "emergency.")
+    endif()
+endif()
 
 option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 message(STATUS "make test: ${MAKE_TEST}")
@@ -358,6 +399,21 @@ add_compile_options(-g
                     -fno-omit-frame-pointer
                     $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>)
 
+# Faster dev compiles: DORIS_DEV_DEBUG_INFO=line-tables keeps only the line
+# tables (enough for stack traces and perf) instead of full debug info; 'full'
+# asks for the default full DWARF explicitly, which is what run-be-ut.sh needs
+# to be overridable with, since UT builds default to line-tables.
+# It must be appended after the -g/-gdwarf-5 above: clang lets the last debug-info
+# flag win, and this keeps the default command line unchanged.
+if ("${DORIS_DEV_DEBUG_INFO}" STREQUAL "line-tables")
+    if (NOT COMPILER_CLANG)
+        message(FATAL_ERROR "DORIS_DEV_DEBUG_INFO=line-tables requires clang")
+    endif()
+    add_compile_options(-gline-tables-only)
+elseif (NOT "${DORIS_DEV_DEBUG_INFO}" STREQUAL "" AND NOT "${DORIS_DEV_DEBUG_INFO}" STREQUAL "full")
+    message(FATAL_ERROR "Unknown DORIS_DEV_DEBUG_INFO value: ${DORIS_DEV_DEBUG_INFO} (supported: line-tables, full)")
+endif()
+
 add_compile_options(-Wno-unused-parameter
                     -Wno-sign-compare)
 
@@ -394,7 +450,14 @@ if (COMPILER_CLANG)
                         -Wthread-safety)
     add_compile_options(-Wno-gnu-statement-expression
                         -Wno-implicit-float-conversion
-                        -Wno-sign-conversion)
+                        -Wno-sign-conversion
+                        # libstdc++-15 puts `#pragma GCC unroll` on loops in its own
+                        # headers (bits/stl_algobase.h); when a sanitizer/coverage
+                        # build compiles at low optimization the unroller punts and
+                        # clang's -Wpass-failed turns that missed *hint* into an
+                        # -Werror failure. The diagnostic carries no correctness
+                        # signal, so drop it.
+                        -Wno-pass-failed)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         add_definitions(-DUSE_LIBCPP)
@@ -966,6 +1029,24 @@ function(pch_reuse target)
     endif()
 endfunction(pch_reuse target)
 
+# Every unity opt-out goes through this helper. set_source_files_properties()
+# silently ignores paths that do not exist, so a skip entry going stale after
+# a rename or move would quietly re-join its unity batch -- slower builds, or
+# new file-scope clashes, with no diagnostic anywhere. Fail the configure
+# instead. Entries under GENSRC_DIR are exempt: they are emitted by
+# add_custom_command at build time (wkt_lex.l.cpp, the generated
+# thrift/protobuf sources) and legitimately do not exist on a fresh configure.
+function(doris_skip_unity_inclusion)
+    foreach(entry IN LISTS ARGN)
+        string(FIND "${entry}" "${GENSRC_DIR}" gensrc_prefix_pos)
+        if(NOT gensrc_prefix_pos EQUAL 0 AND NOT EXISTS "${entry}")
+            message(FATAL_ERROR
+                "unity skip entry does not exist (renamed or moved?): ${entry}")
+        endif()
+    endforeach()
+    set_source_files_properties(${ARGN} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+endfunction()
+
 
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)
@@ -993,6 +1074,7 @@ endif()
 option(BUILD_FILE_CACHE_MICROBENCH_TOOL "Build file cache mirobench Tool" OFF)
 if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
     add_subdirectory(${SRC_DIR}/io/tools)
+    add_subdirectory(${SRC_DIR}/io/cache/benchmark)
     install(FILES
         ${BASE_DIR}/../bin/start_file_cache_microbench.sh
         PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE

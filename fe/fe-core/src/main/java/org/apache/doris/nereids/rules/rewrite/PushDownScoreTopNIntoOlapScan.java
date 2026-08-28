@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -128,6 +129,9 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
                             + " for score() push down optimization");
         }
 
+        CheckScoreUsage.checkScoringPolicyAdmission(
+                filter, scan, Env.getCurrentEnv().getIndexPolicyMgr());
+
         // 3. Check for score() predicates in WHERE clause and extract score range info
         List<Expression> scorePredicates = filter.getConjuncts().stream()
                 .filter(conjunct -> !conjunct.collect(e -> e instanceof Score).isEmpty())
@@ -190,17 +194,22 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
         }
 
         // When limit + offset overflows the long range, the pushed scan limit would wrap to a
-        // negative value; skip the push-down and let the TopN above the scan apply limit/offset.
+        // negative value. Fail with the same error as ordinary TopN instead of leaving score()
+        // unmaterialized and reporting an unrelated score() usage error.
         if (Utils.addOverflows(topN.getLimit(), topN.getOffset())) {
-            return null;
+            throw new AnalysisException("limit + offset overflows the long range");
         }
+
+        long scoreLimit = topN.getLimit() + topN.getOffset();
+        long pushedScoreLimit = shouldDisableSearchTopN(filter.getConjuncts(), extractedScorePredicate)
+                ? 0L : scoreLimit;
 
         // All conditions met, perform the push down.
         // This is the core action: push score() as a virtual column and also push the
         // topN info.
         Plan newScan = scan.appendVirtualColumnsAndTopN(ImmutableList.of(scoreAlias),
                 ImmutableList.of(), Optional.empty(),
-                topN.getOrderKeys(), Optional.of(topN.getLimit() + topN.getOffset()),
+                topN.getOrderKeys(), Optional.of(pushedScoreLimit),
                 scoreRangeInfo);
 
         // Rebuild the plan tree above the new scan.
@@ -237,6 +246,19 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
 
         // Rebuild the TopN node on top of the new project.
         return topN.withChildren(newProject);
+    }
+
+    private boolean shouldDisableSearchTopN(Set<Expression> conjuncts, Expression extractedScorePredicate) {
+        List<Expression> nonScoreConjuncts = conjuncts.stream()
+                .filter(conjunct -> extractedScorePredicate == null || !conjunct.equals(extractedScorePredicate))
+                .collect(ImmutableList.toImmutableList());
+
+        boolean hasSearchPredicate = nonScoreConjuncts.stream()
+                .anyMatch(conjunct -> !conjunct.collect(e -> e instanceof SearchExpression).isEmpty());
+        if (!hasSearchPredicate) {
+            return false;
+        }
+        return nonScoreConjuncts.size() > 1 || !(nonScoreConjuncts.get(0) instanceof SearchExpression);
     }
 
     /**

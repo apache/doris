@@ -30,6 +30,8 @@ All code must pass style checks before committing. Use the corresponding skill f
 
 **BE (C++) Static Analysis**: After building BE (which generates `compile_commands.json`), run `build-support/run-clang-tidy.sh` to check modified C++ files against the `.clang-tidy` config. The script parses `git diff` to filter warnings to changed lines where possible, reducing noise from pre-existing code (diagnostics from included headers may still appear). For Cloud C++ files, pass `--build-dir` pointing to the Cloud compilation database (e.g., `cloud/build_ASAN`). Try to fix all reported warnings; if a warning cannot be reasonably fixed, add a `// NOLINT` comment with justification and report it. See the `clang-tidy-check` skill for details.
 
+**BE (C++) Header Hygiene**: BE configure enforces compile-time hygiene gates (header layering rules, include-closure/reach budgets, pch whitelist, extern-template pairing, unity-skip coverage) via `build-support/check-build-hygiene.sh` (~1s, pure text). Run it directly after touching BE headers, includes, template instantiation lists, or unity skip lists — do not wait for CI. Violations are build errors whose messages carry the mechanism and fix; deliberate budget/whitelist changes are one-line table edits in the same commit with justification. Rules and review checkpoints: `be/AGENTS.md`; mechanics: `be/README.md`.
+
 **FE (Java) Style**: Checkstyle is integrated into the Maven build (`maven-checkstyle-plugin`). Running `build.sh --fe` automatically validates style via `mvn validate`. If checkstyle fails, fix the reported issues according to `fe/check/checkstyle/checkstyle.xml`. See the `fe-code-style` skill for details.
 
 ## Code Review
