@@ -420,4 +420,64 @@ suite ("partition_curd_union_rewrite") {
     order_qt_stale_partition_topn_before "${stale_partition_topn_sql}"
     sql "set enable_materialized_view_rewrite=true"
     order_qt_stale_partition_topn_after "${stale_partition_topn_sql}"
+
+    // An outer expression above TopN must not be evaluated again on MV rows after partition
+    // compensation, because the query and MV branches can place the Project on opposite sides.
+    sql "DROP MATERIALIZED VIEW IF EXISTS partition_compensation_project_mv"
+    sql "DROP TABLE IF EXISTS partition_compensation_project_base"
+    sql """
+    CREATE TABLE partition_compensation_project_base (
+        d date not null,
+        k int not null,
+        v bigint not null
+    )
+    DUPLICATE KEY(d, k)
+    PARTITION BY RANGE(d) (
+        PARTITION p1 VALUES [('2024-03-01'), ('2024-03-02')),
+        PARTITION p2 VALUES [('2024-03-02'), ('2024-03-03'))
+    )
+    DISTRIBUTED BY HASH(k) BUCKETS 1
+    PROPERTIES ('replication_num' = '1')
+    """
+    sql """
+    INSERT INTO partition_compensation_project_base VALUES
+        ('2024-03-01', 3, 30),
+        ('2024-03-02', 1, 10)
+    """
+    sql """
+    CREATE MATERIALIZED VIEW partition_compensation_project_mv
+    BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+    PARTITION BY(d)
+    DISTRIBUTED BY RANDOM BUCKETS 1
+    PROPERTIES ('replication_num' = '1')
+    AS
+    select d, k, v + 1 as x
+    from partition_compensation_project_base
+    """
+    waitingMTMVTaskFinished(getJobName(db, "partition_compensation_project_mv"))
+    sql """
+    analyze table partition_compensation_project_base with sync;
+    analyze table partition_compensation_project_mv with sync;
+    """
+    sql """
+    INSERT INTO partition_compensation_project_base VALUES
+        ('2024-03-01', 2, 20)
+    """
+    waitingPartitionIsExpected("partition_compensation_project_mv", "p_20240301_20240302", false)
+
+    def stale_partition_project_sql = """
+    select d, k, v + 1 as x
+    from partition_compensation_project_base
+    order by k
+    limit 2
+    """
+    explain {
+        sql "${stale_partition_project_sql}"
+        contains "partition_compensation_project_mv not chose"
+        contains "TABLE: ${db}.partition_compensation_project_base"
+        notContains "VUNION"
+    }
+    compare_res(stale_partition_project_sql)
+    sql "set enable_materialized_view_rewrite=true"
+    order_qt_stale_partition_project "${stale_partition_project_sql}"
 }
