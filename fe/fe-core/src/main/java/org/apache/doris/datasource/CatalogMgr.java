@@ -740,8 +740,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 throw new DdlException("Invalid catalog properties: "
                         + validationException.getMessage(), validationException);
             }
-        } else {
-            externalCatalog.tryModifyCatalogProps(newProps);
         }
         if (newProps.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
             long catalogId = externalCatalog.getId();
