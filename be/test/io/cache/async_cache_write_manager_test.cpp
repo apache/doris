@@ -391,12 +391,30 @@ TEST_F(AsyncCacheWriteManagerTest, ReportsOnlyUnusedPendingCapacity) {
     EXPECT_EQ(submit("spare_capacity_queued"), AsyncCacheWriteBlockSubmitResult::SUBMITTED);
     EXPECT_FALSE(manager->can_accept_without_eviction(4096));
 
+    const auto background_hash = BlockFileCache::hash("spare_capacity_background");
+    AsyncCacheWriteBufferPtr background_buffer;
+    ASSERT_TRUE(manager->allocate_tracked_buffer(4096, &background_buffer).ok());
+    memset(background_buffer->data(), 'b', background_buffer->size());
+    EXPECT_EQ(manager->try_submit_owned_block(AsyncCacheWriteOwnedBlockRequest {
+                      .cache_hash = background_hash,
+                      .file_offset = 0,
+                      .write_size = 4096,
+                      .buffer = std::move(background_buffer),
+                      .admission_ctx = {},
+                      .write_epoch = manager->current_write_epoch(background_hash),
+                      .admission_mode = AsyncCacheWriteAdmissionMode::REQUIRE_SPARE_CAPACITY,
+                      .inflight_index = nullptr,
+              }),
+              AsyncCacheWriteBlockSubmitResult::REJECTED);
+    EXPECT_EQ(manager->pending_count(), 2);
+
     worker_gate.release();
     for (int attempt = 0; attempt < 100 && manager->pending_count() != 0; ++attempt) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     EXPECT_EQ(manager->pending_count(), 0);
     EXPECT_TRUE(manager->can_accept_without_eviction(4096));
+    EXPECT_FALSE(is_cache_range_downloaded(cache.get(), background_hash));
 }
 
 TEST(AsyncCacheWriteConfigTest, ResolveMaxPendingBytes) {
