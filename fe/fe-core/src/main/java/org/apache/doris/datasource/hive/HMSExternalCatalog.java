@@ -142,9 +142,24 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     public void checkProperties() throws DdlException {
-        super.checkProperties();
+        checkProperties(catalogProperty);
+    }
+
+    @Override
+    public boolean validatePropertiesBeforeUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) throws DdlException {
+        Map<String, String> candidateProperties = currentProperties == null
+                ? new HashMap<>() : new HashMap<>(currentProperties);
+        candidateProperties.putAll(updatedProperties);
+        checkProperties(new CatalogProperty(null, candidateProperties));
+        return true;
+    }
+
+    @Override
+    protected void checkProperties(CatalogProperty property) throws DdlException {
+        super.checkProperties(property);
         // check file.meta.cache.ttl-second parameter
-        String fileMetaCacheTtlSecond = catalogProperty.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
+        String fileMetaCacheTtlSecond = property.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
         if (Objects.nonNull(fileMetaCacheTtlSecond) && NumberUtils.toInt(fileMetaCacheTtlSecond, CACHE_NO_TTL)
                 < CACHE_TTL_DISABLE_CACHE) {
             throw new DdlException(
@@ -152,13 +167,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
 
         // check partition.cache.ttl-second parameter
-        String partitionCacheTtlSecond = catalogProperty.getOrDefault(PARTITION_CACHE_TTL_SECOND, null);
+        String partitionCacheTtlSecond = property.getOrDefault(PARTITION_CACHE_TTL_SECOND, null);
         if (Objects.nonNull(partitionCacheTtlSecond) && NumberUtils.toInt(partitionCacheTtlSecond, CACHE_NO_TTL)
                 < CACHE_TTL_DISABLE_CACHE) {
             throw new DdlException(
                     "The parameter " + PARTITION_CACHE_TTL_SECOND + " is wrong, value is " + partitionCacheTtlSecond);
         }
-        catalogProperty.checkMetaStoreAndStorageProperties(AbstractHiveProperties.class);
+        property.checkMetaStoreAndStorageProperties(AbstractHiveProperties.class);
     }
 
     @Override
@@ -301,7 +316,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
         IcebergMetadataOps ops = getIcebergMetadataOps();
         return new IcebergTableLoadContext(ops, threadPoolWithPreAuth, executionAuthenticator,
                 catalogProperty.getMetastoreProperties(),
-                new HashMap<>(catalogProperty.getStoragePropertiesMap()), icebergResourceTracker.beginLoad());
+                new HashMap<>(catalogProperty.getStoragePropertiesMap()),
+                catalogProperty.getEnableMappingVarbinary(), catalogProperty.getEnableMappingTimestampTz(),
+                icebergResourceTracker.beginLoad());
     }
 
     @Override
@@ -324,17 +341,22 @@ public class HMSExternalCatalog extends ExternalCatalog {
         private final ExecutionAuthenticator authenticator;
         private final MetastoreProperties metastoreProperties;
         private final Map<StorageProperties.Type, StorageProperties> storageProperties;
+        private final boolean enableMappingVarbinary;
+        private final boolean enableMappingTimestampTz;
         private final IcebergCatalogResourceTracker.LoadGuard guard;
 
         private IcebergTableLoadContext(IcebergMetadataOps ops, ThreadPoolExecutor executor,
                 ExecutionAuthenticator authenticator, MetastoreProperties metastoreProperties,
                 Map<StorageProperties.Type, StorageProperties> storageProperties,
+                boolean enableMappingVarbinary, boolean enableMappingTimestampTz,
                 IcebergCatalogResourceTracker.LoadGuard guard) {
             this.ops = ops;
             this.executor = executor;
             this.authenticator = authenticator;
             this.metastoreProperties = metastoreProperties;
             this.storageProperties = storageProperties;
+            this.enableMappingVarbinary = enableMappingVarbinary;
+            this.enableMappingTimestampTz = enableMappingTimestampTz;
             this.guard = guard;
         }
 
@@ -356,6 +378,14 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
         public Map<StorageProperties.Type, StorageProperties> getStorageProperties() {
             return storageProperties;
+        }
+
+        public boolean isEnableMappingVarbinary() {
+            return enableMappingVarbinary;
+        }
+
+        public boolean isEnableMappingTimestampTz() {
+            return enableMappingTimestampTz;
         }
 
         public Table loadTable(String dbName, String tableName) throws Exception {

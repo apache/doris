@@ -195,10 +195,16 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(
-                    Mockito.eq(dorisTable), Mockito.eq(ops))).thenReturn(icebergTable);
+            IcebergExternalMetaCache.WritableTableLease lease =
+                    Mockito.mock(IcebergExternalMetaCache.WritableTableLease.class);
+            ExecutionAuthenticator authenticator = dorisCatalog.getExecutionAuthenticator();
+            Mockito.when(lease.getTable()).thenReturn(icebergTable);
+            Mockito.when(lease.getAuthenticator()).thenReturn(authenticator);
+            mockedIcebergUtils.when(() -> IcebergUtils.acquireWritableIcebergTable(dorisTable, ops))
+                    .thenReturn(lease);
 
             ops.updateTableProperties(dorisTable, properties, 123L);
+            Mockito.verify(lease).close();
         }
 
         Mockito.verify(updateProperties).set("write.target-file-size-bytes", "134217728");
@@ -219,12 +225,18 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(
-                    Mockito.eq(dorisTable), Mockito.eq(ops))).thenReturn(icebergTable);
+            IcebergExternalMetaCache.WritableTableLease lease =
+                    Mockito.mock(IcebergExternalMetaCache.WritableTableLease.class);
+            ExecutionAuthenticator authenticator = dorisCatalog.getExecutionAuthenticator();
+            Mockito.when(lease.getTable()).thenReturn(icebergTable);
+            Mockito.when(lease.getAuthenticator()).thenReturn(authenticator);
+            mockedIcebergUtils.when(() -> IcebergUtils.acquireWritableIcebergTable(dorisTable, ops))
+                    .thenReturn(lease);
 
             assertUserException(() -> ops.updateTableProperties(
                             dorisTable, Collections.singletonMap("write.target-file-size-bytes", "134217728"), 123L),
                     "commit failed");
+            Mockito.verify(lease).close();
         }
 
         Mockito.verify(dorisCatalog, Mockito.never()).getDbForReplay(Mockito.anyString());
