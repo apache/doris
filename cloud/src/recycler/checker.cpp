@@ -440,7 +440,8 @@ void Checker::do_inspect(const InstanceInfoPB& instance) {
     DCHECK(bucket_lifecycle_days > 0);
 
     if (bucket_lifecycle_days == INT64_MAX) {
-        // No s3 bucket (may all accessors are HdfsAccessor), skip inspect
+        // No applicable versioned S3 lifecycle window, skip interval inspection.
+        // This includes instances backed only by HDFS or unversioned directory buckets.
         return;
     }
 

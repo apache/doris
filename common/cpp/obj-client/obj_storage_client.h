@@ -30,7 +30,7 @@
 #include <vector>
 
 namespace doris {
-// Names are in lexico order.
+// Explicit values are stable; provider conversions must map by name.
 enum class ObjStorageProvider : uint8_t {
     UNKNOWN = 0,
     AWS = 1,
@@ -41,6 +41,7 @@ enum class ObjStorageProvider : uint8_t {
     OBS = 6,
     GCP = 7,
     TOS = 8,
+    S3EXPRESS = 9,
 };
 
 /// eg:
@@ -71,6 +72,7 @@ struct ObjectMeta {
 struct ObjStorageCompletedPart {
     int part_num = 0;
     std::string etag {};
+    std::optional<std::string> checksum_crc32c = std::nullopt;
 };
 
 struct ObjStorageStatus {
@@ -126,6 +128,7 @@ struct ObjStorageUploadResult {
     ObjStorageResponse resp = ObjStorageResponse::OK();
     std::optional<std::string> upload_id = std::nullopt;
     std::optional<std::string> etag = std::nullopt;
+    std::optional<std::string> checksum_crc32c = std::nullopt;
 };
 
 struct ObjStorageHeadResult {

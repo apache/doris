@@ -75,6 +75,7 @@ ObjStorageUploadResult S3ObjStorageClient::create_multipart_upload(const ObjStor
     CreateMultipartUploadRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
     request.SetContentType("application/octet-stream");
+    set_create_multipart_upload_checksum(request);
 
     const auto start = std::chrono::steady_clock::now();
     auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
@@ -115,8 +116,7 @@ ObjStorageResponse S3ObjStorageClient::put_object(const ObjStoragePath& opts,
     Aws::S3::Model::PutObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
     auto string_view_stream = std::make_shared<StringViewStream>(stream.data(), stream.size());
-    Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
-    request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
+    set_put_object_checksum(request, *string_view_stream);
     request.SetBody(string_view_stream);
     request.SetContentLength(stream.size());
     request.SetContentType("application/octet-stream");
@@ -162,8 +162,7 @@ ObjStorageUploadResult S3ObjStorageClient::upload_part(const ObjStoragePath& opt
 
     request.SetBody(string_view_stream);
 
-    Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
-    request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
+    set_upload_part_checksum(request, *string_view_stream);
 
     request.SetContentLength(stream.size());
     request.SetContentType("application/octet-stream");
@@ -199,8 +198,34 @@ ObjStorageUploadResult S3ObjStorageClient::upload_part(const ObjStoragePath& opt
             << "UploadPart cost=" << elapsed_ms << "ms"
             << ", request_id=" << request_id << ", bucket=" << opts.bucket << ", key=" << opts.key
             << ", part_num=" << part_num << ", upload_id=" << upload_id;
-    return ObjStorageUploadResult {.resp = ObjStorageResponse::OK(),
-                                   .etag = outcome.GetResult().GetETag()};
+
+    ObjStorageUploadResult response {.resp = ObjStorageResponse::OK(),
+                                     .etag = outcome.GetResult().GetETag()};
+    // used for s3 express
+    if (request.ChecksumCRC32CHasBeenSet()) {
+        const auto& checksum_crc32c = outcome.GetResult().GetChecksumCRC32C();
+        if (checksum_crc32c.empty()) {
+            return ObjStorageUploadResult {
+                    .resp = {.status = {ObjStorageStatus::INTERNAL_ERROR,
+                                        fmt::format("UploadPart response is missing CRC32C, "
+                                                    "bucket={}, key={}, part_num={}, request_id={}",
+                                                    opts.bucket, opts.key, part_num, request_id)},
+                             .http_code = 200,
+                             .request_id = request_id}};
+        }
+        if (checksum_crc32c != request.GetChecksumCRC32C()) {
+            return ObjStorageUploadResult {
+                    .resp = {.status = {ObjStorageStatus::INTERNAL_ERROR,
+                                        fmt::format("UploadPart response CRC32C does not match the "
+                                                    "request, bucket={}, key={}, part_num={}, "
+                                                    "request_id={}",
+                                                    opts.bucket, opts.key, part_num, request_id)},
+                             .http_code = 200,
+                             .request_id = request_id}};
+        }
+        response.checksum_crc32c = std::string(checksum_crc32c.c_str(), checksum_crc32c.size());
+    }
+    return response;
 }
 
 ObjStorageResponse S3ObjStorageClient::complete_multipart_upload(
@@ -221,6 +246,12 @@ ObjStorageResponse S3ObjStorageClient::complete_multipart_upload(
     completed_upload.SetParts(std::move(complete_parts));
     request.WithMultipartUpload(completed_upload);
 
+    return complete_multipart_upload_impl(opts, upload_id, std::move(request));
+}
+
+ObjStorageResponse S3ObjStorageClient::complete_multipart_upload_impl(
+        const ObjStoragePath& opts, const std::string& upload_id,
+        CompleteMultipartUploadRequest request) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("S3FileWriter::_complete:3", ObjStorageResponse(), this);
 
     const auto start = std::chrono::steady_clock::now();
@@ -594,6 +625,21 @@ ObjStorageResponse S3ObjStorageClient::get_lifecycle(const std::string& bucket,
                            fmt::format("bucket has no lifecycle configuration: {}", bucket)}};
     }
     return ObjStorageResponse::OK();
+}
+
+void S3ObjStorageClient::set_create_multipart_upload_checksum(
+        Aws::S3::Model::CreateMultipartUploadRequest& /*request*/) const {}
+
+void S3ObjStorageClient::set_put_object_checksum(Aws::S3::Model::PutObjectRequest& request,
+                                                 Aws::IOStream& stream) const {
+    Aws::Utils::ByteBuffer md5(Aws::Utils::HashingUtils::CalculateMD5(stream));
+    request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(md5));
+}
+
+void S3ObjStorageClient::set_upload_part_checksum(Aws::S3::Model::UploadPartRequest& request,
+                                                  Aws::IOStream& stream) const {
+    Aws::Utils::ByteBuffer md5(Aws::Utils::HashingUtils::CalculateMD5(stream));
+    request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(md5));
 }
 
 } // namespace doris

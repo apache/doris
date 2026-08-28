@@ -381,7 +381,8 @@ static int alter_instance_obj_store_info_by_id(InstanceInfoPB& instance,
                 return -1;
             }
 
-            if (it.provider() != ObjectStoreInfoPB::S3) {
+            if (it.provider() != ObjectStoreInfoPB::S3 &&
+                it.provider() != ObjectStoreInfoPB::S3EXPRESS) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 msg = "role_arn is only supported for s3 provider";
                 LOG(INFO) << msg << " provider=" << it.provider();
@@ -783,8 +784,9 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
 
     if (obj->has_role_arn()) {
         if (obj->role_arn().empty() || !obj->has_cred_provider_type() || !obj->has_provider() ||
-            obj->provider() != ObjectStoreInfoPB::S3 || bucket.empty() || endpoint.empty() ||
-            region.empty()) {
+            (obj->provider() != ObjectStoreInfoPB::S3 &&
+             obj->provider() != ObjectStoreInfoPB::S3EXPRESS) ||
+            bucket.empty() || endpoint.empty() || region.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf info err with role_arn or cred provider, please check it";
             return;
@@ -1496,7 +1498,8 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         }
 
         if (use_credential_provider(obj)) {
-            if (!obj.has_provider() || obj.provider() != ObjectStoreInfoPB::S3) {
+            if (!obj.has_provider() || (obj.provider() != ObjectStoreInfoPB::S3 &&
+                                        obj.provider() != ObjectStoreInfoPB::S3EXPRESS)) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 msg = "s3 conf info err with credentials_provider_type, please check it";
                 return;

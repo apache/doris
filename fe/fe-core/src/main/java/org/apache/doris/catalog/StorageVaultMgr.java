@@ -26,6 +26,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.datasource.storage.CloudObjectStoreAdapter;
+import org.apache.doris.datasource.storage.S3ResourceCompat;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
 import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -41,6 +43,7 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -315,6 +318,33 @@ public class StorageVaultMgr {
             return StorageVaultType.UNKNOWN;
         } catch (RpcException e) {
             LOG.warn("failed to get storage vault type due to RpcException: {}", e);
+            throw new DdlException(e.getMessage());
+        }
+    }
+
+    public boolean isS3ExpressStorageVault(String vaultName) throws DdlException {
+        try {
+            Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
+                    .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder()
+                    .setRequestIp(FrontendOptions.getLocalHostAddressCached()).build());
+            for (Cloud.StorageVaultPB vault : resp.getStorageVaultList()) {
+                if (!vault.getName().equals(vaultName) || !vault.hasObjInfo()) {
+                    continue;
+                }
+                Cloud.ObjectStoreInfoPB objectInfo = vault.getObjInfo();
+                if (objectInfo.getProvider() == Cloud.ObjectStoreInfoPB.Provider.S3EXPRESS) {
+                    return true;
+                }
+                // Compatibility for historical or migrated metadata that still records
+                // provider=S3 with an S3 Express endpoint. New S3 Express Storage Vaults must
+                // persist provider=S3EXPRESS explicitly.
+                return objectInfo.getProvider() == Cloud.ObjectStoreInfoPB.Provider.S3
+                        && StorageAdapter.matchesProviderGuess("S3EXPRESS", Collections.singletonMap(
+                                S3ResourceCompat.ENDPOINT, objectInfo.getEndpoint()));
+            }
+            return false;
+        } catch (RpcException e) {
+            LOG.warn("failed to get storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());
         }
     }

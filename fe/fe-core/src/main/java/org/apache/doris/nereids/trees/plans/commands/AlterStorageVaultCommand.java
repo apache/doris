@@ -20,12 +20,14 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StorageVault;
 import org.apache.doris.catalog.StorageVault.StorageVaultType;
+import org.apache.doris.catalog.StorageVaultMgr;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.storage.S3ResourceCompat;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -57,6 +59,7 @@ public class AlterStorageVaultCommand extends Command implements NeedAuditEncryp
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
+        StorageVaultMgr storageVaultMgr = Env.getCurrentEnv().getStorageVaultMgr();
         StorageVault.StorageVaultType vaultType;
         if (properties.containsKey(TYPE)) {
             vaultType = StorageVaultType.fromString(properties.get(TYPE));
@@ -66,7 +69,7 @@ public class AlterStorageVaultCommand extends Command implements NeedAuditEncryp
         } else {
             // auto-detect
             try {
-                vaultType = Env.getCurrentEnv().getStorageVaultMgr().getStorageVaultTypeByName(name);
+                vaultType = storageVaultMgr.getStorageVaultTypeByName(name);
                 if (vaultType == StorageVaultType.UNKNOWN) {
                     throw new AnalysisException("Storage vault '" + name + "' does not exist or has unknown type. "
                             + "You can use `SHOW STORAGE VAULT` to get all available vaults.");
@@ -90,7 +93,21 @@ public class AlterStorageVaultCommand extends Command implements NeedAuditEncryp
             FeNameFormat.checkStorageVaultName(newName);
             Preconditions.checkArgument(!name.equalsIgnoreCase(newName), "Vault name has not been changed");
         }
-        Env.getCurrentEnv().getStorageVaultMgr().alterStorageVault(vaultType, properties, name);
+        boolean altersPathStyle = properties.containsKey(S3ResourceCompat.USE_PATH_STYLE);
+        boolean altersCredentialsProvider = properties.containsKey(S3ResourceCompat.CREDENTIALS_PROVIDER_TYPE);
+        if (vaultType == StorageVaultType.S3 && (altersPathStyle || altersCredentialsProvider)
+                && storageVaultMgr.isS3ExpressStorageVault(name)) {
+            if (altersPathStyle
+                    && !"false".equalsIgnoreCase(properties.get(S3ResourceCompat.USE_PATH_STYLE))) {
+                throw new AnalysisException("S3 Express requires use_path_style=false");
+            }
+            if (altersCredentialsProvider
+                    && "ANONYMOUS".equalsIgnoreCase(
+                            properties.get(S3ResourceCompat.CREDENTIALS_PROVIDER_TYPE).trim())) {
+                throw new AnalysisException("S3 Express does not support anonymous access");
+            }
+        }
+        storageVaultMgr.alterStorageVault(vaultType, properties, name);
     }
 
     @Override

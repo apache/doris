@@ -137,8 +137,10 @@ TEST(SpillIcebergTableSinkOperatorTest, TerminalWriterDrainsQueuedReservations) 
     EXPECT_EQ(18, released_bytes);
 }
 
-TEST(SpillIcebergTableSinkOperatorTest, AzureDeferredMultipartRequiresCoordinatorCapability) {
+TEST(SpillIcebergTableSinkOperatorTest, ValidatesDeferredMultipartProtocolSupport) {
     EXPECT_TRUE(hive_multipart_protocol_supported(io::ObjStorageProvider::AWS, false));
+    EXPECT_FALSE(hive_multipart_protocol_supported(io::ObjStorageProvider::S3EXPRESS, false));
+    EXPECT_FALSE(hive_multipart_protocol_supported(io::ObjStorageProvider::S3EXPRESS, true));
     EXPECT_FALSE(hive_multipart_protocol_supported(io::ObjStorageProvider::AZURE, false));
     EXPECT_TRUE(hive_multipart_protocol_supported(io::ObjStorageProvider::AZURE, true));
 }

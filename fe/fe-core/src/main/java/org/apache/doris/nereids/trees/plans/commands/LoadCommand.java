@@ -464,8 +464,8 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
                     && storageAdapter != null
                     && storageAdapter.getSpiProperties() instanceof S3CompatibleFileSystemProperties) {
                 //@zykkk todo We should use a unified connectivity check — it doesn’t really belong here.
-                String endpoint = ((S3CompatibleFileSystemProperties) storageAdapter.getSpiProperties()).getEndpoint();
-                S3Util.validateAndTestEndpoint(endpoint);
+                S3Util.validateEndpoint(
+                        (S3CompatibleFileSystemProperties) storageAdapter.getSpiProperties());
             }
         } else {
             etlJobType = EtlJobType.UNKNOWN;

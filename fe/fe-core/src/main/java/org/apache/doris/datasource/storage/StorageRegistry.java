@@ -65,6 +65,7 @@ public final class StorageRegistry {
         HDFS(StorageTypeId.HDFS),
         OSS_HDFS(StorageTypeId.OSS_HDFS),
         OSS(StorageTypeId.OSS),
+        S3EXPRESS(StorageTypeId.S3),
         S3(StorageTypeId.S3),
         OBS(StorageTypeId.OBS),
         COS(StorageTypeId.COS),

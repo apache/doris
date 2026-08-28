@@ -337,3 +337,13 @@ icebergDlfRestCatalog="'type' = 'iceberg', 'warehouse' = 'new_dlf_iceberg_catalo
 
 // For python UDF test, set the runtime version of python, default: 3.8.10
 // pythonUdfRuntimeVersion = ""
+
+// AWS S3 Express One Zone external regression test configuration.
+// The directory bucket and fixtures are maintained outside the regression suite.
+enableS3ExpressOneZoneTest = false
+enableS3ExpressStorageVaultTest = false
+s3ExpressBucketName = ""
+s3ExpressEndpoint = ""
+s3ExpressRegion = ""
+s3ExpressAk = ""
+s3ExpressSk = ""

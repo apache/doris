@@ -54,6 +54,47 @@ public class ObjectInfoAdapterTest {
     }
 
     @Test
+    public void testS3ExpressStageBindsDedicatedProvider() {
+        ObjectInfo objectInfo = new ObjectInfo(
+                Cloud.ObjectStoreInfoPB.Provider.S3EXPRESS,
+                "stage-ak",
+                "stage-sk",
+                "bucket--usw2-az1--x-s3",
+                "s3express-control.us-west-2.amazonaws.com",
+                "us-west-2",
+                "stage/prefix",
+                null,
+                null,
+                null,
+                null);
+
+        StorageAdapter adapter = ObjectInfoAdapter.toStorageAdapter(objectInfo);
+
+        Assert.assertEquals(StorageTypeId.S3, adapter.getType());
+        Assert.assertEquals("S3EXPRESS", adapter.getSpiProperties().providerName());
+    }
+
+    @Test
+    public void testLegacyS3ExpressEndpointBindsDedicatedProvider() {
+        ObjectInfo objectInfo = new ObjectInfo(
+                Cloud.ObjectStoreInfoPB.Provider.S3,
+                "stage-ak",
+                "stage-sk",
+                "bucket--usw2-az1--x-s3",
+                "s3express-control.us-west-2.amazonaws.com",
+                "us-west-2",
+                "stage/prefix",
+                null,
+                null,
+                null,
+                null);
+
+        StorageAdapter adapter = ObjectInfoAdapter.toStorageAdapter(objectInfo);
+
+        Assert.assertEquals("S3EXPRESS", adapter.getSpiProperties().providerName());
+    }
+
+    @Test
     public void testOssStageBindingCarriesEveryField() {
         // cloud_p0 test_copy_into regression shape: an OSS stage's ObjectInfo must round-trip
         // through the flattened property map into the OSS dialect binding. OSS aliases bucket

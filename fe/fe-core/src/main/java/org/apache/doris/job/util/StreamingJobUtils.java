@@ -34,6 +34,9 @@ import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageRegistry;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
@@ -53,6 +56,7 @@ import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -549,9 +553,9 @@ public class StreamingJobUtils {
     }
 
     /**
-     * Validate source-side resources for a streaming job backed by a TVF. Only cdc_stream
-     * TVF is subject to source validation (e.g. PG slot/publication ownership); other TVFs
-     * (s3, ...) are no-ops.
+     * Validate source-side resources for a streaming job backed by a TVF. S3 rejects directory
+     * buckets because their listing semantics cannot provide the required key cursor. cdc_stream
+     * validates source resources such as PG slot/publication ownership; other TVFs are no-ops.
      *
      * <p>originTvfProps is treated as read-only (Nereids may hand back an immutable map).
      * Defaults are populated into a temporary copy so ownership checks see the effective
@@ -560,6 +564,10 @@ public class StreamingJobUtils {
     public static void validateTvfSource(String tvfType,
                                          Map<String, String> originTvfProps,
                                          String jobId) throws JobException {
+        if (S3TableValuedFunction.NAME.equalsIgnoreCase(tvfType)) {
+            validateS3StreamingSource(originTvfProps);
+            return;
+        }
         if (!"cdc_stream".equalsIgnoreCase(tvfType)) {
             return;
         }
@@ -572,6 +580,21 @@ public class StreamingJobUtils {
         validateSource(sourceType, effective, jobId, tables);
     }
 
+    private static void validateS3StreamingSource(Map<String, String> properties) throws JobException {
+        final StorageAdapter adapter;
+        try {
+            adapter = StorageAdapter.of(properties);
+        } catch (StoragePropertiesException e) {
+            throw new JobException("Invalid S3 streaming source properties: " + e.getMessage(), e);
+        }
+
+        String effectiveProvider = adapter.getSpiProperties().providerName();
+        if (StorageRegistry.Provider.S3EXPRESS.name().equalsIgnoreCase(effectiveProvider)) {
+            throw new JobException(
+                    "S3 Express One Zone is not supported for S3 streaming jobs because directory "
+                            + "buckets do not support StartAfter or lexicographically ordered listings");
+        }
+    }
 
     /** Persist resolved resource names so ownership is self-describing after restart. */
     public static void populateDefaultSourceProperties(DataSourceType sourceType,

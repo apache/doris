@@ -486,6 +486,28 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfProviderTypeMatrix) {
     }
 }
 
+TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfS3ExpressValidation) {
+    S3URI s3_uri("s3://test-bucket/test-prefix");
+    ASSERT_TRUE(s3_uri.parse().ok());
+
+    std::map<std::string, std::string> properties {
+            {"AWS_ENDPOINT", "s3express-control.us-west-2.amazonaws.com"},
+            {"AWS_REGION", "us-west-2"},
+            {"provider", "s3express"},
+    };
+    S3Conf s3_conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+    EXPECT_EQ(s3_conf.client_conf.provider, io::ObjStorageProvider::S3EXPRESS);
+    EXPECT_TRUE(s3_conf.client_conf.use_virtual_addressing);
+
+    properties["use_path_style"] = "true";
+    EXPECT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+
+    properties["use_path_style"] = "false";
+    properties["AWS_CREDENTIALS_PROVIDER_TYPE"] = "ANONYMOUS";
+    EXPECT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+}
+
 TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfCredentialValidation) {
     S3URI s3_uri("s3://test-bucket/test-prefix");
     ASSERT_TRUE(s3_uri.parse().ok());

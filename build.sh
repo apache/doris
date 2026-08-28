@@ -811,7 +811,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Filesystem API and SPI plugin modules (loaded at runtime as plugins)
     modules+=("fe-filesystem/fe-filesystem-api")
     modules+=("fe-filesystem/fe-filesystem-spi")
-    for _fs_mod in s3-base s3 gcs minio ozone oss cos obs azure hdfs-base hdfs oss-hdfs jfs local broker http; do
+    for _fs_mod in s3-base s3 s3express gcs minio ozone oss cos obs azure hdfs-base hdfs oss-hdfs jfs local broker http; do
         # Skip the modules whose Maven profile is deactivated so the -pl list stays consistent with
         # the reactor: obs is absent under -Ddisable.obs=true, cos under -Ddisable.cos=true.
         if [[ "${_fs_mod}" == "obs" && "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
@@ -1200,7 +1200,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Deploy filesystem provider plugins as independent plugin directories
     # Each sub-directory is one storage backend loaded at runtime by FileSystemPluginManager.
     FS_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/filesystem"
-    for fs_module in s3 gcs minio ozone azure oss cos obs hdfs oss-hdfs jfs local broker http; do
+    for fs_module in s3 s3express gcs minio ozone azure oss cos obs hdfs oss-hdfs jfs local broker http; do
         fs_plugin_target="${FS_PLUGIN_DIR}/${fs_module}"
         fs_module_dir="${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${fs_module}"
         if [ ! -d "${fs_module_dir}" ]; then

@@ -24,9 +24,10 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
- * Shared routing/validation signals for the S3-compatible dialects (GCS, MinIO, Ozone).
+ * Shared routing/validation signals for AWS S3 providers and S3-compatible dialects.
  *
  * <p>This is dialect plumbing rather than user-facing API, but it must be {@code public}: the
  * dialect providers live in sibling plugin jars that share this package name (a split package,
@@ -39,6 +40,9 @@ public final class S3CompatSignals {
     /** Explicit provider hint, e.g. {@code provider=GCS}. Mirrors StorageProperties.FS_PROVIDER_KEY. */
     public static final String PROVIDER_KEY = "provider";
 
+    /** Explicit provider name for Amazon S3 Express One Zone. */
+    public static final String S3_EXPRESS_PROVIDER = "S3EXPRESS";
+
     public static final String FS_S3_SUPPORT = "fs.s3.support";
 
     private static final String FS_SUPPORT_PREFIX = "fs.";
@@ -50,6 +54,14 @@ public final class S3CompatSignals {
     private static final String GCS_ENDPOINT_KEY = "gs.endpoint";
     private static final String GCS_ENDPOINT_SUFFIX = "storage.googleapis.com";
     private static final String AWS_ENDPOINT_INFIX = "amazonaws.com";
+    private static final Pattern S3_EXPRESS_ENDPOINT_PATTERN = Pattern.compile(
+            "^(?:https?://)?(?:[a-z0-9-]+\\.)*s3express-[a-z0-9-]+\\."
+                    + "(?:dualstack\\.)?[a-z0-9-]+-[0-9]+\\.amazonaws\\.com(?::[0-9]+)?/?$",
+            Pattern.CASE_INSENSITIVE);
+
+    private static final List<String> S3_ENDPOINT_ALIASES_LOWER = Collections.unmodifiableList(
+            Arrays.asList("s3.endpoint", "aws_endpoint", "endpoint", "aws.endpoint",
+                    "glue.endpoint", "aws.glue.endpoint"));
 
     /**
      * Endpoint aliases consulted by the GCS/AWS guesses, compared case-insensitively on the KEY.
@@ -128,6 +140,30 @@ public final class S3CompatSignals {
     }
 
     /**
+     * True when the properties should use the S3 Express implementation.
+     *
+     * <p>The explicit {@code provider=S3EXPRESS} form is the recommended path for new
+     * configurations. Inferring S3 Express from {@code provider=S3} (or no provider) plus an AWS
+     * S3 Express endpoint is retained only for backward compatibility with existing import and
+     * resource properties.
+     */
+    public static boolean isS3Express(Map<String, String> properties) {
+        String provider = normalizedProvider(properties);
+        if (S3_EXPRESS_PROVIDER.equals(provider)) {
+            return true;
+        }
+        if (provider != null && !"S3".equals(provider)) {
+            return false;
+        }
+        String endpoint = endpointForAliases(properties, S3_ENDPOINT_ALIASES_LOWER);
+        boolean s3ExpressEndpoint = endpoint != null
+                && S3_EXPRESS_ENDPOINT_PATTERN.matcher(endpoint.trim()).matches();
+        return s3ExpressEndpoint
+                && (!hasAnyExplicitFsSupport(properties)
+                        || isFsSupport(properties, FS_S3_SUPPORT));
+    }
+
+    /**
      * True when the user explicitly declared ANY filesystem via {@code fs.<x>.support=true}.
      *
      * <p>Counterpart of {@code StorageProperties.hasAnyExplicitFsSupport}. That method enumerates the
@@ -150,15 +186,17 @@ public final class S3CompatSignals {
     }
 
     /**
-     * True when the user explicitly asked for the generic S3 provider ({@code provider=S3} or
-     * {@code fs.s3.support=true}). Dialect providers must not guess against such a map, and the S3
-     * provider uses it as its escape hatch from the dialect yield rule.
+     * True when the user explicitly asked for an AWS S3 provider ({@code provider=S3},
+     * {@code provider=S3EXPRESS}, or {@code fs.s3.support=true}). Dialect providers must not guess
+     * against such a map, and the S3 provider uses it as its escape hatch from the dialect yield rule.
      *
      * <p>Note the {@code _STORAGE_TYPE_} marker is intentionally NOT consulted: the converter stamps
      * {@code "S3"} on every S3-compatible map, including GCS/MinIO/Ozone ones.
      */
     public static boolean hasExplicitS3Request(Map<String, String> properties) {
-        return "S3".equalsIgnoreCase(properties.get(PROVIDER_KEY))
+        String provider = normalizedProvider(properties);
+        return "S3".equals(provider)
+                || S3_EXPRESS_PROVIDER.equals(provider)
                 || isFsSupport(properties, FS_S3_SUPPORT);
     }
 
@@ -256,7 +294,22 @@ public final class S3CompatSignals {
      * iteration order), matching the property key case-insensitively.
      */
     private static String endpointForGuessing(Map<String, String> properties) {
-        for (String alias : ENDPOINT_ALIASES_LOWER) {
+        return endpointForAliases(properties, ENDPOINT_ALIASES_LOWER);
+    }
+
+    private static String normalizedProvider(Map<String, String> properties) {
+        String provider = null;
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (PROVIDER_KEY.equalsIgnoreCase(entry.getKey())) {
+                provider = entry.getValue();
+                break;
+            }
+        }
+        return StringUtils.isBlank(provider) ? null : provider.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static String endpointForAliases(Map<String, String> properties, List<String> aliases) {
+        for (String alias : aliases) {
             for (Map.Entry<String, String> entry : properties.entrySet()) {
                 String key = entry.getKey();
                 if (key != null && alias.equals(key.toLowerCase(Locale.ROOT))

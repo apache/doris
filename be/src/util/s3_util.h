@@ -174,6 +174,8 @@ private:
     FRIEND_TEST(S3ClientFactoryTest, RefreshCaCertForCredentialsProvider);
 #endif
     Result<std::shared_ptr<io::ObjStorageClient>> _create_s3_client(const S3ClientConf& s3_conf);
+    Result<std::shared_ptr<io::ObjStorageClient>> _create_s3express_client(
+            const S3ClientConf& s3_conf);
     Result<std::shared_ptr<io::ObjStorageClient>> _create_azure_client(const S3ClientConf& s3_conf);
     std::string _get_ca_cert_file_path();
     S3ClientFactory();

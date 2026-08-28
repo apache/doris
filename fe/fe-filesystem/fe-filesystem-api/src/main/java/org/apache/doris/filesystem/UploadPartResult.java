@@ -21,16 +21,23 @@ package org.apache.doris.filesystem;
  * Result of uploading a single part of a multipart/block upload.
  *
  * <p>{@code etag} carries the part identifier returned by the backend: an ETag for S3-compatible
- * stores (S3/OSS/COS/OBS) or a block id for Azure.
+ * stores (S3/OSS/COS/OBS) or a block id for Azure. {@code checksumCrc32c} is populated when the
+ * backend's multipart completion protocol requires the part-level CRC32C value.
  */
 public final class UploadPartResult {
 
     private final int partNumber;
     private final String etag;
+    private final String checksumCrc32c;
 
     public UploadPartResult(int partNumber, String etag) {
+        this(partNumber, etag, null);
+    }
+
+    public UploadPartResult(int partNumber, String etag, String checksumCrc32c) {
         this.partNumber = partNumber;
         this.etag = etag;
+        this.checksumCrc32c = checksumCrc32c;
     }
 
     public int partNumber() {
@@ -39,5 +46,9 @@ public final class UploadPartResult {
 
     public String etag() {
         return etag;
+    }
+
+    public String checksumCrc32c() {
+        return checksumCrc32c;
     }
 }

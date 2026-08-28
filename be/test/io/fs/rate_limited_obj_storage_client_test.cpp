@@ -121,6 +121,9 @@ public:
 class RecordingRateLimitPolicy final : public ObjStorageRateLimitPolicy {
 public:
     struct Request {
+        Request(S3RateLimitType request_type, size_t bytes)
+                : type(request_type), estimated_bytes(bytes) {}
+
         S3RateLimitType type;
         size_t estimated_bytes;
     };

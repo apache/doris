@@ -33,7 +33,7 @@ under the License.
     <packaging>jar</packaging>
     <name>Doris FE Filesystem - S3 base (shared library)</name>
     <description>Shared S3-protocol code (S3FileSystem, S3ObjStorage, credentials, dialect base
-        properties and detection signals) reused by the s3 / gcs / minio / ozone plugins.
+        properties and detection signals) reused by the s3 / s3express / gcs / minio / ozone plugins.
         Not a plugin itself: no provider, no META-INF/services.</description>
 
     <dependencies>
