@@ -212,7 +212,7 @@ void PipelineFragmentContext::cancel(const Status reason) {
     if (notify_close()) {
         return;
     }
-    if (_cancelled.exchange(true, std::memory_order_acq_rel)) {
+    if (!_cancel_status.update(reason)) {
         return;
     }
     LOG_INFO("PipelineFragmentContext::cancel")

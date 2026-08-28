@@ -867,10 +867,12 @@ TEST_F(PipelineTaskTest, TEST_FRAGMENT_CANCEL_IS_IDEMPOTENT) {
     _context->cancel(timeout);
     _context->cancel(timeout);
     _context->cancel(timeout);
+    _context->cancel(Status::InternalError("later cancellation"));
 
     EXPECT_EQ(log_sink.cancel_count.load(std::memory_order_relaxed), 1);
     EXPECT_EQ(log_sink.timeout_dump_count.load(std::memory_order_relaxed), 1);
     EXPECT_EQ(log_sink.instance_cancel_count.load(std::memory_order_relaxed), 1);
+    EXPECT_EQ(_context->_cancel_status.status().to_string(), timeout.to_string());
 }
 
 TEST_F(PipelineTaskTest, TEST_FINALIZED_TASK_REJECTS_HYBRID_SUBMIT) {
