@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
 import org.apache.arrow.memory.BufferAllocator;
@@ -77,6 +78,7 @@ public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties 
             throw new IllegalArgumentException(
                     "Missing required property 'warehouse' for Lance filesystem catalog");
         }
+        warehouse = normalizeWarehouse(warehouse);
         validateWarehouse(warehouse);
         for (String key : origProps.keySet()) {
             if (key.startsWith("lance.rest.")) {
@@ -106,5 +108,35 @@ public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties 
             throw new IllegalArgumentException("Unsupported Lance filesystem warehouse scheme '" + scheme
                     + "'; supported schemes are local/file, s3, and oss");
         }
+        // An object-store root names its bucket in the authority. Lance reads that authority as the
+        // bucket and fails deep inside the store when it is absent, so reject the no-authority form
+        // here where the message can still name the property.
+        if (("s3".equals(scheme) || "oss".equals(scheme)) && StringUtils.isBlank(uri.getAuthority())) {
+            throw new IllegalArgumentException(
+                    "Lance " + scheme + " warehouse must name a bucket, as in " + scheme
+                            + "://bucket/path, but was: " + warehouse);
+        }
+    }
+
+    /**
+     * Doris accepts an OSS URL that spells out the endpoint in its authority and normalizes it to
+     * the bare bucket. Lance takes the authority as the bucket verbatim, so a warehouse left in the
+     * qualified form would address {@code bucket.oss-<region>.aliyuncs.com.<endpoint>}. Apply the
+     * same normalization Doris applies elsewhere before the root reaches the namespace.
+     */
+    private static String normalizeWarehouse(String warehouse) {
+        if (StringUtils.isBlank(warehouse)) {
+            return warehouse;
+        }
+        URI uri;
+        try {
+            uri = URI.create(warehouse);
+        } catch (IllegalArgumentException e) {
+            return warehouse;
+        }
+        if (uri.getScheme() == null || !"oss".equals(uri.getScheme().toLowerCase(Locale.ROOT))) {
+            return warehouse;
+        }
+        return OSSProperties.rewriteOssBucketIfNecessary(warehouse);
     }
 }

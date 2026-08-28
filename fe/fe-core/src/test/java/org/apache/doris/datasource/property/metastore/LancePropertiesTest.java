@@ -75,4 +75,37 @@ public class LancePropertiesTest {
         Assertions.assertEquals("http://localhost:8080", restProperties.getRestUri());
         Assertions.assertEquals("bearer", restProperties.getSecurityType());
     }
+
+    /**
+     * Doris accepts the qualified OSS form and reduces it to the bare bucket. Lance takes the
+     * authority as the bucket verbatim, so the warehouse has to be normalized before it becomes a
+     * namespace root - otherwise OpenDAL addresses bucket.oss-<region>.aliyuncs.com.<endpoint>.
+     */
+    @Test
+    public void testQualifiedOssWarehouseIsNormalizedToTheBucket() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "lance");
+        properties.put(LanceFileSystemMetastoreProperties.WAREHOUSE,
+                "oss://bucket.oss-cn-hangzhou.aliyuncs.com/lance");
+
+        AbstractLanceProperties lanceProperties =
+                (AbstractLanceProperties) MetastoreProperties.create(properties);
+
+        Assertions.assertEquals("oss://bucket/lance",
+                ((LanceFileSystemMetastoreProperties) lanceProperties).getWarehouse());
+    }
+
+    @Test
+    public void testObjectStoreWarehouseMustNameABucket() {
+        for (String warehouse : new String[] {"oss:/lance", "s3:/lance"}) {
+            Map<String, String> properties = new HashMap<>();
+            properties.put("type", "lance");
+            properties.put(LanceFileSystemMetastoreProperties.WAREHOUSE, warehouse);
+
+            IllegalArgumentException thrown = Assertions.assertThrows(
+                    IllegalArgumentException.class, () -> MetastoreProperties.create(properties));
+            Assertions.assertTrue(thrown.getMessage().contains("must name a bucket"),
+                    "unexpected message: " + thrown.getMessage());
+        }
+    }
 }
