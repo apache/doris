@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.constraint.Constraint;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -32,6 +33,8 @@ public class TableAttributes {
 
     @SerializedName(value = "constraints")
     private final Map<String, Constraint> constraintsMap = new HashMap<>();
+    @SerializedName(value = "distributionMappingConstraints")
+    private final Map<String, DistributionMappingConstraint> distributionMappingConstraints = new HashMap<>();
     @SerializedName(value = "visibleVersion")
     private volatile long visibleVersion;
     @SerializedName(value = "visibleVersionTime")
@@ -49,6 +52,10 @@ public class TableAttributes {
     @Deprecated
     public Map<String, Constraint> getConstraintsMap() {
         return constraintsMap;
+    }
+
+    public Map<String, DistributionMappingConstraint> getDistributionMappingConstraints() {
+        return distributionMappingConstraints;
     }
 
     public long getVisibleVersion() {

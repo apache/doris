@@ -142,8 +142,17 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                 return createNaturalHashSpec(olapScan, hashDistributionInfo, hashColumns, output);
             }
         } else {
-            // RandomDistributionInfo
+            if (!(distributionInfo instanceof HashDistributionInfo)) {
+                validateDistributionMappingsForPlanning(olapTable);
+            }
             return DistributionSpecStorageAny.INSTANCE;
+        }
+    }
+
+    private static void validateDistributionMappingsForPlanning(OlapTable table) {
+        ConnectContext context = ConnectContext.get();
+        if (context != null && context.getSessionVariable().isEnableColocateMappingConstraint()) {
+            Env.getCurrentEnv().getConstraintManager().getDistributionMappingConstraintsForPlanning(table);
         }
     }
 
@@ -154,16 +163,22 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                 buildDistributionMappings(olapScan.getTable(), hashDistributionInfo, output));
     }
 
-    private static List<DistributionMapping> buildDistributionMappings(OlapTable table,
+    static List<DistributionMapping> buildDistributionMappings(OlapTable table,
             HashDistributionInfo hashDistributionInfo, List<Slot> output) {
         ConnectContext context = ConnectContext.get();
         if (context == null || !context.getSessionVariable().isEnableColocateMappingConstraint()) {
             return ImmutableList.of();
         }
-        return buildDistributionMappings(
+        List<DistributionMapping> mappings = buildDistributionMappings(
                 hashDistributionInfo,
                 output,
-                Env.getCurrentEnv().getConstraintManager().getDistributionMappingConstraints(table));
+                Env.getCurrentEnv().getConstraintManager()
+                        .getDistributionMappingConstraintsForPlanning(table));
+        if (!mappings.isEmpty()) {
+            context.getStatementContext().getSqlCacheContext()
+                    .ifPresent(sqlCacheContext -> sqlCacheContext.setHasUnsupportedTables(true));
+        }
+        return mappings;
     }
 
     static List<DistributionMapping> buildDistributionMappings(HashDistributionInfo hashDistributionInfo,

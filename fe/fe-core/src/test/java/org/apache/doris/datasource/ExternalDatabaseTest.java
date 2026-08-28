@@ -499,7 +499,7 @@ public class ExternalDatabaseTest extends TestWithFeService {
         TestExternalTable legacyTable =
                 new TestExternalTable(legacyId, "tbl_base", "Tbl_Base", catalog, db);
         db.addTableForTest(legacyTable);
-        Assertions.assertEquals("tbl_base", db.getCachedTableNameByIdForTest(legacyId));
+        Assertions.assertEquals("tbl_base", db.getTableNameForReplay(legacyId).orElse(null));
 
         String json = GsonUtils.GSON.toJson(db, DatabaseIf.class);
         Assertions.assertFalse(json.contains("tableIdNameIndex"));
@@ -508,13 +508,13 @@ public class ExternalDatabaseTest extends TestWithFeService {
         restored.setExtCatalog(catalog);
         restored.setInitializedForTest(true);
 
-        Assertions.assertNull(restored.getCachedTableNameByIdForTest(legacyId));
+        Assertions.assertTrue(restored.getTableNameForReplay(legacyId).isEmpty());
         TestExternalTable loadedTable = restored.getTableNullable("tbl_base");
         long canonicalId = Util.genIdByName(catalog.getName(), restored.getFullName(), "tbl_base");
         Assertions.assertNotNull(loadedTable);
         Assertions.assertEquals(canonicalId, loadedTable.getId());
-        Assertions.assertEquals("tbl_base", restored.getCachedTableNameByIdForTest(canonicalId));
-        Assertions.assertNull(restored.getCachedTableNameByIdForTest(legacyId));
+        Assertions.assertEquals("tbl_base", restored.getTableNameForReplay(canonicalId).orElse(null));
+        Assertions.assertTrue(restored.getTableNameForReplay(legacyId).isEmpty());
     }
 
     @Test
@@ -525,6 +525,7 @@ public class ExternalDatabaseTest extends TestWithFeService {
         // Replay-by-ID must stay cache-only even before the database finishes initialization.
         Assertions.assertTrue(db.getTableForReplay(9999L).isEmpty());
         Assertions.assertTrue(db.getTableForReplay("missing").isEmpty());
+        Assertions.assertTrue(db.getTableNameForReplay(9999L).isEmpty());
         Assertions.assertEquals(0, db.getBuildTableCallCount());
     }
 
@@ -561,7 +562,7 @@ public class ExternalDatabaseTest extends TestWithFeService {
         db.evictTableObjectForTest("tbl_evicted");
 
         Assertions.assertNull(db.getCachedTableForTest("tbl_evicted"));
-        Assertions.assertEquals("tbl_evicted", db.getCachedTableNameByIdForTest(306L));
+        Assertions.assertEquals("tbl_evicted", db.getTableNameForReplay(306L).orElse(null));
         Assertions.assertTrue(db.getTableForReplay(306L).isEmpty());
         Assertions.assertTrue(db.getTableForReplay("tbl_evicted").isEmpty());
         Assertions.assertEquals(0, db.getBuildTableCallCount());

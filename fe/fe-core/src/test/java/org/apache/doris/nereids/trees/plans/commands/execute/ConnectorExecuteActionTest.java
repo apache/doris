@@ -134,7 +134,6 @@ public class ConnectorExecuteActionTest {
     @Test
     public void executeThreadsSessionAndHandleIntoConnectorAndWrapsResult() throws Exception {
         Fixture f = new Fixture();
-        long constraintMetadataBaseline = f.catalog.snapshotConstraintMetadata();
         Mockito.when(f.procedureOps.execute(Mockito.any(), Mockito.any(), Mockito.anyString(),
                         Mockito.anyMap(), Mockito.any(), Mockito.anyList()))
                 .thenReturn(twoColumnResult(Arrays.asList("100", "200")));
@@ -161,8 +160,6 @@ public class ConnectorExecuteActionTest {
         Assertions.assertEquals(org.apache.doris.catalog.Type.BIGINT, rs.getMetaData().getColumns().get(1).getType());
         Assertions.assertFalse(rs.getMetaData().getColumns().get(0).isAllowNull());
         Assertions.assertFalse(rs.getMetaData().getColumns().get(1).isAllowNull());
-        Assertions.assertNotEquals(
-                constraintMetadataBaseline, f.catalog.snapshotConstraintMetadata());
     }
 
     @Test
@@ -473,7 +470,6 @@ public class ConnectorExecuteActionTest {
         final ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
         final ConnectorProcedureOps procedureOps = Mockito.mock(ConnectorProcedureOps.class);
         final Connector connector = Mockito.mock(Connector.class);
-        final TestPluginCatalog catalog;
         final ExternalDatabase<PluginDrivenExternalTable> db;
         final PluginDrivenExternalTable table;
 
@@ -491,7 +487,7 @@ public class ConnectorExecuteActionTest {
             Mockito.when(metadata.getTableHandle(Mockito.any(ConnectorSession.class),
                     Mockito.anyString(), Mockito.anyString())).thenReturn(Optional.of(handle));
 
-            this.catalog = new TestPluginCatalog(connector, session);
+            TestPluginCatalog catalog = new TestPluginCatalog(connector, session);
             this.db = Mockito.mock(ExternalDatabase.class);
             Mockito.when(db.getRemoteName()).thenReturn(REMOTE_DB);
             this.table = new SchemaPluginTable(1L, "local_tbl", REMOTE_TBL, catalog, db);

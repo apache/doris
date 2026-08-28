@@ -20,8 +20,6 @@ package org.apache.doris.datasource;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.constraint.ConstraintManager;
-import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.connector.ConnectorFactory;
@@ -34,9 +32,6 @@ import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor;
 import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.datasource.log.MetaIdMappingsLog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
-import org.apache.doris.mtmv.MTMVUtil;
-import org.apache.doris.persist.EditLog;
-import org.apache.doris.persist.OperationType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.OriginStatement;
@@ -66,8 +61,8 @@ import java.util.function.Supplier;
  *
  * <p><b>Dormant until the flip.</b> Only a {@link PluginDrivenExternalCatalog} whose connector exposes an
  * event source is driven; pre-flip no such catalog exists, so this daemon is inert. At the flip the legacy
- * poller's gate goes false and this driver takes over. The {@code MetaIdMappingsLog} replay handler feeds the
- * follower high-water mark and stores only replay-safe cursors on the generic plugin-driven catalog.
+ * poller's gate goes false and this driver takes over, and the {@code MetaIdMappingsLog} replay handler is
+ * repointed to feed THIS driver's follower cursor (see {@link #updateMasterLastSyncedEventId}).
  *
  * <p><b>Classloader.</b> {@code pollOnce} runs under a context-classloader pin to the event source's own
  * plugin classloader (covering the notification RPC and the JSON/GZIP deserialization). Descriptor
@@ -77,13 +72,12 @@ import java.util.function.Supplier;
 public class MetastoreEventSyncDriver extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(MetastoreEventSyncDriver.class);
 
-    // This FE's per-catalog synced cursor. It is normally owned by the daemon, but master promotion resets
-    // legacy catalogs from the state-listener thread before the FE becomes ready.
-    private final Map<Long, Long> lastSyncedEventIdMap = Maps.newConcurrentMap();
-    // Every replayed master cursor is safe as a follower boundary: new cursors follow replayed constraint
-    // edits, while legacy cursors first quarantine the catalog's constraints. Replay writes this map while
-    // the daemon reads it, so it must be concurrent.
-    private final Map<Long, Long> masterLastSyncedEventIdMap = Maps.newConcurrentMap();
+    // This FE's per-catalog synced cursor. Not persisted (rebuilt as -1 on restart); single-threaded (the
+    // daemon thread), so a plain HashMap is fine.
+    private final Map<Long, Long> lastSyncedEventIdMap = Maps.newHashMap();
+    // The master's committed high-water mark per catalog, learned on followers via edit-log replay. A
+    // follower never fetches past it. Only meaningful on followers.
+    private final Map<Long, Long> masterLastSyncedEventIdMap = Maps.newHashMap();
 
     private boolean isRunning;
 
@@ -103,9 +97,8 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
             realRun();
         } catch (Exception ex) {
             LOG.warn("Metastore-event sync task failed", ex);
-        } finally {
-            isRunning = false;
         }
+        isRunning = false;
     }
 
     /**
@@ -188,13 +181,8 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
             ConnectorEventSource eventSource) throws Exception {
         long catalogId = catalog.getId();
         boolean isMaster = Env.getCurrentEnv().isMaster();
-        long durableEventId = catalog.getLastSyncedMetastoreEventId();
-        // This cursor tracks descriptor bodies applied to this FE's in-memory catalog caches. It must not
-        // inherit the durable constraint cursor: a follower can be promoted immediately after replaying that
-        // cursor, before its own daemon has refreshed or applied the corresponding catalog-cache changes.
         long lastSyncedEventId = lastSyncedEventIdMap.getOrDefault(catalogId, -1L);
-        long masterUpperBound = masterLastSyncedEventIdMap.getOrDefault(catalogId, durableEventId);
-        long reconciledConstraintEventId = Math.max(durableEventId, masterUpperBound);
+        long masterUpperBound = masterLastSyncedEventIdMap.getOrDefault(catalogId, -1L);
 
         EventPollRequest request = new EventPollRequest(lastSyncedEventId, isMaster, masterUpperBound);
         EventPollResult result = onPluginClassLoader(
@@ -205,14 +193,13 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
             // forwards REFRESH CATALOG to the master. Then seed the cursor to the connector's current id.
             if (isMaster) {
                 onPluginClassLoader(connector.getClass().getClassLoader(), () -> {
-                    refreshCatalogForMaster(
-                            catalog, result.getNewCursor(), reconciledConstraintEventId);
+                    refreshCatalogForMaster(catalog);
                     return null;
                 });
             } else {
                 refreshCatalogForSlave(catalog);
-                commitCursor(catalogId, result.getNewCursor(), false);
             }
+            commitCursor(catalogId, result.getNewCursor(), isMaster);
             return;
         }
 
@@ -229,79 +216,37 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
         // (self-heal), so the edit-log cursor below is NOT written (followers do not jump past a failed apply)
         // and the next cycle first-pulls a clean full refresh instead of retrying the poison descriptor.
         onPluginClassLoader(connector.getClass().getClassLoader(), () -> {
-            applyDescriptorsAndCommit(
-                    catalog, connector, descriptors, isMaster,
-                    reconciledConstraintEventId, result.getNewCursor());
+            applyDescriptors(catalog, connector, descriptors);
             return null;
         });
+        commitCursor(catalogId, result.getNewCursor(), isMaster);
     }
 
     // Stores the local cursor and, on the master, replicates it to followers via the edit-log.
     private void commitCursor(long catalogId, long newCursor, boolean isMaster) {
+        lastSyncedEventIdMap.put(catalogId, newCursor);
         if (isMaster) {
             writeSyncedCursorLog(catalogId, newCursor);
         }
-        lastSyncedEventIdMap.put(catalogId, newCursor);
     }
 
-    private void applyDescriptorsAndCommit(PluginDrivenExternalCatalog catalog, Connector connector,
-            List<MetastoreChangeDescriptor> descriptors, boolean persistConstraintChanges,
-            long reconciledConstraintEventId, long newCursor) {
-        if (descriptors.stream().noneMatch(this::affectsConstraintMetadata)) {
-            long persistedThrough = applyDescriptors(catalog, connector, descriptors,
-                    persistConstraintChanges, reconciledConstraintEventId);
-            commitCursorIfNeeded(catalog.getId(), newCursor,
-                    persistConstraintChanges, persistedThrough);
-            return;
-        }
-        try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
-                catalog.beginConstraintMetadataMutation()) {
-            long persistedThrough = applyDescriptors(catalog, connector, descriptors,
-                    persistConstraintChanges, reconciledConstraintEventId);
-            // Keep constraint DDL fenced until every transition is durable and the following cursor is durable.
-            commitCursorIfNeeded(catalog.getId(), newCursor,
-                    persistConstraintChanges, persistedThrough);
-        }
-    }
-
-    private void commitCursorIfNeeded(long catalogId, long newCursor,
-            boolean persistConstraintChanges, long persistedThrough) {
-        if (persistConstraintChanges && newCursor <= persistedThrough) {
-            lastSyncedEventIdMap.put(catalogId, newCursor);
-            return;
-        }
-        commitCursor(catalogId, newCursor, persistConstraintChanges);
-    }
-
-    private long applyDescriptors(PluginDrivenExternalCatalog catalog, Connector connector,
-            List<MetastoreChangeDescriptor> descriptors, boolean persistConstraintChanges,
-            long reconciledConstraintEventId) {
-        long persistedThrough = reconciledConstraintEventId;
+    private void applyDescriptors(PluginDrivenExternalCatalog catalog, Connector connector,
+            List<MetastoreChangeDescriptor> descriptors) {
         for (MetastoreChangeDescriptor descriptor : descriptors) {
             try {
-                // Constraint edits through this boundary were replayed before the cursor. Reapplying them
-                // after later DDL could move or drop constraints belonging to a recreated table name.
-                boolean applyConstraintChanges = descriptor.getEventId() > reconciledConstraintEventId;
-                applyOneInternal(catalog, connector, descriptor,
-                        persistConstraintChanges, applyConstraintChanges);
-                if (persistConstraintChanges && applyConstraintChanges
-                        && persistsConstraintTransition(descriptor)) {
-                    persistedThrough = Math.max(persistedThrough, descriptor.getEventId());
-                }
+                applyOne(catalog, connector, descriptor);
             } catch (Exception e) {
                 throw new RuntimeException(
                         "Failed to apply metastore change " + descriptor + " on catalog "
                                 + catalog.getName(), e);
             }
         }
-        return persistedThrough;
     }
 
     // Applies one neutral descriptor via the engine's own (connector-agnostic) mutators — the same ones the
     // legacy event.process() bodies called, now generalized to work on a flipped catalog.
-    private void applyOneInternal(PluginDrivenExternalCatalog catalog, Connector connector,
-            MetastoreChangeDescriptor descriptor, boolean persistConstraintChanges,
-            boolean applyConstraintChanges) throws Exception {
+    private void applyOne(PluginDrivenExternalCatalog catalog, Connector connector,
+            MetastoreChangeDescriptor descriptor) throws Exception {
         EventIdentity before = EventIdentity.from(
                 catalog, descriptor.getDbName(), descriptor.getTableName());
         EventIdentity after = descriptor.getDbNameAfter() == null ? null : EventIdentity.from(
@@ -316,11 +261,6 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
                 break;
             case UNREGISTER_DATABASE:
                 catalogMgr.unregisterExternalDatabaseFromEvent(before.localDbName, catalogName);
-                if (applyConstraintChanges) {
-                    dropDatabaseConstraintsAndInvalidateMtmvs(
-                            catalogName, before.localDbName, persistConstraintChanges,
-                            catalog.getId(), descriptor.getEventId());
-                }
                 break;
             case RENAME_DATABASE:
                 // Always converge to "old removed, new registered". A normal lookup may already have warmed the
@@ -328,17 +268,6 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
                 catalogMgr.unregisterExternalDatabaseFromEvent(before.localDbName, catalogName);
                 catalogMgr.registerExternalDatabaseFromEvent(
                         after.remoteDbName, after.localDbName, catalogName);
-                if (applyConstraintChanges) {
-                    if (persistConstraintChanges) {
-                        applyPersistedConstraintMutation(
-                                ConstraintManager.MetastoreConstraintMutation.renameDatabase(
-                                        catalogName, before.localDbName, after.localDbName),
-                                catalog.getId(), descriptor.getEventId());
-                    } else {
-                        Env.getCurrentEnv().getConstraintManager().renameDatabase(
-                                catalogName, before.localDbName, after.localDbName);
-                    }
-                }
                 break;
             case REGISTER_TABLE:
                 catalogMgr.registerExternalTableFromEvent(before.localDbName,
@@ -347,13 +276,6 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
             case UNREGISTER_TABLE:
                 catalogMgr.unregisterExternalTableFromEvent(
                         before.localDbName, before.localTableName, catalogName);
-                TableNameInfo droppedTable =
-                        new TableNameInfo(catalogName, before.localDbName, before.localTableName);
-                if (applyConstraintChanges) {
-                    dropTableConstraintsAndInvalidateMtmvs(
-                            droppedTable, persistConstraintChanges,
-                            catalog.getId(), descriptor.getEventId());
-                }
                 break;
             case RENAME_TABLE:
                 // Always converge to "old removed, new registered". The target may already be hot because a normal
@@ -363,28 +285,8 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
                 catalogMgr.registerExternalTableFromEvent(after.localDbName,
                         after.remoteTableName, after.localTableName,
                         catalogName, descriptor.getUpdateTime());
-                TableNameInfo oldTable =
-                        new TableNameInfo(catalogName, before.localDbName, before.localTableName);
-                TableNameInfo newTable =
-                        new TableNameInfo(catalogName, after.localDbName, after.localTableName);
-                if (applyConstraintChanges) {
-                    if (persistConstraintChanges) {
-                        applyPersistedConstraintMutation(
-                                ConstraintManager.MetastoreConstraintMutation.renameTable(oldTable, newTable),
-                                catalog.getId(), descriptor.getEventId());
-                    } else {
-                        Env.getCurrentEnv().getConstraintManager().renameTable(oldTable, newTable);
-                    }
-                }
                 break;
             case REFRESH_TABLE:
-                TableNameInfo refreshedTable =
-                        new TableNameInfo(catalogName, before.localDbName, before.localTableName);
-                if (applyConstraintChanges) {
-                    dropColumnConstraintsAndInvalidateMtmvs(refreshedTable,
-                            descriptor.getRemovedColumnNames(), persistConstraintChanges,
-                            catalog.getId(), descriptor.getEventId());
-                }
                 Env.getCurrentEnv().getRefreshManager().refreshExternalTableFromEvent(
                         catalogName, before.localDbName, before.localTableName, descriptor.getUpdateTime());
                 break;
@@ -405,117 +307,6 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
                 break;
             default:
                 break;
-        }
-    }
-
-    private void dropTableConstraintsAndInvalidateMtmvs(
-            TableNameInfo tableNameInfo, boolean persistConstraintChanges,
-            long catalogId, long eventId) {
-        List<TableNameInfo> affectedTables = persistConstraintChanges
-                ? applyPersistedConstraintMutation(
-                        ConstraintManager.MetastoreConstraintMutation.dropTable(tableNameInfo),
-                        catalogId, eventId)
-                : Env.getCurrentEnv().getConstraintManager().dropTableConstraints(tableNameInfo);
-        MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(affectedTables,
-                "after applying external table drop event for " + tableNameInfo);
-    }
-
-    private void dropColumnConstraintsAndInvalidateMtmvs(
-            TableNameInfo tableNameInfo, List<String> removedColumnNames,
-            boolean persistConstraintChanges, long catalogId, long eventId) {
-        if (removedColumnNames.isEmpty()) {
-            return;
-        }
-        List<TableNameInfo> affectedTables = persistConstraintChanges
-                ? applyPersistedConstraintMutation(
-                        ConstraintManager.MetastoreConstraintMutation.dropColumns(
-                                tableNameInfo, removedColumnNames), catalogId, eventId)
-                : Env.getCurrentEnv().getConstraintManager()
-                        .dropConstraintsReferencingColumns(tableNameInfo, removedColumnNames);
-        MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(affectedTables,
-                "before applying external table schema refresh event for " + tableNameInfo);
-    }
-
-    private void dropDatabaseConstraintsAndInvalidateMtmvs(
-            String catalogName, String dbName, boolean persistConstraintChanges,
-            long catalogId, long eventId) {
-        List<TableNameInfo> affectedTables = persistConstraintChanges
-                ? applyPersistedConstraintMutation(
-                        ConstraintManager.MetastoreConstraintMutation.dropDatabase(catalogName, dbName),
-                        catalogId, eventId)
-                : Env.getCurrentEnv().getConstraintManager()
-                        .dropDatabaseConstraints(catalogName, dbName);
-        MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(affectedTables,
-                "after applying external database drop event for " + catalogName + "." + dbName);
-    }
-
-    private void dropCatalogConstraintsAndInvalidateMtmvs(
-            String catalogName, long catalogId, long eventId) {
-        List<TableNameInfo> affectedTables = applyPersistedConstraintMutation(
-                ConstraintManager.MetastoreConstraintMutation.dropCatalog(catalogName),
-                catalogId, eventId);
-        MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(affectedTables,
-                "before recovering an external catalog from a metastore event gap for " + catalogName);
-    }
-
-    private void dropCatalogConstraintsAndInvalidateMtmvs(String catalogName) {
-        List<TableNameInfo> affectedTables = Env.getCurrentEnv().getConstraintManager()
-                .applyMetastoreConstraintMutation(
-                        ConstraintManager.MetastoreConstraintMutation.dropCatalog(catalogName));
-        MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(affectedTables,
-                "before recovering an external catalog from a metastore event gap for " + catalogName);
-    }
-
-    private List<TableNameInfo> applyPersistedConstraintMutation(
-            ConstraintManager.MetastoreConstraintMutation mutation, long catalogId, long eventId) {
-        MetaIdMappingsLog cursorLog = newSyncedCursorLog(catalogId, eventId);
-        EditLog.EditLogOperation cursorOperation = new EditLog.EditLogOperation(
-                OperationType.OP_ADD_META_ID_MAPPINGS, cursorLog);
-        List<TableNameInfo> affectedTables = Env.getCurrentEnv().getConstraintManager()
-                .applyMetastoreConstraintMutation(mutation, cursorOperation);
-        Env.getCurrentEnv().getExternalMetaIdMgr().replayMetaIdMappingsLog(cursorLog);
-        return affectedTables;
-    }
-
-    private boolean persistsConstraintTransition(MetastoreChangeDescriptor descriptor) {
-        switch (descriptor.getOp()) {
-            case UNREGISTER_DATABASE:
-            case RENAME_DATABASE:
-            case UNREGISTER_TABLE:
-            case RENAME_TABLE:
-                return true;
-            case REFRESH_TABLE:
-                return !descriptor.getRemovedColumnNames().isEmpty();
-            case REGISTER_DATABASE:
-            case REGISTER_TABLE:
-            case ADD_PARTITIONS:
-            case DROP_PARTITIONS:
-            case REFRESH_PARTITIONS:
-                return false;
-            default:
-                throw new IllegalStateException(
-                        "Unsupported metastore change op: " + descriptor.getOp());
-        }
-    }
-
-    private boolean affectsConstraintMetadata(MetastoreChangeDescriptor descriptor) {
-        switch (descriptor.getOp()) {
-            case REGISTER_DATABASE:
-            case UNREGISTER_DATABASE:
-            case RENAME_DATABASE:
-            case REGISTER_TABLE:
-            case UNREGISTER_TABLE:
-            case RENAME_TABLE:
-                return true;
-            case REFRESH_TABLE:
-                return !descriptor.getRemovedColumnNames().isEmpty();
-            case ADD_PARTITIONS:
-            case DROP_PARTITIONS:
-            case REFRESH_PARTITIONS:
-                return false;
-            default:
-                throw new IllegalStateException(
-                        "Unsupported metastore change op: " + descriptor.getOp());
         }
     }
 
@@ -577,43 +368,23 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
         }
     }
 
-    // Writes the synced-event-id cursor after every constraint transition is durable. The id-mapping payload
-    // the legacy path also wrote is vestigial, so the cursor record itself remains payload-free.
+    // Writes the synced-event-id cursor to the edit-log so followers advance to it (the log's only live
+    // purpose; the id-mapping payload the legacy path also wrote is vestigial — its getters have no
+    // production reader — so a cursor-only log is written). Opcode + neutral GSON format are unchanged.
     private void writeSyncedCursorLog(long catalogId, long cursor) {
-        MetaIdMappingsLog log = newSyncedCursorLog(catalogId, cursor);
-        Env.getCurrentEnv().getEditLog().logMetaIdMappingsLog(log);
-        Env.getCurrentEnv().getExternalMetaIdMgr().replayMetaIdMappingsLog(log);
-    }
-
-    private MetaIdMappingsLog newSyncedCursorLog(long catalogId, long cursor) {
         MetaIdMappingsLog log = new MetaIdMappingsLog();
         log.setCatalogId(catalogId);
         log.setFromHmsEvent(true);
         log.setLastSyncedEventId(cursor);
-        log.setConstraintTransitionsPersisted(true);
-        return log;
+        Env.getCurrentEnv().getExternalMetaIdMgr().replayMetaIdMappingsLog(log);
+        Env.getCurrentEnv().getEditLog().logMetaIdMappingsLog(log);
     }
 
-    private void refreshCatalogForMaster(PluginDrivenExternalCatalog catalog, long newCursor,
-            long reconciledConstraintEventId) {
-        try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
-                catalog.beginConstraintMetadataMutation()) {
-            boolean cursorAlreadyDurable = newCursor == reconciledConstraintEventId;
-            if (!cursorAlreadyDurable) {
-                // The skipped event range may contain structural changes. Persist the idempotent cleanup
-                // first, but do not advance the cursor until the local catalog refresh succeeds.
-                dropCatalogConstraintsAndInvalidateMtmvs(catalog.getName());
-            }
-            CatalogLog log = new CatalogLog();
-            log.setCatalogId(catalog.getId());
-            log.setInvalidCache(true);
-            Env.getCurrentEnv().getRefreshManager().replayRefreshCatalog(log);
-            if (cursorAlreadyDurable) {
-                lastSyncedEventIdMap.put(catalog.getId(), newCursor);
-            } else {
-                commitCursor(catalog.getId(), newCursor, true);
-            }
-        }
+    private void refreshCatalogForMaster(CatalogIf catalog) {
+        CatalogLog log = new CatalogLog();
+        log.setCatalogId(catalog.getId());
+        log.setInvalidCache(true);
+        Env.getCurrentEnv().getRefreshManager().replayRefreshCatalog(log);
     }
 
     private void refreshCatalogForSlave(CatalogIf catalog) throws Exception {
@@ -629,39 +400,13 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
         masterOpExecutor.execute();
     }
 
-    /** Marks old-image constraints unusable before this FE can serve queries. */
-    public void prepareConstraintStateAfterImageLoad() {
-        for (Long catalogId : Env.getCurrentEnv().getCatalogMgr().getCatalogIds()) {
-            CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
-            if (catalog instanceof PluginDrivenExternalCatalog
-                    && ((PluginDrivenExternalCatalog) catalog).needsMetastoreConstraintReconciliation()) {
-                Env.getCurrentEnv().getConstraintManager()
-                        .markCatalogConstraintsUntrusted(catalog.getName());
-            }
-        }
-    }
-
-    /** Journals a conservative full cleanup before an upgraded FE starts serving as master. */
-    public void reconcileConstraintStateBeforeMasterReady() {
-        for (Long catalogId : Env.getCurrentEnv().getCatalogMgr().getCatalogIds()) {
-            CatalogIf<?> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
-            if (!(catalogIf instanceof PluginDrivenExternalCatalog)) {
-                continue;
-            }
-            PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) catalogIf;
-            if (!catalog.needsMetastoreConstraintReconciliation()) {
-                continue;
-            }
-            try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
-                    catalog.beginConstraintMetadataMutation()) {
-                dropCatalogConstraintsAndInvalidateMtmvs(catalog.getName(), catalogId, -1L);
-                lastSyncedEventIdMap.put(catalogId, -1L);
-            }
-        }
-    }
-
-    /** Publishes one replayed cursor after its constraint state is replayed or quarantined. */
-    void updateMasterLastSyncedEventId(long catalogId, long eventId) {
+    /**
+     * Advances a follower's known master-committed cursor for a catalog. Wired from the
+     * {@code MetaIdMappingsLog} edit-log replay at the flip (mirrors the legacy
+     * {@code MetastoreEventsProcessor.updateMasterLastSyncedEventId}); keyed by catalog id only, so it never
+     * casts the catalog to a source-specific type.
+     */
+    public void updateMasterLastSyncedEventId(long catalogId, long eventId) {
         masterLastSyncedEventIdMap.put(catalogId, eventId);
     }
 

@@ -17,12 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ConstraintManager;
@@ -31,44 +28,24 @@ import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
-import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.common.util.Util;
-import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.mtmv.MTMVUtil;
-import org.apache.doris.mysql.privilege.AccessControllerManager;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
-import org.apache.doris.persist.EditLog;
-import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.TableRenameColumnInfo;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
-import org.mockito.Mockito;
 
-import java.lang.reflect.Field;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicInteger;
 
 class ConstraintTest extends TestWithFeService implements PlanPatternMatchSupported {
 
@@ -116,16 +93,6 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
                 + "properties(\n"
                 + "    \"replication_num\"=\"1\"\n"
                 + ")");
-        createTable("create table t4 (\n"
-                + "    k1 int,\n"
-                + "    k2 int\n"
-                + ")\n"
-                + "duplicate key(k1)\n"
-                + "distributed by hash(k1) buckets 4\n"
-                + "properties(\n"
-                + "    \"replication_num\"=\"1\",\n"
-                + "    \"light_schema_change\"=\"true\"\n"
-                + ")");
     }
 
     @Test
@@ -149,49 +116,6 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
                 logicalOlapScan().when(o -> getConstraintMgr()
                         .getConstraints(tableNameInfoOf(o.getTable())).isEmpty()));
-    }
-
-    @Test
-    void constraintJournalWaitHappensAfterTableUnlock() throws Exception {
-        Env env = Env.getCurrentEnv();
-        EditLog originalEditLog = env.getEditLog();
-        EditLog blockedEditLog = Mockito.mock(EditLog.class);
-        EditLog.EditLogItem logItem = Mockito.mock(EditLog.EditLogItem.class);
-        TableIf table = Env.getCurrentInternalCatalog()
-                .getDbOrDdlException("test").getTableOrDdlException("t1");
-        AtomicInteger submitted = new AtomicInteger();
-        Mockito.when(blockedEditLog.submitEdit(
-                        Mockito.anyShort(), Mockito.any()))
-                .thenAnswer(invocation -> {
-                    short op = invocation.getArgument(0);
-                    Assertions.assertTrue(op == OperationType.OP_ADD_CONSTRAINT
-                            || op == OperationType.OP_DROP_CONSTRAINT);
-                    Assertions.assertTrue(table.isWriteLockHeldByCurrentThread());
-                    submitted.incrementAndGet();
-                    return logItem;
-                });
-        Mockito.when(logItem.await()).thenAnswer(invocation -> {
-            Assertions.assertFalse(table.isWriteLockHeldByCurrentThread());
-            return 1L;
-        });
-
-        Deencapsulation.setField(env, "editLog", blockedEditLog);
-        try {
-            ((AddConstraintCommand) new NereidsParser().parseSingle(
-                    "alter table t1 add constraint journal_pk primary key (k1)"))
-                    .run(connectContext, null);
-            ((DropConstraintCommand) new NereidsParser().parseSingle(
-                    "alter table t1 drop constraint journal_pk"))
-                    .run(connectContext, null);
-        } finally {
-            Deencapsulation.setField(env, "editLog", originalEditLog);
-            getConstraintMgr().dropConstraint(
-                    new TableNameInfo("internal", "test", "t1"),
-                    "journal_pk", true);
-        }
-
-        Assertions.assertEquals(2, submitted.get());
-        Mockito.verify(logItem, Mockito.times(2)).await();
     }
 
     @Test
@@ -219,146 +143,256 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
 
     @Test
     void distributionMappingConstraintTest() throws Exception {
-        AddConstraintCommand command = (AddConstraintCommand) new NereidsParser().parseSingle(
-                "alter table t1 add constraint mapping_constraint "
-                        + "colocate mapping tenant_by_user (k2) determines distribution key (k1) not enforced");
-        command.run(connectContext, null);
-        PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(logicalOlapScan().when(o -> {
-            TableNameInfo tableNameInfo = tableNameInfoOf(o.getTable());
-            Constraint constraint = getConstraintMgr().getConstraint(tableNameInfo, "mapping_constraint");
-            if (!(constraint instanceof DistributionMappingConstraint)) {
-                return false;
-            }
-            DistributionMappingConstraint mapping = (DistributionMappingConstraint) constraint;
-            return mapping.getMappingId().equals("tenant_by_user")
-                    && mapping.getDeterminantColumnNames().equals(java.util.List.of("k2"))
-                    && mapping.getDistributionColumnNames().equals(java.util.List.of("k1"))
-                    && getConstraintMgr().getDistributionMappingConstraints(o.getTable()).size() == 1;
-        }));
-        TableIf table = Env.getCurrentInternalCatalog()
-                .getDbOrDdlException("test").getTableOrDdlException("t1");
-        TableNameInfo tableNameInfo = tableNameInfoOf(table);
-        getConstraintMgr().dropTableConstraints(tableNameInfo);
-        Assertions.assertNull(getConstraintMgr().getConstraint(tableNameInfo, "mapping_constraint"));
-        Assertions.assertEquals(1, getConstraintMgr().getDistributionMappingConstraints(table).size());
-        getConstraintMgr().restoreTableConstraints(tableNameInfo, table);
-        Assertions.assertNotNull(getConstraintMgr().getConstraint(tableNameInfo, "mapping_constraint"));
-
-        DropConstraintCommand dropCommand = (DropConstraintCommand) new NereidsParser().parseSingle(
-                "alter table t1 drop constraint mapping_constraint");
-        dropCommand.run(connectContext, null);
-        PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
-                logicalOlapScan().when(o ->
-                        getConstraintMgr().getConstraints(tableNameInfoOf(o.getTable())).isEmpty()
-                                && getConstraintMgr().getDistributionMappingConstraints(o.getTable()).isEmpty()));
-    }
-
-    @Test
-    void distributionMappingConstraintFencesColumnAndSchemaChanges() throws Exception {
-        AddConstraintCommand command = (AddConstraintCommand) new NereidsParser().parseSingle(
-                "alter table t4 add constraint mapping_fence "
-                        + "colocate mapping mapping_fence (k2) determines distribution key (k1) not enforced");
-        command.run(connectContext, null);
-        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
-                .getDbOrDdlException("test").getTableOrDdlException("t4");
-
-        Exception drop = Assertions.assertThrows(Exception.class,
-                () -> executeNereidsSql("alter table t4 drop column K2"));
-        Assertions.assertTrue(Util.getRootCauseMessage(drop).contains("mapping_fence"));
-        Assertions.assertNotNull(table.getColumn("k2"));
-
-        Exception rename = Assertions.assertThrows(Exception.class,
-                () -> executeNereidsSql("alter table t4 rename column K2 K3"));
-        Assertions.assertTrue(Util.getRootCauseMessage(rename).contains("mapping_fence"));
-        Assertions.assertNotNull(table.getColumn("k2"));
-
-        ((DropConstraintCommand) new NereidsParser().parseSingle(
-                "alter table t4 drop constraint mapping_fence")).run(connectContext, null);
-        table.setState(OlapTableState.SCHEMA_CHANGE);
-        try {
-            Exception add = Assertions.assertThrows(Exception.class, () ->
-                    ((AddConstraintCommand) new NereidsParser().parseSingle(
-                            "alter table t4 add constraint mapping_during_schema_change "
-                                    + "colocate mapping mapping_fence (k2) "
-                                    + "determines distribution key (k1) not enforced"))
-                            .run(connectContext, null));
-            Assertions.assertTrue(add.getMessage().contains("SCHEMA_CHANGE"));
-        } finally {
-            table.setState(OlapTableState.NORMAL);
-        }
-    }
-
-    @Test
-    void distributionMappingDropReadsConstraintUnderTableWriteLock() throws Exception {
-        addConstraint("alter table t1 add constraint mapping_drop_lock "
-                + "colocate mapping mapping_drop_lock (k2) "
-                + "determines distribution key (k1) not enforced");
-        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
-                .getDbOrDdlException("test").getTableOrDdlException("t1");
-
-        try (MockedStatic<MTMVUtil> mtmvUtil =
-                Mockito.mockStatic(MTMVUtil.class, Mockito.CALLS_REAL_METHODS)) {
-            mtmvUtil.when(() -> MTMVUtil.getDependentMtmvsByConstraint(
-                            Mockito.any(), Mockito.any()))
-                    .thenAnswer(invocation -> {
-                        Assertions.assertTrue(table.isWriteLockHeldByCurrentThread());
-                        return java.util.List.of();
-                    });
-
-            dropConstraint("alter table t1 drop constraint mapping_drop_lock");
-        }
-        Assertions.assertNull(getConstraintMgr().getConstraint(
-                tableNameInfoOf(table), "mapping_drop_lock"));
-    }
-
-    @Test
-    void invalidDistributionMappingConstraintTest() throws Exception {
-        Exception duplicateDeterminant = Assertions.assertThrows(Exception.class, () ->
-                ((AddConstraintCommand) new NereidsParser().parseSingle(
-                        "alter table t1 add constraint duplicate_determinant "
-                                + "colocate mapping mapping_1 (k2, K2) "
-                                + "determines distribution key (k1) not enforced"))
-                        .run(connectContext, null));
-        Assertions.assertTrue(duplicateDeterminant.getMessage().contains(
-                "Determinant columns in distribution mapping constraint must be unique"));
-
-        Exception invalidDistributionColumn = Assertions.assertThrows(Exception.class, () ->
-                ((AddConstraintCommand) new NereidsParser().parseSingle(
-                        "alter table t1 add constraint invalid_distribution_column "
-                                + "colocate mapping mapping_1 (k2) "
-                                + "determines distribution key (k2) not enforced"))
-                        .run(connectContext, null));
-        Assertions.assertTrue(invalidDistributionColumn.getMessage().contains(
-                "must be an ordered subset of table distribution columns"));
-
-        Exception duplicateDistribution = Assertions.assertThrows(Exception.class, () ->
-                ((AddConstraintCommand) new NereidsParser().parseSingle(
-                        "alter table t1 add constraint duplicate_distribution "
-                                + "colocate mapping mapping_1 (k2) "
-                                + "determines distribution key (k1, K1) not enforced"))
-                        .run(connectContext, null));
-        Assertions.assertTrue(duplicateDistribution.getMessage().contains(
-                "Distribution columns in distribution mapping constraint must be unique"));
-
-        createTable("create table random_distribution_mapping (\n"
+        createTable("create table mapping_basic (\n"
                 + "    k1 int,\n"
                 + "    k2 int\n"
                 + ")\n"
                 + "duplicate key(k1)\n"
-                + "distributed by random buckets 4\n"
+                + "distributed by hash(k1) buckets 4\n"
                 + "properties(\"replication_num\"=\"1\")");
         try {
-            Exception randomDistribution = Assertions.assertThrows(Exception.class, () ->
-                    ((AddConstraintCommand) new NereidsParser().parseSingle(
-                            "alter table random_distribution_mapping "
-                                    + "add constraint random_distribution "
-                                    + "colocate mapping mapping_1 (k2) "
-                                    + "determines distribution key (k1) not enforced"))
-                            .run(connectContext, null));
-            Assertions.assertTrue(randomDistribution.getMessage().contains(
-                    "Distribution mapping constraint requires hash distribution"));
+            Exception duplicateDeterminant = Assertions.assertThrows(Exception.class, () -> addConstraint(
+                    "alter table mapping_basic add constraint duplicate_determinant "
+                            + "colocate mapping mapping_id (k2, K2) "
+                            + "determines distribution key (k1) not enforced"));
+            Assertions.assertTrue(duplicateDeterminant.getMessage().contains(
+                    "Determinant columns in distribution mapping constraint must be unique"));
+
+            Exception invalidDistribution = Assertions.assertThrows(Exception.class, () -> addConstraint(
+                    "alter table mapping_basic add constraint invalid_distribution "
+                            + "colocate mapping mapping_id (k2) "
+                            + "determines distribution key (k2) not enforced"));
+            Assertions.assertTrue(invalidDistribution.getMessage().contains(
+                    "must be an ordered subset of table distribution columns"));
+
+            addConstraint("alter table mapping_basic add constraint mapping_constraint "
+                    + "colocate mapping mapping_id (k2) determines distribution key (k1) not enforced");
+            OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_basic");
+            TableNameInfo tableNameInfo = tableNameInfoOf(table);
+
+            Assertions.assertNull(getConstraintMgr().getConstraint(tableNameInfo, "mapping_constraint"));
+            Constraint constraint = getConstraintMgr().getConstraint(
+                    tableNameInfo, table, "mapping_constraint");
+            Assertions.assertInstanceOf(DistributionMappingConstraint.class, constraint);
+            DistributionMappingConstraint mapping = (DistributionMappingConstraint) constraint;
+            Assertions.assertEquals("mapping_id", mapping.getMappingId());
+            Assertions.assertEquals(java.util.List.of("k2"), mapping.getDeterminantColumnNames());
+            Assertions.assertEquals(java.util.List.of("k1"), mapping.getDistributionColumnNames());
+            Assertions.assertEquals(table.getBaseSchemaVersion(), mapping.getBaseSchemaVersion());
+            Assertions.assertEquals(java.util.List.of(table.getColumn("k2").getUniqueId()),
+                    mapping.getDeterminantColumnUniqueIds());
+            Assertions.assertEquals(java.util.List.of(table.getColumn("k1").getUniqueId()),
+                    mapping.getDistributionColumnUniqueIds());
+
+            Exception dropColumn = Assertions.assertThrows(Exception.class,
+                    () -> executeSql("alter table mapping_basic drop column k2"));
+            Assertions.assertTrue(dropColumn.getMessage().contains("mapping_constraint"));
+            Exception renameColumn = Assertions.assertThrows(Exception.class,
+                    () -> executeSql("alter table mapping_basic rename column k2 k3"));
+            Assertions.assertTrue(renameColumn.getMessage().contains("mapping_constraint"));
+            Exception modifyColumn = Assertions.assertThrows(Exception.class,
+                    () -> executeSql("alter table mapping_basic modify column k2 bigint"));
+            Assertions.assertTrue(modifyColumn.getMessage().contains("mapping_constraint"));
+
+            dropConstraint("alter table mapping_basic drop constraint mapping_constraint");
+            Assertions.assertTrue(getConstraintMgr().getDistributionMappingConstraints(table).isEmpty());
         } finally {
-            executeSql("drop table random_distribution_mapping force");
+            executeSql("drop table if exists mapping_basic force");
+        }
+    }
+
+    @Test
+    void distributionMappingFailsClosedAfterOldFrontendSchemaReplay() throws Exception {
+        createTable("create table mapping_schema_binding (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties(\"replication_num\"=\"1\", \"light_schema_change\"=\"true\")");
+        try {
+            addConstraint("alter table mapping_schema_binding add constraint mapping "
+                    + "colocate mapping mapping_id (k2) determines distribution key (k1) not enforced");
+            OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_schema_binding");
+
+            executeSql("alter table mapping_schema_binding add column k3 int");
+            Assertions.assertEquals(1,
+                    getConstraintMgr().getDistributionMappingConstraintsForPlanning(table).size());
+
+            Map<Long, Integer> schemaVersions = new HashMap<>();
+            table.getIndexIdToMeta().forEach((indexId, indexMeta) ->
+                    schemaVersions.put(indexId, indexMeta.getSchemaVersion() + 1));
+            Env.getCurrentEnv().replayRenameColumn(new TableRenameColumnInfo(
+                    table.getDatabase().getId(), table.getId(), "k2", "renamed_k2", schemaVersions));
+
+            Assertions.assertNotNull(table.getColumn("renamed_k2"));
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> getConstraintMgr().getDistributionMappingConstraintsForPlanning(table));
+            Assertions.assertTrue(exception.getMessage().contains("Drop and recreate the constraint"));
+        } finally {
+            executeSql("drop table if exists mapping_schema_binding force");
+        }
+    }
+
+    @Test
+    void distributionMappingRejectsTemporaryTable() throws Exception {
+        createTable("create temporary table mapping_temporary (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties(\"replication_num\"=\"1\")");
+        try {
+            Exception exception = Assertions.assertThrows(Exception.class, () -> addConstraint(
+                    "alter table mapping_temporary add constraint mapping_constraint "
+                            + "colocate mapping mapping_id (k2) "
+                            + "determines distribution key (k1) not enforced"));
+            Assertions.assertTrue(exception.getMessage().contains(
+                    "Distribution mapping constraint does not support temporary tables"));
+        } finally {
+            executeSql("drop table if exists mapping_temporary force");
+        }
+    }
+
+    @Test
+    void distributionMappingFollowsTableObjectLifecycle() throws Exception {
+        createTable("create table mapping_lifecycle_a (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties(\"replication_num\"=\"1\")");
+        createTable("create table mapping_lifecycle_b (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties(\"replication_num\"=\"1\")");
+        createTable("create table mapping_replace_a (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties(\"replication_num\"=\"1\")");
+        createTable("create table mapping_replace_b (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties(\"replication_num\"=\"1\")");
+        try {
+            addConstraint("alter table mapping_lifecycle_a add constraint mapping_a "
+                    + "colocate mapping mapping_a (k2) determines distribution key (k1) not enforced");
+            addConstraint("alter table mapping_lifecycle_b add constraint mapping_b "
+                    + "colocate mapping mapping_b (k2) determines distribution key (k1) not enforced");
+            addConstraint("alter table mapping_replace_a add constraint replace_mapping_a "
+                    + "colocate mapping replace_mapping_a (k2) determines distribution key (k1) not enforced");
+            addConstraint("alter table mapping_replace_b add constraint replace_mapping_b "
+                    + "colocate mapping replace_mapping_b (k2) determines distribution key (k1) not enforced");
+
+            OlapTable originalA = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_lifecycle_a");
+            OlapTable originalB = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_lifecycle_b");
+            executeSql("alter table mapping_lifecycle_a rename mapping_lifecycle_a_renamed");
+            OlapTable renamedA = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_lifecycle_a_renamed");
+            Assertions.assertSame(originalA, renamedA);
+            Assertions.assertEquals("mapping_a",
+                    getConstraintMgr().getDistributionMappingConstraints(renamedA).get(0).getName());
+
+            executeSql("alter table mapping_lifecycle_a_renamed replace with table mapping_lifecycle_b "
+                    + "properties(\"swap\"=\"true\")");
+            OlapTable currentA = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_lifecycle_a_renamed");
+            OlapTable currentB = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_lifecycle_b");
+            Assertions.assertSame(originalB, currentA);
+            Assertions.assertSame(originalA, currentB);
+            Assertions.assertEquals("mapping_b",
+                    getConstraintMgr().getDistributionMappingConstraints(currentA).get(0).getName());
+            Assertions.assertEquals("mapping_a",
+                    getConstraintMgr().getDistributionMappingConstraints(currentB).get(0).getName());
+
+            executeSql("truncate table mapping_lifecycle_b");
+            OlapTable truncatedB = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_lifecycle_b");
+            Assertions.assertSame(originalA, truncatedB);
+            Assertions.assertEquals("mapping_a",
+                    getConstraintMgr().getDistributionMappingConstraints(truncatedB).get(0).getName());
+
+            executeSql("drop table mapping_lifecycle_b");
+            createTable("create table mapping_lifecycle_b (k1 int, k2 int) "
+                    + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                    + "properties(\"replication_num\"=\"1\")");
+            OlapTable sameNameReplacement = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_lifecycle_b");
+            Assertions.assertNotSame(originalA, sameNameReplacement);
+            Assertions.assertTrue(
+                    getConstraintMgr().getDistributionMappingConstraints(sameNameReplacement).isEmpty());
+            executeSql("drop table mapping_lifecycle_b force");
+            executeSql("recover table mapping_lifecycle_b");
+            OlapTable recoveredB = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_lifecycle_b");
+            Assertions.assertEquals(originalA.getId(), recoveredB.getId());
+            Assertions.assertEquals("mapping_a",
+                    getConstraintMgr().getDistributionMappingConstraints(recoveredB).get(0).getName());
+
+            OlapTable replacementB = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_replace_b");
+            executeSql("alter table mapping_replace_a replace with table mapping_replace_b "
+                    + "properties(\"swap\"=\"false\")");
+            OlapTable currentReplacement = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_replace_a");
+            Assertions.assertSame(replacementB, currentReplacement);
+            Assertions.assertEquals("replace_mapping_b",
+                    getConstraintMgr().getDistributionMappingConstraints(currentReplacement).get(0).getName());
+        } finally {
+            executeSql("drop table if exists mapping_lifecycle_a_renamed force");
+            executeSql("drop table if exists mapping_lifecycle_b force");
+            executeSql("drop table if exists mapping_replace_a force");
+            executeSql("drop table if exists mapping_replace_b force");
+        }
+    }
+
+    @Test
+    void distributionMappingFollowsDatabaseRename() throws Exception {
+        executeSql("drop database if exists mapping_lifecycle_db force");
+        executeSql("drop database if exists mapping_lifecycle_db_renamed force");
+        createDatabase("mapping_lifecycle_db");
+        createTable("create table mapping_lifecycle_db.mapping_table (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties(\"replication_num\"=\"1\")");
+        try {
+            addConstraint("alter table mapping_lifecycle_db.mapping_table add constraint mapping "
+                    + "colocate mapping mapping_id (k2) determines distribution key (k1) not enforced");
+            OlapTable originalTable = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("mapping_lifecycle_db").getTableOrDdlException("mapping_table");
+
+            executeSql("alter database mapping_lifecycle_db rename mapping_lifecycle_db_renamed");
+
+            OlapTable renamedTable = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("mapping_lifecycle_db_renamed")
+                    .getTableOrDdlException("mapping_table");
+            Assertions.assertSame(originalTable, renamedTable);
+            Assertions.assertEquals("mapping",
+                    getConstraintMgr().getDistributionMappingConstraints(renamedTable).get(0).getName());
+
+            executeSql("drop database mapping_lifecycle_db_renamed");
+            executeSql("recover database mapping_lifecycle_db_renamed");
+
+            OlapTable recoveredTable = (OlapTable) Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("mapping_lifecycle_db_renamed")
+                    .getTableOrDdlException("mapping_table");
+            Assertions.assertSame(originalTable, recoveredTable);
+            Assertions.assertEquals("mapping",
+                    getConstraintMgr().getDistributionMappingConstraints(recoveredTable).get(0).getName());
+        } finally {
+            executeSql("drop database if exists mapping_lifecycle_db force");
+            executeSql("drop database if exists mapping_lifecycle_db_renamed force");
+        }
+    }
+
+    @Test
+    void distributionMappingIsNotCopiedByCreateTableLike() throws Exception {
+        createTable("create table mapping_like_source (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties(\"replication_num\"=\"1\")");
+        try {
+            addConstraint("alter table mapping_like_source add constraint mapping "
+                    + "colocate mapping mapping_id (k2) determines distribution key (k1) not enforced");
+
+            executeSql("create table mapping_like_target like mapping_like_source");
+
+            TableIf targetTable = Env.getCurrentInternalCatalog()
+                    .getDbOrDdlException("test").getTableOrDdlException("mapping_like_target");
+            Assertions.assertTrue(getConstraintMgr().getDistributionMappingConstraints(targetTable).isEmpty());
+        } finally {
+            executeSql("drop table if exists mapping_like_source force");
+            executeSql("drop table if exists mapping_like_target force");
         }
     }
 
@@ -426,252 +460,6 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext).parse("select * from t2").analyze().matches(
                 logicalOlapScan().when(o -> getConstraintMgr()
                         .getConstraints(tableNameInfoOf(o.getTable())).isEmpty()));
-    }
-
-    @Test
-    void foreignKeyAddHoldsBothTableWriteLocks() throws Exception {
-        addConstraint("alter table t2 add constraint pk_for_lock primary key (k1, k2)");
-        Database database = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
-        TableIf foreignKeyTable = database.getTableOrDdlException("t1");
-        TableIf referencedTable = database.getTableOrDdlException("t2");
-
-        try {
-            try (MockedStatic<MTMVUtil> mtmvUtil =
-                    Mockito.mockStatic(MTMVUtil.class, Mockito.CALLS_REAL_METHODS)) {
-                mtmvUtil.when(() -> MTMVUtil.getDependentMtmvsByConstraint(
-                                Mockito.any(), Mockito.any()))
-                        .thenAnswer(invocation -> {
-                            Assertions.assertTrue(
-                                    foreignKeyTable.isWriteLockHeldByCurrentThread());
-                            Assertions.assertTrue(
-                                    referencedTable.isWriteLockHeldByCurrentThread());
-                            return java.util.List.of();
-                        });
-                mtmvUtil.when(() -> MTMVUtil.invalidateRewriteCachesBestEffort(
-                                Mockito.anyList(), Mockito.anyString()))
-                        .thenAnswer(invocation -> {
-                            Assertions.assertFalse(
-                                    foreignKeyTable.isWriteLockHeldByCurrentThread());
-                            Assertions.assertFalse(
-                                    referencedTable.isWriteLockHeldByCurrentThread());
-                            Assertions.assertTrue(database.tryWriteLock(1, TimeUnit.SECONDS));
-                            database.writeUnlock();
-                            return null;
-                        });
-
-                addConstraint("alter table t1 add constraint fk_for_lock "
-                        + "foreign key (k1, k2) references t2(k1, k2)");
-            }
-        } finally {
-            TableNameInfo foreignKeyTableInfo = tableNameInfoOf(foreignKeyTable);
-            if (getConstraintMgr().getConstraint(
-                    foreignKeyTableInfo, "fk_for_lock") != null) {
-                dropConstraint("alter table t1 drop constraint fk_for_lock");
-            }
-            TableNameInfo referencedTableInfo = tableNameInfoOf(referencedTable);
-            if (getConstraintMgr().getConstraint(
-                    referencedTableInfo, "pk_for_lock") != null) {
-                dropConstraint("alter table t2 drop constraint pk_for_lock");
-            }
-        }
-    }
-
-    @Test
-    void primaryKeyDropUsesLockedCascadeSnapshot() throws Exception {
-        addConstraint("alter table t2 add constraint pk_drop_snapshot primary key (k1, k2)");
-        addConstraint("alter table t1 add constraint fk_drop_snapshot "
-                + "foreign key (k1, k2) references t2(k1, k2)");
-        Database database = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
-        TableIf foreignKeyTable = database.getTableOrDdlException("t1");
-        TableIf primaryKeyTable = database.getTableOrDdlException("t2");
-        AccessControllerManager originalAccessManager = Env.getCurrentEnv().getAccessManager();
-        AccessControllerManager accessManager = Mockito.spy(originalAccessManager);
-        setEnvAccessManager(accessManager);
-
-        try (MockedStatic<MTMVUtil> mtmvUtil =
-                Mockito.mockStatic(MTMVUtil.class, Mockito.CALLS_REAL_METHODS)) {
-            Mockito.doAnswer(invocation -> {
-                String tableName = invocation.getArgument(3);
-                if ("t1".equals(tableName)) {
-                    Assertions.assertTrue(primaryKeyTable.isWriteLockHeldByCurrentThread());
-                    Assertions.assertTrue(foreignKeyTable.isWriteLockHeldByCurrentThread());
-                }
-                return true;
-            }).when(accessManager).checkTblPriv(
-                    Mockito.any(ConnectContext.class),
-                    Mockito.anyString(),
-                    Mockito.anyString(),
-                    Mockito.anyString(),
-                    Mockito.any(PrivPredicate.class));
-            mtmvUtil.when(() -> MTMVUtil.getDependentMtmvsByBaseTables(Mockito.anyList()))
-                    .thenAnswer(invocation -> {
-                        Assertions.assertTrue(primaryKeyTable.isWriteLockHeldByCurrentThread());
-                        Assertions.assertTrue(foreignKeyTable.isWriteLockHeldByCurrentThread());
-                        List<BaseTableInfo> baseTables = invocation.getArgument(0);
-                        Assertions.assertEquals(
-                                Sets.newHashSet("t1", "t2"),
-                                baseTables.stream()
-                                        .map(BaseTableInfo::getTableName)
-                                        .collect(java.util.stream.Collectors.toSet()));
-                        return java.util.List.of();
-                    });
-            mtmvUtil.when(() -> MTMVUtil.invalidateRewriteCachesBestEffort(
-                            Mockito.anyList(), Mockito.anyString()))
-                    .thenAnswer(invocation -> {
-                        Assertions.assertTrue(primaryKeyTable.isWriteLockHeldByCurrentThread());
-                        Assertions.assertTrue(foreignKeyTable.isWriteLockHeldByCurrentThread());
-                        return null;
-                    });
-
-            dropConstraint("alter table t2 drop constraint pk_drop_snapshot");
-        } finally {
-            setEnvAccessManager(originalAccessManager);
-            TableNameInfo foreignKeyTableInfo =
-                    tableNameInfoOf(database.getTableOrDdlException("t1"));
-            if (getConstraintMgr().getConstraint(
-                    foreignKeyTableInfo, "fk_drop_snapshot") != null) {
-                dropConstraint("alter table t1 drop constraint fk_drop_snapshot");
-            }
-            TableNameInfo primaryKeyTableInfo = tableNameInfoOf(primaryKeyTable);
-            if (getConstraintMgr().getConstraint(
-                    primaryKeyTableInfo, "pk_drop_snapshot") != null) {
-                dropConstraint("alter table t2 drop constraint pk_drop_snapshot");
-            }
-        }
-        Assertions.assertNull(getConstraintMgr().getConstraint(
-                tableNameInfoOf(primaryKeyTable), "pk_drop_snapshot"));
-    }
-
-    @Test
-    void crossDatabasePrimaryKeyDropLocksAllCascadeTables() throws Exception {
-        createDatabase("constraint_cross_db");
-        createTable("create table constraint_cross_db.t_cross (\n"
-                + "    k1 int,\n"
-                + "    k2 int\n"
-                + ")\n"
-                + "unique key(k1, k2)\n"
-                + "distributed by hash(k1) buckets 4\n"
-                + "properties(\"replication_num\"=\"1\")");
-        addConstraint("alter table test.t2 add constraint pk_cross_db primary key (k1, k2)");
-        addConstraint("alter table constraint_cross_db.t_cross add constraint fk_cross_db "
-                + "foreign key (k1, k2) references test.t2(k1, k2)");
-        Database primaryKeyDatabase =
-                Env.getCurrentInternalCatalog().getDbOrDdlException("test");
-        Database foreignKeyDatabase =
-                Env.getCurrentInternalCatalog().getDbOrDdlException("constraint_cross_db");
-        TableIf primaryKeyTable = primaryKeyDatabase.getTableOrDdlException("t2");
-        TableIf foreignKeyTable = foreignKeyDatabase.getTableOrDdlException("t_cross");
-        AccessControllerManager originalAccessManager = Env.getCurrentEnv().getAccessManager();
-        AccessControllerManager accessManager = Mockito.spy(originalAccessManager);
-        setEnvAccessManager(accessManager);
-
-        try {
-            try (MockedStatic<MTMVUtil> mtmvUtil =
-                    Mockito.mockStatic(MTMVUtil.class, Mockito.CALLS_REAL_METHODS)) {
-                Mockito.doAnswer(invocation -> {
-                    String databaseName = invocation.getArgument(2);
-                    String tableName = invocation.getArgument(3);
-                    if ("constraint_cross_db".equals(databaseName)
-                            && "t_cross".equals(tableName)) {
-                        Assertions.assertTrue(
-                                primaryKeyTable.isWriteLockHeldByCurrentThread());
-                        Assertions.assertTrue(
-                                foreignKeyTable.isWriteLockHeldByCurrentThread());
-                    }
-                    return true;
-                }).when(accessManager).checkTblPriv(
-                        Mockito.any(ConnectContext.class),
-                        Mockito.anyString(),
-                        Mockito.anyString(),
-                        Mockito.anyString(),
-                        Mockito.any(PrivPredicate.class));
-                mtmvUtil.when(() -> MTMVUtil.getDependentMtmvsByBaseTables(
-                                Mockito.anyList()))
-                        .thenAnswer(invocation -> {
-                            Assertions.assertTrue(
-                                    primaryKeyTable.isWriteLockHeldByCurrentThread());
-                            Assertions.assertTrue(
-                                    foreignKeyTable.isWriteLockHeldByCurrentThread());
-                            return java.util.List.of();
-                        });
-                mtmvUtil.when(() -> MTMVUtil.invalidateRewriteCachesBestEffort(
-                                Mockito.anyList(), Mockito.anyString()))
-                        .thenAnswer(invocation -> {
-                            Assertions.assertTrue(
-                                    primaryKeyTable.isWriteLockHeldByCurrentThread());
-                            Assertions.assertTrue(
-                                    foreignKeyTable.isWriteLockHeldByCurrentThread());
-                            return null;
-                        });
-
-                dropConstraint(
-                        "alter table test.t2 drop constraint pk_cross_db");
-            }
-        } finally {
-            setEnvAccessManager(originalAccessManager);
-            TableNameInfo foreignKeyTableInfo = tableNameInfoOf(foreignKeyTable);
-            if (getConstraintMgr().getConstraint(
-                    foreignKeyTableInfo, "fk_cross_db") != null) {
-                dropConstraint("alter table constraint_cross_db.t_cross "
-                        + "drop constraint fk_cross_db");
-            }
-            TableNameInfo primaryKeyTableInfo = tableNameInfoOf(primaryKeyTable);
-            if (getConstraintMgr().getConstraint(
-                    primaryKeyTableInfo, "pk_cross_db") != null) {
-                dropConstraint(
-                        "alter table test.t2 drop constraint pk_cross_db");
-            }
-            dropDatabase("constraint_cross_db");
-        }
-        Assertions.assertNull(getConstraintMgr().getConstraint(
-                tableNameInfoOf(primaryKeyTable), "pk_cross_db"));
-    }
-
-    @Test
-    void constraintAddWaitsForAtomicReplacementDatabaseLock() throws Exception {
-        Database database = Env.getCurrentInternalCatalog()
-                .getDbOrDdlException("test");
-        CountDownLatch addStarted = new CountDownLatch(1);
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        database.writeLock();
-        Future<?> addFuture = executor.submit(() -> {
-            connectContext.setThreadLocalInfo();
-            try {
-                addStarted.countDown();
-                addConstraint("alter table t1 add constraint uk_after_restore unique (k2)");
-                return null;
-            } finally {
-                ConnectContext.remove();
-            }
-        });
-        try {
-            Assertions.assertTrue(addStarted.await(5, TimeUnit.SECONDS));
-            Assertions.assertThrows(
-                    TimeoutException.class,
-                    () -> addFuture.get(100, TimeUnit.MILLISECONDS));
-        } finally {
-            database.writeUnlock();
-        }
-        try {
-            addFuture.get(5, TimeUnit.SECONDS);
-            Assertions.assertNotNull(getConstraintMgr().getConstraint(
-                    tableNameInfoOf(database.getTableOrDdlException("t1")),
-                    "uk_after_restore"));
-        } finally {
-            executor.shutdownNow();
-            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
-            if (getConstraintMgr().getConstraint(
-                    tableNameInfoOf(database.getTableOrDdlException("t1")),
-                    "uk_after_restore") != null) {
-                dropConstraint("alter table t1 drop constraint uk_after_restore");
-            }
-        }
-    }
-
-    private void setEnvAccessManager(AccessControllerManager accessManager) throws Exception {
-        Field field = Env.class.getDeclaredField("accessManager");
-        field.setAccessible(true);
-        field.set(Env.getCurrentEnv(), accessManager);
     }
 
     @Test
@@ -786,33 +574,6 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
     }
 
     @Test
-    void legacyConstrainedColumnRenameJournalStillReplays() throws Exception {
-        createTable("create table legacy_constraint_rename (\n"
-                + "    k1 int,\n"
-                + "    v1 int\n"
-                + ")\n"
-                + "unique key(k1)\n"
-                + "distributed by hash(k1) buckets 4\n"
-                + "properties(\"replication_num\"=\"1\", \"light_schema_change\"=\"true\")");
-        Database database = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
-        OlapTable table = (OlapTable) database.getTableOrDdlException("legacy_constraint_rename");
-        TableNameInfo tableNameInfo = tableNameInfoOf(table);
-        getConstraintMgr().addConstraint(
-                tableNameInfo, "legacy_unique", new UniqueConstraint(
-                        "legacy_unique", Sets.newHashSet("v1")), true);
-        Map<Long, Integer> schemaVersions = new HashMap<>();
-        table.getIndexIdToMeta().forEach((indexId, meta) ->
-                schemaVersions.put(indexId, meta.getSchemaVersion() + 1));
-
-        Env.getCurrentEnv().replayRenameColumn(new TableRenameColumnInfo(
-                database.getId(), table.getId(), "v1", "renamed_v1", schemaVersions));
-
-        Assertions.assertNull(table.getColumn("v1"));
-        Assertions.assertNotNull(table.getColumn("renamed_v1"));
-        executeSql("drop table legacy_constraint_rename force");
-    }
-
-    @Test
     void replaceTableWithConstraintsTest() throws Exception {
         // Create tables for replace test
         createTable("create table t_orig (\n"
@@ -869,54 +630,6 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
         executeSql("drop table if exists t_orig force");
         executeSql("drop table if exists t_repl force");
         executeSql("drop table if exists t_ref force");
-    }
-
-    @Test
-    void distributionMappingDropUsesCurrentTableAfterSwap() throws Exception {
-        createTable("create table mapping_swap_a (k1 int, k2 int) "
-                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
-                + "properties('replication_num'='1')");
-        createTable("create table mapping_swap_b (k1 int, k2 int) "
-                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
-                + "properties('replication_num'='1')");
-        addConstraint("alter table mapping_swap_a add constraint mapping_a "
-                + "colocate mapping swap_mapping_a (k2) determines distribution key (k1) not enforced");
-        addConstraint("alter table mapping_swap_b add constraint mapping_b "
-                + "colocate mapping swap_mapping_b (k2) determines distribution key (k1) not enforced");
-
-        OlapTable originalA = (OlapTable) Env.getCurrentInternalCatalog()
-                .getDbOrDdlException("test").getTableOrDdlException("mapping_swap_a");
-        OlapTable originalB = (OlapTable) Env.getCurrentInternalCatalog()
-                .getDbOrDdlException("test").getTableOrDdlException("mapping_swap_b");
-        executeSql("alter table mapping_swap_a replace with table mapping_swap_b "
-                + "properties('swap'='true')");
-
-        OlapTable currentA = (OlapTable) Env.getCurrentInternalCatalog()
-                .getDbOrDdlException("test").getTableOrDdlException("mapping_swap_a");
-        OlapTable currentB = (OlapTable) Env.getCurrentInternalCatalog()
-                .getDbOrDdlException("test").getTableOrDdlException("mapping_swap_b");
-        Assertions.assertEquals(originalB.getId(), currentA.getId());
-        Assertions.assertEquals(originalA.getId(), currentB.getId());
-
-        SqlCacheContext cacheA = new SqlCacheContext(new UserIdentity("admin", "127.0.0.1"));
-        cacheA.addUsedTable(currentA);
-        SqlCacheContext cacheB = new SqlCacheContext(new UserIdentity("admin", "127.0.0.1"));
-        cacheB.addUsedTable(currentB);
-        Env.getCurrentEnv().getSqlCacheManager().getSqlCaches().put("mapping_swap_a_cache", cacheA);
-        Env.getCurrentEnv().getSqlCacheManager().getSqlCaches().put("mapping_swap_b_cache", cacheB);
-
-        dropConstraint("alter table mapping_swap_a drop constraint mapping_b");
-
-        Assertions.assertTrue(getConstraintMgr().getDistributionMappingConstraints(currentA).isEmpty());
-        Assertions.assertEquals(1, getConstraintMgr().getDistributionMappingConstraints(currentB).size());
-        Assertions.assertNull(Env.getCurrentEnv().getSqlCacheManager()
-                .getSqlCaches().getIfPresent("mapping_swap_a_cache"));
-        Assertions.assertNotNull(Env.getCurrentEnv().getSqlCacheManager()
-                .getSqlCaches().getIfPresent("mapping_swap_b_cache"));
-
-        dropConstraint("alter table mapping_swap_b drop constraint mapping_a");
-        executeSql("drop table mapping_swap_a force");
-        executeSql("drop table mapping_swap_b force");
     }
 
     @Test

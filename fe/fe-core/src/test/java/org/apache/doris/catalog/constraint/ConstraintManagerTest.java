@@ -17,22 +17,18 @@
 
 package org.apache.doris.catalog.constraint;
 
-import org.apache.doris.backup.BackupHandler;
-import org.apache.doris.catalog.CatalogRecycleBin;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.TableAttributes;
-import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Version;
-import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.collect.ImmutableList;
@@ -50,14 +46,8 @@ import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Unit tests for ConstraintManager, testing direct API methods
@@ -106,275 +96,6 @@ class ConstraintManagerTest {
     }
 
     @Test
-    void addWithResolvedTableRevalidatesColumnsWithoutResolvingMetadata() {
-        Env env = Mockito.mock(Env.class);
-        EditLog editLog = Mockito.mock(EditLog.class);
-        TableIf resolvedTable = Mockito.mock(TableIf.class);
-        Mockito.when(env.getEditLog()).thenReturn(editLog);
-        Mockito.when(resolvedTable.getColumn("k1")).thenReturn(Mockito.mock(Column.class));
-        PrimaryKeyConstraint pk = newPk("pk", "k1");
-
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            mgr.addConstraintWithResolvedTables(T1, "pk", pk, resolvedTable, null);
-        }
-
-        Assertions.assertSame(pk, mgr.getConstraint(T1, "pk"));
-        Mockito.verify(resolvedTable).getColumn("k1");
-        Mockito.verify(env).getEditLog();
-        Mockito.verifyNoMoreInteractions(env);
-    }
-
-    @Test
-    void addWithResolvedTableRejectsColumnRemovedAfterAnalysis() {
-        TableIf resolvedTable = Mockito.mock(TableIf.class);
-        PrimaryKeyConstraint pk = newPk("pk", "k1");
-
-        Assertions.assertThrows(AnalysisException.class,
-                () -> mgr.addConstraintWithResolvedTables(T1, "pk", pk, resolvedTable, null));
-        Assertions.assertNull(mgr.getConstraint(T1, "pk"));
-    }
-
-    @Test
-    void addDistributionMappingAllowsUniformFrontendVersions() {
-        String currentVersion = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
-        Env env = Mockito.mock(Env.class);
-        EditLog editLog = Mockito.mock(EditLog.class);
-        Frontend frontend = Mockito.mock(Frontend.class);
-        OlapTable table = Mockito.mock(OlapTable.class);
-        HashDistributionInfo distributionInfo = Mockito.mock(HashDistributionInfo.class);
-        Column determinantColumn = Mockito.mock(Column.class);
-        Column distributionColumn = Mockito.mock(Column.class);
-        TableAttributes tableAttributes = Mockito.mock(TableAttributes.class);
-        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
-                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
-
-        Mockito.when(env.getFrontends(null)).thenReturn(List.of(frontend));
-        Mockito.when(env.getEditLog()).thenReturn(editLog);
-        Mockito.when(frontend.getVersion()).thenReturn(currentVersion);
-        Mockito.when(table.getColumn("d1")).thenReturn(determinantColumn);
-        Mockito.when(table.getColumn("k1")).thenReturn(distributionColumn);
-        Mockito.when(table.getDefaultDistributionInfo()).thenReturn(distributionInfo);
-        Mockito.when(distributionInfo.getDistributionColumns()).thenReturn(List.of(distributionColumn));
-        Mockito.when(distributionColumn.getName()).thenReturn("k1");
-        Mockito.when(table.getTableAttributes()).thenReturn(tableAttributes);
-        Mockito.when(tableAttributes.getConstraintsMap()).thenReturn(new HashMap<>());
-
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            mgr.addConstraintWithResolvedTables(T1, mapping.getName(), mapping, table, null);
-        }
-
-        Assertions.assertSame(mapping, mgr.getConstraint(T1, mapping.getName()));
-        Mockito.verify(env).getEditLog();
-    }
-
-    @Test
-    void addDistributionMappingDoesNotReacquireHeldFrontendAdmissionFence() {
-        String currentVersion = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
-        Env env = Mockito.mock(Env.class);
-        EditLog editLog = Mockito.mock(EditLog.class);
-        Frontend frontend = Mockito.mock(Frontend.class);
-        OlapTable table = Mockito.mock(OlapTable.class);
-        HashDistributionInfo distributionInfo = Mockito.mock(HashDistributionInfo.class);
-        Column determinantColumn = Mockito.mock(Column.class);
-        Column distributionColumn = Mockito.mock(Column.class);
-        TableAttributes tableAttributes = Mockito.mock(TableAttributes.class);
-        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
-                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
-        ConstraintManager manager = Mockito.spy(mgr);
-
-        Mockito.when(env.getFrontends(null)).thenReturn(List.of(frontend));
-        Mockito.when(env.getEditLog()).thenReturn(editLog);
-        Mockito.when(frontend.getVersion()).thenReturn(currentVersion);
-        Mockito.when(table.getColumn("d1")).thenReturn(determinantColumn);
-        Mockito.when(table.getColumn("k1")).thenReturn(distributionColumn);
-        Mockito.when(table.getDefaultDistributionInfo()).thenReturn(distributionInfo);
-        Mockito.when(distributionInfo.getDistributionColumns()).thenReturn(List.of(distributionColumn));
-        Mockito.when(distributionColumn.getName()).thenReturn("k1");
-        Mockito.when(table.getTableAttributes()).thenReturn(tableAttributes);
-        Mockito.when(tableAttributes.getConstraintsMap()).thenReturn(new HashMap<>());
-
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            manager.acquireFrontendAdmissionForMapping();
-            Mockito.clearInvocations(manager);
-            try {
-                manager.addConstraintWithResolvedTables(
-                        T1, mapping.getName(), mapping, table, null);
-            } finally {
-                manager.releaseFrontendAdmissionFence();
-            }
-        }
-
-        Mockito.verify(manager, Mockito.never()).acquireFrontendAdmissionForMapping();
-        Assertions.assertSame(mapping, manager.getConstraint(T1, mapping.getName()));
-    }
-
-    @Test
-    void addDistributionMappingRejectsMixedOrUnknownFrontendVersions() {
-        String currentVersion = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
-        Env env = Mockito.mock(Env.class);
-        Frontend currentFrontend = Mockito.mock(Frontend.class);
-        Frontend oldFrontend = Mockito.mock(Frontend.class);
-        Frontend unknownFrontend = Mockito.mock(Frontend.class);
-        OlapTable table = Mockito.mock(OlapTable.class);
-        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
-                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
-
-        Mockito.when(env.getFrontends(null))
-                .thenReturn(List.of(currentFrontend, oldFrontend, unknownFrontend));
-        Mockito.when(currentFrontend.getVersion()).thenReturn(currentVersion);
-        Mockito.when(oldFrontend.getNodeName()).thenReturn("old-fe");
-        Mockito.when(oldFrontend.getVersion()).thenReturn("old-version");
-        Mockito.when(unknownFrontend.getNodeName()).thenReturn("unknown-fe");
-
-        AnalysisException exception;
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            exception = Assertions.assertThrows(AnalysisException.class,
-                    () -> mgr.addConstraintWithResolvedTables(
-                            T1, mapping.getName(), mapping, table, null));
-        }
-
-        Assertions.assertTrue(exception.getMessage().contains("old-fe(old-version)"));
-        Assertions.assertTrue(exception.getMessage().contains("unknown-fe(null)"));
-        Assertions.assertNull(mgr.getConstraint(T1, mapping.getName()));
-        Mockito.verify(env, Mockito.never()).getEditLog();
-        Mockito.verify(currentFrontend).getVersion();
-        Mockito.verify(oldFrontend).getVersion();
-        Mockito.verify(unknownFrontend).getVersion();
-        Mockito.verify(oldFrontend, Mockito.never()).isAlive();
-        Mockito.verify(unknownFrontend, Mockito.never()).isAlive();
-    }
-
-    @Test
-    void concurrentFrontendAdmissionWaitsForMappingAddAndIsRejected() throws Exception {
-        String currentVersion = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
-        Env env = Mockito.mock(Env.class);
-        EditLog editLog = Mockito.mock(EditLog.class);
-        Frontend frontend = Mockito.mock(Frontend.class);
-        OlapTable table = Mockito.mock(OlapTable.class);
-        HashDistributionInfo distributionInfo = Mockito.mock(HashDistributionInfo.class);
-        Column determinantColumn = Mockito.mock(Column.class);
-        Column distributionColumn = Mockito.mock(Column.class);
-        TableAttributes tableAttributes = Mockito.mock(TableAttributes.class);
-        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
-                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
-        CountDownLatch versionCheckStarted = new CountDownLatch(1);
-        CountDownLatch frontendAdmissionStarted = new CountDownLatch(1);
-
-        Mockito.when(env.getFrontends(null)).thenAnswer(invocation -> {
-            versionCheckStarted.countDown();
-            Assertions.assertTrue(frontendAdmissionStarted.await(10, TimeUnit.SECONDS));
-            return List.of(frontend);
-        });
-        Mockito.when(env.getEditLog()).thenReturn(editLog);
-        Mockito.when(frontend.getVersion()).thenReturn(currentVersion);
-        Mockito.when(table.getColumn("d1")).thenReturn(determinantColumn);
-        Mockito.when(table.getColumn("k1")).thenReturn(distributionColumn);
-        Mockito.when(table.getDefaultDistributionInfo()).thenReturn(distributionInfo);
-        Mockito.when(distributionInfo.getDistributionColumns()).thenReturn(List.of(distributionColumn));
-        Mockito.when(distributionColumn.getName()).thenReturn("k1");
-        Mockito.when(table.getTableAttributes()).thenReturn(tableAttributes);
-        Mockito.when(tableAttributes.getConstraintsMap()).thenReturn(new HashMap<>());
-
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            Future<DdlException> frontendAdmission = executor.submit(() -> {
-                if (!versionCheckStarted.await(10, TimeUnit.SECONDS)) {
-                    throw new AssertionError("Timed out waiting for frontend version check");
-                }
-                frontendAdmissionStarted.countDown();
-                try {
-                    mgr.acquireFrontendAdmission();
-                    mgr.releaseFrontendAdmissionFence();
-                    return null;
-                } catch (DdlException e) {
-                    return e;
-                }
-            });
-
-            mgr.addConstraintWithResolvedTables(T1, mapping.getName(), mapping, table, null);
-            DdlException exception = frontendAdmission.get(10, TimeUnit.SECONDS);
-            Assertions.assertNotNull(exception);
-            Assertions.assertTrue(exception.getMessage()
-                    .contains("Drop all distribution mapping constraints"));
-        } finally {
-            executor.shutdownNow();
-        }
-    }
-
-    @Test
-    void frontendAdmissionIsRejectedWhileMappingExists() {
-        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
-                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
-        mgr.addConstraint(T1, mapping.getName(), mapping, true);
-
-        DdlException exception = Assertions.assertThrows(
-                DdlException.class, mgr::acquireFrontendAdmission);
-
-        Assertions.assertTrue(exception.getMessage()
-                .contains("Drop all distribution mapping constraints"));
-    }
-
-    @Test
-    void frontendAdmissionIsRejectedWhileRetainedJobContainsMapping() {
-        Env env = Mockito.mock(Env.class);
-        CatalogRecycleBin recycleBin = Mockito.mock(CatalogRecycleBin.class);
-        BackupHandler backupHandler = Mockito.mock(BackupHandler.class);
-        Mockito.when(backupHandler.containsDistributionMappingConstraint()).thenReturn(true);
-
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            mockedEnv.when(Env::getCurrentRecycleBin).thenReturn(recycleBin);
-            Mockito.when(env.getBackupHandler()).thenReturn(backupHandler);
-
-            DdlException exception = Assertions.assertThrows(
-                    DdlException.class, mgr::acquireFrontendAdmission);
-
-            Assertions.assertTrue(exception.getMessage().contains("backup or restore jobs"));
-        }
-    }
-
-    @Test
-    void syncMappingsSkipsExternalNonMappingEntriesBeforeMetadataResolution() {
-        Env env = Mockito.mock(Env.class);
-        mgr.addConstraint(
-                new TableNameInfo("external", "db", "table"),
-                "pk", newPk("pk", "k1"), true);
-
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            mgr.syncDistributionMappingsToTables();
-        }
-
-        Mockito.verifyNoInteractions(env);
-    }
-
-    @Test
-    void canonicalizeExternalTableNameUsesPersistedSpelling() {
-        TableNameInfo canonical = new TableNameInfo("ExtCtl", "DbOne", "Table_A");
-        mgr.addConstraint(canonical, "pk", newPk("pk", "k1"), true);
-
-        Assertions.assertEquals(canonical,
-                mgr.canonicalizeExternalTableName(
-                        new TableNameInfo("ExtCtl", "dbone", "table_a"),
-                        "pk", true, true));
-        Assertions.assertEquals(
-                new TableNameInfo("ExtCtl", "dbone", "table_a"),
-                mgr.canonicalizeExternalTableName(
-                        new TableNameInfo("ExtCtl", "dbone", "table_a"),
-                        "pk", true, false));
-
-        TableNameInfo caseOnlyKey = new TableNameInfo("ExtCtl", "DbOne", "table_a");
-        mgr.addConstraint(caseOnlyKey, "other_pk", newPk("other_pk", "k1"), true);
-        Assertions.assertEquals(canonical,
-                mgr.canonicalizeExternalTableName(caseOnlyKey, "pk", true, true));
-    }
-
-    @Test
     void addAndGetUniqueKey() {
         UniqueConstraint uk = new UniqueConstraint("uk", ImmutableSet.of("c1"));
         mgr.addConstraint(T1, "uk", uk, true);
@@ -413,6 +134,186 @@ class ConstraintManagerTest {
     @Test
     void getConstraintsForNonExistentTableReturnsEmpty() {
         Assertions.assertTrue(mgr.getConstraints(T1).isEmpty());
+    }
+
+    @Test
+    void distributionMappingReplayUsesTableOwnedStorage() {
+        OlapTable table = Mockito.spy(new OlapTable());
+        Mockito.doReturn(InternalCatalog.INTERNAL_CATALOG_ID).when(table).getCatalogId();
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
+
+        table.writeLock();
+        try {
+            mgr.replayDistributionMappingConstraint(table, mapping, null);
+        } finally {
+            table.writeUnlock();
+        }
+
+        Assertions.assertTrue(mgr.getConstraints(T1).isEmpty());
+        Assertions.assertSame(mapping, mgr.getConstraint(T1, table, mapping.getName()));
+        Assertions.assertEquals(List.of(mapping), mgr.getDistributionMappingConstraints(table));
+
+        table.writeLock();
+        try {
+            mgr.replayDistributionMappingConstraint(table, null, mapping.getName());
+        } finally {
+            table.writeUnlock();
+        }
+        Assertions.assertTrue(mgr.getDistributionMappingConstraints(table).isEmpty());
+    }
+
+    @Test
+    void distributionMappingReplayDefersConstraintNameCollisionToConsumers() {
+        OlapTable table = Mockito.spy(new OlapTable());
+        Mockito.doReturn(InternalCatalog.INTERNAL_CATALOG_ID).when(table).getCatalogId();
+        mgr.addConstraint(T1, "constraint", newPk("constraint", "k1"), true);
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "constraint", "mapping_id", List.of("d1"), List.of("k1"));
+
+        table.writeLock();
+        try {
+            mgr.replayDistributionMappingConstraint(table, mapping, null);
+        } finally {
+            table.writeUnlock();
+        }
+        Assertions.assertEquals(List.of(mapping), mgr.getDistributionMappingConstraints(table));
+        AnalysisException exception = Assertions.assertThrows(
+                AnalysisException.class, () -> mgr.getConstraints(T1, table));
+        Assertions.assertTrue(exception.getMessage().contains("conflicts with another constraint"));
+    }
+
+    @Test
+    void centralizedStorageRejectsDistributionMapping() {
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
+
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> mgr.addConstraint(T1, mapping.getName(), mapping, true));
+        Assertions.assertTrue(mgr.isEmpty());
+    }
+
+    @Test
+    void distributionMappingsAreInternalOnlyAndReturnedInStableOrder() {
+        TableAttributes tableAttributes = new TableAttributes();
+        DistributionMappingConstraint second = new DistributionMappingConstraint(
+                "BB", "mapping_b", List.of("d1"), List.of("k1"));
+        DistributionMappingConstraint first = new DistributionMappingConstraint(
+                "Aa", "mapping_a", List.of("d1"), List.of("k1"));
+        tableAttributes.getDistributionMappingConstraints().put(second.getName(), second);
+        tableAttributes.getDistributionMappingConstraints().put(first.getName(), first);
+
+        OlapTable internalTable = Mockito.mock(OlapTable.class);
+        Mockito.when(internalTable.getCatalogId()).thenReturn(InternalCatalog.INTERNAL_CATALOG_ID);
+        Mockito.when(internalTable.getTableAttributes()).thenReturn(tableAttributes);
+        Assertions.assertEquals(List.of(first, second), mgr.getDistributionMappingConstraints(internalTable));
+
+        OlapTable externalTable = Mockito.mock(OlapTable.class);
+        Mockito.when(externalTable.getCatalogId()).thenReturn(1L);
+        Mockito.when(externalTable.getTableAttributes()).thenReturn(tableAttributes);
+        Assertions.assertTrue(mgr.getDistributionMappingConstraints(externalTable).isEmpty());
+    }
+
+    @Test
+    void addDistributionMappingRejectsExternalOlapTable() {
+        OlapTable externalTable = Mockito.mock(OlapTable.class);
+        Mockito.when(externalTable.isWriteLockHeldByCurrentThread()).thenReturn(true);
+        Mockito.when(externalTable.getCatalogId()).thenReturn(1L);
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> mgr.addDistributionMappingConstraint(T1, externalTable, mapping));
+        Assertions.assertTrue(exception.getMessage().contains("only supports internal OLAP tables"));
+    }
+
+    @Test
+    void distributionMappingBindingUsesStableColumnIdsAcrossSchemaVersions() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Column determinant = new Column("d1", Type.INT);
+        Column distribution = new Column("k1", Type.INT);
+        determinant.setUniqueId(10);
+        distribution.setUniqueId(20);
+        Mockito.when(table.getBaseSchemaVersion()).thenReturn(7);
+        Mockito.when(table.getColumn("d1")).thenReturn(determinant);
+        Mockito.when(table.getColumn("k1")).thenReturn(distribution);
+        HashDistributionInfo distributionInfo = Mockito.mock(HashDistributionInfo.class);
+        Mockito.when(distributionInfo.getDistributionColumns()).thenReturn(List.of(distribution));
+        Mockito.when(table.getDefaultDistributionInfo()).thenReturn(distributionInfo);
+
+        DistributionMappingConstraint unbound = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
+        Assertions.assertFalse(unbound.isCompatibleWith(table));
+
+        DistributionMappingConstraint bound = unbound.bindTo(table);
+        Assertions.assertEquals(7, bound.getBaseSchemaVersion());
+        Assertions.assertEquals(List.of(10), bound.getDeterminantColumnUniqueIds());
+        Assertions.assertEquals(List.of(20), bound.getDistributionColumnUniqueIds());
+        Assertions.assertEquals(List.of("int"), bound.getDeterminantColumnTypeSignatures());
+        Assertions.assertEquals(List.of("int"), bound.getDistributionColumnTypeSignatures());
+        Assertions.assertTrue(bound.isCompatibleWith(table));
+
+        Mockito.when(table.getBaseSchemaVersion()).thenReturn(8);
+        Assertions.assertTrue(bound.isCompatibleWith(table));
+
+        Column replacement = new Column("d1", Type.INT);
+        replacement.setUniqueId(11);
+        Mockito.when(table.getColumn("d1")).thenReturn(replacement);
+        Assertions.assertFalse(bound.isCompatibleWith(table));
+
+        Column typeChanged = new Column("d1", Type.BIGINT);
+        typeChanged.setUniqueId(10);
+        Mockito.when(table.getColumn("d1")).thenReturn(typeChanged);
+        Assertions.assertFalse(bound.isCompatibleWith(table));
+
+        Mockito.when(table.getColumn("d1")).thenReturn(determinant);
+        Mockito.when(table.getDefaultDistributionInfo()).thenReturn(new RandomDistributionInfo(4));
+        Assertions.assertFalse(bound.isCompatibleWith(table));
+    }
+
+    @Test
+    void distributionMappingBindingUsesSchemaVersionWithoutStableColumnIds() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Column determinant = new Column("d1", Type.INT);
+        Column distribution = new Column("k1", Type.INT);
+        Mockito.when(table.getBaseSchemaVersion()).thenReturn(7);
+        Mockito.when(table.getColumn("d1")).thenReturn(determinant);
+        Mockito.when(table.getColumn("k1")).thenReturn(distribution);
+        HashDistributionInfo distributionInfo = Mockito.mock(HashDistributionInfo.class);
+        Mockito.when(distributionInfo.getDistributionColumns()).thenReturn(List.of(distribution));
+        Mockito.when(table.getDefaultDistributionInfo()).thenReturn(distributionInfo);
+
+        DistributionMappingConstraint bound = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("d1"), List.of("k1")).bindTo(table);
+        Assertions.assertTrue(bound.isCompatibleWith(table));
+
+        Mockito.when(table.getBaseSchemaVersion()).thenReturn(8);
+        Assertions.assertFalse(bound.isCompatibleWith(table));
+    }
+
+    @Test
+    void validateDistributionMappingFeatureCompatibilityRejectsMixedOrUnknownFrontendVersions() {
+        String currentVersion = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
+        Env env = Mockito.mock(Env.class);
+        Frontend currentFrontend = Mockito.mock(Frontend.class);
+        Frontend oldFrontend = Mockito.mock(Frontend.class);
+        Frontend unknownFrontend = Mockito.mock(Frontend.class);
+
+        Mockito.when(env.getFrontends(null))
+                .thenReturn(List.of(currentFrontend, oldFrontend, unknownFrontend));
+        Mockito.when(currentFrontend.getVersion()).thenReturn(currentVersion);
+        Mockito.when(oldFrontend.getNodeName()).thenReturn("old-fe");
+        Mockito.when(oldFrontend.getVersion()).thenReturn("old-version");
+        Mockito.when(unknownFrontend.getNodeName()).thenReturn("unknown-fe");
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    mgr::validateDistributionMappingFeatureCompatibility);
+            Assertions.assertTrue(exception.getMessage().contains("old-fe(old-version)"));
+            Assertions.assertTrue(exception.getMessage().contains("unknown-fe(null)"));
+            Assertions.assertTrue(exception.getMessage().contains("cannot be used"));
+        }
     }
 
     // ==================== Type-specific getters ====================
@@ -478,22 +379,6 @@ class ConstraintManagerTest {
         mgr.dropConstraint(T1, "missing", true);
     }
 
-    @Test
-    void dropConstraintRejectsChangedExpectedCascadeWithoutMutation() {
-        mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
-        mgr.addConstraint(T2, "fk2", newFk("fk2", T1, "c1", "k1"), true);
-        List<TableNameInfo> expectedCascadeDropTables = List.of(T2);
-        mgr.addConstraint(T3, "fk3", newFk("fk3", T1, "c1", "k1"), true);
-
-        Assertions.assertThrows(AnalysisException.class,
-                () -> mgr.dropConstraintAndSubmit(
-                        T1, "pk", expectedCascadeDropTables));
-
-        Assertions.assertNotNull(mgr.getConstraint(T1, "pk"));
-        Assertions.assertNotNull(mgr.getConstraint(T2, "fk2"));
-        Assertions.assertNotNull(mgr.getConstraint(T3, "fk3"));
-    }
-
     // ==================== FK bidirectional references ====================
 
     @Test
@@ -532,97 +417,6 @@ class ConstraintManagerTest {
         Assertions.assertTrue(mgr.getConstraints(T3).isEmpty());
     }
 
-    @Test
-    void renameDatabaseUpdatesSelfReferencingForeignKeyAcrossImageRoundTrip()
-            throws Exception {
-        TableNameInfo oldTable = new TableNameInfo("ctl", "old_db", "t1");
-        TableNameInfo newTable = new TableNameInfo("ctl", "new_db", "t1");
-        mgr.addConstraint(oldTable, "pk", newPk("pk", "k1"), true);
-        mgr.addConstraint(oldTable, "fk", newFk("fk", oldTable, "k1", "k1"), true);
-
-        mgr.renameDatabase("ctl", "old_db", "new_db");
-        assertSelfReference(mgr, newTable);
-
-        ByteArrayOutputStream image = new ByteArrayOutputStream();
-        mgr.write(new DataOutputStream(image));
-        ConstraintManager loaded = ConstraintManager.read(
-                new DataInputStream(new ByteArrayInputStream(image.toByteArray())));
-        assertSelfReference(loaded, newTable);
-
-        loaded.dropConstraint(newTable, "fk", true);
-        loaded.dropConstraint(newTable, "pk", true);
-        Assertions.assertTrue(loaded.getConstraints(newTable).isEmpty());
-    }
-
-    @Test
-    void renameDatabaseUpdatesAllForeignKeyReferencesInOnePass() {
-        TableNameInfo oldParent = new TableNameInfo("ctl", "old_db", "parent");
-        TableNameInfo newParent = new TableNameInfo("ctl", "new_db", "parent");
-        TableNameInfo externalChild = new TableNameInfo("ctl", "other_db", "child");
-        mgr.addConstraint(oldParent, "pk", newPk("pk", "k1"), true);
-        mgr.addConstraint(externalChild, "fk", newFk("fk", oldParent, "c1", "k1"), true);
-        ImmutableList.Builder<TableNameInfo> oldChildren = ImmutableList.builder();
-        ImmutableList.Builder<TableNameInfo> newChildren = ImmutableList.builder();
-        for (int i = 0; i < 64; i++) {
-            TableNameInfo oldChild = new TableNameInfo("ctl", "old_db", "child_" + i);
-            TableNameInfo newChild = new TableNameInfo("ctl", "new_db", "child_" + i);
-            mgr.addConstraint(oldChild, "fk", newFk("fk", oldParent, "c1", "k1"), true);
-            oldChildren.add(oldChild);
-            newChildren.add(newChild);
-        }
-
-        mgr.renameDatabase("ctl", "old_db", "new_db");
-
-        Assertions.assertTrue(mgr.getConstraints(oldParent).isEmpty());
-        for (TableNameInfo oldChild : oldChildren.build()) {
-            Assertions.assertTrue(mgr.getConstraints(oldChild).isEmpty());
-        }
-        ImmutableList<TableNameInfo> renamedChildren = newChildren.build();
-        for (TableNameInfo newChild : renamedChildren) {
-            ForeignKeyConstraint renamedForeignKey =
-                    (ForeignKeyConstraint) mgr.getConstraint(newChild, "fk");
-            Assertions.assertEquals(newParent, renamedForeignKey.getReferencedTableName());
-        }
-        ForeignKeyConstraint externalForeignKey =
-                (ForeignKeyConstraint) mgr.getConstraint(externalChild, "fk");
-        Assertions.assertEquals(newParent, externalForeignKey.getReferencedTableName());
-        PrimaryKeyConstraint primaryKey =
-                (PrimaryKeyConstraint) mgr.getConstraint(newParent, "pk");
-        primaryKey.addForeignTable(renamedChildren.get(0));
-        Assertions.assertEquals(renamedChildren.size() + 1,
-                primaryKey.getForeignTableInfos().size());
-        Assertions.assertEquals(
-                ImmutableSet.<TableNameInfo>builder()
-                        .addAll(renamedChildren)
-                        .add(externalChild)
-                        .build(),
-                ImmutableSet.copyOf(primaryKey.getForeignTableInfos()));
-    }
-
-    @Test
-    void renameDatabaseKeepsTargetConstraintsAndCleansConflictingSourceReferences() {
-        TableNameInfo oldParent = new TableNameInfo("ctl", "old_db", "parent");
-        TableNameInfo targetParent = new TableNameInfo("ctl", "new_db", "parent");
-        TableNameInfo oldChild = new TableNameInfo("ctl", "old_db", "child");
-        TableNameInfo newChild = new TableNameInfo("ctl", "new_db", "child");
-        mgr.addConstraint(oldParent, "source_pk", newPk("source_pk", "k1"), true);
-        mgr.addConstraint(targetParent, "target_uk",
-                new UniqueConstraint("target_uk", ImmutableSet.of("value")), true);
-        mgr.addConstraint(oldChild, "source_fk",
-                newFk("source_fk", oldParent, "parent_key", "k1"), true);
-        mgr.addConstraint(oldChild, "moved_uk",
-                new UniqueConstraint("moved_uk", ImmutableSet.of("value")), true);
-
-        mgr.renameDatabase("ctl", "old_db", "new_db");
-
-        Assertions.assertTrue(mgr.getConstraints(oldParent).isEmpty());
-        Assertions.assertTrue(mgr.getConstraints(oldChild).isEmpty());
-        Assertions.assertNotNull(mgr.getConstraint(targetParent, "target_uk"));
-        Assertions.assertNull(mgr.getConstraint(targetParent, "source_pk"));
-        Assertions.assertNotNull(mgr.getConstraint(newChild, "moved_uk"));
-        Assertions.assertNull(mgr.getConstraint(newChild, "source_fk"));
-    }
-
     // ==================== dropTableConstraints ====================
 
     @Test
@@ -638,80 +432,14 @@ class ConstraintManagerTest {
         mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
         mgr.addConstraint(T2, "fk", newFk("fk", T1, "c1", "k1"), true);
         // Drop T1's constraints → PK dropped → FK on T2 cascade-dropped
-        List<TableNameInfo> affectedTables = mgr.dropTableConstraints(T1);
+        mgr.dropTableConstraints(T1);
         Assertions.assertTrue(mgr.getConstraints(T2).isEmpty());
-        Assertions.assertEquals(ImmutableSet.of(T1, T2), ImmutableSet.copyOf(affectedTables));
     }
 
     @Test
     void dropTableConstraintsOnNonExistentTableIsNoop() {
         // Should not throw
         mgr.dropTableConstraints(new TableNameInfo("x", "y", "z"));
-    }
-
-    @Test
-    void dropConstraintsReferencingColumnsPreservesUnrelatedConstraintsAndCascadesForeignKeys() {
-        mgr.addConstraint(T1, "pk", newPk("pk", "removed_key"), true);
-        mgr.addConstraint(T1, "removed_uk",
-                new UniqueConstraint("removed_uk", ImmutableSet.of("removed_value")), true);
-        mgr.addConstraint(T1, "uk", new UniqueConstraint("uk", ImmutableSet.of("kept_key")), true);
-        mgr.addConstraint(T2, "fk", newFk("fk", T1, "foreign_key", "removed_key"), true);
-
-        List<TableNameInfo> affectedTables = mgr.dropConstraintsReferencingColumns(
-                T1, List.of("REMOVED_KEY", "removed_value"));
-
-        Assertions.assertNull(mgr.getConstraint(T1, "pk"));
-        Assertions.assertNull(mgr.getConstraint(T1, "removed_uk"));
-        Assertions.assertNotNull(mgr.getConstraint(T1, "uk"));
-        Assertions.assertNull(mgr.getConstraint(T2, "fk"));
-        Assertions.assertEquals(ImmutableSet.of(T1, T2), ImmutableSet.copyOf(affectedTables));
-    }
-
-    @Test
-    void dropConstraintsReferencingColumnsRemovesForeignKeyBackReference() {
-        mgr.addConstraint(T1, "pk", newPk("pk", "primary_key"), true);
-        mgr.addConstraint(T2, "fk", newFk("fk", T1, "removed_key", "primary_key"), true);
-        mgr.addConstraint(T2, "uk", new UniqueConstraint("uk", ImmutableSet.of("kept_key")), true);
-
-        List<TableNameInfo> affectedTables = mgr.dropConstraintsReferencingColumns(
-                T2, List.of("removed_key"));
-
-        Assertions.assertNull(mgr.getConstraint(T2, "fk"));
-        Assertions.assertNotNull(mgr.getConstraint(T2, "uk"));
-        PrimaryKeyConstraint primaryKey = (PrimaryKeyConstraint) mgr.getConstraint(T1, "pk");
-        Assertions.assertTrue(primaryKey.getForeignTableInfos().isEmpty());
-        Assertions.assertEquals(ImmutableSet.of(T1, T2), ImmutableSet.copyOf(affectedTables));
-    }
-
-    @Test
-    void dropConstraintsReferencingColumnsRemovesTableLocalDistributionMapping() {
-        Env env = Mockito.mock(Env.class);
-        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
-        CatalogIf catalog = Mockito.mock(CatalogIf.class);
-        DatabaseIf database = Mockito.mock(DatabaseIf.class);
-        OlapTable table = Mockito.mock(OlapTable.class);
-        TableAttributes tableAttributes = Mockito.mock(TableAttributes.class);
-        Map<String, Constraint> tableLocalConstraints = new HashMap<>();
-        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
-                "mapping", "mapping_id", List.of("removed_key"), List.of("kept_key"));
-
-        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
-        Mockito.when(catalogMgr.getCatalog(T1.getCtl())).thenReturn(catalog);
-        Mockito.when(catalog.getDbNullable(T1.getDb())).thenReturn(database);
-        Mockito.when(database.getTableNullable(T1.getTbl())).thenReturn(table);
-        Mockito.when(table.getTableAttributes()).thenReturn(tableAttributes);
-        Mockito.when(tableAttributes.getConstraintsMap()).thenReturn(tableLocalConstraints);
-
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            mgr.addConstraint(T1, mapping.getName(), mapping, true);
-            Assertions.assertSame(mapping, tableLocalConstraints.get(mapping.getName()));
-
-            mgr.dropConstraintsReferencingColumns(T1, List.of("removed_key"));
-        }
-
-        Assertions.assertNull(mgr.getConstraint(T1, mapping.getName()));
-        Assertions.assertTrue(tableLocalConstraints.isEmpty());
     }
 
     // ==================== checkAndDropTableConstraints ====================
@@ -730,11 +458,10 @@ class ConstraintManagerTest {
     void checkAndDropWithoutCheckDropsEvenWithFK() {
         mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
         mgr.addConstraint(T2, "fk", newFk("fk", T1, "c1", "k1"), true);
-        List<TableNameInfo> affectedTables = Assertions.assertDoesNotThrow(
+        Assertions.assertDoesNotThrow(
                 () -> mgr.checkAndDropTableConstraints(T1, false));
         Assertions.assertTrue(mgr.getConstraints(T1).isEmpty());
         Assertions.assertTrue(mgr.getConstraints(T2).isEmpty());
-        Assertions.assertEquals(ImmutableSet.of(T1, T2), ImmutableSet.copyOf(affectedTables));
     }
 
     @Test
@@ -742,30 +469,6 @@ class ConstraintManagerTest {
         mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
         mgr.checkAndDropTableConstraints(T1, true);
         Assertions.assertTrue(mgr.getConstraints(T1).isEmpty());
-    }
-
-    @Test
-    void batchDropAllowsReferencesInsideBatch() {
-        mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
-        mgr.addConstraint(T2, "fk", newFk("fk", T1, "c1", "k1"), true);
-
-        Assertions.assertDoesNotThrow(
-                () -> mgr.checkAndDropTableConstraints(
-                        ImmutableList.of(T1, T2), true));
-        Assertions.assertTrue(mgr.getConstraints(T1).isEmpty());
-        Assertions.assertTrue(mgr.getConstraints(T2).isEmpty());
-    }
-
-    @Test
-    void batchDropRejectsReferencesOutsideBatchWithoutMutation() {
-        mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
-        mgr.addConstraint(T3, "fk", newFk("fk", T1, "c1", "k1"), true);
-
-        Assertions.assertThrows(DdlException.class,
-                () -> mgr.checkAndDropTableConstraints(
-                        ImmutableList.of(T1, T2), true));
-        Assertions.assertNotNull(mgr.getConstraint(T1, "pk"));
-        Assertions.assertNotNull(mgr.getConstraint(T3, "fk"));
     }
 
     // ==================== checkNoReferencingForeignKeys ====================
@@ -795,14 +498,12 @@ class ConstraintManagerTest {
     void findConstraintWithColumnFindsPK() {
         mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
         Assertions.assertEquals("pk", mgr.findConstraintWithColumn(T1, "k1"));
-        Assertions.assertEquals("pk", mgr.findConstraintWithColumn(T1, "K1"));
     }
 
     @Test
     void findConstraintWithColumnFindsUnique() {
         mgr.addConstraint(T1, "uk", new UniqueConstraint("uk", ImmutableSet.of("c1")), true);
         Assertions.assertEquals("uk", mgr.findConstraintWithColumn(T1, "c1"));
-        Assertions.assertEquals("uk", mgr.findConstraintWithColumn(T1, "C1"));
     }
 
     @Test
@@ -810,7 +511,6 @@ class ConstraintManagerTest {
         mgr.addConstraint(T2, "pk2", newPk("pk2", "k1"), true);
         mgr.addConstraint(T1, "fk", newFk("fk", T2, "c1", "k1"), true);
         Assertions.assertEquals("fk", mgr.findConstraintWithColumn(T1, "c1"));
-        Assertions.assertEquals("fk", mgr.findConstraintWithColumn(T1, "C1"));
     }
 
     @Test
@@ -834,13 +534,12 @@ class ConstraintManagerTest {
         mgr.addConstraint(extT2, "uk", new UniqueConstraint("uk", ImmutableSet.of("c1")), true);
         mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
 
-        List<TableNameInfo> affectedTables = mgr.dropCatalogConstraints("extCtl");
+        mgr.dropCatalogConstraints("extCtl");
 
         Assertions.assertTrue(mgr.getConstraints(extT1).isEmpty());
         Assertions.assertTrue(mgr.getConstraints(extT2).isEmpty());
         // T1 is in "ctl" catalog — should be unaffected
         Assertions.assertNotNull(mgr.getConstraint(T1, "pk"));
-        Assertions.assertEquals(ImmutableSet.of(extT1, extT2), ImmutableSet.copyOf(affectedTables));
     }
 
     @Test
@@ -850,78 +549,19 @@ class ConstraintManagerTest {
         mgr.addConstraint(extT, "pk", newPk("pk", "k1"), true);
         mgr.addConstraint(T1, "fk", newFk("fk", extT, "c1", "k1"), true);
 
-        List<TableNameInfo> affectedTables = mgr.dropCatalogConstraints("extCtl");
+        mgr.dropCatalogConstraints("extCtl");
 
         Assertions.assertTrue(mgr.getConstraints(extT).isEmpty());
         // FK on T1 referencing extT is cascade-dropped because the referenced PK was removed
         Assertions.assertTrue(mgr.getConstraints(T1).isEmpty(),
                 "FK on T1 should be cascade-dropped when referenced PK's catalog is dropped");
-        Assertions.assertEquals(ImmutableSet.of(extT, T1), ImmutableSet.copyOf(affectedTables));
-    }
-
-    @Test
-    void dropCatalogConstraintsReportsReferencedPrimaryKeyOutsideCatalog() {
-        TableNameInfo extT = new TableNameInfo("extCtl", "db", "t1");
-        mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
-        mgr.addConstraint(extT, "fk", newFk("fk", T1, "c1", "k1"), true);
-
-        List<TableNameInfo> affectedTables = mgr.dropCatalogConstraints("extCtl");
-
-        Assertions.assertTrue(mgr.getConstraints(extT).isEmpty());
-        Assertions.assertNotNull(mgr.getConstraint(T1, "pk"));
-        Assertions.assertEquals(ImmutableSet.of(extT, T1), ImmutableSet.copyOf(affectedTables));
     }
 
     @Test
     void dropCatalogConstraintsOnNonExistentCatalogIsNoop() {
         mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
-        List<TableNameInfo> affectedTables = mgr.dropCatalogConstraints("nonExistent");
+        mgr.dropCatalogConstraints("nonExistent");
         Assertions.assertNotNull(mgr.getConstraint(T1, "pk"));
-        Assertions.assertTrue(affectedTables.isEmpty());
-    }
-
-    @Test
-    void renameCatalogMovesConstraintsAndUpdatesCrossCatalogReferences() {
-        TableNameInfo oldParent = new TableNameInfo("old_ctl", "db", "parent");
-        TableNameInfo newParent = new TableNameInfo("new_ctl", "db", "parent");
-        TableNameInfo oldChild = new TableNameInfo("old_ctl", "db", "child");
-        TableNameInfo newChild = new TableNameInfo("new_ctl", "db", "child");
-        TableNameInfo externalParent = new TableNameInfo("other_ctl", "db", "parent");
-        TableNameInfo externalChild = new TableNameInfo("other_ctl", "db", "child");
-        mgr.addConstraint(oldParent, "old_pk", newPk("old_pk", "k1"), true);
-        mgr.addConstraint(externalChild, "external_fk",
-                newFk("external_fk", oldParent, "parent_key", "k1"), true);
-        mgr.addConstraint(externalParent, "external_pk", newPk("external_pk", "k2"), true);
-        mgr.addConstraint(oldChild, "old_fk",
-                newFk("old_fk", externalParent, "parent_key", "k2"), true);
-
-        mgr.renameCatalog("old_ctl", "new_ctl");
-
-        Assertions.assertTrue(mgr.getConstraints(oldParent).isEmpty());
-        Assertions.assertTrue(mgr.getConstraints(oldChild).isEmpty());
-        Assertions.assertNotNull(mgr.getConstraint(newParent, "old_pk"));
-        ForeignKeyConstraint externalForeignKey =
-                (ForeignKeyConstraint) mgr.getConstraint(externalChild, "external_fk");
-        Assertions.assertEquals(newParent, externalForeignKey.getReferencedTableName());
-        Assertions.assertNotNull(mgr.getConstraint(newChild, "old_fk"));
-        PrimaryKeyConstraint externalPrimaryKey =
-                (PrimaryKeyConstraint) mgr.getConstraint(externalParent, "external_pk");
-        Assertions.assertEquals(List.of(newChild), externalPrimaryKey.getForeignTableInfos());
-    }
-
-    @Test
-    void renameCatalogMovesConstraintQuarantine() {
-        TableNameInfo oldTable = new TableNameInfo("old_ctl", "db", "table");
-        TableNameInfo newTable = new TableNameInfo("new_ctl", "db", "table");
-        mgr.addConstraint(oldTable, "pk", newPk("pk", "k1"), true);
-        mgr.markCatalogConstraintsUntrusted("old_ctl");
-
-        mgr.renameCatalog("old_ctl", "new_ctl");
-
-        Assertions.assertEquals(List.of(newTable), mgr.getCatalogConstraintRelatedTables("new_ctl"));
-        Assertions.assertTrue(mgr.reconcileUntrustedCatalogConstraints("old_ctl").isEmpty());
-        Assertions.assertEquals(List.of(newTable), mgr.reconcileUntrustedCatalogConstraints("new_ctl"));
-        Assertions.assertTrue(mgr.getConstraints(newTable).isEmpty());
     }
 
     // ==================== dropDatabaseConstraints ====================
@@ -936,14 +576,13 @@ class ConstraintManagerTest {
         TableNameInfo otherDbTable = new TableNameInfo("ctl", "other_db", "t1");
         mgr.addConstraint(otherDbTable, "pk_other", newPk("pk_other", "k1"), true);
 
-        List<TableNameInfo> affectedTables = mgr.dropDatabaseConstraints("ctl", "db");
+        mgr.dropDatabaseConstraints("ctl", "db");
 
         Assertions.assertTrue(mgr.getConstraints(T1).isEmpty());
         Assertions.assertTrue(mgr.getConstraints(T2).isEmpty());
         Assertions.assertTrue(mgr.getConstraints(T3).isEmpty());
         // Other database unaffected
         Assertions.assertNotNull(mgr.getConstraint(otherDbTable, "pk_other"));
-        Assertions.assertEquals(ImmutableSet.of(T1, T2, T3), ImmutableSet.copyOf(affectedTables));
     }
 
     @Test
@@ -953,13 +592,12 @@ class ConstraintManagerTest {
         TableNameInfo otherDbTable = new TableNameInfo("ctl", "other_db", "t1");
         mgr.addConstraint(otherDbTable, "fk", newFk("fk", T1, "c1", "k1"), true);
 
-        List<TableNameInfo> affectedTables = mgr.dropDatabaseConstraints("ctl", "db");
+        mgr.dropDatabaseConstraints("ctl", "db");
 
         Assertions.assertTrue(mgr.getConstraints(T1).isEmpty());
         // FK in other_db should be cascade-dropped because the referenced PK was removed
         Assertions.assertTrue(mgr.getConstraints(otherDbTable).isEmpty(),
                 "FK in other_db should be cascade-dropped when referenced PK's database is dropped");
-        Assertions.assertEquals(ImmutableSet.of(T1, otherDbTable), ImmutableSet.copyOf(affectedTables));
     }
 
     // ==================== renameTable ====================
@@ -1000,32 +638,6 @@ class ConstraintManagerTest {
                 .anyMatch(t -> t.getTbl().equals("t1_renamed")));
         Assertions.assertFalse(pk.getForeignTableInfos().stream()
                 .anyMatch(t -> t.getTbl().equals("t1")));
-    }
-
-    @Test
-    void renameTableKeepsTargetConstraintsAndCleansSourceReferences() {
-        TableNameInfo target = new TableNameInfo("ctl", "db", "target");
-        TableNameInfo crossCatalogChild = new TableNameInfo("other_ctl", "db", "child");
-        mgr.addConstraint(T1, "source_pk", newPk("source_pk", "k1"), true);
-        mgr.addConstraint(target, "target_pk", newPk("target_pk", "k2"), true);
-        mgr.addConstraint(crossCatalogChild, "source_fk",
-                newFk("source_fk", T1, "parent_key", "k1"), true);
-
-        mgr.renameTable(T1, target);
-
-        Assertions.assertTrue(mgr.getConstraints(T1).isEmpty());
-        Assertions.assertNotNull(mgr.getConstraint(target, "target_pk"));
-        Assertions.assertNull(mgr.getConstraint(target, "source_pk"));
-        Assertions.assertTrue(mgr.getConstraints(crossCatalogChild).isEmpty());
-    }
-
-    @Test
-    void renameTableToSameNameIsNoop() {
-        mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
-
-        mgr.renameTable(T1, T1);
-
-        Assertions.assertNotNull(mgr.getConstraint(T1, "pk"));
     }
 
     @Test
@@ -1216,15 +828,5 @@ class ConstraintManagerTest {
             String fkCol, String pkCol) {
         return new ForeignKeyConstraint(name,
                 ImmutableList.of(fkCol), refTable, ImmutableList.of(pkCol));
-    }
-
-    private static void assertSelfReference(
-            ConstraintManager manager, TableNameInfo tableNameInfo) {
-        ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) manager.getConstraint(
-                tableNameInfo, "fk");
-        PrimaryKeyConstraint primaryKey = (PrimaryKeyConstraint) manager.getConstraint(
-                tableNameInfo, "pk");
-        Assertions.assertEquals(tableNameInfo, foreignKey.getReferencedTableName());
-        Assertions.assertEquals(List.of(tableNameInfo), primaryKey.getForeignTableInfos());
     }
 }

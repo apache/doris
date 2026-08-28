@@ -180,23 +180,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         this.rwLock.readLock().lock();
     }
 
-    public boolean tryReadLock(long timeout, TimeUnit unit) {
-        try {
-            if (!this.rwLock.readLock().tryLock(timeout, unit)) {
-                Thread owner = this.rwLock.getOwner();
-                if (owner != null) {
-                    LOG.info("database[{}] lock is held by: {}", getName(), Util.dumpThread(owner, 10));
-                }
-                return false;
-            }
-            return true;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            LOG.warn("failed to try read lock at db[" + id + "]", e);
-            return false;
-        }
-    }
-
     public void readUnlock() {
         this.rwLock.readLock().unlock();
     }
@@ -220,7 +203,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             }
             return true;
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
             LOG.warn("failed to try write lock at db[" + id + "]", e);
             return false;
         }

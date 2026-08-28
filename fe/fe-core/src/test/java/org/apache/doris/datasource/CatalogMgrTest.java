@@ -18,28 +18,17 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.constraint.ConstraintManager;
-import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
-import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.datasource.log.InitCatalogLog;
-import org.apache.doris.mtmv.MTMVUtil;
-import org.apache.doris.persist.EditLog;
-import org.apache.doris.persist.OperationType;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -49,12 +38,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 public class CatalogMgrTest {
 
-    private static void addCatalog(CatalogMgr catalogMgr,
-            CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog) throws Exception {
+    private static void addCatalog(CatalogMgr catalogMgr, ExternalCatalog catalog) throws Exception {
         Field idToCatalogField = CatalogMgr.class.getDeclaredField("idToCatalog");
         idToCatalogField.setAccessible(true);
         @SuppressWarnings("unchecked")
@@ -62,236 +49,6 @@ public class CatalogMgrTest {
                 (ConcurrentMap<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>>)
                         idToCatalogField.get(catalogMgr);
         idToCatalog.put(catalog.getId(), catalog);
-    }
-
-    private static void addCatalogByName(
-            CatalogMgr catalogMgr, String name,
-            CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog)
-            throws Exception {
-        Field nameToCatalogField =
-                CatalogMgr.class.getDeclaredField("nameToCatalog");
-        nameToCatalogField.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        ConcurrentMap<String,
-                CatalogIf<? extends DatabaseIf<? extends TableIf>>>
-                nameToCatalog =
-                (ConcurrentMap<String,
-                        CatalogIf<? extends DatabaseIf<? extends TableIf>>>)
-                        nameToCatalogField.get(catalogMgr);
-        nameToCatalog.put(name, catalog);
-    }
-
-    private static ExternalCatalog mockExternalCatalog(long catalogId, String initialName) {
-        AtomicReference<String> catalogName = new AtomicReference<>(initialName);
-        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
-        Mockito.when(catalog.getId()).thenReturn(catalogId);
-        Mockito.when(catalog.getName()).thenAnswer(invocation -> catalogName.get());
-        Mockito.doAnswer(invocation -> {
-            catalogName.set(invocation.getArgument(0));
-            return null;
-        }).when(catalog).modifyCatalogName(Mockito.anyString());
-        return catalog;
-    }
-
-    private static void assertReplacementRejected(
-            CatalogMgr catalogMgr, String methodName,
-            Class<?>[] parameterTypes, Object... arguments)
-            throws Exception {
-        Method method =
-                CatalogMgr.class.getDeclaredMethod(
-                        methodName, parameterTypes);
-        method.setAccessible(true);
-        InvocationTargetException exception =
-                Assertions.assertThrows(
-                        InvocationTargetException.class,
-                        () -> method.invoke(catalogMgr, arguments));
-        Assertions.assertInstanceOf(
-                DdlException.class, exception.getCause());
-        Assertions.assertTrue(
-                exception.getCause().getMessage().contains(
-                        "Catalog changed"));
-    }
-
-    @Test
-    void testCatalogMutationRejectsReplacement() throws Exception {
-        CatalogMgr catalogMgr = new CatalogMgr();
-        String catalogName = "replacement_test";
-        CatalogIf<? extends DatabaseIf<? extends TableIf>>
-                expectedCatalog =
-                Mockito.mock(CatalogIf.class);
-        CatalogIf<? extends DatabaseIf<? extends TableIf>>
-                replacementCatalog =
-                Mockito.mock(CatalogIf.class);
-        addCatalogByName(
-                catalogMgr, catalogName, replacementCatalog);
-
-        assertReplacementRejected(
-                catalogMgr, "dropCatalogInternal",
-                new Class<?>[] {
-                        String.class, boolean.class, CatalogIf.class
-                },
-                catalogName, false, expectedCatalog);
-        assertReplacementRejected(
-                catalogMgr, "alterCatalogNameInternal",
-                new Class<?>[] {
-                        String.class, String.class, CatalogIf.class
-                },
-                catalogName, "replacement_test_new",
-                expectedCatalog);
-        assertReplacementRejected(
-                catalogMgr, "alterCatalogPropsInternal",
-                new Class<?>[] {
-                        String.class, Map.class, CatalogIf.class
-                },
-                catalogName, ImmutableMap.of("key", "value"),
-                expectedCatalog);
-    }
-
-    @Test
-    void testReplayDropCatalogInvalidatesDependentMtmvCaches() throws Exception {
-        CatalogMgr catalogMgr = new CatalogMgr();
-        long catalogId = 41L;
-        String catalogName = "drop_catalog_cache_test";
-        CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog = Mockito.mock(CatalogIf.class);
-        Mockito.when(catalog.getId()).thenReturn(catalogId);
-        Mockito.when(catalog.getName()).thenReturn(catalogName);
-        addCatalog(catalogMgr, catalog);
-        addCatalogByName(catalogMgr, catalogName, catalog);
-
-        Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
-        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
-        List<TableNameInfo> affectedTables = List.of(
-                new TableNameInfo(catalogName, "db", "base_table"),
-                new TableNameInfo("internal", "db", "referencing_table"));
-        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
-        Mockito.when(constraintManager.dropCatalogConstraints(catalogName)).thenReturn(affectedTables);
-        CatalogLog log = new CatalogLog();
-        log.setCatalogId(catalogId);
-
-        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
-                MockedStatic<MTMVUtil> mtmvUtil = Mockito.mockStatic(MTMVUtil.class)) {
-            envStatic.when(Env::getCurrentEnv).thenReturn(env);
-
-            catalogMgr.replayDropCatalog(log);
-
-            mtmvUtil.verify(() -> MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(
-                    affectedTables, "after removing catalog " + catalogName));
-        }
-        Mockito.verify(constraintManager).dropCatalogConstraints(catalogName);
-    }
-
-    @Test
-    void testAlterCatalogNameRenamesConstraintsWithoutDroppingThem() throws Exception {
-        CatalogMgr catalogMgr = new CatalogMgr();
-        long catalogId = 42L;
-        String oldCatalogName = "rename_catalog";
-        String newCatalogName = "renamed_catalog";
-        ExternalCatalog catalog = mockExternalCatalog(catalogId, oldCatalogName);
-        addCatalog(catalogMgr, catalog);
-        addCatalogByName(catalogMgr, oldCatalogName, catalog);
-
-        ConstraintManager constraintManager = Mockito.spy(new ConstraintManager());
-        TableNameInfo oldTable = new TableNameInfo(oldCatalogName, "db", "table");
-        TableNameInfo newTable = new TableNameInfo(newCatalogName, "db", "table");
-        constraintManager.addConstraint(oldTable, "pk",
-                new PrimaryKeyConstraint("pk", ImmutableSet.of("key")), true);
-        Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
-        EditLog editLog = Mockito.mock(EditLog.class);
-        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
-        Mockito.when(env.getEditLog()).thenReturn(editLog);
-
-        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
-            envStatic.when(Env::getCurrentEnv).thenReturn(env);
-
-            catalogMgr.alterCatalogName(oldCatalogName, newCatalogName);
-        }
-
-        Assertions.assertNull(catalogMgr.getCatalog(oldCatalogName));
-        Assertions.assertSame(catalog, catalogMgr.getCatalog(newCatalogName));
-        Assertions.assertTrue(constraintManager.getConstraints(oldTable).isEmpty());
-        Assertions.assertNotNull(constraintManager.getConstraint(newTable, "pk"));
-        Mockito.verify(constraintManager).renameCatalog(oldCatalogName, newCatalogName);
-        Mockito.verify(constraintManager, Mockito.never()).dropCatalogConstraints(oldCatalogName);
-        Mockito.verify(catalog).beginExclusiveConstraintMetadataMutation();
-        Mockito.verify(editLog).logCatalogLog(
-                Mockito.eq(OperationType.OP_ALTER_CATALOG_NAME), Mockito.any(CatalogLog.class));
-    }
-
-    @Test
-    void testReplayAlterCatalogNameUsesSameConstraintMigration() throws Exception {
-        CatalogMgr catalogMgr = new CatalogMgr();
-        long catalogId = 43L;
-        String oldCatalogName = "replay_rename_catalog";
-        String newCatalogName = "replayed_catalog";
-        ExternalCatalog catalog = mockExternalCatalog(catalogId, oldCatalogName);
-        addCatalog(catalogMgr, catalog);
-        addCatalogByName(catalogMgr, oldCatalogName, catalog);
-
-        ConstraintManager constraintManager = Mockito.spy(new ConstraintManager());
-        TableNameInfo oldTable = new TableNameInfo(oldCatalogName, "db", "table");
-        TableNameInfo newTable = new TableNameInfo(newCatalogName, "db", "table");
-        constraintManager.addConstraint(oldTable, "pk",
-                new PrimaryKeyConstraint("pk", ImmutableSet.of("key")), true);
-        Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
-        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
-        CatalogLog log = new CatalogLog();
-        log.setCatalogId(catalogId);
-        log.setNewCatalogName(newCatalogName);
-
-        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
-            envStatic.when(Env::getCurrentEnv).thenReturn(env);
-
-            catalogMgr.replayAlterCatalogName(log);
-        }
-
-        Assertions.assertNull(catalogMgr.getCatalog(oldCatalogName));
-        Assertions.assertSame(catalog, catalogMgr.getCatalog(newCatalogName));
-        Assertions.assertTrue(constraintManager.getConstraints(oldTable).isEmpty());
-        Assertions.assertNotNull(constraintManager.getConstraint(newTable, "pk"));
-        Mockito.verify(constraintManager).renameCatalog(oldCatalogName, newCatalogName);
-        Mockito.verify(constraintManager, Mockito.never()).dropCatalogConstraints(oldCatalogName);
-        Mockito.verify(catalog).beginExclusiveConstraintMetadataMutation();
-    }
-
-    @Test
-    void testAlterCatalogNameConflictDuringCleanupKeepsOldConstraints() throws Exception {
-        CatalogMgr catalogMgr = new CatalogMgr();
-        long catalogId = 44L;
-        String oldCatalogName = "rename_conflict_catalog";
-        String newCatalogName = "rename_conflict_target";
-        ExternalCatalog catalog = mockExternalCatalog(catalogId, oldCatalogName);
-        CatalogIf<? extends DatabaseIf<? extends TableIf>> targetCatalog = Mockito.mock(CatalogIf.class);
-        addCatalog(catalogMgr, catalog);
-        addCatalogByName(catalogMgr, oldCatalogName, catalog);
-        Mockito.doAnswer(invocation -> {
-            addCatalogByName(catalogMgr, newCatalogName, targetCatalog);
-            return null;
-        }).when(catalog).onClose();
-
-        ConstraintManager constraintManager = Mockito.spy(new ConstraintManager());
-        TableNameInfo oldTable = new TableNameInfo(oldCatalogName, "db", "table");
-        TableNameInfo newTable = new TableNameInfo(newCatalogName, "db", "table");
-        constraintManager.addConstraint(oldTable, "pk",
-                new PrimaryKeyConstraint("pk", ImmutableSet.of("key")), true);
-        Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
-        EditLog editLog = Mockito.mock(EditLog.class);
-        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
-        Mockito.when(env.getEditLog()).thenReturn(editLog);
-
-        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
-            envStatic.when(Env::getCurrentEnv).thenReturn(env);
-
-            Assertions.assertThrows(DdlException.class,
-                    () -> catalogMgr.alterCatalogName(oldCatalogName, newCatalogName));
-        }
-
-        Assertions.assertSame(catalog, catalogMgr.getCatalog(oldCatalogName));
-        Assertions.assertSame(targetCatalog, catalogMgr.getCatalog(newCatalogName));
-        Assertions.assertNotNull(constraintManager.getConstraint(oldTable, "pk"));
-        Assertions.assertTrue(constraintManager.getConstraints(newTable).isEmpty());
-        Mockito.verify(constraintManager, Mockito.never())
-                .renameCatalog(oldCatalogName, newCatalogName);
-        Mockito.verifyNoInteractions(editLog);
     }
 
     @Test
@@ -329,7 +86,6 @@ public class CatalogMgrTest {
                 CatalogMgr.METADATA_REFRESH_INTERVAL_SEC, "invalid");
         LatchingValidationCatalog catalog = new LatchingValidationCatalog(43L, oldProperties);
         addCatalog(catalogMgr, catalog);
-        long constraintMetadataBaseline = catalog.snapshotConstraintMetadata();
         CatalogLog log = new CatalogLog();
         log.setCatalogId(catalog.getId());
         log.setNewProps(newProperties);
@@ -352,12 +108,6 @@ public class CatalogMgrTest {
             Assertions.assertNotNull(validationFailure);
             Assertions.assertEquals(oldProperties, catalog.propertiesSeenByInitialization);
             Assertions.assertEquals(oldProperties, catalog.getProperties());
-            Assertions.assertNotEquals(
-                    constraintMetadataBaseline, catalog.snapshotConstraintMetadata());
-            try (ExternalCatalog.ConstraintMetadataReadGuard ignored =
-                    catalog.lockConstraintMetadata(catalog.snapshotConstraintMetadata())) {
-                // A failed property mutation must not leave the catalog marked as active.
-            }
         } finally {
             executor.shutdownNow();
         }

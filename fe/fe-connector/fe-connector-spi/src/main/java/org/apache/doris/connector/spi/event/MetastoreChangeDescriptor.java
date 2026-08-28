@@ -83,22 +83,17 @@ public final class MetastoreChangeDescriptor {
     private final String tableName;
     private final String dbNameAfter;
     private final String tableNameAfter;
-    private final List<String> removedColumnNames;
     private final List<String> partitionNames;
     private final long updateTime;
     private final long eventId;
 
     private MetastoreChangeDescriptor(Op op, String dbName, String tableName, String dbNameAfter,
-            String tableNameAfter, List<String> removedColumnNames, List<String> partitionNames,
-            long updateTime, long eventId) {
+            String tableNameAfter, List<String> partitionNames, long updateTime, long eventId) {
         this.op = Objects.requireNonNull(op, "op");
         this.dbName = dbName;
         this.tableName = tableName;
         this.dbNameAfter = dbNameAfter;
         this.tableNameAfter = tableNameAfter;
-        this.removedColumnNames = removedColumnNames == null
-                ? Collections.emptyList()
-                : Collections.unmodifiableList(new ArrayList<>(removedColumnNames));
         this.partitionNames = partitionNames == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(new ArrayList<>(partitionNames));
@@ -109,22 +104,14 @@ public final class MetastoreChangeDescriptor {
     /** A database-level change ({@code REGISTER_/UNREGISTER_/RENAME_DATABASE}). */
     public static MetastoreChangeDescriptor forDatabase(Op op, String dbName, String dbNameAfter,
             long eventId, long updateTime) {
-        return new MetastoreChangeDescriptor(
-                op, dbName, null, dbNameAfter, null, null, null, updateTime, eventId);
+        return new MetastoreChangeDescriptor(op, dbName, null, dbNameAfter, null, null, updateTime, eventId);
     }
 
     /** A table-level change ({@code REGISTER_/UNREGISTER_/RENAME_TABLE}, {@code REFRESH_TABLE}). */
     public static MetastoreChangeDescriptor forTable(Op op, String dbName, String tableName,
             String tableNameAfter, long eventId, long updateTime) {
-        return new MetastoreChangeDescriptor(op, dbName, tableName, null, tableNameAfter, null, null,
+        return new MetastoreChangeDescriptor(op, dbName, tableName, null, tableNameAfter, null,
                 updateTime, eventId);
-    }
-
-    /** An in-place table refresh caused by ALTER TABLE, including columns removed by the schema change. */
-    public static MetastoreChangeDescriptor forTableRefresh(String dbName, String tableName,
-            List<String> removedColumnNames, long eventId, long updateTime) {
-        return new MetastoreChangeDescriptor(Op.REFRESH_TABLE, dbName, tableName, null, null,
-                removedColumnNames, null, updateTime, eventId);
     }
 
     /**
@@ -136,13 +123,13 @@ public final class MetastoreChangeDescriptor {
     public static MetastoreChangeDescriptor forTableRename(String dbName, String tableName,
             String dbNameAfter, String tableNameAfter, long eventId, long updateTime) {
         return new MetastoreChangeDescriptor(Op.RENAME_TABLE, dbName, tableName, dbNameAfter,
-                tableNameAfter, null, null, updateTime, eventId);
+                tableNameAfter, null, updateTime, eventId);
     }
 
     /** A partition-level change ({@code ADD_/DROP_/REFRESH_PARTITIONS}). */
     public static MetastoreChangeDescriptor forPartitions(Op op, String dbName, String tableName,
             List<String> partitionNames, long eventId, long updateTime) {
-        return new MetastoreChangeDescriptor(op, dbName, tableName, null, null, null, partitionNames,
+        return new MetastoreChangeDescriptor(op, dbName, tableName, null, null, partitionNames,
                 updateTime, eventId);
     }
 
@@ -170,11 +157,6 @@ public final class MetastoreChangeDescriptor {
         return tableNameAfter;
     }
 
-    /** Columns present before an in-place schema change but absent afterwards. */
-    public List<String> getRemovedColumnNames() {
-        return removedColumnNames;
-    }
-
     /** Canonical partition names for partition ops (empty for non-partition ops). */
     public List<String> getPartitionNames() {
         return partitionNames;
@@ -194,7 +176,6 @@ public final class MetastoreChangeDescriptor {
     public String toString() {
         return "MetastoreChangeDescriptor{op=" + op + ", db=" + dbName + ", table=" + tableName
                 + ", dbAfter=" + dbNameAfter + ", tableAfter=" + tableNameAfter
-                + ", removedColumns=" + removedColumnNames
                 + ", partitions=" + partitionNames + ", updateTime=" + updateTime
                 + ", eventId=" + eventId + '}';
     }

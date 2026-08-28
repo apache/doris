@@ -837,6 +837,20 @@ suite("test_colocate_mapping_constraint") {
         ORDER BY l.aggregate_k2, l.aggregate_d1
     """
 
+    sql """ TRUNCATE TABLE test_colocate_mapping_constraint_left """
+    sql """ INSERT INTO test_colocate_mapping_constraint_left VALUES (3, 30, 300, 3000, 10) """
+    sql """ SYNC """
+    waitForColocateGroupStable("test_colocate_mapping_constraint_group")
+    explain {
+        sql """
+            SELECT *
+            FROM test_colocate_mapping_constraint_left l
+            JOIN test_colocate_mapping_constraint_right r
+              ON l.d1 = r.d1 AND l.k2 = r.k2
+        """
+        contains "COLOCATE"
+    }
+
     sql """ DROP TABLE test_colocate_mapping_constraint_left """
     sql """ RECOVER TABLE test_colocate_mapping_constraint_left """
     waitForColocateGroupStable("test_colocate_mapping_constraint_group")

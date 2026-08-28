@@ -44,9 +44,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 
 /**
@@ -128,8 +126,8 @@ public final class HmsEventParser {
                             before.getDbName(), before.getTableName(),
                             after.getDbName(), afterTable, eventId, updateTime));
                 }
-                return one(MetastoreChangeDescriptor.forTableRefresh(
-                        before.getDbName(), before.getTableName(), removedColumnNames(before, after),
+                return one(MetastoreChangeDescriptor.forTable(
+                        Op.REFRESH_TABLE, before.getDbName(), before.getTableName(), null,
                         eventId, updateTime));
             }
             case "CREATE_DATABASE":
@@ -205,21 +203,6 @@ public final class HmsEventParser {
 
     private static List<String> partitionColNames(Table table) {
         return table.getPartitionKeys().stream().map(FieldSchema::getName).collect(Collectors.toList());
-    }
-
-    private static List<String> removedColumnNames(Table before, Table after) {
-        Set<String> afterColumnNames = tableColumnNames(after).stream()
-                .map(name -> name.toLowerCase(Locale.ROOT))
-                .collect(Collectors.toSet());
-        return tableColumnNames(before).stream()
-                .filter(name -> !afterColumnNames.contains(name.toLowerCase(Locale.ROOT)))
-                .collect(Collectors.toList());
-    }
-
-    private static List<String> tableColumnNames(Table table) {
-        return Stream.concat(table.getSd().getCols().stream(), table.getPartitionKeys().stream())
-                .map(FieldSchema::getName)
-                .collect(Collectors.toList());
     }
 
     // Raw "col=val/col2=val2" name (mirrors the legacy DropPartition path, which does no escaping).

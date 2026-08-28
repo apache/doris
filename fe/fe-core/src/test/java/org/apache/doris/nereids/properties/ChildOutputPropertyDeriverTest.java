@@ -29,6 +29,7 @@ import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -59,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -1281,6 +1283,34 @@ class ChildOutputPropertyDeriverTest {
         projects3.add(c1);
         PhysicalProperties phyProp3 = ChildOutputPropertyDeriver.computeProjectOutputProperties(projects3, hashC1);
         Assertions.assertEquals(hashC1, phyProp3);
+    }
+
+    @Test
+    void testProjectOnlyPropagatesMappingThroughHashValuePreservingCast() {
+        SlotReference distributionKey = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference determinant = new SlotReference("d1", new VarcharType(8));
+        DistributionSpecHash childHash = new DistributionSpecHash(
+                ImmutableList.of(distributionKey.getExprId()), ShuffleType.NATURAL,
+                1L, 2L, ImmutableSet.of(3L),
+                ImmutableList.of(new DistributionMapping(
+                        "mapping_1", ImmutableList.of(determinant.getExprId()), ImmutableList.of(0))));
+        PhysicalProperties childProperties = new PhysicalProperties(childHash);
+
+        Alias widened = new Alias(new Cast(determinant, new VarcharType(32)), "widened_d1");
+        PhysicalProperties widenedProperties = ChildOutputPropertyDeriver.computeProjectOutputProperties(
+                ImmutableList.of(widened), childProperties);
+        Assertions.assertEquals(DistributionSpecStorageAny.INSTANCE, widenedProperties.getDistributionSpec());
+        Assertions.assertTrue(widenedProperties.getNaturalDistributionMappingSpec().isPresent());
+        Assertions.assertEquals(
+                ImmutableList.of(widened.getExprId()),
+                widenedProperties.getNaturalDistributionMappingSpec().get()
+                        .getDistributionMappings().get(0).getDeterminantExprIds());
+
+        Alias narrowed = new Alias(new Cast(determinant, new VarcharType(4)), "narrowed_d1");
+        PhysicalProperties narrowedProperties = ChildOutputPropertyDeriver.computeProjectOutputProperties(
+                ImmutableList.of(narrowed), childProperties);
+        Assertions.assertEquals(DistributionSpecStorageAny.INSTANCE, narrowedProperties.getDistributionSpec());
+        Assertions.assertFalse(narrowedProperties.getNaturalDistributionMappingSpec().isPresent());
     }
 
     @Test

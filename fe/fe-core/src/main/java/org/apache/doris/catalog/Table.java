@@ -258,7 +258,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
             }
             return res;
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
             LOG.warn("failed to try write lock at table[" + name + "]", e);
             return false;
         }

@@ -26,7 +26,6 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableProperty;
-import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
@@ -60,7 +59,6 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.mockito.ArgumentMatchers;
-import org.mockito.InOrder;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -359,32 +357,6 @@ public class BackupJobTest {
     }
 
     @Test
-    @SuppressWarnings("deprecation")
-    public void testPublishesMappingBackupMetaUnderFrontendAdmissionFence() {
-        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
-        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
-        OlapTable sourceTable = (OlapTable) db.getTableNullable(tblId);
-        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
-                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
-        sourceTable.getTableAttributes().getConstraintsMap().put(mapping.getName(), mapping);
-
-        job.run();
-
-        Assert.assertEquals(BackupJobState.SNAPSHOTING, job.getState());
-        Assert.assertTrue(job.containsDistributionMappingConstraint());
-        InOrder admissionOrder = Mockito.inOrder(constraintManager);
-        admissionOrder.verify(constraintManager).acquireFrontendAdmissionForMapping();
-        admissionOrder.verify(constraintManager).releaseFrontendAdmissionFence();
-
-        Mockito.doAnswer(invocation -> {
-            Assert.assertTrue(job.containsDistributionMappingConstraint());
-            return null;
-        }).when(editLog).logBackupJob(job);
-        job.cancel();
-        Assert.assertFalse(job.containsDistributionMappingConstraint());
-    }
-
-    @Test
     public void testBackupCopyTableWithDirtyDynamicPartitionStorageMedium() {
         Map<String, String> dirtyProperties = Maps.newHashMap();
         dirtyProperties.put(DynamicPartitionProperty.STORAGE_MEDIUM, "hdd");
@@ -395,6 +367,21 @@ public class BackupJobTest {
         Assert.assertNotNull(copied);
         Assert.assertFalse(copied.dynamicPartitionExists());
         Assert.assertTrue(copied.getTableProperty().hasInvalidDynamicPartition());
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    public void testBackupCopyPreservesDistributionMappingConstraint() {
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
+        table2.getTableAttributes().getDistributionMappingConstraints()
+                .put(mapping.getName(), mapping);
+
+        OlapTable copied = table2.selectiveCopy(null, IndexExtState.VISIBLE, true);
+
+        Assert.assertNotNull(copied);
+        Assert.assertEquals(mapping, copied.getTableAttributes()
+                .getDistributionMappingConstraints().get(mapping.getName()));
     }
 
     @Test

@@ -34,7 +34,6 @@ import org.apache.doris.binlog.UpsertRecord;
 import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.EncryptKeySearchDesc;
@@ -43,9 +42,7 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Resource;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
-import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -114,14 +111,12 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.tso.TSOTimestamp;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -137,24 +132,12 @@ import java.util.concurrent.atomic.AtomicLong;
 public class EditLog {
     public static final Logger LOG = LogManager.getLogger(EditLog.class);
 
-    /** One operation inside an atomic edit-log request. */
-    public static class EditLogOperation {
-        private final short op;
-        private final Writable writable;
-
-        public EditLogOperation(short op, Writable writable) {
-            this.op = op;
-            this.writable = writable;
-        }
-    }
-
     // Helper class to hold log edit requests.
     // Public so that callers can enqueue inside a lock and await outside it.
     public static class EditLogItem {
         static AtomicLong nextUid = new AtomicLong(0);
         final short op;
         final Writable writable;
-        final List<EditLogOperation> atomicOperations;
         final Object lock = new Object();
         volatile boolean finished = false;
         long logId = -1;
@@ -163,16 +146,6 @@ public class EditLog {
         EditLogItem(short op, Writable writable) {
             this.op = op;
             this.writable = writable;
-            this.atomicOperations = null;
-            uid = nextUid.getAndIncrement();
-        }
-
-        EditLogItem(List<EditLogOperation> atomicOperations) {
-            Preconditions.checkArgument(!atomicOperations.isEmpty(),
-                    "atomic edit-log request must contain at least one operation");
-            this.atomicOperations = Collections.unmodifiableList(new ArrayList<>(atomicOperations));
-            this.op = atomicOperations.get(atomicOperations.size() - 1).op;
-            this.writable = null;
             uid = nextUid.getAndIncrement();
         }
 
@@ -192,10 +165,6 @@ public class EditLog {
                 }
             }
             return logId;
-        }
-
-        private int journalCount() {
-            return atomicOperations == null ? 1 : atomicOperations.size();
         }
     }
 
@@ -244,30 +213,46 @@ public class EditLog {
                 return;
             }
             batch.add(first);
-            if (Config.enable_batch_editlog) {
-                logEditQueue.drainTo(batch, Config.batch_edit_log_max_item_num - 1);
-            }
+            logEditQueue.drainTo(batch, Config.batch_edit_log_max_item_num - 1);
+
+            int itemNum = Math.max(1, Math.min(Config.batch_edit_log_max_item_num, batch.size()));
+            JournalBatch journalBatch = new JournalBatch(itemNum);
 
             if (DebugPointUtil.isEnable("EditLog.flushEditLog.exception")) {
                 // For debug purpose, throw an exception to test the edit log flush
                 throw new RuntimeException("EditLog.flushEditLog.exception");
             }
-            List<long[]> logIdNumPairs = writeJournalBatch(journal, batch);
+            // Array to record pairs of logId and num
+            List<long[]> logIdNumPairs = new ArrayList<>();
+            for (EditLogItem req : batch) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("try to flush editLog request: uid={}, op={}", req.uid, req.op);
+                }
+                journalBatch.addJournal(req.op, req.writable);
+                if (journalBatch.shouldFlush()) {
+                    long logId = journal.write(journalBatch);
+                    logIdNumPairs.add(new long[]{logId, journalBatch.getJournalEntities().size()});
+                    journalBatch = new JournalBatch(itemNum);
+                }
+            }
+            // Write any remaining entries in the batch
+            if (!journalBatch.getJournalEntities().isEmpty()) {
+                long logId = journal.write(journalBatch);
+                logIdNumPairs.add(new long[]{logId, journalBatch.getJournalEntities().size()});
+            }
 
             // Notify all producers
-            // For batch with index, assign logId to each request according to the batch flushes.
-            // Atomic groups occupy multiple journal IDs but correspond to one producer request.
+            // For batch with index, assign logId to each request according to the batch flushes
             int reqIndex = 0;
             for (long[] pair : logIdNumPairs) {
                 long logId = pair[0];
-                int numJournals = (int) pair[1];
-                int numRequests = pair.length == 3 ? (int) pair[2] : numJournals;
-                for (int i = 0; i < numRequests && reqIndex < batch.size(); i++, reqIndex++) {
+                int num = (int) pair[1];
+                for (int i = 0; i < num && reqIndex < batch.size(); i++, reqIndex++) {
                     EditLogItem req = batch.get(reqIndex);
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("notify editLog request: uid={}, op={}", req.uid, req.op);
                     }
-                    req.logId = numRequests == 1 ? logId + numJournals - 1 : logId + i;
+                    req.logId = logId + i;
                     synchronized (req.lock) {
                         req.finished = true;
                         req.lock.notifyAll();
@@ -284,10 +269,7 @@ public class EditLog {
             System.exit(-1);
         }
 
-        int journalCount = batch.stream()
-                .mapToInt(EditLogItem::journalCount)
-                .sum();
-        txId += journalCount;
+        txId += batch.size();
         // update statistics, etc. (optional, can be added as needed)
         if (txId >= Config.edit_log_roll_num || exceedEditLogRollInterval()) {
             LOG.info("edit log roll condition met. txId: {}, edit log roll num: {}, "
@@ -297,54 +279,8 @@ public class EditLog {
             txId = 0;
         }
         if (MetricRepo.isInit) {
-            MetricRepo.COUNTER_EDIT_LOG_WRITE.increase(Long.valueOf(journalCount));
+            MetricRepo.COUNTER_EDIT_LOG_WRITE.increase(Long.valueOf(batch.size()));
         }
-    }
-
-    static List<long[]> writeJournalBatch(Journal journal, List<EditLogItem> batch) throws IOException {
-        int itemNum = Math.max(1, Math.min(Config.batch_edit_log_max_item_num, batch.size()));
-        JournalBatch journalBatch = new JournalBatch(itemNum);
-        List<long[]> logIdNumPairs = new ArrayList<>();
-        for (EditLogItem req : batch) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("try to flush editLog request: uid={}, op={}", req.uid, req.op);
-            }
-            if (req.atomicOperations != null) {
-                if (!journalBatch.getJournalEntities().isEmpty()) {
-                    long logId = journal.write(journalBatch);
-                    logIdNumPairs.add(new long[]{logId, journalBatch.getJournalEntities().size()});
-                    journalBatch = new JournalBatch(itemNum);
-                }
-                JournalBatch atomicBatch = new JournalBatch(req.atomicOperations.size());
-                for (EditLogOperation operation : req.atomicOperations) {
-                    atomicBatch.addJournal(operation.op, operation.writable);
-                }
-                long logId = journal.write(atomicBatch);
-                logIdNumPairs.add(new long[]{logId, atomicBatch.getJournalEntities().size(), 1});
-                continue;
-            }
-            if (requiresDirectJournalWrite(req.op)) {
-                if (!journalBatch.getJournalEntities().isEmpty()) {
-                    long logId = journal.write(journalBatch);
-                    logIdNumPairs.add(new long[]{logId, journalBatch.getJournalEntities().size()});
-                    journalBatch = new JournalBatch(itemNum);
-                }
-                long logId = journal.write(req.op, req.writable);
-                logIdNumPairs.add(new long[]{logId, 1});
-                continue;
-            }
-            journalBatch.addJournal(req.op, req.writable);
-            if (journalBatch.shouldFlush()) {
-                long logId = journal.write(journalBatch);
-                logIdNumPairs.add(new long[]{logId, journalBatch.getJournalEntities().size()});
-                journalBatch = new JournalBatch(itemNum);
-            }
-        }
-        if (!journalBatch.getJournalEntities().isEmpty()) {
-            long logId = journal.write(journalBatch);
-            logIdNumPairs.add(new long[]{logId, journalBatch.getJournalEntities().size()});
-        }
-        return logIdNumPairs;
     }
 
     public long getMaxJournalId() {
@@ -1068,7 +1004,10 @@ public class EditLog {
                 case OperationType.OP_MODIFY_REPLICATION_NUM: {
                     ModifyTablePropertyOperationLog log = (ModifyTablePropertyOperationLog) journal.getData();
                     env.replayModifyTableProperty(opCode, log);
-                    env.getBinlogManager().addModifyTableProperty(log, logId);
+                    // Mapping constraints only reuse this legacy envelope for old-FE readability.
+                    if (!log.hasDistributionMappingConstraintMutation()) {
+                        env.getBinlogManager().addModifyTableProperty(log, logId);
+                    }
                     break;
                 }
                 case OperationType.OP_TABLE_STREAM_CLEANUP: {
@@ -1287,7 +1226,8 @@ public class EditLog {
                         break;
                     }
                     List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tni, constraint);
-                    replayConstraint(env, tni, constraint, true);
+                    env.getConstraintManager().addConstraint(
+                            tni, constraint.getName(), constraint, true);
                     MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                             String.format("when replaying add constraint %s on table %s",
                                     constraint.getName(), tni));
@@ -1303,7 +1243,8 @@ public class EditLog {
                         break;
                     }
                     List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tni, constraint);
-                    replayConstraint(env, tni, constraint, false);
+                    env.getConstraintManager().dropConstraint(
+                            tni, constraint.getName(), true);
                     MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                             String.format("when replaying drop constraint %s on table %s",
                                     constraint.getName(), tni));
@@ -1603,39 +1544,6 @@ public class EditLog {
         }
     }
 
-    private static void replayConstraint(
-            Env env, TableNameInfo tableNameInfo, Constraint constraint, boolean add) {
-        TableIf table = null;
-        if (constraint instanceof DistributionMappingConstraint) {
-            CatalogIf<?> catalog = env.getCatalogMgr().getCatalog(tableNameInfo.getCtl());
-            DatabaseIf<?> database = catalog == null ? null : catalog.getDbNullable(tableNameInfo.getDb());
-            table = database == null ? null : database.getTableNullable(tableNameInfo.getTbl());
-            if (table != null) {
-                table.writeLock();
-            }
-        }
-        try {
-            if (add) {
-                env.getConstraintManager().addConstraint(
-                        tableNameInfo, constraint.getName(), constraint, true);
-            } else {
-                env.getConstraintManager().dropConstraint(
-                        tableNameInfo, constraint.getName(), true);
-            }
-            if (constraint instanceof DistributionMappingConstraint) {
-                if (table == null) {
-                    env.getSqlCacheManager().invalidateAboutTableAndFencePublication(tableNameInfo);
-                } else {
-                    env.getSqlCacheManager().invalidateAboutTableAndFencePublication(table);
-                }
-            }
-        } finally {
-            if (table != null) {
-                table.writeUnlock();
-            }
-        }
-    }
-
     /**
      * Shutdown the file store.
      */
@@ -1729,6 +1637,9 @@ public class EditLog {
      * <p>The caller MUST call {@link EditLogItem#await()} after releasing the lock to ensure
      * the entry is persisted before proceeding.
      *
+     * <p>If batch edit log is disabled, this falls back to a synchronous direct write
+     * and the returned item is already completed.
+     *
      * @return an {@link EditLogItem} handle to await completion
      */
     public EditLogItem submitEdit(short op, Writable writable) {
@@ -1737,37 +1648,26 @@ public class EditLog {
             throw new Error("Fatal Error : no editLog stream");
         }
 
-        return enqueueEdit(new EditLogItem(op, writable));
-    }
-
-    /** Submit operations that must become durable as one journal transaction. */
-    public EditLogItem submitAtomicEdits(List<EditLogOperation> operations) {
-        Preconditions.checkArgument(!operations.isEmpty(),
-                "atomic edit-log request must contain at least one operation");
-        for (EditLogOperation operation : operations) {
-            Preconditions.checkArgument(!requiresDirectJournalWrite(operation.op),
-                    "operation %s cannot be written in a journal batch", operation.op);
-        }
-        if (this.getNumEditStreams() == 0) {
-            LOG.error("Fatal Error : no editLog stream", new Exception());
-            throw new Error("Fatal Error : no editLog stream");
-        }
-        return enqueueEdit(new EditLogItem(operations));
-    }
-
-    private EditLogItem enqueueEdit(EditLogItem req) {
-        while (true) {
-            try {
-                logEditQueue.put(req);
-                break;
-            } catch (InterruptedException e) {
-                LOG.warn("Interrupted during put, will sleep and retry.");
+        EditLogItem req = new EditLogItem(op, writable);
+        if (Config.enable_batch_editlog && op != OperationType.OP_TIMESTAMP) {
+            while (true) {
                 try {
-                    Thread.sleep(100);
-                } catch (InterruptedException ex) {
-                    LOG.warn("interrupted during sleep, will retry.", ex);
+                    logEditQueue.put(req);
+                    break;
+                } catch (InterruptedException e) {
+                    LOG.warn("Interrupted during put, will sleep and retry.");
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException ex) {
+                        LOG.warn("interrupted during sleep, will retry.", ex);
+                    }
                 }
             }
+        } else {
+            // Non-batch mode: write directly (synchronous)
+            long logId = logEditDirectly(op, writable);
+            req.logId = logId;
+            req.finished = true;
         }
         return req;
     }
@@ -1831,7 +1731,7 @@ public class EditLog {
             }
         }
         long logId = -1;
-        if (shouldUseQueue(op)) {
+        if (Config.enable_batch_editlog && op != OperationType.OP_TIMESTAMP) {
             logId = logEditWithQueue(op, writable);
         } else {
             logId = logEditDirectly(op, writable);
@@ -1853,14 +1753,6 @@ public class EditLog {
         }
 
         return logId;
-    }
-
-    static boolean shouldUseQueue(short op) {
-        return op != OperationType.OP_TIMESTAMP || !Config.enable_batch_editlog;
-    }
-
-    static boolean requiresDirectJournalWrite(short op) {
-        return op == OperationType.OP_TIMESTAMP;
     }
 
     /**
@@ -2688,6 +2580,14 @@ public class EditLog {
     public void logAlterMTMV(AlterMTMV log) {
         logEdit(OperationType.OP_ALTER_MTMV, log);
 
+    }
+
+    public void logAddConstraint(AlterConstraintLog log) {
+        logEdit(OperationType.OP_ADD_CONSTRAINT, log);
+    }
+
+    public void logDropConstraint(AlterConstraintLog log) {
+        logEdit(OperationType.OP_DROP_CONSTRAINT, log);
     }
 
     public void logInsertOverwrite(InsertOverwriteLog log) {

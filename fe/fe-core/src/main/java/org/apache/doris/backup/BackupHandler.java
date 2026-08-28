@@ -41,7 +41,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.info.TableRefInfo;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
@@ -638,37 +637,11 @@ public class BackupHandler extends MasterDaemon implements Writable {
             }
         }
 
-        boolean frontendAdmissionAcquired = false;
-        try {
-            if (restoreJob.containsDistributionMappingConstraint()) {
-                try {
-                    env.getConstraintManager().acquireFrontendAdmissionForMapping();
-                    frontendAdmissionAcquired = true;
-                } catch (AnalysisException e) {
-                    throw new DdlException(e.getMessage(), e);
-                }
-            }
-            env.getEditLog().logRestoreJob(restoreJob);
+        env.getEditLog().logRestoreJob(restoreJob);
 
-            // must put to dbIdToBackupOrRestoreJob after edit log, otherwise the state of job may be changed.
-            addBackupOrRestoreJob(db.getId(), restoreJob);
-        } finally {
-            if (frontendAdmissionAcquired) {
-                env.getConstraintManager().releaseFrontendAdmissionFence();
-            }
-        }
+        // must put to dbIdToBackupOrRestoreJob after edit log, otherwise the state of job may be changed.
+        addBackupOrRestoreJob(db.getId(), restoreJob);
         LOG.info("finished to submit restore job: {}", restoreJob);
-    }
-
-    public boolean containsDistributionMappingConstraint() {
-        jobLock.lock();
-        try {
-            return dbIdToBackupOrRestoreJobs.values().stream()
-                    .flatMap(Deque::stream)
-                    .anyMatch(AbstractJob::containsDistributionMappingConstraint);
-        } finally {
-            jobLock.unlock();
-        }
     }
 
     private void addBackupOrRestoreJob(long dbId, AbstractJob job) {

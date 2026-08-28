@@ -253,14 +253,6 @@ public class ConnectorPluginManagerTest {
         Assertions.assertFalse(incompatible.getRegisteredTypes().contains("classpath-test"),
                 "a provider one major behind the kernel must not enter through classpath discovery");
 
-        Path futureJar = createClasspathProviderJar(tempDir.resolve("api-future.jar"), (kernelMajor + 1) + ".0");
-        ConnectorPluginManager newer = new ConnectorPluginManager();
-        try (URLClassLoader loader = providerClassLoader(futureJar)) {
-            newer.loadBuiltins(loader);
-        }
-        Assertions.assertFalse(newer.getRegisteredTypes().contains("classpath-test"),
-                "a provider one major ahead of the kernel must not enter through classpath discovery");
-
         Path currentJar = createClasspathProviderJar(tempDir.resolve("api-current.jar"), kernelMajor + ".0");
         ConnectorPluginManager compatible = new ConnectorPluginManager();
         try (URLClassLoader loader = providerClassLoader(currentJar)) {

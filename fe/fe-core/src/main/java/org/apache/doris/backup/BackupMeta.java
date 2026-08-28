@@ -19,7 +19,6 @@ package org.apache.doris.backup;
 
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.meta.MetaContext;
@@ -92,13 +91,6 @@ public class BackupMeta implements Writable, GsonPostProcessable {
             return true;
         }
         return false;
-    }
-
-    @SuppressWarnings("deprecation")
-    public boolean containsDistributionMappingConstraint() {
-        return tblNameMap.values().stream()
-                .anyMatch(table -> table.getTableAttributes().getConstraintsMap().values().stream()
-                        .anyMatch(DistributionMappingConstraint.class::isInstance));
     }
 
     public static BackupMeta fromFile(String filePath, int metaVersion) throws IOException {

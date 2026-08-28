@@ -80,7 +80,6 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.TableStreamBuildFactory;
@@ -133,8 +132,6 @@ import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropPartitionInfo;
-import org.apache.doris.persist.EditLog;
-import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
@@ -556,32 +553,23 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public void unprotectDropDb(Database db, boolean isForeDrop, boolean isReplay, long recycleTime)
             throws DdlException {
-        ConstraintManager constraintManager = Env.getCurrentEnv().getConstraintManager();
-        boolean frontendAdmissionAcquired =
-                !isReplay && constraintManager.acquireFrontendAdmissionFence();
-        try {
-            // Pre-drop all constraints for this database to avoid ordering-dependent FK check failures.
-            // Without this, if table B has an FK referencing table A's PK, and B is iterated before A,
-            // dropping A would fail because B's FK still exists.
-            constraintManager.dropDatabaseConstraints(
-                    InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName());
-            for (Table table : db.getTables()) {
-                unprotectDropTable(db, table, isForeDrop, isReplay, recycleTime);
-            }
-            if (!db.getTables().isEmpty()) {
-                throw new IllegalStateException("Database " + db.getFullName() + " is not empty. Contains tables: "
-                                                + db.getTableIds().stream().collect(Collectors.toSet()));
-            }
-            if (!db.getTableNames().isEmpty()) {
-                throw new IllegalStateException("Database " + db.getFullName() + " is not empty. Contains tables: "
-                                                + db.getTableNames().stream().collect(Collectors.toSet()));
-            }
-            db.markDropped();
-        } finally {
-            if (frontendAdmissionAcquired) {
-                constraintManager.releaseFrontendAdmissionFence();
-            }
+        // Pre-drop all constraints for this database to avoid ordering-dependent FK check failures.
+        // Without this, if table B has an FK referencing table A's PK, and B is iterated before A,
+        // dropping A would fail because B's FK still exists.
+        Env.getCurrentEnv().getConstraintManager().dropDatabaseConstraints(
+                InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName());
+        for (Table table : db.getTables()) {
+            unprotectDropTable(db, table, isForeDrop, isReplay, recycleTime);
         }
+        if (!db.getTables().isEmpty()) {
+            throw new IllegalStateException("Database " + db.getFullName() + " is not empty. Contains tables: "
+                                            + db.getTableIds().stream().collect(Collectors.toSet()));
+        }
+        if (!db.getTableNames().isEmpty()) {
+            throw new IllegalStateException("Database " + db.getFullName() + " is not empty. Contains tables: "
+                                            + db.getTableNames().stream().collect(Collectors.toSet()));
+        }
+        db.markDropped();
     }
 
     public void replayDropDb(String dbName, boolean isForceDrop, Long recycleTime) throws DdlException {
@@ -628,64 +616,50 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
+        Database db = Env.getCurrentRecycleBin().recoverDatabase(dbName, dbId);
+
         // add db to catalog
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
         }
-        ConstraintManager constraintManager = Env.getCurrentEnv().getConstraintManager();
-        boolean frontendAdmissionAcquired = false;
+        db.writeLock();
+        List<Table> tableList = db.getTablesOnIdOrder();
+        MetaLockUtils.writeLockTables(tableList);
         try {
-            frontendAdmissionAcquired = constraintManager.acquireFrontendAdmissionFence();
-            Database db = Env.getCurrentRecycleBin().recoverDatabase(dbName, dbId);
-            db.writeLock();
-            List<Table> tableList = db.getTablesOnIdOrder();
-            MetaLockUtils.writeLockTables(tableList);
-            try {
-                if (!Strings.isNullOrEmpty(newDbName)) {
-                    if (fullNameToDb.containsKey(newDbName)) {
-                        throw new DdlException("Database[" + newDbName + "] already exist.");
-                        // it's ok that we do not put db back to CatalogRecycleBin
-                        // cause this db cannot recover any more
-                    }
-                } else {
-                    if (fullNameToDb.containsKey(db.getFullName())) {
-                        throw new DdlException("Database[" + db.getFullName() + "] already exist.");
-                        // it's ok that we do not put db back to CatalogRecycleBin
-                        // cause this db cannot recover any more
-                    }
+            if (!Strings.isNullOrEmpty(newDbName)) {
+                if (fullNameToDb.containsKey(newDbName)) {
+                    throw new DdlException("Database[" + newDbName + "] already exist.");
+                    // it's ok that we do not put db back to CatalogRecycleBin
+                    // cause this db cannot recover any more
                 }
-                if (!Strings.isNullOrEmpty(newDbName)) {
-                    db.setNameWithLock(newDbName);
+            } else {
+                if (fullNameToDb.containsKey(db.getFullName())) {
+                    throw new DdlException("Database[" + db.getFullName() + "] already exist.");
+                    // it's ok that we do not put db back to CatalogRecycleBin
+                    // cause this db cannot recover any more
                 }
-                fullNameToDb.put(db.getFullName(), db);
-                idToDb.put(db.getId(), db);
-                for (Table table : tableList) {
-                    constraintManager.restoreTableConstraints(
-                            TableNameInfoUtils.fromDb(db, table.getName()), table);
-                }
-                // log
-                RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, newDbName, "", "", "", "");
-                Env.getCurrentEnv().getEditLog().logRecoverDb(recoverInfo);
-                db.unmarkDropped();
-                registerDbFunctionsToNereids(db);
-                LOG.info("recover database[{}]", db.getId());
-            } finally {
-                MetaLockUtils.writeUnlockTables(tableList);
-                db.writeUnlock();
             }
+            if (!Strings.isNullOrEmpty(newDbName)) {
+                db.setNameWithLock(newDbName);
+            }
+            fullNameToDb.put(db.getFullName(), db);
+            idToDb.put(db.getId(), db);
+            // log
+            RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, newDbName, "", "", "", "");
+            Env.getCurrentEnv().getEditLog().logRecoverDb(recoverInfo);
+            db.unmarkDropped();
+            registerDbFunctionsToNereids(db);
         } finally {
-            if (frontendAdmissionAcquired) {
-                constraintManager.releaseFrontendAdmissionFence();
-            }
+            MetaLockUtils.writeUnlockTables(tableList);
+            db.writeUnlock();
             unlock();
         }
+        LOG.info("recover database[{}]", db.getId());
     }
 
     public void recoverTable(String dbName, String tableName, String newTableName, long tableId) throws DdlException {
         Database db = getDbOrDdlException(dbName);
         db.writeLockOrDdlException();
-        ConstraintManager constraintManager = Env.getCurrentEnv().getConstraintManager();
-        boolean frontendAdmissionAcquired = constraintManager.acquireFrontendAdmissionFence();
         try {
             if (Strings.isNullOrEmpty(newTableName)) {
                 if (db.getTable(tableName).isPresent()) {
@@ -699,14 +673,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!Env.getCurrentRecycleBin().recoverTable(db, tableName, tableId, newTableName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
             }
-            Table recoveredTable = db.getTableOrDdlException(
-                    Strings.isNullOrEmpty(newTableName) ? tableName : newTableName);
-            constraintManager.restoreTableConstraints(
-                    TableNameInfoUtils.fromDb(db, recoveredTable.getName()), recoveredTable);
         } finally {
-            if (frontendAdmissionAcquired) {
-                constraintManager.releaseFrontendAdmissionFence();
-            }
             db.writeUnlock();
         }
     }
@@ -763,10 +730,6 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // add db to catalog
         replayCreateDb(db, newDbName);
-        for (Table table : db.getTables()) {
-            Env.getCurrentEnv().getConstraintManager().restoreTableConstraints(
-                    TableNameInfoUtils.fromDb(db, table.getName()), table);
-        }
         db.unmarkDropped();
         registerDbFunctionsToNereids(db);
         LOG.info("replay recover db[{}]", dbId);
@@ -873,8 +836,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // 2. add to meta. check again
                 fullNameToDb.remove(dbName);
                 fullNameToDb.put(newDbName, db);
-                Env.getCurrentEnv().getConstraintManager().renameDatabase(
-                        InternalCatalog.INTERNAL_CATALOG_NAME, dbName, newDbName);
 
                 DatabaseInfo dbInfo = new DatabaseInfo(dbName, newDbName, -1L, QuotaType.NONE);
                 Env.getCurrentEnv().getEditLog().logDatabaseRename(dbInfo);
@@ -897,8 +858,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             db.setName(newDbName);
             fullNameToDb.remove(dbName);
             fullNameToDb.put(newDbName, db);
-            Env.getCurrentEnv().getConstraintManager().renameDatabase(
-                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, newDbName);
         } finally {
             unlock();
         }
@@ -991,12 +950,12 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             if (table.isTemporary()) {
-                dropTableInternal(db, table, false, true, watch, costTimes, false);
+                dropTableInternal(db, table, false, true, watch, costTimes);
             } else {
                 if (mustTemporary) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
                 }
-                dropTableInternal(db, table, isView, force, watch, costTimes, false);
+                dropTableInternal(db, table, isView, force, watch, costTimes);
             }
         } catch (UserException e) {
             throw new DdlException(e.getMessage(), e.getMysqlErrorCode());
@@ -1016,7 +975,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         try {
             LOG.info("drop table {} without check, force: {}", table.getQualifiedName(), forceDrop);
-            dropTableInternal(db, table, isView, forceDrop, null, null, false);
+            dropTableInternal(db, table, isView, forceDrop, null, null);
         } catch (Exception e) {
             LOG.warn("drop table without check", e);
             throw e;
@@ -1026,18 +985,10 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     // Drop a table, the db lock must hold.
-    /** Drop under the caller's database write lock and defer journal durability wait. */
-    public EditLog.EditLogItem dropTableWithoutCheckAndSubmit(
-            Database db, Table table, boolean isView, boolean forceDrop) throws DdlException {
-        Preconditions.checkState(db.isWriteLockHeldByCurrentThread());
-        return dropTableInternal(db, table, isView, forceDrop, null, null, true);
-    }
-
-    private EditLog.EditLogItem dropTableInternal(Database db, Table table, boolean isView, boolean forceDrop,
-            StopWatch watch, Map<String, Long> costTimes, boolean deferJournalWait) throws DdlException {
+    private void dropTableInternal(Database db, Table table, boolean isView, boolean forceDrop,
+            StopWatch watch, Map<String, Long> costTimes) throws DdlException {
         table.writeLock();
         String tableName = table.getName();
-        EditLog.EditLogItem logItem = null;
         if (watch != null) {
             watch.split();
             costTimes.put("3:tableWriteLock", watch.getSplitTime());
@@ -1057,12 +1008,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
             DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, isView, forceDrop, recycleTime);
-            if (deferJournalWait) {
-                logItem = Env.getCurrentEnv().getEditLog()
-                        .submitEdit(OperationType.OP_DROP_TABLE, info);
-            } else {
-                Env.getCurrentEnv().getEditLog().logDropTable(info);
-            }
+            Env.getCurrentEnv().getEditLog().logDropTable(info);
         } finally {
             table.writeUnlock();
         }
@@ -1073,7 +1019,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr()).afterDropTable(db.getId(),
                     table.getId());
         }
-        return logItem;
     }
 
     private static String genDropHint(String dbName, TableIf table) {
@@ -1092,22 +1037,6 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
             long recycleTime) throws DdlException {
-        ConstraintManager constraintManager = Env.getCurrentEnv().getConstraintManager();
-        boolean frontendAdmissionAcquired =
-                !isReplay && constraintManager.acquireFrontendAdmissionFence();
-        try {
-            return unprotectDropTableWithFrontendAdmission(
-                    db, table, isForceDrop, isReplay, recycleTime, constraintManager);
-        } finally {
-            if (frontendAdmissionAcquired) {
-                constraintManager.releaseFrontendAdmissionFence();
-            }
-        }
-    }
-
-    private boolean unprotectDropTableWithFrontendAdmission(Database db, Table table,
-            boolean isForceDrop, boolean isReplay, long recycleTime,
-            ConstraintManager constraintManager) throws DdlException {
         if (table instanceof MTMV) {
             Env.getCurrentEnv().getMtmvService().dropJob((MTMV) table, isReplay);
         }
@@ -1120,7 +1049,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), table.getId());
-        constraintManager.checkAndDropTableConstraints(
+        Env.getCurrentEnv().getConstraintManager().checkAndDropTableConstraints(
                 TableNameInfoUtils.fromDb(db, table.getName()),
                 !isForceDrop && !isReplay);
         db.unregisterTable(table.getId());
@@ -1159,9 +1088,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         db.writeLockOrDdlException();
         try {
             Env.getCurrentRecycleBin().replayRecoverTable(db, info.getTableId(), info.getNewTableName());
-            Table recoveredTable = db.getTableOrMetaException(info.getTableId());
-            Env.getCurrentEnv().getConstraintManager().restoreTableConstraints(
-                    TableNameInfoUtils.fromDb(db, recoveredTable.getName()), recoveredTable);
         } finally {
             db.writeUnlock();
         }
@@ -2115,20 +2041,6 @@ public class InternalCatalog implements CatalogIf<Database> {
     // drop partition without any check, the caller should hold the table write lock.
     public void dropPartitionWithoutCheck(Database db, OlapTable olapTable, String partitionName,
             boolean isTempPartition, boolean isForceDrop) throws DdlException {
-        dropPartitionWithoutCheck(db, olapTable, partitionName, isTempPartition, isForceDrop, false);
-    }
-
-    /** Drop under the caller's table lock and defer journal durability wait. */
-    public EditLog.EditLogItem dropPartitionWithoutCheckAndSubmit(Database db, OlapTable olapTable,
-            String partitionName, boolean isTempPartition, boolean isForceDrop) throws DdlException {
-        Preconditions.checkState(olapTable.isWriteLockHeldByCurrentThread());
-        return dropPartitionWithoutCheck(
-                db, olapTable, partitionName, isTempPartition, isForceDrop, true);
-    }
-
-    private EditLog.EditLogItem dropPartitionWithoutCheck(Database db, OlapTable olapTable,
-            String partitionName, boolean isTempPartition, boolean isForceDrop,
-            boolean deferJournalWait) throws DdlException {
         Partition partition = null;
         long recycleTime = -1;
         if (isTempPartition) {
@@ -2176,16 +2088,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         long partitionId = partition == null ? -1L : partition.getId();
         DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionId, partitionName,
                 isTempPartition, isForceDrop, recycleTime, version, versionTime);
-        EditLog.EditLogItem logItem = null;
-        if (deferJournalWait) {
-            logItem = Env.getCurrentEnv().getEditLog()
-                    .submitEdit(OperationType.OP_DROP_PARTITION, info);
-        } else {
-            Env.getCurrentEnv().getEditLog().logDropPartition(info);
-        }
+        Env.getCurrentEnv().getEditLog().logDropPartition(info);
         LOG.info("succeed in dropping partition[{}], table : [{}-{}], is temp : {}, is force : {}",
                 partitionName, olapTable.getId(), olapTable.getName(), isTempPartition, isForceDrop);
-        return logItem;
     }
 
     public void replayDropPartition(DropPartitionInfo info) throws MetaNotFoundException {

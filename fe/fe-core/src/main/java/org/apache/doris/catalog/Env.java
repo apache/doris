@@ -1241,7 +1241,6 @@ public class Env {
         loadImage(this.imageDir); // load image file
         seedSelfLocalResourceGroup();
         migrateConstraintsFromTables(); // migrate old table-based constraints
-        metastoreEventSyncDriver.prepareConstraintStateAfterImageLoad();
         editLog.open(); // open bdb env
         this.globalTransactionMgr.setEditLog(editLog);
         this.idGenerator.setEditLog(editLog);
@@ -1751,9 +1750,6 @@ public class Env {
             replayJournal(-1);
             long replayEndTime = System.currentTimeMillis();
             LOG.info("finish replay in " + (replayEndTime - replayStartTime) + " msec");
-
-            toMasterProgress = "reconcile legacy metastore constraints";
-            metastoreEventSyncDriver.reconcileConstraintStateBeforeMasterReady();
 
             removeDroppedFrontends(removedFrontends);
 
@@ -3090,7 +3086,6 @@ public class Env {
     @SuppressWarnings("unchecked")
     public void migrateConstraintsFromTables() {
         if (!constraintManager.isEmpty()) {
-            constraintManager.syncDistributionMappingsToTables();
             return;
         }
         int migratedCount = 0;
@@ -3130,7 +3125,6 @@ public class Env {
             LOG.info("Migrated {} constraints from old table-based storage "
                     + "to ConstraintManager", migratedCount);
             constraintManager.rebuildForeignKeyReferences();
-            constraintManager.syncDistributionMappingsToTables();
         }
     }
 
@@ -3463,10 +3457,7 @@ public class Env {
 
     public void addFrontend(FrontendNodeType role, String host, int editLogPort, String nodeName, String cloudUniqueId)
             throws DdlException {
-        ConstraintManager currentConstraintManager = getConstraintManager();
-        currentConstraintManager.acquireFrontendAdmission();
         if (!tryLock(false)) {
-            currentConstraintManager.releaseFrontendAdmissionFence();
             throw new DdlException("Failed to acquire env lock. Try again");
         }
         try {
@@ -3504,7 +3495,6 @@ public class Env {
             editLog.logAddFrontend(fe);
         } finally {
             unlock();
-            currentConstraintManager.releaseFrontendAdmissionFence();
         }
     }
 
@@ -6008,17 +5998,14 @@ public class Env {
         if (partitionInfo.getPartitionColumns().stream().anyMatch(c -> c.getName().equalsIgnoreCase(colName))) {
             throw new DdlException("Renaming partition columns has problems, forbidden in current Doris version");
         }
-        String mappingConstraint =
-                constraintManager.findDistributionMappingConstraintWithColumn(table, colName);
-        if (mappingConstraint == null && !isReplay) {
-            mappingConstraint = constraintManager.findConstraintWithColumn(
-                    TableNameInfoUtils.fromDb(db, table.getName()), colName);
-        }
-        if (mappingConstraint != null) {
-            throw new DdlException(String.format(
-                    "Cannot rename column '%s' because it is used by constraint '%s'. "
-                            + "Drop the constraint first.",
-                    colName, mappingConstraint));
+        if (!isReplay) {
+            String mappingConstraint = constraintManager.findDistributionMappingConstraintWithColumn(table, colName);
+            if (mappingConstraint != null) {
+                throw new DdlException(String.format(
+                        "Cannot rename column '%s' because it is used by constraint '%s'. "
+                                + "Drop the constraint first.",
+                        colName, mappingConstraint));
+            }
         }
 
         Map<Long, MaterializedIndexMeta> indexIdToMeta = table.getIndexIdToMeta();
@@ -6363,6 +6350,10 @@ public class Env {
 
     public void replayModifyTableProperty(short opCode, ModifyTablePropertyOperationLog info)
             throws MetaNotFoundException {
+        if (info.hasDistributionMappingConstraintMutation()) {
+            replayDistributionMappingConstraint(info);
+            return;
+        }
         String ctlName = info.getCtlName();
         long dbId = info.getDbId();
         long tableId = info.getTableId();
@@ -6410,6 +6401,20 @@ public class Env {
             }
         } finally {
             olapTable.writeUnlock();
+        }
+    }
+
+    private void replayDistributionMappingConstraint(ModifyTablePropertyOperationLog info)
+            throws MetaNotFoundException {
+        Database db = getInternalCatalog().getDbOrMetaException(info.getDbId());
+        OlapTable table = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
+        table.writeLock();
+        try {
+            constraintManager.replayDistributionMappingConstraint(
+                    table, info.getDistributionMappingConstraint(),
+                    info.getDroppedDistributionMappingConstraint());
+        } finally {
+            table.writeUnlock();
         }
     }
 
@@ -6981,11 +6986,6 @@ public class Env {
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
-            Preconditions.checkState(
-                    constraintManager.getDistributionMappingConstraints(olapTable).isEmpty(),
-                    "Cannot replay HASH-to-RANDOM conversion for table %s"
-                            + " with distribution mapping constraints",
-                    olapTable.getName());
             olapTable.convertHashDistributionToRandomDistribution();
             LOG.info("replay modify distribution type of table from hash to random : " + olapTable.getName());
         } finally {

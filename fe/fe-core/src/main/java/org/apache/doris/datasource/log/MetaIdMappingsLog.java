@@ -55,10 +55,6 @@ public class MetaIdMappingsLog implements Writable {
     @SerializedName(value = "lastEventId")
     private long lastSyncedEventId = -1L;
 
-    // Whether constraint transitions preceding lastSyncedEventId are replayable from the journal.
-    @SerializedName(value = "constraintTransitionsPersisted")
-    private boolean constraintTransitionsPersisted = false;
-
     @SerializedName(value = "metaIdMappings")
     private List<MetaIdMapping> metaIdMappings = Lists.newLinkedList();
 
@@ -67,7 +63,7 @@ public class MetaIdMappingsLog implements Writable {
 
     @Override
     public int hashCode() {
-        return Objects.hash(catalogId, fromHmsEvent, lastSyncedEventId, constraintTransitionsPersisted,
+        return Objects.hash(catalogId, lastSyncedEventId,
                     metaIdMappings == null ? 0 : Arrays.hashCode(metaIdMappings.toArray()));
     }
 
@@ -79,8 +75,6 @@ public class MetaIdMappingsLog implements Writable {
         return Objects.equals(this.catalogId, ((MetaIdMappingsLog) obj).catalogId)
                     && Objects.equals(this.fromHmsEvent, ((MetaIdMappingsLog) obj).fromHmsEvent)
                     && Objects.equals(this.lastSyncedEventId, ((MetaIdMappingsLog) obj).lastSyncedEventId)
-                    && Objects.equals(this.constraintTransitionsPersisted,
-                            ((MetaIdMappingsLog) obj).constraintTransitionsPersisted)
                     && Objects.equals(this.metaIdMappings, ((MetaIdMappingsLog) obj).metaIdMappings);
     }
 

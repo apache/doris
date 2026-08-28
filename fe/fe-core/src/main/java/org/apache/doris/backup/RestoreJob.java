@@ -53,8 +53,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
-import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -68,14 +66,9 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.info.TableNameInfoUtils;
-import org.apache.doris.mtmv.MTMVUtil;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.persist.ColocatePersistInfo;
-import org.apache.doris.persist.EditLog;
-import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.persist.gson.GsonUtilsBase;
@@ -108,7 +101,6 @@ import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
-import com.google.common.collect.Sets;
 import com.google.common.collect.Table.Cell;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.CollectionUtils;
@@ -295,7 +287,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 isAtomicRestore, isForeReplace, env, repoId);
 
         this.backupMeta = backupMeta;
-        refreshDistributionMappingConstraintPresence();
     }
 
     public boolean isFromLocalSnapshot() {
@@ -608,6 +599,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             return;
         }
         Preconditions.checkNotNull(backupMeta);
+
+        if (!validateDistributionMappingConstraintsForRestore()) {
+            return;
+        }
 
         // Check the olap table state.
         //
@@ -1072,6 +1067,28 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         setState(RestoreJobState.CREATING);
     }
 
+    private boolean validateDistributionMappingConstraintsForRestore() {
+        boolean featureCompatibilityValidated = false;
+        for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
+            OlapTable restoredTable = (OlapTable) backupMeta.getTable(tableName);
+            if (env.getConstraintManager().getDistributionMappingConstraints(restoredTable).isEmpty()) {
+                continue;
+            }
+            try {
+                if (!featureCompatibilityValidated) {
+                    env.getConstraintManager().validateDistributionMappingFeatureCompatibility();
+                    featureCompatibilityValidated = true;
+                }
+                env.getConstraintManager().validateDistributionMappingConstraints(restoredTable);
+            } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
+                status = new Status(ErrCode.COMMON_ERROR,
+                        "Cannot restore table " + tableName + ": " + e.getMessage());
+                return false;
+            }
+        }
+        return true;
+    }
+
     protected void doCreateReplicas() {
         // Send create replica task to BE outside the db lock
         int numBatchTasks = batchTaskPerTable.values()
@@ -1209,8 +1226,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             + " already exist in db: " + db.getFullName());
                     return;
                 }
-                Env.getCurrentEnv().getConstraintManager().restoreTableConstraints(
-                        TableNameInfoUtils.fromDb(db, tbl.getName()), tbl);
             } finally {
                 tbl.writeUnlock();
                 db.writeUnlock();
@@ -1667,7 +1682,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             return false;
         }
         Preconditions.checkState(backupMetas.size() == 1);
-        return publishBackupMeta(backupMetas.get(0));
+        backupMeta = backupMetas.get(0);
+        return true;
     }
 
     private void replayCheckAndPrepareMeta() {
@@ -1763,8 +1779,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             restoreTbl.writeLock();
             try {
                 db.registerTable(restoreTbl);
-                Env.getCurrentEnv().getConstraintManager().restoreTableConstraints(
-                        TableNameInfoUtils.fromDb(db, restoreTbl.getName()), restoreTbl);
             } finally {
                 restoreTbl.writeUnlock();
                 db.writeUnlock();
@@ -2120,7 +2134,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             backupMeta = null;
 
             env.getEditLog().logRestoreJob(this);
-            refreshDistributionMappingConstraintPresence();
             LOG.info("finished to download. {}", this);
         }
 
@@ -2171,57 +2184,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         if (db == null) {
             return new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
         }
-        com.google.common.collect.Table<Long, Long, SnapshotInfo> savedSnapshotInfos = snapshotInfos;
-        Status status;
-        List<EditLog.EditLogItem> deferredJournalItems = Lists.newArrayList();
-        boolean frontendAdmissionAcquired = false;
-        try {
-            if (!isAtomicRestore) {
-                if (!isReplay && containsDistributionMappingConstraint()) {
-                    frontendAdmissionAcquired = env.getConstraintManager().acquireFrontendAdmissionFence();
-                }
-                status = finishAllTabletsCommitted(db, isReplay, deferredJournalItems);
-            } else {
-                if (!db.writeLockIfExist()) {
-                    return Status.OK;
-                }
-                try {
-                    if (!isReplay && (containsDistributionMappingConstraint()
-                            || cleanTableDropRequiresFrontendAdmissionFence(db))) {
-                        frontendAdmissionAcquired = env.getConstraintManager().acquireFrontendAdmissionFence();
-                    }
-                    status = finishAllTabletsCommitted(db, isReplay, deferredJournalItems);
-                } finally {
-                    db.writeUnlock();
-                }
-            }
-            deferredJournalItems.forEach(EditLog.EditLogItem::await);
-            if (status.ok() && !isReplay) {
-                refreshDistributionMappingConstraintPresence();
-            }
-            if (frontendAdmissionAcquired) {
-                env.getConstraintManager().releaseFrontendAdmissionFence();
-                frontendAdmissionAcquired = false;
-            }
-            if (status.ok()) {
-                showState = RestoreJobState.FINISHED;
-            }
-            if (status.ok() && !isReplay) {
-                releaseSnapshots(savedSnapshotInfos, true);
-            }
-            return status;
-        } catch (DdlException e) {
-            return new Status(ErrCode.COMMON_ERROR,
-                    "failed to fence frontend admission for restore, reason=" + e.getMessage());
-        } finally {
-            if (frontendAdmissionAcquired) {
-                env.getConstraintManager().releaseFrontendAdmissionFence();
-            }
-        }
-    }
 
-    private Status finishAllTabletsCommitted(Database db, boolean isReplay,
-            List<EditLog.EditLogItem> deferredJournalItems) {
         // replace the origin tables in atomic.
         if (isAtomicRestore) {
             Status st = atomicReplaceOlapTables(db, isReplay);
@@ -2276,7 +2239,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         // Drop the exists but non-restored table/partitions.
         if (isCleanTables || isCleanPartitions) {
-            Status st = dropAllNonRestoredTableAndPartitions(db, deferredJournalItems);
+            Status st = dropAllNonRestoredTableAndPartitions(db);
             if (!st.ok()) {
                 return st;
             }
@@ -2289,6 +2252,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             restoredTbls.clear();
             restoredResources.clear();
 
+            com.google.common.collect.Table<Long, Long, SnapshotInfo> savedSnapshotInfos = snapshotInfos;
             snapshotInfos = HashBasedTable.create();
 
             snapshotInfos.clear();
@@ -2297,9 +2261,13 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
             finishedTime = System.currentTimeMillis();
             state = RestoreJobState.FINISHED;
-            deferredJournalItems.add(env.getEditLog()
-                    .submitEdit(OperationType.OP_RESTORE_JOB, this));
+            env.getEditLog().logRestoreJob(this);
+
+            // Only send release snapshot tasks after the job is finished.
+            releaseSnapshots(savedSnapshotInfos, true);
         }
+        showState = RestoreJobState.FINISHED;
+
         LOG.info("job is finished. is replay: {}. {}", isReplay, this);
         return Status.OK;
     }
@@ -2332,15 +2300,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
     }
 
-    private Status dropAllNonRestoredTableAndPartitions(
-            Database db, List<EditLog.EditLogItem> deferredJournalItems) {
+    private Status dropAllNonRestoredTableAndPartitions(Database db) {
         Set<String> restoredViews = jobInfo.newBackupObjects.views.stream()
-                .map(view -> restoreTargetName(view.name)).collect(Collectors.toSet());
-        Map<String, BackupOlapTableInfo> restoredOlapTables =
-                jobInfo.backupOlapTableObjects.entrySet().stream()
-                        .collect(Collectors.toMap(
-                                entry -> restoreTargetName(entry.getKey()),
-                                Map.Entry::getValue));
+                .map(view -> view.name).collect(Collectors.toSet());
 
         try {
             for (Table table : db.getTables()) {
@@ -2348,37 +2310,22 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 String tableName = table.getName();
                 TableType tableType = table.getType();
                 if (tableType == TableType.OLAP) {
-                    BackupOlapTableInfo backupTableInfo = restoredOlapTables.get(tableName);
+                    BackupOlapTableInfo backupTableInfo = jobInfo.backupOlapTableObjects.get(tableName);
                     if (tableType == TableType.OLAP && backupTableInfo != null) {
                         // drop the non restored partitions.
-                        dropNonRestoredPartitions(
-                                db, (OlapTable) table, backupTableInfo, deferredJournalItems);
+                        dropNonRestoredPartitions(db, (OlapTable) table, backupTableInfo);
                     } else if (isCleanTables) {
                         // otherwise drop the entire table.
                         LOG.info("drop non restored table {}, table id: {}. {}", tableName, tableId, this);
                         boolean isView = false;
                         boolean isForceDrop = false; // move this table into recyclebin.
-                        if (isAtomicRestore) {
-                            deferredJournalItems.add(env.getInternalCatalog()
-                                    .dropTableWithoutCheckAndSubmit(
-                                            db, table, isView, isForceDrop));
-                        } else {
-                            env.getInternalCatalog().dropTableWithoutCheck(
-                                    db, table, isView, isForceDrop);
-                        }
+                        env.getInternalCatalog().dropTableWithoutCheck(db, table, isView, isForceDrop);
                     }
                 } else if (tableType == TableType.VIEW && isCleanTables && !restoredViews.contains(tableName)) {
                     LOG.info("drop non restored view {}, table id: {}. {}", tableName, tableId, this);
                     boolean isView = false;
                     boolean isForceDrop = false; // move this view into recyclebin.
-                    if (isAtomicRestore) {
-                        deferredJournalItems.add(env.getInternalCatalog()
-                                .dropTableWithoutCheckAndSubmit(
-                                        db, table, isView, isForceDrop));
-                    } else {
-                        env.getInternalCatalog().dropTableWithoutCheck(
-                                db, table, isView, isForceDrop);
-                    }
+                    env.getInternalCatalog().dropTableWithoutCheck(db, table, isView, isForceDrop);
                 }
             }
             return Status.OK;
@@ -2389,8 +2336,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private void dropNonRestoredPartitions(
-            Database db, OlapTable table, BackupOlapTableInfo backupTableInfo,
-            List<EditLog.EditLogItem> deferredJournalItems) throws DdlException {
+            Database db, OlapTable table, BackupOlapTableInfo backupTableInfo) throws DdlException {
         if (!isCleanPartitions || !table.writeLockIfExist()) {
             return;
         }
@@ -2408,13 +2354,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         partitionName, tableName, tableId, this);
                 boolean isTempPartition = false;
                 boolean isForceDrop = false; // move this partition into recyclebin.
-                if (isAtomicRestore) {
-                    deferredJournalItems.add(catalog.dropPartitionWithoutCheckAndSubmit(
-                            db, table, partitionName, isTempPartition, isForceDrop));
-                } else {
-                    catalog.dropPartitionWithoutCheck(
-                            db, table, partitionName, isTempPartition, isForceDrop);
-                }
+                catalog.dropPartitionWithoutCheck(db, table, partitionName, isTempPartition, isForceDrop);
             }
         } finally {
             table.writeUnlock();
@@ -2567,7 +2507,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             setState(RestoreJobState.CANCELLED);
             // log
             env.getEditLog().logRestoreJob(this);
-            refreshDistributionMappingConstraintPresence();
             for (ColocatePersistInfo info : colocatePersistInfos) {
                 Env.getCurrentColocateIndex().removeTable(info.getTableId());
                 env.getEditLog().logColocateRemoveTable(info);
@@ -2606,11 +2545,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 LOG.info("remove restored table when cancelled: {}", restoreTbl.getName());
                 if (db.writeLockIfExist()) {
                     try {
-                        if (db.getTableNullable(restoreTbl.getName()) != restoreTbl) {
-                            LOG.info("skip removing restored table {} because the name is bound to another table",
-                                    restoreTbl.getName());
-                            continue;
-                        }
                         if (restoreTbl.getType() == TableType.OLAP) {
                             OlapTable restoreOlapTable = (OlapTable) restoreTbl;
                             restoreOlapTable.writeLock();
@@ -2623,8 +2557,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                         }
                                     }
                                 }
-                                Env.getCurrentEnv().getConstraintManager().dropTableConstraints(
-                                        TableNameInfoUtils.fromDb(db, restoreTbl.getName()));
                                 db.unregisterTable(restoreTbl.getName());
                             } finally {
                                 restoreTbl.writeUnlock();
@@ -2680,203 +2612,154 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private Status atomicReplaceOlapTables(Database db, boolean isReplay) {
-        Preconditions.checkState(db.isWriteLockHeldByCurrentThread(),
-                "atomic replacement must hold the database write lock");
-        Status validationStatus = prevalidateAtomicRestoreTargets(db);
-        if (!validationStatus.ok()) {
-            return validationStatus;
-        }
-        try {
-            List<TableNameInfo> affectedTables = Env.getCurrentEnv().getConstraintManager()
-                    .checkAndDropTableConstraints(getAtomicRestoreConstraintDropTargets(db), !isForceReplace);
-            MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(affectedTables,
-                    "after dropping constraints for atomic restore in database " + db.getFullName());
-        } catch (DdlException e) {
-            return new Status(ErrCode.COMMON_ERROR,
-                    "replace table failed, reason=" + e.getMessage());
-        }
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
-            String originName = restoreTargetName(tableName);
+            String originName = jobInfo.getAliasByOriginNameIfSet(tableName);
+            if (GlobalVariable.isStoredTableNamesLowerCase()) {
+                originName = originName.toLowerCase();
+            }
             String aliasName = tableAliasWithAtomicRestore(originName);
 
-            Table newTbl = db.getTableNullable(aliasName);
-            Preconditions.checkNotNull(newTbl);
-            Preconditions.checkState(newTbl.getType() == TableType.OLAP);
-            Table originTbl = db.getTableNullable(originName);
-            Preconditions.checkState(originTbl == null
-                    || originTbl.getType() == TableType.OLAP);
-            OlapTable originOlapTbl = (OlapTable) originTbl;
-
-            // replace the table.
-            OlapTable newOlapTbl = (OlapTable) newTbl;
-            newOlapTbl.writeLock();
-            try {
-                TableNameInfo originTableInfo = new TableNameInfo(
-                        InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), originName);
-                // rename new table name to origin table name and add the new table to database.
-                db.unregisterTable(aliasName);
-                newOlapTbl.setName(originName);
-                db.unregisterTable(originName);
-                db.registerTable(newOlapTbl);
-                Env.getCurrentEnv().getConstraintManager().restoreTableConstraints(
-                        originTableInfo, newOlapTbl);
-                Env.getCurrentEnv().getSqlCacheManager()
-                        .invalidateAboutTableAndFencePublication(originTableInfo);
-
-                // set the olap table state to normal immediately for querying
-                newOlapTbl.setState(OlapTableState.NORMAL);
-                LOG.info(
-                        "restore with replace table {} name to {}, and set state to normal, origin table={}"
-                                + " isAtomicRestore: {}",
-                        newOlapTbl.getId(), originName,
-                        originOlapTbl == null ? -1L : originOlapTbl.getId(),
-                        isAtomicRestore);
-            } finally {
-                newOlapTbl.writeUnlock();
+            if (!db.writeLockIfExist()) {
+                return Status.OK;
             }
+            try {
+                Table newTbl = db.getTableNullable(aliasName);
+                if (newTbl == null) {
+                    LOG.warn("replace table from {} to {}, but the temp table is not found" + " isAtomicRestore: {}",
+                            aliasName, originName, isAtomicRestore);
+                    return new Status(ErrCode.COMMON_ERROR, "replace table failed, the temp table "
+                            + aliasName + " is not found");
+                }
+                if (newTbl.getType() != TableType.OLAP) {
+                    LOG.warn(
+                            "replace table from {} to {}, but the temp table is not OLAP, it type is {}"
+                                    + " isAtomicRestore: {}",
+                            aliasName, originName, newTbl.getType(), isAtomicRestore);
+                    return new Status(ErrCode.COMMON_ERROR, "replace table failed, the temp table " + aliasName
+                            + " is not OLAP table, it is " + newTbl.getType());
+                }
 
-            if (originOlapTbl != null) {
-                // The origin table is not used anymore, need to drop all its tablets.
-                originOlapTbl.writeLock();
+                OlapTable originOlapTbl = null;
+                Table originTbl = db.getTableNullable(originName);
+                if (originTbl != null) {
+                    if (originTbl.getType() != TableType.OLAP) {
+                        LOG.warn(
+                                "replace table from {} to {}, but the origin table is not OLAP, it type is {}"
+                                        + " isAtomicRestore: {}",
+                                aliasName, originName, originTbl.getType(), isAtomicRestore);
+                        return new Status(ErrCode.COMMON_ERROR, "replace table failed, the origin table "
+                                + originName + " is not OLAP table, it is " + originTbl.getType());
+                    }
+                    originOlapTbl = (OlapTable) originTbl; // save the origin olap table, then drop it.
+                }
+
+                // replace the table.
+                OlapTable newOlapTbl = (OlapTable) newTbl;
+                newOlapTbl.writeLock();
                 try {
-                    LOG.info("drop the origin olap table {}. table={}" + " isAtomicRestore: {}",
-                            originOlapTbl.getName(), originOlapTbl.getId(), isAtomicRestore);
-                    Env.getCurrentEnv().onEraseOlapTable(db.getId(), originOlapTbl, isReplay);
+                    // rename new table name to origin table name and add the new table to database.
+                    db.unregisterTable(aliasName);
+                    newOlapTbl.checkAndSetName(originName, false);
+                    db.unregisterTable(originName);
+                    db.registerTable(newOlapTbl);
+
+                    // set the olap table state to normal immediately for querying
+                    newOlapTbl.setState(OlapTableState.NORMAL);
+                    LOG.info(
+                            "restore with replace table {} name to {}, and set state to normal, origin table={}"
+                                    + " isAtomicRestore: {}",
+                            newOlapTbl.getId(), originName, originOlapTbl == null ? -1L : originOlapTbl.getId(),
+                            isAtomicRestore);
+                } catch (DdlException e) {
+                    LOG.warn("restore with replace table {} name from {} to {}, isAtomicRestore: {}",
+                            newOlapTbl.getId(), aliasName, originName, isAtomicRestore, e);
+                    return new Status(ErrCode.COMMON_ERROR, "replace table from " + aliasName + " to " + originName
+                            + " failed, reason=" + e.getMessage());
                 } finally {
-                    originOlapTbl.writeUnlock();
+                    newOlapTbl.writeUnlock();
                 }
-            }
-        }
-        for (BackupJobInfo.BackupViewInfo backupViewInfo : jobInfo.newBackupObjects.views) {
-            String originName = restoreTargetName(backupViewInfo.name);
-            String aliasName = tableAliasWithAtomicRestore(originName);
 
-            Table newTbl = db.getTableNullable(aliasName);
-            Preconditions.checkNotNull(newTbl);
-            Preconditions.checkState(newTbl.getType() == TableType.VIEW);
-            Table originTbl = db.getTableNullable(originName);
-            Preconditions.checkState(originTbl == null
-                    || originTbl.getType() == TableType.VIEW);
-            View originViewTbl = (View) originTbl;
-
-            // replace the view.
-            View newViewTbl = (View) newTbl;
-            newViewTbl.writeLock();
-            try {
-                // rename new view name to origin view name and add the new view to database.
-                db.unregisterTable(aliasName);
-                db.unregisterTable(originName);
-                newViewTbl.setName(originName);
-                db.registerTable(newViewTbl);
-
-                LOG.info(
-                        "restore with replace view {} name to {}, origin view={}"
-                                + " isAtomicRestore: {}",
-                        newViewTbl.getId(), originName,
-                        originViewTbl == null ? -1L : originViewTbl.getId(),
-                        isAtomicRestore);
+                if (originOlapTbl != null) {
+                    // The origin table is not used anymore, need to drop all its tablets.
+                    originOlapTbl.writeLock();
+                    try {
+                        LOG.info("drop the origin olap table {}. table={}" + " isAtomicRestore: {}",
+                                originOlapTbl.getName(), originOlapTbl.getId(), isAtomicRestore);
+                        Env.getCurrentEnv().onEraseOlapTable(db.getId(), originOlapTbl, isReplay);
+                    } finally {
+                        originOlapTbl.writeUnlock();
+                    }
+                }
             } finally {
-                newViewTbl.writeUnlock();
-            }
-        }
-
-        return Status.OK;
-    }
-
-    private Status prevalidateAtomicRestoreTargets(Database db) {
-        for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
-            String originName = restoreTargetName(tableName);
-            String aliasName = tableAliasWithAtomicRestore(originName);
-            Table newTable = db.getTableNullable(aliasName);
-            if (newTable == null) {
-                return new Status(ErrCode.COMMON_ERROR,
-                        "replace table failed, the temp table " + aliasName + " is not found");
-            }
-            if (newTable.getType() != TableType.OLAP) {
-                return new Status(ErrCode.COMMON_ERROR, "replace table failed, the temp table "
-                        + aliasName + " is not OLAP table, it is " + newTable.getType());
-            }
-            try {
-                ((OlapTable) newTable).checkAndSetName(originName, true);
-            } catch (DdlException e) {
-                return new Status(ErrCode.COMMON_ERROR, "replace table failed, the temp table "
-                        + aliasName + " cannot be renamed to " + originName
-                        + ", reason=" + e.getMessage());
-            }
-            Table originTable = db.getTableNullable(originName);
-            if (originTable != null && originTable.getType() != TableType.OLAP) {
-                return new Status(ErrCode.COMMON_ERROR, "replace table failed, the origin table "
-                        + originName + " is not OLAP table, it is " + originTable.getType());
+                db.writeUnlock();
             }
         }
         for (BackupJobInfo.BackupViewInfo backupViewInfo : jobInfo.newBackupObjects.views) {
-            String originName = restoreTargetName(backupViewInfo.name);
+            String originName = jobInfo.getAliasByOriginNameIfSet(backupViewInfo.name);
+            if (GlobalVariable.isStoredTableNamesLowerCase()) {
+                originName = originName.toLowerCase();
+            }
             String aliasName = tableAliasWithAtomicRestore(originName);
-            Table newView = db.getTableNullable(aliasName);
-            if (newView == null) {
-                return new Status(ErrCode.COMMON_ERROR,
-                        "replace view failed, the temp view " + aliasName + " is not found");
-            }
-            if (newView.getType() != TableType.VIEW) {
-                return new Status(ErrCode.COMMON_ERROR, "replace view failed, the temp view "
-                        + aliasName + " is not VIEW, it is " + newView.getType());
-            }
-            Table originView = db.getTableNullable(originName);
-            if (originView != null && originView.getType() != TableType.VIEW) {
-                return new Status(ErrCode.COMMON_ERROR, "replace view failed, the origin view "
-                        + originName + " is not VIEW, it is " + originView.getType());
-            }
-        }
-        return Status.OK;
-    }
 
-    private List<TableNameInfo> getAtomicRestoreConstraintDropTargets(Database db) {
-        Set<String> tableNames = Sets.newLinkedHashSet();
-        for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
-            String originName = restoreTargetName(tableName);
-            tableNames.add(originName);
-            tableNames.add(tableAliasWithAtomicRestore(originName));
-        }
-        for (BackupJobInfo.BackupViewInfo view : jobInfo.newBackupObjects.views) {
-            String originName = restoreTargetName(view.name);
-            tableNames.add(originName);
-            tableNames.add(tableAliasWithAtomicRestore(originName));
-        }
-        if (isCleanTables) {
-            for (Table table : db.getTables()) {
-                if (table.getType() == TableType.OLAP || table.getType() == TableType.VIEW) {
-                    tableNames.add(table.getName());
+            if (!db.writeLockIfExist()) {
+                return Status.OK;
+            }
+            try {
+                Table newTbl = db.getTableNullable(aliasName);
+                if (newTbl == null) {
+                    LOG.warn("replace view from {} to {}, but the temp view is not found" + " isAtomicRestore: {}",
+                            aliasName, originName, isAtomicRestore);
+                    return new Status(ErrCode.COMMON_ERROR, "replace view failed, the temp view "
+                            + aliasName + " is not found");
                 }
+                if (newTbl.getType() != TableType.VIEW) {
+                    LOG.warn(
+                            "replace view from {} to {}, but the temp view is not VIEW, it type is {}"
+                                    + " isAtomicRestore: {}",
+                            aliasName, originName, newTbl.getType(), isAtomicRestore);
+                    return new Status(ErrCode.COMMON_ERROR, "replace view failed, the temp view " + aliasName
+                            + " is not OLAP, it is " + newTbl.getType());
+                }
+
+                View originViewTbl = null;
+                Table originTbl = db.getTableNullable(originName);
+                if (originTbl != null) {
+                    if (originTbl.getType() != TableType.VIEW) {
+                        LOG.warn(
+                                "replace view from {} to {}, but the origin view is not VIEW, it type is {}"
+                                        + " isAtomicRestore: {}",
+                                aliasName, originName, originTbl.getType(), isAtomicRestore);
+                        return new Status(ErrCode.COMMON_ERROR, "replace view failed, the origin view "
+                                + originName + " is not VIEW, it is " + originTbl.getType());
+                    }
+                    originViewTbl = (View) originTbl; // save the origin view, then drop it.
+                }
+
+                // replace the view.
+                View newViewTbl = (View) newTbl;
+                newViewTbl.writeLock();
+                try {
+                    // rename new view name to origin view name and add the new view to database.
+                    db.unregisterTable(aliasName);
+                    db.unregisterTable(originName);
+                    newViewTbl.setName(originName);
+                    db.registerTable(newViewTbl);
+
+                    LOG.info(
+                            "restore with replace view {} name to {}, origin view={}"
+                                    + " isAtomicRestore: {}",
+                            newViewTbl.getId(), originName,
+                            originViewTbl == null ? -1L : originViewTbl.getId(),
+                            isAtomicRestore);
+                } finally {
+                    newViewTbl.writeUnlock();
+                }
+            } finally {
+                db.writeUnlock();
             }
         }
-        return tableNames.stream()
-                .map(tableName -> new TableNameInfo(
-                        InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), tableName))
-                .collect(Collectors.toList());
-    }
 
-    private boolean cleanTableDropRequiresFrontendAdmissionFence(Database db) {
-        if (!isCleanTables) {
-            return false;
-        }
-        Set<String> retainedTableNames = Sets.newHashSet();
-        for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
-            String targetName = restoreTargetName(tableName);
-            retainedTableNames.add(targetName);
-            retainedTableNames.add(tableAliasWithAtomicRestore(targetName));
-        }
-        return db.getTables().stream()
-                .filter(table -> table.getType() == TableType.OLAP)
-                .filter(table -> !retainedTableNames.contains(table.getName()))
-                .anyMatch(table -> !env.getConstraintManager()
-                        .getDistributionMappingConstraints(table).isEmpty());
-    }
-
-    private String restoreTargetName(String backupObjectName) {
-        String targetName = jobInfo.getAliasByOriginNameIfSet(backupObjectName);
-        return GlobalVariable.isStoredTableNamesLowerCase()
-                ? targetName.toLowerCase()
-                : targetName;
+        return Status.OK;
     }
 
     protected void setTableStateToNormalAndUpdateProperties(Database db, boolean committed, boolean isReplay) {
@@ -2961,38 +2844,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         isAtomicRestore = Boolean.parseBoolean(properties.get(PROP_ATOMIC_RESTORE));
         isForceReplace = Boolean.parseBoolean(properties.get(PROP_FORCE_REPLACE));
         showState = state;
-        refreshDistributionMappingConstraintPresence();
-    }
-
-    private boolean publishBackupMeta(BackupMeta downloadedBackupMeta) {
-        boolean frontendAdmissionAcquired = false;
-        try {
-            if (downloadedBackupMeta.containsDistributionMappingConstraint()) {
-                env.getConstraintManager().acquireFrontendAdmissionForMapping();
-                frontendAdmissionAcquired = true;
-                setContainsDistributionMappingConstraint(true);
-            }
-            backupMeta = downloadedBackupMeta;
-            return true;
-        } catch (AnalysisException e) {
-            status = new Status(ErrCode.COMMON_ERROR, e.getMessage());
-            return false;
-        } finally {
-            if (frontendAdmissionAcquired) {
-                env.getConstraintManager().releaseFrontendAdmissionFence();
-            }
-        }
-    }
-
-    @SuppressWarnings("deprecation")
-    private void refreshDistributionMappingConstraintPresence() {
-        boolean containsMapping = backupMeta != null && backupMeta.containsDistributionMappingConstraint();
-        if (!containsMapping) {
-            containsMapping = restoredTbls.stream()
-                    .anyMatch(table -> table.getTableAttributes().getConstraintsMap().values().stream()
-                            .anyMatch(DistributionMappingConstraint.class::isInstance));
-        }
-        setContainsDistributionMappingConstraint(containsMapping);
     }
 
     @Override

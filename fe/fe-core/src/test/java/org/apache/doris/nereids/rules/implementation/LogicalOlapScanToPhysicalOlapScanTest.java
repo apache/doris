@@ -18,16 +18,28 @@
 package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
+import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DistributionMapping;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.List;
@@ -84,5 +96,83 @@ class LogicalOlapScanToPhysicalOlapScanTest {
                 distributionInfo,
                 ImmutableList.<Slot>of(slot),
                 ImmutableList.of(missingDeterminant, missingTarget)).isEmpty());
+    }
+
+    @Test
+    void mappingScanDisablesSqlResultCache() {
+        ExprId determinantExprId = new ExprId(1);
+        SlotReference determinantSlot = Mockito.mock(SlotReference.class);
+        Column determinantColumn = Mockito.mock(Column.class);
+        Mockito.when(determinantSlot.getExprId()).thenReturn(determinantExprId);
+        Mockito.when(determinantSlot.getOriginalColumn()).thenReturn(Optional.of(determinantColumn));
+        Mockito.when(determinantColumn.tryGetBaseColumnName()).thenReturn("d1");
+
+        Column distributionColumn = Mockito.mock(Column.class);
+        Mockito.when(distributionColumn.getName()).thenReturn("k1");
+        HashDistributionInfo distributionInfo = Mockito.mock(HashDistributionInfo.class);
+        Mockito.when(distributionInfo.getDistributionColumns())
+                .thenReturn(ImmutableList.of(distributionColumn));
+
+        OlapTable table = Mockito.mock(OlapTable.class);
+        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
+        Mockito.when(constraintManager.getDistributionMappingConstraintsForPlanning(table))
+                .thenReturn(ImmutableList.of(new DistributionMappingConstraint(
+                        "mapping", "mapping_id", ImmutableList.of("d1"), ImmutableList.of("k1"))));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+
+        SqlCacheContext sqlCacheContext = Mockito.mock(SqlCacheContext.class);
+        StatementContext statementContext = Mockito.mock(StatementContext.class);
+        Mockito.when(statementContext.getSqlCacheContext()).thenReturn(Optional.of(sqlCacheContext));
+        SessionVariable sessionVariable = Mockito.mock(SessionVariable.class);
+        Mockito.when(sessionVariable.isEnableColocateMappingConstraint()).thenReturn(true);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
+
+        try (MockedStatic<ConnectContext> mockedContext = Mockito.mockStatic(ConnectContext.class);
+                MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedContext.when(ConnectContext::get).thenReturn(connectContext);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            List<DistributionMapping> mappings =
+                    LogicalOlapScanToPhysicalOlapScan.buildDistributionMappings(
+                            table, distributionInfo, ImmutableList.<Slot>of(determinantSlot));
+
+            Assertions.assertEquals(1, mappings.size());
+            Mockito.verify(sqlCacheContext).setHasUnsupportedTables(true);
+        }
+    }
+
+    @Test
+    void randomDistributionWithPersistedMappingFailsClosed() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getDefaultDistributionInfo()).thenReturn(new RandomDistributionInfo(4));
+        LogicalOlapScan scan = Mockito.mock(LogicalOlapScan.class);
+        Mockito.when(scan.getTable()).thenReturn(table);
+        Mockito.when(scan.getSelectedPartitionIds()).thenReturn(ImmutableList.of());
+
+        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
+        Mockito.when(constraintManager.getDistributionMappingConstraintsForPlanning(table))
+                .thenThrow(new AnalysisException("incompatible mapping"));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        SessionVariable sessionVariable = Mockito.mock(SessionVariable.class);
+        Mockito.when(sessionVariable.isEnableColocateMappingConstraint()).thenReturn(true);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+
+        try (MockedStatic<ConnectContext> mockedContext = Mockito.mockStatic(ConnectContext.class);
+                MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<Utils> mockedUtils = Mockito.mockStatic(Utils.class)) {
+            mockedContext.when(ConnectContext::get).thenReturn(connectContext);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> LogicalOlapScanToPhysicalOlapScan.convertDistribution(scan));
+
+            Assertions.assertEquals("incompatible mapping", exception.getMessage());
+            Mockito.verify(constraintManager).getDistributionMappingConstraintsForPlanning(table);
+        }
     }
 }

@@ -50,8 +50,7 @@ public class AlterConstraintLog implements Writable, GsonPostProcessable {
     private TableNameInfo tableNameInfo;
 
     public AlterConstraintLog(Constraint constraint, TableNameInfo tableNameInfo) {
-        this.constraint = GsonUtils.GSON.fromJson(
-                GsonUtils.GSON.toJson(constraint), Constraint.class);
+        this.constraint = constraint;
         this.tableNameInfo = tableNameInfo;
         this.tableIdentifier = null;
     }

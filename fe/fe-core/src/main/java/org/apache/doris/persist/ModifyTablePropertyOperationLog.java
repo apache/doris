@@ -17,6 +17,7 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -45,6 +46,10 @@ public class ModifyTablePropertyOperationLog implements Writable {
     private Map<String, String> properties = new HashMap<>();
     @SerializedName(value = "sql")
     private String sql;
+    @SerializedName(value = "distributionMappingConstraint")
+    private DistributionMappingConstraint distributionMappingConstraint;
+    @SerializedName(value = "droppedDistributionMappingConstraint")
+    private String droppedDistributionMappingConstraint;
 
     public ModifyTablePropertyOperationLog(long dbId, long tableId, String tableName, Map<String, String> properties) {
         this.dbId = dbId;
@@ -71,6 +76,26 @@ public class ModifyTablePropertyOperationLog implements Writable {
         this.properties = properties;
     }
 
+    private ModifyTablePropertyOperationLog(long dbId, long tableId, String tableName) {
+        this.dbId = dbId;
+        this.tableId = tableId;
+        this.tableName = tableName;
+    }
+
+    public static ModifyTablePropertyOperationLog addDistributionMappingConstraint(
+            long dbId, long tableId, String tableName, DistributionMappingConstraint constraint) {
+        ModifyTablePropertyOperationLog log = new ModifyTablePropertyOperationLog(dbId, tableId, tableName);
+        log.distributionMappingConstraint = constraint;
+        return log;
+    }
+
+    public static ModifyTablePropertyOperationLog dropDistributionMappingConstraint(
+            long dbId, long tableId, String tableName, String constraintName) {
+        ModifyTablePropertyOperationLog log = new ModifyTablePropertyOperationLog(dbId, tableId, tableName);
+        log.droppedDistributionMappingConstraint = constraintName;
+        return log;
+    }
+
     public long getDbId() {
         return dbId;
     }
@@ -93,6 +118,18 @@ public class ModifyTablePropertyOperationLog implements Writable {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public DistributionMappingConstraint getDistributionMappingConstraint() {
+        return distributionMappingConstraint;
+    }
+
+    public String getDroppedDistributionMappingConstraint() {
+        return droppedDistributionMappingConstraint;
+    }
+
+    public boolean hasDistributionMappingConstraintMutation() {
+        return distributionMappingConstraint != null || droppedDistributionMappingConstraint != null;
     }
 
     @Override

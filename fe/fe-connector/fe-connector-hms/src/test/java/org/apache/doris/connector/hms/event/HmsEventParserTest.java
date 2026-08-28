@@ -21,8 +21,6 @@ import org.apache.doris.connector.hms.HmsNotificationEvent;
 import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor;
 import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor.Op;
 
-import org.apache.hadoop.hive.metastore.api.FieldSchema;
-import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.messaging.json.JSONAlterTableMessage;
 import org.apache.hadoop.hive.metastore.messaging.json.JSONCreateTableMessage;
@@ -32,8 +30,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Unit coverage of neutral event mappings, targeted JSON table-event parsing, and the lazy-decompress
@@ -119,37 +115,6 @@ public class HmsEventParserTest {
     }
 
     @Test
-    public void alterTableReportsRemovedColumns() {
-        Table before = newTableWithColumns("db1", "t1", "id", "obsolete", "unchanged");
-        Table after = newTableWithColumns("db1", "t1", "id", "replacement", "unchanged");
-        JSONAlterTableMessage message = new JSONAlterTableMessage(
-                "server", "servicePrincipal", before, after, false, 0L);
-
-        List<MetastoreChangeDescriptor> out = HmsEventParser.parse(
-                event(12L, "ALTER_TABLE", "db1", "t1",
-                        message.toString(), "json-2.0", 0L));
-
-        Assertions.assertEquals(1, out.size());
-        Assertions.assertEquals(Op.REFRESH_TABLE, out.get(0).getOp());
-        Assertions.assertEquals(List.of("obsolete"), out.get(0).getRemovedColumnNames());
-    }
-
-    @Test
-    public void alterTableAddingColumnsDoesNotReportRemoval() {
-        Table before = newTableWithColumns("db1", "t1", "id");
-        Table after = newTableWithColumns("db1", "t1", "id", "added");
-        JSONAlterTableMessage message = new JSONAlterTableMessage(
-                "server", "servicePrincipal", before, after, false, 0L);
-
-        List<MetastoreChangeDescriptor> out = HmsEventParser.parse(
-                event(13L, "ALTER_TABLE", "db1", "t1",
-                        message.toString(), "json-2.0", 0L));
-
-        Assertions.assertEquals(1, out.size());
-        Assertions.assertTrue(out.get(0).getRemovedColumnNames().isEmpty());
-    }
-
-    @Test
     public void insertMapsToRefreshTable() {
         List<MetastoreChangeDescriptor> out = HmsEventParser.parse(
                 event(9L, "INSERT", "db1", "t1", null, "json-2.0", 0L));
@@ -157,7 +122,6 @@ public class HmsEventParserTest {
         Assertions.assertEquals(Op.REFRESH_TABLE, out.get(0).getOp());
         Assertions.assertEquals("db1", out.get(0).getDbName());
         Assertions.assertEquals("t1", out.get(0).getTableName());
-        Assertions.assertTrue(out.get(0).getRemovedColumnNames().isEmpty());
     }
 
     @Test
@@ -188,17 +152,6 @@ public class HmsEventParserTest {
         Table table = new Table();
         table.setDbName(dbName);
         table.setTableName(tableName);
-        return table;
-    }
-
-    private static Table newTableWithColumns(String dbName, String tableName, String... columnNames) {
-        Table table = newTable(dbName, tableName);
-        StorageDescriptor storageDescriptor = new StorageDescriptor();
-        storageDescriptor.setCols(Stream.of(columnNames)
-                .map(name -> new FieldSchema(name, "int", null))
-                .collect(Collectors.toList()));
-        table.setSd(storageDescriptor);
-        table.setPartitionKeys(Collections.emptyList());
         return table;
     }
 }

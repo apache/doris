@@ -20,7 +20,6 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -42,24 +41,6 @@ import java.util.Collections;
 import java.util.Optional;
 
 public class StatementContextTest {
-
-    @Test
-    public void testCreateSqlCacheContextWithPartiallyInitializedEnv() {
-        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
-        Env env = Mockito.mock(Env.class);
-        Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
-        Mockito.when(connectContext.getEnv()).thenReturn(env);
-
-        StatementContext statementContext =
-                new StatementContext(connectContext, new OriginStatement("select 1", 0));
-        try {
-            org.junit.jupiter.api.Assertions.assertTrue(statementContext.getSqlCacheContext().isPresent());
-            org.junit.jupiter.api.Assertions.assertEquals(
-                    0L, statementContext.getSqlCacheContext().get().getPublicationBaseline());
-        } finally {
-            statementContext.close();
-        }
-    }
 
     @Test
     public void testSkipPreloadWhenSessionVariableDisabled() {

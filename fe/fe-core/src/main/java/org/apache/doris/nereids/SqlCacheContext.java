@@ -107,15 +107,8 @@ public class SqlCacheContext {
 
     private Map<String, String> externalCatalogConfigs = Maps.newConcurrentMap();
 
-    private final long publicationBaseline;
-
     /** SqlCacheContext */
     public SqlCacheContext(UserIdentity userIdentity) {
-        this(userIdentity, 0L);
-    }
-
-    /** SqlCacheContext with the publication sequence observed before planning starts. */
-    public SqlCacheContext(UserIdentity userIdentity, long publicationBaseline) {
         if (userIdentity == null) {
             ConnectContext connectContext = ConnectContext.get();
             if (connectContext != null) {
@@ -126,11 +119,6 @@ public class SqlCacheContext {
             userIdentity = new UserIdentity(Auth.ROOT_USER, "%");
         }
         this.userIdentity = userIdentity;
-        this.publicationBaseline = publicationBaseline;
-    }
-
-    public long getPublicationBaseline() {
-        return publicationBaseline;
     }
 
     public String getPhysicalPlan() {

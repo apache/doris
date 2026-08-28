@@ -21,23 +21,25 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Frontend;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.gson.annotations.SerializedName;
@@ -50,26 +52,18 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Objects;
-import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
- * Centralized manager for all table constraints.
+ * Centralized manager for all table constraints (PK, FK, UNIQUE).
  * Constraints are indexed by fully qualified table name (catalog.db.table).
  */
 public class ConstraintManager implements Writable, GsonPostProcessable {
@@ -81,94 +75,8 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
             = new ConcurrentHashMap<>();
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-    // A candidate FE cannot report its version before loading the image and replaying journals.
-    private final ReentrantLock frontendAdmissionLock = new ReentrantLock();
-    private transient Set<String> untrustedExternalCatalogs = ConcurrentHashMap.newKeySet();
 
     public ConstraintManager() {
-    }
-
-    /** One constraint-state transition derived from a connector metastore event. */
-    public static class MetastoreConstraintMutation {
-        private enum Type {
-            DROP_TABLE,
-            DROP_DATABASE,
-            DROP_CATALOG,
-            RENAME_TABLE,
-            RENAME_DATABASE,
-            DROP_COLUMNS
-        }
-
-        private final Type type;
-        private final TableNameInfo tableNameInfo;
-        private final TableNameInfo newTableNameInfo;
-        private final String catalogName;
-        private final String dbName;
-        private final String newDbName;
-        private final List<String> columnNames;
-
-        private MetastoreConstraintMutation(Type type, TableNameInfo tableNameInfo,
-                TableNameInfo newTableNameInfo, String catalogName, String dbName,
-                String newDbName, Collection<String> columnNames) {
-            this.type = type;
-            this.tableNameInfo = tableNameInfo;
-            this.newTableNameInfo = newTableNameInfo;
-            this.catalogName = catalogName;
-            this.dbName = dbName;
-            this.newDbName = newDbName;
-            this.columnNames = columnNames == null
-                    ? ImmutableList.of() : ImmutableList.copyOf(columnNames);
-        }
-
-        public static MetastoreConstraintMutation dropTable(TableNameInfo tableNameInfo) {
-            return new MetastoreConstraintMutation(
-                    Type.DROP_TABLE, tableNameInfo, null, null, null, null, null);
-        }
-
-        public static MetastoreConstraintMutation dropDatabase(String catalogName, String dbName) {
-            return new MetastoreConstraintMutation(
-                    Type.DROP_DATABASE, null, null, catalogName, dbName, null, null);
-        }
-
-        public static MetastoreConstraintMutation dropCatalog(String catalogName) {
-            return new MetastoreConstraintMutation(
-                    Type.DROP_CATALOG, null, null, catalogName, null, null, null);
-        }
-
-        public static MetastoreConstraintMutation renameTable(
-                TableNameInfo tableNameInfo, TableNameInfo newTableNameInfo) {
-            return new MetastoreConstraintMutation(
-                    Type.RENAME_TABLE, tableNameInfo, newTableNameInfo, null, null, null, null);
-        }
-
-        public static MetastoreConstraintMutation renameDatabase(
-                String catalogName, String dbName, String newDbName) {
-            return new MetastoreConstraintMutation(
-                    Type.RENAME_DATABASE, null, null, catalogName, dbName, newDbName, null);
-        }
-
-        public static MetastoreConstraintMutation dropColumns(
-                TableNameInfo tableNameInfo, Collection<String> columnNames) {
-            return new MetastoreConstraintMutation(
-                    Type.DROP_COLUMNS, tableNameInfo, null, null, null, null, columnNames);
-        }
-    }
-
-    private static class ConstraintLogEntry {
-        private final String tableKey;
-        private final String constraintName;
-        private final Constraint constraint;
-
-        private ConstraintLogEntry(String tableKey, String constraintName, Constraint constraint) {
-            this.tableKey = tableKey;
-            this.constraintName = constraintName;
-            this.constraint = constraint;
-        }
-
-        private EditLog.EditLogOperation toOperation(short op) {
-            return new EditLog.EditLogOperation(
-                    op, new AlterConstraintLog(constraint, new TableNameInfo(tableKey)));
-        }
     }
 
     private static String toKey(TableNameInfo tni) {
@@ -200,166 +108,80 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
      * Add a constraint to the specified table.
      * For FK constraints, validates that the referenced PK exists
      * and registers bidirectional reference via foreignTableInfos.
+     *
+     * <p>Note: validation is performed inside the write lock to prevent TOCTOU races
+     * (e.g., table dropped between validation and registration). For external catalogs,
+     * this could cause longer lock hold times if catalog initialization is slow.
+     * This tradeoff is intentional — correctness over performance.</p>
      */
     public void addConstraint(TableNameInfo tableNameInfo, String constraintName,
             Constraint constraint, boolean replay) {
-        EditLog.EditLogItem logItem = addConstraint(
-                tableNameInfo, constraintName, constraint, null, null, replay);
-        awaitEditLog(logItem);
-    }
-
-    private EditLog.EditLogItem addConstraint(TableNameInfo tableNameInfo, String constraintName,
-            Constraint constraint, TableIf resolvedTable, TableIf resolvedReferencedTable,
-            boolean replay) {
+        Preconditions.checkArgument(!(constraint instanceof DistributionMappingConstraint),
+                "distribution mapping constraints must be stored on the table");
         String key = toKey(tableNameInfo);
-        EditLog.EditLogItem logItem = null;
-        boolean acquireFrontendAdmission = !replay
-                && constraint instanceof DistributionMappingConstraint
-                && !frontendAdmissionLock.isHeldByCurrentThread();
-        if (acquireFrontendAdmission) {
-            acquireFrontendAdmissionForMapping();
-        }
         writeLock();
         try {
             TableIf table = null;
             if (!replay) {
-                if (resolvedTable == null) {
-                    table = validateTableAndColumns(tableNameInfo, constraint);
-                } else {
-                    table = resolvedTable;
-                    validateResolvedConstraint(
-                            tableNameInfo, table, resolvedReferencedTable, constraint);
-                }
-            } else if (constraint instanceof DistributionMappingConstraint) {
-                table = resolveTableIfPresent(tableNameInfo);
+                table = validateTableAndColumns(tableNameInfo, constraint);
             }
             Map<String, Constraint> tableConstraints = constraintsMap.computeIfAbsent(
                     key, k -> new HashMap<>());
             checkConstraintNotExistence(constraintName, constraint, tableConstraints);
+            if (table != null) {
+                checkConstraintNotExistence(constraintName, constraint,
+                        getDistributionMappingConstraintsMap(table));
+            }
             if (constraint instanceof ForeignKeyConstraint) {
                 registerForeignKeyReference(
                         tableNameInfo, (ForeignKeyConstraint) constraint);
             }
             tableConstraints.put(constraintName, constraint);
-            if (constraint instanceof DistributionMappingConstraint) {
-                putTableLocalConstraint(table, constraintName, constraint);
-            }
             if (!replay) {
-                logItem = submitAddConstraint(tableNameInfo, constraint);
+                logAddConstraint(tableNameInfo, constraint);
             }
             LOG.info("Added constraint {} on table {}", constraintName, key);
         } finally {
             writeUnlock();
-            if (acquireFrontendAdmission) {
-                frontendAdmissionLock.unlock();
-            }
         }
-        return logItem;
     }
 
-    public void acquireFrontendAdmission() throws DdlException {
+    /** Add a mapping owned by an internal OLAP table and return its pending journal item. */
+    public EditLog.EditLogItem addDistributionMappingConstraint(TableNameInfo tableNameInfo,
+            OlapTable table, DistributionMappingConstraint constraint) {
+        Preconditions.checkState(table.isWriteLockHeldByCurrentThread(),
+                "table write lock is required when adding a distribution mapping constraint");
+        validateDistributionMappingConstraint(tableNameInfo, table, constraint);
+        validateDistributionMappingFeatureCompatibility();
+        DistributionMappingConstraint boundConstraint = constraint.bindTo(table);
+        writeLock();
         try {
-            if (!frontendAdmissionLock.tryLock(
-                    Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
-                throw new DdlException("Failed to acquire frontend admission lock. Try again");
+            Map<String, DistributionMappingConstraint> mappings =
+                    getDistributionMappingConstraintsMap(table);
+            checkConstraintNotExistence(boundConstraint.getName(), boundConstraint, mappings);
+            Map<String, Constraint> centralizedConstraints = constraintsMap.get(toKey(tableNameInfo));
+            if (centralizedConstraints != null) {
+                checkConstraintNotExistence(
+                        boundConstraint.getName(), boundConstraint, centralizedConstraints);
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new DdlException("Interrupted while acquiring frontend admission lock", e);
-        }
-        boolean admitted = false;
-        try {
-            readLock();
-            try {
-                for (Map<String, Constraint> tableConstraints : constraintsMap.values()) {
-                    if (tableConstraints.values().stream()
-                            .anyMatch(DistributionMappingConstraint.class::isInstance)) {
-                        throw new DdlException("Cannot add frontend while distribution mapping constraints exist."
-                                + " Drop all distribution mapping constraints before adding a frontend");
-                    }
-                }
-            } finally {
-                readUnlock();
-            }
-            if (Env.getCurrentRecycleBin().containsDistributionMappingConstraint()) {
-                throw new DdlException("Cannot add frontend while distribution mapping constraints exist"
-                        + " in the recycle bin. Permanently erase the affected tables or databases"
-                        + " before adding a frontend");
-            }
-            if (Env.getCurrentEnv().getBackupHandler().containsDistributionMappingConstraint()) {
-                throw new DdlException("Cannot add frontend while distribution mapping constraints exist"
-                        + " in retained backup or restore jobs. Wait for the active job to release its metadata"
-                        + " before adding a frontend");
-            }
-            admitted = true;
+            mappings.put(boundConstraint.getName(), boundConstraint);
+            ModifyTablePropertyOperationLog log =
+                    ModifyTablePropertyOperationLog.addDistributionMappingConstraint(
+                            table.getDatabase().getId(), table.getId(), table.getName(), boundConstraint);
+            LOG.info("Added distribution mapping constraint {} on table {}",
+                    boundConstraint.getName(), toKey(tableNameInfo));
+            return Env.getCurrentEnv().getEditLog()
+                    .submitEdit(OperationType.OP_MODIFY_TABLE_PROPERTIES, log);
         } finally {
-            if (!admitted) {
-                frontendAdmissionLock.unlock();
-            }
+            writeUnlock();
         }
-    }
-
-    public void releaseFrontendAdmissionFence() {
-        frontendAdmissionLock.unlock();
-    }
-
-    public boolean acquireFrontendAdmissionFence() throws DdlException {
-        if (frontendAdmissionLock.isHeldByCurrentThread()) {
-            return false;
-        }
-        try {
-            if (!frontendAdmissionLock.tryLock(
-                    Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
-                throw new DdlException("Failed to acquire frontend admission lock. Try again");
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new DdlException("Interrupted while acquiring frontend admission lock", e);
-        }
-        return true;
-    }
-
-    public void acquireFrontendAdmissionForMapping() {
-        try {
-            if (!frontendAdmissionLock.tryLock(
-                    Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
-                throw new AnalysisException(
-                        "Failed to acquire frontend admission lock for distribution mapping constraint. Try again");
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new AnalysisException(
-                    "Interrupted while acquiring frontend admission lock for distribution mapping constraint", e);
-        }
-        boolean validated = false;
-        try {
-            validateFrontendVersionsForDistributionMappingConstraint();
-            validated = true;
-        } finally {
-            if (!validated) {
-                frontendAdmissionLock.unlock();
-            }
-        }
-    }
-
-    /**
-     * Add a non-replay constraint using tables already analyzed and resolved by the command.
-     *
-     * <p>This avoids connector table/schema load-through while database locks are held. Column
-     * existence was established by Nereids analysis before locking; internal table identities are
-     * then revalidated before this method is called.</p>
-     */
-    public EditLog.EditLogItem addConstraintWithResolvedTables(TableNameInfo tableNameInfo, String constraintName,
-            Constraint constraint, TableIf table, TableIf referencedTable) {
-        return addConstraint(
-                tableNameInfo, constraintName, constraint, table, referencedTable, false);
     }
 
     /**
      * Snapshot the tables whose foreign keys would be cascade-dropped along with the given primary
      * key constraint. Taken under the read lock: {@link PrimaryKeyConstraint#getForeignTableInfos()}
-     * is only a view over a list mutated by manager operations under the write lock, so callers outside
-     * the lock must not iterate it directly. Returns an empty list for other constraint types.
+     * is only a view over a list that {@link #addConstraint} mutates under the write lock, so callers
+     * outside the lock must not iterate it directly. Returns an empty list for other constraint types.
      */
     public List<TableNameInfo> getCascadeDropTables(Constraint constraint) {
         if (!(constraint instanceof PrimaryKeyConstraint)) {
@@ -380,22 +202,7 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
      */
     public void dropConstraint(TableNameInfo tableNameInfo, String constraintName,
             boolean replay) {
-        EditLog.EditLogItem logItem =
-                dropConstraintInternal(tableNameInfo, constraintName, null, replay);
-        awaitEditLog(logItem);
-    }
-
-    public EditLog.EditLogItem dropConstraintAndSubmit(TableNameInfo tableNameInfo,
-            String constraintName, List<TableNameInfo> expectedCascadeDropTables) {
-        return dropConstraintInternal(
-                tableNameInfo, constraintName, expectedCascadeDropTables, false);
-    }
-
-    private EditLog.EditLogItem dropConstraintInternal(TableNameInfo tableNameInfo,
-            String constraintName, List<TableNameInfo> expectedCascadeDropTables,
-            boolean replay) {
         String key = toKey(tableNameInfo);
-        EditLog.EditLogItem logItem = null;
         writeLock();
         try {
             Map<String, Constraint> tableConstraints = constraintsMap.get(key);
@@ -403,56 +210,79 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                 if (replay) {
                     LOG.warn("Constraint {} not found on table {} during replay, skipping",
                             constraintName, key);
-                    return null;
+                    return;
                 }
                 throw new AnalysisException(String.format(
                         "Unknown constraint %s on table %s.",
                         constraintName, key));
             }
-            Constraint existingConstraint = tableConstraints.get(constraintName);
-            if (expectedCascadeDropTables != null
-                    && !sameTables(expectedCascadeDropTables,
-                            getCascadeDropTablesWithoutLock(existingConstraint))) {
-                throw new AnalysisException(
-                        "Foreign key references changed while dropping constraint "
-                                + constraintName + " on " + tableNameInfo
-                                + ", retry the statement");
-            }
             Constraint constraint = tableConstraints.remove(constraintName);
-            if (constraint instanceof DistributionMappingConstraint) {
-                removeTableLocalConstraint(
-                        resolveTableIfPresent(tableNameInfo), constraintName);
-            }
             cleanupConstraintReferences(tableNameInfo, constraint);
             if (tableConstraints.isEmpty()) {
                 constraintsMap.remove(key);
             }
             if (!replay) {
-                logItem = submitDropConstraint(tableNameInfo, constraint);
+                logDropConstraint(tableNameInfo, constraint);
             }
             LOG.info("Dropped constraint {} from table {}",
                     constraintName, key);
         } finally {
             writeUnlock();
         }
-        return logItem;
     }
 
-    private List<TableNameInfo> getCascadeDropTablesWithoutLock(Constraint constraint) {
-        return constraint instanceof PrimaryKeyConstraint
-                ? ImmutableList.copyOf(
-                        ((PrimaryKeyConstraint) constraint).getForeignTableInfos())
-                : ImmutableList.of();
+    /** Drop a mapping owned by an internal OLAP table and return its pending journal item. */
+    public EditLog.EditLogItem dropDistributionMappingConstraint(TableNameInfo tableNameInfo,
+            OlapTable table, String constraintName) {
+        Preconditions.checkState(table.isWriteLockHeldByCurrentThread(),
+                "table write lock is required when dropping a distribution mapping constraint");
+        writeLock();
+        try {
+            Map<String, DistributionMappingConstraint> mappings =
+                    getDistributionMappingConstraintsMap(table);
+            DistributionMappingConstraint constraint = mappings.remove(constraintName);
+            if (constraint == null) {
+                throw new AnalysisException(String.format(
+                        "Unknown constraint %s on table %s.", constraintName, tableNameInfo));
+            }
+            ModifyTablePropertyOperationLog log =
+                    ModifyTablePropertyOperationLog.dropDistributionMappingConstraint(
+                            table.getDatabase().getId(), table.getId(), table.getName(), constraintName);
+            LOG.info("Dropped distribution mapping constraint {} from table {}",
+                    constraintName, toKey(tableNameInfo));
+            return Env.getCurrentEnv().getEditLog()
+                    .submitEdit(OperationType.OP_MODIFY_TABLE_PROPERTIES, log);
+        } finally {
+            writeUnlock();
+        }
     }
 
-    private boolean sameTables(List<TableNameInfo> first, List<TableNameInfo> second) {
-        Set<String> firstKeys = first.stream()
-                .map(ConstraintManager::toKey)
-                .collect(Collectors.toSet());
-        Set<String> secondKeys = second.stream()
-                .map(ConstraintManager::toKey)
-                .collect(Collectors.toSet());
-        return firstKeys.equals(secondKeys);
+    /** Replay a table-local mapping mutation from the backward-readable table-property envelope. */
+    public void replayDistributionMappingConstraint(OlapTable table,
+            DistributionMappingConstraint addedConstraint, String droppedConstraintName) {
+        Preconditions.checkState(table.isWriteLockHeldByCurrentThread(),
+                "table write lock is required when replaying a distribution mapping constraint");
+        Preconditions.checkState((addedConstraint == null) != (droppedConstraintName == null),
+                "exactly one distribution mapping mutation must be present");
+        writeLock();
+        try {
+            Map<String, DistributionMappingConstraint> mappings =
+                    getDistributionMappingConstraintsMap(table);
+            if (addedConstraint != null) {
+                checkConstraintNotExistence(addedConstraint.getName(), addedConstraint, mappings);
+                mappings.put(addedConstraint.getName(), addedConstraint);
+                LOG.info("Replayed adding distribution mapping constraint {} on table {}",
+                        addedConstraint.getName(), table.getName());
+            } else if (mappings.remove(droppedConstraintName) == null) {
+                LOG.warn("Distribution mapping constraint {} not found on table {} during replay, skipping",
+                        droppedConstraintName, table.getName());
+            } else {
+                LOG.info("Replayed dropping distribution mapping constraint {} from table {}",
+                        droppedConstraintName, table.getName());
+            }
+        } finally {
+            writeUnlock();
+        }
     }
 
     /** Returns an immutable copy of all constraints for the given table. */
@@ -460,9 +290,6 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         String key = toKey(tableNameInfo);
         readLock();
         try {
-            if (isConstraintReadUntrustedWithoutLock(tableNameInfo)) {
-                return ImmutableMap.of();
-            }
             Map<String, Constraint> tableConstraints
                     = constraintsMap.get(key);
             if (tableConstraints == null) {
@@ -474,15 +301,30 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         }
     }
 
+    /** Returns centralized constraints together with mappings owned by the concrete table. */
+    public Map<String, Constraint> getConstraints(TableNameInfo tableNameInfo, TableIf table) {
+        readLock();
+        try {
+            Map<String, Constraint> constraints = new HashMap<>();
+            Map<String, Constraint> centralizedConstraints = constraintsMap.get(toKey(tableNameInfo));
+            if (centralizedConstraints != null) {
+                constraints.putAll(centralizedConstraints);
+            }
+            Map<String, DistributionMappingConstraint> mappings = getDistributionMappingConstraintsMap(table);
+            validateNoDistributionMappingConstraintNameCollision(toKey(tableNameInfo), mappings);
+            constraints.putAll(mappings);
+            return ImmutableMap.copyOf(constraints);
+        } finally {
+            readUnlock();
+        }
+    }
+
     /** Get a single constraint by name, or null if not found. */
     public Constraint getConstraint(TableNameInfo tableNameInfo,
             String constraintName) {
         String key = toKey(tableNameInfo);
         readLock();
         try {
-            if (isConstraintReadUntrustedWithoutLock(tableNameInfo)) {
-                return null;
-            }
             Map<String, Constraint> tableConstraints
                     = constraintsMap.get(key);
             if (tableConstraints == null) {
@@ -494,169 +336,117 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         }
     }
 
-    /** Resolve the persisted spelling used by a case-insensitive external catalog. */
-    public TableNameInfo canonicalizeExternalTableName(TableNameInfo tableNameInfo,
-            String constraintName, boolean databaseCaseInsensitive, boolean tableCaseInsensitive) {
-        String requestedKey = toKey(tableNameInfo);
+    /** Return a table-owned mapping first, then a centralized constraint with the same name. */
+    public Constraint getConstraint(TableNameInfo tableNameInfo, TableIf table,
+            String constraintName) {
         readLock();
         try {
-            Map<String, Constraint> exactConstraints = constraintsMap.get(requestedKey);
-            if (exactConstraints != null && exactConstraints.containsKey(constraintName)) {
-                return tableNameInfo;
+            DistributionMappingConstraint mapping =
+                    getDistributionMappingConstraintsMap(table).get(constraintName);
+            if (mapping != null) {
+                return mapping;
             }
-            TableNameInfo matchedName = null;
-            for (Entry<String, Map<String, Constraint>> entry : constraintsMap.entrySet()) {
-                if (!entry.getValue().containsKey(constraintName)) {
-                    continue;
-                }
-                TableNameInfo storedName = new TableNameInfo(entry.getKey());
-                if (storedName.getCtl().equals(tableNameInfo.getCtl())
-                        && namesEqual(storedName.getDb(), tableNameInfo.getDb(), databaseCaseInsensitive)
-                        && namesEqual(storedName.getTbl(), tableNameInfo.getTbl(), tableCaseInsensitive)) {
-                    if (matchedName != null) {
-                        throw new AnalysisException(
-                                "Ambiguous constraint table name " + tableNameInfo);
-                    }
-                    matchedName = storedName;
-                }
-            }
-            return matchedName == null ? tableNameInfo : matchedName;
+            Map<String, Constraint> tableConstraints = constraintsMap.get(toKey(tableNameInfo));
+            return tableConstraints == null ? null : tableConstraints.get(constraintName);
         } finally {
             readUnlock();
         }
     }
 
-    private boolean namesEqual(String left, String right, boolean caseInsensitive) {
-        return caseInsensitive ? left.equalsIgnoreCase(right) : left.equals(right);
-    }
-
-    /** Returns all PrimaryKeyConstraints for the given table. */
-    public ImmutableList<PrimaryKeyConstraint> getPrimaryKeyConstraints(
-            TableNameInfo tableNameInfo) {
-        return getConstraintsByType(tableNameInfo,
-                PrimaryKeyConstraint.class);
-    }
-
-    /** Returns all ForeignKeyConstraints for the given table. */
-    public ImmutableList<ForeignKeyConstraint> getForeignKeyConstraints(
-            TableNameInfo tableNameInfo) {
-        return getConstraintsByType(tableNameInfo,
-                ForeignKeyConstraint.class);
-    }
-
-    /** Returns all UniqueConstraints for the given table. */
-    public ImmutableList<UniqueConstraint> getUniqueConstraints(
-            TableNameInfo tableNameInfo) {
-        return getConstraintsByType(tableNameInfo,
-                UniqueConstraint.class);
-    }
-
-    /**
-     * Returns mappings owned by the concrete table object.
-     *
-     * <p>The table-local copy follows the table through recycle, backup, restore, and rename lifecycles.
-     * Optimizer code must use this overload so a stale qualified-name entry can never bind to another table.</p>
-     */
-    @SuppressWarnings("deprecation")
+    /** Returns all distribution mappings owned by the concrete table. */
     public ImmutableList<DistributionMappingConstraint> getDistributionMappingConstraints(TableIf table) {
-        if (!(table instanceof Table)) {
-            return ImmutableList.of();
-        }
         readLock();
         try {
-            return ((Table) table).getTableAttributes().getConstraintsMap().values().stream()
-                    .filter(DistributionMappingConstraint.class::isInstance)
-                    .map(DistributionMappingConstraint.class::cast)
+            return getDistributionMappingConstraintsMap(table).entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .map(Entry::getValue)
                     .collect(ImmutableList.toImmutableList());
         } finally {
             readUnlock();
         }
     }
 
-    /** Return the table-owned mapping that uses the given column, if any. */
-    @SuppressWarnings("deprecation")
-    public String findDistributionMappingConstraintWithColumn(TableIf table, String columnName) {
-        if (!(table instanceof Table)) {
-            return null;
+    /** Return mappings that are safe to consume for planning in the current FE cluster. */
+    public ImmutableList<DistributionMappingConstraint> getDistributionMappingConstraintsForPlanning(
+            OlapTable table) {
+        ImmutableList<DistributionMappingConstraint> constraints = getDistributionMappingConstraints(table);
+        if (constraints.isEmpty()) {
+            return constraints;
         }
+        TableNameInfo tableNameInfo = TableNameInfoUtils.fromCatalogDb(
+                table.getDatabase().getCatalog(), table.getDatabase(), table);
         readLock();
         try {
-            return ((Table) table).getTableAttributes().getConstraintsMap().entrySet().stream()
-                    .filter(entry -> entry.getValue() instanceof DistributionMappingConstraint)
-                    .filter(entry -> {
-                        DistributionMappingConstraint mapping =
-                                (DistributionMappingConstraint) entry.getValue();
-                        return containsIgnoreCase(mapping.getDeterminantColumnNames(), columnName)
-                                || containsIgnoreCase(mapping.getDistributionColumnNames(), columnName);
-                    })
-                    .map(Entry::getKey)
-                    .findFirst()
-                    .orElse(null);
+            validateNoDistributionMappingConstraintNameCollision(toKey(tableNameInfo),
+                    getDistributionMappingConstraintsMap(table));
         } finally {
             readUnlock();
         }
+        validateDistributionMappingFeatureCompatibility();
+        validateDistributionMappingConstraints(table, constraints);
+        return constraints;
     }
 
-    /** Rebuild the qualified-name index from constraints persisted with a recovered or restored table. */
-    @SuppressWarnings("deprecation")
-    public void restoreTableConstraints(TableNameInfo tableNameInfo, TableIf table) {
-        if (!(table instanceof Table)) {
-            return;
-        }
-        Map<String, Constraint> tableLocalConstraints =
-                ((Table) table).getTableAttributes().getConstraintsMap();
-        String key = toKey(tableNameInfo);
-        writeLock();
-        try {
-            Map<String, Constraint> indexedConstraints = constraintsMap.get(key);
-            if (indexedConstraints != null) {
-                indexedConstraints.entrySet().removeIf(
-                        entry -> entry.getValue() instanceof DistributionMappingConstraint);
+    /** Reject persisted mappings that no longer describe the current table schema. */
+    public void validateDistributionMappingConstraints(OlapTable table) {
+        validateDistributionMappingConstraints(table, getDistributionMappingConstraints(table));
+    }
+
+    private void validateDistributionMappingConstraints(OlapTable table,
+            List<DistributionMappingConstraint> constraints) {
+        for (DistributionMappingConstraint constraint : constraints) {
+            if (!constraint.isCompatibleWith(table)) {
+                throw new AnalysisException(String.format(
+                        "Distribution mapping constraint %s on table %s is incompatible with the current schema. "
+                                + "Drop and recreate the constraint.",
+                        constraint.getName(), table.getName()));
             }
-            for (Entry<String, Constraint> entry : tableLocalConstraints.entrySet()) {
-                Constraint constraint = entry.getValue();
-                if (constraint instanceof DistributionMappingConstraint) {
-                    if (indexedConstraints == null) {
-                        indexedConstraints = new HashMap<>();
-                    }
-                    indexedConstraints.put(entry.getKey(), constraint);
+        }
+    }
+
+    /** Return the mapping that uses the given column, if any. */
+    public String findDistributionMappingConstraintWithColumn(TableIf table, String columnName) {
+        readLock();
+        try {
+            for (Entry<String, DistributionMappingConstraint> entry
+                    : getDistributionMappingConstraintsMap(table).entrySet()) {
+                DistributionMappingConstraint mapping = entry.getValue();
+                if (containsIgnoreCase(mapping.getDeterminantColumnNames(), columnName)
+                        || containsIgnoreCase(mapping.getDistributionColumnNames(), columnName)) {
+                    return entry.getKey();
                 }
             }
-            if (indexedConstraints == null || indexedConstraints.isEmpty()) {
-                constraintsMap.remove(key);
-            } else {
-                constraintsMap.put(key, indexedConstraints);
-            }
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    /** Populate table-local mapping metadata after loading an image created before table-local ownership. */
-    public void syncDistributionMappingsToTables() {
-        Map<String, Map<String, Constraint>> snapshot;
-        readLock();
-        try {
-            snapshot = constraintsMap.entrySet().stream()
-                    .collect(Collectors.toMap(
-                            Entry::getKey,
-                            entry -> ImmutableMap.copyOf(entry.getValue())));
+            return null;
         } finally {
             readUnlock();
         }
-        snapshot.forEach((tableKey, constraints) -> {
-            Map<String, Constraint> mappings = constraints.entrySet().stream()
-                    .filter(entry -> entry.getValue() instanceof DistributionMappingConstraint)
-                    .collect(Collectors.toMap(Entry::getKey, Entry::getValue));
-            if (mappings.isEmpty()) {
-                return;
-            }
-            TableIf table = resolveTableIfPresent(new TableNameInfo(tableKey));
-            mappings.forEach((name, constraint) ->
-                    putTableLocalConstraint(table, name, constraint));
-        });
     }
 
+    /** Returns all PrimaryKeyConstraints for the given table. */
+    public ImmutableList<PrimaryKeyConstraint> getPrimaryKeyConstraints(
+            TableNameInfo tableNameInfo) {
+        return getConstraintsByType(toKey(tableNameInfo),
+                PrimaryKeyConstraint.class);
+    }
+
+    /** Returns all ForeignKeyConstraints for the given table. */
+    public ImmutableList<ForeignKeyConstraint> getForeignKeyConstraints(
+            TableNameInfo tableNameInfo) {
+        return getConstraintsByType(toKey(tableNameInfo),
+                ForeignKeyConstraint.class);
+    }
+
+    /** Returns all UniqueConstraints for the given table. */
+    public ImmutableList<UniqueConstraint> getUniqueConstraints(
+            TableNameInfo tableNameInfo) {
+        return getConstraintsByType(toKey(tableNameInfo),
+                UniqueConstraint.class);
+    }
+
+    /**
+     * Remove all constraints for a table and clean up bidirectional references.
+     * Called when a table is dropped.
+     */
     /**
      * Atomically check for referencing foreign keys and then drop all constraints
      * for the given table. Holds the write lock for both operations to prevent
@@ -665,233 +455,76 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
      * @param tableNameInfo the table whose constraints are to be dropped
      * @param checkForeignKeys if true, throw DdlException if any PK is FK-referenced
      */
-    public List<TableNameInfo> checkAndDropTableConstraints(TableNameInfo tableNameInfo,
+    public void checkAndDropTableConstraints(TableNameInfo tableNameInfo,
             boolean checkForeignKeys) throws DdlException {
-        return checkAndDropTableConstraints(ImmutableList.of(tableNameInfo), checkForeignKeys);
-    }
-
-    /**
-     * Atomically validate and drop constraints for a set of tables.
-     * Foreign keys owned by another table in the same set do not block the operation.
-     */
-    public List<TableNameInfo> checkAndDropTableConstraints(List<TableNameInfo> tableNameInfos,
-            boolean checkForeignKeys) throws DdlException {
+        String key = toKey(tableNameInfo);
         writeLock();
         try {
-            Map<String, TableNameInfo> tablesByKey = new LinkedHashMap<>();
-            for (TableNameInfo tableNameInfo : tableNameInfos) {
-                tablesByKey.putIfAbsent(toKey(tableNameInfo), tableNameInfo);
+            Map<String, Constraint> tableConstraints = constraintsMap.get(key);
+            if (tableConstraints == null) {
+                return;
             }
             if (checkForeignKeys) {
-                for (String tableKey : tablesByKey.keySet()) {
-                    checkForeignKeyReferences(
-                            tableKey, constraintsMap.get(tableKey), tablesByKey.keySet());
+                for (Constraint c : tableConstraints.values()) {
+                    if (c instanceof PrimaryKeyConstraint) {
+                        PrimaryKeyConstraint pk = (PrimaryKeyConstraint) c;
+                        List<TableNameInfo> fkTables = pk.getForeignTableInfos();
+                        if (fkTables != null && !fkTables.isEmpty()) {
+                            String fkTableNames = fkTables.stream()
+                                    .map(t -> toKey(t))
+                                    .collect(Collectors.joining(", "));
+                            throw new DdlException(String.format(
+                                    "Cannot drop table %s because its primary"
+                                            + " key is referenced by foreign key"
+                                            + " constraints from table(s): %s."
+                                            + " Drop the foreign key constraints"
+                                            + " first.",
+                                    key, fkTableNames));
+                        }
+                    }
                 }
             }
-            Map<String, TableNameInfo> affectedTables = new LinkedHashMap<>();
-            for (Entry<String, TableNameInfo> table : tablesByKey.entrySet()) {
-                collectConstraintRelatedTables(
-                        affectedTables, table.getValue(), constraintsMap.get(table.getKey()));
-            }
-            for (Entry<String, TableNameInfo> table : tablesByKey.entrySet()) {
-                dropTableConstraintsWithoutLock(table.getKey(), table.getValue());
-            }
-            return ImmutableList.copyOf(affectedTables.values());
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    private void checkForeignKeyReferences(String tableKey,
-            Map<String, Constraint> tableConstraints, Set<String> tablesBeingDropped)
-            throws DdlException {
-        if (tableConstraints == null) {
-            return;
-        }
-        for (Constraint constraint : tableConstraints.values()) {
-            if (constraint instanceof PrimaryKeyConstraint) {
-                PrimaryKeyConstraint primaryKey = (PrimaryKeyConstraint) constraint;
-                List<TableNameInfo> foreignKeyTables = primaryKey.getForeignTableInfos();
-                List<TableNameInfo> externalForeignKeyTables = foreignKeyTables == null
-                        ? Collections.emptyList()
-                        : foreignKeyTables.stream()
-                                .filter(table -> !tablesBeingDropped.contains(toKey(table)))
-                                .collect(Collectors.toList());
-                if (!externalForeignKeyTables.isEmpty()) {
-                    String foreignKeyTableNames = externalForeignKeyTables.stream()
-                            .map(ConstraintManager::toKey)
-                            .collect(Collectors.joining(", "));
-                    throw new DdlException(String.format(
-                            "Cannot drop table %s because its primary"
-                                    + " key is referenced by foreign key"
-                                    + " constraints from table(s): %s."
-                                    + " Drop the foreign key constraints"
-                                    + " first.",
-                            tableKey, foreignKeyTableNames));
-                }
-            }
-        }
-    }
-
-    public List<TableNameInfo> dropTableConstraints(TableNameInfo tableNameInfo) {
-        writeLock();
-        try {
-            return dropTableConstraintsWithoutLock(tableNameInfo);
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    /**
-     * Drop constraints that reference columns removed by an out-of-band external schema change.
-     * The mutation is local on every FE, like the surrounding metastore-event cleanup paths.
-     */
-    public List<TableNameInfo> dropConstraintsReferencingColumns(
-            TableNameInfo tableNameInfo, Collection<String> columnNames) {
-        writeLock();
-        try {
-            return dropConstraintsReferencingColumnsWithoutLock(tableNameInfo, columnNames);
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    private List<TableNameInfo> dropTableConstraintsWithoutLock(TableNameInfo tableNameInfo) {
-        String key = toKey(tableNameInfo);
-        Map<String, TableNameInfo> affectedTables = new LinkedHashMap<>();
-        collectConstraintRelatedTables(affectedTables, tableNameInfo, constraintsMap.get(key));
-        dropTableConstraintsWithoutLock(key, tableNameInfo);
-        return ImmutableList.copyOf(affectedTables.values());
-    }
-
-    private List<TableNameInfo> dropConstraintsReferencingColumnsWithoutLock(
-            TableNameInfo tableNameInfo, Collection<String> columnNames) {
-        String key = toKey(tableNameInfo);
-        Map<String, Constraint> tableConstraints = constraintsMap.get(key);
-        if (tableConstraints == null) {
-            return ImmutableList.of();
-        }
-        Map<String, Constraint> constraintsToDrop = new LinkedHashMap<>();
-        for (Entry<String, Constraint> entry : tableConstraints.entrySet()) {
-            if (columnNames.stream().anyMatch(
-                    columnName -> constraintReferencesColumn(entry.getValue(), columnName))) {
-                constraintsToDrop.put(entry.getKey(), entry.getValue());
-            }
-        }
-        if (constraintsToDrop.isEmpty()) {
-            return ImmutableList.of();
-        }
-
-        Map<String, TableNameInfo> affectedTables = new LinkedHashMap<>();
-        collectConstraintRelatedTables(affectedTables, tableNameInfo, constraintsToDrop);
-        constraintsToDrop.forEach((constraintName, constraint) -> {
-            tableConstraints.remove(constraintName);
-            if (constraint instanceof DistributionMappingConstraint) {
-                removeTableLocalConstraint(
-                        resolveTableIfPresent(tableNameInfo), constraintName);
-            }
-        });
-        constraintsToDrop.values().forEach(
-                constraint -> cleanupConstraintReferences(tableNameInfo, constraint));
-        if (tableConstraints.isEmpty()) {
             constraintsMap.remove(key);
+            for (Constraint constraint : tableConstraints.values()) {
+                cleanupConstraintReferences(tableNameInfo, constraint);
+            }
+            LOG.info("Dropped all constraints for table {}", key);
+        } finally {
+            writeUnlock();
         }
-        LOG.info("Dropped constraints {} from table {} after columns {} were removed",
-                constraintsToDrop.keySet(), key, columnNames);
-        return ImmutableList.copyOf(affectedTables.values());
     }
 
-    private void dropTableConstraintsWithoutLock(String key, TableNameInfo tableNameInfo) {
-        Map<String, Constraint> tableConstraints = constraintsMap.remove(key);
-        if (tableConstraints == null) {
-            return;
+    public void dropTableConstraints(TableNameInfo tableNameInfo) {
+        String key = toKey(tableNameInfo);
+        writeLock();
+        try {
+            Map<String, Constraint> tableConstraints
+                    = constraintsMap.remove(key);
+            if (tableConstraints == null) {
+                return;
+            }
+            for (Constraint constraint : tableConstraints.values()) {
+                cleanupConstraintReferences(tableNameInfo, constraint);
+            }
+            LOG.info("Dropped all constraints for table {}", key);
+        } finally {
+            writeUnlock();
         }
-        for (Constraint constraint : tableConstraints.values()) {
-            cleanupConstraintReferences(tableNameInfo, constraint);
-        }
-        LOG.info("Dropped all constraints for table {}", key);
     }
 
     /**
      * Remove all constraints whose qualified table name starts with
      * the given catalog prefix. Called when a catalog is dropped.
      */
-    public List<TableNameInfo> dropCatalogConstraints(String catalogName) {
+    public void dropCatalogConstraints(String catalogName) {
         writeLock();
         try {
-            List<TableNameInfo> affectedTables = dropCatalogConstraintsWithoutLock(catalogName);
-            untrustedExternalCatalogs.remove(catalogName);
-            return affectedTables;
+            String prefix = catalogName + ".";
+            dropConstraintsByPrefix(prefix);
+            LOG.info("Dropped all constraints for catalog {}", catalogName);
         } finally {
             writeUnlock();
         }
-    }
-
-    /** Returns the tables whose rewrite caches depend on constraints in the given catalog. */
-    public List<TableNameInfo> getCatalogConstraintRelatedTables(String catalogName) {
-        String prefix = catalogName + ".";
-        readLock();
-        try {
-            Map<String, TableNameInfo> affectedTables = new LinkedHashMap<>();
-            constraintsMap.entrySet().stream()
-                    .filter(entry -> entry.getKey().startsWith(prefix))
-                    .forEach(entry -> collectConstraintRelatedTables(
-                            affectedTables, new TableNameInfo(entry.getKey()), entry.getValue()));
-            return ImmutableList.copyOf(affectedTables.values());
-        } finally {
-            readUnlock();
-        }
-    }
-
-    public boolean markCatalogConstraintsUntrusted(String catalogName) {
-        writeLock();
-        try {
-            return untrustedExternalCatalogs.add(catalogName);
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    /** Drops quarantined state before a replay-safe cursor makes the catalog trusted again. */
-    public List<TableNameInfo> reconcileUntrustedCatalogConstraints(String catalogName) {
-        writeLock();
-        try {
-            if (!untrustedExternalCatalogs.remove(catalogName)) {
-                return ImmutableList.of();
-            }
-            return dropCatalogConstraintsWithoutLock(catalogName);
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    private boolean isConstraintReadUntrustedWithoutLock(TableNameInfo tableNameInfo) {
-        if (untrustedExternalCatalogs.contains(tableNameInfo.getCtl())) {
-            return true;
-        }
-        Map<String, Constraint> constraints = constraintsMap.get(toKey(tableNameInfo));
-        if (constraints == null) {
-            return false;
-        }
-        for (Constraint constraint : constraints.values()) {
-            if (constraint instanceof ForeignKeyConstraint) {
-                TableNameInfo referencedTable = ((ForeignKeyConstraint) constraint).getReferencedTableName();
-                if (referencedTable != null && untrustedExternalCatalogs.contains(referencedTable.getCtl())) {
-                    return true;
-                }
-            } else if (constraint instanceof PrimaryKeyConstraint
-                    && ((PrimaryKeyConstraint) constraint).getForeignTableInfos().stream()
-                            .anyMatch(table -> untrustedExternalCatalogs.contains(table.getCtl()))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private List<TableNameInfo> dropCatalogConstraintsWithoutLock(String catalogName) {
-        List<TableNameInfo> affectedTables = dropConstraintsByPrefix(catalogName + ".");
-        LOG.info("Dropped all constraints for catalog {}", catalogName);
-        return affectedTables;
     }
 
     /**
@@ -899,61 +532,33 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
      * Called during DROP DATABASE to pre-clear all intra-database FK references
      * before individual table drops, avoiding ordering-dependent FK check failures.
      */
-    public List<TableNameInfo> dropDatabaseConstraints(String catalogName, String dbName) {
+    public void dropDatabaseConstraints(String catalogName, String dbName) {
         writeLock();
         try {
-            return dropDatabaseConstraintsWithoutLock(catalogName, dbName);
+            String prefix = catalogName + "." + dbName + ".";
+            dropConstraintsByPrefix(prefix);
+            LOG.info("Dropped all constraints for database {}.{}",
+                    catalogName, dbName);
         } finally {
             writeUnlock();
         }
-    }
-
-    private List<TableNameInfo> dropDatabaseConstraintsWithoutLock(String catalogName, String dbName) {
-        String prefix = catalogName + "." + dbName + ".";
-        List<TableNameInfo> affectedTables = dropConstraintsByPrefix(prefix);
-        LOG.info("Dropped all constraints for database {}.{}", catalogName, dbName);
-        return affectedTables;
     }
 
     /**
      * Remove all constraints whose qualified table name starts with
      * the given prefix, cleaning up cross-references outside the prefix.
      */
-    private List<TableNameInfo> dropConstraintsByPrefix(String prefix) {
+    private void dropConstraintsByPrefix(String prefix) {
         List<String> tablesToRemove = constraintsMap.keySet().stream()
                 .filter(k -> k.startsWith(prefix))
                 .collect(Collectors.toList());
-        Map<String, TableNameInfo> affectedTables = new LinkedHashMap<>();
         for (String tableName : tablesToRemove) {
-            TableNameInfo tableNameInfo = new TableNameInfo(tableName);
             Map<String, Constraint> tableConstraints
                     = constraintsMap.remove(tableName);
             if (tableConstraints != null) {
-                collectConstraintRelatedTables(affectedTables, tableNameInfo, tableConstraints);
                 for (Constraint constraint : tableConstraints.values()) {
                     cleanupConstraintReferencesOutsideCatalog(
                             tableName, constraint, prefix);
-                }
-            }
-        }
-        return ImmutableList.copyOf(affectedTables.values());
-    }
-
-    private void collectConstraintRelatedTables(Map<String, TableNameInfo> affectedTables,
-            TableNameInfo tableNameInfo, Map<String, Constraint> constraints) {
-        if (constraints == null || constraints.isEmpty()) {
-            return;
-        }
-        affectedTables.putIfAbsent(toKey(tableNameInfo), tableNameInfo);
-        for (Constraint constraint : constraints.values()) {
-            if (constraint instanceof ForeignKeyConstraint) {
-                TableNameInfo referencedTable = ((ForeignKeyConstraint) constraint).getReferencedTableName();
-                if (referencedTable != null) {
-                    affectedTables.putIfAbsent(toKey(referencedTable), referencedTable);
-                }
-            } else if (constraint instanceof PrimaryKeyConstraint) {
-                for (TableNameInfo foreignTable : ((PrimaryKeyConstraint) constraint).getForeignTableInfos()) {
-                    affectedTables.putIfAbsent(toKey(foreignTable), foreignTable);
                 }
             }
         }
@@ -965,342 +570,40 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
      */
     public void renameTable(TableNameInfo oldTableInfo,
             TableNameInfo newTableInfo) {
-        writeLock();
-        try {
-            renameTableWithoutLock(oldTableInfo, newTableInfo);
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    /** Move every qualified table key when a database is renamed. */
-    public void renameDatabase(String catalogName, String oldDbName, String newDbName) {
-        writeLock();
-        try {
-            renameDatabaseWithoutLock(catalogName, oldDbName, newDbName);
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    private void renameDatabaseWithoutLock(String catalogName, String oldDbName, String newDbName) {
-        String oldPrefix = catalogName + "." + oldDbName + ".";
-        Map<TableNameInfo, TableNameInfo> renamedTables = constraintsMap.keySet().stream()
-                .filter(key -> key.startsWith(oldPrefix))
-                .map(TableNameInfo::new)
-                .collect(Collectors.toMap(
-                        tableInfo -> tableInfo,
-                        tableInfo -> new TableNameInfo(catalogName, newDbName, tableInfo.getTbl())));
-        renameTablesWithoutLock(renamedTables);
-        LOG.info("Reconciled database constraints from {}.{} to {}.{}",
-                catalogName, oldDbName, catalogName, newDbName);
-    }
-
-    /** Move every qualified table key and cross-table reference when a catalog is renamed. */
-    public void renameCatalog(String oldCatalogName, String newCatalogName) {
-        writeLock();
-        try {
-            String oldPrefix = oldCatalogName + ".";
-            Map<TableNameInfo, TableNameInfo> renamedTables = constraintsMap.keySet().stream()
-                    .filter(key -> key.startsWith(oldPrefix))
-                    .map(TableNameInfo::new)
-                    .collect(Collectors.toMap(
-                            tableInfo -> tableInfo,
-                            tableInfo -> new TableNameInfo(
-                                    newCatalogName, tableInfo.getDb(), tableInfo.getTbl())));
-            renameTablesWithoutLock(renamedTables);
-            if (untrustedExternalCatalogs.remove(oldCatalogName)) {
-                untrustedExternalCatalogs.add(newCatalogName);
-            }
-            LOG.info("Reconciled catalog constraints from {} to {}", oldCatalogName, newCatalogName);
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    private void renameTablesWithoutLock(Map<TableNameInfo, TableNameInfo> renamedTables) {
-        Set<TableNameInfo> conflictingTables = new LinkedHashSet<>();
-        Map<TableNameInfo, TableNameInfo> movableTables = new LinkedHashMap<>();
-        for (Entry<TableNameInfo, TableNameInfo> renamedTable : renamedTables.entrySet()) {
-            String oldKey = toKey(renamedTable.getKey());
-            Map<String, Constraint> sourceConstraints = constraintsMap.get(oldKey);
-            if (sourceConstraints == null) {
-                continue;
-            }
-            String newKey = toKey(renamedTable.getValue());
-            if (oldKey.equals(newKey)) {
-                continue;
-            }
-            if (constraintsMap.containsKey(newKey)) {
-                LOG.warn("Discarding source constraints {} while renaming table {} to {} because the target"
-                                + " already has constraints",
-                        sourceConstraints.keySet(), oldKey, newKey);
-                conflictingTables.add(renamedTable.getKey());
-            } else {
-                movableTables.put(renamedTable.getKey(), renamedTable.getValue());
-            }
-        }
-
-        // Drop collisions before moving any source so cascaded FK cleanup can still find every old key.
-        for (TableNameInfo conflictingTable : conflictingTables) {
-            dropTableConstraintsWithoutLock(toKey(conflictingTable), conflictingTable);
-        }
-
-        Map<TableNameInfo, TableNameInfo> movedTables = new LinkedHashMap<>();
-        for (Entry<TableNameInfo, TableNameInfo> movableTable : movableTables.entrySet()) {
-            Map<String, Constraint> tableConstraints = constraintsMap.remove(toKey(movableTable.getKey()));
-            // Collision cleanup can cascade-drop a movable source's only foreign key before this phase.
-            if (tableConstraints == null) {
-                continue;
-            }
-            constraintsMap.put(toKey(movableTable.getValue()), tableConstraints);
-            movedTables.put(movableTable.getKey(), movableTable.getValue());
-        }
-
-        for (Map<String, Constraint> tableConstraints : constraintsMap.values()) {
-            for (Constraint constraint : tableConstraints.values()) {
-                if (constraint instanceof ForeignKeyConstraint) {
-                    ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) constraint;
-                    TableNameInfo referencedTable = foreignKey.getReferencedTableName();
-                    if (referencedTable != null) {
-                        TableNameInfo renamedTable = movedTables.get(referencedTable);
-                        if (renamedTable != null) {
-                            foreignKey.setReferencedTableInfo(renamedTable);
-                        }
-                    }
-                } else if (constraint instanceof PrimaryKeyConstraint) {
-                    ((PrimaryKeyConstraint) constraint).renameForeignTables(movedTables);
-                }
-            }
-        }
-    }
-
-    /** Apply one connector-event constraint change and enqueue its old-opcode replay records. */
-    public List<TableNameInfo> applyMetastoreConstraintMutation(
-            MetastoreConstraintMutation mutation) {
-        return applyMetastoreConstraintMutation(mutation, ImmutableList.of());
-    }
-
-    /** Apply one connector-event constraint change and atomically append a trailing replay record. */
-    public List<TableNameInfo> applyMetastoreConstraintMutation(
-            MetastoreConstraintMutation mutation, EditLog.EditLogOperation trailingOperation) {
-        return applyMetastoreConstraintMutation(mutation, ImmutableList.of(trailingOperation));
-    }
-
-    private List<TableNameInfo> applyMetastoreConstraintMutation(
-            MetastoreConstraintMutation mutation, List<EditLog.EditLogOperation> trailingOperations) {
-        EditLog.EditLogItem editLogItem = null;
-        List<TableNameInfo> affectedTables;
-        writeLock();
-        try {
-            boolean hasRelevantConstraints = hasRelevantConstraintsWithoutLock(mutation);
-            if (!hasRelevantConstraints && trailingOperations.isEmpty()) {
-                return ImmutableList.of();
-            }
-            List<EditLog.EditLogOperation> operations = new ArrayList<>();
-            if (hasRelevantConstraints) {
-                Set<String> trackedTableKeys = collectMutationTableKeysWithoutLock(mutation);
-                Map<String, Map<String, Constraint>> before =
-                        snapshotConstraintsWithoutLock(trackedTableKeys);
-                affectedTables = applyMetastoreConstraintMutationWithoutLock(mutation);
-                operations.addAll(buildConstraintTransitionEdits(before, trackedTableKeys));
-            } else {
-                affectedTables = ImmutableList.of();
-            }
-            operations.addAll(trailingOperations);
-            editLogItem = operations.isEmpty() ? null
-                    : Env.getCurrentEnv().getEditLog().submitAtomicEdits(operations);
-        } finally {
-            writeUnlock();
-        }
-        awaitEditLog(editLogItem);
-        return ImmutableList.copyOf(affectedTables);
-    }
-
-    private boolean hasRelevantConstraintsWithoutLock(MetastoreConstraintMutation mutation) {
-        // A foreign key cannot exist without its referenced primary key in this manager. Therefore,
-        // no source entry also means there is no cross-table reference for these mutations to update.
-        switch (mutation.type) {
-            case DROP_TABLE:
-            case RENAME_TABLE:
-                return constraintsMap.containsKey(toKey(mutation.tableNameInfo));
-            case DROP_COLUMNS:
-                Map<String, Constraint> tableConstraints = constraintsMap.get(toKey(mutation.tableNameInfo));
-                return tableConstraints != null && tableConstraints.values().stream().anyMatch(
-                        constraint -> mutation.columnNames.stream().anyMatch(
-                                columnName -> constraintReferencesColumn(constraint, columnName)));
-            case DROP_DATABASE:
-            case RENAME_DATABASE:
-                String prefix = mutation.catalogName + "." + mutation.dbName + ".";
-                return constraintsMap.keySet().stream().anyMatch(key -> key.startsWith(prefix));
-            case DROP_CATALOG:
-                String catalogPrefix = mutation.catalogName + ".";
-                return constraintsMap.keySet().stream().anyMatch(key -> key.startsWith(catalogPrefix));
-            default:
-                throw new IllegalStateException("Unsupported metastore constraint mutation: " + mutation.type);
-        }
-    }
-
-    private List<TableNameInfo> applyMetastoreConstraintMutationWithoutLock(
-            MetastoreConstraintMutation mutation) {
-        switch (mutation.type) {
-            case DROP_TABLE:
-                return dropTableConstraintsWithoutLock(mutation.tableNameInfo);
-            case DROP_DATABASE:
-                return dropDatabaseConstraintsWithoutLock(mutation.catalogName, mutation.dbName);
-            case DROP_CATALOG:
-                return dropCatalogConstraintsWithoutLock(mutation.catalogName);
-            case RENAME_TABLE:
-                renameTableWithoutLock(mutation.tableNameInfo, mutation.newTableNameInfo);
-                return ImmutableList.of();
-            case RENAME_DATABASE:
-                renameDatabaseWithoutLock(mutation.catalogName, mutation.dbName, mutation.newDbName);
-                return ImmutableList.of();
-            case DROP_COLUMNS:
-                return dropConstraintsReferencingColumnsWithoutLock(
-                        mutation.tableNameInfo, mutation.columnNames);
-            default:
-                throw new IllegalStateException("Unsupported metastore constraint mutation: " + mutation.type);
-        }
-    }
-
-    private Set<String> collectMutationTableKeysWithoutLock(MetastoreConstraintMutation mutation) {
-        Set<String> tableKeys = new LinkedHashSet<>();
-        switch (mutation.type) {
-            case DROP_TABLE:
-            case RENAME_TABLE:
-            case DROP_COLUMNS:
-                tableKeys.add(toKey(mutation.tableNameInfo));
-                break;
-            case DROP_DATABASE:
-            case RENAME_DATABASE:
-                String databasePrefix = mutation.catalogName + "." + mutation.dbName + ".";
-                constraintsMap.keySet().stream()
-                        .filter(key -> key.startsWith(databasePrefix))
-                        .forEach(tableKeys::add);
-                break;
-            case DROP_CATALOG:
-                String catalogPrefix = mutation.catalogName + ".";
-                constraintsMap.keySet().stream()
-                        .filter(key -> key.startsWith(catalogPrefix))
-                        .forEach(tableKeys::add);
-                break;
-            default:
-                throw new IllegalStateException("Unsupported metastore constraint mutation: " + mutation.type);
-        }
-
-        List<String> sourceTableKeys = new ArrayList<>(tableKeys);
-        for (String tableKey : sourceTableKeys) {
-            Map<String, Constraint> tableConstraints = constraintsMap.get(tableKey);
-            if (tableConstraints == null) {
-                continue;
-            }
-            Map<String, TableNameInfo> relatedTables = new LinkedHashMap<>();
-            collectConstraintRelatedTables(
-                    relatedTables, new TableNameInfo(tableKey), tableConstraints);
-            tableKeys.addAll(relatedTables.keySet());
-        }
-
-        if (mutation.type == MetastoreConstraintMutation.Type.RENAME_TABLE) {
-            tableKeys.add(toKey(mutation.newTableNameInfo));
-        } else if (mutation.type == MetastoreConstraintMutation.Type.RENAME_DATABASE) {
-            String oldPrefix = mutation.catalogName + "." + mutation.dbName + ".";
-            String newPrefix = mutation.catalogName + "." + mutation.newDbName + ".";
-            sourceTableKeys.stream()
-                    .filter(key -> key.startsWith(oldPrefix))
-                    .map(key -> newPrefix + key.substring(oldPrefix.length()))
-                    .forEach(tableKeys::add);
-        }
-        return tableKeys;
-    }
-
-    private Map<String, Map<String, Constraint>> snapshotConstraintsWithoutLock(
-            Collection<String> tableKeys) {
-        Map<String, Map<String, Constraint>> snapshot = new HashMap<>();
-        for (String tableKey : tableKeys) {
-            Map<String, Constraint> constraints = constraintsMap.get(tableKey);
-            if (constraints == null) {
-                continue;
-            }
-            Map<String, Constraint> tableConstraints = new HashMap<>();
-            for (Entry<String, Constraint> constraintEntry : constraints.entrySet()) {
-                tableConstraints.put(constraintEntry.getKey(), copyConstraint(constraintEntry.getValue()));
-            }
-            snapshot.put(tableKey, tableConstraints);
-        }
-        return snapshot;
-    }
-
-    private Constraint copyConstraint(Constraint constraint) {
-        return GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(constraint), Constraint.class);
-    }
-
-    private List<EditLog.EditLogOperation> buildConstraintTransitionEdits(
-            Map<String, Map<String, Constraint>> before, Collection<String> trackedTableKeys) {
-        // Primary-key foreign-table lists are derived from foreign keys. Constraint equality intentionally
-        // ignores that list, so replaying the FK drops/adds rebuilds it without redundant PK replacement logs.
-        List<ConstraintLogEntry> drops = new ArrayList<>();
-        List<ConstraintLogEntry> adds = new ArrayList<>();
-        for (Entry<String, Map<String, Constraint>> tableEntry : before.entrySet()) {
-            Map<String, Constraint> current = constraintsMap.get(tableEntry.getKey());
-            for (Entry<String, Constraint> constraintEntry : tableEntry.getValue().entrySet()) {
-                Constraint currentConstraint = current == null
-                        ? null : current.get(constraintEntry.getKey());
-                if (!Objects.equals(constraintEntry.getValue(), currentConstraint)) {
-                    drops.add(new ConstraintLogEntry(tableEntry.getKey(),
-                            constraintEntry.getKey(), constraintEntry.getValue()));
-                }
-            }
-        }
-        for (String tableKey : trackedTableKeys) {
-            Map<String, Constraint> current = constraintsMap.get(tableKey);
-            if (current == null) {
-                continue;
-            }
-            Map<String, Constraint> previous = before.get(tableKey);
-            for (Entry<String, Constraint> constraintEntry : current.entrySet()) {
-                Constraint previousConstraint = previous == null
-                        ? null : previous.get(constraintEntry.getKey());
-                if (!Objects.equals(previousConstraint, constraintEntry.getValue())) {
-                    adds.add(new ConstraintLogEntry(tableKey,
-                            constraintEntry.getKey(), constraintEntry.getValue()));
-                }
-            }
-        }
-
-        Comparator<ConstraintLogEntry> stableOrder = Comparator
-                .comparing((ConstraintLogEntry entry) -> entry.tableKey)
-                .thenComparing(entry -> entry.constraintName);
-        drops.sort(Comparator.comparingInt(
-                (ConstraintLogEntry entry) -> dropReplayOrder(entry.constraint)).thenComparing(stableOrder));
-        adds.sort(Comparator.comparingInt(
-                (ConstraintLogEntry entry) -> addReplayOrder(entry.constraint)).thenComparing(stableOrder));
-
-        List<EditLog.EditLogOperation> operations = new ArrayList<>(drops.size() + adds.size());
-        drops.forEach(entry -> operations.add(entry.toOperation(OperationType.OP_DROP_CONSTRAINT)));
-        adds.forEach(entry -> operations.add(entry.toOperation(OperationType.OP_ADD_CONSTRAINT)));
-        return operations;
-    }
-
-    private int dropReplayOrder(Constraint constraint) {
-        if (constraint instanceof ForeignKeyConstraint) {
-            return 0;
-        }
-        return constraint instanceof PrimaryKeyConstraint ? 2 : 1;
-    }
-
-    private int addReplayOrder(Constraint constraint) {
-        if (constraint instanceof PrimaryKeyConstraint) {
-            return 0;
-        }
-        return constraint instanceof ForeignKeyConstraint ? 2 : 1;
-    }
-
-    private void renameTableWithoutLock(TableNameInfo oldTableInfo, TableNameInfo newTableInfo) {
         String oldKey = toKey(oldTableInfo);
         String newKey = toKey(newTableInfo);
-        renameTablesWithoutLock(ImmutableMap.of(oldTableInfo, newTableInfo));
-        LOG.info("Reconciled table constraints from {} to {}", oldKey, newKey);
+        writeLock();
+        try {
+            // Move this table's own constraints
+            Map<String, Constraint> tableConstraints
+                    = constraintsMap.remove(oldKey);
+            if (tableConstraints != null) {
+                constraintsMap.put(newKey, tableConstraints);
+            }
+            // Update FK/PK references in OTHER tables
+            for (Map.Entry<String, Map<String, Constraint>> entry
+                    : constraintsMap.entrySet()) {
+                if (entry.getKey().equals(newKey)) {
+                    continue;
+                }
+                for (Constraint c : entry.getValue().values()) {
+                    if (c instanceof ForeignKeyConstraint) {
+                        ForeignKeyConstraint fk = (ForeignKeyConstraint) c;
+                        TableNameInfo refInfo = fk.getReferencedTableName();
+                        if (refInfo != null && oldTableInfo.equals(refInfo)) {
+                            fk.setReferencedTableInfo(newTableInfo);
+                        }
+                    } else if (c instanceof PrimaryKeyConstraint) {
+                        ((PrimaryKeyConstraint) c).renameForeignTable(
+                                oldTableInfo, newTableInfo);
+                    }
+                }
+            }
+            LOG.info("Renamed table constraints from {} to {}",
+                    oldKey, newKey);
+        } finally {
+            writeUnlock();
+        }
     }
 
     /**
@@ -1383,7 +686,6 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
-        untrustedExternalCatalogs = ConcurrentHashMap.newKeySet();
         LOG.info("ConstraintManager deserialized with {} table entries",
                 constraintsMap.size());
     }
@@ -1437,9 +739,6 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
             TableNameInfo tableNameInfo, String columnName) {
         readLock();
         try {
-            if (isConstraintReadUntrustedWithoutLock(tableNameInfo)) {
-                return null;
-            }
             String key = toKey(tableNameInfo);
             Map<String, Constraint> tableConstraints
                     = constraintsMap.get(key);
@@ -1448,36 +747,31 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
             }
             for (Entry<String, Constraint> entry
                     : tableConstraints.entrySet()) {
-                if (constraintReferencesColumn(entry.getValue(), columnName)) {
-                    return entry.getKey();
+                Constraint c = entry.getValue();
+                if (c instanceof PrimaryKeyConstraint) {
+                    if (((PrimaryKeyConstraint) c)
+                            .getPrimaryKeyNames()
+                            .contains(columnName)) {
+                        return entry.getKey();
+                    }
+                } else if (c instanceof UniqueConstraint) {
+                    if (((UniqueConstraint) c)
+                            .getUniqueColumnNames()
+                            .contains(columnName)) {
+                        return entry.getKey();
+                    }
+                } else if (c instanceof ForeignKeyConstraint) {
+                    if (((ForeignKeyConstraint) c)
+                            .getForeignKeyNames()
+                            .contains(columnName)) {
+                        return entry.getKey();
+                    }
                 }
             }
             return null;
         } finally {
             readUnlock();
         }
-    }
-
-    private boolean constraintReferencesColumn(Constraint constraint, String columnName) {
-        if (constraint instanceof PrimaryKeyConstraint) {
-            return containsIgnoreCase(
-                    ((PrimaryKeyConstraint) constraint).getPrimaryKeyNames(), columnName);
-        } else if (constraint instanceof UniqueConstraint) {
-            return containsIgnoreCase(
-                    ((UniqueConstraint) constraint).getUniqueColumnNames(), columnName);
-        } else if (constraint instanceof ForeignKeyConstraint) {
-            return containsIgnoreCase(
-                    ((ForeignKeyConstraint) constraint).getForeignKeyNames(), columnName);
-        } else if (constraint instanceof DistributionMappingConstraint) {
-            DistributionMappingConstraint mapping = (DistributionMappingConstraint) constraint;
-            return containsIgnoreCase(mapping.getDeterminantColumnNames(), columnName)
-                    || containsIgnoreCase(mapping.getDistributionColumnNames(), columnName);
-        }
-        return false;
-    }
-
-    private boolean containsIgnoreCase(Collection<String> columnNames, String columnName) {
-        return columnNames.stream().anyMatch(name -> name.equalsIgnoreCase(columnName));
     }
 
     /**
@@ -1576,16 +870,32 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
     // ==================== Private helpers ====================
 
     private void checkConstraintNotExistence(String name,
-            Constraint constraint, Map<String, Constraint> constraintMap) {
+            Constraint constraint, Map<String, ? extends Constraint> constraintMap) {
         if (constraintMap.containsKey(name)) {
             throw new AnalysisException(
                     String.format("Constraint name %s has existed", name));
         }
-        for (Entry<String, Constraint> entry : constraintMap.entrySet()) {
+        for (Entry<String, ? extends Constraint> entry : constraintMap.entrySet()) {
             if (entry.getValue().equals(constraint)) {
                 throw new AnalysisException(String.format(
                         "Constraint %s has existed, named %s",
                         constraint, entry.getKey()));
+            }
+        }
+    }
+
+    private void validateNoDistributionMappingConstraintNameCollision(String tableKey,
+            Map<String, DistributionMappingConstraint> mappings) {
+        Map<String, Constraint> centralizedConstraints = constraintsMap.get(tableKey);
+        if (centralizedConstraints == null) {
+            return;
+        }
+        for (String mappingName : mappings.keySet()) {
+            if (centralizedConstraints.containsKey(mappingName)) {
+                throw new AnalysisException(String.format(
+                        "Distribution mapping constraint %s on table %s conflicts with another constraint "
+                                + "of the same name. Drop one of the conflicting constraints.",
+                        mappingName, tableKey));
             }
         }
     }
@@ -1756,14 +1066,11 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
 
     @SuppressWarnings("unchecked")
     private <T extends Constraint> ImmutableList<T> getConstraintsByType(
-            TableNameInfo tableNameInfo, Class<T> type) {
+            String qualifiedTableName, Class<T> type) {
         readLock();
         try {
-            if (isConstraintReadUntrustedWithoutLock(tableNameInfo)) {
-                return ImmutableList.of();
-            }
             Map<String, Constraint> tableConstraints
-                    = constraintsMap.get(toKey(tableNameInfo));
+                    = constraintsMap.get(qualifiedTableName);
             if (tableConstraints == null) {
                 return ImmutableList.of();
             }
@@ -1811,117 +1118,8 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                         fk.getReferencedColumnNames(),
                         toKey(refTableInfo));
             }
-        } else if (constraint instanceof DistributionMappingConstraint) {
-            validateDistributionMappingConstraint(
-                    tableNameInfo, table, (DistributionMappingConstraint) constraint);
         }
         return table;
-    }
-
-    private void validateResolvedConstraint(TableNameInfo tableNameInfo, TableIf table,
-            TableIf referencedTable, Constraint constraint) {
-        if (constraint instanceof PrimaryKeyConstraint) {
-            validateColumnsExist(table,
-                    ((PrimaryKeyConstraint) constraint).getPrimaryKeyNames(),
-                    toKey(tableNameInfo));
-        } else if (constraint instanceof UniqueConstraint) {
-            validateColumnsExist(table,
-                    ((UniqueConstraint) constraint).getUniqueColumnNames(),
-                    toKey(tableNameInfo));
-        } else if (constraint instanceof ForeignKeyConstraint) {
-            if (referencedTable == null) {
-                throw new AnalysisException("Referenced table changed while adding constraint on "
-                        + tableNameInfo);
-            }
-            ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) constraint;
-            validateColumnsExist(table, foreignKey.getForeignKeyNames(), toKey(tableNameInfo));
-            validateColumnsExist(referencedTable, foreignKey.getReferencedColumnNames(),
-                    toKey(foreignKey.getReferencedTableName()));
-        } else if (constraint instanceof DistributionMappingConstraint) {
-            validateDistributionMappingConstraint(
-                    tableNameInfo, table, (DistributionMappingConstraint) constraint);
-        }
-    }
-
-    private TableIf resolveTableIfPresent(TableNameInfo tableNameInfo) {
-        try {
-            return resolveTableForValidation(tableNameInfo);
-        } catch (AnalysisException e) {
-            LOG.debug("Table {} is unavailable while synchronizing table-local constraints",
-                    tableNameInfo, e);
-            return null;
-        }
-    }
-
-    @SuppressWarnings("deprecation")
-    private void putTableLocalConstraint(TableIf table, String constraintName, Constraint constraint) {
-        if (table instanceof Table) {
-            ((Table) table).getTableAttributes().getConstraintsMap().put(constraintName, constraint);
-        }
-    }
-
-    @SuppressWarnings("deprecation")
-    private void removeTableLocalConstraint(TableIf table, String constraintName) {
-        if (table instanceof Table) {
-            ((Table) table).getTableAttributes().getConstraintsMap().remove(constraintName);
-        }
-    }
-
-    private void validateDistributionMappingConstraint(TableNameInfo tableNameInfo, TableIf table,
-            DistributionMappingConstraint constraint) {
-        if (!(table instanceof OlapTable)) {
-            throw new AnalysisException("Distribution mapping constraint only supports OLAP tables");
-        }
-        validateColumnsExist(table, constraint.getDeterminantColumnNames(), toKey(tableNameInfo));
-        validateColumnsExist(table, constraint.getDistributionColumnNames(), toKey(tableNameInfo));
-        TreeSet<String> determinantColumns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        determinantColumns.addAll(constraint.getDeterminantColumnNames());
-        if (determinantColumns.size() != constraint.getDeterminantColumnNames().size()) {
-            throw new AnalysisException("Determinant columns in distribution mapping constraint must be unique");
-        }
-        TreeSet<String> distributionColumns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        distributionColumns.addAll(constraint.getDistributionColumnNames());
-        if (distributionColumns.size() != constraint.getDistributionColumnNames().size()) {
-            throw new AnalysisException("Distribution columns in distribution mapping constraint must be unique");
-        }
-
-        OlapTable olapTable = (OlapTable) table;
-        if (!(olapTable.getDefaultDistributionInfo() instanceof HashDistributionInfo)) {
-            throw new AnalysisException("Distribution mapping constraint requires hash distribution");
-        }
-        List<String> tableDistributionColumns = ((HashDistributionInfo) olapTable.getDefaultDistributionInfo())
-                .getDistributionColumns().stream()
-                .map(column -> column.getName().toLowerCase(Locale.ROOT))
-                .collect(Collectors.toList());
-        List<String> constraintDistributionColumns = constraint.getDistributionColumnNames().stream()
-                .map(column -> column.toLowerCase(Locale.ROOT))
-                .collect(Collectors.toList());
-        int previousIndex = -1;
-        for (String column : constraintDistributionColumns) {
-            int index = tableDistributionColumns.indexOf(column);
-            if (index <= previousIndex) {
-                throw new AnalysisException("Distribution columns in distribution mapping constraint"
-                        + " must be an ordered subset of table distribution columns");
-            }
-            previousIndex = index;
-        }
-    }
-
-    private void validateFrontendVersionsForDistributionMappingConstraint() {
-        String currentVersion = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
-        List<String> incompatibleFrontends = new ArrayList<>();
-        for (Frontend frontend : Env.getCurrentEnv().getFrontends(null)) {
-            String frontendVersion = frontend.getVersion();
-            if (!currentVersion.equals(frontendVersion)) {
-                incompatibleFrontends.add(frontend.getNodeName() + "(" + frontendVersion + ")");
-            }
-        }
-        Collections.sort(incompatibleFrontends);
-        if (!incompatibleFrontends.isEmpty()) {
-            throw new AnalysisException("Cannot add distribution mapping constraint while frontend versions"
-                    + " are mixed or unknown. Current version: " + currentVersion
-                    + ", incompatible frontends: " + incompatibleFrontends);
-        }
     }
 
     private TableIf resolveTableForValidation(
@@ -1973,6 +1171,68 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         }
     }
 
+    private void validateDistributionMappingConstraint(TableNameInfo tableNameInfo,
+            OlapTable table, DistributionMappingConstraint constraint) {
+        if (table.getCatalogId() != InternalCatalog.INTERNAL_CATALOG_ID) {
+            throw new AnalysisException("Distribution mapping constraint only supports internal OLAP tables");
+        }
+        if (table.isTemporary()) {
+            throw new AnalysisException("Distribution mapping constraint does not support temporary tables");
+        }
+        validateColumnsExist(table, constraint.getDeterminantColumnNames(), toKey(tableNameInfo));
+        validateColumnsExist(table, constraint.getDistributionColumnNames(), toKey(tableNameInfo));
+
+        TreeSet<String> determinantColumns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        determinantColumns.addAll(constraint.getDeterminantColumnNames());
+        if (determinantColumns.size() != constraint.getDeterminantColumnNames().size()) {
+            throw new AnalysisException("Determinant columns in distribution mapping constraint must be unique");
+        }
+        TreeSet<String> distributionColumns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        distributionColumns.addAll(constraint.getDistributionColumnNames());
+        if (distributionColumns.size() != constraint.getDistributionColumnNames().size()) {
+            throw new AnalysisException("Distribution columns in distribution mapping constraint must be unique");
+        }
+
+        if (!(table.getDefaultDistributionInfo() instanceof HashDistributionInfo)) {
+            throw new AnalysisException("Distribution mapping constraint requires hash distribution");
+        }
+        if (!constraint.hasCompatibleDistributionColumns(table)) {
+            throw new AnalysisException("Distribution columns in distribution mapping constraint"
+                    + " must be an ordered subset of table distribution columns");
+        }
+    }
+
+    /** Reject mapping use until every registered FE reports this exact build. */
+    public void validateDistributionMappingFeatureCompatibility() {
+        String currentVersion = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
+        List<String> incompatibleFrontends = new ArrayList<>();
+        for (Frontend frontend : Env.getCurrentEnv().getFrontends(null)) {
+            String frontendVersion = frontend.getVersion();
+            if (!currentVersion.equals(frontendVersion)) {
+                incompatibleFrontends.add(frontend.getNodeName() + "(" + frontendVersion + ")");
+            }
+        }
+        Collections.sort(incompatibleFrontends);
+        if (!incompatibleFrontends.isEmpty()) {
+            throw new AnalysisException("Distribution mapping constraints cannot be used while frontend versions"
+                    + " are mixed or unknown. Current version: " + currentVersion
+                    + ", incompatible frontends: " + incompatibleFrontends);
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private Map<String, DistributionMappingConstraint> getDistributionMappingConstraintsMap(TableIf table) {
+        if (!(table instanceof OlapTable)
+                || ((OlapTable) table).getCatalogId() != InternalCatalog.INTERNAL_CATALOG_ID) {
+            return Collections.emptyMap();
+        }
+        return ((OlapTable) table).getTableAttributes().getDistributionMappingConstraints();
+    }
+
+    private boolean containsIgnoreCase(Collection<String> columnNames, String columnName) {
+        return columnNames.stream().anyMatch(column -> column.equalsIgnoreCase(columnName));
+    }
+
     // ==================== Swap helpers ====================
 
     private void swapForeignKeyReference(ForeignKeyConstraint fk,
@@ -2008,25 +1268,17 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
 
     // ==================== EditLog integration ====================
 
-    private EditLog.EditLogItem submitAddConstraint(TableNameInfo tableNameInfo,
+    private void logAddConstraint(TableNameInfo tableNameInfo,
             Constraint constraint) {
         AlterConstraintLog log = new AlterConstraintLog(
                 constraint, tableNameInfo);
-        return Env.getCurrentEnv().getEditLog()
-                .submitEdit(OperationType.OP_ADD_CONSTRAINT, log);
+        Env.getCurrentEnv().getEditLog().logAddConstraint(log);
     }
 
-    private EditLog.EditLogItem submitDropConstraint(TableNameInfo tableNameInfo,
+    private void logDropConstraint(TableNameInfo tableNameInfo,
             Constraint constraint) {
         AlterConstraintLog log = new AlterConstraintLog(
                 constraint, tableNameInfo);
-        return Env.getCurrentEnv().getEditLog()
-                .submitEdit(OperationType.OP_DROP_CONSTRAINT, log);
-    }
-
-    private void awaitEditLog(EditLog.EditLogItem logItem) {
-        if (logItem != null) {
-            logItem.await();
-        }
+        Env.getCurrentEnv().getEditLog().logDropConstraint(log);
     }
 }

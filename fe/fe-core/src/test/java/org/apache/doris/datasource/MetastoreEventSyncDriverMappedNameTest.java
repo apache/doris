@@ -19,8 +19,6 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.RefreshManager;
-import org.apache.doris.catalog.constraint.ConstraintManager;
-import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor;
@@ -33,7 +31,6 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collections;
-import java.util.List;
 
 public class MetastoreEventSyncDriverMappedNameTest {
 
@@ -42,10 +39,8 @@ public class MetastoreEventSyncDriverMappedNameTest {
         Connector connector = Mockito.mock(Connector.class);
         PluginDrivenExternalCatalog catalog = new MappingEventCatalog(connector);
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
-        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
-        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
         MetastoreChangeDescriptor descriptor = MetastoreChangeDescriptor.forDatabase(
                 Op.RENAME_DATABASE, "OldDb", "NewDb", 1L, 2L);
 
@@ -57,8 +52,6 @@ public class MetastoreEventSyncDriverMappedNameTest {
         inOrder.verify(catalogMgr).unregisterExternalDatabaseFromEvent("local_OldDb", "test_catalog");
         inOrder.verify(catalogMgr).registerExternalDatabaseFromEvent(
                 "NewDb", "local_NewDb", "test_catalog");
-        Mockito.verify(constraintManager)
-                .renameDatabase("test_catalog", "local_OldDb", "local_NewDb");
         Mockito.verifyNoMoreInteractions(connector, catalogMgr);
     }
 
@@ -67,10 +60,8 @@ public class MetastoreEventSyncDriverMappedNameTest {
         Connector connector = Mockito.mock(Connector.class);
         PluginDrivenExternalCatalog catalog = new MappingEventCatalog(connector);
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
-        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
-        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
         MetastoreChangeDescriptor descriptor = MetastoreChangeDescriptor.forTableRename(
                 "OldDb", "OldTable", "NewDb", "NewTable", 1L, 2L);
 
@@ -83,9 +74,6 @@ public class MetastoreEventSyncDriverMappedNameTest {
                 "local_OldDb", "local_OldDb_OldTable", "test_catalog");
         inOrder.verify(catalogMgr).registerExternalTableFromEvent(
                 "local_NewDb", "NewTable", "local_NewDb_NewTable", "test_catalog", 2L);
-        Mockito.verify(constraintManager).renameTable(
-                new TableNameInfo("test_catalog", "local_OldDb", "local_OldDb_OldTable"),
-                new TableNameInfo("test_catalog", "local_NewDb", "local_NewDb_NewTable"));
         Mockito.verifyNoMoreInteractions(connector, catalogMgr);
     }
 
@@ -133,8 +121,8 @@ public class MetastoreEventSyncDriverMappedNameTest {
             MetastoreChangeDescriptor descriptor, Env env) throws Exception {
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
-            Deencapsulation.invoke(new MetastoreEventSyncDriver(), "applyDescriptorsAndCommit",
-                    catalog, connector, List.of(descriptor), false, -1L, descriptor.getEventId());
+            Deencapsulation.invoke(
+                    new MetastoreEventSyncDriver(), "applyOne", catalog, connector, descriptor);
         }
     }
 

@@ -49,13 +49,11 @@ import org.apache.doris.connector.spi.ddl.DropRefChange;
 import org.apache.doris.connector.spi.ddl.PartitionFieldChange;
 import org.apache.doris.connector.spi.ddl.TagChange;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
-import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalRowCountCache;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.log.ExternalObjectLog;
-import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
@@ -78,7 +76,6 @@ import org.mockito.Mockito;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
@@ -173,7 +170,6 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     @Test
     public void testCreateDbIfNotExistsRefreshesCachesWhenDbExists() throws Exception {
         catalog.dbNullableResult = mockExternalDatabase();
-        long constraintMetadataBaseline = catalog.snapshotConstraintMetadata();
 
         catalog.createDb("db1", true, new HashMap<>());
 
@@ -183,8 +179,6 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Assertions.assertEquals(1, catalog.resetMetaCacheNamesCount);
         Mockito.verify(mockMetaCacheMgr).invalidateDb(
                 1L, Util.genIdByName("test-catalog", "db1"), "db1");
-        Assertions.assertNotEquals(
-                constraintMetadataBaseline, catalog.snapshotConstraintMetadata());
     }
 
     @Test
@@ -278,24 +272,14 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
         Mockito.when(db.getRemoteName()).thenReturn("db1"); // non-mapped: LOCAL == REMOTE
         catalog.dbNullableResult = db;
-        List<TableNameInfo> affectedTables = List.of(
-                new TableNameInfo(CATALOG_NAME, DATABASE_NAME, "t1"));
-        Mockito.when(mockConstraintManager.dropDatabaseConstraints(CATALOG_NAME, DATABASE_NAME))
-                .thenReturn(affectedTables);
 
-        try (MockedStatic<MTMVUtil> mtmvUtil = Mockito.mockStatic(MTMVUtil.class)) {
-            catalog.dropDb("db1", false, false);
-            mtmvUtil.verify(() -> MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(
-                    affectedTables, "after dropping external database test-catalog.db1"));
-        }
+        catalog.dropDb("db1", false, false);
 
         Mockito.verify(metadata).dropDatabase(session, "db1", false, false);
         Mockito.verify(mockEditLog).logDropDb(Mockito.any());
         Assertions.assertEquals("db1", catalog.unregisteredDb,
                 "dropDb must remove the db from the cache (legacy afterDropDb parity)");
         Mockito.verify(mockMetaCacheMgr).invalidateDb(1L, DATABASE_ID, "db1");
-        Mockito.verify(mockConstraintManager)
-                .dropDatabaseConstraints(CATALOG_NAME, DATABASE_NAME);
     }
 
     @Test
@@ -388,19 +372,12 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
         Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.of(handle));
-        TableNameInfo droppedTable = new TableNameInfo(CATALOG_NAME, DATABASE_NAME, "t1");
-        List<TableNameInfo> affectedTables = List.of(droppedTable);
-        Mockito.when(mockConstraintManager.dropTableConstraints(droppedTable)).thenReturn(affectedTables);
         Mockito.doAnswer(inv -> {
             catalog.dbForReplayResult = Optional.empty();
             return null;
         }).when(metadata).dropTable(session, handle);
 
-        try (MockedStatic<MTMVUtil> mtmvUtil = Mockito.mockStatic(MTMVUtil.class)) {
-            catalog.dropTable("DB1", "T1", false, false, false, false, false, false);
-            mtmvUtil.verify(() -> MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(
-                    affectedTables, "after dropping external table " + droppedTable));
-        }
+        catalog.dropTable("DB1", "T1", false, false, false, false, false, false);
 
         Mockito.verify(metadata).getTableHandle(session, "DB1", "TBL1");
         Mockito.verify(metadata).dropTable(session, handle);
@@ -417,35 +394,6 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.verify(mockMetaCacheMgr).invalidateTable(1L, DATABASE_ID, "db1", TABLE_ID, "t1");
         // Connector caches are keyed by the remote identity.
         Mockito.verify(connector).invalidateTable("DB1", "TBL1");
-        Mockito.verify(mockConstraintManager).checkNoReferencingForeignKeys(
-                new TableNameInfo(CATALOG_NAME, DATABASE_NAME, "t1"));
-        Mockito.verify(mockConstraintManager).dropTableConstraints(droppedTable);
-    }
-
-    @Test
-    public void testDropTableJournalFailureKeepsConstraints() throws Exception {
-        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
-        ExternalTable table = Mockito.mock(ExternalTable.class);
-        Mockito.when(table.getName()).thenReturn("t1");
-        Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
-        Mockito.when(table.getRemoteName()).thenReturn("TBL1");
-        Mockito.doReturn(table).when(db).getTableNullable("t1");
-        catalog.dbNullableResult = db;
-        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
-        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1"))
-                .thenReturn(Optional.of(handle));
-        Mockito.doThrow(new RuntimeException("journal failed"))
-                .when(mockEditLog).logDropTable(Mockito.any());
-
-        Assertions.assertThrows(RuntimeException.class,
-                () -> catalog.dropTable("db1", "t1", false, false, false,
-                        false, false, false));
-
-        Mockito.verify(metadata).dropTable(session, handle);
-        Mockito.verify(mockConstraintManager, Mockito.never())
-                .dropTableConstraints(Mockito.any());
-        Mockito.verify(connector, Mockito.never())
-                .invalidateTable(Mockito.anyString(), Mockito.anyString());
     }
 
     @Test
@@ -505,7 +453,6 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     public void testDropTableHandleAbsentAfterLocalResolveThrowsWithoutIfExists() {
         ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
         ExternalTable table = Mockito.mock(ExternalTable.class);
-        Mockito.when(table.getName()).thenReturn("t1");
         Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
         Mockito.when(table.getRemoteName()).thenReturn("TBL1");
         Mockito.doReturn(table).when(db).getTableNullable("t1");
@@ -521,7 +468,6 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     public void testDropTableWrapsConnectorException() {
         ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
         ExternalTable table = Mockito.mock(ExternalTable.class);
-        Mockito.when(table.getName()).thenReturn("t1");
         Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
         Mockito.when(table.getRemoteName()).thenReturn("TBL1");
         Mockito.doReturn(table).when(db).getTableNullable("t1");
@@ -572,7 +518,6 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     public void testDropViewWrapsConnectorException() {
         ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
         ExternalTable view = Mockito.mock(ExternalTable.class);
-        Mockito.when(view.getName()).thenReturn("v1");
         Mockito.when(view.getRemoteDbName()).thenReturn("DB1");
         Mockito.when(view.getRemoteName()).thenReturn("V1");
         Mockito.doReturn(view).when(db).getTableNullable("v1");
@@ -919,7 +864,6 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.when(info.getDbName()).thenReturn("db1");
         Mockito.when(info.getTableName()).thenReturn("t1");
         Mockito.when(info.isIfNotExists()).thenReturn(true);
-        long constraintMetadataBaseline = catalog.snapshotConstraintMetadata();
 
         boolean res = catalog.createTable(info);
 
@@ -928,8 +872,6 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.verify(mockEditLog, Mockito.never()).logCreateTable(Mockito.any());
         Mockito.verify(mockMetaCacheMgr).invalidateTable(
                 1L, DATABASE_ID, "db1", Util.genIdByName("test-catalog", "db1", "t1"), "t1");
-        Assertions.assertNotEquals(
-                constraintMetadataBaseline, catalog.snapshotConstraintMetadata());
     }
 
     @Test
@@ -1057,19 +999,11 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.when(cached.getRemoteName()).thenReturn("TBL1");
         Mockito.doReturn(Optional.of(cached)).when(replayDb).getTableForReplay("t1");
         catalog.dbForReplayResult = Optional.of(replayDb);
-        TableNameInfo droppedTable = new TableNameInfo(CATALOG_NAME, DATABASE_NAME, "t1");
-        List<TableNameInfo> affectedTables = List.of(droppedTable);
-        Mockito.when(mockConstraintManager.dropTableConstraints(droppedTable)).thenReturn(affectedTables);
 
-        try (MockedStatic<MTMVUtil> mtmvUtil = Mockito.mockStatic(MTMVUtil.class)) {
-            catalog.replayDropTable("db1", "t1");
-            mtmvUtil.verify(() -> MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(
-                    affectedTables, "after replaying external table drop test-catalog.db1.t1"));
-        }
+        catalog.replayDropTable("db1", "t1");
 
         Mockito.verify(connector).invalidateTable("DB1", "TBL1");
         Mockito.verify(replayDb).unregisterTable("t1");
-        Mockito.verify(mockConstraintManager).dropTableConstraints(droppedTable);
     }
 
     @Test
@@ -1125,22 +1059,12 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         ExternalDatabase<? extends ExternalTable> replayDb = mockExternalDatabase();
         Mockito.when(replayDb.getRemoteName()).thenReturn("DB1");
         catalog.dbForReplayResult = Optional.of(replayDb);
-        List<TableNameInfo> affectedTables = List.of(
-                new TableNameInfo(CATALOG_NAME, DATABASE_NAME, "t1"));
-        Mockito.when(mockConstraintManager.dropDatabaseConstraints(CATALOG_NAME, DATABASE_NAME))
-                .thenReturn(affectedTables);
 
-        try (MockedStatic<MTMVUtil> mtmvUtil = Mockito.mockStatic(MTMVUtil.class)) {
-            catalog.replayDropDb("db1");
-            mtmvUtil.verify(() -> MTMVUtil.invalidateRewriteCachesByTableNamesBestEffort(
-                    affectedTables, "after replaying external database drop test-catalog.db1"));
-        }
+        catalog.replayDropDb("db1");
 
         Mockito.verify(connector).invalidateDb("DB1");
         Assertions.assertEquals("db1", catalog.unregisteredDb);
         verifyDeterministicDatabaseInvalidation("db1");
-        Mockito.verify(mockConstraintManager)
-                .dropDatabaseConstraints(CATALOG_NAME, DATABASE_NAME);
     }
 
     @Test
@@ -1191,7 +1115,6 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     public void testAddColumnRoutesConvertsAndLogsRefresh() throws Exception {
         ExternalTable table = mockAlterTable();
         ConnectorTableHandle handle = stubAlterHandle();
-        long constraintMetadataBaseline = catalog.snapshotConstraintMetadata();
 
         catalog.addColumn(table, nullableIntColumn("age"), ColumnPosition.FIRST);
 
@@ -1205,8 +1128,6 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.verify(mockEditLog).logRefreshExternalTable(logCap.capture());
         Assertions.assertEquals("db1", logCap.getValue().getDbName());
         Assertions.assertEquals("t1", logCap.getValue().getTableName());
-        Assertions.assertNotEquals(
-                constraintMetadataBaseline, catalog.snapshotConstraintMetadata());
     }
 
     @Test
@@ -1242,38 +1163,6 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         catalog.renameColumn(table, "old", "new");
 
         Mockito.verify(metadata).renameColumn(session, handle, "old", "new");
-    }
-
-    @Test
-    public void testDropColumnRejectsConstrainedColumnBeforeConnectorMutation() throws Exception {
-        ExternalTable table = mockAlterTable();
-        stubAlterHandle();
-        Mockito.when(mockConstraintManager.findConstraintWithColumn(
-                        new TableNameInfo(CATALOG_NAME, DATABASE_NAME, "t1"), "AGE"))
-                .thenReturn("pk_age");
-
-        DdlException exception = Assertions.assertThrows(
-                DdlException.class, () -> catalog.dropColumn(table, "AGE"));
-
-        Assertions.assertTrue(exception.getMessage().contains("pk_age"));
-        Mockito.verify(metadata, Mockito.never())
-                .dropColumn(Mockito.any(), Mockito.any(), Mockito.any());
-    }
-
-    @Test
-    public void testRenameColumnRejectsConstrainedColumnBeforeConnectorMutation() throws Exception {
-        ExternalTable table = mockAlterTable();
-        stubAlterHandle();
-        Mockito.when(mockConstraintManager.findConstraintWithColumn(
-                        new TableNameInfo(CATALOG_NAME, DATABASE_NAME, "t1"), "old"))
-                .thenReturn("uk_old");
-
-        DdlException exception = Assertions.assertThrows(
-                DdlException.class, () -> catalog.renameColumn(table, "old", "new"));
-
-        Assertions.assertTrue(exception.getMessage().contains("uk_old"));
-        Mockito.verify(metadata, Mockito.never())
-                .renameColumn(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
     }
 
     @Test
@@ -1353,32 +1242,20 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     }
 
     @Test
-    public void testColumnOpWrapsConnectorException() throws Exception {
+    public void testColumnOpWrapsConnectorException() {
         ExternalTable table = mockAlterTable();
         ConnectorTableHandle handle = stubAlterHandle();
-        long constraintMetadataBaseline = catalog.snapshotConstraintMetadata();
         Mockito.doThrow(new DorisConnectorException("boom"))
                 .when(metadata).dropColumn(session, handle, "age");
 
         DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.dropColumn(table, "age"));
         Assertions.assertTrue(ex.getMessage().contains("boom"));
-        Assertions.assertThrows(DdlException.class, () -> {
-            try (ExternalCatalog.ConstraintMetadataReadGuard ignored =
-                    catalog.lockConstraintMetadata(constraintMetadataBaseline)) {
-                Assertions.fail("stale constraint metadata snapshot must be rejected");
-            }
-        });
-        try (ExternalCatalog.ConstraintMetadataReadGuard ignored =
-                catalog.lockConstraintMetadata(catalog.snapshotConstraintMetadata())) {
-            Assertions.assertNotNull(ignored);
-        }
     }
 
     @Test
     public void testCreateOrReplaceBranchRoutesConvertsAndRefreshes() throws Exception {
         ExternalTable table = mockAlterTable();
         ConnectorTableHandle handle = stubAlterHandle();
-        long constraintMetadataBaseline = catalog.snapshotConstraintMetadata();
 
         CreateOrReplaceBranchInfo info = new CreateOrReplaceBranchInfo("b1", true, false, true,
                 new BranchOptions(Optional.of(42L), Optional.of(86400000L),
@@ -1387,8 +1264,6 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         ArgumentCaptor<BranchChange> cap = ArgumentCaptor.forClass(BranchChange.class);
         Mockito.verify(metadata).createOrReplaceBranch(Mockito.eq(session), Mockito.eq(handle), cap.capture());
-        Assertions.assertEquals(
-                constraintMetadataBaseline, catalog.snapshotConstraintMetadata());
         BranchChange b = cap.getValue();
         Assertions.assertEquals("b1", b.getName());
         Assertions.assertTrue(b.isCreate());
