@@ -1537,10 +1537,6 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
     const auto size = str.size();
     column.resize(size);
 
-    size_t current_offset = 0;
-    const ColumnString::Chars* chars = &str.get_chars();
-    const IColumn::Offsets* offsets = &str.get_offsets();
-
     auto& column_to = assert_cast<ColumnType&>(column);
     auto& vec_to = column_to.get_data();
     CastParameters params;
@@ -1549,16 +1545,10 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
         if (null_map && null_map[i]) {
             continue;
         }
-        size_t next_offset = (*offsets)[i];
-        size_t string_size = next_offset - current_offset;
-
-        StringRef str_ref(&(*chars)[current_offset], string_size);
+        const auto str_ref = str.get_data_at(i);
         if (!try_parse_impl<T, true>(vec_to[i], str_ref, params)) {
-            return Status::InvalidArgument(
-                    "parse number fail, string: '{}'",
-                    std::string((char*)&(*chars)[current_offset], string_size));
+            return Status::InvalidArgument("parse number fail, string: '{}'", str_ref.to_string());
         }
-        current_offset = next_offset;
     }
     return Status::OK();
 }
@@ -1612,6 +1602,9 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_column(const uint8_
     } else if constexpr (T == TYPE_IPV6) {
         col.insert_value(unaligned_load<Int128>(data));
         data += sizeof(Int128);
+    } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
+        col.insert_value(unaligned_load<VecDateTimeValue>(data));
+        data += sizeof(VecDateTimeValue);
     } else if constexpr (T == TYPE_DATEV2) {
         col.insert_value(unaligned_load<UInt32>(data));
         data += sizeof(UInt32);
@@ -1676,6 +1669,10 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         auto v = pack.value;
         field = Field::create_field<TYPE_IPV6>(v);
         data += sizeof(PackedUInt128);
+    } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
+        const auto value = unaligned_load<VecDateTimeValue>(data);
+        field = Field::create_field<T>(value);
+        data += sizeof(VecDateTimeValue);
     } else if constexpr (T == TYPE_DATEV2) {
         UInt32 v = unaligned_load<UInt32>(data);
         field = Field::create_field<TYPE_DATEV2>(v);

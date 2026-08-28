@@ -27,6 +27,7 @@ import org.apache.doris.datasource.lance.LanceTableMetadata;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TFileType;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -64,8 +65,8 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         }
         if (isLanceFormat()) {
             try {
-                LanceTableMetadata metadata =
-                        LanceMetadataLoader.load(filePath, backendConnectProperties);
+                LanceTableMetadata metadata = LanceMetadataLoader.loadLatestForTvf(
+                        filePath, Collections.singletonList(storageProperties));
                 setLanceTableMetadata(metadata);
             } catch (Exception e) {
                 throw new AnalysisException(

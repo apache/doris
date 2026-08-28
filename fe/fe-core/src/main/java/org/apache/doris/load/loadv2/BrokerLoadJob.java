@@ -62,6 +62,7 @@ import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -129,13 +130,58 @@ public class BrokerLoadJob extends BulkLoadJob {
     public void beginTxn()
             throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
             QuotaExceedException, MetaNotFoundException {
-        transactionId = Env.getCurrentGlobalTransactionMgr()
-                .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
-                        new TxnCoordinator(TxnSourceType.FE, 0,
-                                FrontendOptions.getLocalHostAddress(),
-                                ExecuteEnv.getInstance().getStartupTime()),
-                        TransactionState.LoadJobSourceType.BATCH_LOAD_JOB, id,
-                        getTimeout());
+        if (transactionId > 0) {
+            // A previous attempt of the pending task already began our txn and failed afterwards;
+            // the retried task must reuse it instead of failing LabelAlreadyUsedException
+            // against the job's own txn.
+            LOG.info("broker load job {} reuses already begun txn {} on pending task retry", id, transactionId);
+            return;
+        }
+        try {
+            transactionId = Env.getCurrentGlobalTransactionMgr()
+                    .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
+                            new TxnCoordinator(TxnSourceType.FE, 0,
+                                    FrontendOptions.getLocalHostAddress(),
+                                    ExecuteEnv.getInstance().getStartupTime()),
+                            TransactionState.LoadJobSourceType.BATCH_LOAD_JOB, id,
+                            getTimeout());
+        } catch (LabelAlreadyUsedException e) {
+            // The label may be occupied by our OWN txn: a previous attempt registered it but threw
+            // before transactionId was assigned (e.g. edit log write failure), and the pending
+            // task retry would otherwise burn all retries on this exception and cancel the job
+            // with a misleading "Label has already been used".
+            TransactionState ownTxn = findSelfTxnByLabel();
+            if (ownTxn == null) {
+                throw e;
+            }
+            transactionId = ownTxn.getTransactionId();
+            if (ownTxn.getTransactionStatus() == TransactionStatus.VISIBLE) {
+                LOG.info("broker load job {} recovers its own visible txn {} for label {}",
+                        id, transactionId, label);
+                afterVisible(ownTxn, true);
+            } else {
+                LOG.info("broker load job {} adopts its own prepared txn {} for label {} on pending task retry",
+                        id, transactionId, label);
+            }
+        }
+    }
+
+    private TransactionState findSelfTxnByLabel() {
+        try {
+            Long txnId = Env.getCurrentGlobalTransactionMgr().getTransactionId(dbId, label);
+            if (txnId == null) {
+                return null;
+            }
+            TransactionState existingTxn = Env.getCurrentGlobalTransactionMgr().getTransactionState(dbId, txnId);
+            if (existingTxn != null && existingTxn.getCallbackId() == id
+                    && (existingTxn.getTransactionStatus() == TransactionStatus.PREPARE
+                        || existingTxn.getTransactionStatus() == TransactionStatus.VISIBLE)) {
+                return existingTxn;
+            }
+        } catch (Exception lookupException) {
+            LOG.warn("broker load job {} failed to look up txn by label {}", id, label, lookupException);
+        }
+        return null;
     }
 
     @Override
@@ -203,7 +249,10 @@ public class BrokerLoadJob extends BulkLoadJob {
         try {
             Database db = getDb();
             createLoadingTask(db, attachment);
-        } catch (UserException e) {
+        } catch (UserException | org.apache.doris.nereids.exceptions.AnalysisException e) {
+            // Nereids analysis errors extend RuntimeException, not UserException; without this
+            // branch a deterministic planning failure (e.g. "disk ... exceed limit usage") falls
+            // into the generic pending-task retry path and the real cause is never reported.
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("database_id", dbId)
                     .add("error_msg", "Failed to divide job into loading task.")

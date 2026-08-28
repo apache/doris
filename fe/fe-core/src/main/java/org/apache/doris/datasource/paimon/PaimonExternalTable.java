@@ -140,11 +140,12 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
      *
      * <p>A statement MVCC snapshot belongs to a read relation. In a time-travel self-insert the
      * same Doris table identity can therefore have a historical source snapshot registered in
-     * StatementContext. Write planning must never reuse that snapshot: the writer, target schema
-     * and partition metadata must all come from the latest remote table handle.
+     * StatementContext. Write planning must never reuse that snapshot. The base table cache is the
+     * current write target; REFRESH and cache expiry reload it through {@code PaimonTableLoader},
+     * which also invalidates Paimon's catalog-level table cache.
      */
     public Table getPaimonTableForWrite() {
-        return ((PaimonExternalCatalog) catalog).getPaimonTable(getOrBuildNameMapping());
+        return getBasePaimonTable();
     }
 
     private PaimonSnapshotCacheValue getPaimonSnapshotCacheValue(Optional<TableSnapshot> tableSnapshot,
@@ -194,7 +195,11 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                         e);
             }
         } else if (scanParams.isPresent() && scanParams.get().isOptions()) {
-            Table baseTable = getBasePaimonTable();
+            // Capture the generation once: the effective table derived from this base handle must
+            // load, and later hydrate, under the same generation's execution context even if a
+            // concurrent ALTER replaces the catalog resources mid-statement.
+            PaimonTableCacheValue baseGeneration = PaimonUtils.getPaimonTableCacheValue(this);
+            Table baseTable = baseGeneration.getPaimonTable();
             Map<String, String> resolvedOptions = scanParams.get().getOrResolveMapParams(
                     options -> PaimonScanParams.resolveOptions(baseTable, options));
             Table effectiveTable = PaimonScanParams.applyOptions(baseTable, resolvedOptions);
@@ -205,7 +210,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             }
             // The shared latest cache was built from the catalog-scoped handle. Relation options
             // need their own projection so partition enumeration uses the final safe table copy.
-            return PaimonUtils.loadSnapshotProjection(this, effectiveTable);
+            return PaimonUtils.loadSnapshotProjection(this, effectiveTable, baseGeneration);
         } else if (scanParams.isPresent() && scanParams.get().isBranch()) {
             try {
                 Table baseTable = getBasePaimonTable();
@@ -390,9 +395,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             Optional<TableScanParams> scanParams,
             Optional<MvccSnapshot> latestSnapshotFence) {
         if (latestSnapshotFence.isPresent() && !tableSnapshot.isPresent() && !scanParams.isPresent()) {
-            PaimonSnapshot fence = ((PaimonMvccSnapshot) latestSnapshotFence.get())
-                    .getSnapshotCacheValue().getSnapshot();
-            return new PaimonMvccSnapshot(PaimonUtils.loadSnapshotAtFence(this, fence));
+            return new PaimonMvccSnapshot(PaimonUtils.loadSnapshotAtFence(this,
+                    ((PaimonMvccSnapshot) latestSnapshotFence.get()).getSnapshotCacheValue()));
         }
         if (!latestSnapshotFence.isPresent()
                 || !requiresLatestSnapshotFence(tableSnapshot, scanParams)) {
@@ -419,7 +423,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         FileStoreTable effectiveTable = PaimonScanParams.applyOptionsWithoutTimeTravel(
                 (FileStoreTable) fenceSnapshot.getTable(), params.getResolvedMapParams().get());
         return new PaimonMvccSnapshot(
-                PaimonUtils.loadSnapshotAtFence(this, effectiveTable, fenceSnapshot));
+                PaimonUtils.loadSnapshotAtFence(this, effectiveTable, fenceValue));
     }
 
     @Override
@@ -488,6 +492,14 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     private PaimonSchemaCacheValue loadSchema(DataTable table, long schemaId) {
         return loadSchema(table.schemaManager().schema(schemaId));
+    }
+
+    PaimonSchemaCacheValue loadSchemaForCache(Table retainedTable, long schemaId) {
+        if (!(retainedTable instanceof DataTable)) {
+            throw new CacheException("retained paimon table does not expose schema history: %s",
+                    null, retainedTable == null ? "null" : retainedTable.getClass().getName());
+        }
+        return loadSchema((DataTable) retainedTable, schemaId);
     }
 
     private PaimonSchemaCacheValue loadSchema(TableSchema tableSchema) {

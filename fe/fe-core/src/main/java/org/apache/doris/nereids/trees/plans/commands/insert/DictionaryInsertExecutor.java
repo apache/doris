@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -42,9 +43,10 @@ public class DictionaryInsertExecutor extends AbstractInsertExecutor {
     /**
      * constructor
      */
-    public DictionaryInsertExecutor(ConnectContext ctx, Dictionary dictionary, String labelName, NereidsPlanner planner,
-            Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId) {
-        super(ctx, dictionary, labelName, planner, insertCtx, emptyInsert, jobId);
+    public DictionaryInsertExecutor(ConnectContext ctx, DatabaseIf<?> database, Dictionary dictionary,
+            String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx, boolean emptyInsert,
+            long jobId) {
+        super(ctx, database, dictionary, labelName, planner, insertCtx, emptyInsert, jobId, false);
     }
 
     @Override

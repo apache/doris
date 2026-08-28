@@ -186,6 +186,10 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return selectedPartitions;
     }
 
+    public boolean hasPartitionPredicate() {
+        return selectedPartitions.hasPartitionPredicate;
+    }
+
     public Optional<TableSample> getTableSample() {
         return tableSample;
     }
@@ -329,7 +333,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     @Override
     public boolean supportPruneNestedColumn() {
         ExternalTable table = getTable();
-        if (table instanceof IcebergExternalTable || table instanceof IcebergSysExternalTable) {
+        if (table instanceof IcebergExternalTable || table instanceof IcebergSysExternalTable
+                || table instanceof PaimonExternalTable || table instanceof PaimonSysExternalTable) {
             return true;
         } else if (table instanceof HMSExternalTable) {
             HMSExternalTable hmsTable = (HMSExternalTable) table;
@@ -381,7 +386,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         // NOT_PRUNED means the Nereids planner does not handle the partition pruning.
         // This can be treated as the initial value of SelectedPartitions.
         // Or used to indicate that the partition pruning is not processed.
-        public static SelectedPartitions NOT_PRUNED = new SelectedPartitions(0, ImmutableMap.of(), false);
+        public static SelectedPartitions NOT_PRUNED = new SelectedPartitions(0, ImmutableMap.of(), false, false);
         /**
          * total partition number
          */
@@ -397,14 +402,28 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         public final boolean isPruned;
 
         /**
+         * true means the pruning logic found a usable partition predicate.
+         */
+        public final boolean hasPartitionPredicate;
+
+        /**
          * Constructor for SelectedPartitions.
          */
         public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
                 boolean isPruned) {
+            this(totalPartitionNum, selectedPartitions, isPruned, false);
+        }
+
+        /**
+         * Constructor for SelectedPartitions.
+         */
+        public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
+                boolean isPruned, boolean hasPartitionPredicate) {
             this.totalPartitionNum = totalPartitionNum;
             this.selectedPartitions = ImmutableMap.copyOf(Objects.requireNonNull(selectedPartitions,
                     "selectedPartitions is null"));
             this.isPruned = isPruned;
+            this.hasPartitionPredicate = hasPartitionPredicate;
         }
 
         @Override
@@ -416,13 +435,15 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 return false;
             }
             SelectedPartitions that = (SelectedPartitions) o;
-            return isPruned == that.isPruned && Objects.equals(
+            return isPruned == that.isPruned
+                    && hasPartitionPredicate == that.hasPartitionPredicate
+                    && Objects.equals(
                     selectedPartitions.keySet(), that.selectedPartitions.keySet());
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(selectedPartitions, isPruned);
+            return Objects.hash(selectedPartitions, isPruned, hasPartitionPredicate);
         }
     }
 

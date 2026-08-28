@@ -65,11 +65,65 @@ def _load_tables() -> dict[tuple[str, ...], str]:
 TABLES = _load_tables()
 
 
+def _load_unprefixed_tables() -> set[tuple[str, ...]]:
+    """Tables whose vended credentials use the unprefixed object-store spelling.
+
+    A namespace may spell credentials with any alias Lance accepts, and real servers do use the
+    unprefixed one, so at least one table has to exercise it.
+    """
+    raw = os.environ.get("LANCE_REST_UNPREFIXED_TABLES_JSON", "[]")
+    identifiers = json.loads(raw)
+    if not isinstance(identifiers, list):
+        raise ValueError("LANCE_REST_UNPREFIXED_TABLES_JSON must be a JSON array")
+    return {
+        tuple(part for part in identifier.split(DELIMITER) if part)
+        for identifier in identifiers
+    }
+
+
+UNPREFIXED_TABLES = _load_unprefixed_tables()
+
+
+def _storage_options(identifier: tuple[str, ...]) -> dict[str, str]:
+    access_key = os.environ.get("LANCE_S3_ACCESS_KEY", "admin")
+    secret_key = os.environ.get("LANCE_S3_SECRET_KEY", "password")
+    region = os.environ.get("LANCE_S3_REGION", "us-east-1")
+    if identifier in UNPREFIXED_TABLES:
+        return {
+            "access_key_id": access_key,
+            "secret_access_key": secret_key,
+            "region": region,
+            "virtual_hosted_style_request": "false",
+            # A key Doris assigns no meaning to, kept here so the pass-through stays covered.
+            # The BE opens datasets with static options and never refreshes them, so this is
+            # only carried, not acted on; the expiry is far enough out that it never matters.
+            "expires_at_millis": os.environ.get(
+                "LANCE_S3_EXPIRES_AT_MILLIS", "4102444800000"
+            ),
+        }
+    return {
+        "aws_access_key_id": access_key,
+        "aws_secret_access_key": secret_key,
+        "aws_region": region,
+        "aws_virtual_hosted_style_request": "false",
+    }
+
+
 def _decode_identifier(identifier: str) -> tuple[str, ...]:
     identifier = unquote(identifier)
     if identifier == DELIMITER:
         return ()
     return tuple(part for part in identifier.split(DELIMITER) if part)
+
+
+def _namespace_exists(namespace: tuple[str, ...]) -> bool:
+    if not namespace:
+        return True
+    return any(
+        len(identifier) > len(namespace)
+        and identifier[: len(namespace)] == namespace
+        for identifier in TABLES
+    )
 
 
 class LanceRestHandler(BaseHTTPRequestHandler):
@@ -131,20 +185,23 @@ class LanceRestHandler(BaseHTTPRequestHandler):
                     "namespace": list(identifier[:-1]),
                     "location": table_uri,
                     "table_uri": table_uri,
-                    "storage_options": {
-                        "aws_access_key_id": os.environ.get(
-                            "LANCE_S3_ACCESS_KEY", "admin"
-                        ),
-                        "aws_secret_access_key": os.environ.get(
-                            "LANCE_S3_SECRET_KEY", "password"
-                        ),
-                        "aws_region": os.environ.get("LANCE_S3_REGION", "us-east-1"),
-                        "aws_virtual_hosted_style_request": "false",
-                    },
+                    "storage_options": _storage_options(identifier),
                     "managed_versioning": False,
                     "is_only_declared": False,
                 },
             )
+            return
+
+        table_exists_match = re.fullmatch(r"/v1/table/(.+)/exists", path)
+        if table_exists_match:
+            identifier = _decode_identifier(table_exists_match.group(1))
+            if identifier in TABLES:
+                self._write_empty(200)
+                return
+            if not _namespace_exists(identifier[:-1]):
+                self._write_json(404, {"error": "namespace not found", "code": 1})
+                return
+            self._write_json(404, {"error": "table not found", "code": 4})
             return
 
         self._write_json(404, {"error": "not found", "code": 4})
@@ -167,6 +224,11 @@ class LanceRestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(response)))
         self.end_headers()
         self.wfile.write(response)
+
+    def _write_empty(self, status: int) -> None:
+        self.send_response(status)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def log_message(self, message: str, *args: object) -> None:
         print(f"{self.address_string()} - {message % args}", flush=True)

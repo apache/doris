@@ -216,8 +216,7 @@ public class TypeCoercionUtils {
             }
             return Optional.of(new StructType(newFields));
         } else if (input instanceof VariantType
-                && ((VariantType) input).isComputeV2()
-                && expected instanceof JsonType) {
+                && ((VariantType) input).isExecutionV2() && expected instanceof JsonType) {
             // JSON functions require users to make this representation change explicit.
             return Optional.empty();
         } else if (input instanceof VariantType && (expected.isNumericType() || expected.isStringLikeType())) {
@@ -479,13 +478,52 @@ public class TypeCoercionUtils {
     public static Expression castIfNotSameType(Expression input, DataType targetType) {
         if (input.isNullLiteral()) {
             return new NullLiteral(targetType);
-        } else if (input.getDataType().equals(targetType)
+        } else if (isNoOpCastCompatible(input.getDataType(), targetType)
                 || (input.getDataType().isStringLikeType()) && targetType.isStringLikeType()) {
             return input;
         } else {
             checkCanCastTo(input.getDataType(), targetType);
             return unSafeCast(input, targetType);
         }
+    }
+
+    /** Whether two types share an execution layout and therefore need no runtime cast. */
+    public static boolean isNoOpCastCompatible(DataType left, DataType right) {
+        if (left.equals(right)) {
+            return true;
+        }
+        if (left instanceof VariantType && right instanceof VariantType) {
+            return ((VariantType) left).isCastCompatibleWith((VariantType) right);
+        }
+        if (left instanceof ArrayType && right instanceof ArrayType) {
+            return isNoOpCastCompatible(
+                    ((ArrayType) left).getItemType(), ((ArrayType) right).getItemType());
+        }
+        if (left instanceof MapType && right instanceof MapType) {
+            MapType leftMap = (MapType) left;
+            MapType rightMap = (MapType) right;
+            return isNoOpCastCompatible(leftMap.getKeyType(), rightMap.getKeyType())
+                    && isNoOpCastCompatible(leftMap.getValueType(), rightMap.getValueType());
+        }
+        if (left instanceof StructType && right instanceof StructType) {
+            List<StructField> leftFields = ((StructType) left).getFields();
+            List<StructField> rightFields = ((StructType) right).getFields();
+            if (leftFields.size() != rightFields.size()) {
+                return false;
+            }
+            for (int i = 0; i < leftFields.size(); i++) {
+                StructField leftField = leftFields.get(i);
+                StructField rightField = rightFields.get(i);
+                if (leftField.isNullable() != rightField.isNullable()
+                        || !leftField.getName().equals(rightField.getName())
+                        || !isNoOpCastCompatible(
+                                leftField.getDataType(), rightField.getDataType())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -1219,7 +1257,7 @@ public class TypeCoercionUtils {
     }
 
     private static Optional<DataType> findCommonVariantType(VariantType left, VariantType right) {
-        if (!left.isExecutionCompatibleWith(right)) {
+        if (!left.hasCommonExecutionTypeWith(right)) {
             return Optional.empty();
         }
         return Optional.of(left.isComputeV2() ? VariantType.COMPUTE_V2_INSTANCE : right);
@@ -1334,9 +1372,9 @@ public class TypeCoercionUtils {
         Expression right = comparisonPredicate.right();
 
         boolean leftIsVariantV2 = left.getDataType() instanceof VariantType
-                && ((VariantType) left.getDataType()).isComputeV2();
+                && ((VariantType) left.getDataType()).isExecutionV2();
         boolean rightIsVariantV2 = right.getDataType() instanceof VariantType
-                && ((VariantType) right.getDataType()).isComputeV2();
+                && ((VariantType) right.getDataType()).isExecutionV2();
         boolean isDirectVariantSubpathScalarComparison = leftIsVariantV2 != rightIsVariantV2
                 && ((leftIsVariantV2 && left instanceof ElementAt)
                         || (rightIsVariantV2 && right instanceof ElementAt));
@@ -2014,7 +2052,7 @@ public class TypeCoercionUtils {
         }
 
         if (t1 instanceof VariantType && t2 instanceof VariantType
-                && (((VariantType) t1).isComputeV2() || ((VariantType) t2).isComputeV2())) {
+                && (((VariantType) t1).isExecutionV2() || ((VariantType) t2).isExecutionV2())) {
             return findCommonVariantType((VariantType) t1, (VariantType) t2);
         }
 

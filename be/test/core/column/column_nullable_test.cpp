@@ -136,6 +136,13 @@ TEST(ColumnNullableTest, SharedCreatePreservesImmutableSubcolumns) {
     EXPECT_EQ(nullable_ref.get_null_map_column_ptr().get(), null_map_alias.get());
     EXPECT_EQ(nested_alias->size(), 1);
     EXPECT_EQ(null_map_alias->size(), 1);
+    EXPECT_FALSE(nullable->is_exclusive());
+
+    nested.reset();
+    nested_alias.reset();
+    null_map.reset();
+    null_map_alias.reset();
+    EXPECT_TRUE(nullable->is_exclusive());
 }
 
 TEST(ColumnNullableTest, UpdateCrc32cBatchKeepsBlockInsertable) {
@@ -223,6 +230,35 @@ TEST(ColumnNullableTest, UpdateCrc32cBatchDoesNotMutateSharedNestedColumn) {
     ASSERT_TRUE(
             mutable_block->add_rows(&block, indices.data(), indices.data() + indices.size()).ok());
     EXPECT_EQ(mutable_block->rows(), block.rows());
+}
+
+TEST(ColumnNullableTest, ApplyNullMapAfterMutateLeavesSharedSourceUnchanged) {
+    auto nested_mut = ColumnString::create();
+    nested_mut->insert_data("-", 1);
+    nested_mut->insert_data("-", 1);
+    nested_mut->insert_data("2628", 4);
+    ColumnPtr nested = std::move(nested_mut);
+
+    auto null_map_mut = ColumnUInt8::create();
+    null_map_mut->insert_value(0);
+    null_map_mut->insert_value(0);
+    null_map_mut->insert_value(0);
+    ColumnPtr null_map = std::move(null_map_mut);
+
+    ColumnPtr src = ColumnNullable::create(nested, null_map);
+    ColumnPtr held = src; // second owner, as if() holds arg_else.column alongside the block's copy
+
+    auto cond = ColumnUInt8::create();
+    cond->insert_value(1);
+    cond->insert_value(1);
+    cond->insert_value(0);
+
+    // mirrors if(cond, NULL, nullable_col): mutate() the shared column, then OR in the null map
+    auto mutated = (*std::move(held)).mutate();
+    assert_cast<ColumnNullable&>(*mutated).apply_null_map(*cond);
+
+    EXPECT_FALSE(assert_cast<const ColumnNullable&>(*src).has_null());
+    EXPECT_TRUE(assert_cast<const ColumnNullable&>(*mutated).has_null());
 }
 
 TEST(ColumnNullableTest, UpdateCrc32cBatchHashesNullAsNestedDefaultForWideType) {

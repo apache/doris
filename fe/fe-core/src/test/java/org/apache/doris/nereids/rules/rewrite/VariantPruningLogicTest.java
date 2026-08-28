@@ -50,6 +50,10 @@ public class VariantPruningLogicTest extends TestWithFeService {
                 + "  id int,\n"
                 + "  v variant\n"
                 + ") properties ('replication_num'='1')");
+        createTable("create table variant_ng_tbl(\n"
+                + "  id int,\n"
+                + "  v variant<properties(\"variant_enable_nested_group\" = \"true\")>\n"
+                + ") properties ('replication_num'='1')");
         connectContext.getSessionVariable().setDisableNereidsRules(RuleType.PRUNE_EMPTY_PARTITION.name());
         connectContext.getSessionVariable().enableNereidsTimeout = false;
         connectContext.getSessionVariable().enablePruneNestedColumns = true;
@@ -143,7 +147,7 @@ public class VariantPruningLogicTest extends TestWithFeService {
     public void testExplodeWholeVariantAccessPaths() throws Exception {
         assertAllAccessPathsContain(
                 "select x['k'] from variant_tbl lateral view explode(v) tmp as x",
-                ImmutableList.of(path("v", "k")),
+                ImmutableList.of(path("v")),
                 ImmutableList.of()
         );
     }
@@ -154,8 +158,7 @@ public class VariantPruningLogicTest extends TestWithFeService {
                 "select x['x'] from variant_tbl lateral view explode(v['arr']) tmp as x "
                         + "where v['filter']['k'] = 1 and x['y'] is not null",
                 ImmutableList.of(
-                        path("v", "arr", "x"),
-                        path("v", "arr", "y"),
+                        path("v", "arr"),
                         path("v", "filter", "k")
                 ),
                 ImmutableList.of()
@@ -166,7 +169,7 @@ public class VariantPruningLogicTest extends TestWithFeService {
     public void testExplodeVariantDeepNestedAccessPaths() throws Exception {
         assertAllAccessPathsContain(
                 "select x['a']['b'][0]['c'] from variant_tbl lateral view explode(v['arr']) tmp as x",
-                ImmutableList.of(path("v", "arr", "a", "b", "0", "c")),
+                ImmutableList.of(path("v", "arr")),
                 ImmutableList.of()
         );
     }
@@ -180,7 +183,7 @@ public class VariantPruningLogicTest extends TestWithFeService {
                         + "where x['a']['b'] = 1 and t2.v['k'] is not null "
                         + "group by cast(t2.v['k'] as string)",
                 ImmutableList.of(
-                        path("v", "arr", "a", "b"),
+                        path("v", "arr"),
                         path("v", "k")
                 ),
                 ImmutableList.of()
@@ -192,7 +195,7 @@ public class VariantPruningLogicTest extends TestWithFeService {
         assertAllAccessPathsContain(
                 "select sum(cast(x['metric'] as int)) from variant_tbl lateral view explode(v['arr']) tmp as x "
                         + "where x['metric'] is not null",
-                ImmutableList.of(path("v", "arr", "metric")),
+                ImmutableList.of(path("v", "arr")),
                 ImmutableList.of()
         );
     }
@@ -201,8 +204,27 @@ public class VariantPruningLogicTest extends TestWithFeService {
     public void testExplodeOuterAccessPaths() throws Exception {
         assertAllAccessPathsContain(
                 "select x['k'] from variant_tbl lateral view explode_outer(v['arr']) tmp as x",
-                ImmutableList.of(path("v", "arr", "k")),
+                ImmutableList.of(path("v", "arr")),
                 ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testExplodeNestedGroupVariantAccessPaths() throws Exception {
+        assertAllAccessPathsContain(
+                "select x['x'] from variant_ng_tbl lateral view explode(v['arr']) tmp as x",
+                ImmutableList.of(path("v", "arr", "x")),
+                ImmutableList.of(path("v", "arr"))
+        );
+    }
+
+    @Test
+    public void testMultiArgumentExplodeNestedGroupVariantAccessPaths() throws Exception {
+        assertAllAccessPathsContain(
+                "select x1['x'], x2['y'] from variant_ng_tbl "
+                        + "lateral view explode(v['arr1'], v['arr2']) tmp as x1, x2",
+                ImmutableList.of(path("v", "arr1", "x"), path("v", "arr2", "y")),
+                ImmutableList.of(path("v", "arr1"), path("v", "arr2"))
         );
     }
 

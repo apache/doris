@@ -209,7 +209,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
     }
 
     private boolean isLegacyVariant(DataType dataType) {
-        return dataType instanceof VariantType && !((VariantType) dataType).isComputeV2();
+        return dataType instanceof VariantType && !((VariantType) dataType).isExecutionV2();
     }
 
     private void checkMatchIsUsedCorrectly(Plan plan) {

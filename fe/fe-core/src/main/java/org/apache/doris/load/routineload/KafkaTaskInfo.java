@@ -23,6 +23,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.load.NereidsLoadTaskInfo;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
@@ -55,6 +56,9 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
 
     // <partitionId, offset to be consumed>
     private Map<Integer, Long> partitionIdToOffset;
+
+    private int adaptiveMinBatchInterval;
+    private boolean isAdaptiveBatch;
 
     public KafkaTaskInfo(UUID id, long jobId,
                          long timeoutMs, Map<Integer, Long> partitionIdToOffset, boolean isMultiTable,
@@ -122,9 +126,13 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
 
     @Override
     public void updateAdaptiveTimeout(RoutineLoadJob routineLoadJob) {
-        if (!isEof) {
+        adaptiveMinBatchInterval = Config.routine_load_adaptive_min_batch_interval_sec;
+        KafkaRoutineLoadJob kafkaRoutineLoadJob = (KafkaRoutineLoadJob) routineLoadJob;
+        isAdaptiveBatch = DebugPointUtil.isEnable("KafkaTaskInfo.shouldUseAdaptiveBatch")
+                || kafkaRoutineLoadJob.isTaskLagGreaterThanMaxBatchRows(partitionIdToOffset);
+        if (isAdaptiveBatch) {
             long maxBatchIntervalS = Math.max(routineLoadJob.getMaxBatchIntervalS(),
-                    Config.routine_load_adaptive_min_batch_interval_sec);
+                    adaptiveMinBatchInterval);
             long timeoutSec = maxBatchIntervalS * Config.routine_load_task_timeout_multiplier;
             long realTimeoutSec = Math.max(timeoutSec, Config.routine_load_task_min_timeout_sec);
             this.timeoutMs = realTimeoutSec * 1000;
@@ -137,8 +145,8 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         long maxBatchIntervalS = routineLoadJob.getMaxBatchIntervalS();
         long maxBatchRows = routineLoadJob.getMaxBatchRows();
         long maxBatchSize = routineLoadJob.getMaxBatchSizeBytes();
-        if (!isEof) {
-            maxBatchIntervalS = Math.max(maxBatchIntervalS, Config.routine_load_adaptive_min_batch_interval_sec);
+        if (isAdaptiveBatch) {
+            maxBatchIntervalS = Math.max(maxBatchIntervalS, adaptiveMinBatchInterval);
             maxBatchRows = Math.max(maxBatchRows, RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS);
             maxBatchSize = Math.max(maxBatchSize, RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE);
         }

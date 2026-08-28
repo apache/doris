@@ -101,14 +101,16 @@ public:
 
     inline size_t written_len() const override { return _iceberg_partition_writer->written_len(); }
 
-    size_t data_size() const;
+    virtual size_t data_size() const;
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) const;
 
     // Called by the memory management system to trigger spilling data to disk
-    Status trigger_spill();
+    virtual Status trigger_spill();
 
 private:
+    friend class IcebergTableSinkOperatorTest;
+
     // Calculate average row size from the first non-empty block to determine
     // the optimal batch row count for spill operations
     void _update_spill_block_batch_row_count(const Block& block);
@@ -151,6 +153,8 @@ private:
 
     // Create the final merger that merges all remaining spill streams
     Status _create_final_merger();
+
+    size_t _final_merge_batch_row_count() const;
 
     // Release all spill stream resources (both pending and currently merging)
     void _cleanup_spill_streams();

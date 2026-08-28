@@ -20,6 +20,9 @@ package org.apache.doris.planner;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.property.storage.OSSProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.thrift.TIcebergTableSink;
 
@@ -34,10 +37,55 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
 public class IcebergTableSinkTest {
+    @Test
+    public void testBindPrefersOssDataPlanePropertiesOverGenericS3() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("iceberg.rest.signing-name", "osstables");
+        properties.put("iceberg.rest.signing-region", "cn-beijing");
+        properties.put("oss.endpoint", "https://oss-cn-beijing.aliyuncs.com");
+        properties.put("oss.region", "cn-beijing");
+        properties.put("oss.access_key", "oss-ak");
+        properties.put("oss.secret_key", "oss-sk");
+
+        Map<StorageProperties.Type, StorageProperties> storagePropertiesMap = new HashMap<>();
+        for (StorageProperties storageProperties : StorageProperties.createAll(properties)) {
+            storagePropertiesMap.put(storageProperties.getType(), storageProperties);
+        }
+        Assertions.assertTrue(storagePropertiesMap.get(StorageProperties.Type.S3) instanceof S3Properties);
+        Assertions.assertTrue(storagePropertiesMap.get(StorageProperties.Type.OSS) instanceof OSSProperties);
+
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        CatalogProperty catalogProperty = Mockito.mock(CatalogProperty.class);
+        Mockito.when(catalog.getCatalogProperty()).thenReturn(catalogProperty);
+        Mockito.when(catalogProperty.getMetastoreProperties()).thenReturn(null);
+        Mockito.when(catalogProperty.getStoragePropertiesMap()).thenReturn(storagePropertiesMap);
+
+        IcebergExternalTable targetTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(targetTable.isView()).thenReturn(false);
+        Mockito.when(targetTable.getCatalog()).thenReturn(catalog);
+        Mockito.when(targetTable.getDbName()).thenReturn("db");
+        Mockito.when(targetTable.getName()).thenReturn("table");
+
+        Schema schema = new Schema(1,
+                Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        Table table = mockTable(schema);
+        Mockito.when(table.location()).thenReturn("s3://bucket/table");
+
+        IcebergTableSink sink = new IcebergTableSink(targetTable, table);
+        sink.bindDataSink(Optional.empty());
+
+        TIcebergTableSink thriftSink = sink.tDataSink.getIcebergTableSink();
+        Assertions.assertEquals("https://oss-cn-beijing.aliyuncs.com",
+                thriftSink.getHadoopConfig().get("AWS_ENDPOINT"));
+        Assertions.assertEquals("oss-ak", thriftSink.getHadoopConfig().get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("s3://bucket/table/data", thriftSink.getOriginalOutputPath());
+    }
+
     @Test
     public void testBindUsesPinnedIcebergTableMetadata() throws Exception {
         IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);

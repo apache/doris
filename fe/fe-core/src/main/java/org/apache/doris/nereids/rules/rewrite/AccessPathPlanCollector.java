@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
+import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
@@ -92,6 +93,12 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                     for (Expression child : function.children()) {
                         exprCollector.collect(child);
                     }
+                } else if (function.arity() == 1
+                        && function.child(0).getDataType() instanceof VariantType
+                        && !((VariantType) function.child(0).getDataType()).getEnableNestedGroup()) {
+                    // A generator may change the Variant container kind, which the legacy path
+                    // cannot encode. Preserve the whole input container so residual values stay visible.
+                    exprCollector.collect(function.child(0));
                 } else {
                     for (CollectAccessPathResult accessPath : accessPaths) {
                         List<String> path = accessPath.getPath();
@@ -99,14 +106,11 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                             // $c$1.VALUES.b
                             CollectorContext argumentContext = new CollectorContext(context, false);
                             argumentContext.setType(accessPath.getType());
-                            if (function.child(0).getDataType().isVariantType()) {
-                                argumentContext.getAccessPathBuilder()
-                                        .addSuffix(path.subList(1, path.size()));
-                            } else {
-                                argumentContext.getAccessPathBuilder()
-                                        .addSuffix(AccessPathInfo.ACCESS_ALL)
-                                        .addSuffix(path.subList(1, path.size()));
+                            if (!(function.child(0).getDataType() instanceof VariantType
+                                    && ((VariantType) function.child(0).getDataType()).getEnableNestedGroup())) {
+                                argumentContext.getAccessPathBuilder().addSuffix(AccessPathInfo.ACCESS_ALL);
                             }
+                            argumentContext.getAccessPathBuilder().addSuffix(path.subList(1, path.size()));
                             function.child(0).accept(exprCollector, argumentContext);
                             continue;
                         } else if (path.size() >= 2) {
@@ -116,9 +120,14 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                             int colIndex = Integer.parseInt(colName.substring(StructLiteral.COL_PREFIX.length())) - 1;
                             CollectorContext argumentContext = new CollectorContext(context, false);
                             argumentContext.setType(accessPath.getType());
-                            if (function.child(colIndex).getDataType().isVariantType()) {
-                                argumentContext.getAccessPathBuilder()
-                                        .addSuffix(path.subList(2, path.size()));
+                            if (function.child(colIndex).getDataType() instanceof VariantType
+                                    && !((VariantType) function.child(colIndex).getDataType()).getEnableNestedGroup()) {
+                                // Every Variant argument determines the generated array shape, so
+                                // an output-field path must not narrow the input container.
+                                exprCollector.collect(function.child(colIndex));
+                                continue;
+                            } else if (function.child(colIndex).getDataType() instanceof VariantType) {
+                                argumentContext.getAccessPathBuilder().addSuffix(path.subList(2, path.size()));
                             } else {
                                 argumentContext.getAccessPathBuilder()
                                         .addSuffix(AccessPathInfo.ACCESS_ALL)

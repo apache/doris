@@ -38,7 +38,10 @@ namespace doris::format::parquet {
 
 // Constant for unassigned column IDs
 constexpr uint64_t NATIVE_UNASSIGNED_COLUMN_ID = UINT64_MAX;
-constexpr size_t MAX_NATIVE_SCHEMA_DEPTH = 100;
+// Paimon and Iceberg cap automatic Variant shredding at 50 logical levels, but each nested array
+// can add three Parquet groups. 192 also covers Doris's nine enclosing nested-type levels while
+// keeping footer recursion bounded for untrusted files.
+constexpr size_t MAX_NATIVE_SCHEMA_DEPTH = 192;
 
 struct NativeFieldSchema {
     std::string name;
@@ -89,7 +92,7 @@ struct NativeFieldSchema {
 
 Status validate_variant_layout(const NativeFieldSchema& group_field,
                                std::optional<int8_t> specification_version = std::nullopt,
-                               bool allow_optional_shredded_metadata = false);
+                               bool allow_paimon_shredded_layout = false);
 
 // V2 owns this schema tree and parser so footer/schema planning never invokes the V1 reader path.
 class NativeFieldDescriptor {

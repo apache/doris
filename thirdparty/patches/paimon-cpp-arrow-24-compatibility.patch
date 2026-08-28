@@ -1,0 +1,64 @@
+diff --git a/include/paimon/status.h b/include/paimon/status.h
+--- a/include/paimon/status.h
++++ b/include/paimon/status.h
+@@ -458,9 +458,4 @@
+         }                                                             \
+     } while (false)
+
+-// This is an internal-use macro and should not be used in public headers.
+-#ifndef RETURN_NOT_OK
+-#define RETURN_NOT_OK(s) PAIMON_RETURN_NOT_OK(s)
+-#endif
+-
+ }  // namespace paimon
+diff --git a/src/paimon/format/parquet/parquet_input_stream_impl.cpp b/src/paimon/format/parquet/parquet_input_stream_impl.cpp
+--- a/src/paimon/format/parquet/parquet_input_stream_impl.cpp
++++ b/src/paimon/format/parquet/parquet_input_stream_impl.cpp
+@@ -59,7 +59,7 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> ParquetInputStreamImpl::Read(int64
+                           arrow::AllocateResizableBuffer(nbytes, pool_.get()));
+     ARROW_ASSIGN_OR_RAISE(int64_t read_bytes, Read(nbytes, buffer->mutable_data()));
+     if (read_bytes < nbytes) {
+-        RETURN_NOT_OK(buffer->Resize(read_bytes));
++        ARROW_RETURN_NOT_OK(buffer->Resize(read_bytes));
+     }
+     return std::shared_ptr<arrow::Buffer>(std::move(buffer));
+ }
+@@ -78,7 +78,7 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> ParquetInputStreamImpl::ReadAt(int
+                           arrow::AllocateResizableBuffer(nbytes, pool_.get()));
+     ARROW_ASSIGN_OR_RAISE(int64_t read_bytes, ReadAt(position, nbytes, buffer->mutable_data()));
+     if (read_bytes < nbytes) {
+-        RETURN_NOT_OK(buffer->Resize(read_bytes));
++        ARROW_RETURN_NOT_OK(buffer->Resize(read_bytes));
+     }
+     return std::shared_ptr<arrow::Buffer>(std::move(buffer));
+ }
+diff --git a/src/paimon/format/parquet/file_reader_wrapper.cpp b/src/paimon/format/parquet/file_reader_wrapper.cpp
+--- a/src/paimon/format/parquet/file_reader_wrapper.cpp
++++ b/src/paimon/format/parquet/file_reader_wrapper.cpp
+@@ -81,8 +81,9 @@ Status FileReaderWrapper::SeekToRow(uint64_t row_number) {
+                 PAIMON_ASSIGN_OR_RAISE(int32_t row_group_id, GetRowGroupId(target_row_groups_[j]));
+                 target_row_group_indices.push_back(row_group_id);
+             }
+-            PAIMON_RETURN_NOT_OK_FROM_ARROW(file_reader_->GetRecordBatchReader(
+-                target_row_group_indices, target_column_indices_, &batch_reader_));
++            PAIMON_ASSIGN_OR_RAISE_FROM_ARROW(
++                batch_reader_, file_reader_->GetRecordBatchReader(target_row_group_indices,
++                                                                  target_column_indices_));
+             return Status::OK();
+         }
+     }
+@@ -152,9 +153,11 @@ Status FileReaderWrapper::PrepareForReading(
+     std::vector<std::pair<uint64_t, uint64_t>> target_row_groups;
+     PAIMON_ASSIGN_OR_RAISE(target_row_groups, GetRowGroupRanges(target_row_group_indices));
+     std::unique_ptr<arrow::RecordBatchReader> batch_reader;
+-    PAIMON_RETURN_NOT_OK_FROM_ARROW(file_reader_->GetRecordBatchReader(
+-        std::vector<int32_t>(target_row_group_indices.begin(), target_row_group_indices.end()),
+-        column_indices, &batch_reader));
++    PAIMON_ASSIGN_OR_RAISE_FROM_ARROW(
++        batch_reader,
++        file_reader_->GetRecordBatchReader(
++            std::vector<int32_t>(target_row_group_indices.begin(), target_row_group_indices.end()),
++            column_indices));
+     target_row_groups_ = target_row_groups;
+     target_column_indices_ = column_indices;
+     batch_reader_ = std::move(batch_reader);

@@ -21,6 +21,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/internal_service.pb.h>
 
+#include <cstring>
 #include <set>
 #include <sstream>
 #include <utility>
@@ -65,6 +66,57 @@ constexpr const char* TOPN_LAZY_MAT_PHASE2_PER_BACKEND_REMOTE_IO_TIME =
         "TopNLazyMaterializationSecondPhasePerBackendRemoteIOTime";
 constexpr const char* TOPN_LAZY_MAT_PHASE2_PER_BACKEND_WRITE_CACHE_IO_TIME =
         "TopNLazyMaterializationSecondPhasePerBackendWriteCacheIOTime";
+
+struct MaterializationRowLocation {
+    ROW_VERSION version = ROW_VERSION::FILE_LOCAL_ROW_ID;
+    int64_t backend_id = 0;
+    uint32_t file_id = 0;
+    uint64_t row_id = 0;
+};
+
+Status decode_global_row_location_v2(const StringRef& encoded, ROW_VERSION version,
+                                     MaterializationRowLocation* decoded) {
+    if (encoded.size != sizeof(GlobalRowLoacationV2)) {
+        return Status::InternalError(
+                "invalid global row location size for version {}: actual={}, expected={}",
+                static_cast<int>(version), encoded.size, sizeof(GlobalRowLoacationV2));
+    }
+    GlobalRowLoacationV2 location(GlobalRowLoacationV2::VERSION, 0, 0, 0);
+    std::memcpy(&location, encoded.data, sizeof(location));
+    decoded->version = version;
+    decoded->backend_id = location.backend_id;
+    switch (version) {
+    case ROW_VERSION::FILE_LOCAL_ROW_ID:
+        decoded->file_id = location.file_local.file_id;
+        decoded->row_id = location.file_local.row_id;
+        return Status::OK();
+    case ROW_VERSION::LANCE_DATASET_ROW_ID:
+        decoded->file_id = location.lance_file_id;
+        decoded->row_id = location.lance_row_id;
+        return Status::OK();
+    }
+    return Status::NotSupported("unsupported V2 global row location version: {}",
+                                static_cast<int>(version));
+}
+
+Status decode_materialization_row_location(const StringRef& encoded,
+                                           MaterializationRowLocation* decoded) {
+    if (encoded.size < sizeof(uint8_t)) {
+        return Status::InternalError("global row location is empty");
+    }
+
+    const auto version_value = static_cast<uint8_t>(encoded.data[0]);
+    const auto version = static_cast<ROW_VERSION>(version_value);
+    // Keep size validation inside each version-family decoder. A future version can therefore
+    // use a different encoded size without being rejected by the current 24-byte V2 contract.
+    switch (version) {
+    case ROW_VERSION::FILE_LOCAL_ROW_ID:
+    case ROW_VERSION::LANCE_DATASET_ROW_ID:
+        return decode_global_row_location_v2(encoded, version, decoded);
+    }
+    return Status::NotSupported("unsupported global row location version: {}, encoded_size={}",
+                                static_cast<int>(version_value), encoded.size);
+}
 
 void update_counter(RuntimeProfile* profile, const std::string& name, TUnit::type unit,
                     int64_t value) {
@@ -279,6 +331,12 @@ Status MaterializationSharedState::merge_multi_response(RuntimeProfile* profile)
         // Phase 1: Deserialize the i-th response block from every BE into block_maps.
         // Each BE's response.blocks(i) corresponds to the i-th relation's fetched columns.
         for (auto& [backend_id, rpc_struct] : rpc_struct_map) {
+            const auto request_row_count = rpc_struct.request.request_block_descs(i).row_id_size();
+            // An empty request may have no response block when its RPC fails. It cannot
+            // contribute rows to block_order_results, so there is nothing to deserialize.
+            if (request_row_count == 0) {
+                continue;
+            }
             Block partial_block;
             size_t uncompressed_size = 0;
             int64_t uncompressed_time = 0;
@@ -292,13 +350,12 @@ Status MaterializationSharedState::merge_multi_response(RuntimeProfile* profile)
             // refer 'if (!id_file_map)' in RowIdStorageReader::read_by_rowids.
             // 2. Report error in any case where the row count doesn't match, even if it's not empty,
             //    since that indicates a bug in BE's row fetching logic or serialization logic.
-            if (rpc_struct.request.request_block_descs(i).row_id_size() != partial_block.rows()) {
+            if (request_row_count != partial_block.rows()) {
                 return Status::InternalError(
                         fmt::format("merge_multi_response, "
                                     "backend_id {} returned block with row count {} not match "
                                     "request row id count {}",
-                                    backend_id, partial_block.rows(),
-                                    rpc_struct.request.request_block_descs(i).row_id_size()));
+                                    backend_id, partial_block.rows(), request_row_count));
             }
             if (rpc_struct.response.blocks(i).has_profile()) {
                 auto response_profile =
@@ -306,8 +363,7 @@ Status MaterializationSharedState::merge_multi_response(RuntimeProfile* profile)
                 _update_profile_info(backend_id, response_profile.get());
             }
 
-            // Only insert non-empty blocks. A BE may return an empty block if
-            // request.request_block_descs(i).row_id_size() is 0
+            // Only insert non-empty blocks.
             if (!partial_block.is_empty_column()) {
                 // Reset row cursor to 0 — we'll consume rows from this block sequentially.
                 block_maps[backend_id] = std::make_pair(std::move(partial_block), 0);
@@ -368,18 +424,45 @@ Status MaterializationSharedState::merge_multi_response(RuntimeProfile* profile)
     return Status::OK();
 }
 
+Status MaterializationSharedState::validate_rpc_results(int node_id) {
+    for (auto& [backend_id, rpc_struct] : rpc_struct_map) {
+        if (rpc_struct.cntl->Failed()) {
+            if (count_request_rows(rpc_struct.request) > 0) {
+                return Status::InternalError(
+                        "Failed to send brpc request, error_text=" + rpc_struct.cntl->ErrorText() +
+                        " Materialization Sink node id:" + std::to_string(node_id) +
+                        " target_backend_id:" + std::to_string(backend_id));
+            }
+            rpc_struct.cntl->Reset();
+            continue;
+        }
+        if (rpc_struct.response.status().status_code() != 0) {
+            Status st = Status::create(rpc_struct.response.status());
+            st.append(fmt::format(", Backend:{}, Materialization Sink node id:{}", backend_id,
+                                  node_id));
+            return st;
+        }
+        rpc_struct.cntl->Reset();
+    }
+    return Status::OK();
+}
+
 void MaterializationSharedState::_update_profile_info(int64_t backend_id,
                                                       RuntimeProfile* response_profile) {
+    DORIS_CHECK(response_profile != nullptr);
     if (!backend_profile_info_string.contains(backend_id)) {
         backend_profile_info_string.emplace(backend_id,
                                             std::map<std::string, fmt::memory_buffer> {});
     }
     auto& info_map = backend_profile_info_string[backend_id];
 
-    auto update_profile_info_key = [&](const std::string& info_key) {
+    auto update_profile_info_key = [&](const std::string& info_key, bool warn_if_missing = true) {
         const auto* info_value = response_profile->get_info_string(info_key);
         if (info_value == nullptr) [[unlikely]] {
-            LOG(WARNING) << "Get row id fetch rpc profile success, but no info key :" << info_key;
+            if (warn_if_missing) {
+                LOG(WARNING) << "Get row id fetch rpc profile success, but no info key :"
+                             << info_key;
+            }
             return;
         }
         if (!info_map.contains(info_key)) {
@@ -394,6 +477,10 @@ void MaterializationSharedState::_update_profile_info(int64_t backend_id,
     update_profile_info_key(RowIdStorageReader::FileReadLinesProfile);
     update_profile_info_key(FileScanner::FileReadBytesProfile);
     update_profile_info_key(FileScanner::FileReadTimeProfile);
+    update_profile_info_key(RowIdStorageReader::LanceDatasetOpenTimeProfile, false);
+    update_profile_info_key(RowIdStorageReader::LanceRowIdTakeReadTimeProfile, false);
+    update_profile_info_key(RowIdStorageReader::LanceArrowToDorisBlockTimeProfile, false);
+    update_profile_info_key(RowIdStorageReader::LanceRowIdFetchTotalTimeProfile, false);
 }
 
 Status MaterializationSharedState::create_muiltget_result(const Columns& columns, bool child_eos,
@@ -419,19 +506,28 @@ Status MaterializationSharedState::create_muiltget_result(const Columns& columns
 
         for (int j = 0; j < rows; ++j) {
             if (!null_map || !null_map[j]) {
-                DCHECK(column_rowid->get_data_at(j).size == sizeof(GlobalRowLoacationV2));
-                GlobalRowLoacationV2 row_location =
-                        *((GlobalRowLoacationV2*)column_rowid->get_data_at(j).data);
+                MaterializationRowLocation row_location;
+                RETURN_IF_ERROR(decode_materialization_row_location(column_rowid->get_data_at(j),
+                                                                    &row_location));
                 auto rpc_struct = rpc_struct_map.find(row_location.backend_id);
                 if (UNLIKELY(rpc_struct == rpc_struct_map.end())) {
                     return Status::InternalError(
                             "MaterializationSinkOperatorX failed to find rpc_struct, backend_id={}",
                             row_location.backend_id);
                 }
-                rpc_struct->second.request.mutable_request_block_descs(i)->add_row_id(
-                        row_location.row_id);
-                rpc_struct->second.request.mutable_request_block_descs(i)->add_file_id(
-                        row_location.file_id);
+                auto* request_block_desc =
+                        rpc_struct->second.request.mutable_request_block_descs(i);
+                const auto row_location_version = static_cast<uint32_t>(row_location.version);
+                if (request_block_desc->row_id_size() == 0) {
+                    request_block_desc->set_row_location_version(row_location_version);
+                } else if (request_block_desc->row_location_version() != row_location_version) {
+                    return Status::InternalError(
+                            "mixed row location versions in one materialization request: "
+                            "actual={}, expected={}",
+                            row_location_version, request_block_desc->row_location_version());
+                }
+                request_block_desc->add_row_id(row_location.row_id);
+                request_block_desc->add_file_id(row_location.file_id);
                 block_order[j] = row_location.backend_id;
 
                 // Count rows per backend
@@ -566,8 +662,7 @@ Status MaterializationOperator::pull(RuntimeState* state, Block* output_block, b
              local_state._materialization_state.backend_profile_info_string) {
             auto* child_profile = local_state.operator_profile()->create_child(
                     "RowIDFetcher: BackendId:" + std::to_string(backend_id));
-            for (const auto& [info_key, info_value] :
-                 local_state._materialization_state.backend_profile_info_string[backend_id]) {
+            for (const auto& [info_key, info_value] : child_info) {
                 child_profile->add_info_string(info_key, "{" + fmt::to_string(info_value) + "}");
             }
             local_state.operator_profile()->add_child(child_profile, true);
@@ -608,6 +703,9 @@ Status MaterializationOperator::push(RuntimeState* state, Block* in_block, bool 
         MonotonicStopWatch rpc_timer(true);
         for (auto& [backend_id, rpc_struct] : local_state._materialization_state.rpc_struct_map) {
             auto* callback = brpc::NewCallback(fetch_callback, &counter);
+            // The response object is reused across batches. Clear it so an ignored failure for
+            // an empty request cannot expose a response left by an earlier batch.
+            rpc_struct.response.Clear();
             rpc_struct.cntl->set_timeout_ms(state->execution_timeout() * 1000);
             // send brpc request
             rpc_struct.stub->multiget_data_v2(rpc_struct.cntl.get(), &rpc_struct.request,
@@ -618,22 +716,7 @@ Status MaterializationOperator::push(RuntimeState* state, Block* in_block, bool 
             local_state._max_rpc_timer->set(static_cast<int64_t>(time));
         }
 
-        for (auto& [backend_id, rpc_struct] : local_state._materialization_state.rpc_struct_map) {
-            if (rpc_struct.cntl->Failed()) {
-                std::string error_text =
-                        "Failed to send brpc request, error_text=" + rpc_struct.cntl->ErrorText() +
-                        " Materialization Sink node id:" + std::to_string(node_id()) +
-                        " target_backend_id:" + std::to_string(backend_id);
-                return Status::InternalError(error_text);
-            }
-            if (rpc_struct.response.status().status_code() != 0) {
-                Status st = Status::create(rpc_struct.response.status());
-                st.append(fmt::format(", Backend:{}, Materialization Sink node id:{}", backend_id,
-                                      node_id()));
-                return st;
-            }
-            rpc_struct.cntl->Reset();
-        }
+        RETURN_IF_ERROR(local_state._materialization_state.validate_rpc_results(node_id()));
 
         if (local_state._materialization_state.need_merge_block) {
             SCOPED_TIMER(local_state._merge_response_timer);

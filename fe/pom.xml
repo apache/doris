@@ -226,7 +226,7 @@ under the License.
         <module>fe-authentication</module>
     </modules>
     <properties>
-        <doris.hive.catalog.shade.version>3.1.1</doris.hive.catalog.shade.version>
+        <doris.hive.catalog.shade.version>3.1.2</doris.hive.catalog.shade.version>
         <!-- iceberg 1.9.1 depends avro on 1.12 -->
         <avro.version>1.12.1</avro.version>
         <parquet.version>1.17.0</parquet.version>
@@ -437,6 +437,12 @@ under the License.
                     <url>https://repo.maven.apache.org/maven2</url>
                 </pluginRepository>
             </pluginRepositories>
+        </profile>
+        <profile>
+            <id>benchmark</id>
+            <modules>
+                <module>fe-benchmark</module>
+            </modules>
         </profile>
     </profiles>
     <dependencyManagement>
@@ -899,6 +905,15 @@ under the License.
                         <groupId>org.checkerframework</groupId>
                         <artifactId>checker</artifactId>
                     </exclusion>
+                    <!-- BDB JE only references javax.resource in its optional JCA resource
+                         adapter (com.sleepycat.je.jca.ra), which embedded FE never uses.
+                         javax.resource:connector:1.0 has no jar in Maven Central (only a pom)
+                         and its historical host (repo.grails.org) is unreliable, so pulling it
+                         breaks the build in many environments. Exclude it. -->
+                    <exclusion>
+                        <groupId>javax.resource</groupId>
+                        <artifactId>connector</artifactId>
+                    </exclusion>
                 </exclusions>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.jmockit/jmockit -->
@@ -1359,6 +1374,11 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-arrow</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
                 <artifactId>paimon-s3</artifactId>
                 <version>${paimon.version}</version>
             </dependency>
@@ -1683,6 +1703,11 @@ under the License.
                 <version>${arrow.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-c-data</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>org.lance</groupId>
                 <artifactId>lance-core</artifactId>
                 <version>${lance.version}</version>
@@ -1725,6 +1750,11 @@ under the License.
             <dependency>
                 <groupId>org.apache.arrow</groupId>
                 <artifactId>arrow-memory-core</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-memory-unsafe</artifactId>
                 <version>${arrow.version}</version>
             </dependency>
             <dependency>

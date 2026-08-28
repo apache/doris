@@ -712,6 +712,7 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setLongVal(sqlBlockRule.getCardinality()));
             trow.addToColumnValue(new TCell().setBoolVal(sqlBlockRule.getGlobal()));
             trow.addToColumnValue(new TCell().setBoolVal(sqlBlockRule.getEnable()));
+            trow.addToColumnValue(new TCell().setBoolVal(sqlBlockRule.getRequirePartitionFilter()));
             trow.addToColumnValue(new TCell().setLongVal(sqlBlockRule.getBlockCount().getValue()));
             Snapshot snapshot = sqlBlockRule.getTryBlockHistogram().getSnapshot();
             trow.addToColumnValue(new TCell().setLongVal((long) snapshot.getMean()));
@@ -1775,6 +1776,24 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setStringVal(
                             formatMetaCacheTime(entryStats.getLastLoadFailureTimeMs(), timeZone)));
                     trow.addToColumnValue(new TCell().setStringVal(entryStats.getLastError())); // LAST_ERROR
+                    // Memory governance: -1 for count-bounded entries without a weight budget.
+                    trow.addToColumnValue(new TCell().setBoolVal(entryStats.isWeightBounded())); // WEIGHT_BOUNDED
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getMaxWeight())); // MAX_WEIGHT
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(entryStats.getEstimatedWeight())); // ESTIMATED_WEIGHT
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getEvictionWeight())); // EVICTION_WEIGHT
+                    trow.addToColumnValue(new TCell().setLongVal(
+                            entryStats.getWeightAdmissionRejectedCount())); // WEIGHT_REJECT_COUNT
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(entryStats.getCatalogMaxWeight())); // CATALOG_MAX_WEIGHT
+                    trow.addToColumnValue(new TCell().setLongVal(
+                            entryStats.getCatalogEstimatedWeight())); // CATALOG_ESTIMATED_WEIGHT
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(entryStats.getGlobalMaxWeight())); // GLOBAL_MAX_WEIGHT
+                    trow.addToColumnValue(new TCell().setLongVal(
+                            entryStats.getGlobalEstimatedWeight())); // GLOBAL_ESTIMATED_WEIGHT
+                    trow.addToColumnValue(new TCell().setStringVal(
+                            entryStats.getLastWeightRejectReason())); // LAST_WEIGHT_REJECT_REASON
                     dataBatch.add(trow);
                 }
             }

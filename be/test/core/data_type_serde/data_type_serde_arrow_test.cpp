@@ -22,6 +22,9 @@
 #include <arrow/array/builder_decimal.h>
 #include <arrow/array/builder_nested.h>
 #include <arrow/array/builder_primitive.h>
+#include <arrow/extension/parquet_variant.h>
+#include <arrow/extension_type.h>
+#include <arrow/io/memory.h>
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
@@ -35,7 +38,10 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
+#include <parquet/api/reader.h>
+#include <parquet/arrow/writer.h>
 
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -50,9 +56,12 @@
 #include "core/column/column.h"
 #include "core/column/column_complex.h"
 #include "core/column/column_decimal.h"
+#include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
@@ -70,6 +79,8 @@
 #include "core/data_type/data_type_quantilestate.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 #include "core/types.h"
@@ -77,6 +88,7 @@
 #include "core/value/vdatetime_value.h"
 #include "exec/common/arrow_column_to_doris_column.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "runtime/descriptors.cpp"
@@ -555,6 +567,252 @@ TEST(DataTypeSerDeArrowTest, IcebergUuidStringToFixedSizeBinary) {
     EXPECT_EQ(0, std::memcmp(uuid_array->GetValue(1), expected1, sizeof(expected1)));
 }
 
+TEST(DataTypeSerDeArrowTest, IcebergVariantExtensionAndParquetSchema) {
+    auto make_variant_column = []() {
+        JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,
+                                            .throw_on_invalid_json = true,
+                                            .check_duplicate_json_path = false});
+        for (std::string_view json :
+             {std::string_view {R"({"name":"doris","n":1})"}, std::string_view {"null"},
+              std::string_view {R"([1,true,"x"])"}}) {
+            encoder.add_json({json.data(), json.size()});
+        }
+        auto column = ColumnVariantV2::create();
+        column->insert_encoded_batch(encoder.finish_batch());
+        return column;
+    };
+
+    auto variant_column = make_variant_column();
+    std::vector<std::string> expected_metadata;
+    std::vector<std::string> expected_values;
+    const auto source_view = variant_column->read_view();
+    for (size_t row = 0; row < variant_column->size(); ++row) {
+        const VariantRef value = source_view.value_at(row);
+        expected_metadata.emplace_back(value.metadata.data, value.metadata.size);
+        expected_values.emplace_back(value.value.data, value.value.size);
+    }
+
+    auto null_map = ColumnUInt8::create();
+    null_map->get_data().assign({0, 0, 1});
+    auto nullable_variant = ColumnNullable::create(std::move(variant_column), std::move(null_map));
+    DataTypePtr variant_type = std::make_shared<DataTypeVariantV2>();
+    DataTypePtr nullable_variant_type = make_nullable(variant_type);
+
+    Block block;
+    block.insert(
+            ColumnWithTypeAndName(nullable_variant->get_ptr(), nullable_variant_type, "payload"));
+
+    auto variant_storage = arrow::struct_({
+            arrow::field("metadata", arrow::binary(), false),
+            arrow::field("value", arrow::binary(), false),
+    });
+    auto arrow_variant = arrow::extension::variant(variant_storage);
+    auto field_id_21 = arrow::KeyValueMetadata::Make({"PARQUET:field_id"}, {"21"});
+    auto schema = arrow::schema({
+            arrow::field("payload", arrow_variant, true, field_id_21),
+    });
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone default_timezone;
+    Status status = convert_to_arrow_batch(block, schema, arrow::default_memory_pool(),
+                                           &record_batch, default_timezone);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(nullptr, record_batch);
+    ASSERT_TRUE(record_batch->ValidateFull().ok());
+
+    auto extension_array =
+            std::dynamic_pointer_cast<arrow::ExtensionArray>(record_batch->column(0));
+    ASSERT_NE(nullptr, extension_array);
+    EXPECT_EQ("arrow.parquet.variant", extension_array->extension_type()->extension_name());
+    EXPECT_FALSE(extension_array->IsNull(0));
+    EXPECT_FALSE(extension_array->IsNull(1));
+    EXPECT_TRUE(extension_array->IsNull(2));
+    auto storage_array = std::static_pointer_cast<arrow::StructArray>(extension_array->storage());
+    auto metadata_array = std::static_pointer_cast<arrow::BinaryArray>(storage_array->field(0));
+    auto value_array = std::static_pointer_cast<arrow::BinaryArray>(storage_array->field(1));
+    for (int64_t row = 0; row < 2; ++row) {
+        EXPECT_EQ(expected_metadata[row], metadata_array->GetView(row));
+        EXPECT_EQ(expected_values[row], value_array->GetView(row));
+    }
+
+    auto sink_result = arrow::io::BufferOutputStream::Create();
+    ASSERT_TRUE(sink_result.ok()) << sink_result.status();
+    auto sink = std::move(sink_result).ValueUnsafe();
+    auto writer_result =
+            ::parquet::arrow::FileWriter::Open(*schema, arrow::default_memory_pool(), sink);
+    ASSERT_TRUE(writer_result.ok()) << writer_result.status();
+    auto writer = std::move(writer_result).ValueUnsafe();
+    ASSERT_TRUE(writer->WriteRecordBatch(*record_batch).ok());
+    ASSERT_TRUE(writer->Close().ok());
+    auto buffer_result = sink->Finish();
+    ASSERT_TRUE(buffer_result.ok()) << buffer_result.status();
+
+    auto reader = ::parquet::ParquetFileReader::Open(
+            std::make_shared<arrow::io::BufferReader>(std::move(buffer_result).ValueUnsafe()));
+    const auto* root = reader->metadata()->schema()->group_node();
+    ASSERT_EQ(1, root->field_count());
+    const auto& payload_node = root->field(0);
+    ASSERT_NE(nullptr, payload_node->logical_type());
+    EXPECT_TRUE(payload_node->logical_type()->is_variant());
+    EXPECT_EQ(21, payload_node->field_id());
+    const auto& payload_group = static_cast<const ::parquet::schema::GroupNode&>(*payload_node);
+    ASSERT_EQ(2, payload_group.field_count());
+    EXPECT_EQ("metadata", payload_group.field(0)->name());
+    EXPECT_EQ(-1, payload_group.field(0)->field_id());
+    EXPECT_EQ("value", payload_group.field(1)->name());
+    EXPECT_EQ(-1, payload_group.field(1)->field_id());
+}
+
+TEST(DataTypeSerDeArrowTest, NestedIcebergVariantExtensionsAndParquetSchema) {
+    auto make_variant_column = [](std::initializer_list<std::string_view> json_values) {
+        JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,
+                                            .throw_on_invalid_json = true,
+                                            .check_duplicate_json_path = false});
+        for (std::string_view json : json_values) {
+            encoder.add_json({json.data(), json.size()});
+        }
+        auto column = ColumnVariantV2::create();
+        column->insert_encoded_batch(encoder.finish_batch());
+        return column;
+    };
+    auto make_null_map = [](std::initializer_list<uint8_t> values) {
+        auto null_map = ColumnUInt8::create();
+        null_map->get_data().assign(values);
+        return null_map;
+    };
+
+    DataTypePtr variant_type = std::make_shared<DataTypeVariantV2>();
+    DataTypePtr nullable_variant_type = make_nullable(variant_type);
+
+    auto array_values =
+            ColumnNullable::create(make_variant_column({R"({"kind":"array"})", "null", "{}", "7"}),
+                                   make_null_map({0, 0, 1, 0}));
+    auto array_offsets = ColumnArray::ColumnOffsets::create();
+    array_offsets->get_data().assign({3, 4});
+    auto array_column = ColumnArray::create(std::move(array_values), std::move(array_offsets));
+    DataTypePtr array_type = std::make_shared<DataTypeArray>(variant_type);
+
+    auto map_keys_data = ColumnString::create();
+    for (std::string_view key : {std::string_view {"object"}, std::string_view {"json_null"},
+                                 std::string_view {"sql_null"}}) {
+        map_keys_data->insert_data(key.data(), key.size());
+    }
+    auto map_keys = ColumnNullable::create(std::move(map_keys_data), make_null_map({0, 0, 0}));
+    auto map_values = ColumnNullable::create(
+            make_variant_column({R"({"kind":"map"})", "null", "{}"}), make_null_map({0, 0, 1}));
+    auto map_offsets = ColumnArray::ColumnOffsets::create();
+    map_offsets->get_data().assign({3, 3});
+    auto map_column =
+            ColumnMap::create(std::move(map_keys), std::move(map_values), std::move(map_offsets));
+    DataTypePtr map_type = std::make_shared<DataTypeMap>(
+            make_nullable(std::make_shared<DataTypeString>()), nullable_variant_type);
+
+    auto labels = ColumnString::create();
+    labels->insert_data("first", 5);
+    labels->insert_data("second", 6);
+    auto struct_payloads = ColumnNullable::create(
+            make_variant_column({R"({"kind":"struct"})", "{}"}), make_null_map({0, 1}));
+    MutableColumns struct_children;
+    struct_children.emplace_back(std::move(labels));
+    struct_children.emplace_back(std::move(struct_payloads));
+    auto struct_column = ColumnStruct::create(std::move(struct_children));
+    DataTypePtr struct_type = std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeString>(), nullable_variant_type},
+            Strings {"label", "payload"});
+
+    Block block;
+    block.insert(ColumnWithTypeAndName(std::move(array_column), array_type, "events"));
+    block.insert(ColumnWithTypeAndName(std::move(map_column), map_type, "attrs"));
+    block.insert(ColumnWithTypeAndName(std::move(struct_column), struct_type, "info"));
+
+    auto field_id = [](int id) {
+        return arrow::KeyValueMetadata::Make({"PARQUET:field_id"}, {std::to_string(id)});
+    };
+    auto variant_storage = arrow::struct_({
+            arrow::field("metadata", arrow::binary(), false),
+            arrow::field("value", arrow::binary(), false),
+    });
+    auto arrow_variant = arrow::extension::variant(variant_storage);
+    auto schema = arrow::schema({
+            arrow::field("events",
+                         arrow::list(arrow::field("element", arrow_variant, true, field_id(31))),
+                         true, field_id(30)),
+            arrow::field("attrs",
+                         std::make_shared<arrow::MapType>(
+                                 arrow::field("key", arrow::utf8(), false, field_id(41)),
+                                 arrow::field("value", arrow_variant, true, field_id(42))),
+                         true, field_id(40)),
+            arrow::field("info",
+                         arrow::struct_({
+                                 arrow::field("label", arrow::utf8(), true, field_id(51)),
+                                 arrow::field("payload", arrow_variant, true, field_id(52)),
+                         }),
+                         true, field_id(50)),
+    });
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone default_timezone;
+    Status status = convert_to_arrow_batch(block, schema, arrow::default_memory_pool(),
+                                           &record_batch, default_timezone);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(nullptr, record_batch);
+    ASSERT_TRUE(record_batch->ValidateFull().ok()) << record_batch->ValidateFull();
+
+    auto events = std::static_pointer_cast<arrow::ListArray>(record_batch->column(0));
+    auto event_values = std::dynamic_pointer_cast<arrow::ExtensionArray>(events->values());
+    ASSERT_NE(nullptr, event_values);
+    EXPECT_EQ("arrow.parquet.variant", event_values->extension_type()->extension_name());
+    EXPECT_TRUE(event_values->IsNull(2));
+
+    auto attrs = std::static_pointer_cast<arrow::MapArray>(record_batch->column(1));
+    auto attr_values = std::dynamic_pointer_cast<arrow::ExtensionArray>(attrs->items());
+    ASSERT_NE(nullptr, attr_values);
+    EXPECT_EQ("arrow.parquet.variant", attr_values->extension_type()->extension_name());
+    EXPECT_TRUE(attr_values->IsNull(2));
+
+    auto info = std::static_pointer_cast<arrow::StructArray>(record_batch->column(2));
+    auto info_payload = std::dynamic_pointer_cast<arrow::ExtensionArray>(info->field(1));
+    ASSERT_NE(nullptr, info_payload);
+    EXPECT_EQ("arrow.parquet.variant", info_payload->extension_type()->extension_name());
+    EXPECT_TRUE(info_payload->IsNull(1));
+
+    auto sink_result = arrow::io::BufferOutputStream::Create();
+    ASSERT_TRUE(sink_result.ok()) << sink_result.status();
+    auto sink = std::move(sink_result).ValueUnsafe();
+    auto writer_result =
+            ::parquet::arrow::FileWriter::Open(*schema, arrow::default_memory_pool(), sink);
+    ASSERT_TRUE(writer_result.ok()) << writer_result.status();
+    auto writer = std::move(writer_result).ValueUnsafe();
+    ASSERT_TRUE(writer->WriteRecordBatch(*record_batch).ok());
+    ASSERT_TRUE(writer->Close().ok());
+    auto buffer_result = sink->Finish();
+    ASSERT_TRUE(buffer_result.ok()) << buffer_result.status();
+
+    auto reader = ::parquet::ParquetFileReader::Open(
+            std::make_shared<arrow::io::BufferReader>(std::move(buffer_result).ValueUnsafe()));
+    const auto* root = reader->metadata()->schema()->group_node();
+    const auto& events_group = static_cast<const ::parquet::schema::GroupNode&>(*root->field(0));
+    const auto& event_list =
+            static_cast<const ::parquet::schema::GroupNode&>(*events_group.field(0));
+    const auto& event_variant = event_list.field(0);
+    ASSERT_NE(nullptr, event_variant->logical_type());
+    EXPECT_TRUE(event_variant->logical_type()->is_variant());
+    EXPECT_EQ(31, event_variant->field_id());
+
+    const auto& attrs_group = static_cast<const ::parquet::schema::GroupNode&>(*root->field(1));
+    const auto& key_value = static_cast<const ::parquet::schema::GroupNode&>(*attrs_group.field(0));
+    const auto& map_variant = key_value.field(1);
+    ASSERT_NE(nullptr, map_variant->logical_type());
+    EXPECT_TRUE(map_variant->logical_type()->is_variant());
+    EXPECT_EQ(42, map_variant->field_id());
+
+    const auto& info_group = static_cast<const ::parquet::schema::GroupNode&>(*root->field(2));
+    const auto& struct_variant = info_group.field(1);
+    ASSERT_NE(nullptr, struct_variant->logical_type());
+    EXPECT_TRUE(struct_variant->logical_type()->is_variant());
+    EXPECT_EQ(52, struct_variant->field_id());
+}
+
 TEST(DataTypeSerDeArrowTest, NestedIcebergUuidStringToFixedSizeBinary) {
     auto block = std::make_shared<Block>();
     DataTypePtr data_type = std::make_shared<DataTypeStruct>(
@@ -635,6 +893,79 @@ TEST(DataTypeSerDeArrowTest, BlockConverterTest) {
     };
     block_converter_test(cols, 7, true);
     block_converter_test(cols, 7, false);
+}
+
+TEST(DataTypeSerDeArrowTest, ConvertDateTimeV2ToNaiveArrowType) {
+    const auto datetime_type = std::make_shared<DataTypeDateTimeV2>(6);
+    std::shared_ptr<arrow::DataType> arrow_type;
+
+    auto status = convert_to_arrow_type(datetime_type, &arrow_type, "Asia/Shanghai");
+    ASSERT_TRUE(status.ok()) << status;
+    auto timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
+    EXPECT_EQ(arrow::TimeUnit::MICRO, timestamp_type->unit());
+    EXPECT_EQ("Asia/Shanghai", timestamp_type->timezone());
+
+    status = convert_to_arrow_type(datetime_type, &arrow_type, "Asia/Shanghai", true);
+    ASSERT_TRUE(status.ok()) << status;
+    timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
+    EXPECT_EQ(arrow::TimeUnit::MICRO, timestamp_type->unit());
+    EXPECT_TRUE(timestamp_type->timezone().empty());
+
+    const auto timestamptz_type = std::make_shared<DataTypeTimeStampTz>(6);
+    status = convert_to_arrow_type(timestamptz_type, &arrow_type, "Asia/Shanghai", true);
+    ASSERT_TRUE(status.ok()) << status;
+    timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
+    EXPECT_EQ(arrow::TimeUnit::MICRO, timestamp_type->unit());
+    EXPECT_EQ("Asia/Shanghai", timestamp_type->timezone());
+
+    const auto array_type = std::make_shared<DataTypeArray>(datetime_type);
+    status = convert_to_arrow_type(array_type, &arrow_type, "Asia/Shanghai", true);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto list_type = std::static_pointer_cast<arrow::ListType>(arrow_type);
+    timestamp_type = std::static_pointer_cast<arrow::TimestampType>(list_type->value_type());
+    EXPECT_TRUE(timestamp_type->timezone().empty());
+}
+
+TEST(DataTypeSerDeArrowTest, DateTimeV2ArrowEncodingFollowsSchemaTimezone) {
+    auto datetime_column = ColumnVector<TYPE_DATETIMEV2>::create();
+    DateV2Value<DateTimeV2ValueType> datetime_value;
+    datetime_value.unchecked_set_time(2026, 7, 2, 15, 0, 0, 123456);
+    datetime_column->insert(Field::create_field<TYPE_DATETIMEV2>(datetime_value));
+
+    auto datetime_type = std::make_shared<DataTypeDateTimeV2>(6);
+    Block block;
+    block.insert(ColumnWithTypeAndName(datetime_column->get_ptr(), datetime_type, "ts"));
+
+    const auto utc_plus_eight = cctz::fixed_time_zone(std::chrono::hours(8));
+    auto timezone_schema = arrow::schema(
+            {arrow::field("ts", arrow::timestamp(arrow::TimeUnit::MICRO, "+08:00"), false)});
+    std::shared_ptr<arrow::RecordBatch> timezone_batch;
+    auto status = convert_to_arrow_batch(block, timezone_schema, arrow::default_memory_pool(),
+                                         &timezone_batch, utc_plus_eight);
+    ASSERT_TRUE(status.ok()) << status;
+
+    const auto timezone_type = std::static_pointer_cast<arrow::TimestampType>(
+            timezone_batch->schema()->field(0)->type());
+    EXPECT_EQ("+08:00", timezone_type->timezone());
+    const auto timezone_array =
+            std::static_pointer_cast<arrow::TimestampArray>(timezone_batch->column(0));
+    // 2026-07-02 15:00:00.123456+08:00 is 2026-07-02 07:00:00.123456 UTC.
+    EXPECT_EQ(1782975600123456, timezone_array->Value(0));
+
+    auto naive_schema =
+            arrow::schema({arrow::field("ts", arrow::timestamp(arrow::TimeUnit::MICRO), false)});
+    std::shared_ptr<arrow::RecordBatch> naive_batch;
+    status = convert_to_arrow_batch(block, naive_schema, arrow::default_memory_pool(), &naive_batch,
+                                    utc_plus_eight);
+    ASSERT_TRUE(status.ok()) << status;
+
+    const auto naive_type =
+            std::static_pointer_cast<arrow::TimestampType>(naive_batch->schema()->field(0)->type());
+    EXPECT_TRUE(naive_type->timezone().empty());
+    const auto naive_array =
+            std::static_pointer_cast<arrow::TimestampArray>(naive_batch->column(0));
+    // A timezone-naive Arrow timestamp preserves the 15:00:00.123456 wall-clock value.
+    EXPECT_EQ(1783004400123456, naive_array->Value(0));
 }
 
 } // namespace doris

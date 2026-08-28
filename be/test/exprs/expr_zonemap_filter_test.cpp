@@ -20,6 +20,9 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <bit>
+#include <cstdint>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -29,11 +32,13 @@
 
 #include "common/object_pool.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/value/vdatetime_value.h"
@@ -241,6 +246,48 @@ private:
     std::string _expr_name = "fixed_zonemap_expr";
 };
 
+class MetadataAccessorExpr final : public VExpr {
+public:
+    MetadataAccessorExpr(std::string function_name, DataTypePtr result_type, VExprSPtr parent,
+                         VExprSPtr selector)
+            : VExpr(std::move(result_type), false), _expr_name(std::move(function_name)) {
+        _fn.name.function_name = _expr_name;
+        add_child(std::move(parent));
+        add_child(std::move(selector));
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("MetadataAccessorExpr is metadata-only");
+    }
+
+private:
+    std::string _expr_name;
+};
+
+class MetadataBloomPredicateExpr final : public VExpr {
+public:
+    explicit MetadataBloomPredicateExpr(VExprSPtr probe)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false) {
+        add_child(std::move(probe));
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("MetadataBloomPredicateExpr is metadata-only");
+    }
+    bool can_evaluate_bloom_filter() const override { return true; }
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext&) const override {
+        return ZoneMapFilterResult::kMayMatch;
+    }
+
+private:
+    const std::string _expr_name = "MetadataBloomPredicateExpr";
+};
+
 class UnsupportedSingleSlotExpr final : public VExpr {
 public:
     explicit UnsupportedSingleSlotExpr(const VExprSPtr& slot) {
@@ -428,6 +475,193 @@ TEST(ExprZonemapFilterTest, ComparisonDictionarySupportsTypedRangesWhileBloomUse
                                                  {string_slot, make_string_literal("delta")}));
 }
 
+TEST(ExprZonemapFilterTest, FloatingPointNanBloomProbeIsConservative) {
+    auto bloom_filter = std::make_unique<segment_v2::BlockSplitBloomFilter>();
+    ASSERT_TRUE(bloom_filter->init(segment_v2::BloomFilter::MINIMUM_BYTES).ok());
+    const double finite_value = 1.0;
+    bloom_filter->add_bytes(reinterpret_cast<const char*>(&finite_value), sizeof(finite_value));
+
+    FunctionComparison<EqualsOp, NameEquals> equals;
+    const auto check_type = [&](const DataTypePtr& type, Field nan_field) {
+        auto slot = make_slot(0, type);
+        auto literal = std::make_shared<VLiteral>(create_texpr_node_from(
+                nan_field, remove_nullable(type)->get_primitive_type(), 0, 0));
+        auto bloom_ctx = make_bloom_filter_context(bloom_filter.get(), type);
+
+        EXPECT_FALSE(equals.can_evaluate_bloom_filter({slot, literal}));
+        EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+                  equals.evaluate_bloom_filter(bloom_ctx, {slot, literal}));
+        EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+                  expr_zonemap::eval_in_bloom_filter(bloom_ctx, slot, false, {nan_field}));
+
+        const auto primitive_type = remove_nullable(type)->get_primitive_type();
+        const Field absent_finite = primitive_type == TYPE_FLOAT
+                                            ? Field::create_field<TYPE_FLOAT>(2.0F)
+                                            : Field::create_field<TYPE_DOUBLE>(2.0);
+        auto finite_literal = std::make_shared<VLiteral>(
+                create_texpr_node_from(absent_finite, primitive_type, 0, 0));
+        EXPECT_TRUE(equals.can_evaluate_bloom_filter({slot, finite_literal}));
+        EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+                  equals.evaluate_bloom_filter(bloom_ctx, {slot, finite_literal}));
+    };
+
+    check_type(std::make_shared<DataTypeFloat32>(),
+               Field::create_field<TYPE_FLOAT>(std::numeric_limits<float>::quiet_NaN()));
+    check_type(std::make_shared<DataTypeFloat64>(),
+               Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN()));
+}
+
+TEST(ExprZonemapFilterTest, FloatingPointInWithNanIsNotBloomEligible) {
+    auto type = std::make_shared<DataTypeFloat64>();
+    auto predicate = std::make_shared<VInPredicate>(make_in_predicate_node(false, 2));
+    predicate->add_child(make_slot(0, type));
+    predicate->_zonemap_materialized = true;
+    predicate->_seg_filter_contains_nan = true;
+    predicate->_seg_filter_values = {
+            Field::create_field<TYPE_DOUBLE>(1.0),
+            Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN())};
+
+    EXPECT_FALSE(predicate->can_evaluate_bloom_filter());
+    predicate->_seg_filter_contains_nan = false;
+    EXPECT_TRUE(predicate->can_evaluate_bloom_filter());
+}
+
+TEST(ExprZonemapFilterTest, FloatingPointNanEqualityIgnoresFiniteOnlyRangeBounds) {
+    const auto check_type = []<PrimitiveType Type, typename DataType, typename UInt>(
+                                    UInt nan_bits) {
+        using T = typename PrimitiveTypeTraits<Type>::CppType;
+        auto type = std::make_shared<DataType>();
+        auto slot = make_slot(0, type);
+        const auto nan_field = Field::create_field<Type>(std::bit_cast<T>(nan_bits));
+        auto nan_literal =
+                std::make_shared<VLiteral>(create_texpr_node_from(nan_field, Type, 0, 0));
+
+        segment_v2::ZoneMap zone_map;
+        zone_map.min_value = Field::create_field<Type>(T {0});
+        zone_map.max_value = Field::create_field<Type>(T {0});
+        zone_map.has_not_null = true;
+        auto ctx = make_context(std::move(zone_map), type);
+        ctx.slots.at(0).floating_nan_count_unknown = true;
+
+        FunctionComparison<EqualsOp, NameEquals> equals;
+        EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                  equals.evaluate_zonemap_filter(ctx, {slot, nan_literal}));
+
+        const auto finite_field = Field::create_field<Type>(T {10});
+        const auto zero_field = Field::create_field<Type>(T {0});
+        const auto one_field = Field::create_field<Type>(T {1});
+        auto zero_literal =
+                std::make_shared<VLiteral>(create_texpr_node_from(zero_field, Type, 0, 0));
+        auto one_literal =
+                std::make_shared<VLiteral>(create_texpr_node_from(one_field, Type, 0, 0));
+        FunctionComparison<NotEqualsOp, NameNotEquals> not_equals;
+        FunctionComparison<GreaterOp, NameGreater> greater;
+        FunctionComparison<GreaterOrEqualsOp, NameGreaterOrEquals> greater_equal;
+        FunctionComparison<LessOp, NameLess> less;
+        FunctionComparison<LessOrEqualsOp, NameLessOrEquals> less_equal;
+        EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                  not_equals.evaluate_zonemap_filter(ctx, {slot, zero_literal}));
+        EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                  greater.evaluate_zonemap_filter(ctx, {slot, one_literal}));
+        EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                  greater_equal.evaluate_zonemap_filter(ctx, {slot, one_literal}));
+        EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                  less.evaluate_zonemap_filter(ctx, {one_literal, slot}));
+        EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                  less_equal.evaluate_zonemap_filter(ctx, {one_literal, slot}));
+        EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                  expr_zonemap::eval_in_zonemap(ctx, slot, false, {finite_field, nan_field}, true,
+                                                finite_field, nan_field));
+        EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+                  expr_zonemap::eval_in_zonemap(ctx, slot, true, {zero_field}, false, zero_field,
+                                                zero_field));
+
+        segment_v2::ZoneMap all_null_zone_map;
+        all_null_zone_map.min_value = zero_field;
+        all_null_zone_map.max_value = zero_field;
+        auto all_null_ctx = make_context(std::move(all_null_zone_map), type);
+        all_null_ctx.slots.at(0).floating_nan_count_unknown = true;
+        EXPECT_EQ(
+                ZoneMapFilterResult::kNoMatch,
+                expr_zonemap::eval_in_zonemap(all_null_ctx, slot, false, {finite_field, nan_field},
+                                              true, finite_field, nan_field));
+
+        ctx.slots.at(0).floating_nan_count_unknown = false;
+        EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+                  equals.evaluate_zonemap_filter(ctx, {slot, nan_literal}));
+        EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+                  expr_zonemap::eval_in_zonemap(ctx, slot, false, {finite_field, nan_field}, true,
+                                                finite_field, nan_field));
+    };
+
+    check_type.template operator()<TYPE_FLOAT, DataTypeFloat32>(uint32_t {0x7fc00002U});
+    check_type.template operator()<TYPE_DOUBLE, DataTypeFloat64>(uint64_t {0x7ff8000000000002ULL});
+}
+
+TEST(ExprZonemapFilterTest, DirectInRawFixedKeepsEqualNanPayloadFromLargeSet) {
+    const auto check_type = []<PrimitiveType Type, typename DataType, typename UInt>(
+                                    UInt stored_bits, UInt probe_bits) {
+        using T = typename PrimitiveTypeTraits<Type>::CppType;
+        auto type = std::make_shared<DataType>();
+        std::shared_ptr<HybridSetBase> filter(create_set(Type, false));
+        for (int value = 0; value < FIXED_CONTAINER_MAX_SIZE; ++value) {
+            T finite = static_cast<T>(value);
+            filter->insert(&finite);
+        }
+        const T stored_nan = std::bit_cast<T>(stored_bits);
+        filter->insert(&stored_nan);
+        ASSERT_EQ(FIXED_CONTAINER_MAX_SIZE + 1, filter->size());
+
+        VDirectInPredicate predicate(make_in_predicate_node(false, 1), filter, true);
+        predicate.add_child(make_slot(0, type));
+        ASSERT_TRUE(predicate.can_execute_on_raw_fixed_values(type, 0));
+
+        const T probe_nan = std::bit_cast<T>(probe_bits);
+        uint8_t match = 1;
+        ASSERT_TRUE(
+                predicate
+                        .execute_on_raw_fixed_values(reinterpret_cast<const uint8_t*>(&probe_nan),
+                                                     1, sizeof(T), type, 0, &match)
+                        .ok());
+        EXPECT_EQ(1, match);
+    };
+
+    check_type.template operator()<TYPE_FLOAT, DataTypeFloat32>(uint32_t {0x7fc00001U},
+                                                                uint32_t {0x7fc00002U});
+    check_type.template operator()<TYPE_DOUBLE, DataTypeFloat64>(uint64_t {0x7ff8000000000001ULL},
+                                                                 uint64_t {0x7ff8000000000002ULL});
+}
+
+TEST(ExprZonemapFilterTest, FloatingPointSignedZeroBloomProbeChecksBothEncodings) {
+    FunctionComparison<EqualsOp, NameEquals> equals;
+    const auto check_type = [&]<PrimitiveType Type>(
+                                    const DataTypePtr& type,
+                                    typename PrimitiveTypeTraits<Type>::CppType stored_value,
+                                    typename PrimitiveTypeTraits<Type>::CppType predicate_value) {
+        auto bloom_filter = std::make_unique<segment_v2::BlockSplitBloomFilter>();
+        ASSERT_TRUE(bloom_filter->init(segment_v2::BloomFilter::MINIMUM_BYTES).ok());
+        bloom_filter->add_bytes(reinterpret_cast<const char*>(&stored_value), sizeof(stored_value));
+        ASSERT_FALSE(bloom_filter->test_bytes(reinterpret_cast<const char*>(&predicate_value),
+                                              sizeof(predicate_value)));
+
+        auto slot = make_slot(0, type);
+        const auto field = Field::create_field<Type>(predicate_value);
+        auto literal = std::make_shared<VLiteral>(create_texpr_node_from(field, Type, 0, 0));
+        auto bloom_ctx = make_bloom_filter_context(bloom_filter.get(), type);
+        EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+                  equals.evaluate_bloom_filter(bloom_ctx, {slot, literal}));
+        EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+                  expr_zonemap::eval_in_bloom_filter(bloom_ctx, slot, false, {field}));
+    };
+
+    const auto float_type = std::make_shared<DataTypeFloat32>();
+    check_type.template operator()<TYPE_FLOAT>(float_type, -0.0F, 0.0F);
+    check_type.template operator()<TYPE_FLOAT>(float_type, 0.0F, -0.0F);
+    const auto double_type = std::make_shared<DataTypeFloat64>();
+    check_type.template operator()<TYPE_DOUBLE>(double_type, -0.0, 0.0);
+    check_type.template operator()<TYPE_DOUBLE>(double_type, 0.0, -0.0);
+}
+
 TEST(ExprZonemapFilterTest, DefaultFunctionForwardsDictionaryAndBloomEvaluation) {
     auto type = int_type();
     auto slot = make_slot(0, type);
@@ -450,6 +684,105 @@ TEST(ExprZonemapFilterTest, DefaultFunctionForwardsDictionaryAndBloomEvaluation)
               equals->evaluate_bloom_filter(bloom_ctx, {slot, make_int_literal(2)}));
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
               equals->evaluate_bloom_filter(bloom_ctx, {slot, make_int_literal(3)}));
+}
+
+TEST(ExprZonemapFilterTest, NullSafeEqualityUsesBloomOnlyForNonNullLiteral) {
+    auto type = int_type();
+    auto slot = make_slot(0, type);
+    auto equals_for_null = SimpleFunctionFactory::instance().get_function(
+            "eq_for_null",
+            ColumnsWithTypeAndName {{nullptr, type, "slot"}, {nullptr, type, "literal"}},
+            std::make_shared<DataTypeUInt8>());
+    ASSERT_NE(equals_for_null, nullptr);
+
+    auto bloom_filter = make_int_bloom_filter({1, 3});
+    auto bloom_ctx = make_bloom_filter_context(bloom_filter.get(), type);
+    EXPECT_TRUE(equals_for_null->can_evaluate_bloom_filter({slot, make_int_literal(2)}));
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              equals_for_null->evaluate_bloom_filter(bloom_ctx, {slot, make_int_literal(2)}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              equals_for_null->evaluate_bloom_filter(bloom_ctx, {slot, make_int_literal(3)}));
+
+    EXPECT_FALSE(equals_for_null->can_evaluate_bloom_filter({slot, make_null_int_literal()}));
+}
+
+TEST(ExprZonemapFilterTest, EqualityBloomAcceptsStructAndListLeafAccessors) {
+    auto leaf_type = int_type();
+    auto bloom_filter = make_int_bloom_filter({1, 3});
+    auto bloom_ctx = make_bloom_filter_context(bloom_filter.get(), leaf_type);
+    FunctionComparison<EqualsOp, NameEquals> equals;
+
+    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {leaf_type}, Strings {"value"});
+    auto struct_accessor = std::make_shared<MetadataAccessorExpr>(
+            "element_at", leaf_type, make_slot(0, struct_type), make_string_literal("value"));
+    EXPECT_TRUE(equals.can_evaluate_bloom_filter({struct_accessor, make_int_literal(2)}));
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              equals.evaluate_bloom_filter(bloom_ctx, {struct_accessor, make_int_literal(2)}));
+
+    auto list_type = std::make_shared<DataTypeArray>(leaf_type);
+    auto list_accessor = std::make_shared<MetadataAccessorExpr>(
+            "element_at", leaf_type, make_slot(0, list_type), make_int_literal(1));
+    EXPECT_TRUE(equals.can_evaluate_bloom_filter({list_accessor, make_int_literal(3)}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              equals.evaluate_bloom_filter(bloom_ctx, {list_accessor, make_int_literal(3)}));
+
+    auto nested_type = std::make_shared<DataTypeStruct>(DataTypes {list_type}, Strings {"items"});
+    auto nested_list = std::make_shared<MetadataAccessorExpr>(
+            "element_at", list_type, make_slot(0, nested_type), make_string_literal("items"));
+    auto nested_leaf = std::make_shared<MetadataAccessorExpr>(
+            "element_at", leaf_type, std::move(nested_list), make_int_literal(1));
+    auto nested_probe = expr_zonemap::extract_bloom_filter_probe(nested_leaf);
+    ASSERT_TRUE(nested_probe.has_value());
+    ASSERT_EQ(nested_probe->path.size(), 2);
+    EXPECT_EQ(nested_probe->path[0].kind, expr_zonemap::BloomFilterPathKind::STRUCT_FIELD);
+    EXPECT_EQ(nested_probe->path[1].kind, expr_zonemap::BloomFilterPathKind::LIST_ELEMENT);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              equals.evaluate_bloom_filter(bloom_ctx, {nested_leaf, make_int_literal(2)}));
+}
+
+TEST(ExprZonemapFilterTest, CompoundBloomProbeRequiresOneUniqueNestedLeaf) {
+    const auto make_accessor = [](const DataTypePtr& struct_type, const DataTypePtr& leaf_type,
+                                  std::string field_name) {
+        return std::make_shared<MetadataAccessorExpr>("element_at", leaf_type,
+                                                      make_slot(0, struct_type),
+                                                      make_string_literal(std::move(field_name)));
+    };
+    const auto compound_probe = [](const VExprSPtr& first, const VExprSPtr& second,
+                                   const VExprSPtr& outer) {
+        auto inner =
+                std::make_shared<VCompoundPred>(make_compound_node(TExprOpcode::COMPOUND_AND, 2));
+        inner->add_child(std::make_shared<MetadataBloomPredicateExpr>(first));
+        inner->add_child(std::make_shared<MetadataBloomPredicateExpr>(second));
+        auto root =
+                std::make_shared<VCompoundPred>(make_compound_node(TExprOpcode::COMPOUND_OR, 2));
+        root->add_child(std::move(inner));
+        root->add_child(std::make_shared<MetadataBloomPredicateExpr>(outer));
+        EXPECT_TRUE(root->can_evaluate_bloom_filter());
+        return expr_zonemap::extract_bloom_filter_predicate_probe(root);
+    };
+
+    auto int_leaf = int_type();
+    auto same_type_struct =
+            std::make_shared<DataTypeStruct>(DataTypes {int_leaf, int_leaf}, Strings {"a", "b"});
+    EXPECT_FALSE(compound_probe(make_accessor(same_type_struct, int_leaf, "a"),
+                                make_accessor(same_type_struct, int_leaf, "b"),
+                                make_accessor(same_type_struct, int_leaf, "a"))
+                         .has_value());
+
+    auto string_leaf = std::make_shared<DataTypeString>();
+    auto mixed_type_struct =
+            std::make_shared<DataTypeStruct>(DataTypes {int_leaf, string_leaf}, Strings {"a", "b"});
+    EXPECT_FALSE(compound_probe(make_accessor(mixed_type_struct, int_leaf, "a"),
+                                make_accessor(mixed_type_struct, string_leaf, "b"),
+                                make_accessor(mixed_type_struct, int_leaf, "a"))
+                         .has_value());
+
+    auto same_leaf_probe = compound_probe(make_accessor(same_type_struct, int_leaf, "a"),
+                                          make_accessor(same_type_struct, int_leaf, "a"),
+                                          make_accessor(same_type_struct, int_leaf, "a"));
+    ASSERT_TRUE(same_leaf_probe.has_value());
+    ASSERT_EQ(same_leaf_probe->path.size(), 1);
+    EXPECT_EQ(same_leaf_probe->path[0].field_name, "a");
 }
 
 TEST(ExprZonemapFilterTest, MissingSlotTypeCountsUnsupportedZonemapEvalOnce) {
@@ -479,7 +812,7 @@ TEST(ExprZonemapFilterTest, MissingSlotTypeCountsUnsupportedZonemapEvalOnce) {
     std::vector<Field> values {int_field(10)};
     ZoneMapEvalContext in_ctx;
     EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
-              expr_zonemap::eval_in_zonemap(in_ctx, slot, false, values, int_field(10),
+              expr_zonemap::eval_in_zonemap(in_ctx, slot, false, values, false, int_field(10),
                                             int_field(10)));
     EXPECT_EQ(1, in_ctx.stats.unusable_zonemap_eval_count);
 }
@@ -542,20 +875,20 @@ TEST(ExprZonemapFilterTest, InZonemapSkipsZonesWithoutNonNullValues) {
     segment_v2::ZoneMap empty_zone;
     auto empty_ctx = make_context(empty_zone, type);
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-              expr_zonemap::eval_in_zonemap(empty_ctx, slot, false, values, int_field(10),
+              expr_zonemap::eval_in_zonemap(empty_ctx, slot, false, values, false, int_field(10),
                                             int_field(10)));
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-              expr_zonemap::eval_in_zonemap(empty_ctx, slot, true, values, int_field(10),
+              expr_zonemap::eval_in_zonemap(empty_ctx, slot, true, values, false, int_field(10),
                                             int_field(10)));
 
     segment_v2::ZoneMap only_null_zone;
     only_null_zone.has_null = true;
     auto only_null_ctx = make_context(only_null_zone, type);
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-              expr_zonemap::eval_in_zonemap(only_null_ctx, slot, false, values, int_field(10),
-                                            int_field(10)));
+              expr_zonemap::eval_in_zonemap(only_null_ctx, slot, false, values, false,
+                                            int_field(10), int_field(10)));
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-              expr_zonemap::eval_in_zonemap(only_null_ctx, slot, true, values, int_field(10),
+              expr_zonemap::eval_in_zonemap(only_null_ctx, slot, true, values, false, int_field(10),
                                             int_field(10)));
 }
 
@@ -645,8 +978,9 @@ TEST(ExprZonemapFilterTest, CharZonemapUsesTrimmedLogicalBounds) {
     auto in_value = Field::create_field<TYPE_STRING>("gamma");
     std::vector<Field> values {in_value};
     auto in_ctx = make_context(zone_map, char_type);
-    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-              expr_zonemap::eval_in_zonemap(in_ctx, slot, false, values, in_value, in_value));
+    EXPECT_EQ(
+            ZoneMapFilterResult::kNoMatch,
+            expr_zonemap::eval_in_zonemap(in_ctx, slot, false, values, false, in_value, in_value));
 }
 
 TEST(ExprZonemapFilterTest, InZonemapFallsBackToRangeWhenPointListIsLarge) {
@@ -659,7 +993,8 @@ TEST(ExprZonemapFilterTest, InZonemapFallsBackToRangeWhenPointListIsLarge) {
         values.emplace_back(int_field(value));
     }
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
-              expr_zonemap::eval_in_zonemap(ctx, slot, false, values, int_field(1), int_field(65)));
+              expr_zonemap::eval_in_zonemap(ctx, slot, false, values, false, int_field(1),
+                                            int_field(65)));
 
     EXPECT_EQ(0, ctx.stats.in_zonemap_point_check_count);
     EXPECT_EQ(1, ctx.stats.in_zonemap_range_only_count);
@@ -672,7 +1007,8 @@ TEST(ExprZonemapFilterTest, InZonemapUsesPointChecksUnderThreshold) {
 
     std::vector<Field> values {int_field(1), int_field(30)};
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-              expr_zonemap::eval_in_zonemap(ctx, slot, false, values, int_field(1), int_field(30)));
+              expr_zonemap::eval_in_zonemap(ctx, slot, false, values, false, int_field(1),
+                                            int_field(30)));
     EXPECT_EQ(1, ctx.stats.in_zonemap_point_check_count);
 }
 
@@ -683,19 +1019,19 @@ TEST(ExprZonemapFilterTest, InZonemapHandlesEmptyListAndNotInSingleValueRange) {
 
     std::vector<Field> empty_values;
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-              expr_zonemap::eval_in_zonemap(ctx, slot, false, empty_values, {}, {}));
+              expr_zonemap::eval_in_zonemap(ctx, slot, false, empty_values, false, {}, {}));
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
-              expr_zonemap::eval_in_zonemap(ctx, slot, true, empty_values, {}, {}));
+              expr_zonemap::eval_in_zonemap(ctx, slot, true, empty_values, false, {}, {}));
 
     auto single_value_ctx = make_context(make_int_zonemap(10, 10), type);
     std::vector<Field> values {int_field(10)};
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-              expr_zonemap::eval_in_zonemap(single_value_ctx, slot, true, values, int_field(10),
-                                            int_field(10)));
+              expr_zonemap::eval_in_zonemap(single_value_ctx, slot, true, values, false,
+                                            int_field(10), int_field(10)));
 
     std::vector<Field> other_values {int_field(11)};
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
-              expr_zonemap::eval_in_zonemap(single_value_ctx, slot, true, other_values,
+              expr_zonemap::eval_in_zonemap(single_value_ctx, slot, true, other_values, false,
                                             int_field(11), int_field(11)));
 }
 
@@ -795,6 +1131,44 @@ TEST(ExprZonemapFilterTest, VInPredicateDictionaryAndBloomUseMaterializedValues)
     auto matching_bloom_ctx = make_bloom_filter_context(matching_bloom_filter.get(), type);
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
               in_predicate->evaluate_bloom_filter(matching_bloom_ctx));
+}
+
+TEST(ExprZonemapFilterTest, VInPredicateMaterializesNestedBloomValuesDuringOpen) {
+    auto leaf_type = int_type();
+    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {leaf_type}, Strings {"value"});
+    auto slot = VSlotRef::create_shared(0, 0, -1, struct_type, "root");
+    auto accessor = std::make_shared<MetadataAccessorExpr>("element_at", leaf_type, std::move(slot),
+                                                           make_string_literal("value"));
+    auto in_predicate = std::make_shared<VInPredicate>(make_in_predicate_node(false, 3));
+    in_predicate->add_child(std::move(accessor));
+    in_predicate->add_child(make_int_literal(2));
+    in_predicate->add_child(make_int_literal(4));
+
+    ObjectPool obj_pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    auto thrift_desc_tbl = make_k2_scan_desc_tbl();
+    ASSERT_TRUE(DescriptorTbl::create(&obj_pool, thrift_desc_tbl, &desc_tbl).ok());
+    RuntimeState runtime_state;
+    runtime_state.set_desc_tbl(desc_tbl);
+    RowDescriptor row_desc(runtime_state.desc_tbl(), {0}, {false});
+    VExprContext in_context(in_predicate);
+    ASSERT_TRUE(in_context.prepare(&runtime_state, row_desc).ok());
+    ASSERT_TRUE(in_context.open(&runtime_state).ok());
+
+    EXPECT_TRUE(in_predicate->_zonemap_materialized);
+    EXPECT_TRUE(in_predicate->can_evaluate_bloom_filter());
+    EXPECT_FALSE(in_predicate->can_evaluate_zonemap_filter());
+    EXPECT_FALSE(in_predicate->can_evaluate_dictionary_filter());
+    EXPECT_FALSE(in_predicate->can_execute_on_raw_fixed_values(leaf_type, 0));
+
+    auto missing_bloom_filter = make_int_bloom_filter({1, 3});
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              in_predicate->evaluate_bloom_filter(
+                      make_bloom_filter_context(missing_bloom_filter.get(), leaf_type)));
+    auto matching_bloom_filter = make_int_bloom_filter({4});
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              in_predicate->evaluate_bloom_filter(
+                      make_bloom_filter_context(matching_bloom_filter.get(), leaf_type)));
 }
 
 TEST(ExprZonemapFilterTest, DirectInPredicateMaterializesStringSetForZonemap) {

@@ -21,49 +21,71 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.TableFormatType;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
+import java.util.UUID;
 
 /**
  * A Lance scan split. Catalog and S3 scans normally use one fixed-version fragment per split.
- * Backend-local TVFs use one whole-dataset latest-version split, while vector search uses one
- * whole-dataset fixed-version split.
+ * Indexed vector search uses one physical index segment and its covered fragments per split.
+ * Backend-local TVFs use one whole-dataset latest-version split.
  */
 public class LanceSplit extends FileSplit {
     private final String datasetUri;
     private final long version;
-    private final long fragmentId;
-    private final boolean hasFragmentId;
+    private final List<Long> fragmentIds;
+    private final List<UUID> indexSegmentUuids;
 
-    public LanceSplit(String datasetUri, long version, long fragmentId, long rowCount) {
-        super(LocationPath.of(datasetUri), 0, 0, 0, 0, null, Collections.emptyList());
-        this.datasetUri = datasetUri;
-        this.version = version;
-        this.fragmentId = fragmentId;
-        this.hasFragmentId = true;
-        this.tableFormatType = TableFormatType.LANCE;
-        this.selfSplitWeight = Math.max(rowCount, 1);
-    }
-
-    private LanceSplit(String datasetUri, long version, long rowCount) {
-        super(LocationPath.of(datasetUri), 0, 0, 0, 0, null, Collections.emptyList());
-        this.datasetUri = datasetUri;
-        this.version = version;
-        this.fragmentId = -1;
-        this.hasFragmentId = false;
-        this.tableFormatType = TableFormatType.LANCE;
-        this.selfSplitWeight = Math.max(rowCount, 1);
+    public static LanceSplit forFragment(
+            String datasetUri, long version, long fragmentId, long physicalRows) {
+        return new LanceSplit(datasetUri, version, Collections.singletonList(fragmentId),
+                Collections.emptyList(), physicalRows);
     }
 
     public static LanceSplit wholeDatasetAtLatest(String datasetUri) {
-        return new LanceSplit(datasetUri, 0, 1);
+        return new LanceSplit(datasetUri, 0, Collections.emptyList(), Collections.emptyList(), 1);
     }
 
-    public static LanceSplit wholeDatasetAtVersion(String datasetUri, long version, long rowCount) {
-        if (version <= 0) {
-            throw new IllegalArgumentException(
-                    "A fixed Lance dataset version must be positive: " + version);
+    public static LanceSplit forIndexSegment(String datasetUri, long version, UUID indexSegmentUuid,
+            List<Long> fragmentIds, long physicalRows) {
+        if (fragmentIds == null || fragmentIds.isEmpty()) {
+            throw new IllegalArgumentException("Lance index segment split must contain fragments");
         }
-        return new LanceSplit(datasetUri, version, rowCount);
+        return new LanceSplit(datasetUri, version, fragmentIds,
+                Collections.singletonList(indexSegmentUuid), physicalRows);
+    }
+
+    private LanceSplit(String datasetUri, long version, List<Long> fragmentIds,
+            List<UUID> indexSegmentUuids, long physicalRows) {
+        super(LocationPath.of(requireDatasetUri(datasetUri)), 0, 0, 0, 0, null,
+                Collections.emptyList());
+        if (version < 0) {
+            throw new IllegalArgumentException("Lance dataset version must be non-negative");
+        }
+        for (Long fragmentId : fragmentIds) {
+            if (fragmentId == null || fragmentId < 0) {
+                throw new IllegalArgumentException("Lance fragment id must be non-negative");
+            }
+        }
+        for (UUID indexSegmentUuid : indexSegmentUuids) {
+            if (indexSegmentUuid == null) {
+                throw new IllegalArgumentException("Lance index segment UUID must not be null");
+            }
+        }
+        this.datasetUri = datasetUri;
+        this.version = version;
+        this.fragmentIds = Collections.unmodifiableList(new ArrayList<>(fragmentIds));
+        this.indexSegmentUuids = Collections.unmodifiableList(new ArrayList<>(indexSegmentUuids));
+        this.tableFormatType = TableFormatType.LANCE;
+        this.selfSplitWeight = Math.max(physicalRows, 1);
+    }
+
+    private static String requireDatasetUri(String datasetUri) {
+        if (datasetUri == null || datasetUri.trim().isEmpty()) {
+            throw new IllegalArgumentException("Lance dataset URI must not be empty");
+        }
+        return datasetUri;
     }
 
     public String getDatasetUri() {
@@ -74,18 +96,26 @@ public class LanceSplit extends FileSplit {
         return version;
     }
 
-    public long getFragmentId() {
-        return fragmentId;
+    public List<Long> getFragmentIds() {
+        return fragmentIds;
     }
 
-    public boolean hasFragmentId() {
-        return hasFragmentId;
+    public boolean hasFragmentIds() {
+        return !fragmentIds.isEmpty();
+    }
+
+    public List<UUID> getIndexSegmentUuids() {
+        return indexSegmentUuids;
+    }
+
+    public boolean hasIndexSegmentUuids() {
+        return !indexSegmentUuids.isEmpty();
     }
 
     @Override
     public String getConsistentHashString() {
-        return hasFragmentId
-                ? datasetUri + "#" + version + "#" + fragmentId
+        return hasFragmentIds()
+                ? datasetUri + "#" + version + "#" + fragmentIds + "#" + indexSegmentUuids
                 : datasetUri + "#" + (version == 0 ? "latest" : version) + "#all";
     }
 }

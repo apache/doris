@@ -31,6 +31,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TArrayField;
@@ -90,6 +91,8 @@ import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 import java.io.ByteArrayOutputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.ObjectOutputStream;
+import java.io.OutputStream;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -176,6 +179,15 @@ public class PaimonUtil {
                 .collect(Collectors.toList());
         List<PaimonPartitionCandidate> candidates = Lists.newArrayListWithExpectedSize(partitionEntries.size());
         Map<String, Map<String, String>> displayNameToTypedSpec = Maps.newHashMap();
+        long retainedPayloadBytes = 0L;
+        if (!partitionEntries.isEmpty()) {
+            for (Column partitionColumn : partitionColumns) {
+                // Every partition's typed spec keys the same schema-owned name reference; the
+                // retained graph holds one string per column, not one per partition.
+                retainedPayloadBytes = PaimonPartitionInfo.addRetainedStringPayload(
+                        retainedPayloadBytes, partitionColumn.getName());
+            }
+        }
 
         for (PartitionEntry partitionEntry : partitionEntries) {
             Map<String, String> typedSpec = getPartitionInfoMap(
@@ -186,6 +198,8 @@ public class PaimonUtil {
 
             List<String> partitionValues = Lists.newArrayListWithExpectedSize(partitionColumns.size());
             LinkedHashMap<String, String> orderedTypedSpec = new LinkedHashMap<>();
+            retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(retainedPayloadBytes,
+                    PaimonPartitionInfo.partitionColumnBytes(partitionColumns.size()));
             for (Column partitionColumn : partitionColumns) {
                 String partitionColumnName = partitionColumn.getName();
                 Preconditions.checkState(typedSpec.containsKey(partitionColumnName),
@@ -193,6 +207,8 @@ public class PaimonUtil {
                 String partitionValue = typedSpec.get(partitionColumnName);
                 partitionValues.add(partitionValue);
                 orderedTypedSpec.put(partitionColumnName, partitionValue);
+                retainedPayloadBytes = PaimonPartitionInfo.addRetainedStringPayload(
+                        retainedPayloadBytes, partitionValue);
             }
 
             PartitionItem partitionItem;
@@ -217,6 +233,8 @@ public class PaimonUtil {
             }
             String partitionPath = PartitionPathUtils.generatePartitionPath(displaySpec);
             String displayName = partitionPath.substring(0, partitionPath.length() - 1);
+            retainedPayloadBytes = PaimonPartitionInfo.addRetainedStringPayload(
+                    retainedPayloadBytes, displayName);
             Map<String, String> previousTypedSpec = displayNameToTypedSpec.putIfAbsent(
                     displayName, orderedTypedSpec);
             if (previousTypedSpec != null) {
@@ -247,7 +265,7 @@ public class PaimonUtil {
             nameToPartitionItem.put(candidate.displayName, candidate.partitionItem);
             nameToPartition.put(candidate.displayName, partition);
         }
-        return new PaimonPartitionInfo(nameToPartitionItem, nameToPartition);
+        return new PaimonPartitionInfo(nameToPartitionItem, nameToPartition, retainedPayloadBytes);
     }
 
     private static final class PaimonPartitionCandidate {
@@ -345,6 +363,8 @@ public class PaimonUtil {
                 }
                 return ScalarType.createDatetimeV2Type(tsScale);
             case VARIANT:
+                // External-table schemas are cached and shared, so the physical marker must not
+                // depend on enable_variant_v2. PaimonScanNode checks the global switch per query.
                 return VariantType.COMPUTE_V2_INSTANCE;
             case ARRAY:
                 ArrayType arrayType = (ArrayType) dataType;
@@ -375,6 +395,21 @@ public class PaimonUtil {
     public static Type paimonTypeToDorisType(org.apache.paimon.types.DataType type, boolean enableVarbinaryMapping,
             boolean enableTimestampTzMapping) {
         return paimonPrimitiveTypeToDorisType(type, enableVarbinaryMapping, enableTimestampTzMapping);
+    }
+
+    public static boolean containsVariant(Type type) {
+        if (type.isVariantType()) {
+            return true;
+        } else if (type.isArrayType()) {
+            return containsVariant(((org.apache.doris.catalog.ArrayType) type).getItemType());
+        } else if (type.isMapType()) {
+            org.apache.doris.catalog.MapType mapType = (org.apache.doris.catalog.MapType) type;
+            return containsVariant(mapType.getKeyType()) || containsVariant(mapType.getValueType());
+        } else if (type.isStructType()) {
+            return ((org.apache.doris.catalog.StructType) type).getFields().stream()
+                    .anyMatch(field -> containsVariant(field.getType()));
+        }
+        return false;
     }
 
     public static void updatePaimonColumnUniqueId(Column column, DataType dataType) {
@@ -616,12 +651,71 @@ public class PaimonUtil {
     }
 
     public static <T> String encodeObjectToString(T t) {
+        byte[] bytes = serializeObject(t);
+        return new String(BASE64_ENCODER.encode(bytes), java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    public static <T> byte[] serializeObject(T object) {
         try {
-            byte[] bytes = InstantiationUtil.serializeObject(t);
-            return new String(BASE64_ENCODER.encode(bytes), java.nio.charset.StandardCharsets.UTF_8);
+            return InstantiationUtil.serializeObject(object);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public static <T> Optional<byte[]> serializeObjectWithinLimit(T object, long maxBytes) {
+        LimitedByteArrayOutputStream output = new LimitedByteArrayOutputStream(maxBytes);
+        try (ObjectOutputStream objectOutput = new ObjectOutputStream(output)) {
+            objectOutput.writeObject(object);
+            objectOutput.flush();
+            return Optional.of(output.toByteArray());
+        } catch (SerializationSizeLimitException e) {
+            return Optional.empty();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static <T> T deserializeObject(byte[] bytes) {
+        try {
+            return InstantiationUtil.deserializeObject(bytes, PaimonUtil.class.getClassLoader());
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static final class LimitedByteArrayOutputStream extends OutputStream {
+        private final ByteArrayOutputStream delegate = new ByteArrayOutputStream();
+        private final long maxBytes;
+
+        private LimitedByteArrayOutputStream(long maxBytes) {
+            this.maxBytes = maxBytes;
+        }
+
+        @Override
+        public void write(int value) throws IOException {
+            ensureCapacity(1);
+            delegate.write(value);
+        }
+
+        @Override
+        public void write(byte[] bytes, int offset, int length) throws IOException {
+            ensureCapacity(length);
+            delegate.write(bytes, offset, length);
+        }
+
+        private void ensureCapacity(int additionalBytes) throws SerializationSizeLimitException {
+            if (additionalBytes > maxBytes - delegate.size()) {
+                throw new SerializationSizeLimitException();
+            }
+        }
+
+        private byte[] toByteArray() {
+            return delegate.toByteArray();
+        }
+    }
+
+    private static final class SerializationSizeLimitException extends IOException {
     }
 
     /**

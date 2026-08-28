@@ -23,6 +23,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
@@ -80,6 +81,10 @@ struct ParquetPruningStats {
     int64_t selected_row_ranges = 0;                 // selected row range count
     int64_t page_index_read_calls = 0;               // Page Index read count
     int64_t bloom_filter_read_time = 0;              // Bloom filter read time (ns)
+    int64_t bloom_filter_probe_attempts = 0;         // unique leaf Bloom probes attempted
+    int64_t bloom_filter_probe_successes = 0;        // usable Bloom payloads decoded
+    int64_t bloom_filter_conservative_fallbacks = 0; // unavailable/unreadable Blooms retained
+    int64_t bloom_filter_corrupt_rejections = 0;     // malformed Blooms rejected conservatively
     int64_t row_group_filter_time = 0;               // row-group pruning time (ns)
     int64_t page_index_filter_time = 0;              // page-index pruning time (ns)
     int64_t read_page_index_time = 0;                // page-index read time (ns)
@@ -142,7 +147,8 @@ Status select_row_groups_by_metadata(
         ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone = nullptr,
         const RuntimeState* runtime_state = nullptr, ParquetFileContext* file_context = nullptr,
         const ParquetColumnReaderProfile& column_reader_profile = {},
-        ParquetMetadataProbeMode probe_mode = ParquetMetadataProbeMode::ALL);
+        ParquetMetadataProbeMode probe_mode = ParquetMetadataProbeMode::ALL,
+        const std::unordered_set<int>* requested_leaf_ids = nullptr);
 
 Status select_row_group_ranges_by_native_page_index(
         const tparquet::FileMetaData& metadata, const tparquet::RowGroup& row_group,

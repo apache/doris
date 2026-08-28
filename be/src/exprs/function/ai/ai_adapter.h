@@ -24,7 +24,6 @@
 #include <cctype>
 #include <memory>
 #include <string>
-#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -35,6 +34,7 @@
 #include "rapidjson/writer.h"
 #include "service/http/http_client.h"
 #include "service/http/http_headers.h"
+#include "util/security.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -91,6 +91,20 @@ struct AIResource {
     }
 };
 
+enum class MultimodalType { IMAGE, VIDEO, AUDIO };
+
+inline const char* multimodal_type_to_string(MultimodalType type) {
+    switch (type) {
+    case MultimodalType::IMAGE:
+        return "image";
+    case MultimodalType::VIDEO:
+        return "video";
+    case MultimodalType::AUDIO:
+        return "audio";
+    }
+    return "unknown";
+}
+
 class AIAdapter {
 public:
     virtual ~AIAdapter() = default;
@@ -126,18 +140,32 @@ public:
 
     virtual Status build_embedding_request(const std::vector<std::string>& inputs,
                                            std::string& request_body) const {
-        return Status::NotSupported("{} does not support the Embed feature.",
+        return embed_not_supported_status();
+    }
+
+    virtual Status build_multimodal_embedding_request(
+            const std::vector<MultimodalType>& /*media_types*/,
+            const std::vector<std::string>& /*media_urls*/,
+            const std::vector<std::string>& /*media_content_types*/,
+            std::string& /*request_body*/) const {
+        return Status::NotSupported("{} does not support multimodal Embed feature.",
                                     _config.provider_type);
     }
 
     virtual Status parse_embedding_response(const std::string& response_body,
                                             std::vector<std::vector<float>>& results) const {
-        return Status::NotSupported("{} does not support the Embed feature.",
-                                    _config.provider_type);
+        return embed_not_supported_status();
     }
 
 protected:
     TAIResource _config;
+
+    Status embed_not_supported_status() const {
+        return Status::NotSupported(
+                "{} does not support the Embed feature. Currently supported providers are "
+                "OpenAI, Gemini, Voyage, Jina, Qwen, and Minimax.",
+                _config.provider_type);
+    }
 
     // Appends one provider-parsed text result to `results`.
     // The adapter has already parsed the provider's outer response envelope before calling here.
@@ -188,6 +216,50 @@ protected:
             doc.AddMember(name, _config.dimensions, allocator);
         }
     }
+
+    // Validates common multimodal embedding request invariants shared by providers.
+    Status validate_multimodal_embedding_inputs(
+            std::string_view provider_name, const std::vector<MultimodalType>& media_types,
+            const std::vector<std::string>& media_urls,
+            std::initializer_list<MultimodalType> supported_types) const {
+        if (media_urls.empty()) {
+            return Status::InvalidArgument("{} multimodal embed inputs can not be empty",
+                                           provider_name);
+        }
+        if (media_types.size() != media_urls.size()) {
+            return Status::InvalidArgument(
+                    "{} multimodal embed input size mismatch, media_types={}, media_urls={}",
+                    provider_name, media_types.size(), media_urls.size());
+        }
+        for (MultimodalType media_type : media_types) {
+            bool supported = false;
+            for (MultimodalType supported_type : supported_types) {
+                if (media_type == supported_type) {
+                    supported = true;
+                    break;
+                }
+            }
+            if (!supported) [[unlikely]] {
+                return Status::InvalidArgument(
+                        "{} only supports {} multimodal embed, got {}", provider_name,
+                        supported_multimodal_types_to_string(supported_types),
+                        multimodal_type_to_string(media_type));
+            }
+        }
+        return Status::OK();
+    }
+
+    static std::string supported_multimodal_types_to_string(
+            std::initializer_list<MultimodalType> supported_types) {
+        std::string result;
+        for (MultimodalType type : supported_types) {
+            if (!result.empty()) {
+                result += "/";
+            }
+            result += multimodal_type_to_string(type);
+        }
+        return result;
+    }
 };
 
 // Most LLM-providers' Embedding formats are based on VoyageAI.
@@ -230,6 +302,68 @@ public:
         doc.Accept(writer);
         request_body = buffer.GetString();
 
+        return Status::OK();
+    }
+
+    Status build_multimodal_embedding_request(
+            const std::vector<MultimodalType>& media_types,
+            const std::vector<std::string>& media_urls,
+            const std::vector<std::string>& /*media_content_types*/,
+            std::string& request_body) const override {
+        RETURN_IF_ERROR(validate_multimodal_embedding_inputs(
+                "VoyageAI", media_types, media_urls,
+                {MultimodalType::IMAGE, MultimodalType::VIDEO}));
+        if (_config.dimensions != -1) {
+            LOG(WARNING) << "VoyageAI multimodal embedding currently ignores dimensions parameter, "
+                         << "model=" << _config.model_name << ", dimensions=" << _config.dimensions;
+        }
+
+        rapidjson::Document doc;
+        doc.SetObject();
+        auto& allocator = doc.GetAllocator();
+
+        /*{
+            "inputs": [
+              {
+                "content": [
+                  {"type": "image_url", "image_url": "<url>"}
+                ]
+              },
+              {
+                "content": [
+                  {"type": "video_url", "video_url": "<url>"}
+                ]
+              }
+            ],
+            "model": "voyage-multimodal-3.5"
+        }*/
+        doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator), allocator);
+
+        rapidjson::Value request_inputs(rapidjson::kArrayType);
+        for (size_t i = 0; i < media_urls.size(); ++i) {
+            rapidjson::Value input(rapidjson::kObjectType);
+            rapidjson::Value content(rapidjson::kArrayType);
+            rapidjson::Value media_item(rapidjson::kObjectType);
+            if (media_types[i] == MultimodalType::IMAGE) {
+                media_item.AddMember("type", "image_url", allocator);
+                media_item.AddMember("image_url",
+                                     rapidjson::Value(media_urls[i].c_str(), allocator), allocator);
+            } else {
+                media_item.AddMember("type", "video_url", allocator);
+                media_item.AddMember("video_url",
+                                     rapidjson::Value(media_urls[i].c_str(), allocator), allocator);
+            }
+            content.PushBack(media_item, allocator);
+            input.AddMember("content", content, allocator);
+            request_inputs.PushBack(input, allocator);
+        }
+
+        doc.AddMember("inputs", request_inputs, allocator);
+
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+        doc.Accept(writer);
+        request_body = buffer.GetString();
         return Status::OK();
     }
 
@@ -365,7 +499,6 @@ public:
         } else {
             return Status::NotSupported("Unsupported response format from local AI.");
         }
-
         return Status::OK();
     }
 
@@ -394,6 +527,15 @@ public:
         request_body = buffer.GetString();
 
         return Status::OK();
+    }
+
+    Status build_multimodal_embedding_request(
+            const std::vector<MultimodalType>& /*media_types*/,
+            const std::vector<std::string>& /*media_urls*/,
+            const std::vector<std::string>& /*media_content_types*/,
+            std::string& /*request_body*/) const override {
+        return Status::NotSupported("{} does not support multimodal Embed feature.",
+                                    _config.provider_type);
     }
 
     Status parse_embedding_response(const std::string& response_body,
@@ -746,6 +888,15 @@ public:
         return Status::OK();
     }
 
+    Status build_multimodal_embedding_request(
+            const std::vector<MultimodalType>& /*media_types*/,
+            const std::vector<std::string>& /*media_urls*/,
+            const std::vector<std::string>& /*media_content_types*/,
+            std::string& /*request_body*/) const override {
+        return Status::NotSupported("{} does not support multimodal Embed feature.",
+                                    _config.provider_type);
+    }
+
 protected:
     bool supports_dimension_param(const std::string& model_name) const override {
         return !(model_name == "text-embedding-ada-002");
@@ -758,14 +909,12 @@ class DeepSeekAdapter : public OpenAIAdapter {
 public:
     Status build_embedding_request(const std::vector<std::string>& inputs,
                                    std::string& request_body) const override {
-        return Status::NotSupported("{} does not support the Embed feature.",
-                                    _config.provider_type);
+        return embed_not_supported_status();
     }
 
     Status parse_embedding_response(const std::string& response_body,
                                     std::vector<std::vector<float>>& results) const override {
-        return Status::NotSupported("{} does not support the Embed feature.",
-                                    _config.provider_type);
+        return embed_not_supported_status();
     }
 };
 
@@ -773,14 +922,12 @@ class MoonShotAdapter : public OpenAIAdapter {
 public:
     Status build_embedding_request(const std::vector<std::string>& inputs,
                                    std::string& request_body) const override {
-        return Status::NotSupported("{} does not support the Embed feature.",
-                                    _config.provider_type);
+        return embed_not_supported_status();
     }
 
     Status parse_embedding_response(const std::string& response_body,
                                     std::vector<std::vector<float>>& results) const override {
-        return Status::NotSupported("{} does not support the Embed feature.",
-                                    _config.provider_type);
+        return embed_not_supported_status();
     }
 };
 
@@ -822,6 +969,105 @@ protected:
 };
 
 class QwenAdapter : public OpenAIAdapter {
+public:
+    Status build_multimodal_embedding_request(
+            const std::vector<MultimodalType>& media_types,
+            const std::vector<std::string>& media_urls,
+            const std::vector<std::string>& /*media_content_types*/,
+            std::string& request_body) const override {
+        RETURN_IF_ERROR(validate_multimodal_embedding_inputs(
+                "QWEN", media_types, media_urls, {MultimodalType::IMAGE, MultimodalType::VIDEO}));
+
+        rapidjson::Document doc;
+        doc.SetObject();
+        auto& allocator = doc.GetAllocator();
+
+        /*{
+            "model": "tongyi-embedding-vision-plus",
+            "input": {
+              "contents": [
+                {"image": "<url>"},
+                {"video": "<url>"}
+              ]
+            }
+            "parameters": {
+              "dimension": 512
+            }
+        }*/
+        doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator), allocator);
+        rapidjson::Value input(rapidjson::kObjectType);
+        rapidjson::Value contents(rapidjson::kArrayType);
+
+        for (size_t i = 0; i < media_urls.size(); ++i) {
+            rapidjson::Value media_item(rapidjson::kObjectType);
+            if (media_types[i] == MultimodalType::IMAGE) {
+                media_item.AddMember("image", rapidjson::Value(media_urls[i].c_str(), allocator),
+                                     allocator);
+            } else {
+                media_item.AddMember("video", rapidjson::Value(media_urls[i].c_str(), allocator),
+                                     allocator);
+            }
+            contents.PushBack(media_item, allocator);
+        }
+
+        input.AddMember("contents", contents, allocator);
+        doc.AddMember("input", input, allocator);
+        if (_config.dimensions != -1 && supports_dimension_param(_config.model_name)) {
+            rapidjson::Value parameters(rapidjson::kObjectType);
+            std::string param_name = get_dimension_param_name();
+            rapidjson::Value dimension_name(param_name.c_str(), allocator);
+            parameters.AddMember(dimension_name, _config.dimensions, allocator);
+            doc.AddMember("parameters", parameters, allocator);
+        }
+
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+        doc.Accept(writer);
+        request_body = buffer.GetString();
+        return Status::OK();
+    }
+
+    Status parse_embedding_response(const std::string& response_body,
+                                    std::vector<std::vector<float>>& results) const override {
+        rapidjson::Document doc;
+        doc.Parse(response_body.c_str());
+
+        if (doc.HasParseError() || !doc.IsObject()) [[unlikely]] {
+            return Status::InternalError("Failed to parse {} response: {}", _config.provider_type,
+                                         response_body);
+        }
+        // Qwen multimodal embedding usually returns:
+        // {
+        //   "output": {
+        //     "embeddings": [
+        //       {"index":0, "embedding":[...], "type":"image|video|text"},
+        //       ...
+        //     ]
+        //   }
+        // }
+        //
+        // In text-only or compatibility endpoints, Qwen may also return OpenAI-style
+        // "data":[{"embedding":[...]}]. For compatibility we first parse native
+        // output.embeddings and then fallback to OpenAIAdapter parser.
+        if (doc.HasMember("output") && doc["output"].IsObject() &&
+            doc["output"].HasMember("embeddings") && doc["output"]["embeddings"].IsArray()) {
+            const auto& embeddings = doc["output"]["embeddings"];
+            results.reserve(embeddings.Size());
+            for (rapidjson::SizeType i = 0; i < embeddings.Size(); i++) {
+                if (!embeddings[i].HasMember("embedding") ||
+                    !embeddings[i]["embedding"].IsArray()) {
+                    return Status::InternalError("Invalid {} response format: {}",
+                                                 _config.provider_type, response_body);
+                }
+                std::transform(embeddings[i]["embedding"].Begin(), embeddings[i]["embedding"].End(),
+                               std::back_inserter(results.emplace_back()),
+                               [](const auto& val) { return val.GetFloat(); });
+            }
+            return Status::OK();
+        }
+        return OpenAIAdapter::parse_embedding_response(response_body, results);
+    }
+
 protected:
     bool supports_dimension_param(const std::string& model_name) const override {
         static const std::unordered_set<std::string> no_dimension_models = {
@@ -830,6 +1076,56 @@ protected:
     }
 
     std::string get_dimension_param_name() const override { return "dimension"; }
+};
+
+class JinaAdapter : public VoyageAIAdapter {
+public:
+    Status build_multimodal_embedding_request(
+            const std::vector<MultimodalType>& media_types,
+            const std::vector<std::string>& media_urls,
+            const std::vector<std::string>& /*media_content_types*/,
+            std::string& request_body) const override {
+        RETURN_IF_ERROR(validate_multimodal_embedding_inputs(
+                "JINA", media_types, media_urls, {MultimodalType::IMAGE, MultimodalType::VIDEO}));
+
+        rapidjson::Document doc;
+        doc.SetObject();
+        auto& allocator = doc.GetAllocator();
+
+        /*{
+            "model": "jina-embeddings-v4",
+            "task": "text-matching",
+            "input": [
+              {"image": "<url>"},
+              {"video": "<url>"}
+            ]
+        }*/
+        doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator), allocator);
+        doc.AddMember("task", "text-matching", allocator);
+
+        rapidjson::Value input(rapidjson::kArrayType);
+        for (size_t i = 0; i < media_urls.size(); ++i) {
+            rapidjson::Value media_item(rapidjson::kObjectType);
+            if (media_types[i] == MultimodalType::IMAGE) {
+                media_item.AddMember("image", rapidjson::Value(media_urls[i].c_str(), allocator),
+                                     allocator);
+            } else {
+                media_item.AddMember("video", rapidjson::Value(media_urls[i].c_str(), allocator),
+                                     allocator);
+            }
+            input.PushBack(media_item, allocator);
+        }
+        if (_config.dimensions != -1 && supports_dimension_param(_config.model_name)) {
+            doc.AddMember("dimensions", _config.dimensions, allocator);
+        }
+        doc.AddMember("input", input, allocator);
+
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+        doc.Accept(writer);
+        request_body = buffer.GetString();
+        return Status::OK();
+    }
 };
 
 class BaichuanAdapter : public OpenAIAdapter {
@@ -965,7 +1261,6 @@ public:
             RETURN_IF_ERROR(append_parsed_text_result(
                     candidates[i]["content"]["parts"][0]["text"].GetString(), results));
         }
-
         return Status::OK();
     }
 
@@ -1033,6 +1328,81 @@ public:
         return Status::OK();
     }
 
+    Status build_multimodal_embedding_request(const std::vector<MultimodalType>& media_types,
+                                              const std::vector<std::string>& media_urls,
+                                              const std::vector<std::string>& media_content_types,
+                                              std::string& request_body) const override {
+        RETURN_IF_ERROR(validate_multimodal_embedding_inputs(
+                "Gemini", media_types, media_urls,
+                {MultimodalType::IMAGE, MultimodalType::AUDIO, MultimodalType::VIDEO}));
+        if (media_content_types.size() != media_urls.size()) {
+            return Status::InvalidArgument(
+                    "Gemini multimodal embed input size mismatch, media_content_types={}, "
+                    "media_urls={}",
+                    media_content_types.size(), media_urls.size());
+        }
+
+        rapidjson::Document doc;
+        doc.SetObject();
+        auto& allocator = doc.GetAllocator();
+
+        /*{
+          "requests": [
+            {
+              "model": "models/gemini-embedding-2-preview",
+              "content": {
+                "parts": [
+                  {"file_data": {"mime_type": "<original content_type>", "file_uri": "<url>"}}
+                ]
+              },
+              "outputDimensionality": 768
+            },
+            {
+              "model": "models/gemini-embedding-2-preview",
+              "content": {
+                "parts": [
+                  {"file_data": {"mime_type": "<original content_type>", "file_uri": "<url>"}}
+                ]
+              },
+              "outputDimensionality": 768
+            }
+          ]
+        }*/
+        std::string model_name = _config.model_name;
+        if (!model_name.starts_with("models/")) {
+            model_name = "models/" + model_name;
+        }
+
+        rapidjson::Value requests(rapidjson::kArrayType);
+        for (size_t i = 0; i < media_urls.size(); ++i) {
+            rapidjson::Value request(rapidjson::kObjectType);
+            request.AddMember("model", rapidjson::Value(model_name.c_str(), allocator), allocator);
+            add_dimension_params(request, allocator);
+
+            rapidjson::Value content(rapidjson::kObjectType);
+            rapidjson::Value parts(rapidjson::kArrayType);
+            rapidjson::Value part(rapidjson::kObjectType);
+            rapidjson::Value file_data(rapidjson::kObjectType);
+            file_data.AddMember("mime_type",
+                                rapidjson::Value(media_content_types[i].c_str(), allocator),
+                                allocator);
+            file_data.AddMember("file_uri", rapidjson::Value(media_urls[i].c_str(), allocator),
+                                allocator);
+            part.AddMember("file_data", file_data, allocator);
+            parts.PushBack(part, allocator);
+            content.AddMember("parts", parts, allocator);
+            request.AddMember("content", content, allocator);
+            requests.PushBack(request, allocator);
+        }
+        doc.AddMember("requests", requests, allocator);
+
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+        doc.Accept(writer);
+        request_body = buffer.GetString();
+        return Status::OK();
+    }
+
     Status parse_embedding_response(const std::string& response_body,
                                     std::vector<std::vector<float>>& results) const override {
         rapidjson::Document doc;
@@ -1043,6 +1413,12 @@ public:
                                          response_body);
         }
         if (doc.HasMember("embeddings") && doc["embeddings"].IsArray()) {
+            /*{
+              "embeddings": [
+                {"values": [0.1, 0.2, 0.3]},
+                {"values": [0.4, 0.5, 0.6]}
+              ]
+            }*/
             const auto& embeddings = doc["embeddings"];
             results.reserve(embeddings.Size());
             for (rapidjson::SizeType i = 0; i < embeddings.Size(); i++) {
@@ -1193,6 +1569,14 @@ public:
 // Mock adapter used only for UT to bypass real HTTP calls and return deterministic data.
 class MockAdapter : public AIAdapter {
 public:
+#ifdef BE_TEST
+    static void clear_embedding_inputs_for_test() { _embedding_inputs_for_test().clear(); }
+
+    static const std::vector<std::string>& get_embedding_inputs_for_test() {
+        return _embedding_inputs_for_test();
+    }
+#endif
+
     Status set_authentication(HttpClient* client) const override { return Status::OK(); }
 
     Status build_request_payload(const std::vector<std::string>& inputs,
@@ -1208,6 +1592,18 @@ public:
 
     Status build_embedding_request(const std::vector<std::string>& inputs,
                                    std::string& request_body) const override {
+#ifdef BE_TEST
+        auto& embedding_inputs = _embedding_inputs_for_test();
+        embedding_inputs.insert(embedding_inputs.end(), inputs.begin(), inputs.end());
+#endif
+        return Status::OK();
+    }
+
+    Status build_multimodal_embedding_request(
+            const std::vector<MultimodalType>& /*media_types*/,
+            const std::vector<std::string>& /*media_urls*/,
+            const std::vector<std::string>& /*media_content_types*/,
+            std::string& /*request_body*/) const override {
         return Status::OK();
     }
 
@@ -1229,6 +1625,14 @@ public:
                        [](const auto& val) { return val.GetFloat(); });
         return Status::OK();
     }
+
+private:
+#ifdef BE_TEST
+    static std::vector<std::string>& _embedding_inputs_for_test() {
+        static thread_local std::vector<std::string> embedding_inputs;
+        return embedding_inputs;
+    }
+#endif
 };
 
 class AIAdapterFactory {
@@ -1242,6 +1646,7 @@ public:
                             {"MINIMAX", []() { return std::make_shared<MinimaxAdapter>(); }},
                             {"ZHIPU", []() { return std::make_shared<ZhipuAdapter>(); }},
                             {"QWEN", []() { return std::make_shared<QwenAdapter>(); }},
+                            {"JINA", []() { return std::make_shared<JinaAdapter>(); }},
                             {"BAICHUAN", []() { return std::make_shared<BaichuanAdapter>(); }},
                             {"ANTHROPIC", []() { return std::make_shared<AnthropicAdapter>(); }},
                             {"GEMINI", []() { return std::make_shared<GeminiAdapter>(); }},

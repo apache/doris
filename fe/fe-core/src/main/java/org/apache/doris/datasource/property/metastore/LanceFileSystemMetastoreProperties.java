@@ -1,0 +1,110 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.datasource.property.metastore;
+
+import org.apache.doris.foundation.property.ConnectorProperty;
+
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.commons.lang3.StringUtils;
+import org.lance.namespace.LanceNamespace;
+
+import java.net.URI;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
+
+/** Properties for a Lance directory namespace backed by a filesystem warehouse. */
+public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties {
+    public static final String WAREHOUSE = "warehouse";
+
+    @ConnectorProperty(
+            names = {WAREHOUSE},
+            required = false,
+            description = "The local, file, or S3 warehouse containing Lance datasets."
+    )
+    private String warehouse;
+
+    public LanceFileSystemMetastoreProperties(Map<String, String> props) {
+        super(props);
+    }
+
+    @Override
+    public String getLanceCatalogType() {
+        return LANCE_FILESYSTEM;
+    }
+
+    @Override
+    public LanceNamespace createNamespace(
+            BufferAllocator allocator, Map<String, String> javaStorageOptions) {
+        Map<String, String> namespaceProperties = new HashMap<>();
+        namespaceProperties.put("root", warehouse);
+        javaStorageOptions.forEach(
+                (key, value) -> namespaceProperties.put("storage." + key, value));
+        return LanceNamespace.connect("dir", namespaceProperties, allocator);
+    }
+
+    public String getWarehouse() {
+        return warehouse;
+    }
+
+    /** A directory namespace opens the warehouse itself, so its options follow that URL. */
+    @Override
+    public String getNamespaceStorageUri() {
+        return warehouse;
+    }
+
+    @Override
+    protected void validateCatalogProperties() {
+        warehouse = origProps.get(WAREHOUSE);
+        if (StringUtils.isBlank(warehouse)) {
+            throw new IllegalArgumentException(
+                    "Missing required property 'warehouse' for Lance filesystem catalog");
+        }
+        validateWarehouse(warehouse);
+        for (String key : origProps.keySet()) {
+            if (key.startsWith("lance.rest.")) {
+                throw new IllegalArgumentException(
+                        "Property '" + key + "' is not valid for Lance filesystem catalog");
+            }
+        }
+    }
+
+    private static void validateWarehouse(String warehouse) {
+        final URI uri;
+        try {
+            uri = URI.create(warehouse);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid Lance warehouse URI: " + warehouse, e);
+        }
+        if (uri.getScheme() == null) {
+            Path path = Paths.get(warehouse);
+            if (!path.isAbsolute()) {
+                throw new IllegalArgumentException(
+                        "Local Lance warehouse must be an absolute path: " + warehouse);
+            }
+            return;
+        }
+        String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
+        if (!"file".equals(scheme) && !"s3".equals(scheme)) {
+            throw new IllegalArgumentException("Unsupported Lance filesystem warehouse scheme '" + scheme
+                    + "'; first phase supports local/file and s3");
+        }
+    }
+}

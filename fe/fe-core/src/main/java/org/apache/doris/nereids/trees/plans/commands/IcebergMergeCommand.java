@@ -41,6 +41,7 @@ import org.apache.doris.nereids.parser.LogicalPlanBuilderAssistant;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -72,6 +73,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.DataSink;
@@ -390,6 +392,40 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         return output;
     }
 
+    /**
+     * Coerces each action independently before the action values are combined by IF. Without
+     * this, type coercion may choose a scalar common type for a Variant V2 value and a primitive
+     * value, losing non-scalar Variant data before the merge sink casts the final result.
+     */
+    @VisibleForTesting
+    static List<List<Expression>> coerceVariantActionProjections(
+            List<List<Expression>> actionProjections, List<Column> columns) {
+        int expectedProjectionSize = 2 + (int) columns.stream()
+                .filter(column -> column.isVisible() || IcebergUtils.isIcebergRowLineageColumn(column))
+                .count();
+        List<List<Expression>> coercedProjections = Lists.newArrayListWithCapacity(actionProjections.size());
+        for (List<Expression> projection : actionProjections) {
+            if (projection.size() != expectedProjectionSize) {
+                throw new AnalysisException("Iceberg merge action projection is not aligned with target columns");
+            }
+            List<Expression> coercedProjection = new ArrayList<>(projection);
+            int projectionIndex = 2;
+            for (Column column : columns) {
+                if (!column.isVisible() && !IcebergUtils.isIcebergRowLineageColumn(column)) {
+                    continue;
+                }
+                DataType targetType = DataType.fromCatalogType(column.getType());
+                if (column.isVisible() && VariantType.containsVariant(targetType)) {
+                    coercedProjection.set(projectionIndex,
+                            new Cast(coercedProjection.get(projectionIndex), targetType));
+                }
+                ++projectionIndex;
+            }
+            coercedProjections.add(coercedProjection);
+        }
+        return coercedProjections;
+    }
+
     private LogicalPlan buildMergeProjectPlan(ConnectContext ctx, IcebergExternalTable icebergTable,
             List<Column> columns) {
 
@@ -430,6 +466,12 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         DataType rowIdType = DataType.fromCatalogType(IcebergRowId.getRowIdType());
         for (MergeNotMatchedClause clause : notMatchedClauses) {
             finalProjections.add(buildInsertProjection(clause, columns, ctx, rowIdType));
+        }
+
+        boolean writesDataFiles = matchedClauses.stream().anyMatch(clause -> !clause.isDelete())
+                || !notMatchedClauses.isEmpty();
+        if (writesDataFiles) {
+            finalProjections = coerceVariantActionProjections(finalProjections, columns);
         }
 
         List<String> colNames = new ArrayList<>();

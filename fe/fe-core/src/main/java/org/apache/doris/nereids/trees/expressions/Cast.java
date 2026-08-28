@@ -208,7 +208,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             // Json to other type is always nullable
             return true;
         } else if (childDataType instanceof VariantType
-                && ((VariantType) childDataType).isComputeV2() && !targetType.isVariantType()) {
+                && ((VariantType) childDataType).isExecutionV2() && !targetType.isVariantType()) {
             // Variant V2 values can have a shape that is incompatible with the target type.
             return true;
         } else if (childDataType.isVariantType() && targetType.isJsonType()) {

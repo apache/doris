@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external_docker_doris") {
+import org.apache.doris.regression.action.ProfileAction
+
+suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external_docker_doris,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
@@ -34,12 +36,21 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
                 "s3.path.style.access" = "true"
             );"""
         sql """use `${catalogName}`.`test_paimon_spark`"""
-        sql """set enable_variant_v2 = true"""
-        sql """set force_jni_scanner = true"""
+        // JNI reader cases.
+        setFeConfigTemporary([enable_variant_v2: true]) {
+            assertTrue(getFeConfig("enable_variant_v2").toBoolean())
+            sql """set enable_file_scanner_v2 = true"""
+            sql """set force_jni_scanner = true"""
 
         explain {
             sql "select * from variant_smoke order by id"
             contains "paimonNativeReadSplits=0/1"
+        }
+
+        explain {
+            sql "select id, cast(payload['name'] as string) from variant_shredded order by id"
+            contains "paimonNativeReadSplits=0/1"
+            contains "all access paths: [payload.name]"
         }
 
         order_qt_desc """desc variant_smoke"""
@@ -87,6 +98,79 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             order by id
         """
 
+        // variant_smoke is append-only. This table has duplicate primary-key writes, so the scan
+        // must preserve Paimon's deduplicate semantics while materializing Variant values.
+        order_qt_primary_key_full_variant """
+            select id, payload
+            from variant_primary_key_smoke
+            order by id
+        """
+
+        order_qt_primary_key_deduplicate """
+            select id,
+                   cast(payload['name'] as string),
+                   cast(payload['version'] as int),
+                   cast(payload['active'] as boolean)
+            from variant_primary_key_smoke
+            order by id
+        """
+
+        order_qt_primary_key_subpath_predicate """
+            select id, cast(payload['name'] as string)
+            from variant_primary_key_smoke
+            where cast(payload['version'] as int) = 2
+            order by id
+        """
+
+        // Exercise Paimon's metadata-marked read type against a physically shredded file. The
+        // unshredded and primary-key cases above cover Paimon's raw-value and merge fallbacks.
+        order_qt_jni_shredded_projection """
+            select id,
+                   cast(payload['name'] as string),
+                   cast(payload['age'] as int)
+            from variant_shredded
+            where cast(payload['age'] as int) >= 20
+            order by id
+        """
+
+        // profile.city is physically shredded. This covers the complete FE -> BE -> JNI ->
+        // Paimon readType path for a nested object projection, beyond the Java projection UT.
+        explain {
+            sql "select id, cast(payload['profile']['city'] as string) from variant_shredded"
+            contains "paimonNativeReadSplits=0/1"
+            contains "all access paths: [payload.profile.city]"
+        }
+
+        order_qt_jni_nested_shredded_path """
+            select id, cast(payload['profile']['city'] as string)
+            from variant_shredded
+            order by id
+        """
+
+        // Doris Variant array indexes are one-based. The numeric path segment is intentionally
+        // unsupported by Paimon's metadata projection, so it must make the whole Variant column
+        // fall back even though payload.name alone is projectable.
+        order_qt_jni_unsupported_array_path_fallback """
+            select id,
+                   cast(payload['name'] as string),
+                   cast(payload['tags'][1] as string)
+            from variant_shredded
+            order by id
+        """
+
+        // A table can contain files written before and after shredding was enabled. Paimon must
+        // apply physical projection per file while returning one consistent partial Variant.
+        order_qt_jni_mixed_us_projection """
+            select id,
+                   cast(payload['name'] as string),
+                   cast(payload['layout'] as string)
+            from variant_mixed_us
+            order by id
+        """
+
+        // Native reader cases. Reset every relevant switch explicitly so the JNI cases above do
+        // not leak their session state into this block.
+        sql """set enable_file_scanner_v2 = true"""
         sql """set force_jni_scanner = false"""
 
         explain {
@@ -94,6 +178,17 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             check { explainString ->
                 def nativeSplits = explainString =~ /paimonNativeReadSplits=(\d+)\/(\d+)/
                 // Paimon can change the physical split count; every planned split must stay native.
+                return nativeSplits.find()
+                        && nativeSplits.group(1).toInteger() > 0
+                        && nativeSplits.group(1) == nativeSplits.group(2)
+            }
+        }
+
+        explain {
+            sql "select id, cast(payload['name'] as string) from variant_shredded order by id"
+            contains "all access paths: [payload.name]"
+            check { explainString ->
+                def nativeSplits = explainString =~ /paimonNativeReadSplits=(\d+)\/(\d+)/
                 return nativeSplits.find()
                         && nativeSplits.group(1).toInteger() > 0
                         && nativeSplits.group(1) == nativeSplits.group(2)
@@ -159,11 +254,64 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             select id,
                    cast(payload['name'] as string),
                    cast(payload['age'] as int),
-                   cast(payload['extra'] as string)
+                   cast(payload['extra'] as string),
+                   cast(payload['profile']['address']['city'] as string),
+                   cast(payload['profile']['address']['zip'] as int)
             from variant_shredded
             where cast(payload['age'] as int) >= 20
             order by id
         """
+
+        order_qt_native_shredded_deep_object_projection """
+            select id,
+                   cast(payload['profile']['address']['zip'] as int),
+                   cast(payload['profile']['address']['rank'] as int)
+            from variant_shredded
+            order by id
+        """
+
+        sql """set enable_profile = true"""
+        sql """set profile_level = 2"""
+        String deepProjectionToken =
+                "paimon_variant_deep_object_projection_" + UUID.randomUUID().toString()
+        List<List<Object>> deepProjectionRows = sql """
+            select '${deepProjectionToken}', id,
+                   cast(payload['profile']['address']['zip'] as int),
+                   cast(payload['profile']['address']['rank'] as int)
+            from variant_shredded
+            order by id
+        """
+        assertEquals(2, deepProjectionRows.size())
+        String deepProjectionProfile = new ProfileAction(context).getProfileBySql(
+                deepProjectionToken,
+                ["VariantLeafProjectionRowGroupColumns", "VariantResidualProjectionRowGroupColumns",
+                 "VariantFullProjectionRowGroupColumns"],
+                30000L, 500L)
+        def counterSum = { String profile, String counterName ->
+            def values = profile =~
+                    /(?m)^\s*(?:-\s*)?${counterName}:\s+([^\n]+)/
+            long total = 0L
+            while (values.find()) {
+                def exactValue = values.group(1).toString() =~ /\(([0-9,]+)\)/
+                def displayedValue = values.group(1).toString() =~ /([0-9,]+)/
+                if (exactValue.find()) {
+                    total += Long.parseLong(exactValue.group(1).replace(",", ""))
+                } else if (displayedValue.find()) {
+                    total += Long.parseLong(displayedValue.group(1).replace(",", ""))
+                }
+            }
+            return total
+        }
+        assertTrue(counterSum(deepProjectionProfile,
+                        "VariantLeafProjectionRowGroupColumns") > 0,
+                "Paimon Native did not project the deeply shredded Variant object leaves")
+        assertEquals(0L, counterSum(deepProjectionProfile,
+                        "VariantResidualProjectionRowGroupColumns"),
+                "Paimon Native unexpectedly read unrelated ancestor residual columns")
+        assertEquals(0L, counterSum(deepProjectionProfile,
+                        "VariantFullProjectionRowGroupColumns"),
+                "Paimon Native unexpectedly fell back to complete Variant row-group projection")
+        sql """set enable_profile = false"""
 
         order_qt_native_mixed_us_partitions """
             select id,
@@ -219,6 +367,38 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             order_qt_native_mixed_us_mtmv """select * from ${mvName} order by name"""
         } finally {
             sql """drop materialized view if exists ${mvName}"""
+        }
+
+        // FileScannerV2 is required by both the native and JNI scan paths for external VARIANT.
+        sql """set enable_file_scanner_v2 = false"""
+        sql """set force_jni_scanner = false"""
+        test {
+            sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""
+            exception "External VARIANT columns require FileScannerV2"
+        }
+
+        sql """set force_jni_scanner = true"""
+        test {
+            sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""
+            exception "External VARIANT columns require FileScannerV2"
+        }
+        }
+
+        // The Paimon VARIANT feature switch is checked for both JNI and native planning.
+        setFeConfigTemporary([enable_variant_v2: false]) {
+            assertFalse(getFeConfig("enable_variant_v2").toBoolean())
+            sql """set enable_file_scanner_v2 = true"""
+            sql """set force_jni_scanner = true"""
+            test {
+                sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""
+                exception "Paimon VARIANT columns require FE config enable_variant_v2=true"
+            }
+
+            sql """set force_jni_scanner = false"""
+            test {
+                sql """select * from ${catalogName}.test_paimon_spark.variant_smoke"""
+                exception "Paimon VARIANT columns require FE config enable_variant_v2=true"
+            }
         }
     }
 }

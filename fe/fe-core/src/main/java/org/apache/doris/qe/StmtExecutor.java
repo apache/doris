@@ -190,6 +190,10 @@ public class StmtExecutor {
 
     @Setter
     private volatile Coordinator coord = null;
+    // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
+    // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
+    // is skipped.
+    private volatile boolean deferredForArrowFlight = false;
     private MasterOpExecutor masterOpExecutor = null;
     private RedirectStatus redirectStatus = null;
     private Planner planner;
@@ -668,6 +672,8 @@ public class StmtExecutor {
                         scanNode.getSelectedPartitionNum(),
                         scanNode.getSelectedSplitNum(),
                         scanNode.getCardinality(),
+                        scanNode.isPartitionedTable(),
+                        scanNode.hasPartitionPredicate(),
                         context.getQualifiedUser());
 
             }
@@ -959,6 +965,23 @@ public class StmtExecutor {
         // for the profile before unregisterQuery().
         updateProfile(true);
         QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
+    }
+
+    public boolean isDeferredForArrowFlight() {
+        return deferredForArrowFlight;
+    }
+
+    // Finalize an Arrow Flight query whose coordinator was kept alive across the
+    // GetFlightInfo -> DoGet phases: close the coordinator (releasing external-table batch
+    // SplitSources and the query queue slot) and then unregister the query. See #62259.
+    public void finalizeArrowFlightQuery() {
+        try {
+            if (coord != null) {
+                coord.close();
+            }
+        } finally {
+            finalizeQuery();
+        }
     }
 
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
@@ -1397,6 +1420,22 @@ public class StmtExecutor {
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
                 Preconditions.checkState(!context.isReturnResultFromLocal());
                 profile.getSummaryProfile().setTempStartTime();
+                // Defer closing the coordinator to ConnectContext (closed on the next query or
+                // connection teardown) instead of in the finally block below. This gate covers
+                // every Arrow Flight query whose results are produced on the BE (coordBase ==
+                // coord) -- internal-table and external, batch or not. It is REQUIRED only for an
+                // external-table scan in batch mode, where the BE lazily fetches splits from the FE
+                // during the later DoGet phase, so closing the coordinator here would release its
+                // batch SplitSource too early and break DoGet. Other remote-result queries do not
+                // need deferral (the BE buffers their result independently) but are captured by the
+                // same gate; the trade-off is their coordinator, query queue slot and query
+                // registration stay held until the next query / teardown instead of being released
+                // at the end of GetFlightInfo. Point queries use a different coordBase (not
+                // deferred). See #62259.
+                if (coordBase == coord) {
+                    deferredForArrowFlight = true;
+                    context.addFlightSqlDeferredExecutor(this);
+                }
                 return;
             }
 
@@ -1512,7 +1551,12 @@ public class StmtExecutor {
             this.coord = null;
             throw e;
         } finally {
-            coordBase.close();
+            // For deferred Arrow Flight queries the coordinator is closed later by ConnectContext
+            // (next query / connection teardown), so the BE can still fetch splits during DoGet.
+            // See #62259.
+            if (!deferredForArrowFlight) {
+                coordBase.close();
+            }
         }
     }
 
@@ -1868,6 +1912,9 @@ public class StmtExecutor {
                 if (item != null && !item.equals(FeConstants.null_string)) {
                     Column col = metaData.getColumn(i);
                     switch (col.getType().getPrimitiveType()) {
+                        case BOOLEAN:
+                            serializer.writeInt1(parseBooleanResultValue(item));
+                            break;
                         case INT:
                             serializer.writeInt4(Integer.parseInt(item));
                             break;
@@ -1898,6 +1945,16 @@ public class StmtExecutor {
             }
             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
+    }
+
+    private static int parseBooleanResultValue(String item) {
+        if ("1".equals(item) || "true".equalsIgnoreCase(item)) {
+            return 1;
+        }
+        if ("0".equals(item) || "false".equalsIgnoreCase(item)) {
+            return 0;
+        }
+        throw new IllegalArgumentException("Invalid boolean result value: " + item);
     }
 
     public void handleExplainPlanProcessStmt(List<PlanProcess> result) throws IOException {

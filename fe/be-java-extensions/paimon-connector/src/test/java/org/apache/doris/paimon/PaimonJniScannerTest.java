@@ -19,6 +19,7 @@ package org.apache.doris.paimon;
 
 import org.apache.doris.common.jni.vec.ColumnType;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LogEvent;
@@ -64,6 +65,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -324,6 +326,21 @@ public class PaimonJniScannerTest {
     }
 
     @Test
+    public void testFallbackWrapperOrderMatchesPaimonFactoryPrecedence() {
+        Assert.assertTrue(PaimonJniScanner.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.SCAN_FALLBACK_BRANCH.key(), "fallback",
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary"))));
+        Assert.assertFalse(PaimonJniScanner.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary"))));
+        Assert.assertTrue(PaimonJniScanner.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "  "))));
+        Assert.assertTrue(PaimonJniScanner.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.CHAIN_TABLE_ENABLED.key(), "true",
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary"))));
+        Assert.assertTrue(PaimonJniScanner.isWrappedFirst(fallbackTable(Collections.emptyMap())));
+    }
+
+    @Test
     public void testBackendCapTraversesPrivilegeDelegate() {
         FileStoreTable main = serializableFileStoreTable(Collections.singletonMap(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
@@ -441,6 +458,12 @@ public class PaimonJniScannerTest {
                 new Class[] {FileStoreTable.class}, new SerializableTableHandler(options));
     }
 
+    private static FallbackReadFileStoreTable fallbackTable(Map<String, String> options) {
+        return new FallbackReadFileStoreTable(
+                serializableFileStoreTable(options),
+                serializableFileStoreTable(Collections.emptyMap()), true);
+    }
+
     @Test
     public void testSerializedReadBatchSizeReachesReaderTableInitialization() throws Exception {
         Table configuredTable = (Table) Proxy.newProxyInstance(Table.class.getClassLoader(),
@@ -494,6 +517,19 @@ public class PaimonJniScannerTest {
         Assert.assertTrue(structType.isStruct());
         Assert.assertEquals(Arrays.asList("hash#name", "region,code", "colon:name"),
                 structType.getChildNames());
+    }
+
+    @Test
+    public void testVariantAccessPathsStayAlignedWithRequiredFields() {
+        Map<String, String> params = createBaseParams();
+        params.put("variant_access_path.1.0", encodeFields("name"));
+        params.put("variant_access_path.1.1", encodeFields("profile", "city"));
+
+        List<List<List<String>>> paths = PaimonJniScanner.variantAccessPathsByColumn(params, 3);
+        Assert.assertTrue(paths.get(0).isEmpty());
+        Assert.assertEquals(Collections.singletonList("name"), paths.get(1).get(0));
+        Assert.assertEquals(Arrays.asList("profile", "city"), paths.get(1).get(1));
+        Assert.assertTrue(paths.get(2).isEmpty());
     }
 
     @Test

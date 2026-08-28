@@ -28,8 +28,10 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergVariantWriteAnalyzer;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.paimon.PaimonVariantWriteAnalyzer;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -66,6 +68,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPaimonTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.types.AggStateType;
@@ -407,6 +410,8 @@ public class InsertUtils {
         }
 
         ConnectContext context = ConnectContext.get();
+        boolean isPaimonSink = unboundLogicalSink instanceof UnboundPaimonTableSink;
+        boolean isIcebergSink = unboundLogicalSink instanceof UnboundIcebergTableSink;
         ExpressionRewriteContext rewriteContext = null;
         if (context != null && context.getStatementContext() != null) {
             rewriteContext = new ExpressionRewriteContext(
@@ -460,7 +465,8 @@ public class InsertUtils {
                             addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
                                     null, rewriteContext, strictCast);
                         } else {
-                            DataType targetType = DataType.fromCatalogType(sameNameColumn.getType());
+                            DataType targetType = targetTypeForInlineValue(
+                                    sameNameColumn, values.get(i), isPaimonSink, isIcebergSink);
                             addColumnValue(analyzer, optimizedRowConstructor, values.get(i),
                                     targetType, rewriteContext, strictCast);
                         }
@@ -481,7 +487,8 @@ public class InsertUtils {
                             addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
                                     null, rewriteContext, strictCast);
                         } else {
-                            DataType targetType = DataType.fromCatalogType(columns.get(i).getType());
+                            DataType targetType = targetTypeForInlineValue(
+                                    columns.get(i), values.get(i), isPaimonSink, isIcebergSink);
                             addColumnValue(analyzer, optimizedRowConstructor, values.get(i), targetType,
                                     rewriteContext, strictCast);
                         }
@@ -491,6 +498,20 @@ public class InsertUtils {
             optimizedRowConstructors.add(optimizedRowConstructor.build());
         }
         return plan.withChildren(new LogicalInlineTable(optimizedRowConstructors.build()));
+    }
+
+    private static DataType targetTypeForInlineValue(
+            Column column, NamedExpression value, boolean isPaimonSink, boolean isIcebergSink) {
+        DataType targetType = DataType.fromCatalogType(column.getType());
+        if (isPaimonSink) {
+            return PaimonVariantWriteAnalyzer.resolveInlineCoercionTarget(
+                    targetType, value).orElse(null);
+        }
+        if (isIcebergSink) {
+            return IcebergVariantWriteAnalyzer.resolveInlineCoercionTarget(
+                    targetType, value).orElse(null);
+        }
+        return targetType;
     }
 
     /** buildAnalyzer */
@@ -611,6 +632,9 @@ public class InsertUtils {
      * get target table from names.
      */
     public static List<String> getTargetTableQualified(Plan plan, ConnectContext ctx) {
+        if (plan instanceof LogicalPaimonTableSink) {
+            return ((LogicalPaimonTableSink<?>) plan).getTargetTable().getFullQualifiers();
+        }
         UnboundLogicalSink<? extends Plan> unboundTableSink;
         if (plan instanceof UnboundTableSink) {
             unboundTableSink = (UnboundTableSink<? extends Plan>) plan;

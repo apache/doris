@@ -138,6 +138,19 @@ struct IsFixedContainer : std::false_type {};
 template <typename T, size_t N>
 struct IsFixedContainer<FixedContainer<T, N>> : std::true_type {};
 
+template <typename T>
+struct DynamicContainerHash {
+    size_t operator()(const T& value) const {
+        if constexpr (std::is_floating_point_v<T>) {
+            T normalized = value;
+            // The hash must collapse NaN payloads and signed zeros exactly as Doris equality does.
+            NormalizeFloat(normalized);
+            return phmap::Hash<T> {}(normalized);
+        }
+        return phmap::Hash<T> {}(value);
+    }
+};
+
 /**
  * Dynamic Container uses phmap::flat_hash_set.
  * @tparam T Element Type
@@ -146,7 +159,8 @@ template <typename T>
 class DynamicContainer {
 public:
     using Self = DynamicContainer;
-    using Iterator = typename flat_hash_set<T>::iterator;
+    using Set = flat_hash_set<T, DynamicContainerHash<T>>;
+    using Iterator = typename Set::iterator;
     using ElementType = T;
 
     DynamicContainer() = default;
@@ -167,7 +181,7 @@ public:
     size_t size() const { return _set.size(); }
 
 private:
-    flat_hash_set<T> _set;
+    Set _set;
 };
 
 // TODO Maybe change void* parameter to template parameter better.

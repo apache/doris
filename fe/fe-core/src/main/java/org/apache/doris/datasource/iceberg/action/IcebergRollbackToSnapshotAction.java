@@ -68,7 +68,7 @@ public class IcebergRollbackToSnapshotAction extends BaseIcebergAction {
 
     @Override
     protected List<String> executeAction(TableIf table) throws UserException {
-        Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
+        Table icebergTable = ((IcebergExternalTable) table).getWritableIcebergTable();
         Long targetSnapshotId = namedArguments.getLong(SNAPSHOT_ID);
 
         Snapshot targetSnapshot = icebergTable.snapshot(targetSnapshotId);

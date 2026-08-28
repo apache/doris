@@ -77,7 +77,9 @@ Status JniTableReader::prepare_split(const SplitReadOptions& options) {
     return _open_jni_scanner();
 }
 
-Status JniTableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
+Status JniTableReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
+                                         std::optional<uint64_t> condition_cache_digest,
+                                         bool all_runtime_filters_applied) {
     if (_scanner_opened) {
         SCOPED_TIMER(_profile.total_timer);
         SCOPED_TIMER(_profile.refresh_conjuncts_timer);
@@ -91,7 +93,8 @@ Status JniTableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
             RETURN_IF_ERROR(conjunct->open(_runtime_state));
         }
     }
-    return TableReader::refresh_conjuncts(std::move(conjuncts));
+    return TableReader::refresh_conjuncts(std::move(conjuncts), condition_cache_digest,
+                                          all_runtime_filters_applied);
 }
 
 Status JniTableReader::get_block(Block* output_block, bool* eos) {
@@ -548,9 +551,9 @@ void JniTableReader::_prepare_jni_scanner_schema() {
         // Only Paimon consumes the paired payload. Keeping it capability-gated avoids recursively
         // encoding nested types for every split of unrelated V2 JNI connectors.
         _scanner_params["required_fields_base64"] =
-                JniDataBridge::encode_schema_values(required_fields);
+                JniDataBridge::encode_string_list(required_fields);
         _scanner_params["columns_types_base64"] =
-                JniDataBridge::encode_schema_values(encoded_column_types);
+                JniDataBridge::encode_string_list(encoded_column_types);
     }
     if (has_replace_type) {
         _scanner_params["replace_string"] = join(replace_types, ",");

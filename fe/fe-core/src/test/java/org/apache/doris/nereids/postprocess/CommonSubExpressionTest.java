@@ -31,6 +31,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.types.ArrayType;
@@ -62,6 +64,21 @@ public class CommonSubExpressionTest extends ExpressionRewriteTestHelper {
         assertExpression(l1.get(0), "a+b");
         Assertions.assertEquals(1, l2.size());
         assertExpression(l2.get(0), "a+b+1");
+    }
+
+    @Test
+    public void testDoNotExtractAcrossShortCircuitBoundary() {
+        SlotReference slot = new SlotReference("a", IntegerType.INSTANCE);
+        Expression shared = new Add(slot, Literal.of(1));
+        ShortCircuitIf shortCircuitIf = new ShortCircuitIf(
+                BooleanLiteral.TRUE, shared, Literal.of(0));
+        List<NamedExpression> exprs = ImmutableList.of(
+                new Alias(shared), new Alias(shortCircuitIf));
+
+        CommonSubExpressionCollector collector = new CommonSubExpressionCollector();
+        exprs.forEach(collector::collect);
+
+        Assertions.assertTrue(collector.commonExprByDepth.isEmpty());
     }
 
     @Test

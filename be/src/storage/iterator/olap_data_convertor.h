@@ -71,7 +71,7 @@ public:
 };
 
 struct VariantColumnData {
-    const void* column_data;
+    const IColumn* column_data;
     size_t row_pos;
 };
 
@@ -180,7 +180,8 @@ private:
             return column->size() * padding_length != column->chars.size();
         }
 
-        static ColumnPtr clone_and_padding(const ColumnString* input, size_t padding_length) {
+        static ColumnPtr clone_and_padding(const ColumnString* input, size_t padding_length,
+                                           const UInt8* null_map = nullptr) {
             auto column = ColumnString::create();
 
             column->offsets.resize(input->size());
@@ -191,6 +192,10 @@ private:
                 column->offsets[i] = cast_set<uint32_t, size_t, false>((i + 1) * padding_length);
 
                 auto str = input->get_data_at(i);
+
+                if (null_map && null_map[i]) {
+                    continue;
+                }
 
                 DCHECK(str.size <= padding_length)
                         << "char type data length over limit, padding_length=" << padding_length
@@ -535,7 +540,7 @@ private:
         const void* get_data_at(size_t offset) const override;
 
     private:
-        const void* _value_ptr;
+        const IColumn* _value_ptr = nullptr;
         std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
         std::unique_ptr<VariantColumnData> _variant_column_data;
     };

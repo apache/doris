@@ -57,6 +57,7 @@ import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
+import org.apache.doris.cloud.snapshot.CloudSnapshotHandler;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -91,6 +92,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.consistency.ConsistencyChecker;
 import org.apache.doris.cooldown.CooldownConfHandler;
@@ -728,7 +730,9 @@ public class Env {
         this.lock = new MonitoredReentrantLock(true);
         this.backupHandler = new BackupHandler(this);
         this.metaDir = Config.meta_dir;
-        this.publishVersionDaemon = new PublishVersionDaemon();
+        if (!isCheckpointCatalog) {
+            this.publishVersionDaemon = new PublishVersionDaemon();
+        }
         this.deleteHandler = new DeleteHandler();
         this.dbUsedDataQuotaInfoCollector = new DbUsedDataQuotaInfoCollector();
         this.partitionInfoCollector = new PartitionInfoCollector();
@@ -913,9 +917,12 @@ public class Env {
                 CHECKPOINT = EnvFactory.getInstance().createEnv(true);
             }
             return CHECKPOINT;
-        } else {
-            return SingletonHolder.INSTANCE;
         }
+        Env snapshotEnv = CloudSnapshotHandler.getSnapshotEnv();
+        if (snapshotEnv != null) {
+            return snapshotEnv;
+        }
+        return SingletonHolder.INSTANCE;
     }
 
     // NOTICE: in most case, we should use getCurrentEnv() to get the right catalog.
@@ -1428,7 +1435,9 @@ public class Env {
                     }
                     String remoteToken = conn.getHeaderField(MetaBaseAction.TOKEN);
                     if (token == null && remoteToken != null) {
-                        LOG.info("get token from helper node. token={}.", remoteToken);
+                        // Masked: the cluster token authenticates meta access, so it must not
+                        // reach fe.log. The prefix is enough to tell which token was adopted.
+                        LOG.info("get token from helper node. token={}.", TokenMasker.maskPrefix(remoteToken));
                         token = remoteToken;
                         storage.writeClusterIdAndToken();
                         storage.reload();
@@ -2029,7 +2038,6 @@ public class Env {
 
         dnsCache.start();
 
-        workloadSchedPolicyMgr.start();
         workloadRuntimeStatusMgr.start();
         admissionControl.start();
         splitSourceManager.start();
@@ -7359,6 +7367,55 @@ public class Env {
 
         result.setDbMeta(dbMeta);
         return result;
+    }
+
+    public void compactTablet(long tabletId, String type) throws DdlException {
+        TabletMeta tabletMeta = getCurrentInvertedIndex().getTabletMeta(tabletId);
+        if (tabletMeta == null) {
+            throw new DdlException("Unknown tablet: " + tabletId);
+        }
+
+        Database db = getInternalCatalog().getDbNullable(tabletMeta.getDbId());
+        if (db == null) {
+            throw new DdlException("Unknown database for tablet: " + tabletId);
+        }
+        Table table = db.getTableNullable(tabletMeta.getTableId());
+        if (!(table instanceof OlapTable)) {
+            throw new DdlException("Unknown OLAP table for tablet: " + tabletId);
+        }
+        OlapTable olapTable = (OlapTable) table;
+
+        AgentBatchTask batchTask = new AgentBatchTask();
+        olapTable.readLock();
+        try {
+            Partition partition = olapTable.getPartition(tabletMeta.getPartitionId());
+            if (partition == null) {
+                throw new DdlException("Unknown partition for tablet: " + tabletId);
+            }
+            MaterializedIndex index = partition.getIndex(tabletMeta.getIndexId());
+            if (index == null || !index.getState().isVisible()) {
+                throw new DdlException("Tablet " + tabletId + " is not in a visible index");
+            }
+            Tablet tablet = index.getTablet(tabletId);
+            if (tablet == null) {
+                throw new DdlException("Tablet " + tabletId + " does not belong to its metadata index");
+            }
+
+            int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
+            LOG.info("Tablet compaction. database: {}, table: {}, tablet: {}, type: {}",
+                    db.getFullName(), olapTable.getName(), tabletId, type);
+            for (Replica replica : tablet.getReplicas()) {
+                batchTask.addTask(new CompactionTask(replica.getBackendIdWithoutException(), db.getId(),
+                        olapTable.getId(), partition.getId(), index.getId(), tabletId, schemaHash, type));
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+
+        if (batchTask.getTaskNum() == 0) {
+            throw new DdlException("No replica found for tablet: " + tabletId);
+        }
+        AgentTaskExecutor.submit(batchTask);
     }
 
     public void compactTable(String dbName, String tableName, String type, List<String> partitionNames)

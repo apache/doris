@@ -1593,9 +1593,8 @@ Status SegmentIterator::_init_index_iterators() {
     for (auto cid : _schema->column_ids()) {
         // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
         if (_index_iterators[cid] == nullptr) {
-            // In the _opts.tablet_schema, the sub-column type information for the variant is FieldType::OLAP_FIELD_TYPE_VARIANT.
-            // This is because the sub-column is created in create_materialized_variant_column.
-            // We use this column to locate the metadata for the inverted index, which requires a unique_id and path.
+            // Scan-time Variant path placeholders retain the Variant storage type. Use their
+            // parent unique id and path to locate the extracted column's inverted-index metadata.
             const auto& column = _opts.tablet_schema->column(cid);
             std::vector<const TabletIndex*> inverted_indexs;
             // Keep shared_ptr alive to prevent use-after-free when accessing raw pointers
@@ -1783,7 +1782,7 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     bool exact_match = false;
 
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
-    RETURN_IF_ERROR(pk_index_reader->new_iterator(&index_iterator, _opts.stats));
+    RETURN_IF_ERROR(pk_index_reader->new_iterator(&index_iterator, _opts.stats, &_opts.io_ctx));
 
     Status status = index_iterator->seek_at_or_after(&index_key, &exact_match);
     if (UNLIKELY(!status.ok())) {
@@ -3162,7 +3161,8 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
             continue;
         }
         std::shared_ptr<ColumnReader> reader;
-        Status st = _segment->get_column_reader(*tablet_column, &reader, _opts.stats);
+        Status st =
+                _segment->get_column_reader(*tablet_column, &reader, _opts.stats, &_opts.io_ctx);
         if (st.is<ErrorCode::NOT_FOUND>()) {
             continue;
         }
@@ -3406,6 +3406,9 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
             ColumnPtr result_column;
             RETURN_IF_ERROR(column_expr->execute(block, result_column));
 
+            // The materialized value is cached in the block and later consumed as the slot's
+            // concrete column type, so do not let a ColumnConst cross this boundary.
+            result_column = result_column->convert_to_full_column_if_const();
             block->replace_by_position(idx_in_block, std::move(result_column));
             if (block->get_by_position(idx_in_block).column->size() == 0) {
                 LOG_WARNING("Result of expr column {} is empty. cid {}, idx_in_block {}",

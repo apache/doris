@@ -73,7 +73,12 @@ std::string FileScanRequest::debug_string() const {
         }
         out << column_id << ":" << block_position;
     }
-    out << "}, conjunct_count=" << conjuncts.size()
+    out << "}, conjunct_count=" << conjuncts.size() << ", residual_predicate_columns="
+        << join_debug_strings(
+                   residual_predicate_columns,
+                   [](LocalColumnId column_id) { return std::to_string(column_id.value()); })
+        << ", metadata_pruning_safe_conjunct_count=" << metadata_pruning_safe_conjunct_count
+        << ", constant_pruning_safe_table_filter_count=" << constant_pruning_safe_table_filter_count
         << ", delete_conjunct_count=" << delete_conjuncts.size() << ", variant_schema_overrides="
         << join_debug_strings(
                    variant_schema_overrides,

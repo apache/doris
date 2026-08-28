@@ -19,10 +19,12 @@ package org.apache.doris.datasource.lance;
 
 import org.apache.arrow.vector.types.pojo.Schema;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 
 /** Immutable metadata resolved from one already-fixed Lance dataset version. */
 public class LanceTableMetadata {
@@ -30,15 +32,35 @@ public class LanceTableMetadata {
     private final long version;
     private final Schema schema;
     private final List<LanceFragmentInfo> fragments;
-    private final Map<String, String> backendStorageOptions;
+    private final Map<String, Integer> lanceFieldIds;
+    private final List<LanceIndexSegmentInfo> indexSegments;
+    private final Map<String, String> lanceStorageOptions;
 
-    public LanceTableMetadata(String datasetUri, long version, Schema schema,
-            List<LanceFragmentInfo> fragments, Map<String, String> backendStorageOptions) {
+    public static LanceTableMetadata withoutIndexSegments(String datasetUri, long version,
+            Schema schema, List<LanceFragmentInfo> fragments,
+            Map<String, String> lanceStorageOptions) {
+        return new LanceTableMetadata(datasetUri, version, schema, fragments,
+                Collections.emptyMap(), Collections.emptyList(), lanceStorageOptions);
+    }
+
+    public static LanceTableMetadata withIndexSegments(String datasetUri, long version,
+            Schema schema, List<LanceFragmentInfo> fragments,
+            Map<String, Integer> lanceFieldIds, List<LanceIndexSegmentInfo> indexSegments,
+            Map<String, String> lanceStorageOptions) {
+        return new LanceTableMetadata(datasetUri, version, schema, fragments,
+                lanceFieldIds, indexSegments, lanceStorageOptions);
+    }
+
+    private LanceTableMetadata(String datasetUri, long version, Schema schema,
+            List<LanceFragmentInfo> fragments, Map<String, Integer> lanceFieldIds,
+            List<LanceIndexSegmentInfo> indexSegments, Map<String, String> lanceStorageOptions) {
         this.datasetUri = datasetUri;
         this.version = version;
         this.schema = schema;
-        this.fragments = Collections.unmodifiableList(fragments);
-        this.backendStorageOptions = Collections.unmodifiableMap(new HashMap<>(backendStorageOptions));
+        this.fragments = Collections.unmodifiableList(new ArrayList<>(fragments));
+        this.lanceFieldIds = Collections.unmodifiableMap(new HashMap<>(lanceFieldIds));
+        this.indexSegments = Collections.unmodifiableList(new ArrayList<>(indexSegments));
+        this.lanceStorageOptions = Collections.unmodifiableMap(new HashMap<>(lanceStorageOptions));
     }
 
     public String getDatasetUri() {
@@ -57,29 +79,21 @@ public class LanceTableMetadata {
         return fragments;
     }
 
-    public Map<String, String> getBackendStorageOptions() {
-        return backendStorageOptions;
+    public List<LanceIndexSegmentInfo> getIndexSegments() {
+        return indexSegments;
+    }
+
+    public OptionalInt getLanceFieldId(String fieldName) {
+        Integer fieldId = lanceFieldIds.get(fieldName);
+        return fieldId == null ? OptionalInt.empty() : OptionalInt.of(fieldId);
+    }
+
+    /** Lance object-store options, understood as-is by both the FE SDK and lance-c. */
+    public Map<String, String> getLanceStorageOptions() {
+        return lanceStorageOptions;
     }
 
     public long getRowCount() {
         return fragments.stream().mapToLong(LanceFragmentInfo::getRowCount).sum();
-    }
-
-    public static class LanceFragmentInfo {
-        private final long id;
-        private final long rowCount;
-
-        public LanceFragmentInfo(long id, long rowCount) {
-            this.id = id;
-            this.rowCount = rowCount;
-        }
-
-        public long getId() {
-            return id;
-        }
-
-        public long getRowCount() {
-            return rowCount;
-        }
     }
 }

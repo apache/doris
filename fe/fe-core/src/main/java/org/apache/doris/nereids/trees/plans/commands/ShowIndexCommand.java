@@ -29,7 +29,11 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.lance.LanceExternalCatalog;
+import org.apache.doris.datasource.lance.LanceExternalTable;
+import org.apache.doris.datasource.lance.LanceLogicalIndex;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -108,28 +112,60 @@ public class ShowIndexCommand extends ShowCommand {
         analyze(ctx);
 
         List<List<String>> rows = Lists.newArrayList();
-        // in show index, only support internal catalog
-        DatabaseIf db = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrAnalysisException(tableNameInfo.getCtl())
-                .getDbOrAnalysisException(tableNameInfo.getDb());
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrAnalysisException(tableNameInfo.getCtl());
+        if (catalog instanceof LanceExternalCatalog
+                && ((LanceExternalCatalog) catalog).isRestCatalogConfigured()) {
+            throw new AnalysisException("SHOW INDEX is not supported for Lance REST catalogs");
+        }
+        DatabaseIf db = catalog.getDbOrAnalysisException(tableNameInfo.getDb());
         if (db instanceof Database) {
+            rows = getInternalIndexRows(db);
+        } else if (catalog instanceof LanceExternalCatalog) {
             TableIf table = db.getTableOrAnalysisException(tableNameInfo.getTbl());
-            if (table instanceof OlapTable) {
-                OlapTable olapTable = (OlapTable) table;
-                olapTable.readLock();
-                try {
-                    List<Index> indexes = olapTable.getIndexes();
-                    for (Index index : indexes) {
-                        rows.add(Lists.newArrayList(tableNameInfo.getTbl(), "", index.getIndexName(),
-                                "", String.join(",", index.getColumns()), "", "", "", "",
-                                "", index.getIndexType().name(), index.getComment(), index.getPropertiesString()));
-                    }
-                } finally {
-                    olapTable.readUnlock();
-                }
+            if (!(table instanceof LanceExternalTable)) {
+                throw new AnalysisException("Table " + tableNameInfo.getTbl() + " is not a Lance table");
             }
+            rows = getLanceIndexRows((LanceExternalTable) table);
         }
         return new ShowResultSet(getMetaData(), rows);
+    }
+
+    private List<List<String>> getInternalIndexRows(DatabaseIf db) throws Exception {
+        List<List<String>> rows = Lists.newArrayList();
+        TableIf table = db.getTableOrAnalysisException(tableNameInfo.getTbl());
+        if (table instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) table;
+            olapTable.readLock();
+            try {
+                List<Index> indexes = olapTable.getIndexes();
+                for (Index index : indexes) {
+                    rows.add(Lists.newArrayList(tableNameInfo.getTbl(), "", index.getIndexName(),
+                            "", String.join(",", index.getColumns()), "", "", "", "",
+                            "", index.getIndexType().name(), index.getComment(), index.getPropertiesString()));
+                }
+            } finally {
+                olapTable.readUnlock();
+            }
+        }
+        return rows;
+    }
+
+    private List<List<String>> getLanceIndexRows(LanceExternalTable table) throws AnalysisException {
+        return buildLanceRows(table.getName(), table.loadIndexMetadata());
+    }
+
+    @VisibleForTesting
+    static List<List<String>> buildLanceRows(String tableName, List<LanceLogicalIndex> indexes) {
+        List<List<String>> rows = Lists.newArrayList();
+        for (LanceLogicalIndex index : indexes) {
+            List<String> columns = index.getColumns();
+            for (int i = 0; i < columns.size(); i++) {
+                rows.add(Lists.newArrayList(tableName, "", index.getName(), String.valueOf(i + 1),
+                        columns.get(i), "", "", "", "", "", index.getIndexType(), "", index.getProperties()));
+            }
+        }
+        return rows;
     }
 
     @Override

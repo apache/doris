@@ -21,8 +21,10 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -77,6 +79,30 @@ struct AdaptivePredicateStats {
     size_t samples = 0;
 };
 
+struct ParquetAdaptiveSnapshot {
+    std::unordered_map<size_t, AdaptivePredicateStats> predicate_runtime_stats;
+    double predicate_survival_ratio = -1;
+    size_t predicate_batch_sequence = 0;
+    int64_t empty_predicate_batch_rows = 0;
+};
+
+size_t finalize_variant_leaf_projection_for_row_group(const tparquet::RowGroup& row_group,
+                                                      const ParquetColumnSchema& schema,
+                                                      format::LocalColumnIndex* projection,
+                                                      size_t* residual_projections = nullptr,
+                                                      size_t* full_projections = nullptr);
+// True when this row group's statistics prove every residual beside a projected leaf is NULL, so
+// the residual columns and the root dictionary can be dropped from the read.
+bool variant_residual_columns_are_prunable_for_row_group(
+        const tparquet::RowGroup& row_group, const ParquetColumnSchema& schema,
+        const format::LocalColumnIndex& projection);
+// True when the projection reads every terminal residual the file schema declares, plus the root
+// dictionary. A projection that omits one cannot serve the rows stored outside its shredded leaves.
+bool variant_projection_carries_residuals(const ParquetColumnSchema& schema,
+                                          const format::LocalColumnIndex& projection);
+void prune_variant_residual_columns(const ParquetColumnSchema& schema,
+                                    format::LocalColumnIndex* projection);
+
 std::vector<size_t> order_adaptive_predicates(
         const std::vector<size_t>& positions,
         const std::unordered_map<size_t, AdaptivePredicateStats>& stats);
@@ -96,15 +122,39 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
                                               const ParquetScanRange& scan_range,
                                               std::vector<int64_t>* row_group_first_rows,
                                               std::vector<int>* selected_row_groups);
+bool types_equal_ignoring_nested_nullability(const DataTypePtr& left, const DataTypePtr& right);
+Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& metadata,
+                                              const ParquetScanRange& scan_range,
+                                              const std::vector<int64_t>& row_group_first_rows,
+                                              std::vector<int>* selected_row_groups);
+#ifdef BE_TEST
+void reset_physical_leaf_set_build_count();
+size_t physical_leaf_set_build_count();
+#endif
 } // namespace detail
+
+// Children of one parent split share this context. Snapshots are keyed by predicate digest because
+// late runtime filters can change both order and selectivity.
+class ParquetAdaptiveContext final {
+public:
+    detail::ParquetAdaptiveSnapshot restore(uint64_t predicate_digest) const;
+    void publish(uint64_t predicate_digest,
+                 const detail::ParquetAdaptiveSnapshot& incoming_snapshot);
+
+private:
+    mutable std::mutex _lock;
+    std::unordered_map<uint64_t, detail::ParquetAdaptiveSnapshot> _snapshots;
+};
 
 // ============================================================================
 // ============================================================================
 
 struct ParquetScanRange {
     int64_t start_offset = 0;
-    int64_t size = -1;      // -1 means read the whole file
-    int64_t file_size = -1; // -1 means unknown
+    int64_t size = -1;             // -1 means read the whole file
+    int64_t file_size = -1;        // -1 means unknown
+    int64_t row_group_id = -1;     // First exact row group selected by a BE-generated split.
+    int64_t row_group_id_end = -1; // Inclusive end for a coalesced consecutive row-group range.
 };
 
 struct RowGroupReadPlan {
@@ -117,14 +167,29 @@ struct RowGroupReadPlan {
     // Deferred planning transfers parsed indexes to execution so narrowed scans never issue the
     // same remote index reads a second time while opening the row group.
     std::unordered_map<int, tparquet::OffsetIndex> offset_indexes;
+    // Candidate ordinals refer to a deterministic traversal of the immutable request projection.
+    // Only candidates whose projection this row group changes are retained, keeping the row-group
+    // delta independent of projection size.
+    std::vector<size_t> prunable_variant_projection_ordinals;
+    std::vector<size_t> full_variant_projection_ordinals;
+    size_t variant_leaf_projection_columns = 0;
+    size_t variant_residual_projection_columns = 0;
+    size_t variant_full_projection_columns = 0;
     // Footer statistics are cheap and eager. Remote dictionary/Bloom/page-index probes fill the
     // remaining fields only when this row group reaches the scheduler.
     bool expensive_pruning_pending = false;
+
+    bool has_row_group_physical_projection() const {
+        return !prunable_variant_projection_ordinals.empty() ||
+               !full_variant_projection_ordinals.empty();
+    }
 };
 
 struct RowGroupScanPlan {
     std::vector<RowGroupReadPlan> row_groups; // row groups selected after pruning
     ParquetPruningStats pruning_stats;        // pruning statistics
+    // Row-group plans only add full-fallback leaves to this immutable request-level baseline.
+    std::unordered_set<int> requested_leaf_column_ids;
     bool enable_bloom_filter = false;
 };
 
@@ -167,7 +232,7 @@ class ParquetScanScheduler {
 public:
     static constexpr int64_t DEFAULT_READ_BATCH_SIZE = 4096;
 
-    void set_plan(RowGroupScanPlan plan);
+    void set_plan(std::shared_ptr<RowGroupScanPlan> plan);
     void set_page_skip_profile(ParquetPageSkipProfile page_skip_profile) {
         _page_skip_profile = page_skip_profile;
     }
@@ -190,6 +255,9 @@ public:
     void set_runtime_state(RuntimeState* runtime_state) { _runtime_state = runtime_state; }
     void set_scan_request(std::shared_ptr<format::FileScanRequest> request);
     void queue_scan_request(std::shared_ptr<format::FileScanRequest> request);
+    void set_adaptive_context(std::shared_ptr<ParquetAdaptiveContext> adaptive_context) {
+        _adaptive_context = std::move(adaptive_context);
+    }
     // Release row-group readers before the owning RuntimeProfile is reported. Native readers
     // publish their accumulated page/decode statistics from their destructor.
     void close() { reset_current_row_group(); }
@@ -199,7 +267,7 @@ public:
         _batch_size = batch_size == 0 ? 1 : static_cast<int64_t>(batch_size);
     }
     void reset();
-    bool empty() const { return _row_group_plans.empty(); }
+    bool empty() const { return _scan_plan == nullptr || _scan_plan->row_groups.empty(); }
     int64_t condition_cache_filtered_rows() const { return _condition_cache_filtered_rows; }
     int64_t predicate_filtered_rows() const { return _predicate_filtered_rows; }
     int64_t raw_rows_read() const { return _raw_rows_read; }
@@ -213,12 +281,15 @@ private:
 
     void reset_current_row_group();
     void activate_pending_scan_request_at_row_group_boundary();
+    void _restore_adaptive_state(const format::FileScanRequest& request);
+    void _publish_adaptive_state(const format::FileScanRequest& request);
     void flush_current_reader_profiles();
     bool finish_current_reader_batch_profiles();
     const detail::PredicateConjunctSchedule& predicate_conjunct_schedule(
             const format::FileScanRequest& request);
     std::vector<format::LocalColumnIndex> adaptive_predicate_prefetch_columns(
-            const format::FileScanRequest& request);
+            const format::FileScanRequest& request,
+            const std::vector<format::LocalColumnIndex>& physical_predicate_columns);
 
     Status open_next_row_group(ParquetFileContext& file_context,
                                const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -235,8 +306,9 @@ private:
     Status prepare_current_dictionary_filters(
             ParquetFileContext& file_context,
             const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-            const format::FileScanRequest& request, int row_group_idx,
-            const tparquet::RowGroup& row_group_metadata);
+            const format::FileScanRequest& request,
+            const std::vector<format::LocalColumnIndex>& physical_predicate_columns,
+            int row_group_idx, const tparquet::RowGroup& row_group_metadata);
 
     Status prefetch_current_row_group_columns(
             ParquetFileContext& file_context,
@@ -255,12 +327,15 @@ private:
     void mark_condition_cache_granules(const SelectionVector& selection, uint16_t selected_rows,
                                        int64_t batch_first_file_row);
 
-    std::vector<RowGroupReadPlan> _row_group_plans; // row group queue to scan
-    size_t _next_row_group_plan_idx = 0;            // index of the next row group to process
+    std::shared_ptr<RowGroupScanPlan> _scan_plan; // shared with the reader's aggregate path
+    size_t _next_row_group_plan_idx = 0;          // index of the next row group to process
 
     bool _has_current_row_group = false;
     // Readers retain pointers into this immutable row-group map, so it must outlive both maps below.
     std::unordered_map<int, tparquet::OffsetIndex> _current_offset_indexes;
+    // The logical request remains immutable across the file. This row-group copy owns only the
+    // physical projections used by readers and deferred prefetch.
+    std::unique_ptr<format::FileScanRequest> _current_row_group_request;
     // File-local ids are signed because virtual columns use reserved negative values. Keeping the
     // typed id as the map key prevents GLOBAL_ROWID_COLUMN_ID from wrapping to a storage ColumnId.
     std::map<format::LocalColumnId, std::unique_ptr<ParquetColumnReader>>
@@ -315,6 +390,7 @@ private:
     std::shared_ptr<format::FileScanRequest> _active_request;
     std::shared_ptr<format::FileScanRequest> _pending_request;
     bool _remaining_plans_need_replanning = false;
+    bool _requested_leaf_ids_need_refresh = false;
     detail::PredicateConjunctSchedule _predicate_schedule;
     std::vector<size_t> _predicate_positions_scratch;
     std::unordered_map<size_t, size_t> _predicate_indices_by_position_scratch;
@@ -327,6 +403,8 @@ private:
     size_t _batches_since_profile_flush = 0;
     std::unordered_map<size_t, detail::AdaptivePredicateStats> _predicate_runtime_stats;
     double _predicate_survival_ratio = -1;
+    int64_t _empty_predicate_batch_rows = 0;
+    std::shared_ptr<ParquetAdaptiveContext> _adaptive_context;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     int64_t _condition_cache_filtered_rows = 0;
     int64_t _predicate_filtered_rows = 0;

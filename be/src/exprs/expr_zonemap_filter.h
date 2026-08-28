@@ -20,6 +20,7 @@
 #include <compare>
 #include <map>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "common/status.h"
@@ -45,6 +46,7 @@ namespace doris::expr_zonemap {
 
 struct InZonemapMaterializedSet {
     bool contains_null = false;
+    bool contains_nan = false;
     std::vector<Field> values;
     Field min_value;
     Field max_value;
@@ -98,7 +100,36 @@ struct SlotLiteral {
     bool literal_on_left;
 };
 
+enum class BloomFilterPathKind {
+    STRUCT_FIELD,
+    LIST_ELEMENT,
+};
+
+struct BloomFilterPathElement {
+    BloomFilterPathKind kind;
+    std::string field_name;
+    int32_t field_ordinal = -1;
+
+    bool operator==(const BloomFilterPathElement&) const = default;
+};
+
+struct BloomFilterProbe {
+    int slot_index;
+    DataTypePtr value_type;
+    std::vector<BloomFilterPathElement> path;
+
+    bool operator==(const BloomFilterProbe&) const = default;
+};
+
 std::optional<SlotLiteral> extract_slot_and_literal(const VExprSPtrs& args);
+
+std::optional<BloomFilterProbe> extract_bloom_filter_probe(const VExprSPtr& expr);
+
+std::optional<BloomFilterProbe> extract_bloom_filter_predicate_probe(const VExprSPtr& expr);
+
+std::optional<SlotLiteral> extract_bloom_filter_slot_and_literal(const VExprSPtrs& args);
+
+bool can_evaluate_bloom_filter_equality(const VExprSPtrs& args);
 
 TExprNode create_texpr_node_from_hybrid_set_value(const void* data, const PrimitiveType& type,
                                                   int precision, int scale);
@@ -142,7 +173,8 @@ ZoneMapFilterResult eval_null_zonemap(const ZoneMapEvalContext& ctx, const VExpr
 
 ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSPtr& slot_expr,
                                     bool is_not_in, const std::vector<Field>& values,
-                                    const Field& min_value, const Field& max_value);
+                                    bool contains_nan, const Field& min_value,
+                                    const Field& max_value);
 
 ZoneMapFilterResult eval_eq_dictionary(const DictionaryEvalContext& ctx,
                                        const SlotLiteral& slot_literal);

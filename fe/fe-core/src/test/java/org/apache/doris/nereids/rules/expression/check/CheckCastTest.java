@@ -62,7 +62,7 @@ public class CheckCastTest {
         VariantType v1DifferentProperties = new VariantType(200);
 
         Assertions.assertTrue(CheckCast.check(v1Source, v1SameProperties, true));
-        Assertions.assertFalse(CheckCast.check(v1Source, v1DifferentProperties, true));
+        Assertions.assertTrue(CheckCast.check(v1Source, v1DifferentProperties, true));
     }
 
     @Test

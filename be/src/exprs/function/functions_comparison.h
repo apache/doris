@@ -322,6 +322,15 @@ inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSP
 
     const auto effective_op = slot_literal->literal_on_left ? symmetric_op(op) : op;
     const auto& literal = slot_literal->literal;
+    const bool literal_is_nan = literal.is_nan();
+    const bool hidden_nan_can_match = (effective_op == Op::EQ && literal_is_nan) ||
+                                      (effective_op == Op::NE && !literal_is_nan) ||
+                                      (effective_op == Op::GT && !literal_is_nan) ||
+                                      effective_op == Op::GE;
+    if (ctx.floating_nan_count_unknown(slot_literal->slot_index) && hidden_nan_can_match) {
+        // Parquet bounds omit NaNs, so only operators that cannot match a hidden NaN may prune.
+        return unsupported_zonemap_filter(ctx);
+    }
     switch (effective_op) {
     case Op::EQ:
         return literal < zone_map.min_value || zone_map.max_value < literal
@@ -375,7 +384,13 @@ inline bool can_evaluate(const VExprSPtrs& arguments) {
 }
 
 inline bool can_evaluate_equality(const VExprSPtrs& arguments, Op op) {
-    return op == Op::EQ && can_evaluate(arguments);
+    if (op != Op::EQ || !can_evaluate(arguments)) {
+        return false;
+    }
+    const auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+    DORIS_CHECK(slot_literal.has_value());
+    // Bloom membership cannot disprove Doris NaN equality across different physical encodings.
+    return !slot_literal->literal.is_nan();
 }
 
 inline bool dictionary_value_matches(const Field& value, const Field& literal, Op op) {
@@ -424,7 +439,7 @@ inline ZoneMapFilterResult evaluate_dictionary(const DictionaryEvalContext& ctx,
 inline ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx,
                                                  const VExprSPtrs& arguments, Op op) {
     DORIS_CHECK(op == Op::EQ);
-    auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+    auto slot_literal = expr_zonemap::extract_bloom_filter_slot_and_literal(arguments);
     DORIS_CHECK(slot_literal.has_value());
     return expr_zonemap::eval_eq_bloom_filter(ctx, *slot_literal);
 }
@@ -513,19 +528,20 @@ private:
 
     Status execute_decimal(Block& block, uint32_t result, const ColumnWithTypeAndName& col_left,
                            const ColumnWithTypeAndName& col_right) const {
-        auto call = [&](const auto& types) -> bool {
-            using Types = std::decay_t<decltype(types)>;
-            using LeftDataType = typename Types::LeftType;
-            using RightDataType = typename Types::RightType;
-
-            DecimalComparison<LeftDataType::PType, RightDataType::PType, Op, false>(
+        auto call = [&](const auto& type) -> bool {
+            using DispatchType = std::decay_t<decltype(type)>;
+            DecimalComparison<DispatchType::PType, DispatchType::PType, Op, false>(
                     block, result, col_left, col_right);
             return true;
         };
 
-        if (!call_on_basic_types<true, false, true, false>(col_left.type->get_primitive_type(),
-                                                           col_right.type->get_primitive_type(),
-                                                           call)) {
+        if (col_left.type->get_primitive_type() != col_right.type->get_primitive_type()) {
+            return Status::RuntimeError(
+                    "type of left column {} is not equal to type of right column {}",
+                    col_left.type->get_name(), col_right.type->get_name());
+        }
+
+        if (!dispatch_switch_decimal(col_right.type->get_primitive_type(), call)) {
             return Status::RuntimeError("Wrong call for {} with {} and {}", get_name(),
                                         col_left.type->get_name(), col_right.type->get_name());
         }
@@ -665,7 +681,8 @@ public:
 
     bool can_evaluate_bloom_filter(const VExprSPtrs& arguments) const override {
         auto op = comparison_zonemap_detail::op_from_name(name);
-        return op.has_value() && comparison_zonemap_detail::can_evaluate_equality(arguments, *op);
+        return op == comparison_zonemap_detail::Op::EQ &&
+               expr_zonemap::can_evaluate_bloom_filter_equality(arguments);
     }
 
     /// Get result types by argument types. If the function does not apply to these arguments, throw an exception.

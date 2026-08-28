@@ -247,19 +247,84 @@ TEST(ParquetSchemaTest, AppliesTableFormatVariantOverrideToUnannotatedGroup) {
     EXPECT_NE(fields[0]->variant_physical_type, nullptr);
 }
 
-TEST(ParquetSchemaTest, AppliesPaimonShreddedVariantOverrideWithOptionalMetadata) {
-    auto schema = shredded_object_variant_schema();
+TEST(ParquetSchemaTest, AppliesPaimonShreddedVariantOverrideWithOptionalFields) {
+    const auto apply_override = [](std::vector<tparquet::SchemaElement> schema) {
+        NativeFieldDescriptor descriptor;
+        ASSERT_TRUE(descriptor.parse_from_thrift(schema).ok());
+
+        std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+        ASSERT_TRUE(build_parquet_column_schema(descriptor, &fields).ok());
+        const std::vector overrides {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+        const auto status = apply_variant_schema_overrides(descriptor, overrides, &fields);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(fields.size(), 1);
+        EXPECT_EQ(fields[0]->kind, ParquetColumnSchemaKind::VARIANT);
+    };
+
+    auto object_schema = shredded_object_variant_schema();
+    object_schema[1].__isset.logicalType = false;
+    object_schema[2].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    object_schema[5].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    apply_override(std::move(object_schema));
+
+    auto array_schema = shredded_array_variant_schema(true, true);
+    array_schema[1].__isset.logicalType = false;
+    array_schema[2].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    array_schema[6].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    apply_override(std::move(array_schema));
+}
+
+TEST(ParquetSchemaTest, AppliesPaimonFallbackOnlyArrayWithRequiredValue) {
+    auto schema = shredded_array_variant_schema(true, false);
     schema[1].__isset.logicalType = false;
     schema[2].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    schema[6].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    schema[7].__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+
     NativeFieldDescriptor descriptor;
     ASSERT_TRUE(descriptor.parse_from_thrift(schema).ok());
-
     std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
     ASSERT_TRUE(build_parquet_column_schema(descriptor, &fields).ok());
+
     const std::vector overrides {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
     const auto status = apply_variant_schema_overrides(descriptor, overrides, &fields);
     ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(fields.size(), 1);
     EXPECT_EQ(fields[0]->kind, ParquetColumnSchemaKind::VARIANT);
+}
+
+TEST(ParquetSchemaTest, RejectsRequiredShreddedFallbackOutsidePaimonFallbackOnlyArray) {
+    const auto expect_override_corruption = [](std::vector<tparquet::SchemaElement> schema) {
+        NativeFieldDescriptor descriptor;
+        ASSERT_TRUE(descriptor.parse_from_thrift(schema).ok());
+        std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+        ASSERT_TRUE(build_parquet_column_schema(descriptor, &fields).ok());
+        const std::vector overrides {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+        const auto status = apply_variant_schema_overrides(descriptor, overrides, &fields);
+        EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    };
+
+    auto paimon_object = shredded_object_variant_schema();
+    paimon_object[1].__isset.logicalType = false;
+    paimon_object[2].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    paimon_object[5].__set_num_children(1);
+    paimon_object[5].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    paimon_object[6].__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    paimon_object.pop_back();
+    expect_override_corruption(std::move(paimon_object));
+
+    auto paimon_array_with_typed_value = shredded_array_variant_schema(true, true);
+    paimon_array_with_typed_value[1].__isset.logicalType = false;
+    paimon_array_with_typed_value[2].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    paimon_array_with_typed_value[6].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    paimon_array_with_typed_value[7].__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    expect_override_corruption(std::move(paimon_array_with_typed_value));
+
+    auto annotated_array = shredded_array_variant_schema(true, false);
+    annotated_array[7].__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    NativeFieldDescriptor descriptor;
+    const auto annotated_status = descriptor.parse_from_thrift(annotated_array);
+    EXPECT_TRUE(annotated_status.is<ErrorCode::CORRUPTION>()) << annotated_status;
 }
 
 TEST(ParquetSchemaTest, RejectsMalformedUnannotatedVariantOverride) {
@@ -953,12 +1018,107 @@ std::vector<tparquet::SchemaElement> nested_native_schema(size_t depth) {
     return schema;
 }
 
+constexpr size_t PAIMON_DEFAULT_VARIANT_SHREDDING_DEPTH = 50;
+
+std::vector<tparquet::SchemaElement> paimon_shredded_object_schema(size_t logical_depth) {
+    auto schema = unshredded_variant_schema();
+    schema[1].__isset.logicalType = false;
+    schema[1].__set_num_children(3);
+    schema[3].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+
+    tparquet::SchemaElement typed_object;
+    typed_object.__set_name("typed_value");
+    typed_object.__set_num_children(1);
+    typed_object.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    schema.push_back(std::move(typed_object));
+
+    for (size_t level = 0; level < logical_depth; ++level) {
+        tparquet::SchemaElement field_wrapper;
+        field_wrapper.__set_name("field" + std::to_string(level));
+        field_wrapper.__set_num_children(2);
+        field_wrapper.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+        schema.push_back(std::move(field_wrapper));
+
+        tparquet::SchemaElement value;
+        value.__set_name("value");
+        value.__set_type(tparquet::Type::BYTE_ARRAY);
+        value.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+        schema.push_back(std::move(value));
+
+        tparquet::SchemaElement typed_value;
+        typed_value.__set_name("typed_value");
+        typed_value.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+        if (level + 1 == logical_depth) {
+            typed_value.__set_type(tparquet::Type::INT32);
+        } else {
+            typed_value.__set_num_children(1);
+        }
+        schema.push_back(std::move(typed_value));
+    }
+    return schema;
+}
+
+std::vector<tparquet::SchemaElement> paimon_shredded_array_schema(size_t logical_depth) {
+    auto schema = unshredded_variant_schema();
+    schema[1].__isset.logicalType = false;
+    schema[1].__set_num_children(3);
+    schema[3].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+
+    for (size_t level = 0; level < logical_depth; ++level) {
+        tparquet::SchemaElement typed_array;
+        typed_array.__set_name("typed_value");
+        typed_array.__set_num_children(1);
+        typed_array.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+        typed_array.__set_converted_type(tparquet::ConvertedType::LIST);
+        schema.push_back(std::move(typed_array));
+
+        tparquet::SchemaElement list;
+        list.__set_name("list");
+        list.__set_num_children(1);
+        list.__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
+        schema.push_back(std::move(list));
+
+        tparquet::SchemaElement element;
+        element.__set_name("element");
+        element.__set_num_children(2);
+        element.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+        schema.push_back(std::move(element));
+
+        tparquet::SchemaElement value;
+        value.__set_name("value");
+        value.__set_type(tparquet::Type::BYTE_ARRAY);
+        value.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+        schema.push_back(std::move(value));
+    }
+
+    tparquet::SchemaElement typed_value;
+    typed_value.__set_name("typed_value");
+    typed_value.__set_type(tparquet::Type::INT32);
+    typed_value.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    schema.push_back(std::move(typed_value));
+    return schema;
+}
+
 TEST(ParquetSchemaTest, NativeSchemaBoundsRecursiveDepth) {
     NativeFieldDescriptor accepted;
     EXPECT_TRUE(accepted.parse_from_thrift(nested_native_schema(MAX_NATIVE_SCHEMA_DEPTH)).ok());
     NativeFieldDescriptor rejected;
     EXPECT_FALSE(
             rejected.parse_from_thrift(nested_native_schema(MAX_NATIVE_SCHEMA_DEPTH + 1)).ok());
+}
+
+TEST(ParquetSchemaTest, NativeSchemaAcceptsPaimonDefaultShreddedObjectDepth) {
+    NativeFieldDescriptor descriptor;
+    auto status = descriptor.parse_from_thrift(
+            paimon_shredded_object_schema(PAIMON_DEFAULT_VARIANT_SHREDDING_DEPTH));
+    EXPECT_TRUE(status.ok()) << status;
+}
+
+TEST(ParquetSchemaTest, NativeSchemaAcceptsPaimonDefaultShreddedArrayDepth) {
+    NativeFieldDescriptor descriptor;
+    auto status = descriptor.parse_from_thrift(
+            paimon_shredded_array_schema(PAIMON_DEFAULT_VARIANT_SHREDDING_DEPTH));
+    EXPECT_TRUE(status.ok()) << status;
 }
 
 TEST(ParquetSchemaTest, NativeListTupleCompatibilityRequiresEnclosingListName) {

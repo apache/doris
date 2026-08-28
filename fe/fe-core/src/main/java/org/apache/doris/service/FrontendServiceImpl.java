@@ -85,6 +85,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.ThriftLogHelper;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
@@ -342,6 +343,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
@@ -654,6 +656,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TListTableStatusResult result = new TListTableStatusResult();
         List<TTableStatus> tablesResult = Lists.newArrayList();
         result.setTables(tablesResult);
+        Set<String> requiredColumns = params.isSetRequiredColumns()
+                ? params.getRequiredColumns().stream()
+                        .map(column -> column.toUpperCase(Locale.ROOT))
+                        .collect(Collectors.toSet())
+                : null;
         PatternMatcher matcher = null;
         String specifiedTable = null;
         if (params.isSetPattern()) {
@@ -733,17 +740,40 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             TTableStatus status = new TTableStatus();
                             status.setName(table.getName());
                             status.setType(table.getMysqlType());
-                            status.setEngine(table.getEngine());
                             status.setComment(table.getComment());
-                            status.setCreateTime(table.getCreateTime());
-                            status.setLastCheckTime(lastCheckTime / 1000);
-                            status.setUpdateTime(table.getUpdateTime() / 1000);
-                            status.setCheckTime(lastCheckTime / 1000);
-                            status.setCollation("utf-8");
-                            status.setRows(table.getCachedRowCount());
-                            status.setDataLength(table.getDataLength());
-                            status.setAvgRowLength(table.getAvgRowLength());
-                            status.setIndexLength(table.getIndexLength());
+                            if (needTableStatusColumn(requiredColumns, "ENGINE")) {
+                                status.setEngine(table.getEngine());
+                            }
+                            if (needTableStatusColumn(requiredColumns, "CREATE_TIME")) {
+                                status.setCreateTime(table.getCreateTime());
+                            }
+                            if (needTableStatusColumn(requiredColumns, "LAST_CHECK_TIME")
+                                    || needTableStatusColumn(requiredColumns, "CHECK_TIME")) {
+                                status.setLastCheckTime(lastCheckTime / 1000);
+                            }
+                            if (needTableStatusColumn(requiredColumns, "UPDATE_TIME")) {
+                                status.setUpdateTime(table.getUpdateTime() / 1000);
+                            }
+                            if (needTableStatusColumn(requiredColumns, "CHECK_TIME")) {
+                                status.setCheckTime(lastCheckTime / 1000);
+                            }
+                            if (needTableStatusColumn(requiredColumns, "TABLE_COLLATION")) {
+                                status.setCollation("utf-8");
+                            }
+                            TableIf.TableStatusStats tableStatusStats =
+                                    needTableStatusStats(requiredColumns) ? table.getTableStatusStats() : null;
+                            if (needTableStatusColumn(requiredColumns, "TABLE_ROWS")) {
+                                status.setRows(tableStatusStats.getRows());
+                            }
+                            if (needTableStatusColumn(requiredColumns, "DATA_LENGTH")) {
+                                status.setDataLength(tableStatusStats.getDataLength());
+                            }
+                            if (needTableStatusColumn(requiredColumns, "AVG_ROW_LENGTH")) {
+                                status.setAvgRowLength(tableStatusStats.getAvgRowLength());
+                            }
+                            if (needTableStatusColumn(requiredColumns, "INDEX_LENGTH")) {
+                                status.setIndexLength(tableStatusStats.getIndexLength());
+                            }
                             if (table instanceof View) {
                                 status.setDdlSql(((View) table).getInlineViewDef());
                             }
@@ -758,6 +788,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
         return result;
+    }
+
+    private static boolean needTableStatusColumn(Set<String> requiredColumns, String columnName) {
+        return requiredColumns == null || requiredColumns.contains(columnName);
+    }
+
+    private static boolean needTableStatusStats(Set<String> requiredColumns) {
+        return needTableStatusColumn(requiredColumns, "TABLE_ROWS")
+                || needTableStatusColumn(requiredColumns, "DATA_LENGTH")
+                || needTableStatusColumn(requiredColumns, "AVG_ROW_LENGTH")
+                || needTableStatusColumn(requiredColumns, "INDEX_LENGTH");
     }
 
     public TListTableMetadataNameIdsResult listTableMetadataNameIds(TGetTablesParams params) throws TException {
@@ -932,15 +973,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
                 .getDbNullable(dbName);
         if (db != null) {
+            String skipTable = DebugPointUtil.getDebugParamOrDefault(
+                    "FE.describeTables.skipTable", "value", "");
             for (String tableName : tables) {
                 TableIf table = db.getTableNullableIfException(tableName);
-                if (table != null) {
-                    if (table.isTemporary()) {
-                        // because we return all table names to be,
-                        // so when we skip temporary table, we should add a offset here
-                        tablesOffset.add(columns.size());
-                        continue;
-                    }
+                if (!skipTable.isEmpty() && tableName.equals(skipTable)) {
+                    table = null;
+                }
+                if (table != null && !table.isTemporary()) {
                     table.readLock();
                     try {
                         List<Column> baseSchema = table.getBaseSchemaOrEmpty();
@@ -966,8 +1006,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     } finally {
                         table.readUnlock();
                     }
-                    tablesOffset.add(columns.size());
                 }
+                // every requested table should have an offset, even if the table is missing,
+                // otherwise the BE can not map columns to the correct table name.
+                tablesOffset.add(columns.size());
             }
         }
         return result;
@@ -1298,7 +1340,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TLoadTxnBeginResult loadTxnBegin(TLoadTxnBeginRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn begin request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive txn begin request: {}, backend: {}", ThriftLogHelper.requestForLog(request), clientAddr);
         }
         if (request.isSetCertBasedAuth()) {
             TCertBasedAuth certAuth = request.getCertBasedAuth();
@@ -1361,7 +1403,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     toForwardedCertificateInfo(request.getCertBasedAuth()));
         } else {
             if (!checkToken(request.getToken())) {
-                throw new AuthenticationException("Invalid token: " + request.getToken());
+                throw new AuthenticationException("Invalid token");
             }
         }
 
@@ -1527,7 +1569,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TLoadTxnCommitResult loadTxnPreCommit(TLoadTxnCommitRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn pre-commit request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive txn pre-commit request: {}, backend: {}",
+                    ThriftLogHelper.requestForLog(request), clientAddr);
         }
 
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
@@ -1627,7 +1670,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
             if (!checkToken(request.getToken())) {
-                throw new AuthenticationException("Invalid token: " + request.getToken());
+                throw new AuthenticationException("Invalid token");
             }
         } else {
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
@@ -1670,7 +1713,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TLoadTxn2PCResult loadTxn2PC(TLoadTxn2PCRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn 2PC request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive txn 2PC request: {}, backend: {}", ThriftLogHelper.requestForLog(request), clientAddr);
         }
 
         TLoadTxn2PCResult result = new TLoadTxn2PCResult();
@@ -1762,7 +1805,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         deleteMultiTableStreamLoadJobIndex(request.getTxnId());
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn commit request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive txn commit request: {}, backend: {}",
+                    ThriftLogHelper.requestForLog(request), clientAddr);
         }
 
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
@@ -2004,7 +2048,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TLoadTxnRollbackResult loadTxnRollback(TLoadTxnRollbackRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn rollback request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive txn rollback request: {}, backend: {}",
+                    ThriftLogHelper.requestForLog(request), clientAddr);
         }
         TLoadTxnRollbackResult result = new TLoadTxnRollbackResult();
         TStatus status = checkMaster();
@@ -2245,7 +2290,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TStreamLoadPutResult streamLoadPut(TStreamLoadPutRequest request) {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive stream load put request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive stream load put request: {}, backend: {}",
+                    ThriftLogHelper.requestForLog(request), clientAddr);
         }
 
         String groupCommitMode = request.getGroupCommitMode();
@@ -2398,7 +2444,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private void httpStreamPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result)
             throws UserException {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive http stream put request: {}", request);
+            LOG.debug("receive http stream put request: {}", ThriftLogHelper.requestForLog(request));
         }
 
         ConnectContext ctx = ConnectContext.get();
@@ -2721,7 +2767,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TCheckAuthResult checkAuth(TCheckAuthRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive auth request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive auth request: {}, backend: {}", ThriftLogHelper.requestForLog(request), clientAddr);
         }
 
         TCheckAuthResult result = new TCheckAuthResult();

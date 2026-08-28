@@ -19,7 +19,9 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
 import org.apache.doris.datasource.property.common.IcebergAwsAssumeRoleProperties;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
@@ -172,7 +174,11 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
         }
 
         // default enable io manifest cache if the meta.cache.manifest is enabled
-        if (!hasIoManifestCacheEnabled) {
+        if (!hasIoManifestCacheEnabled
+                && !ExternalMetaCacheBudgetManager.appliesWeightGovernance(catalogProps)) {
+            // Under Doris weight governance the SDK-side manifest content cache would retain up
+            // to its own max-total-bytes per FileIO outside the entry/catalog/global budget, so
+            // it is not auto-enabled; an explicit io.manifest.cache-enabled still wins.
             CacheSpec manifestCacheSpec = CacheSpec.fromProperties(catalogProps, CacheSpec.propertySpecBuilder()
                     .enable(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE,
                             IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE)
@@ -210,28 +216,18 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
      */
     public void toFileIOProperties(List<StorageProperties> storagePropertiesList,
             Map<String, String> fileIOProperties, Configuration conf) {
-        // We only support one S3-compatible storage property for FileIO configuration.
-        // When multiple AbstractS3CompatibleProperties exist, prefer the first non-S3Properties one,
-        // because a non-S3 type (e.g. OSSProperties, COSProperties) indicates the user has explicitly
-        // specified a concrete S3-compatible storage, which should take priority over the generic S3Properties.
-        AbstractS3CompatibleProperties s3Fallback = null;
         AbstractS3CompatibleProperties s3Target = null;
-        for (StorageProperties storageProperties : storagePropertiesList) {
+        for (StorageProperties storageProperties :
+                IcebergUtils.selectEffectiveStorageProperties(storagePropertiesList)) {
             if (conf != null && storageProperties.getHadoopStorageConfig() != null) {
                 conf.addResource(storageProperties.getHadoopStorageConfig());
             }
             if (storageProperties instanceof AbstractS3CompatibleProperties) {
-                if (s3Fallback == null) {
-                    s3Fallback = (AbstractS3CompatibleProperties) storageProperties;
-                }
-                if (s3Target == null && !(storageProperties instanceof S3Properties)) {
-                    s3Target = (AbstractS3CompatibleProperties) storageProperties;
-                }
+                s3Target = (AbstractS3CompatibleProperties) storageProperties;
             }
         }
-        AbstractS3CompatibleProperties chosen = s3Target != null ? s3Target : s3Fallback;
-        if (chosen != null) {
-            toS3FileIOProperties(chosen, fileIOProperties);
+        if (s3Target != null) {
+            toS3FileIOProperties(s3Target, fileIOProperties);
         } else {
             String region = AbstractS3CompatibleProperties.getRegionFromProperties(fileIOProperties);
             if (!Strings.isNullOrEmpty(region)) {

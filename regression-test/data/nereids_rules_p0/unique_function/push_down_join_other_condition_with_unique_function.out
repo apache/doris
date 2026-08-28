@@ -51,3 +51,4 @@ PhysicalResultSink
 --------PhysicalProject[random() AS `$_random_5_$`, t1.id, t1.msg]
 ----------PhysicalOlapScan[t1]
 ----PhysicalOlapScan[t2]
+

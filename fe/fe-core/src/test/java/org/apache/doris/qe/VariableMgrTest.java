@@ -130,6 +130,31 @@ public class VariableMgrTest {
     }
 
     @Test
+    public void testEnableNereidsDistributePlannerAfterUpgrade() {
+        SessionVariable defaultSessionVariable = VariableMgr.getDefaultSessionVariable();
+        boolean originalValue = defaultSessionVariable.isEnableNereidsDistributePlanner();
+        boolean originalEnableSqlCache = defaultSessionVariable.isEnableSqlCache();
+        boolean originalAnsiBehavior = GlobalVariable.enable_ansi_query_organization_behavior;
+        boolean originalTypeCoercionBehavior = GlobalVariable.enableNewTypeCoercionBehavior;
+        int originalVersion = GlobalVariable.variableVersion;
+        try {
+            defaultSessionVariable.setEnableNereidsDistributePlanner(false);
+            GlobalVariable.variableVersion = GlobalVariable.VARIABLE_VERSION_300;
+
+            VariableMgr.forceUpdateVariables();
+
+            Assert.assertTrue(VariableMgr.newSessionVariable().isEnableNereidsDistributePlanner());
+            Assert.assertEquals(GlobalVariable.CURRENT_VARIABLE_VERSION, GlobalVariable.variableVersion);
+        } finally {
+            defaultSessionVariable.setEnableNereidsDistributePlanner(originalValue);
+            defaultSessionVariable.setEnableSqlCache(originalEnableSqlCache);
+            GlobalVariable.enable_ansi_query_organization_behavior = originalAnsiBehavior;
+            GlobalVariable.enableNewTypeCoercionBehavior = originalTypeCoercionBehavior;
+            GlobalVariable.variableVersion = originalVersion;
+        }
+    }
+
+    @Test
     public void testAutoCommitConvert() throws Exception {
         // boolean var with ConvertBoolToLongMethod annotation
         VariableExpr desc = new VariableExpr("autocommit");
@@ -248,5 +273,14 @@ public class VariableMgrTest {
                 new SetVar(SetType.SESSION, SessionVariable.PREFERRED_BLOCK_SIZE_BYTES,
                         new StringLiteral("0"))));
         Assert.assertTrue(blockSizeException.getMessage().contains("preferred_block_size_bytes"));
+    }
+
+    @Test
+    public void testVariantV2IsNotSessionVariable() {
+        SessionVariable var = new SessionVariable();
+
+        DdlException exception = Assert.assertThrows(DdlException.class, () -> VariableMgr.setVar(var,
+                new SetVar(SetType.SESSION, "enable_variant_v2", new StringLiteral("true"))));
+        Assert.assertTrue(exception.getMessage().contains("Unknown system variable"));
     }
 }

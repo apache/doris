@@ -78,7 +78,7 @@ public class LanceSnapshotTest {
         Assertions.assertEquals(10, version10.getMetadata().getVersion());
         Assertions.assertEquals(10, version10.getMetadata().getFragments().get(0).getId());
         Assertions.assertEquals("http://minio:9000",
-                version10.getMetadata().getBackendStorageOptions().get("s3.endpoint"));
+                version10.getMetadata().getLanceStorageOptions().get("aws_endpoint"));
         Assertions.assertTrue(version10.isSameSnapshot(new LanceMvccSnapshot(metadata(10,
                 Field.nullable("value", new ArrowType.Int(32, true))))));
         Assertions.assertFalse(version10.isSameSnapshot(new LanceMvccSnapshot(floatMetadata)));
@@ -86,9 +86,9 @@ public class LanceSnapshotTest {
     }
 
     private static LanceTableMetadata metadata(long version, Field field) {
-        return new LanceTableMetadata("s3://bucket/table.lance", version,
+        return LanceTableMetadata.withoutIndexSegments("s3://bucket/table.lance", version,
                 new Schema(Collections.singletonList(field)),
-                Collections.singletonList(new LanceTableMetadata.LanceFragmentInfo(version, 1)),
-                Collections.singletonMap("s3.endpoint", "http://minio:9000"));
+                Collections.singletonList(new LanceFragmentInfo(version, 1, 1)),
+                Collections.singletonMap("aws_endpoint", "http://minio:9000"));
     }
 }

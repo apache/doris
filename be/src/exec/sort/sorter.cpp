@@ -197,7 +197,8 @@ size_t FullSorter::get_reserve_mem_size(RuntimeState* state, bool eos) const {
         if ((new_block_bytes * 100 / allocated_bytes) >= 85) {
             size_to_reserve += (size_t)(allocated_bytes * 1.15);
         }
-        auto sort = new_rows > _buffered_block_size || new_block_bytes > _buffered_block_bytes;
+        auto sort =
+                eos || new_rows > _buffered_block_size || new_block_bytes > _buffered_block_bytes;
         if (sort) {
             // new column is created when doing sort, reserve average size of one column
             // for estimation

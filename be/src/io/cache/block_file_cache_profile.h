@@ -90,6 +90,19 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* lock_wait_timer = nullptr;
     RuntimeProfile::Counter* get_timer = nullptr;
     RuntimeProfile::Counter* set_timer = nullptr;
+    RuntimeProfile::Counter* async_cache_write_submitted = nullptr;
+    RuntimeProfile::Counter* async_cache_write_rejected = nullptr;
+    RuntimeProfile::Counter* async_cache_write_buffer_alloc_fail = nullptr;
+    RuntimeProfile::Counter* async_cache_write_drop_stale_epoch = nullptr;
+    RuntimeProfile::Counter* inflight_write_buffer_index_hit = nullptr;
+    RuntimeProfile::Counter* inflight_write_buffer_index_miss = nullptr;
+    RuntimeProfile::Counter* probe_downloaded_hit = nullptr;
+    RuntimeProfile::Counter* probe_downloading_hit = nullptr;
+    RuntimeProfile::Counter* probe_miss = nullptr;
+    RuntimeProfile::Counter* block_wait_success = nullptr;
+    RuntimeProfile::Counter* block_wait_timeout = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* remote_only_on_miss_triggered = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* remote_only_on_miss_threshold_bytes = nullptr;
 
     RuntimeProfile::Counter* inverted_index_num_local_io_total = nullptr;
     RuntimeProfile::Counter* inverted_index_num_remote_io_total = nullptr;
@@ -101,6 +114,8 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* inverted_index_remote_io_timer = nullptr;
     RuntimeProfile::Counter* inverted_index_peer_io_timer = nullptr;
     RuntimeProfile::Counter* inverted_index_io_timer = nullptr;
+    RuntimeProfile::Counter* inverted_index_write_cache_io_timer = nullptr;
+    RuntimeProfile::Counter* inverted_index_bytes_write_into_cache = nullptr;
 
     RuntimeProfile::Counter* segment_footer_index_num_local_io_total = nullptr;
     RuntimeProfile::Counter* segment_footer_index_num_remote_io_total = nullptr;
@@ -111,6 +126,8 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* segment_footer_index_local_io_timer = nullptr;
     RuntimeProfile::Counter* segment_footer_index_remote_io_timer = nullptr;
     RuntimeProfile::Counter* segment_footer_index_peer_io_timer = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_write_cache_io_timer = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_bytes_write_into_cache = nullptr;
 
     explicit FileCacheProfileReporter(
             RuntimeProfile* profile,

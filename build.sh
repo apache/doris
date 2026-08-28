@@ -34,7 +34,6 @@ if [[ -z "${DORIS_THIRDPARTY}" ]]; then
     export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
 fi
 export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
-export TP_INSTALLED_DIR="${DORIS_THIRDPARTY}/installed"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 HADOOP_DEPS_NAME="hadoop-deps"
 . "${DORIS_HOME}/env.sh"
@@ -432,22 +431,74 @@ fi
 if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
+
+if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && ${BUILD_CLOUD} -eq 0 ]]; then
+    clean_gensrc
+    clean_be
+    clean_fe
+    exit 0
+fi
+
 # build thirdparty libraries if necessary. check last thirdparty lib installation
 if [[ "${TARGET_SYSTEM}" == 'Darwin' ]]; then
     LAST_THIRDPARTY_LIB='libbrotlienc.a'
 else
     LAST_THIRDPARTY_LIB='hadoop_hdfs/native/libhdfs.a'
 fi
+
+# The final-library sentinel only proves that some third-party build completed. It cannot
+# distinguish an older prebuilt whose Arrow/Paimon closure predates the selected sources.
+# shellcheck source=thirdparty/arrow-paimon-vars.sh
+. "${DORIS_HOME}/thirdparty/arrow-paimon-vars.sh"
+NEED_ARROW_PAIMON_THIRDPARTY=false
+if [[ "${BUILD_BE}" -eq 1 || "${BUILD_CLOUD}" -eq 1 ||
+    "${BUILD_META_TOOL}" == "ON" || "${BUILD_FILE_CACHE_MICROBENCH_TOOL}" == "ON" ||
+    "${BUILD_INDEX_TOOL}" == "ON" ]]; then
+    NEED_ARROW_PAIMON_THIRDPARTY=true
+fi
+
+rebuild_thirdparty_libraries() {
+    local remove_installed="$1"
+    shift
+    local build_script="${DORIS_THIRDPARTY}/build-thirdparty.sh"
+    local build_args=(-j "${PARALLEL}")
+    local selected_thirdparty_root
+    local checkout_thirdparty_root
+
+    if [[ ! -f "${build_script}" ]]; then
+        echo "Cannot rebuild thirdparty libraries: ${build_script} is missing." >&2
+        echo "DORIS_THIRDPARTY=${DORIS_THIRDPARTY} is an install-only or incomplete prefix. Use a matching compilation image/prebuilt, or unset DORIS_THIRDPARTY to rebuild with this checkout's thirdparty tree." >&2
+        exit 1
+    fi
+    selected_thirdparty_root="$(cd "${DORIS_THIRDPARTY}" && pwd -P)"
+    checkout_thirdparty_root="$(cd "${DORIS_HOME}/thirdparty" && pwd -P)"
+    if [[ "${selected_thirdparty_root}" != "${checkout_thirdparty_root}" ]]; then
+        echo "Cannot rebuild thirdparty libraries with an external source tree: ${selected_thirdparty_root}." >&2
+        echo "Unset DORIS_THIRDPARTY to rebuild with this checkout's thirdparty tree, then use the resulting version-matched installation." >&2
+        exit 1
+    fi
+    build_script="${checkout_thirdparty_root}/build-thirdparty.sh"
+    if [[ "${remove_installed}" == "true" ]]; then
+        # Some libraries, such as lz4, fail when an earlier installation remains.
+        rm -rf "${DORIS_THIRDPARTY}/installed"
+    fi
+    if [[ "${CLEAN}" -eq 1 ]]; then
+        build_args+=(--clean)
+    fi
+    bash "${build_script}" "${build_args[@]}" "$@"
+    if ! arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
+        echo "Rebuilt Arrow/Paimon artifacts do not match this checkout's selected inputs." >&2
+        exit 1
+    fi
+}
+
 if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
     echo "Thirdparty libraries need to be build ..."
-    # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
-    rm -rf "${DORIS_THIRDPARTY}/installed"
-
-    if [[ "${CLEAN}" -eq 0 ]]; then
-        "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
-    else
-        "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
-    fi
+    rebuild_thirdparty_libraries true
+elif [[ "${NEED_ARROW_PAIMON_THIRDPARTY}" == "true" ]] &&
+    ! arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
+    echo "Arrow/Paimon thirdparty libraries need to be rebuilt ..."
+    rebuild_thirdparty_libraries false "${ARROW_PAIMON_BUILD_PACKAGES[@]}"
 fi
 
 update_submodule() {
@@ -485,13 +536,6 @@ update_submodule() {
         curl -L "${commit_specific_url}" | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1
     fi
 }
-
-if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && ${BUILD_CLOUD} -eq 0 ]]; then
-    clean_gensrc
-    clean_be
-    clean_fe
-    exit 0
-fi
 
 if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
     if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
@@ -749,13 +793,7 @@ FE_MODULES="$(
 # Clean and build Backend
 if [[ "${BUILD_BE}" -eq 1 ]]; then
 
-    echo "install datasketches-cpp to thirdparty path before build be"
     update_submodule "contrib/datasketches-cpp" "datasketches-cpp" "https://github.com/apache/datasketches-cpp/archive/refs/heads/master.tar.gz"
-    cd "${DORIS_HOME}/contrib/datasketches-cpp"
-    "${CMAKE_CMD}" -S . -B build/Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$TP_INSTALLED_DIR -DBUILD_TESTS=OFF
-    "${CMAKE_CMD}" --build build/Release -t install
-    cd "${DORIS_HOME}"
-
     update_submodule "contrib/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
     update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
     update_submodule "contrib/openblas" "openblas" "https://github.com/apache/doris-thirdparty/archive/refs/heads/openblas.tar.gz"
@@ -982,6 +1020,8 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/conf/ldap.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/mysql_ssl_default_certificate" "${DORIS_OUTPUT}/fe/"/
     rm -rf "${DORIS_OUTPUT}/fe/lib"/*
+    # The offline minidump runner is gone; drop it from reused output trees too.
+    rm -rf "${DORIS_OUTPUT}/fe/minidump"
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     for extra_module_path in "${FE_EXTRA_MODULE_PATHS[@]}"; do
@@ -1006,7 +1046,6 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
     "${DORIS_HOME}/post-build.sh" --fe --output "${DORIS_OUTPUT}"
 
-    cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/fe/webroot/static"/

@@ -58,7 +58,6 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
-#include "core/data_type/data_type_variant_v2.h"
 #include "exec/common/endian.h"
 #include "exec/scan/access_path_parser.h"
 #include "exprs/runtime_filter_expr.h"
@@ -2033,44 +2032,6 @@ TEST(IcebergV2ReaderTest, IcebergLegacyPlanKeepsAllFieldIdsMappingRule) {
     nested.children[1].identifier = Field {};
     EXPECT_EQ(reader.mapping_mode_for_schema({std::move(nested)}, &old_fe_scan_params),
               TableColumnMappingMode::BY_NAME);
-}
-
-TEST(IcebergV2ReaderTest, VariantFormatGateUsesPhysicalFileMappings) {
-    ColumnMapping missing_variant;
-    missing_variant.table_type = make_nullable(std::make_shared<DataTypeVariantV2>());
-    EXPECT_TRUE(doris::format::iceberg::IcebergTableReader::validate_variant_file_mappings(
-                        FileFormat::ORC, {missing_variant})
-                        .ok());
-
-    ColumnMapping physical_variant = missing_variant;
-    physical_variant.file_local_id = 0;
-    const auto orc_status =
-            doris::format::iceberg::IcebergTableReader::validate_variant_file_mappings(
-                    FileFormat::ORC, {physical_variant});
-    EXPECT_TRUE(orc_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << orc_status;
-    EXPECT_TRUE(doris::format::iceberg::IcebergTableReader::validate_variant_file_mappings(
-                        FileFormat::PARQUET, {physical_variant})
-                        .ok());
-
-    ColumnMapping projected_struct;
-    projected_struct.table_type = make_nullable(std::make_shared<DataTypeStruct>(
-            DataTypes {make_nullable(std::make_shared<DataTypeString>()),
-                       make_nullable(std::make_shared<DataTypeVariantV2>())},
-            Strings {"label", "payload"}));
-    projected_struct.file_local_id = 0;
-    ColumnMapping label;
-    label.table_type = make_nullable(std::make_shared<DataTypeString>());
-    label.file_local_id = 1;
-    projected_struct.child_mappings = {label, missing_variant};
-    EXPECT_TRUE(doris::format::iceberg::IcebergTableReader::validate_variant_file_mappings(
-                        FileFormat::ORC, {projected_struct})
-                        .ok());
-
-    projected_struct.child_mappings[1] = physical_variant;
-    const auto nested_orc_status =
-            doris::format::iceberg::IcebergTableReader::validate_variant_file_mappings(
-                    FileFormat::ORC, {projected_struct});
-    EXPECT_TRUE(nested_orc_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << nested_orc_status;
 }
 
 TEST(IcebergV2ReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithPositionDelete) {

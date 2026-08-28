@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/array/array_nested.h>
 #include <arrow/array/builder_binary.h>
+#include <arrow/array/builder_nested.h>
 #include <gtest/gtest.h>
 
 #include <array>
@@ -198,24 +200,70 @@ std::vector<std::optional<std::string>> orc_values(const DataTypeVariantV2SerDe&
     return result;
 }
 
+std::shared_ptr<arrow::DataType> binary_variant_arrow_type() {
+    return arrow::struct_({arrow::field("value", arrow::binary(), false),
+                           arrow::field("metadata", arrow::binary(), false)});
+}
+
+std::unique_ptr<arrow::StructBuilder> binary_variant_arrow_builder() {
+    return std::make_unique<arrow::StructBuilder>(
+            binary_variant_arrow_type(), arrow::default_memory_pool(),
+            std::vector<std::shared_ptr<arrow::ArrayBuilder>> {
+                    std::make_shared<arrow::BinaryBuilder>(arrow::default_memory_pool()),
+                    std::make_shared<arrow::BinaryBuilder>(arrow::default_memory_pool())});
+}
+
+void expect_binary_variant_bytes(const DataTypeVariantV2SerDe& serde, const IColumn& column,
+                                 const ColumnVariantV2& encoded,
+                                 const NullMap* null_map = nullptr) {
+    auto builder = binary_variant_arrow_builder();
+    const Status status = serde.write_column_to_arrow(column, null_map, builder.get(), 0,
+                                                      column.size(), cctz::utc_time_zone());
+    ASSERT_TRUE(status.ok()) << status;
+
+    std::shared_ptr<arrow::Array> output;
+    ASSERT_TRUE(builder->Finish(&output).ok());
+    const auto& array = assert_cast<const arrow::StructArray&>(*output);
+    const auto& values = assert_cast<const arrow::BinaryArray&>(*array.field(0));
+    const auto& metadata = assert_cast<const arrow::BinaryArray&>(*array.field(1));
+    ASSERT_EQ(array.length(), static_cast<int64_t>(column.size()));
+    const auto view = encoded.read_view();
+    for (size_t row = 0; row < column.size(); ++row) {
+        const bool expected_null = null_map != nullptr && (*null_map)[row] != 0;
+        EXPECT_EQ(array.IsNull(row), expected_null);
+        if (expected_null) {
+            continue;
+        }
+        const VariantRef expected = view.value_at(row);
+        const auto actual_value = values.GetView(row);
+        const auto actual_metadata = metadata.GetView(row);
+        EXPECT_EQ(std::string_view(actual_value.data(), actual_value.size()),
+                  std::string_view(expected.value.data, expected.value.size));
+        EXPECT_EQ(std::string_view(actual_metadata.data(), actual_metadata.size()),
+                  std::string_view(expected.metadata.data, expected.metadata.size));
+    }
+}
+
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest macros inflate the matrix.
 void expect_text_surfaces(const DataTypeVariantV2SerDe& serde, const IColumn& encoded,
                           const ColumnVariantV2& typed,
-                          std::span<const std::string_view> expected) {
-    ASSERT_EQ(encoded.size(), expected.size());
-    ASSERT_EQ(typed.size(), expected.size());
-    for (size_t row = 0; row < expected.size(); ++row) {
-        EXPECT_EQ(cell_json(serde, encoded, row), expected[row]);
-        EXPECT_EQ(cell_json(serde, typed, row), expected[row]);
-        EXPECT_EQ(to_string_value(serde, encoded, row), expected[row]);
-        EXPECT_EQ(to_string_value(serde, typed, row), expected[row]);
-        EXPECT_EQ(mysql_binary(serde, encoded, row), expected[row]);
-        EXPECT_EQ(mysql_binary(serde, typed, row), expected[row]);
-        EXPECT_EQ(mysql_text(serde, encoded, row), expected[row]);
-        EXPECT_EQ(mysql_text(serde, typed, row), expected[row]);
+                          std::span<const std::string_view> expected_json,
+                          std::span<const std::string_view> expected_sql) {
+    ASSERT_EQ(encoded.size(), expected_json.size());
+    ASSERT_EQ(typed.size(), expected_json.size());
+    ASSERT_EQ(expected_json.size(), expected_sql.size());
+    for (size_t row = 0; row < expected_json.size(); ++row) {
+        EXPECT_EQ(cell_json(serde, encoded, row), expected_json[row]);
+        EXPECT_EQ(cell_json(serde, typed, row), expected_json[row]);
+        EXPECT_EQ(to_string_value(serde, encoded, row), expected_sql[row]);
+        EXPECT_EQ(to_string_value(serde, typed, row), expected_sql[row]);
+        EXPECT_EQ(mysql_binary(serde, encoded, row), expected_sql[row]);
+        EXPECT_EQ(mysql_binary(serde, typed, row), expected_sql[row]);
+        EXPECT_EQ(mysql_text(serde, encoded, row), expected_sql[row]);
+        EXPECT_EQ(mysql_text(serde, typed, row), expected_sql[row]);
     }
     std::vector<std::optional<std::string>> expected_values;
-    for (std::string_view value : expected) {
+    for (std::string_view value : expected_json) {
         expected_values.emplace_back(value);
     }
     EXPECT_EQ((arrow_values<arrow::StringBuilder, arrow::StringArray>(serde, encoded)),
@@ -249,13 +297,15 @@ TEST(DataTypeVariantV2SerdeOutputTest, DormantDirectClassExists) {
     EXPECT_EQ(serde.get_name(), "Variant");
 }
 
-TEST(DataTypeVariantV2SerdeOutputTest, EncodedAndTypedUseOneExactJsonPrinterOnAllSurfaces) {
+TEST(DataTypeVariantV2SerdeOutputTest, SqlScalarsFollowLegacyOutputAndDataFormatsUseJson) {
     DataTypeVariantV2SerDe serde;
-    auto strings = typed_strings(
-            {std::string_view("a\"\n"), std::nullopt, std::string_view(R"({"k":1})")});
+    auto strings = typed_strings({std::string_view("a\"\n"), std::string_view(""), std::nullopt,
+                                  std::string_view(R"({"k":1})")});
     ColumnPtr encoded_strings = encoded_copy(*strings);
-    const std::array<std::string_view, 3> string_expected {R"("a\"\n")", "null", R"("{\"k\":1}")"};
-    expect_text_surfaces(serde, *encoded_strings, *strings, string_expected);
+    const std::array<std::string_view, 4> string_json {R"("a\"\n")", R"("")", "null",
+                                                       R"("{\"k\":1}")"};
+    const std::array<std::string_view, 4> string_sql {"a\"\n", "", "null", R"({"k":1})"};
+    expect_text_surfaces(serde, *encoded_strings, *strings, string_json, string_sql);
 
     auto doubles = typed_doubles({1.25, 1e100, std::numeric_limits<double>::quiet_NaN(),
                                   std::numeric_limits<double>::infinity(),
@@ -263,7 +313,18 @@ TEST(DataTypeVariantV2SerdeOutputTest, EncodedAndTypedUseOneExactJsonPrinterOnAl
     ColumnPtr encoded_doubles = encoded_copy(*doubles);
     const std::array<std::string_view, 5> double_expected {"1.25", "1e+100", R"("NaN")",
                                                            R"("Infinity")", R"("-Infinity")"};
-    expect_text_surfaces(serde, *encoded_doubles, *doubles, double_expected);
+    expect_text_surfaces(serde, *encoded_doubles, *doubles, double_expected, double_expected);
+}
+
+TEST(DataTypeVariantV2SerdeOutputTest, NestedValuesUseJsonOutput) {
+    DataTypeVariantV2SerDe nested_serde(2);
+    auto strings = typed_strings({std::string_view("x"), std::string_view("a\"\n")});
+    ColumnPtr encoded_strings = encoded_copy(*strings);
+
+    EXPECT_EQ(to_string_value(nested_serde, *strings, 0), R"("x")");
+    EXPECT_EQ(to_string_value(nested_serde, *encoded_strings, 0), R"("x")");
+    EXPECT_EQ(to_string_value(nested_serde, *strings, 1), R"("a\"\n")");
+    EXPECT_EQ(to_string_value(nested_serde, *encoded_strings, 1), R"("a\"\n")");
 }
 
 TEST(DataTypeVariantV2SerdeOutputTest, DocumentsTemporalAndColumnJsonAreExact) {
@@ -291,7 +352,8 @@ TEST(DataTypeVariantV2SerdeOutputTest, DocumentsTemporalAndColumnJsonAreExact) {
                                                     std::make_shared<DataTypeDateV2>());
     ColumnPtr encoded_date = encoded_copy(*typed_date);
     const std::array<std::string_view, 1> date_expected {R"("1970-01-02")"};
-    expect_text_surfaces(serde, *encoded_date, *typed_date, date_expected);
+    const std::array<std::string_view, 1> date_sql {"1970-01-02"};
+    expect_text_surfaces(serde, *encoded_date, *typed_date, date_expected, date_sql);
 
     auto timestamp = ColumnDateTimeV2::create();
     timestamp->insert_value(
@@ -300,7 +362,9 @@ TEST(DataTypeVariantV2SerdeOutputTest, DocumentsTemporalAndColumnJsonAreExact) {
                                                          std::make_shared<DataTypeDateTimeV2>(6));
     ColumnPtr encoded_timestamp = encoded_copy(*typed_timestamp);
     const std::array<std::string_view, 1> timestamp_expected {R"("1970-01-01 00:00:01.000000")"};
-    expect_text_surfaces(serde, *encoded_timestamp, *typed_timestamp, timestamp_expected);
+    const std::array<std::string_view, 1> timestamp_sql {"1970-01-01 00:00:01.000000"};
+    expect_text_surfaces(serde, *encoded_timestamp, *typed_timestamp, timestamp_expected,
+                         timestamp_sql);
 
     auto output = ColumnString::create();
     BufferWritable writer(*output);
@@ -316,7 +380,7 @@ TEST(DataTypeVariantV2SerdeOutputTest, ConstNullableAndOuterMasksPreserveBoundar
     auto one = typed_strings({std::string_view("constant")});
     ColumnPtr constant = ColumnConst::create(one->get_ptr(), 3);
     EXPECT_EQ(cell_json(serde, *constant, 2), R"("constant")");
-    EXPECT_EQ(mysql_binary(serde, *one, 99, true), R"("constant")");
+    EXPECT_EQ(mysql_binary(serde, *one, 99, true), "constant");
     const std::vector<std::optional<std::string>> constant_expected {
             R"("constant")", R"("constant")", R"("constant")"};
     EXPECT_EQ((arrow_values<arrow::StringBuilder, arrow::StringArray>(serde, *constant)),
@@ -334,7 +398,7 @@ TEST(DataTypeVariantV2SerdeOutputTest, ConstNullableAndOuterMasksPreserveBoundar
     ColumnPtr outer = ColumnNullable::create(std::move(outer_values), std::move(outer_nulls));
     DataTypeNullableSerDe nullable_serde(std::make_shared<DataTypeVariantV2SerDe>());
     EXPECT_FALSE(mysql_text(nullable_serde, *outer, 0).has_value());
-    EXPECT_EQ(mysql_text(nullable_serde, *outer, 1), R"("shown")");
+    EXPECT_EQ(mysql_text(nullable_serde, *outer, 1), "shown");
     auto output = ColumnString::create();
     BufferWritable writer(*output);
     DataTypeSerDe::FormatOptions options;
@@ -377,6 +441,36 @@ TEST(DataTypeVariantV2SerdeOutputTest, ConstNullableAndOuterMasksPreserveBoundar
     EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
     EXPECT_EQ(reversed_builder.length(), 0);
     EXPECT_TRUE(invalid_dates->is_typed());
+}
+
+TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructPreservesEncodedAndTypedBytesAndOuterNulls) {
+    DataTypeVariantV2SerDe serde;
+    auto documents = encoded_json({R"({"a":[1,null,"x"]})", R"({"hidden":true})", "null"});
+    NullMap mask {0, 1, 0};
+    expect_binary_variant_bytes(serde, *documents, *documents, &mask);
+
+    auto typed = typed_strings(
+            {std::string_view("plain"), std::nullopt, std::string_view(R"({"text":"value"})")});
+    ColumnPtr encoded = encoded_copy(*typed);
+    expect_binary_variant_bytes(serde, *typed, assert_cast<const ColumnVariantV2&>(*encoded));
+    EXPECT_TRUE(typed->is_typed());
+}
+
+TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructRejectsUnsupportedPaimonPrimitive) {
+    DataTypeVariantV2SerDe serde;
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 1});
+    auto row = builder.begin_row();
+    row.add_time_ntz_micros(1'500'000);
+    row.finish();
+    auto encoded = ColumnVariantV2::create();
+    encoded->insert_encoded_batch(builder.finish_batch());
+    auto arrow_builder = binary_variant_arrow_builder();
+    const Status status = serde.write_column_to_arrow(*encoded, nullptr, arrow_builder.get(), 0,
+                                                      encoded->size(), cctz::utc_time_zone());
+    EXPECT_EQ(status.code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
+    EXPECT_NE(status.to_string().find("Paimon does not support Variant primitive id 17"),
+              std::string::npos);
+    EXPECT_EQ(arrow_builder->length(), 0);
 }
 
 } // namespace doris

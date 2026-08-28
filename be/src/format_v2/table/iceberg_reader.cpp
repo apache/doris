@@ -31,8 +31,6 @@
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
-#include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
@@ -54,96 +52,6 @@ namespace doris::format::iceberg {
 
 static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
 static constexpr int32_t ROW_LINEAGE_ROW_ID_FIELD_ID = 2147483540;
-
-namespace {
-
-bool contains_variant_type(const DataTypePtr& input) {
-    if (input == nullptr) {
-        return false;
-    }
-    const auto type = remove_nullable(input);
-    switch (type->get_primitive_type()) {
-    case TYPE_VARIANT:
-        return true;
-    case TYPE_ARRAY:
-        return contains_variant_type(assert_cast<const DataTypeArray&>(*type).get_nested_type());
-    case TYPE_MAP: {
-        const auto& map = assert_cast<const DataTypeMap&>(*type);
-        return contains_variant_type(map.get_key_type()) ||
-               contains_variant_type(map.get_value_type());
-    }
-    case TYPE_STRUCT:
-        return std::ranges::any_of(assert_cast<const DataTypeStruct&>(*type).get_elements(),
-                                   contains_variant_type);
-    default:
-        return false;
-    }
-}
-
-bool mapping_reads_variant(const format::ColumnMapping& mapping) {
-    if (!mapping.file_local_id.has_value()) {
-        return false;
-    }
-    if (contains_variant_type(mapping.original_file_type)) {
-        return true;
-    }
-    if (mapping.table_type != nullptr &&
-        remove_nullable(mapping.table_type)->get_primitive_type() == TYPE_VARIANT) {
-        return true;
-    }
-    return std::ranges::any_of(mapping.child_mappings, mapping_reads_variant);
-}
-
-const char* file_format_name(FileFormat format) {
-    switch (format) {
-    case FileFormat::PARQUET:
-        return "PARQUET";
-    case FileFormat::ORC:
-        return "ORC";
-    case FileFormat::CSV:
-        return "CSV";
-    case FileFormat::JSON:
-        return "JSON";
-    case FileFormat::TEXT:
-        return "TEXT";
-    case FileFormat::JNI:
-        return "JNI";
-    case FileFormat::NATIVE:
-        return "NATIVE";
-    case FileFormat::ARROW:
-        return "ARROW";
-    case FileFormat::WAL:
-        return "WAL";
-    case FileFormat::LANCE:
-        return "LANCE";
-    }
-    return "UNKNOWN";
-}
-
-} // namespace
-
-Status IcebergTableReader::validate_variant_file_mappings(
-        FileFormat format, const std::vector<format::ColumnMapping>& mappings) {
-    if (format == FileFormat::PARQUET || !std::ranges::any_of(mappings, mapping_reads_variant)) {
-        return Status::OK();
-    }
-    // Gate on a physical mapping, not the table schema: an older ORC/Avro file may legitimately
-    // omit a Variant field added by schema evolution, in which case the mapper synthesizes NULL.
-    return Status::NotSupported(
-            "Iceberg Variant is supported only for Parquet files in FileScannerV2; file format {} "
-            "(including ORC/Avro readers) is not supported",
-            file_format_name(format));
-}
-
-Status IcebergTableReader::validate_file_mapping(const format::TableColumnMapper& mapper) const {
-    if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
-        _push_down_count_columns->empty()) {
-        // COUNT(*) may retain an arbitrary minimum-width slot, but that carrier is never a
-        // semantic physical read and must not trigger the Variant file-format capability gate.
-        return Status::OK();
-    }
-    return validate_variant_file_mappings(_format, mapper.mappings());
-}
 
 template <typename T>
 static std::string join_values_for_debug(const std::vector<T>& values) {

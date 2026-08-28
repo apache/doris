@@ -60,6 +60,7 @@
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/file_reader.h"
+#include "format_v2/file_scan_context.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/schema_projection.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -82,12 +83,16 @@ using DeleteRows = std::vector<int64_t>;
 struct TableFilter {
     VExprContextSPtr conjunct;
     std::vector<GlobalIndex> global_indices;
+    bool metadata_pruning_safe = true;
 };
 
 struct ScanTask {
     virtual ~ScanTask() = default;
 
     std::unique_ptr<io::FileDescription> data_file;
+    std::shared_ptr<const FileContext> file_context;
+    int64_t format_split_id = -1;
+    int64_t format_split_id_end = -1;
 };
 
 struct ProjectedColumnBuildContext {
@@ -181,6 +186,13 @@ struct SplitReadOptions {
     ShardedKVCache* cache = nullptr;
     TFileRangeDesc current_range;
     FileFormat current_split_format = FileFormat::PARQUET;
+    std::shared_ptr<const FileContext> file_context;
+    // Generated physical children keep the FE source coordinates in the cache key so serial and
+    // refined scans address the same predicate bitmap.
+    std::optional<std::pair<int64_t, int64_t>> condition_cache_source_range;
+    std::shared_ptr<ConditionCacheSplitContext> condition_cache_split_context;
+    int64_t format_split_id = -1;
+    int64_t format_split_id_end = -1;
     std::optional<GlobalRowIdContext> global_rowid_context;
 };
 
@@ -228,12 +240,21 @@ public:
 
     // Refresh row-level predicates for an already prepared split. Physical readers that support
     // this operation decide the safe boundary at which the new immutable request becomes active.
-    virtual Status refresh_conjuncts(VExprContextSPtrs conjuncts);
+    // A supplied digest describes this exact conjunct snapshot for condition-cache isolation. RF
+    // completeness is monotonic within one split and enables safe COUNT(*) placeholder elision.
+    virtual Status refresh_conjuncts(VExprContextSPtrs conjuncts,
+                                     std::optional<uint64_t> condition_cache_digest = std::nullopt,
+                                     bool all_runtime_filters_applied = false);
 
     virtual bool current_split_pruned() const { return _current_split_pruned; }
     virtual bool current_split_uses_metadata_count() const {
         return _current_split_uses_metadata_count;
     }
+
+    // Refine a prepared source split into format-specific physical children. The default
+    // implementation currently handles native Parquet; wrappers dispatch to their active child.
+    virtual Status build_physical_splits(const FileScanSplit& source_split,
+                                         std::vector<FileScanSplit>* splits, bool* was_split);
 
     // Discard the active split after the caller decides an error is ignorable, for example a
     // stale external-table file listing that returns NOT_FOUND. The next prepare_split() must start
@@ -411,7 +432,9 @@ protected:
         DORIS_CHECK(file_schema != nullptr);
         return Status::OK();
     }
-    virtual Status validate_file_mapping(const TableColumnMapper&) const { return Status::OK(); }
+    static Status validate_variant_file_mappings(FileFormat format,
+                                                 const std::vector<ColumnMapping>& mappings);
+    virtual Status validate_file_mapping(const TableColumnMapper& mapper) const;
 
     // Open the concrete reader for the current split/task and build the file-local scan request.
     virtual Status open_reader() {
@@ -449,6 +472,10 @@ protected:
         auto file_request = std::make_shared<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper->create_scan_request(
                 _table_filters, _projected_columns, file_request.get(), _runtime_state));
+        file_request->predicate_snapshot_digest = _predicate_snapshot_digest;
+        _constant_pruning_safe_filter_count =
+                std::min(_constant_pruning_safe_filter_count,
+                         file_request->constant_pruning_safe_table_filter_count);
         bool constant_filter_pruned_split = false;
         RETURN_IF_ERROR(_evaluate_constant_filters(&constant_filter_pruned_split));
         if (constant_filter_pruned_split) {
@@ -470,7 +497,9 @@ protected:
             file_request->count_star_placeholder_columns.reserve(
                     file_request->non_predicate_columns.size());
             for (const auto& column : file_request->non_predicate_columns) {
-                file_request->count_star_placeholder_columns.push_back(column.column_id());
+                if (!file_request->is_residual_predicate_column(column.column_id())) {
+                    file_request->count_star_placeholder_columns.push_back(column.column_id());
+                }
             }
         }
         RETURN_IF_ERROR(customize_file_scan_request(file_request.get()));
@@ -1044,7 +1073,11 @@ protected:
         RETURN_IF_ERROR(_build_file_aggregate_request(_push_down_agg_type, &file_request));
         FileAggregateResult file_result;
         Status status;
-        {
+        if (_metadata_aggregate_result.has_value()) {
+            file_result = std::move(*_metadata_aggregate_result);
+            _metadata_aggregate_result.reset();
+            status = Status::OK();
+        } else {
             SCOPED_TIMER(_profile.file_reader_total_timer);
             SCOPED_TIMER(_profile.file_reader_aggregate_timer);
             status = _data_reader.reader->get_aggregate_result(file_request, &file_result);
@@ -1920,6 +1953,7 @@ protected:
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
     std::optional<std::vector<GlobalIndex>> _push_down_count_columns;
+    std::optional<uint64_t> _predicate_snapshot_digest;
     size_t _batch_size = 0;
     uint64_t _initial_condition_cache_digest = 0;
     uint64_t _condition_cache_digest = 0;
@@ -1930,6 +1964,11 @@ protected:
     segment_v2::ConditionCache::ExternalCacheKey _condition_cache_key;
     std::shared_ptr<std::vector<bool>> _condition_cache;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
+    std::optional<std::pair<int64_t, int64_t>> _condition_cache_source_range;
+    std::shared_ptr<ConditionCacheSplitContext> _condition_cache_split_context;
+    bool _condition_cache_split_participating = false;
+    bool _condition_cache_split_invalid = false;
+    bool _condition_cache_initialized = false;
     int64_t _condition_cache_hit_count = 0;
     bool _current_reader_reached_eof = false;
     int64_t _remaining_table_level_count = -1;
@@ -1943,6 +1982,7 @@ protected:
     bool _all_runtime_filters_applied_for_split = true;
     std::optional<GlobalRowIdContext> _global_rowid_context;
     bool _aggregate_pushdown_tried = false;
+    std::optional<FileAggregateResult> _metadata_aggregate_result;
     bool _current_split_pruned = false;
     TableColumnMapperOptions _mapper_options;
 

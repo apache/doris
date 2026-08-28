@@ -45,9 +45,31 @@ if [[ -z "${DORIS_THIRDPARTY}" ]]; then
     export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
 fi
 export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
-export TP_INSTALLED_DIR="${DORIS_THIRDPARTY}/installed"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 . "${DORIS_HOME}/env.sh"
+# shellcheck source=thirdparty/arrow-paimon-vars.sh
+. "${DORIS_HOME}/thirdparty/arrow-paimon-vars.sh"
+
+prepare_build_image_arrow_paimon_prebuilt() {
+    local selected_thirdparty_root
+    local checkout_thirdparty_root
+
+    selected_thirdparty_root="$(cd "${DORIS_THIRDPARTY}" && pwd -P)"
+    checkout_thirdparty_root="$(cd "${DORIS_HOME}/thirdparty" && pwd -P)"
+    if [[ "${selected_thirdparty_root}" == "${checkout_thirdparty_root}" ]]; then
+        return 0
+    fi
+
+    # The official Linux x86_64 build image carries an install-only thirdparty
+    # tree. Refresh it from the shared automation asset when the image predates
+    # the Arrow/Paimon closure selected by this checkout.
+    if [[ "${selected_thirdparty_root}" != "/var/local/thirdparty" ||
+        "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
+        return 0
+    fi
+    ensure_arrow_paimon_prebuilt_from_url "${selected_thirdparty_root}" \
+        "${ARROW_PAIMON_SHARED_PREBUILT_LINUX_X86_64_URL}"
+}
 
 trim_whitespace() {
     local value="$1"
@@ -228,6 +250,8 @@ echo "Get params:
 "
 echo "Build Backend UT"
 
+prepare_build_image_arrow_paimon_prebuilt
+
 update_submodule() {
     local submodule_path=$1
     local submodule_name=$2
@@ -251,13 +275,7 @@ update_submodule() {
     fi
 }
 
-echo "install datasketches-cpp to thirdparty path before build backend ut"
 update_submodule "contrib/datasketches-cpp" "datasketches-cpp" "https://github.com/apache/datasketches-cpp/archive/refs/heads/master.tar.gz"
-cd "${DORIS_HOME}/contrib/datasketches-cpp"
-"${CMAKE_CMD}" -S . -B build/Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$TP_INSTALLED_DIR -DBUILD_TESTS=OFF
-"${CMAKE_CMD}" --build build/Release -t install
-cd "${DORIS_HOME}"
-
 update_submodule "contrib/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
 update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
 

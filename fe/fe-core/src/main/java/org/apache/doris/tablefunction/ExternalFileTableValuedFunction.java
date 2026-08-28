@@ -45,6 +45,8 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.lance.LanceFragmentInfo;
+import org.apache.doris.datasource.lance.LanceStorageOptions;
 import org.apache.doris.datasource.lance.LanceTableMetadata;
 import org.apache.doris.datasource.lance.LanceTypeConverter;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
@@ -80,6 +82,7 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TLanceFileDesc;
+import org.apache.doris.thrift.TLanceScanParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
@@ -138,7 +141,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     public FileFormatProperties fileFormatProperties;
     private long tableId;
     private long lanceDatasetVersion = -1;
-    private List<Long> lanceFragmentIds = Collections.emptyList();
+    private List<LanceFragmentInfo> lanceFragments = Collections.emptyList();
 
     public abstract TFileType getTFileType();
 
@@ -162,12 +165,20 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return lanceDatasetVersion;
     }
 
-    public List<Long> getLanceFragmentIds() {
-        return lanceFragmentIds;
+    public List<LanceFragmentInfo> getLanceFragments() {
+        return lanceFragments;
     }
 
     public Map<String, String> getBackendConnectProperties() {
         return backendConnectProperties;
+    }
+
+    /**
+     * The typed storage configuration this function was analyzed with. Prefer this over
+     * {@link #getBrokerDesc()}, which builds a fresh {@link StorageProperties} on every call.
+     */
+    public StorageProperties getStorageProperties() {
+        return storageProperties;
     }
 
     public List<String> getPathPartitionKeys() {
@@ -358,9 +369,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             throw new AnalysisException("Lance returned an invalid dataset version: "
                     + metadata.getVersion());
         }
-        List<Long> fragmentIds = new ArrayList<>(metadata.getFragments().size());
+        List<LanceFragmentInfo> fragments =
+                new ArrayList<>(metadata.getFragments().size());
         Set<Long> uniqueIds = new HashSet<>();
-        for (LanceTableMetadata.LanceFragmentInfo fragment : metadata.getFragments()) {
+        for (LanceFragmentInfo fragment : metadata.getFragments()) {
             long fragmentId = fragment.getId();
             if (fragmentId < 0) {
                 throw new AnalysisException("Lance returned an invalid fragment id: " + fragmentId);
@@ -368,7 +380,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             if (!uniqueIds.add(fragmentId)) {
                 throw new AnalysisException("Lance returned duplicate fragment id: " + fragmentId);
             }
-            fragmentIds.add(fragmentId);
+            fragments.add(fragment);
         }
 
         List<Column> lanceColumns = new ArrayList<>(metadata.getSchema().getFields().size());
@@ -390,7 +402,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
 
         lanceDatasetVersion = metadata.getVersion();
-        lanceFragmentIds = Collections.unmodifiableList(fragmentIds);
+        lanceFragments = Collections.unmodifiableList(fragments);
         columns = lanceColumns;
     }
 
@@ -525,6 +537,15 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         Map<String, String> beProperties = new HashMap<>();
         beProperties.putAll(backendConnectProperties);
         fileScanRangeParams.setProperties(beProperties);
+        if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_LANCE) {
+            // lance-c opens the dataset itself and needs the options in Lance's own vocabulary.
+            Map<String, String> lanceStorageOptions = LanceStorageOptions.forUri(
+                    filePath, Collections.singletonList(storageProperties));
+            if (!lanceStorageOptions.isEmpty()) {
+                fileScanRangeParams.setLanceScanParams(
+                        new TLanceScanParams().setLanceStorageOptions(lanceStorageOptions));
+            }
+        }
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());

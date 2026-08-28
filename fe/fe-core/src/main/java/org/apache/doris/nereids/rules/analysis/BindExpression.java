@@ -21,8 +21,11 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.VariantWritePlanValidator;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergVariantWriteAnalyzer;
+import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
@@ -66,6 +69,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.expressions.functions.table.VectorSearch;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -98,6 +102,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.types.BooleanType;
@@ -111,6 +116,7 @@ import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -297,48 +303,13 @@ public class BindExpression implements AnalysisRuleFactory {
         List<NamedExpression> outputExprs = sink.child().getOutput().stream()
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
-        List<Column> visibleColumns = sink.getCols().stream()
-                .filter(Column::isVisible)
-                .collect(ImmutableList.toImmutableList());
-        int dataExprCount = 0;
-        for (NamedExpression expr : outputExprs) {
-            if (!isIcebergMergeMetaColumn(expr.getName())) {
-                dataExprCount++;
-            }
+        if (sink.isWritesDataFiles()) {
+            validateIcebergMergeNoLossyCoercion(
+                    sink.getCols(), sink.child(), ctx.cascadesContext.getCteContext());
         }
-        if (dataExprCount != visibleColumns.size()) {
-            if (sink.getOutputExprs().equals(outputExprs)) {
-                return sink;
-            }
-            return sink.withOutputExprs(outputExprs);
-        }
-
-        boolean changed = false;
-        int columnIndex = 0;
-        List<NamedExpression> castExprs = Lists.newArrayListWithCapacity(outputExprs.size());
-        for (NamedExpression expr : outputExprs) {
-            if (isIcebergMergeMetaColumn(expr.getName())) {
-                castExprs.add(expr);
-                continue;
-            }
-            Column column = visibleColumns.get(columnIndex++);
-            DataType targetType = DataType.fromCatalogType(column.getType());
-            Expression castExpr = TypeCoercionUtils.castIfNotSameType(expr, targetType);
-            NamedExpression namedExpr;
-            if (castExpr instanceof NamedExpression) {
-                namedExpr = (NamedExpression) castExpr;
-                if (!column.getName().equalsIgnoreCase(namedExpr.getName())) {
-                    namedExpr = new Alias(namedExpr, column.getName());
-                }
-            } else {
-                namedExpr = new Alias(castExpr, column.getName());
-            }
-            if (!namedExpr.equals(expr)) {
-                changed = true;
-            }
-            castExprs.add(namedExpr);
-        }
-        if (!changed) {
+        List<NamedExpression> castExprs = coerceIcebergMergeOutput(
+                sink.getCols(), outputExprs, sink.isWritesDataFiles());
+        if (castExprs.equals(outputExprs)) {
             if (sink.getOutputExprs().equals(outputExprs)) {
                 return sink;
             }
@@ -348,14 +319,77 @@ public class BindExpression implements AnalysisRuleFactory {
         return (LogicalIcebergMergeSink<Plan>) sink.withChildAndUpdateOutput(project);
     }
 
-    private boolean isIcebergMergeMetaColumn(String name) {
-        if (IcebergMergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
-            return true;
+    private static void validateIcebergMergeNoLossyCoercion(
+            List<Column> sinkColumns, Plan sourcePlan, CTEContext cteContext) {
+        List<Column> targetColumns = Lists.newArrayList();
+        List<Integer> sourceOrdinals = Lists.newArrayList();
+        int sourceOrdinal = 2;
+        for (Column column : sinkColumns) {
+            if (!column.isVisible() && !IcebergUtils.isIcebergRowLineageColumn(column)) {
+                continue;
+            }
+            if (column.isVisible()) {
+                targetColumns.add(column);
+                sourceOrdinals.add(sourceOrdinal);
+            }
+            sourceOrdinal++;
         }
-        if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name)) {
-            return true;
+        VariantWritePlanValidator.validateNoLossyCoercion(
+                "Iceberg", targetColumns, sourcePlan, sourceOrdinals, cteContext);
+    }
+
+    static List<NamedExpression> coerceIcebergMergeOutput(List<Column> sinkColumns,
+            List<NamedExpression> outputExprs, boolean writesDataFiles) {
+        List<Column> outputColumns = sinkColumns.stream()
+                .filter(column -> column.isVisible() || IcebergUtils.isIcebergRowLineageColumn(column))
+                .collect(ImmutableList.toImmutableList());
+        int expectedOutputCount = 2 + outputColumns.size();
+        if (outputExprs.size() != expectedOutputCount
+                || !IcebergMergeOperation.OPERATION_COLUMN.equalsIgnoreCase(outputExprs.get(0).getName())
+                || !Column.ICEBERG_ROWID_COL.equalsIgnoreCase(outputExprs.get(1).getName())) {
+            throw new AnalysisException("Iceberg merge sink output is not aligned with its routing metadata "
+                    + "and target columns");
         }
-        return IcebergUtils.isIcebergRowLineageColumn(name);
+
+        List<Column> visibleColumns = Lists.newArrayListWithCapacity(outputColumns.size());
+        List<NamedExpression> visibleOutputExprs = Lists.newArrayListWithCapacity(outputColumns.size());
+        for (int i = 0; i < outputColumns.size(); ++i) {
+            Column column = outputColumns.get(i);
+            if (column.isVisible()) {
+                visibleColumns.add(column);
+                visibleOutputExprs.add(outputExprs.get(i + 2));
+            }
+        }
+        if (writesDataFiles) {
+            IcebergVariantWriteAnalyzer.validateMergeActions(visibleColumns, visibleOutputExprs);
+        }
+
+        List<NamedExpression> castExprs = Lists.newArrayListWithCapacity(outputExprs.size());
+        castExprs.add(outputExprs.get(0));
+        castExprs.add(outputExprs.get(1));
+        for (int i = 0; i < outputColumns.size(); ++i) {
+            Column column = outputColumns.get(i);
+            NamedExpression expr = outputExprs.get(i + 2);
+            if (!column.isVisible()) {
+                castExprs.add(expr);
+                continue;
+            }
+            castExprs.add(coerceToColumn(expr, column));
+        }
+        return castExprs;
+    }
+
+    private static NamedExpression coerceToColumn(NamedExpression expr, Column column) {
+        DataType targetType = DataType.fromCatalogType(column.getType());
+        Expression castExpr = TypeCoercionUtils.castIfNotSameType(expr, targetType);
+        if (castExpr instanceof NamedExpression) {
+            NamedExpression namedExpr = (NamedExpression) castExpr;
+            if (column.getName().equalsIgnoreCase(namedExpr.getName())) {
+                return namedExpr;
+            }
+            return new Alias(namedExpr, column.getName());
+        }
+        return new Alias(castExpr, column.getName());
     }
 
     private static boolean hasUnboundPlan(Plan plan) {
@@ -1733,7 +1767,7 @@ public class BindExpression implements AnalysisRuleFactory {
         return new LogicalSort<>(boundOrderKeys.build(), sort.child());
     }
 
-    private LogicalTVFRelation bindTableValuedFunction(MatchingContext<UnboundTVFRelation> ctx) {
+    private Plan bindTableValuedFunction(MatchingContext<UnboundTVFRelation> ctx) {
         UnboundTVFRelation unboundTVFRelation = ctx.root;
         StatementContext statementContext = ctx.statementContext;
         Env env = statementContext.getConnectContext().getEnv();
@@ -1751,8 +1785,28 @@ public class BindExpression implements AnalysisRuleFactory {
         if (sqlCacheContext.isPresent()) {
             sqlCacheContext.get().setCannotProcessExpression(true);
         }
-        return new LogicalTVFRelation(unboundTVFRelation.getRelationId(),
-                (TableValuedFunction) bindResult.first, ImmutableList.of());
+        TableValuedFunction tableValuedFunction = (TableValuedFunction) bindResult.first;
+        LogicalTVFRelation relation = new LogicalTVFRelation(
+                unboundTVFRelation.getRelationId(), tableValuedFunction, ImmutableList.of());
+        if (!(tableValuedFunction instanceof VectorSearch)) {
+            return relation;
+        }
+
+        // Each distributed Lance search split returns topK + offset candidates. Wrap the TVF
+        // relation with a Doris TopN to merge them into the snapshot-wide result. The predicate
+        // pushdown rules move an outer WHERE below this synthetic TopN, where it is evaluated as
+        // a Doris scan residual after each fragment's Lance search and before the global TopN.
+        VectorSearchTableValuedFunction vectorSearch =
+                (VectorSearchTableValuedFunction) tableValuedFunction.getCatalogFunction();
+        Slot distance = relation.getOutput().stream()
+                .filter(slot -> slot.getName().equalsIgnoreCase(
+                        VectorSearchTableValuedFunction.DISTANCE_COLUMN))
+                .findFirst()
+                .orElseThrow(() -> new AnalysisException("vector_search() output is missing '"
+                        + VectorSearchTableValuedFunction.DISTANCE_COLUMN + "'"));
+        OrderKey distanceAscending = new OrderKey(distance, true, false);
+        return new LogicalTopN<>(ImmutableList.of(distanceAscending),
+                vectorSearch.getTopK(), vectorSearch.getOffset(), relation);
     }
 
     private void checkIfOutputAliasNameDuplicatedForGroupBy(Collection<Expression> expressions,

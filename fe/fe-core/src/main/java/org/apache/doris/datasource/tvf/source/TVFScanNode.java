@@ -31,6 +31,8 @@ import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplit.FileSplitCreator;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.lance.LanceFragmentInfo;
+import org.apache.doris.datasource.lance.LanceStorageOptions;
 import org.apache.doris.datasource.lance.source.LanceSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -47,6 +49,7 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLanceFileDesc;
+import org.apache.doris.thrift.TLanceScanParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.Lists;
@@ -125,6 +128,22 @@ public class TVFScanNode extends FileQueryScanNode {
     }
 
     @Override
+    public void createScanRangeLocations() throws UserException {
+        super.createScanRangeLocations();
+        if (tableValuedFunction.isLanceFormat()) {
+            // lance-c opens the dataset itself and needs the options in Lance's own vocabulary.
+            // Set at ScanNode level so credentials are not serialized once per fragment split.
+            Map<String, String> lanceStorageOptions = LanceStorageOptions.forUri(
+                    tableValuedFunction.getFilePath(),
+                    Collections.singletonList(tableValuedFunction.getStorageProperties()));
+            if (!lanceStorageOptions.isEmpty()) {
+                params.setLanceScanParams(
+                        new TLanceScanParams().setLanceStorageOptions(lanceStorageOptions));
+            }
+        }
+    }
+
+    @Override
     public List<String> getPathPartitionKeys() {
         return tableValuedFunction.getPathPartitionKeys();
     }
@@ -192,30 +211,44 @@ public class TVFScanNode extends FileQueryScanNode {
             throw new UserException(
                     "S3 Lance TVF metadata was not initialized with a fixed dataset version");
         }
-        List<Split> splits = new ArrayList<>(tableValuedFunction.getLanceFragmentIds().size());
-        for (Long fragmentId : tableValuedFunction.getLanceFragmentIds()) {
-            splits.add(new LanceSplit(tableValuedFunction.getFilePath(), version, fragmentId, 1));
+        List<LanceFragmentInfo> fragments = tableValuedFunction.getLanceFragments();
+        // Mirror LanceScanNode: use the largest fragment as one standard split so smaller fragments
+        // keep their relative physical-row weight, keeping the catalog and S3/file TVF paths in sync.
+        long targetRows = 1;
+        for (LanceFragmentInfo fragment : fragments) {
+            targetRows = Math.max(targetRows, Math.max(fragment.getPhysicalRows(), 1));
+        }
+        List<Split> splits = new ArrayList<>(fragments.size());
+        for (LanceFragmentInfo fragment : fragments) {
+            LanceSplit split = LanceSplit.forFragment(tableValuedFunction.getFilePath(), version,
+                    fragment.getId(), fragment.getPhysicalRows());
+            split.setTargetSplitSize(targetRows);
+            splits.add(split);
         }
         return splits;
     }
 
-    private long determineTargetFileSplitSize(List<TBrokerFileStatus> fileStatuses) {
+    private long determineTargetFileSplitSize(List<TBrokerFileStatus> fileStatuses) throws UserException {
+        long fallbackSize;
         if (sessionVariable.getFileSplitSize() > 0) {
-            return sessionVariable.getFileSplitSize();
-        }
-        long result = sessionVariable.getMaxInitialSplitSize();
-        long totalFileSize = 0;
-        boolean exceedInitialThreshold = false;
-        for (TBrokerFileStatus fileStatus : fileStatuses) {
-            totalFileSize += fileStatus.getSize();
-            if (!exceedInitialThreshold
-                    && totalFileSize >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
-                exceedInitialThreshold = true;
+            fallbackSize = sessionVariable.getFileSplitSize();
+        } else {
+            long totalFileSize = 0;
+            boolean exceedInitialThreshold = false;
+            for (TBrokerFileStatus fileStatus : fileStatuses) {
+                totalFileSize += fileStatus.getSize();
+                if (!exceedInitialThreshold
+                        && totalFileSize
+                                >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
+                    exceedInitialThreshold = true;
+                }
             }
+            fallbackSize = exceedInitialThreshold
+                    ? sessionVariable.getMaxSplitSize() : sessionVariable.getMaxInitialSplitSize();
+            fallbackSize = applyMaxFileSplitNumLimit(fallbackSize, totalFileSize);
         }
-        result = exceedInitialThreshold ? sessionVariable.getMaxSplitSize() : result;
-        result = applyMaxFileSplitNumLimit(result, totalFileSize);
-        return result;
+        return selectFeSplitSizeForBe(
+                fallbackSize, getFileFormatType(), !isTableLevelCountStarPushdown());
     }
 
     @Override
@@ -228,8 +261,8 @@ public class TVFScanNode extends FileQueryScanNode {
             TLanceFileDesc lanceParams = new TLanceFileDesc();
             lanceParams.setDatasetUri(lanceSplit.getDatasetUri());
             lanceParams.setVersion(lanceSplit.getVersion());
-            if (lanceSplit.hasFragmentId()) {
-                lanceParams.setFragmentIds(Collections.singletonList(lanceSplit.getFragmentId()));
+            if (lanceSplit.hasFragmentIds()) {
+                lanceParams.setFragmentIds(lanceSplit.getFragmentIds());
             }
 
             TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();

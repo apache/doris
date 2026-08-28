@@ -18,6 +18,7 @@
 #pragma once
 
 #include <brpc/controller.h>
+#include <fmt/core.h>
 #include <gen_cpp/cloud.pb.h>
 #include <openssl/md5.h>
 
@@ -42,22 +43,35 @@
 #include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {
-inline MetaServiceCode get_legacy_code(MetaServiceCode code) {
+// Converts a response code and message to values that older clients can read.
+// set_response_code() stores the original code in actual_code
+// Call this function only from set_response_code() or from unit tests; do not call it from other production code.
+// When adding an error code that may be returned to clients, must add its conversion here.
+inline std::pair<MetaServiceCode, std::string> resolve_response_code_and_msg(MetaServiceCode code,
+                                                                             std::string msg) {
     switch (code) {
-    // MS_TOO_BUSY is a overload signal. Map it to KV_TXN_CONFLICT so the BE's existing
+    // MS_TOO_BUSY is an overload signal. Map it to KV_TXN_CONFLICT so the BE's existing
     // conflict-retry path can retry the request.
     case MetaServiceCode::MS_TOO_BUSY:
-        return MetaServiceCode::KV_TXN_CONFLICT;
+        msg += std::string((msg.empty() ? "" : ", ")) +
+               "[MS_TOO_BUSY will be converted to code=KV_TXN_CONFLICT for old version clients]";
+        return {MetaServiceCode::KV_TXN_CONFLICT, std::move(msg)};
+    case MetaServiceCode::TXN_ALREADY_COMMITED:
+        msg += std::string((msg.empty() ? "" : ", ")) +
+               "[TXN_ALREADY_COMMITED will be converted to code=UNDEFINED_ERR for old version "
+               "clients]";
+        return {MetaServiceCode::UNDEFINED_ERR, std::move(msg)};
     default:
-        return code;
+        return {code, std::move(msg)};
     }
 }
 
 inline void set_response_code(MetaServiceResponseStatus* status, MetaServiceCode code,
                               std::string msg) {
+    auto [resolved_code, resolved_msg] = resolve_response_code_and_msg(code, std::move(msg));
     status->set_actual_code(static_cast<int32_t>(code));
-    status->set_code(get_legacy_code(code));
-    status->set_msg(std::move(msg));
+    status->set_code(resolved_code);
+    status->set_msg(std::move(resolved_msg));
 }
 
 inline std::string md5(const std::string& str) {
@@ -331,11 +345,12 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     [[maybe_unused]] std::string instance_id;                                                 \
     [[maybe_unused]] bool drop_request = false;                                               \
     [[maybe_unused]] KVStats stats;                                                           \
-    [[maybe_unused]] MsStressDecision ms_stress_decision;                                     \
-    if (config::enable_ms_rate_limit || config::enable_ms_rate_limit_injection) {             \
-        ms_stress_decision = get_ms_stress_decision();                                        \
-        if (RpcRateLimitWhitelist::instance().should_rate_limit(#func_name) &&                \
-            ms_stress_decision.under_great_stress()) {                                        \
+    [[maybe_unused]] MsStressDecision ms_stress_decision = get_ms_stress_decision();          \
+    if (config::enable_ms_rate_limit &&                                                       \
+        RpcRateLimitWhitelist::instance().should_rate_limit(#func_name) &&                    \
+        ms_stress_decision.under_great_stress()) {                                            \
+        record_ms_rate_limit_triggers(ms_stress_decision);                                    \
+        if (!config::enable_ms_rate_limit_dry_run) {                                          \
             drop_request = true;                                                              \
             msg = ms_stress_decision.debug_string();                                          \
             code = MetaServiceCode::MS_TOO_BUSY;                                              \

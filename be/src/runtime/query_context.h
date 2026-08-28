@@ -28,6 +28,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "common/config.h"
 #include "common/factory_creator.h"
@@ -45,11 +46,16 @@
 
 namespace doris {
 
+namespace io {
+class RemoteScanCacheWriteLimiter;
+} // namespace io
+
 class PipelineFragmentContext;
 class PipelineTask;
 class QueryTaskController;
 class Dependency;
 class RecCTEScanLocalState;
+class SpillDataDir;
 
 struct ReportStatusRequest {
     const Status status;
@@ -198,6 +204,10 @@ public:
 
     TUniqueId query_id() const { return _query_id; }
 
+    // Record a spill data directory before opening the first spill part so teardown only visits
+    // touched roots.
+    void record_spill_data_dir(SpillDataDir* data_dir);
+
     // Expose task-level query progress counters for runtime statistics reporting.
     void add_total_task_num(int delta);
     void inc_finished_task_num();
@@ -243,6 +253,10 @@ public:
     ObjectPool obj_pool;
 
     std::shared_ptr<ResourceContext> resource_ctx() { return _resource_ctx; }
+
+    io::RemoteScanCacheWriteLimiter* remote_scan_cache_write_limiter() const {
+        return _remote_scan_cache_write_limiter.get();
+    }
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node
@@ -318,6 +332,9 @@ private:
     ExecEnv* _exec_env = nullptr;
     MonotonicStopWatch _query_watcher;
     bool _is_nereids = false;
+
+    std::mutex _spill_data_dirs_mutex;
+    std::unordered_set<SpillDataDir*> _spill_data_dirs;
 
     std::shared_ptr<ResourceContext> _resource_ctx;
 
@@ -395,6 +412,7 @@ private:
     // instance id + node id -> cte scan
     std::map<std::pair<TUniqueId, int>, RecCTEScanLocalState*> _cte_scan;
     std::mutex _cte_scan_lock;
+    std::unique_ptr<io::RemoteScanCacheWriteLimiter> _remote_scan_cache_write_limiter;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile

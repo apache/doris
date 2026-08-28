@@ -196,6 +196,8 @@ public class AuditLogHelper {
         }
         String cluster = Config.isCloudMode() ? cloudCluster : "";
         String stmtType = getStmtType(parsedStmt);
+        long queueTimeMs = getQueueTimeMs(ctx);
+
 
         AuditEventBuilder auditEventBuilder = ctx.getAuditEventBuilder();
         // ATTN: MUST reset, otherwise, the same AuditEventBuilder instance will be used in the next query.
@@ -214,6 +216,7 @@ public class AuditLogHelper {
                 .setErrorMessage((ctx.getState().getErrorMessage() == null ? "" :
                         ctx.getState().getErrorMessage().replace("\n", " ").replace("\t", " ")))
                 .setQueryTime(elapseMs)
+                .setQueueTimeMs(queueTimeMs)
                 .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
                 .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
                 .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())

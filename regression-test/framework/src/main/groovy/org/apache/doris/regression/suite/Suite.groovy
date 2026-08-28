@@ -130,6 +130,18 @@ class Suite implements GroovyInterceptable {
         return getConf("suites." + name + "." + key, defaultValue)
     }
 
+    List<String> getDorisConnectorTlsArgs() {
+        if (!Boolean.parseBoolean(getConf("enableTLS", "false"))) {
+            return Collections.emptyList()
+        }
+
+        return [
+                "--doris-enable-tls", "true",
+                "--doris-tls-ca-certificate-path", getConf("trustCACert"),
+                "--doris-tls-skip-hostname-verification", "false"
+        ]
+    }
+
     Properties getConfs(String prefix) {
         Properties p = new Properties()
         for (String name : context.config.otherConfigs.stringPropertyNames()) {

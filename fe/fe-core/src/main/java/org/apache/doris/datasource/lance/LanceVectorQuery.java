@@ -44,10 +44,10 @@ public final class LanceVectorQuery {
     }
 
     /**
-     * Resolve a column using Doris' case-insensitive identifier behavior while preserving the
+     * Find a vector column using Doris' case-insensitive identifier behavior while preserving the
      * physical Lance field name sent to the backend.
      */
-    public static Field resolveVectorField(Schema schema, String column) throws AnalysisException {
+    public static Field findVectorColumnField(Schema schema, String column) throws AnalysisException {
         Field match = null;
         for (Field field : schema.getFields()) {
             if (field.getName().equalsIgnoreCase(column)) {
@@ -64,7 +64,19 @@ public final class LanceVectorQuery {
         return match;
     }
 
-    public static TSearchVector encode(Field field, String json) throws AnalysisException {
+    public static TSearchVector parseAndEncodeQueryVector(Field field, String json)
+            throws AnalysisException {
+        VectorEncodingSpec encodingSpec = analyzeVectorField(field);
+        JsonArray values = parseQueryVector(json, field, encodingSpec.dimension);
+        byte[] encodedValues = encodeQueryVectorValues(field, values, encodingSpec);
+
+        return new TSearchVector()
+                .setElementType(encodingSpec.elementType)
+                .setDimension(encodingSpec.dimension)
+                .setValues(encodedValues);
+    }
+
+    private static VectorEncodingSpec analyzeVectorField(Field field) throws AnalysisException {
         if (hasExtension(field) || field.getDictionary() != null
                 || field.getType().getTypeID() != ArrowType.ArrowTypeID.FixedSizeList
                 || field.getChildren().size() != 1) {
@@ -81,30 +93,36 @@ public final class LanceVectorQuery {
         if (hasExtension(elementField) || elementField.getDictionary() != null) {
             throw unsupportedVectorType(field);
         }
-        ElementEncoding encoding = elementEncoding(field, elementField.getType());
+        return determineVectorEncoding(field, elementField.getType(), dimension);
+    }
 
-        JsonArray values;
+    private static JsonArray parseQueryVector(String json, Field field, int dimension)
+            throws AnalysisException {
         try {
             JsonElement root = JsonParser.parseString(json);
             if (!root.isJsonArray()) {
                 throw new AnalysisException("'query_vector' must be a JSON array");
             }
-            values = root.getAsJsonArray();
+            JsonArray values = root.getAsJsonArray();
+            if (values.size() != dimension) {
+                throw new AnalysisException("Query vector dimension " + values.size()
+                        + " does not match Lance column '" + field.getName()
+                        + "' dimension " + dimension);
+            }
+            return values;
         } catch (AnalysisException e) {
             throw e;
         } catch (RuntimeException e) {
             throw new AnalysisException("Invalid 'query_vector' JSON: " + e.getMessage(), e);
         }
-        if (values.size() != dimension) {
-            throw new AnalysisException("Query vector dimension " + values.size()
-                    + " does not match Lance column '" + field.getName()
-                    + "' dimension " + dimension);
-        }
+    }
 
-        long encodedSize = (long) dimension * encoding.byteWidth;
+    private static byte[] encodeQueryVectorValues(Field field, JsonArray values,
+            VectorEncodingSpec encodingSpec) throws AnalysisException {
+        long encodedSize = (long) encodingSpec.dimension * encodingSpec.byteWidth;
         if (encodedSize > Integer.MAX_VALUE) {
             throw new AnalysisException("Lance vector column '" + field.getName()
-                    + "' is too large to encode: " + dimension + " elements");
+                    + "' is too large to encode: " + encodingSpec.dimension + " elements");
         }
         ByteBuffer buffer = ByteBuffer.allocate((int) encodedSize).order(ByteOrder.LITTLE_ENDIAN);
         for (int i = 0; i < values.size(); ++i) {
@@ -112,34 +130,35 @@ public final class LanceVectorQuery {
             if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) {
                 throw new AnalysisException("Query vector element " + i + " must be a number");
             }
-            encodeElement(value.getAsJsonPrimitive(), i, encoding.elementType, buffer);
+            writeQueryVectorElement(
+                    value.getAsJsonPrimitive(), i, encodingSpec.elementType, buffer);
         }
-        return new TSearchVector()
-                .setElementType(encoding.elementType)
-                .setDimension(dimension)
-                .setValues(buffer.array());
+        return buffer.array();
     }
 
-    private static ElementEncoding elementEncoding(Field vectorField, ArrowType elementType)
-            throws AnalysisException {
+    private static VectorEncodingSpec determineVectorEncoding(
+            Field vectorField, ArrowType elementType, int dimension) throws AnalysisException {
         switch (elementType.getTypeID()) {
             case FloatingPoint:
                 FloatingPointPrecision precision =
                         ((ArrowType.FloatingPoint) elementType).getPrecision();
                 switch (precision) {
                     case HALF:
-                        return new ElementEncoding(TVectorElementType.FLOAT16, Short.BYTES);
+                        return new VectorEncodingSpec(
+                                dimension, TVectorElementType.FLOAT16, Short.BYTES);
                     case SINGLE:
-                        return new ElementEncoding(TVectorElementType.FLOAT32, Float.BYTES);
+                        return new VectorEncodingSpec(
+                                dimension, TVectorElementType.FLOAT32, Float.BYTES);
                     case DOUBLE:
-                        return new ElementEncoding(TVectorElementType.FLOAT64, Double.BYTES);
+                        return new VectorEncodingSpec(
+                                dimension, TVectorElementType.FLOAT64, Double.BYTES);
                     default:
                         throw unsupportedVectorType(vectorField);
                 }
             case Int:
                 ArrowType.Int integer = (ArrowType.Int) elementType;
                 if (integer.getBitWidth() == Byte.SIZE) {
-                    return new ElementEncoding(integer.getIsSigned()
+                    return new VectorEncodingSpec(dimension, integer.getIsSigned()
                             ? TVectorElementType.INT8 : TVectorElementType.UINT8, Byte.BYTES);
                 }
                 throw unsupportedVectorType(vectorField);
@@ -148,7 +167,7 @@ public final class LanceVectorQuery {
         }
     }
 
-    private static void encodeElement(JsonPrimitive value, int index,
+    private static void writeQueryVectorElement(JsonPrimitive value, int index,
             TVectorElementType elementType, ByteBuffer buffer) throws AnalysisException {
         try {
             switch (elementType) {
@@ -226,11 +245,13 @@ public final class LanceVectorQuery {
                 + " is not representable as " + type.name().toLowerCase());
     }
 
-    private static class ElementEncoding {
+    private static class VectorEncodingSpec {
+        private final int dimension;
         private final TVectorElementType elementType;
         private final int byteWidth;
 
-        private ElementEncoding(TVectorElementType elementType, int byteWidth) {
+        private VectorEncodingSpec(int dimension, TVectorElementType elementType, int byteWidth) {
+            this.dimension = dimension;
             this.elementType = elementType;
             this.byteWidth = byteWidth;
         }

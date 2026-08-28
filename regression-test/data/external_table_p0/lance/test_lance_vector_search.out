@@ -10,39 +10,58 @@ row_id	bigint	No	false	\N
 
 -- !indexed_l2_topk --
 1	item-0001	0.0
-2	item-0002	30.0
-3	item-0003	120.0
-4	item-0004	270.0
-5	item-0005	480.0
+2	item-0002	16.0
+3	item-0003	64.0
+4	item-0004	144.0
+5	item-0005	256.0
 
 -- !flat_l2_topk --
 1	item-0001	0.0
-2	item-0002	30.0
-3	item-0003	120.0
-4	item-0004	270.0
-5	item-0005	480.0
+2	item-0002	16.0
+3	item-0003	64.0
+4	item-0004	144.0
+5	item-0005	256.0
 
 -- !indexed_tail --
 1024	item-1024	0.0
-1023	item-1023	30.0
-1022	item-1022	120.0
+1023	item-1023	16.0
+1022	item-1022	64.0
 
 -- !indexed_offset --
-2	item-0002	30.0
-3	item-0003	120.0
+2	item-0002	16.0
+3	item-0003	64.0
 
 -- !indexed_pre_search_filter --
-2	odd	30.0
-4	odd	270.0
-6	odd	750.0
+2	odd	16.0
+4	odd	144.0
+6	odd	400.0
 
--- !post_search_filter --
-2	odd	30.0
+-- !post_search_filter_use_index_true --
+2	odd	16.0
 
--- !pruned_vector_column --
-1	item-0001	0.0
-2	item-0002	30.0
-3	item-0003	120.0
-4	item-0004	270.0
-5	item-0005	480.0
+-- !post_search_filter_use_index_false --
+2	odd	16.0
+514	odd	4210704.0
+
+-- !boundary_single_probe --
+257	item-0257	0.0
+256	item-0256	16.0
+258	item-0258	16.0
+255	item-0255	64.0
+259	item-0259	64.0
+260	item-0260	144.0
+261	item-0261	256.0
+262	item-0262	400.0
+263	item-0263	576.0
+
+-- !boundary_flat --
+257	item-0257	0.0
+256	item-0256	16.0
+258	item-0258	16.0
+255	item-0255	64.0
+259	item-0259	64.0
+254	item-0254	144.0
+260	item-0260	144.0
+253	item-0253	256.0
+261	item-0261	256.0
 

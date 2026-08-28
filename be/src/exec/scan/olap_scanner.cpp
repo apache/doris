@@ -38,6 +38,8 @@
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "core/block/block.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "exec/common/variant_util.h"
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/scan/scan_node.h"
@@ -48,6 +50,7 @@
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
@@ -135,7 +138,14 @@ static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
            stats.write_cache_io_timer != 0 || stats.bytes_write_into_cache != 0 ||
            stats.num_skip_cache_io_total != 0 || stats.read_cache_file_directly_timer != 0 ||
            stats.cache_get_or_set_timer != 0 || stats.lock_wait_timer != 0 ||
-           stats.get_timer != 0 || stats.set_timer != 0 ||
+           stats.get_timer != 0 || stats.set_timer != 0 || stats.async_cache_write_submitted != 0 ||
+           stats.async_cache_write_rejected != 0 ||
+           stats.async_cache_write_buffer_alloc_fail != 0 ||
+           stats.async_cache_write_drop_stale_epoch != 0 ||
+           stats.inflight_write_buffer_index_hit != 0 ||
+           stats.inflight_write_buffer_index_miss != 0 || stats.probe_downloaded_hit != 0 ||
+           stats.probe_downloading_hit != 0 || stats.probe_miss != 0 ||
+           stats.block_wait_success != 0 || stats.block_wait_timeout != 0 ||
            stats.inverted_index_num_local_io_total != 0 ||
            stats.inverted_index_num_remote_io_total != 0 ||
            stats.inverted_index_num_peer_io_total != 0 ||
@@ -144,6 +154,22 @@ static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
            stats.inverted_index_bytes_read_from_peer != 0 ||
            stats.inverted_index_local_io_timer != 0 || stats.inverted_index_remote_io_timer != 0 ||
            stats.inverted_index_peer_io_timer != 0 || stats.inverted_index_io_timer != 0;
+}
+
+io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, ReaderType reader_type,
+                                                        int64_t expiration_time,
+                                                        io::FileCacheStatistics* file_cache_stats) {
+    io::IOContext io_ctx {
+            .reader_type = reader_type,
+            .expiration_time = expiration_time,
+            .query_id = &state->query_id(),
+            .file_cache_stats = file_cache_stats,
+            .is_inverted_index = true,
+    };
+    if (auto* query_ctx = state->get_query_ctx(); query_ctx != nullptr) {
+        io_ctx.remote_scan_cache_write_limiter = query_ctx->remote_scan_cache_write_limiter();
+    }
+    return io_ctx;
 }
 
 Status OlapScanner::prepare() {
@@ -265,13 +291,9 @@ Status OlapScanner::prepare() {
         SCOPED_TIMER(local_state->_statistics_collect_timer);
         _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
 
-        io::IOContext io_ctx {
-                .reader_type = ReaderType::READER_QUERY,
-                .expiration_time = tablet->ttl_seconds(),
-                .query_id = &_state->query_id(),
-                .file_cache_stats = &_tablet_reader->mutable_stats()->file_cache_stats,
-                .is_inverted_index = true,
-        };
+        auto io_ctx = build_score_runtime_collection_io_context(
+                _state, ReaderType::READER_QUERY, tablet->ttl_seconds(),
+                &_tablet_reader->mutable_stats()->file_cache_stats);
 
         RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
                 _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
@@ -491,20 +513,32 @@ Status OlapScanner::_init_variant_columns() {
     if (tablet_schema->num_variant_columns() == 0) {
         return Status::OK();
     }
-    // Parent column has path info to distinction from each other
+    // A Variant read column is identified by its parent uid and PathInData. Root and already
+    // materialized paths may already exist in the copied tablet schema; missing paths are added
+    // below as transient read-schema columns.
     for (auto* slot : _output_tuple_desc->slots()) {
-        if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-            // Such columns are not exist in frontend schema info, so we need to
-            // add them into tablet_schema for later column indexing.
-            const auto& dt_variant =
-                    assert_cast<const DataTypeVariant&>(*remove_nullable(slot->type()));
-            TabletColumn subcol = TabletColumn::create_materialized_variant_column(
-                    tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
-                    slot->column_paths(), slot->col_unique_id(),
-                    dt_variant.variant_max_subcolumns_count(), dt_variant.enable_doc_mode());
-            if (tablet_schema->field_index(*subcol.path_info_ptr()) < 0) {
-                tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
-            }
+        if (slot->type()->get_primitive_type() != PrimitiveType::TYPE_VARIANT) {
+            continue;
+        }
+        // Materialized paths are absent from the persisted frontend schema. Build their transient
+        // read-schema entries from the slot type so V1 and V2 share the same path/type mapping.
+        const PathInData path(tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
+                              slot->column_paths());
+        // Keep transient paths nullable so an absent path preserves the existing NULL result.
+        TabletColumn subcol = variant_util::get_column_by_type(
+                make_nullable(slot->type()), path.get_path(),
+                variant_util::ExtraInfo {.parent_unique_id = slot->col_unique_id(),
+                                         .path_info = path});
+        const int32_t column_index = tablet_schema->field_index(path);
+        if (column_index < 0) {
+            tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
+            continue;
+        }
+        if (subcol.variant_is_v2()) {
+            // TODO: Remove this promotion after legacy ColumnVariant read destinations are
+            // deleted. Persisted metadata describes the shared storage layout; this transient
+            // marker only makes the current scan construct a ColumnVariantV2 destination.
+            tablet_schema->mutable_column(column_index).set_variant_is_v2(true);
         }
     }
     variant_util::inherit_column_attributes(tablet_schema);

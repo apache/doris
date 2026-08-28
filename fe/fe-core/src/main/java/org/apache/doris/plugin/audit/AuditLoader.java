@@ -149,25 +149,26 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         // should be same order as InternalSchema.AUDIT_SCHEMA
 
         // uuid and time
-        logBuffer.append(event.queryId).append(AUDIT_TABLE_COL_SEPARATOR);
+        appendField(logBuffer, event.queryId);
         logBuffer.append(TimeUtils.longToTimeStringWithms(event.timestamp)).append(AUDIT_TABLE_COL_SEPARATOR);
 
         // cs info
-        logBuffer.append(event.clientIp).append(AUDIT_TABLE_COL_SEPARATOR);
-        logBuffer.append(event.user).append(AUDIT_TABLE_COL_SEPARATOR);
-        logBuffer.append(event.feIp).append(AUDIT_TABLE_COL_SEPARATOR);
+        appendField(logBuffer, event.clientIp);
+        appendField(logBuffer, event.user);
+        appendField(logBuffer, event.feIp);
 
         // default ctl and db
-        logBuffer.append(event.ctl).append(AUDIT_TABLE_COL_SEPARATOR);
-        logBuffer.append(event.db).append(AUDIT_TABLE_COL_SEPARATOR);
+        appendField(logBuffer, event.ctl);
+        appendField(logBuffer, event.db);
 
         // query state
-        logBuffer.append(event.state).append(AUDIT_TABLE_COL_SEPARATOR);
+        appendField(logBuffer, event.state);
         logBuffer.append(event.errorCode).append(AUDIT_TABLE_COL_SEPARATOR);
-        logBuffer.append(event.errorMessage).append(AUDIT_TABLE_COL_SEPARATOR);
+        appendField(logBuffer, event.errorMessage);
 
         // execution info
         logBuffer.append(event.queryTime).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.queueTimeMs).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.cpuTimeMs).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.peakMemoryBytes).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.scanBytes).append(AUDIT_TABLE_COL_SEPARATOR);
@@ -182,40 +183,80 @@ public class AuditLoader extends Plugin implements AuditPlugin {
 
         // plan info
         logBuffer.append(event.parseTimeMs).append(AUDIT_TABLE_COL_SEPARATOR);
-        logBuffer.append(event.planTimesMs).append(AUDIT_TABLE_COL_SEPARATOR);
-        logBuffer.append(event.getMetaTimesMs).append(AUDIT_TABLE_COL_SEPARATOR);
-        logBuffer.append(event.scheduleTimesMs).append(AUDIT_TABLE_COL_SEPARATOR);
+        // planTimesMs / getMetaTimesMs / scheduleTimesMs are String columns (formatted timing
+        // breakdowns), not numbers, so they must be sanitized too.
+        appendField(logBuffer, event.planTimesMs);
+        appendField(logBuffer, event.getMetaTimesMs);
+        appendField(logBuffer, event.scheduleTimesMs);
         logBuffer.append(event.hitSqlCache ? 1 : 0).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.isHandledInFe ? 1 : 0).append(AUDIT_TABLE_COL_SEPARATOR);
 
         // queried tables, views and m-views
-        logBuffer.append(event.queriedTablesAndViews).append(AUDIT_TABLE_COL_SEPARATOR);
-        logBuffer.append(event.chosenMViews).append(AUDIT_TABLE_COL_SEPARATOR);
+        appendField(logBuffer, event.queriedTablesAndViews);
+        appendField(logBuffer, event.chosenMViews);
 
         // variable and configs
-        logBuffer.append(event.changedVariables).append(AUDIT_TABLE_COL_SEPARATOR);
-        logBuffer.append(event.sqlMode).append(AUDIT_TABLE_COL_SEPARATOR);
+        appendField(logBuffer, event.changedVariables);
+        appendField(logBuffer, event.sqlMode);
 
 
         // type and digest
-        logBuffer.append(event.stmtType).append(AUDIT_TABLE_COL_SEPARATOR);
+        appendField(logBuffer, event.stmtType);
         logBuffer.append(event.stmtId).append(AUDIT_TABLE_COL_SEPARATOR);
-        logBuffer.append(event.sqlHash).append(AUDIT_TABLE_COL_SEPARATOR);
-        logBuffer.append(event.sqlDigest).append(AUDIT_TABLE_COL_SEPARATOR);
+        appendField(logBuffer, event.sqlHash);
+        appendField(logBuffer, event.sqlDigest);
         logBuffer.append(event.isQuery ? 1 : 0).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.isNereids ? 1 : 0).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.isInternal ? 1 : 0).append(AUDIT_TABLE_COL_SEPARATOR);
 
         // resource
-        logBuffer.append(event.workloadGroup).append(AUDIT_TABLE_COL_SEPARATOR);
-        logBuffer.append(event.cloudClusterName).append(AUDIT_TABLE_COL_SEPARATOR);
+        appendField(logBuffer, event.workloadGroup);
+        appendField(logBuffer, event.cloudClusterName);
 
         // already trim the query in org.apache.doris.qe.AuditLogHelper#logAuditLog
         String stmt = event.stmt;
         if (LOG.isDebugEnabled()) {
             LOG.debug("receive audit event with stmt: {}", stmt);
         }
-        logBuffer.append(stmt).append(AUDIT_TABLE_LINE_DELIMITER);
+        // stmt is the last (and only free-text) column; sanitize it too so a statement carrying
+        // raw 0x1F/0x1E cannot truncate its own row and forge a following one.
+        appendLastField(logBuffer, stmt);
+    }
+
+    /**
+     * Append one string column to the delimiter-framed audit stream-load payload, followed by the
+     * column separator. The value is sanitized first so that user-controlled text (SQL statement,
+     * identifiers, session-variable values, error messages, ...) cannot embed the column separator
+     * (0x1F) or row delimiter (0x1E) and thereby forge, truncate, or misattribute audit rows in the
+     * internal {@code audit_log} table (O07 / CWE-117 log injection). Numeric and boolean columns
+     * are appended directly since they can never contain these bytes.
+     */
+    private static void appendField(StringBuilder logBuffer, String value) {
+        logBuffer.append(sanitizeField(value)).append(AUDIT_TABLE_COL_SEPARATOR);
+    }
+
+    /**
+     * Append the final string column of a row: sanitize the value (same reason as {@link
+     * #appendField}) and terminate the row with the line delimiter. Every string column is written
+     * through {@code appendField}/{@code appendLastField} so none can bypass the sanitizer.
+     */
+    private static void appendLastField(StringBuilder logBuffer, String value) {
+        logBuffer.append(sanitizeField(value)).append(AUDIT_TABLE_LINE_DELIMITER);
+    }
+
+    /**
+     * Replace the audit framing bytes (column separator 0x1F and row delimiter 0x1E) with a space so
+     * field content cannot alter row/column framing. Only these two bytes are structural, so other
+     * characters (including newlines and tabs already present in SQL text) are preserved as-is.
+     */
+    private static String sanitizeField(String value) {
+        if (value == null || value.isEmpty()) {
+            return value;
+        }
+        if (value.indexOf(AUDIT_TABLE_COL_SEPARATOR) < 0 && value.indexOf(AUDIT_TABLE_LINE_DELIMITER) < 0) {
+            return value;
+        }
+        return value.replace(AUDIT_TABLE_COL_SEPARATOR, ' ').replace(AUDIT_TABLE_LINE_DELIMITER, ' ');
     }
 
     // public for external call.

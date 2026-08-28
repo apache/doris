@@ -1251,6 +1251,7 @@ DECLARE_Int32(blocking_pipeline_executor_size);
 
 // block file cache
 DECLARE_Bool(enable_file_cache);
+DECLARE_mBool(enable_file_cache_write_from_s3_file_writer);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240, "ttl_percent":50, "normal_percent":40, "disposable_percent":5, "index_percent":5}]
@@ -1268,6 +1269,7 @@ DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_each_block_size);
 DECLARE_Bool(clear_file_cache);
 DECLARE_mBool(enable_file_cache_query_limit);
+DECLARE_mBool(enable_file_cache_query_limit_segment_meta);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
 DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
 DECLARE_mBool(enable_evict_file_cache_in_advance);
@@ -1326,6 +1328,13 @@ DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
 DECLARE_mBool(file_cache_enable_only_warm_up_idx);
+
+// async file cache write
+DECLARE_mBool(enable_async_file_cache_write);
+DECLARE_mInt32(async_file_cache_write_workers_per_disk);
+DECLARE_mInt64(async_file_cache_write_max_pending_bytes);
+DECLARE_mBool(enable_async_file_cache_write_inflight_write_buffer_index);
+DECLARE_Int32(async_file_cache_write_inflight_write_buffer_index_shard_count);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1632,6 +1641,22 @@ DECLARE_mInt64(s3_put_bucket_tokens);
 DECLARE_mInt64(s3_put_token_per_second);
 DECLARE_mInt64(s3_put_token_limit);
 DECLARE_mInt64(s3_rate_limiter_log_interval);
+
+// CPU-aware S3 rate limiter: GET/PUT QPS per CPU core. A negative value means unset and
+// falls back to the legacy absolute token configs above; 0 disables QPS limiting.
+DECLARE_mInt64(s3_get_requests_per_second_per_core);
+DECLARE_mInt64(s3_put_requests_per_second_per_core);
+// Hard caps for the CPU-derived GET/PUT QPS. A non-positive value means no cap.
+DECLARE_mInt64(s3_get_requests_per_second_max);
+DECLARE_mInt64(s3_put_requests_per_second_max);
+// GET/PUT bytes per second per CPU core. A non-positive value disables byte-rate limiting.
+DECLARE_mInt64(s3_get_bytes_per_second_per_core);
+DECLARE_mInt64(s3_put_bytes_per_second_per_core);
+// Hard caps for the CPU-derived GET/PUT bytes/s. A non-positive value means no cap.
+DECLARE_mInt64(s3_get_bytes_per_second_max);
+DECLARE_mInt64(s3_put_bytes_per_second_max);
+// Override for cores used to derive effective limits: a non-positive value means auto-detect.
+DECLARE_mInt32(s3_rate_limiter_cpu_cores_override);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
 // When meet s3 429 error, the "get" request will

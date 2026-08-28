@@ -35,6 +35,8 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
@@ -111,6 +113,119 @@ public class IcebergMetadataOpsValidationTest {
         Column column = new Column("int_col", Type.INT, true);
         NestedField currentCol = Types.NestedField.required(1, "int_col", Types.IntegerType.get());
         invokeValidateForModifyColumn(column, currentCol);
+    }
+
+    @Test
+    public void testTopLevelVariantModifyOnlyUpdatesMetadataOnOrcTable() throws Throwable {
+        Type dorisVariantType = IcebergUtils.icebergTypeToDorisType(
+                Types.VariantType.get(), false, false);
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "payload", Types.VariantType.get(), "old doc"));
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
+        Map<String, String> properties = new HashMap<>();
+        properties.put(TableProperties.FORMAT_VERSION, "3");
+        properties.put(TableProperties.DEFAULT_FILE_FORMAT, "orc");
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.properties()).thenReturn(properties);
+        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
+
+        Column column = new Column("payload", dorisVariantType, true, "new doc");
+        column.setNullableSpecified(true);
+        column.setCommentSpecified(true);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any()))
+                    .thenReturn(icebergTable);
+
+            ops.modifyColumn(dorisTable, ColumnPath.of("payload"), column, ColumnPosition.FIRST, 1L);
+        }
+
+        Mockito.verify(updateSchema).updateColumnDoc("payload", "new doc");
+        Mockito.verify(updateSchema).makeColumnOptional("payload");
+        Mockito.verify(updateSchema).moveFirst("payload");
+        Mockito.verify(updateSchema, Mockito.never()).updateColumn(
+                Mockito.anyString(), Mockito.any(org.apache.iceberg.types.Type.PrimitiveType.class),
+                Mockito.any());
+        Mockito.verify(updateSchema).commit();
+    }
+
+    @Test
+    public void testTopLevelVariantModifyRejectsTypeConversions() {
+        Type dorisVariantType = IcebergUtils.icebergTypeToDorisType(
+                Types.VariantType.get(), false, false);
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "variant_col", Types.VariantType.get()),
+                Types.NestedField.optional(2, "int_col", Types.IntegerType.get()));
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any()))
+                    .thenReturn(icebergTable);
+
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.of("variant_col"),
+                            new Column("variant_col", Type.STRING, true), null, 1L),
+                    "Cannot change column type involving Iceberg VARIANT");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.of("int_col"),
+                            new Column("int_col", dorisVariantType, true), null, 1L),
+                    "Cannot change column type involving Iceberg VARIANT");
+        }
+
+        Mockito.verify(icebergTable, Mockito.never()).updateSchema();
+    }
+
+    @Test
+    public void testUpdateTablePropertiesCommitsAllProperties() throws Exception {
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateProperties updateProperties = Mockito.mock(UpdateProperties.class);
+        Mockito.when(icebergTable.updateProperties()).thenReturn(updateProperties);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+
+        Map<String, String> properties = new HashMap<>();
+        properties.put("write.target-file-size-bytes", "134217728");
+        properties.put("commit.manifest.min-count-to-merge", "50");
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            ops.updateTableProperties(dorisTable, properties, 123L);
+        }
+
+        Mockito.verify(updateProperties).set("write.target-file-size-bytes", "134217728");
+        Mockito.verify(updateProperties).set("commit.manifest.min-count-to-merge", "50");
+        Mockito.verify(updateProperties).commit();
+        Mockito.verify(dorisCatalog).getDbForReplay("db");
+    }
+
+    @Test
+    public void testUpdateTablePropertiesDoesNotRefreshAfterCommitFailure() {
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateProperties updateProperties = Mockito.mock(UpdateProperties.class);
+        Mockito.when(icebergTable.updateProperties()).thenReturn(updateProperties);
+        Mockito.when(icebergTable.name()).thenReturn("db.tbl");
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.doThrow(new RuntimeException("commit failed")).when(updateProperties).commit();
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            assertUserException(() -> ops.updateTableProperties(
+                            dorisTable, Collections.singletonMap("write.target-file-size-bytes", "134217728"), 123L),
+                    "commit failed");
+        }
+
+        Mockito.verify(dorisCatalog, Mockito.never()).getDbForReplay(Mockito.anyString());
     }
 
     @Test
@@ -229,7 +344,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             assertUserException(() -> ops.addColumn(dorisTable, ColumnPath.fromDotName("info.new_field"),
                             new Column("new_field", Type.LARGEINT, true), null, 1L),
@@ -263,7 +378,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.child"),
                     new Column("child", new StructType(new StructField("value", Type.BIGINT)), true), null, 1L);
@@ -298,7 +413,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.payload"), column, null, 1L);
         }
@@ -326,7 +441,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.metric"),
                     new Column("metric", Type.BIGINT, true), null, 1L);
@@ -368,7 +483,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.payload"),
                     new Column("payload", payloadType, true), null, 1L);
@@ -398,7 +513,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.metric"),
                     new Column("metric", Type.BIGINT, true), null, 1L);
@@ -424,7 +539,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.of("id"),
                     new Column("id", Type.BIGINT, true), null, 1L);
@@ -450,7 +565,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.of("a.b"),
                             new Column("a.b", Type.BIGINT, true), null, 1L),
@@ -472,7 +587,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.of("a.b"),
                     new Column("a.b", Type.BIGINT, true), null, 1L);
@@ -503,7 +618,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.of("top_uuid"), topUuid, ColumnPosition.FIRST, 1L);
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.uuid_value"), nestedUuid,
@@ -538,7 +653,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.of("top_uuid"),
                     new Column("top_uuid", ScalarType.createVarbinaryType(16), true), null, 1L);
@@ -568,7 +683,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("outer.payload"),
                     new Column("payload", mappedPayloadDorisType(Type.BIGINT, 8,
@@ -596,7 +711,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("outer.payload"),
                             new Column("payload", mappedPayloadDorisType(Type.LARGEINT, 8,
@@ -627,7 +742,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             // Iceberg schema columns are represented as keys in Doris, so the legacy API must not
             // interpret isKey as an explicit KEY clause.
@@ -658,7 +773,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             ops.modifyColumn(dorisTable, column, null, 1L);
         }
@@ -692,7 +807,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.of("info"), topLevelColumn, null, 1L);
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.metric"), nestedColumn, null, 1L);
@@ -745,7 +860,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(staleTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(staleTable);
 
             try {
                 conflictOps.modifyColumn(dorisTable, ColumnPath.of("info"),
@@ -796,7 +911,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             ops.renameColumn(dorisTable, ColumnPath.fromDotName("root.child.id"), "renamed_id", 1L);
             icebergTable.refresh();
@@ -846,7 +961,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             ops.renameColumn(dorisTable, "a", "renamed", 1L);
             icebergTable.refresh();
@@ -875,7 +990,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             assertUserException(() -> ops.addColumn(dorisTable, ColumnPath.fromDotName("s.new_col"),
                             nestedAddDefaultColumn, null, 1L),
@@ -906,7 +1021,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             assertUserException(() -> ops.modifyColumn(dorisTable, defaultColumn, null, 1L),
                     "Modifying default values is not supported for Iceberg columns: id");
@@ -937,7 +1052,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             assertUserException(() -> ops.modifyColumn(
                             dorisTable, ColumnPath.of("info"), new Column("info", Type.INT, true), null, 1L),
@@ -970,7 +1085,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             assertUserException(() -> ops.addColumn(dorisTable, keyColumn, null, 1L),
                     "KEY is not supported for Iceberg ADD/MODIFY COLUMN");
@@ -1017,7 +1132,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             assertUserException(() -> ops.modifyColumn(
                             dorisTable, new Column("info", infoType, true), null, 1L),
@@ -1093,7 +1208,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             assertUserException(() -> ops.addColumn(
                             dorisTable, new Column("id", Type.STRING, true), null, 1L),
@@ -1129,7 +1244,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             ops.reorderColumns(dorisTable, Arrays.asList("label", "id"), 1L);
         }
@@ -1151,7 +1266,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("arr.element"),
                     new Column("element", Type.BIGINT, true), null, 1L);
@@ -1174,7 +1289,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("arr.element"),
                             new Column("element", Type.BIGINT, true), ColumnPosition.FIRST, 1L),
@@ -1205,7 +1320,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             ops.modifyColumnComment(dorisTable, ColumnPath.fromDotName("info.metric"),
                     "struct comment", 1L);
@@ -1231,7 +1346,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             assertUserException(() -> ops.modifyColumnComment(
                             dorisTable, ColumnPath.fromDotName("arr.element"), "array element comment", 1L),
@@ -1271,7 +1386,7 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(dorisTable), Mockito.any())).thenReturn(icebergTable);
 
             assertUserException(() -> ops.addColumn(dorisTable,
                             new Column("_row_id", Type.BIGINT, true), null, 1L),
@@ -1327,8 +1442,10 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(v3DorisTable)).thenReturn(v3IcebergTable);
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(v2DorisTable)).thenReturn(v2IcebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(v3DorisTable), Mockito.any()))
+                    .thenReturn(v3IcebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.eq(v2DorisTable), Mockito.any()))
+                    .thenReturn(v2IcebergTable);
 
             ops.addColumn(v3DorisTable, ColumnPath.fromDotName("s._last_updated_sequence_number"),
                     new Column("_last_updated_sequence_number", Type.BIGINT, true), null, 1L);

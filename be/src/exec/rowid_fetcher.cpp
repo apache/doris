@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -58,6 +59,7 @@
 #include "exec/scan/file_scanner.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
+#include "format_v2/table/lance_reader.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"      // ExecEnv
@@ -76,6 +78,7 @@
 #include "util/brpc_client_cache.h" // BrpcClientCache
 #include "util/defer_op.h"
 #include "util/jsonb/serialize.h"
+#include "util/pretty_printer.h"
 
 namespace doris {
 
@@ -454,6 +457,8 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                                   row_location.row_location.row_id);
         for (int x = 0; x < slots.size(); ++x) {
             auto row_id = static_cast<segment_v2::rowid_t>(row_loc.ordinal_id());
+            // The scoped mutation republishes a potentially replaced V2 column when the reader
+            // transfers ownership of its first assembled batch.
             auto column_guard = result_block.mutate_column_scoped(x);
             MutableColumnPtr& column = column_guard.mutable_column();
             IteratorKey iterator_key {.tablet_id = tablet->tablet_id(),
@@ -543,14 +548,37 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
             const auto& request_block_desc = request.request_block_descs(i);
             PMultiGetBlockV2* pblock = response->add_blocks();
             if (request_block_desc.row_id_size() >= 1) {
-                // Since this block belongs to the same table, we only need to take the first type for judgment.
-                auto first_file_id = request_block_desc.file_id(0);
+                if (request_block_desc.file_id_size() != request_block_desc.row_id_size()) {
+                    return Status::InvalidArgument(
+                            "Row-id fetch has mismatched file_id and row_id counts: "
+                            "file_ids={}, row_ids={}",
+                            request_block_desc.file_id_size(), request_block_desc.row_id_size());
+                }
+                const auto row_location_version = request_block_desc.row_location_version();
+                switch (row_location_version) {
+                case static_cast<uint32_t>(ROW_VERSION::FILE_LOCAL_ROW_ID):
+                case static_cast<uint32_t>(ROW_VERSION::LANCE_DATASET_ROW_ID):
+                    break;
+                default:
+                    return Status::NotSupported("unsupported row location version in fetch: {}",
+                                                row_location_version);
+                }
+                // Rows in this request block belong to the same relation. The first mapping is
+                // sufficient to select the internal/external fetch path; individual file IDs
+                // are still used below to group the actual reads.
+                const auto first_file_id = request_block_desc.file_id(0);
                 auto first_file_mapping = id_file_map->get_file_mapping(first_file_id);
                 if (!first_file_mapping) {
                     return Status::InternalError(
-                            "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
+                            "Backend:{} file mapping not found, query_id: {}, file_id: {}",
                             BackendOptions::get_localhost(), print_id(request.query_id()),
                             first_file_id);
+                }
+                if (first_file_mapping->type != FileMappingType::EXTERNAL &&
+                    row_location_version ==
+                            static_cast<uint32_t>(ROW_VERSION::LANCE_DATASET_ROW_ID)) {
+                    return Status::InvalidArgument(
+                            "Lance dataset row IDs require an external file mapping");
                 }
                 file_type_counts[first_file_mapping->type] += request_block_desc.row_id_size();
 
@@ -656,7 +684,11 @@ Status RowIdStorageReader::read_batch_doris_format_row(
     auto max_k = 0;
     for (int j = 0; j < request_block_desc.row_id_size();) {
         auto file_id = request_block_desc.file_id(j);
-        row_ids.emplace_back(request_block_desc.row_id(j));
+        const auto row_id = request_block_desc.row_id(j);
+        if (row_id > std::numeric_limits<uint32_t>::max()) {
+            return Status::InvalidArgument("internal row id exceeds uint32 range: {}", row_id);
+        }
+        row_ids.emplace_back(static_cast<uint32_t>(row_id));
         auto file_mapping = id_file_map->get_file_mapping(file_id);
         if (!file_mapping) {
             return Status::InternalError(
@@ -665,7 +697,12 @@ Status RowIdStorageReader::read_batch_doris_format_row(
         }
         for (k = 1; j + k < request_block_desc.row_id_size(); ++k) {
             if (request_block_desc.file_id(j + k) == file_id) {
-                row_ids.emplace_back(request_block_desc.row_id(j + k));
+                const auto next_row_id = request_block_desc.row_id(j + k);
+                if (next_row_id > std::numeric_limits<uint32_t>::max()) {
+                    return Status::InvalidArgument("internal row id exceeds uint32 range: {}",
+                                                   next_row_id);
+                }
+                row_ids.emplace_back(static_cast<uint32_t>(next_row_id));
             } else {
                 break;
             }
@@ -688,6 +725,11 @@ const std::string RowIdStorageReader::ScannersRunningTimeProfile = "ScannersRunn
 const std::string RowIdStorageReader::InitReaderAvgTimeProfile = "InitReaderAvgTime";
 const std::string RowIdStorageReader::GetBlockAvgTimeProfile = "GetBlockAvgTime";
 const std::string RowIdStorageReader::FileReadLinesProfile = "FileReadLines";
+const std::string RowIdStorageReader::LanceDatasetOpenTimeProfile = "LanceDatasetOpenTime";
+const std::string RowIdStorageReader::LanceRowIdTakeReadTimeProfile = "LanceRowIdTakeReadTime";
+const std::string RowIdStorageReader::LanceArrowToDorisBlockTimeProfile =
+        "LanceArrowToDorisBlockTime";
+const std::string RowIdStorageReader::LanceRowIdFetchTotalTimeProfile = "LanceRowIdFetchTotalTime";
 const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOCount =
         "TopNLazyMaterializationSecondPhaseLocalIOCount";
 const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOBytes =
@@ -711,22 +753,71 @@ const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseRowsRead
 const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseSegmentsRead =
         "TopNLazyMaterializationSecondPhaseSegmentsRead";
 
+Status RowIdStorageReader::read_lance_rows_by_row_ids(
+        const TFileRangeDesc& scan_range_desc, const std::vector<uint64_t>& row_ids,
+        const std::vector<SlotDescriptor>& slots, RuntimeState* runtime_state,
+        RuntimeProfile* runtime_profile, const TFileScanRangeParams& scan_params, Block* block,
+        RowIdStorageReader::ExternalFetchStatistics* fetch_statistics) {
+    // Unlike Parquet/ORC, a Lance row ID is a native uint64 ID in a fixed dataset snapshot,
+    // rather than a row ordinal interpreted by a reader for one physical file range. Phase-two
+    // fetch therefore opens that dataset snapshot and uses dataset-level take_rows directly. It
+    // does not create a FileScanner or rescan the fragment split that produced the row ID.
+    std::vector<format::ColumnDefinition> projected_columns;
+    projected_columns.reserve(slots.size());
+    for (const auto& slot : slots) {
+        format::ColumnDefinition column;
+        column.identifier = Field::create_field<TYPE_STRING>(slot.col_name());
+        column.name = slot.col_name();
+        column.type = slot.get_data_type_ptr();
+        projected_columns.emplace_back(std::move(column));
+    }
+
+    format::lance::LanceTableReader reader;
+    auto lance_scan_params = scan_params;
+    RETURN_IF_ERROR(scope_timer_run(
+            [&]() {
+                return reader.init({
+                        .projected_columns = projected_columns,
+                        .conjuncts = {},
+                        .format = format::FileFormat::LANCE,
+                        .scan_params = &lance_scan_params,
+                        .io_ctx = nullptr,
+                        .runtime_state = runtime_state,
+                        .scanner_profile = runtime_profile,
+                });
+            },
+            &fetch_statistics->init_reader_ms));
+    RETURN_IF_ERROR(scope_timer_run(
+            [&]() { return reader.read_by_row_ids(scan_range_desc, row_ids, block); },
+            &fetch_statistics->get_block_ms));
+    RETURN_IF_ERROR(reader.close());
+
+    const auto collect_lance_fetch_time = [&](const std::string& timer_name) {
+        if (const auto* counter = runtime_profile->get_counter(timer_name); counter != nullptr) {
+            fetch_statistics->lance_fetch_times_ns.emplace(timer_name, counter->value());
+        }
+    };
+    collect_lance_fetch_time(LanceDatasetOpenTimeProfile);
+    collect_lance_fetch_time(LanceRowIdTakeReadTimeProfile);
+    collect_lance_fetch_time(LanceArrowToDorisBlockTimeProfile);
+    collect_lance_fetch_time(LanceRowIdFetchTotalTimeProfile);
+    return Status::OK();
+}
+
 Status RowIdStorageReader::read_external_row_from_file_mapping(
-        size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,
+        size_t idx, const std::multimap<uint64_t, size_t>& row_ids,
         const std::shared_ptr<FileMapping>& file_mapping, const std::vector<SlotDescriptor>& slots,
         const TUniqueId& query_id, const std::shared_ptr<RuntimeState>& runtime_state,
         std::vector<Block>& scan_blocks, std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
         std::vector<RowIdStorageReader::ExternalFetchStatistics>& fetch_statistics,
         const TFileScanRangeParams& rpc_scan_params,
         const std::unordered_map<std::string, int>& colname_to_slot_id,
-        std::atomic<int>& producer_count, size_t scan_rows_count,
-        std::counting_semaphore<>& semaphore, std::condition_variable& cv, std::mutex& mtx,
         TupleDescriptor& tuple_desc) {
     SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
     signal::set_signal_task_id(query_id);
 
-    std::list<int64_t> read_ids;
-    //Generate an ordered list with the help of the orderliness of the map.
+    std::vector<uint64_t> read_ids;
+    // Generate an ordered, deduplicated list with the help of the multimap ordering.
     for (const auto& [row_id, result_block_idx] : row_ids) {
         if (read_ids.empty() || read_ids.back() != row_id) {
             read_ids.emplace_back(row_id);
@@ -747,14 +838,31 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
 
     std::unique_ptr<RuntimeProfile> sub_runtime_profile =
             std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
-    {
+    const auto format_type = scan_range_desc.__isset.format_type ? scan_range_desc.format_type
+                                                                 : rpc_scan_params.format_type;
+    if (format_type == TFileFormatType::FORMAT_LANCE) {
+        RETURN_IF_ERROR(read_lance_rows_by_row_ids(
+                scan_range_desc, read_ids, slots, runtime_state.get(), sub_runtime_profile.get(),
+                rpc_scan_params, &scan_blocks[idx], &fetch_statistics[idx]));
+    } else {
+        // Parquet/ORC row IDs are consumed as row ordinals within the exact physical file range
+        // recorded by phase one. Keep using FileScanner so the format reader can resolve those
+        // ordinals against that range; unlike Lance, ranges cannot be merged at dataset level.
+        std::list<int64_t> legacy_read_ids;
+        for (const auto row_id : read_ids) {
+            if (row_id > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+                return Status::InvalidArgument("legacy external row id exceeds int64 range: {}",
+                                               row_id);
+            }
+            legacy_read_ids.emplace_back(static_cast<int64_t>(row_id));
+        }
         std::unique_ptr<FileScanner> vfile_scanner_ptr =
                 FileScanner::create_unique(runtime_state.get(), sub_runtime_profile.get(),
                                            &rpc_scan_params, &colname_to_slot_id, &tuple_desc);
 
         RETURN_IF_ERROR(vfile_scanner_ptr->prepare_for_read_lines(scan_range_desc));
         RETURN_IF_ERROR(vfile_scanner_ptr->read_lines_from_range(
-                scan_range_desc, read_ids, &scan_blocks[idx], external_info,
+                scan_range_desc, legacy_read_ids, &scan_blocks[idx], external_info,
                 &fetch_statistics[idx].init_reader_ms, &fetch_statistics[idx].get_block_ms));
     }
 
@@ -773,11 +881,6 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
                 file_read_times_counter->value(), file_read_times_counter->type());
     }
 
-    semaphore.release();
-    if (++producer_count == scan_rows_count) {
-        std::lock_guard<std::mutex> lock(mtx);
-        cv.notify_one();
-    }
     return Status::OK();
 }
 
@@ -802,9 +905,24 @@ Status RowIdStorageReader::read_batch_external_row(
         int plan_node_id = external_info.plan_node_id;
         const auto& first_scan_range_desc = external_info.scan_range_desc;
 
-        DCHECK(id_file_map->get_external_scan_params().contains(plan_node_id));
-        const auto* old_scan_params = &(id_file_map->get_external_scan_params().at(plan_node_id));
-        rpc_scan_params = *old_scan_params;
+        const auto& external_scan_params = id_file_map->get_external_scan_params();
+        const auto scan_params = external_scan_params.find(plan_node_id);
+        if (scan_params == external_scan_params.end()) {
+            return Status::InternalError("External scan params not found for plan node id {}",
+                                         plan_node_id);
+        }
+        rpc_scan_params = scan_params->second;
+        if (request_block_desc.row_location_version() ==
+            static_cast<uint32_t>(ROW_VERSION::LANCE_DATASET_ROW_ID)) {
+            const auto format_type = first_scan_range_desc.__isset.format_type
+                                             ? first_scan_range_desc.format_type
+                                             : rpc_scan_params.format_type;
+            if (format_type != TFileFormatType::FORMAT_LANCE) {
+                return Status::InvalidArgument(
+                        "Lance dataset row IDs cannot be fetched with file format {}",
+                        static_cast<int>(format_type));
+            }
+        }
 
         rpc_scan_params.required_slots.clear();
         rpc_scan_params.column_idxs.clear();
@@ -848,9 +966,9 @@ Status RowIdStorageReader::read_batch_external_row(
     }
 
     // Hash(TFileRangeDesc) => { all the rows that need to be read and their positions in the result block. } +  file mapping
-    // std::multimap<segment_v2::rowid_t, size_t> : The reason for using multimap is: may need the same row of data multiple times.
-    std::map<std::string,
-             std::pair<std::multimap<segment_v2::rowid_t, size_t>, std::shared_ptr<FileMapping>>>
+    // The multimap retains duplicate row IDs because the same source row can appear more than once
+    // in the materialized result.
+    std::map<std::string, std::pair<std::multimap<uint64_t, size_t>, std::shared_ptr<FileMapping>>>
             scan_rows;
 
     // Block corresponding to the order of `scan_rows` map.
@@ -862,7 +980,21 @@ Status RowIdStorageReader::read_batch_external_row(
     // Count the time/bytes it takes to read each TFileRangeDesc. (for profile)
     std::vector<ExternalFetchStatistics> fetch_statistics;
 
-    auto hash_file_range = [](const TFileRangeDesc& file_range_desc) {
+    auto hash_file_range = [&rpc_scan_params](const ExternalFileMappingInfo& external_info) {
+        const auto& file_range_desc = external_info.scan_range_desc;
+        const auto format_type = file_range_desc.__isset.format_type ? file_range_desc.format_type
+                                                                     : rpc_scan_params.format_type;
+        if (format_type == TFileFormatType::FORMAT_LANCE) {
+            // Parquet and ORC row IDs are offsets within a physical file range, so their fetch
+            // path must keep each path/start_offset pair separate. Lance row IDs instead belong
+            // to a fixed dataset snapshot. Although phase one registers one file mapping per
+            // fragment split, phase two uses dataset-level take_rows and can fetch row IDs from
+            // all of those fragments together. Group the mappings by scan node, snapshot, and
+            // dataset URI; the plan node keeps independent scans of the same snapshot isolated.
+            const auto& lance_params = file_range_desc.table_format_params.lance_params;
+            return fmt::format("lance:{}:{}:{}", external_info.plan_node_id, lance_params.version,
+                               lance_params.dataset_uri);
+        }
         std::string value;
         value.resize(file_range_desc.path.size() + sizeof(file_range_desc.start_offset));
         auto* ptr = value.data();
@@ -883,14 +1015,12 @@ Status RowIdStorageReader::read_batch_external_row(
         }
 
         const auto& external_info = file_mapping->get_external_file_info();
-        const auto& scan_range_desc = external_info.scan_range_desc;
-
-        auto scan_range_hash = hash_file_range(scan_range_desc);
+        const auto& scan_range_hash = hash_file_range(external_info);
         if (scan_rows.contains(scan_range_hash)) {
             scan_rows.at(scan_range_hash).first.emplace(request_block_desc.row_id(j), j);
         } else {
-            std::multimap<segment_v2::rowid_t, size_t> tmp {{request_block_desc.row_id(j), j}};
-            scan_rows.emplace(scan_range_hash, std::make_pair(tmp, file_mapping));
+            std::multimap<uint64_t, size_t> rows {{request_block_desc.row_id(j), j}};
+            scan_rows.emplace(scan_range_hash, std::make_pair(std::move(rows), file_mapping));
         }
     }
 
@@ -915,6 +1045,7 @@ Status RowIdStorageReader::read_batch_external_row(
                 std::atomic<int> producer_count {0};
                 std::condition_variable cv;
                 std::mutex mtx;
+                Status scan_status = Status::OK();
 
                 //semaphore: Limit the number of scan tasks submitted at one time
                 std::counting_semaphore semaphore {max_file_scanners};
@@ -924,14 +1055,30 @@ Status RowIdStorageReader::read_batch_external_row(
                     semaphore.acquire();
                     RETURN_IF_ERROR(remote_scan_sched->submit_scan_task(
                             SimplifiedScanTask(
-                                    [&, idx, scan_info]() -> Status {
+                                    [&, idx, scan_info]() -> bool {
+                                        Defer complete_task {[&]() {
+                                            semaphore.release();
+                                            if (++producer_count == scan_rows.size()) {
+                                                std::lock_guard<std::mutex> lock(mtx);
+                                                cv.notify_one();
+                                            }
+                                        }};
                                         const auto& [row_ids, file_mapping] = scan_info;
-                                        return read_external_row_from_file_mapping(
+                                        auto status = read_external_row_from_file_mapping(
                                                 idx, row_ids, file_mapping, slots, query_id,
                                                 runtime_state, scan_blocks, row_id_block_idx,
                                                 fetch_statistics, rpc_scan_params,
-                                                colname_to_slot_id, producer_count,
-                                                scan_rows.size(), semaphore, cv, mtx, tuple_desc);
+                                                colname_to_slot_id, tuple_desc);
+                                        if (!status.ok()) {
+                                            std::lock_guard<std::mutex> lock(mtx);
+                                            if (scan_status.ok()) {
+                                                scan_status = status;
+                                            }
+                                        }
+                                        // The return value indicates whether this one-shot
+                                        // scheduler task has completed, not whether the fetch
+                                        // succeeded. The fetch status is propagated by scan_status.
+                                        return true;
                                     },
                                     nullptr, nullptr),
                             fmt::format("{}-read_batch_external_row-{}", print_id(query_id), idx)));
@@ -942,6 +1089,7 @@ Status RowIdStorageReader::read_batch_external_row(
                     std::unique_lock<std::mutex> lock(mtx);
                     cv.wait(lock, [&] { return producer_count == scan_rows.size(); });
                 }
+                RETURN_IF_ERROR(scan_status);
                 return Status::OK();
             },
             &scan_running_time));
@@ -977,13 +1125,17 @@ Status RowIdStorageReader::read_batch_external_row(
         fmt::memory_buffer file_read_times_buffer;
         format_to(file_read_times_buffer, "[");
 
+        std::map<std::string, int64_t> lance_fetch_times_ns;
         size_t idx = 0;
         for (const auto& [_, scan_info] : scan_rows) {
             format_to(file_read_lines_buffer, "{}, ", scan_info.first.size());
-            *init_reader_avg_ms = fetch_statistics[idx].init_reader_ms;
+            *init_reader_avg_ms += fetch_statistics[idx].init_reader_ms;
             *get_block_avg_ms += fetch_statistics[idx].get_block_ms;
             format_to(file_read_bytes_buffer, "{}, ", fetch_statistics[idx].file_read_bytes);
             format_to(file_read_times_buffer, "{}, ", fetch_statistics[idx].file_read_times);
+            for (const auto& [time_name, time_value] : fetch_statistics[idx].lance_fetch_times_ns) {
+                lance_fetch_times_ns[time_name] += time_value;
+            }
             idx++;
         }
 
@@ -996,13 +1148,17 @@ Status RowIdStorageReader::read_batch_external_row(
         runtime_profile->add_info_string(InitReaderAvgTimeProfile,
                                          std::to_string(*init_reader_avg_ms) + "ms");
         runtime_profile->add_info_string(GetBlockAvgTimeProfile,
-                                         std::to_string(*init_reader_avg_ms) + "ms");
+                                         std::to_string(*get_block_avg_ms) + "ms");
         runtime_profile->add_info_string(FileReadLinesProfile,
                                          fmt::to_string(file_read_lines_buffer));
         runtime_profile->add_info_string(FileScanner::FileReadBytesProfile,
                                          fmt::to_string(file_read_bytes_buffer));
         runtime_profile->add_info_string(FileScanner::FileReadTimeProfile,
                                          fmt::to_string(file_read_times_buffer));
+        for (const auto& [time_name, time_value] : lance_fetch_times_ns) {
+            runtime_profile->add_info_string(time_name,
+                                             PrettyPrinter::print(time_value, TUnit::TIME_NS));
+        }
     }
 
     runtime_profile->to_proto(pprofile, 2);

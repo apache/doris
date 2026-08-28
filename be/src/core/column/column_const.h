@@ -121,6 +121,8 @@ public:
 
     bool is_variable_length() const override { return data->is_variable_length(); }
 
+    bool is_exclusive() const override { return IColumn::is_exclusive() && data->is_exclusive(); }
+
     std::string get_name() const override { return "Const(" + data->get_name() + ")"; }
 
     void resize(size_t new_size) override { s = new_size; }
@@ -305,6 +307,13 @@ public:
 
     bool support_replace_column_null_data() const override {
         return data->support_replace_column_null_data();
+    }
+
+    bool try_replace_null_payload_with_default_without_cow() const override {
+        if (!IColumn::is_exclusive()) {
+            return false;
+        }
+        return data->try_replace_null_payload_with_default_without_cow();
     }
 
     void finalize() override { data->finalize(); }

@@ -18,11 +18,14 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 
 import org.apache.paimon.partition.Partition;
 
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Snapshot-scoped Paimon partition metadata used by Doris.
@@ -43,24 +46,38 @@ public class PaimonPartitionInfo {
         UNPRUNABLE
     }
 
+    // Each ListPartitionItem key holds one LiteralExpr (with lazy supplier, children list and
+    // array) and the Paimon Partition spec one map entry per partition column beyond the first;
+    // the fixed per-partition constants cover a single column. Calibrated against JOL.
+    private static final long PARTITION_EXTRA_COLUMN_BYTES =
+            MetaCacheWeightUtils.estimatedObjectBytes(216L);
+
     public static final PaimonPartitionInfo EMPTY = new PaimonPartitionInfo(PruningStatus.PRUNABLE);
     public static final PaimonPartitionInfo UNPRUNABLE = new PaimonPartitionInfo(PruningStatus.UNPRUNABLE);
 
     private final PruningStatus pruningStatus;
     private final Map<String, PartitionItem> nameToPartitionItem;
     private final Map<String, Partition> nameToPartition;
+    private final long retainedPayloadBytes;
 
     private PaimonPartitionInfo(PruningStatus pruningStatus) {
         this.pruningStatus = pruningStatus;
         this.nameToPartitionItem = Collections.emptyMap();
         this.nameToPartition = Collections.emptyMap();
+        this.retainedPayloadBytes = 0L;
     }
 
     public PaimonPartitionInfo(Map<String, PartitionItem> nameToPartitionItem,
             Map<String, Partition> nameToPartition) {
+        this(nameToPartitionItem, nameToPartition, retainedPayloadBytes(nameToPartition));
+    }
+
+    public PaimonPartitionInfo(Map<String, PartitionItem> nameToPartitionItem,
+            Map<String, Partition> nameToPartition, long retainedPayloadBytes) {
         this.pruningStatus = PruningStatus.PRUNABLE;
         this.nameToPartitionItem = nameToPartitionItem;
         this.nameToPartition = nameToPartition;
+        this.retainedPayloadBytes = retainedPayloadBytes;
     }
 
     public Map<String, PartitionItem> getNameToPartitionItem() {
@@ -73,5 +90,64 @@ public class PaimonPartitionInfo {
 
     public PruningStatus getPruningStatus() {
         return pruningStatus;
+    }
+
+    public long getRetainedPayloadBytes() {
+        return retainedPayloadBytes;
+    }
+
+    static long addRetainedStringPayload(long bytes, String value) {
+        return addString(bytes, value);
+    }
+
+    /** Structural bytes one partition retains for every partition column beyond the first. */
+    static long partitionColumnBytes(long partitionColumnCount) {
+        if (partitionColumnCount <= 1L) {
+            return 0L;
+        }
+        return MetaCacheWeightUtils.saturatedMultiply(
+                partitionColumnCount - 1L, PARTITION_EXTRA_COLUMN_BYTES);
+    }
+
+    private static long retainedPayloadBytes(Map<String, Partition> partitions) {
+        if (partitions == null) {
+            return 0L;
+        }
+        long bytes = 0L;
+        // Spec keys are the schema-owned partition column names, shared by reference across
+        // partitions; charge each distinct reference once, exactly like the retained graph.
+        Set<String> seenSpecKeys = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Map.Entry<String, Partition> entry : partitions.entrySet()) {
+            bytes = addString(bytes, entry.getKey());
+            Partition partition = entry.getValue();
+            if (partition == null) {
+                continue;
+            }
+            bytes = addStrings(bytes, partition.spec(), seenSpecKeys);
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes, partitionColumnBytes(
+                    partition.spec() == null ? 0 : partition.spec().size()));
+            bytes = addString(bytes, partition.createdBy());
+            bytes = addString(bytes, partition.updatedBy());
+            bytes = addStrings(bytes, partition.options(), null);
+        }
+        return bytes;
+    }
+
+    private static long addStrings(long bytes, Map<String, String> values, Set<String> seenKeys) {
+        if (values == null) {
+            return bytes;
+        }
+        for (Map.Entry<String, String> entry : values.entrySet()) {
+            if (seenKeys == null || seenKeys.add(entry.getKey())) {
+                bytes = addString(bytes, entry.getKey());
+            }
+            bytes = addString(bytes, entry.getValue());
+        }
+        return bytes;
+    }
+
+    private static long addString(long bytes, String value) {
+        return MetaCacheWeightUtils.saturatedAdd(
+                bytes, MetaCacheWeightUtils.estimatedStringBytes(value));
     }
 }
