@@ -1148,17 +1148,19 @@ Status IcebergTableReader::_filter_deferred_required_column_predicates(Block* bl
     if (_deferred_required_column_predicates == nullptr || block->rows() == 0) {
         return Status::OK();
     }
-    DORIS_CHECK(block->rows() <= std::numeric_limits<uint16_t>::max());
-    std::vector<uint16_t> selector(block->rows());
+    // mutate_columns_scoped() borrows every column out of the Block, so block->rows() reads 0
+    // until the guard restores them. Capture the row count before entering that scope.
+    const size_t row_count = block->rows();
+    DORIS_CHECK(row_count <= std::numeric_limits<uint16_t>::max());
+    std::vector<uint16_t> selector(row_count);
     std::iota(selector.begin(), selector.end(), 0);
     uint16_t selected_rows = 0;
     {
         auto columns_guard = block->mutate_columns_scoped();
         selected_rows = _deferred_required_column_predicates->evaluate(
-                columns_guard.mutable_columns(), selector.data(),
-                cast_set<uint16_t>(block->rows()));
+                columns_guard.mutable_columns(), selector.data(), cast_set<uint16_t>(row_count));
     }
-    IColumn::Filter filter(block->rows(), 0);
+    IColumn::Filter filter(row_count, 0);
     for (uint16_t row = 0; row < selected_rows; ++row) {
         filter[selector[row]] = 1;
     }
