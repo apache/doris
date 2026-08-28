@@ -390,6 +390,11 @@ public class IcebergSnapshotCacheValue {
     }
 
     private static class FrozenTableOperations implements TableOperations {
+        // REST, Glue and S3 Tables catalog FileIOTracker use weak TableOperations keys and close the
+        // associated FileIO when a key disappears. Retain the SDK operations for the whole frozen
+        // generation; the promoted catalog-generation guard keeps the tracker itself alive until
+        // all borrowers end.
+        private final TableOperations sdkTrackedOperations;
         private final TableMetadata metadata;
         private final FileIO fileIO;
         private final EncryptionManager encryptionManager;
@@ -398,6 +403,7 @@ public class IcebergSnapshotCacheValue {
 
         private FrozenTableOperations(TableOperations source, TableMetadata metadata,
                 boolean nonGrowing) {
+            this.sdkTrackedOperations = source;
             this.metadata = metadata;
             this.fileIO = source.io();
             this.encryptionManager = source.encryption();

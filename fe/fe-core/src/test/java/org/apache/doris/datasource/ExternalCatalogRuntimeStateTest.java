@@ -28,6 +28,13 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public class ExternalCatalogRuntimeStateTest {
 
@@ -48,6 +55,48 @@ public class ExternalCatalogRuntimeStateTest {
 
         Assertions.assertEquals(0L, restored.getRuntimeGeneration());
         assertTrackerCanRetainAndRelease(restored, HMSExternalCatalog.class, "icebergResourceTracker");
+    }
+
+    @Test
+    public void testHmsRuntimeGenerationCannotObservePropertyCommitMidReset() throws Exception {
+        CountDownLatch resetEntered = new CountDownLatch(1);
+        CountDownLatch allowResetToFinish = new CountDownLatch(1);
+        HMSExternalCatalog catalog = new HMSExternalCatalog(
+                3L, "hms", null,
+                new HashMap<>(Collections.singletonMap("s3.access_key", "old")), "") {
+            @Override
+            public synchronized void notifyPropertiesUpdated(java.util.Map<String, String> updatedProps) {
+                resetEntered.countDown();
+                try {
+                    Assertions.assertTrue(allowResetToFinish.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> modifier = executor.submit(() ->
+                    catalog.modifyCatalogProps(Collections.singletonMap("s3.access_key", "new")));
+            Assertions.assertTrue(resetEntered.await(5, TimeUnit.SECONDS));
+            Assertions.assertEquals("new", catalog.getProperties().get("s3.access_key"));
+
+            CountDownLatch readerStarted = new CountDownLatch(1);
+            Future<Long> reader = executor.submit(() -> {
+                readerStarted.countDown();
+                return catalog.getRuntimeGeneration();
+            });
+            Assertions.assertTrue(readerStarted.await(5, TimeUnit.SECONDS));
+            Assertions.assertThrows(TimeoutException.class, () -> reader.get(200, TimeUnit.MILLISECONDS));
+
+            allowResetToFinish.countDown();
+            modifier.get(5, TimeUnit.SECONDS);
+            Assertions.assertEquals(1L, reader.get(5, TimeUnit.SECONDS));
+        } finally {
+            allowResetToFinish.countDown();
+            executor.shutdownNow();
+        }
     }
 
     private static <T extends CatalogIf<?>> T roundTrip(CatalogIf<?> catalog, Class<T> expectedType) {

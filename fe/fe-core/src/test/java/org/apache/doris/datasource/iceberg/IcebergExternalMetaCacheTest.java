@@ -516,7 +516,7 @@ public class IcebergExternalMetaCacheTest {
     }
 
     @Test
-    public void testWritableTableLeaseClosesOwnedFileIoOnSuccessAndGenerationFailure() throws Exception {
+    public void testWritableTableLeaseLeavesSdkTrackedFileIoToCatalogTracker() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
         IcebergMetadataOps firstOps = Mockito.mock(IcebergMetadataOps.class);
@@ -526,13 +526,13 @@ public class IcebergExternalMetaCacheTest {
                 new java.util.concurrent.atomic.AtomicReference<>(firstOps);
         Mockito.when(catalog.getMetadataOps()).thenAnswer(invocation -> currentOps.get());
         Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(authenticator);
-        Mockito.when(catalog.getIcebergCatalogType()).thenReturn(IcebergExternalCatalog.ICEBERG_GLUE);
+        Mockito.when(catalog.getIcebergCatalogType()).thenReturn(IcebergExternalCatalog.ICEBERG_S3_TABLES);
         IcebergExternalCatalog.TableLoadContext context =
                 Mockito.mock(IcebergExternalCatalog.TableLoadContext.class);
         Mockito.when(catalog.beginTableLoad()).thenReturn(context);
         Mockito.when(context.getOps()).thenReturn(firstOps);
         Mockito.when(context.getAuthenticator()).thenReturn(authenticator);
-        Mockito.when(context.getCatalogType()).thenReturn(IcebergExternalCatalog.ICEBERG_GLUE);
+        Mockito.when(context.getCatalogType()).thenReturn(IcebergExternalCatalog.ICEBERG_S3_TABLES);
         IcebergCatalogResourceTracker.ResourceLease catalogLease =
                 Mockito.mock(IcebergCatalogResourceTracker.ResourceLease.class);
         Mockito.when(context.promote()).thenReturn(catalogLease);
@@ -564,7 +564,7 @@ public class IcebergExternalMetaCacheTest {
                 Assert.assertSame(successfulTable, lease.getTable());
                 Assert.assertEquals(0, successfulIo.getCloseCount());
             }
-            Assert.assertEquals(1, successfulIo.getCloseCount());
+            Assert.assertEquals(0, successfulIo.getCloseCount());
             Mockito.verify(catalogLease).close();
 
             try {
@@ -573,7 +573,7 @@ public class IcebergExternalMetaCacheTest {
             } catch (RuntimeException expected) {
                 Assert.assertTrue(expected.getMessage().contains("please retry"));
             }
-            Assert.assertEquals(1, rejectedIo.getCloseCount());
+            Assert.assertEquals(0, rejectedIo.getCloseCount());
             Mockito.verify(context, Mockito.times(1)).promote();
         } finally {
             cache.close();
@@ -879,13 +879,13 @@ public class IcebergExternalMetaCacheTest {
         Mockito.when(table.io()).thenReturn(fileIo);
         Mockito.when(catalog.getMetadataOps()).thenReturn(metadataOps);
         Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(authenticator);
-        Mockito.when(catalog.getIcebergCatalogType()).thenReturn(IcebergExternalCatalog.ICEBERG_GLUE);
+        Mockito.when(catalog.getIcebergCatalogType()).thenReturn(IcebergExternalCatalog.ICEBERG_S3_TABLES);
         IcebergExternalCatalog.TableLoadContext context =
                 Mockito.mock(IcebergExternalCatalog.TableLoadContext.class);
         Mockito.when(catalog.beginTableLoad()).thenReturn(context);
         Mockito.when(context.getOps()).thenReturn(metadataOps);
         Mockito.when(context.getAuthenticator()).thenReturn(authenticator);
-        Mockito.when(context.getCatalogType()).thenReturn(IcebergExternalCatalog.ICEBERG_GLUE);
+        Mockito.when(context.getCatalogType()).thenReturn(IcebergExternalCatalog.ICEBERG_S3_TABLES);
         try {
             Mockito.when(context.loadTable("remote_db", "remote_tbl")).thenReturn(table);
         } catch (Exception e) {
@@ -910,7 +910,8 @@ public class IcebergExternalMetaCacheTest {
             } catch (RuntimeException expected) {
                 Assert.assertTrue(exceptionChainContains(expected, "metadata unavailable"));
             }
-            Assert.assertEquals(1, fileIo.getCloseCount());
+            Assert.assertEquals(0, fileIo.getCloseCount());
+            Mockito.verify(context).close();
             Mockito.verify(catalogLease).close();
         } finally {
             cache.close();

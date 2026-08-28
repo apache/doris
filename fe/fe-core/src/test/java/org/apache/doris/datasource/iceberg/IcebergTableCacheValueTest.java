@@ -21,11 +21,16 @@ import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.nereids.StatementContext;
 
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.FileIOTracker;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
@@ -55,22 +60,68 @@ class IcebergTableCacheValueTest {
     }
 
     @Test
-    void classifiesOnlyPerTableFileIOAsOwned() {
-        FileIO tableIo = newProxy(FileIO.class);
-        FileIO catalogIo = newProxy(FileIO.class);
+    void frozenGenerationRetainsSdkTrackedTableOperations() throws Exception {
+        TableOperations trackedOperations = Mockito.mock(TableOperations.class);
+        Table sdkTable = Mockito.mock(Table.class,
+                Mockito.withSettings().extraInterfaces(HasTableOperations.class));
+        Mockito.when(((HasTableOperations) sdkTable).operations()).thenReturn(trackedOperations);
+        Mockito.when(sdkTable.name()).thenReturn("db.tbl");
 
-        Assertions.assertTrue(IcebergExternalMetaCache.shouldCloseTableFileIO(
-                IcebergExternalCatalog.ICEBERG_GLUE, tableIo, null));
-        Assertions.assertTrue(IcebergExternalMetaCache.shouldCloseTableFileIO(
-                IcebergExternalCatalog.ICEBERG_S3_TABLES, tableIo, null));
-        Assertions.assertTrue(IcebergExternalMetaCache.shouldCloseTableFileIO(
-                IcebergExternalCatalog.ICEBERG_REST, tableIo, catalogIo));
-        Assertions.assertFalse(IcebergExternalMetaCache.shouldCloseTableFileIO(
-                IcebergExternalCatalog.ICEBERG_REST, catalogIo, catalogIo));
-        Assertions.assertFalse(IcebergExternalMetaCache.shouldCloseTableFileIO(
-                IcebergExternalCatalog.ICEBERG_REST, tableIo, null));
-        Assertions.assertFalse(IcebergExternalMetaCache.shouldCloseTableFileIO(
-                IcebergExternalCatalog.ICEBERG_DLF, tableIo, null));
+        Table retained = IcebergSnapshotCacheValue.retainTableGeneration(sdkTable);
+        TableOperations frozenOperations = ((HasTableOperations) retained).operations();
+        Field sdkTrackedOperations = frozenOperations.getClass().getDeclaredField("sdkTrackedOperations");
+        sdkTrackedOperations.setAccessible(true);
+
+        Assertions.assertSame(trackedOperations, sdkTrackedOperations.get(frozenOperations));
+    }
+
+    @Test
+    void sdkTrackerCannotCloseFileIoBeforeDorisBorrowerEnds() {
+        FileIOTracker sdkTracker = new FileIOTracker();
+        assertSdkTrackerCannotCloseBeforeBorrowerEnds(sdkTracker::track, sdkTracker::close);
+    }
+
+    @Test
+    void s3TablesSdkTrackerCannotCloseFileIoBeforeDorisBorrowerEnds() {
+        software.amazon.s3tables.iceberg.imports.FileIOTracker sdkTracker =
+                new software.amazon.s3tables.iceberg.imports.FileIOTracker();
+        assertSdkTrackerCannotCloseBeforeBorrowerEnds(sdkTracker::track, sdkTracker::close);
+    }
+
+    private void assertSdkTrackerCannotCloseBeforeBorrowerEnds(
+            java.util.function.Consumer<TableOperations> track, Runnable closeTracker) {
+        AtomicInteger fileIoCloses = new AtomicInteger();
+        FileIO fileIO = Mockito.mock(FileIO.class);
+        Mockito.doAnswer(invocation -> {
+            fileIoCloses.incrementAndGet();
+            return null;
+        }).when(fileIO).close();
+        TableOperations trackedOperations = Mockito.mock(TableOperations.class);
+        Mockito.when(trackedOperations.io()).thenReturn(fileIO);
+        track.accept(trackedOperations);
+        Table sdkTable = Mockito.mock(Table.class,
+                Mockito.withSettings().extraInterfaces(HasTableOperations.class));
+        Mockito.when(((HasTableOperations) sdkTable).operations()).thenReturn(trackedOperations);
+        Mockito.when(sdkTable.name()).thenReturn("db.tbl");
+
+        IcebergCatalogResourceTracker catalogTracker = new IcebergCatalogResourceTracker();
+        IcebergCatalogResourceTracker.LoadGuard guard = catalogTracker.beginLoad();
+        IcebergCatalogResourceTracker.ResourceLease catalogLease = guard.promote();
+        guard.close();
+        Table retainedTable = IcebergSnapshotCacheValue.retainTableGeneration(sdkTable);
+        IcebergTableCacheValue value = new IcebergTableCacheValue(
+                retainedTable, null, () -> null, () -> { }, catalogLease::close);
+        IcebergTableCacheValue.Lease borrower = value.tryAcquire();
+        Assertions.assertNotNull(borrower);
+        value.releaseLoaderReference();
+
+        catalogTracker.retireCurrent(closeTracker);
+        value.releaseCacheReference();
+        Assertions.assertEquals(0, fileIoCloses.get());
+
+        borrower.close();
+        Mockito.verify(fileIO, Mockito.timeout(3000)).close();
+        Assertions.assertEquals(1, fileIoCloses.get());
     }
 
     @Test
