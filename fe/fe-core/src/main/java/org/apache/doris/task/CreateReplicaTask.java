@@ -316,6 +316,7 @@ public class CreateReplicaTask extends AgentTask {
         int sequenceCol = -1;
         int versionCol = -1;
         int commitTsoCol = -1;
+        int rowLsnCol = -1;
         List<TColumn> tColumns = null;
         Object tCols = objectPool.get(columns);
         if (tCols != null) {
@@ -357,12 +358,16 @@ public class CreateReplicaTask extends AgentTask {
             if (column.isCommitTsoColumn()) {
                 commitTsoCol = i;
             }
+            if (column.isRowLsnColumn()) {
+                rowLsnCol = i;
+            }
         }
         tSchema.setColumns(tColumns);
         tSchema.setDeleteSignIdx(deleteSign);
         tSchema.setSequenceColIdx(sequenceCol);
         tSchema.setVersionColIdx(versionCol);
         tSchema.setCommitTsoColIdx(commitTsoCol);
+        tSchema.setRowLsnColIdx(rowLsnCol);
         tSchema.setRowStoreColCids(rowStoreColumnUniqueIds);
         if (!CollectionUtils.isEmpty(clusterKeyUids)) {
             tSchema.setClusterKeyUids(clusterKeyUids);

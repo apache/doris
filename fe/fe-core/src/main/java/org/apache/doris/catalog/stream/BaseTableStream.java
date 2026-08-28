@@ -23,7 +23,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TBinlogScanType;
@@ -95,8 +94,6 @@ public abstract class BaseTableStream extends Table {
     @SerializedName("sr")
     private String staleReason = "N/A";
 
-    protected volatile TableIf baseTable;
-
     // for persist
     public BaseTableStream() {
         super(TableType.STREAM);
@@ -105,7 +102,6 @@ public abstract class BaseTableStream extends Table {
     public BaseTableStream(long id, String streamName, TableIf baseTable) {
         super(id, streamName, TableType.STREAM, ImmutableList.of());
         this.baseTableInfo = new TableStreamBaseTableInfo(baseTable);
-        this.baseTable = baseTable;
         this.disabled = false;
         this.stale = false;
     }
@@ -115,31 +111,21 @@ public abstract class BaseTableStream extends Table {
     }
 
     public TableIf getBaseTableNullable() {
-        if (baseTable == null) {
-            baseTable = baseTableInfo.getTableNullable();
-        }
-        return baseTable;
+        return baseTableInfo.getTableNullable();
     }
+
+    // Dynamically generate the stream schema from the locked base table so that base table
+    // schema changes are reflected automatically.
+    protected abstract List<Column> generateDynamicSchema(Table baseTable);
 
     @Override
     public List<Column> getFullSchema() {
         Table table = lockBaseTableForSchema();
         try {
-            List<Column> baseSchema = table.getBaseSchema(false);
-            ImmutableList.Builder<Column> schema =
-                    ImmutableList.builderWithExpectedSize(baseSchema.size() + 2);
-            schema.addAll(baseSchema);
-            schema.add(new Column(Column.STREAM_SEQ_VIRTUAL_COLUMN));
-            schema.add(new Column(Column.STREAM_CHANGE_TYPE_VIRTUAL_COLUMN));
-            return schema.build();
+            return generateDynamicSchema(table);
         } finally {
             table.readUnlock();
         }
-    }
-
-    @Override
-    public List<Column> getBaseSchema() {
-        return getBaseSchema(Util.showHiddenColumns());
     }
 
     @Override
@@ -165,6 +151,9 @@ public abstract class BaseTableStream extends Table {
 
     @Override
     public Column getColumn(String name) {
+        if (name == null) {
+            return null;
+        }
         return getFullSchema().stream()
                 .filter(column -> column.getName().equalsIgnoreCase(name))
                 .findFirst()

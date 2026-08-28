@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
@@ -60,7 +61,9 @@ import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.ClearTransactionTask;
@@ -120,6 +123,9 @@ public class DatabaseTransactionMgr {
     // the max number of txn that can be remove per round.
     // set it to avoid holding lock too long when removing too many txns per round.
     private static final int MAX_REMOVE_TXN_PER_ROUND = 10000;
+    // ConfigBase replaces the array on every update, so its identity is the cache version.
+    private static volatile String[] cachedResourceGroupSuccQuorumConfig;
+    private static volatile Map<String, Integer> cachedResourceGroupSuccQuorum = Map.of();
 
     private final long dbId;
 
@@ -494,6 +500,8 @@ public class DatabaseTransactionMgr {
         TabletInvertedIndex tabletInvertedIndex = env.getTabletInvertedIndex();
         Map<Long, Set<Long>> tabletToBackends = new HashMap<>();
         Map<Long, Table> idToTable = new HashMap<>();
+        Map<String, Integer> resourceGroupSuccQuorum = getResourceGroupSuccQuorum();
+        Map<Long, String> backendLocationTags = resourceGroupSuccQuorum.isEmpty() ? Map.of() : new HashMap<>();
         for (int i = 0; i < tableList.size(); i++) {
             idToTable.put(tableList.get(i).getId(), tableList.get(i));
         }
@@ -610,6 +618,8 @@ public class DatabaseTransactionMgr {
 
                 // (TODO): ignore the alter index if txn id is less than sc sched watermark
                 int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partition.getId());
+                ReplicaAllocation replicaAllocation = resourceGroupSuccQuorum.isEmpty() ? null
+                        : table.getPartitionInfo().getReplicaAllocation(partition.getId());
                 for (MaterializedIndex index : allIndices) {
                     for (Tablet tablet : index.getTablets()) {
                         tabletSuccReplicas.clear();
@@ -626,6 +636,12 @@ public class DatabaseTransactionMgr {
                             if (replica == null) {
                                 throw new TransactionCommitFailedException("could not find replica for tablet ["
                                         + tabletId + "], backend [" + tabletBackend + "]");
+                            }
+                            if (!resourceGroupSuccQuorum.isEmpty()) {
+                                backendLocationTags.computeIfAbsent(tabletBackend, backendId -> {
+                                    Backend backend = env.getCurrentSystemInfo().getBackend(backendId);
+                                    return backend == null ? "" : backend.getLocationTag().value;
+                                });
                             }
 
                             // if the tablet have no replica's to commit or the tablet is a rolling up tablet,
@@ -670,9 +686,71 @@ public class DatabaseTransactionMgr {
 
                             throw new TabletQuorumFailedException(transactionId, errMsg);
                         }
+
+                        for (Entry<String, Integer> entry : resourceGroupSuccQuorum.entrySet()) {
+                            String resourceGroup = entry.getKey();
+                            int replicaNumInResourceGroup = replicaAllocation.getReplicaNumByTag(
+                                    Tag.createNotCheck(Tag.TYPE_LOCATION, resourceGroup));
+                            int requiredInResourceGroup = Math.min(entry.getValue(), replicaNumInResourceGroup);
+                            if (requiredInResourceGroup == 0) {
+                                continue;
+                            }
+
+                            int succInResourceGroup = 0;
+                            for (Replica replica : tabletSuccReplicas) {
+                                if (resourceGroup.equals(
+                                        backendLocationTags.get(replica.getBackendIdWithoutException()))) {
+                                    succInResourceGroup++;
+                                }
+                            }
+                            if (succInResourceGroup < requiredInResourceGroup) {
+                                String writeDetail = getTabletWriteDetail(tabletSuccReplicas,
+                                        tabletWriteFailedReplicas, tabletVersionFailedReplicas);
+                                String errMsg = String.format("Failed to commit txn %s, cause tablet %s resource "
+                                                + "group success quorum failed for %s: required %s successful "
+                                                + "replicas, but only %s succeeded. table %s, partition: [ id=%s, "
+                                                + "commit version %s, visible version %s ], this tablet detail: %s. "
+                                                + "Please try again later.", transactionId, tablet.getId(),
+                                        resourceGroup, requiredInResourceGroup, succInResourceGroup, tableId,
+                                        partition.getId(), partition.getCommittedVersion(),
+                                        partition.getVisibleVersion(), writeDetail);
+                                LOG.info(errMsg);
+                                throw new TabletQuorumFailedException(transactionId, errMsg);
+                            }
+                        }
                     }
                 }
             }
+        }
+    }
+
+    private static Map<String, Integer> getResourceGroupSuccQuorum() {
+        String[] config = Config.resource_group_load_success_quorum;
+        if (config == cachedResourceGroupSuccQuorumConfig) {
+            return cachedResourceGroupSuccQuorum;
+        }
+        synchronized (DatabaseTransactionMgr.class) {
+            config = Config.resource_group_load_success_quorum;
+            if (config == cachedResourceGroupSuccQuorumConfig) {
+                return cachedResourceGroupSuccQuorum;
+            }
+            Map<String, Integer> parsedConfig = new HashMap<>();
+            for (String item : config) {
+                String[] parts = item.split(":", -1);
+                try {
+                    int configuredMin = Integer.parseInt(parts.length == 2 ? parts[1].trim() : "");
+                    if (parts[0].trim().isEmpty() || configuredMin < 0) {
+                        throw new NumberFormatException();
+                    }
+                    parsedConfig.put(parts[0].trim(), configuredMin);
+                } catch (NumberFormatException e) {
+                    LOG.warn("Invalid resource_group_load_success_quorum item '{}', ignored. Expected format "
+                            + "resource_group:min_success_replicas with a non-negative integer.", item);
+                }
+            }
+            cachedResourceGroupSuccQuorum = parsedConfig;
+            cachedResourceGroupSuccQuorumConfig = config;
+            return parsedConfig;
         }
     }
 

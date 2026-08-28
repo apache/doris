@@ -489,28 +489,31 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildCrossStatementSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        try {
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            String dbName = db != null ? db.getRemoteName() : "";
+            String tableName = getRemoteName();
+            if (isView()) {
+                // A connector view has no table handle (the SDK tableExists() is false for views); build the schema
+                // from the view definition's columns instead. Mirrors legacy IcebergUtils.loadViewSchemaCacheValue
+                // (icebergView.schema()). Gated on isView() => only view-supporting connectors (SUPPORTS_VIEW) reach
+                // here; view-less connectors (jdbc/paimon/maxcompute) keep isView()==false and skip this.
+                ConnectorViewDefinition viewDefinition = metadata.getViewDefinition(session, dbName, tableName);
+                ConnectorTableSchema viewSchema = new ConnectorTableSchema(
+                        tableName, viewDefinition.getColumns(), null, Collections.emptyMap());
+                return Optional.of(toSchemaCacheValue(metadata, session, dbName, tableName, viewSchema));
+            }
+            Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+            if (!handleOpt.isPresent()) {
+                LOG.warn("Table handle not found for plugin-driven table: {}.{}", dbName, tableName);
+                return Optional.empty();
+            }
 
-        String dbName = db != null ? db.getRemoteName() : "";
-        String tableName = getRemoteName();
-        if (isView()) {
-            // A connector view has no table handle (the SDK tableExists() is false for views); build the schema
-            // from the view definition's columns instead. Mirrors legacy IcebergUtils.loadViewSchemaCacheValue
-            // (icebergView.schema()). Gated on isView() => only view-supporting connectors (SUPPORTS_VIEW) reach
-            // here; view-less connectors (jdbc/paimon/maxcompute) keep isView()==false and skip this.
-            ConnectorViewDefinition viewDefinition = metadata.getViewDefinition(session, dbName, tableName);
-            ConnectorTableSchema viewSchema = new ConnectorTableSchema(
-                    tableName, viewDefinition.getColumns(), null, Collections.emptyMap());
-            return Optional.of(toSchemaCacheValue(metadata, session, dbName, tableName, viewSchema));
+            ConnectorTableSchema tableSchema = metadata.getTableSchema(session, handleOpt.get());
+            return Optional.of(toSchemaCacheValue(metadata, session, dbName, tableName, tableSchema));
+        } finally {
+            session.getStatementScope().closeAll();
         }
-        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
-        if (!handleOpt.isPresent()) {
-            LOG.warn("Table handle not found for plugin-driven table: {}.{}", dbName, tableName);
-            return Optional.empty();
-        }
-
-        ConnectorTableSchema tableSchema = metadata.getTableSchema(session, handleOpt.get());
-        return Optional.of(toSchemaCacheValue(metadata, session, dbName, tableName, tableSchema));
     }
 
     /**
@@ -1160,17 +1163,21 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return Optional.empty();
         }
         ConnectorSession session = pluginCatalog.buildCrossStatementSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
-        if (!handleOpt.isPresent()) {
-            return Optional.empty();
+        try {
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+            if (!handleOpt.isPresent()) {
+                return Optional.empty();
+            }
+            Optional<ConnectorColumnStatistics> statsOpt =
+                    metadata.getColumnStatistics(session, handleOpt.get(), colName);
+            if (!statsOpt.isPresent()) {
+                return Optional.empty();
+            }
+            return toColumnStatistic(statsOpt.get(), getColumn(colName));
+        } finally {
+            session.getStatementScope().closeAll();
         }
-        Optional<ConnectorColumnStatistics> statsOpt =
-                metadata.getColumnStatistics(session, handleOpt.get(), colName);
-        if (!statsOpt.isPresent()) {
-            return Optional.empty();
-        }
-        return toColumnStatistic(statsOpt.get(), getColumn(colName));
     }
 
     /**
@@ -1195,12 +1202,16 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return Collections.emptyList();
         }
         ConnectorSession session = pluginCatalog.buildCrossStatementSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
-        if (!handleOpt.isPresent()) {
-            return Collections.emptyList();
+        try {
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+            if (!handleOpt.isPresent()) {
+                return Collections.emptyList();
+            }
+            return metadata.listFileSizes(session, handleOpt.get());
+        } finally {
+            session.getStatementScope().closeAll();
         }
-        return metadata.listFileSizes(session, handleOpt.get());
     }
 
     /**
@@ -1261,8 +1272,14 @@ public class PluginDrivenExternalTable extends ExternalTable {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildCrossStatementSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        try {
+            return fetchRowCount(session, PluginDrivenMetadata.get(session, connector));
+        } finally {
+            session.getStatementScope().closeAll();
+        }
+    }
 
+    private long fetchRowCount(ConnectorSession session, ConnectorMetadata metadata) {
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return UNKNOWN_ROW_COUNT;
@@ -1353,17 +1370,21 @@ public class PluginDrivenExternalTable extends ExternalTable {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildCrossStatementSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
-        if (!handleOpt.isPresent()) {
+        try {
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+            if (!handleOpt.isPresent()) {
+                return UNKNOWN_ROW_COUNT;
+            }
+            Optional<ConnectorTableStatistics> statsOpt =
+                    metadata.getTableStatistics(session, handleOpt.get(), snapshot);
+            if (statsOpt.isPresent() && statsOpt.get().getRowCount() >= 0) {
+                return statsOpt.get().getRowCount();
+            }
             return UNKNOWN_ROW_COUNT;
+        } finally {
+            session.getStatementScope().closeAll();
         }
-        Optional<ConnectorTableStatistics> statsOpt =
-                metadata.getTableStatistics(session, handleOpt.get(), snapshot);
-        if (statsOpt.isPresent() && statsOpt.get().getRowCount() >= 0) {
-            return statsOpt.get().getRowCount();
-        }
-        return UNKNOWN_ROW_COUNT;
     }
 
     /**

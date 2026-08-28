@@ -60,7 +60,7 @@ struct WriteRequest {
 
 struct TabletAddRowsPayload {
     DorisVector<uint32_t> row_idxs;
-    DorisVector<int64_t> row_binlog_lsns = {};
+    DorisVector<int64_t> allocated_lsns = {};
 };
 
 } // namespace doris

@@ -23,7 +23,15 @@ import org.apache.doris.cloud.JobWarmUpStats;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.JsonUtil;
+import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.cdc.split.BinlogSplit;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.job.manager.JobManager;
+import org.apache.doris.job.offset.jdbc.JdbcOffset;
+import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
@@ -40,7 +48,10 @@ import org.junit.Test;
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
@@ -117,6 +128,49 @@ public class MetricsTest {
             MetricRepo.removeUserConnectionMaxMetric("metric_user");
             Env.getServingEnv().getAuth().updateUserPropertyInternal(Auth.ROOT_USER, Lists.newArrayList(
                     Pair.of(UserProperty.PROP_MAX_USER_CONNECTIONS, "100")), true);
+        }
+    }
+
+    @Test
+    public void testStreamingJobTimeAndLagMetrics() {
+        StreamingInsertJob job = Deencapsulation.newInstance(StreamingInsertJob.class);
+        job.setJobId(1787039821000L);
+        job.setJobName("streaming_metric_job");
+        job.setLastTaskSuccessTime(1787039821123L);
+
+        JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+        provider.setLagBytes(4096);
+        Map<String, String> committedOffset = new HashMap<>();
+        committedOffset.put("file", "mysql-bin.000001");
+        committedOffset.put("pos", "100");
+        committedOffset.put("ts_sec", "1787039800");
+        provider.setCurrentOffset(
+                new JdbcOffset(Collections.singletonList(new BinlogSplit(committedOffset))));
+        Deencapsulation.setField(job, "offsetProvider", provider);
+
+        Env env = Env.getCurrentEnv();
+        FrontendNodeType originalFeType = Deencapsulation.getField(env, "feType");
+        Deencapsulation.setField(env, "feType", FrontendNodeType.MASTER);
+        JobManager jobManager = env.getJobManager();
+        ConcurrentHashMap<Long, AbstractJob> jobMap = Deencapsulation.getField(jobManager, "jobMap");
+        jobMap.put(job.getJobId(), job);
+        try {
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            String metricResult = getPrometheusMetrics();
+
+            Assert.assertTrue(metricResult.contains("doris_fe_streaming_job_per_job_lag_bytes"
+                    + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"} 4096"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_streaming_job_per_job_last_source_event_timestamp_seconds"
+                            + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"} 1787039800"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_streaming_job_per_job_last_task_success_time_seconds"
+                            + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"} 1787039821"));
+            Assert.assertFalse(metricResult.contains("doris_fe_streaming_job_per_job_lag{"));
+        } finally {
+            jobMap.remove(job.getJobId());
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            Deencapsulation.setField(env, "feType", originalFeType);
         }
     }
 

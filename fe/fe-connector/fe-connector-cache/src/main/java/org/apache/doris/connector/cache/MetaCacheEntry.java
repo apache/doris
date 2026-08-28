@@ -55,6 +55,8 @@ public class MetaCacheEntry<K, V> {
     // refreshAfterWriteSeconds is already in seconds (fe-core computes Config.*_minutes * 60 at its call site).
     private final long refreshAfterWriteSeconds;
     private final boolean manualMissLoadEnabled;
+    // Connector-owned cleanup hook. Keep the public API free of Caffeine types.
+    private final BiConsumer<K, V> retirementListener;
     // Keep the loading cache for refreshAfterWrite and the legacy sync-load path when the feature is disabled.
     private final LoadingCache<K, V> loadingData;
     // Use the plain cache view for manual miss load so slow I/O does not happen in Caffeine's sync load path.
@@ -84,6 +86,20 @@ public class MetaCacheEntry<K, V> {
     public MetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec,
             ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
             long refreshAfterWriteSeconds, boolean manualMissLoadEnabled) {
+        this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly,
+                refreshAfterWriteSeconds, manualMissLoadEnabled, null);
+    }
+
+    /**
+     * Creates an entry with a synchronous retirement callback. The callback is invoked whenever a loaded value
+     * stops being owned by this cache: eviction/invalidation, a disabled cache, or an invalidation racing a
+     * manual miss load before publication. The callback deliberately uses only JDK types; Caffeine remains an
+     * implementation detail of this module.
+     */
+    public MetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec,
+            ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
+            long refreshAfterWriteSeconds, boolean manualMissLoadEnabled,
+            BiConsumer<K, V> retirementListener) {
         this.name = name;
         if (contextualOnly) {
             if (loader != null) {
@@ -100,6 +116,7 @@ public class MetaCacheEntry<K, V> {
         this.autoRefresh = autoRefresh;
         this.refreshAfterWriteSeconds = refreshAfterWriteSeconds;
         this.manualMissLoadEnabled = manualMissLoadEnabled;
+        this.retirementListener = retirementListener;
         Objects.requireNonNull(refreshExecutor, "refreshExecutor can not be null");
         this.effectiveEnabled = CacheSpec.isCacheEnabled(
                 this.cacheSpec.isEnable(), this.cacheSpec.getTtlSecond(), this.cacheSpec.getCapacity());
@@ -116,7 +133,13 @@ public class MetaCacheEntry<K, V> {
                 maxSize,
                 true,
                 null);
-        this.loadingData = cacheFactory.buildCache(this::loadFromDefaultLoader, refreshExecutor);
+        if (retirementListener != null) {
+            this.loadingData = cacheFactory.buildCacheWithSyncRemovalListener(
+                    this::loadFromDefaultLoader,
+                    (key, value, cause) -> retirementListener.accept(key, value));
+        } else {
+            this.loadingData = cacheFactory.buildCache(this::loadFromDefaultLoader, refreshExecutor);
+        }
         this.data = loadingData;
         // Initialize striped locks eagerly to keep the hot path allocation-free.
         for (int i = 0; i < loadLocks.length; i++) {
@@ -262,7 +285,9 @@ public class MetaCacheEntry<K, V> {
     private V getWithManualLoad(K key, Function<K, V> loadFunction) {
         if (!effectiveEnabled) {
             // Bypass cache entirely when the entry is disabled so manual miss load does not relax disable semantics.
-            return loadAndTrack(key, loadFunction);
+            V loaded = loadAndTrack(key, loadFunction);
+            notifyRetirement(key, loaded);
+            return loaded;
         }
 
         V value = data.getIfPresent(key);
@@ -279,6 +304,7 @@ public class MetaCacheEntry<K, V> {
             long generation = invalidateGeneration.get();
             V loaded = loadAndTrack(key, loadFunction);
             if (generation != invalidateGeneration.get()) {
+                notifyRetirement(key, loaded);
                 return loaded;
             }
 
@@ -300,6 +326,12 @@ public class MetaCacheEntry<K, V> {
     // Remove only the value loaded by the current request and keep newer replacements intact.
     private void removeLoadedValue(K key, V loaded) {
         data.asMap().computeIfPresent(key, (ignored, currentValue) -> currentValue == loaded ? null : currentValue);
+    }
+
+    private void notifyRetirement(K key, V value) {
+        if (retirementListener != null && value != null) {
+            retirementListener.accept(key, value);
+        }
     }
 
     // Map keys to a fixed lock stripe set to bound memory usage while keeping same-key deduplication.
