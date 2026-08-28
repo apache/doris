@@ -37,7 +37,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Objects;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -83,11 +85,12 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
     private ConcurrentMap<Long, LanceIndexJob> jobs = Maps.newConcurrentMap();
 
     /**
-     * Derived: fence key -&gt; jobId, holds the unresolved jobs that carry fence
-     * identity (identity-less corrupt records are kept out of the books). Rebuilt
-     * after replay/image load.
+     * Derived: fence key -&gt; all job ids holding that fence. Legal admission creates
+     * exactly one owner; retaining every owner for a corrupt collision keeps the
+     * fence fail-closed when one of those jobs later settles. Identity-less corrupt
+     * records are kept out of the books. Rebuilt after replay/image load.
      */
-    private final Map<LanceIndexFenceKey, Long> fenceIndex = Maps.newHashMap();
+    private final Map<LanceIndexFenceKey, NavigableSet<Long>> fenceIndex = Maps.newHashMap();
 
     /** Derived: three-level unresolved counters, rebuilt from the unresolved jobs. */
     private final LanceIndexJobQuota quota = new LanceIndexJobQuota();
@@ -137,14 +140,22 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
         Objects.requireNonNull(job, "job");
         writeLock();
         try {
+            try {
+                job.validateForAdmission();
+            } catch (IllegalArgumentException e) {
+                throw new DdlException("invalid lance index job: " + e.getMessage(), e);
+            }
+            if (tableLimit <= 0 || catalogLimit <= 0 || globalLimit <= 0) {
+                throw new DdlException("lance index job quota limits must all be positive");
+            }
             if (jobs.containsKey(job.getJobId())) {
                 throw new DdlException("lance index job id already exists: " + job.getJobId());
             }
-            Long fencingJobId = fenceIndex.get(job.fenceKey());
-            if (fencingJobId != null) {
+            NavigableSet<Long> fencingJobIds = fenceIndex.get(job.fenceKey());
+            if (fencingJobIds != null && !fencingJobIds.isEmpty()) {
                 // Never disclose the locator in the rejection (the caller may lack target privilege).
                 throw new DdlException("lance index '" + job.getDisplayIndexName()
-                        + "' is fenced by unresolved job " + fencingJobId
+                        + "' is fenced by unresolved job " + fencingJobIds.first()
                         + "; resolve that job (FORCE_RELEASE) before reusing the name");
             }
             // Pure admission check; the charge itself happens in applyToMemory together with the fence,
@@ -167,6 +178,7 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
             admitted.setBackendId(null);
             admitted.setBeProcessEpoch(null);
             admitted.setInvocationId(null);
+            admitted.setDispatchRevision(null);
             admitted.setDeadlineMs(null);
             admitted.setPossibleLiveOwned(false);
             admitted.setTerminationProof(LanceIndexTerminationProof.NONE);
@@ -208,6 +220,16 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
                         jobId, expectedRevision, current);
                 return false;
             }
+            try {
+                current.validateForAdmission();
+            } catch (IllegalArgumentException e) {
+                LOG.warn("reject markRunning for invalid lance index job {}: {}", jobId, e.getMessage());
+                return false;
+            }
+            if (!hasFenceIdentity(current)) {
+                LOG.warn("reject markRunning for lance index job {} without a valid fence identity", jobId);
+                return false;
+            }
             LanceIndexJob updated = new LanceIndexJob(current);
             updated.setMutationState(LanceIndexJobMutationState.RUNNING);
             updated.setBackendId(backendId);
@@ -215,7 +237,9 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
             updated.setInvocationId(invocationId);
             updated.setDeadlineMs(deadlineMs);
             updated.setPossibleLiveOwned(true);
-            updated.setRevision(current.getRevision() + 1);
+            long dispatchRevision = current.getRevision() + 1;
+            updated.setRevision(dispatchRevision);
+            updated.setDispatchRevision(dispatchRevision);
             updated.setUpdateTimeMs(System.currentTimeMillis());
             writeEditLog(updated);
             applyToMemory(updated);
@@ -227,7 +251,7 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
 
     /**
      * RUNNING -&gt; terminal, from a worker/supervisor result. A callback must
-     * match the durable dispatch identity exactly (job revision, invocation
+     * match the durable dispatch identity exactly (immutable dispatch revision, invocation
      * id, and BE process epoch); a stale callback only logs a warning and
      * changes nothing. The typed result is classified into (mutation state,
      * refresh obligation, completion reason); message text is never inspected.
@@ -240,15 +264,16 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
      *
      * @return false (with a warning) when the callback is stale or the job is not RUNNING
      */
-    public boolean completeWithResult(long jobId, long expectedRevision, String invocationId, Long beProcessEpoch,
+    public boolean completeWithResult(long jobId, long expectedDispatchRevision, String invocationId,
+            Long beProcessEpoch,
             LanceIndexJobResult result) {
         Objects.requireNonNull(result, "result");
         writeLock();
         try {
             LanceIndexJob current = jobs.get(jobId);
-            if (current == null || current.getRevision() != expectedRevision) {
-                LOG.warn("reject stale lance index job callback for job {}: expected revision {}, current {}",
-                        jobId, expectedRevision, current);
+            if (current == null || dispatchRevisionOf(current) != expectedDispatchRevision) {
+                LOG.warn("reject stale lance index job callback for job {}: expected dispatch revision {}, current {}",
+                        jobId, expectedDispatchRevision, current);
                 return false;
             }
             if (current.getMutationState() != LanceIndexJobMutationState.RUNNING) {
@@ -266,6 +291,11 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
                     current.getMutationType(), result.getResultCode(), current.isIfExists(),
                     result.isExternalMetadataAdvanced());
             LanceIndexJob updated = new LanceIndexJob(current);
+            if (updated.getDispatchRevision() == null) {
+                // Backfill old RUNNING records before the global revision advances so
+                // an independent termination proof can still identify this dispatch.
+                updated.setDispatchRevision(expectedDispatchRevision);
+            }
             updated.setMutationState(classification.getMutationState());
             updated.setRefreshState(classification.getRefreshState());
             updated.setResult(new LanceIndexJobResult(result.getResultCode(), classification.getCompletionReason(),
@@ -313,6 +343,11 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
                         target, jobId, expectedRevision, current);
                 return false;
             }
+            if (current.getMutationState() == null || !current.getMutationState().isTerminal()) {
+                LOG.warn("reject refresh transition to {} for non-terminal lance index job {} in mutation state {}",
+                        target, jobId, current.getMutationState());
+                return false;
+            }
             LanceIndexJobRefreshState from = current.getRefreshState();
             boolean legal = (target == LanceIndexJobRefreshState.RUNNING
                     && (from == LanceIndexJobRefreshState.REQUIRED || from == LanceIndexJobRefreshState.FAILED))
@@ -337,17 +372,27 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
 
     /**
      * Record a matching termination proof for a job that still owns a
-     * possible-live slot. This releases only the slot: it never changes the
-     * mutation state and never releases the fence or quota.
+     * possible-live slot. Backend, BE process epoch, invocation id, and immutable
+     * dispatch revision must all match. This releases only the slot: it never
+     * changes the mutation state and never releases the fence or quota.
      */
-    public boolean recordTerminationProof(long jobId, long expectedRevision, LanceIndexTerminationProof proof) {
+    public boolean recordTerminationProof(long jobId, long expectedDispatchRevision, long backendId,
+            long beProcessEpoch, String invocationId, LanceIndexTerminationProof proof) {
         Objects.requireNonNull(proof, "proof");
         writeLock();
         try {
             LanceIndexJob current = jobs.get(jobId);
-            if (current == null || current.getRevision() != expectedRevision) {
-                LOG.warn("reject termination proof for lance index job {}: expected revision {}, current {}",
-                        jobId, expectedRevision, current);
+            if (current == null || dispatchRevisionOf(current) != expectedDispatchRevision) {
+                LOG.warn("reject termination proof for lance index job {}: expected dispatch revision {}, current {}",
+                        jobId, expectedDispatchRevision, current);
+                return false;
+            }
+            if (StringUtils.isBlank(invocationId)
+                    || !Objects.equals(current.getBackendId(), backendId)
+                    || !Objects.equals(current.getBeProcessEpoch(), beProcessEpoch)
+                    || !Objects.equals(current.getInvocationId(), invocationId)) {
+                LOG.warn("reject stale termination proof for lance index job {}:"
+                        + " dispatch identity mismatch, current {}", jobId, current);
                 return false;
             }
             if (proof == LanceIndexTerminationProof.NONE || !current.isPossibleLiveOwned()
@@ -357,6 +402,9 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
                 return false;
             }
             LanceIndexJob updated = new LanceIndexJob(current);
+            if (updated.getDispatchRevision() == null) {
+                updated.setDispatchRevision(expectedDispatchRevision);
+            }
             updated.setTerminationProof(proof);
             updated.setPossibleLiveOwned(false);
             updated.setRevision(current.getRevision() + 1);
@@ -389,7 +437,7 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
         }
         for (LanceIndexJob job : snapshot) {
             if (job.getMutationState() == LanceIndexJobMutationState.RUNNING) {
-                boolean completed = completeWithResult(job.getJobId(), job.getRevision(), job.getInvocationId(),
+                boolean completed = completeWithResult(job.getJobId(), dispatchRevisionOf(job), job.getInvocationId(),
                         job.getBeProcessEpoch(),
                         new LanceIndexJobResult(LanceIndexJobResultCode.NO_TRUSTED_RESULT,
                                 LanceIndexJobCompletionReason.NONE,
@@ -442,13 +490,14 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
         }
         writeLock();
         try {
-            LanceIndexJob existing = jobs.get(job.getJobId());
-            if (existing != null && job.getRevision() < existing.getRevision()) {
+            LanceIndexJob replayed = new LanceIndexJob(job);
+            LanceIndexJob existing = jobs.get(replayed.getJobId());
+            if (existing != null && replayed.getRevision() < existing.getRevision()) {
                 LOG.warn("ignore stale lance index job record for job {}: replayed revision {} < current {}",
-                        job.getJobId(), job.getRevision(), existing.getRevision());
+                        replayed.getJobId(), replayed.getRevision(), existing.getRevision());
                 return;
             }
-            applyToMemory(job);
+            applyToMemory(replayed);
         } finally {
             writeUnlock();
         }
@@ -459,36 +508,51 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
      * the replaced record. Fence and quota always move together: a record
      * holds both while {@link LanceIndexJob#isUnresolved()}, provided it
      * carries fence identity (a corrupt identity-less record stays queryable
-     * but out of the books on both the charge and the release side). Caller
-     * holds the write lock.
+     * but out of the books on both the charge and the release side). A private
+     * copy is always stored so neither a replay input nor an edit-log seam
+     * reference can mutate the published record. Caller holds the write lock.
      */
     private void applyToMemory(LanceIndexJob job) {
-        LanceIndexJob old = jobs.put(job.getJobId(), job);
+        LanceIndexJob stored = new LanceIndexJob(job);
+        LanceIndexJob old = jobs.put(stored.getJobId(), stored);
         // Release only what the identity guard below booked: an identity-less corrupt
         // record was stored without fence/quota accounting, so keying on it would throw.
         if (old != null && old.isUnresolved() && hasFenceIdentity(old)) {
-            fenceIndex.remove(old.fenceKey(), old.getJobId());
+            removeFenceOwner(old);
             quota.release(old);
         }
-        if (job.isUnresolved()) {
-            if (hasFenceIdentity(job)) {
-                Long displaced = fenceIndex.put(job.fenceKey(), job.getJobId());
-                if (displaced != null && displaced.longValue() != job.getJobId()) {
-                    // Only a corrupt journal can collide here; keep the smaller job id,
-                    // the same rule as gsonPostProcess.
-                    LOG.warn("fence key collision between unresolved lance index jobs {} and {}; keeping {}",
-                            displaced, job.getJobId(), Math.min(displaced, job.getJobId()));
-                    if (displaced.longValue() < job.getJobId()) {
-                        fenceIndex.put(job.fenceKey(), displaced);
-                    }
+        if (stored.isUnresolved()) {
+            if (hasFenceIdentity(stored)) {
+                NavigableSet<Long> owners = fenceIndex.computeIfAbsent(stored.fenceKey(), ignored -> new TreeSet<>());
+                if (!owners.isEmpty() && !owners.contains(stored.getJobId())) {
+                    LOG.warn("fence key collision between unresolved lance index jobs {} and {};"
+                                    + " keeping fence owner {}", owners.first(), stored.getJobId(),
+                            Math.min(owners.first(), stored.getJobId()));
                 }
-                quota.charge(job);
+                owners.add(stored.getJobId());
+                quota.charge(stored);
             } else {
                 // Corrupt record tolerance: keep it queryable but out of the fence/quota books.
                 LOG.warn("lance index job {} lacks fence identity (provider/locator/name);"
-                        + " stored without fence/quota accounting", job.getJobId());
+                        + " stored without fence/quota accounting", stored.getJobId());
             }
         }
+    }
+
+    private void removeFenceOwner(LanceIndexJob job) {
+        LanceIndexFenceKey fenceKey = job.fenceKey();
+        NavigableSet<Long> owners = fenceIndex.get(fenceKey);
+        if (owners == null) {
+            return;
+        }
+        owners.remove(job.getJobId());
+        if (owners.isEmpty()) {
+            fenceIndex.remove(fenceKey);
+        }
+    }
+
+    private static long dispatchRevisionOf(LanceIndexJob job) {
+        return job.getDispatchRevision() == null ? job.getRevision() : job.getDispatchRevision();
     }
 
     private static boolean hasFenceIdentity(LanceIndexJob job) {
@@ -503,7 +567,8 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
     public LanceIndexJob getJob(long jobId) {
         readLock();
         try {
-            return jobs.get(jobId);
+            LanceIndexJob job = jobs.get(jobId);
+            return job == null ? null : new LanceIndexJob(job);
         } finally {
             readUnlock();
         }
@@ -518,8 +583,8 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
         try {
             List<LanceIndexJob> result = new ArrayList<>();
             for (LanceIndexJob job : jobs.values()) {
-                if (job != null && job.isUnresolved()) {
-                    result.add(job);
+                if (job != null && job.isUnresolved() && hasFenceIdentity(job)) {
+                    result.add(new LanceIndexJob(job));
                 }
             }
             return result;
@@ -541,9 +606,10 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
             List<LanceIndexJob> result = new ArrayList<>();
             for (LanceIndexJob job : jobs.values()) {
                 if (job != null && job.getMutationState() != null && job.getMutationState().isTerminal()
+                        && hasFenceIdentity(job)
                         && (job.getRefreshState() == LanceIndexJobRefreshState.REQUIRED
                                 || job.getRefreshState() == LanceIndexJobRefreshState.FAILED)) {
-                    result.add(job);
+                    result.add(new LanceIndexJob(job));
                 }
             }
             return result;
@@ -562,7 +628,7 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
     }
 
     @VisibleForTesting
-    public LanceIndexJobQuota getQuota() {
+    LanceIndexJobQuota getQuota() {
         return quota;
     }
 
@@ -595,8 +661,9 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
     /**
      * Rebuild the derived fence index and quota counters from the durable
      * jobs after Gson image load. A fence-key collision between unresolved
-     * jobs (only possible on a corrupt image) keeps the smaller job id and
-     * logs a warning; replay itself can never produce one.
+     * jobs (only possible on a corrupt image) retains every owner so the fence
+     * remains held until all colliding jobs settle; conflict reporting still
+     * uses the smaller job id.
      */
     @Override
     public void gsonPostProcess() throws IOException {
@@ -615,14 +682,12 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
                 continue;
             }
             unresolvedJobs.add(job);
-            Long existing = fenceIndex.get(job.fenceKey());
-            if (existing != null) {
-                LOG.warn("fence key collision between unresolved lance index jobs {} and {}; keeping {}",
-                        existing, job.getJobId(), Math.min(existing, job.getJobId()));
+            NavigableSet<Long> owners = fenceIndex.computeIfAbsent(job.fenceKey(), ignored -> new TreeSet<>());
+            if (!owners.isEmpty() && !owners.contains(job.getJobId())) {
+                LOG.warn("fence key collision between unresolved lance index jobs {} and {}; keeping fence owner {}",
+                        owners.first(), job.getJobId(), Math.min(owners.first(), job.getJobId()));
             }
-            if (existing == null || job.getJobId() < existing) {
-                fenceIndex.put(job.fenceKey(), job.getJobId());
-            }
+            owners.add(job.getJobId());
         }
         quota.rebuild(unresolvedJobs);
     }

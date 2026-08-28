@@ -169,7 +169,8 @@ public class LanceIndexJobTest {
         manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, 9999L);
         LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
 
-        Assertions.assertTrue(manager.recordTerminationProof(1L, 1L, LanceIndexTerminationProof.BE_PROCESS_EPOCH_GONE));
+        Assertions.assertTrue(manager.recordTerminationProof(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                LanceIndexTerminationProof.BE_PROCESS_EPOCH_GONE));
         LanceIndexJob proven = manager.getJob(1L);
         Assertions.assertFalse(proven.holdsPossibleLiveSlot());
         Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, proven.getMutationState());
@@ -178,7 +179,7 @@ public class LanceIndexJobTest {
 
         // The ambiguous result still lands afterwards: UNKNOWN keeps the fence, and the
         // already-recorded proof keeps the slot released.
-        Assertions.assertTrue(manager.completeWithResult(1L, 2L, INVOCATION_ID, BE_EPOCH,
+        Assertions.assertTrue(manager.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH,
                 new LanceIndexJobResult(LanceIndexJobResultCode.NO_TRUSTED_RESULT,
                         LanceIndexJobCompletionReason.NONE, "ambiguous", false)));
         LanceIndexJob unknown = manager.getJob(1L);
@@ -198,6 +199,7 @@ public class LanceIndexJobTest {
                 LanceIndexJobCompletionReason.NONE, "ok", false));
         original.setBackendId(BACKEND_ID);
         original.setBeProcessEpoch(BE_EPOCH);
+        original.setDispatchRevision(1L);
         original.setInvocationId(INVOCATION_ID);
         original.setDeadlineMs(123L);
         original.setPossibleLiveOwned(true);
@@ -238,6 +240,27 @@ public class LanceIndexJobTest {
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> new LanceIndexJob(1L, "tester", CATALOG_ID, "db1", "tbl1",
                         LanceIndexFenceKey.PROVIDER_DIRECTORY, LOCATOR, "IdxA", null,
+                        LanceIndexJobMutationType.CREATE, false, false, "IVF_PQ", "v", null, 7L, null));
+    }
+
+    @Test
+    public void admissionRejectsPseudoCanonicalFenceIdentity() {
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new LanceIndexJob(1L, "tester", CATALOG_ID, "db1", "tbl1",
+                        "directory", LOCATOR, "IdxA", "idxa",
+                        LanceIndexJobMutationType.CREATE, false, false, "IVF_PQ", "v", null, 7L, null));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new LanceIndexJob(1L, "tester", CATALOG_ID, "db1", "tbl1",
+                        LanceIndexFenceKey.PROVIDER_DIRECTORY, "S3://bucket/dataset/", "IdxA", "idxa",
+                        LanceIndexJobMutationType.CREATE, false, false, "IVF_PQ", "v", null, 7L, null));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new LanceIndexJob(1L, "tester", CATALOG_ID, "db1", "tbl1",
+                        LanceIndexFenceKey.PROVIDER_DIRECTORY, LOCATOR, "IdxA", "IdxA",
+                        LanceIndexJobMutationType.CREATE, false, false, "IVF_PQ", "v", null, 7L, null));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new LanceIndexJob(1L, "tester", CATALOG_ID, "db1", "tbl1",
+                        LanceIndexFenceKey.PROVIDER_DIRECTORY,
+                        "https://bucket.example/ds?X-Amz-Signature=secret", "IdxA", "idxa",
                         LanceIndexJobMutationType.CREATE, false, false, "IVF_PQ", "v", null, 7L, null));
     }
 

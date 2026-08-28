@@ -95,7 +95,7 @@ public class LanceIndexJobManagerReplayTest {
         Assertions.assertTrue(target.isFenceHeld(fenceKey));
         Assertions.assertEquals(1L, target.getQuota().getGlobalCount());
         Assertions.assertTrue(swept.holdsPossibleLiveSlot());
-        Assertions.assertTrue(target.getUnresolvedJobs().contains(swept));
+        Assertions.assertTrue(containsJob(target.getUnresolvedJobs(), swept.getJobId()));
         Assertions.assertEquals(1, target.editLog.size());
 
         Assertions.assertFalse(target.markRunning(1L, 2L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
@@ -124,7 +124,7 @@ public class LanceIndexJobManagerReplayTest {
         Assertions.assertEquals(LanceIndexJobMutationState.COMMITTED, swept.getMutationState());
         Assertions.assertEquals(LanceIndexJobRefreshState.REQUIRED, swept.getRefreshState());
         Assertions.assertEquals(4L, swept.getRevision());
-        Assertions.assertTrue(target.getJobsNeedingRefresh().contains(swept));
+        Assertions.assertTrue(containsJob(target.getJobsNeedingRefresh(), swept.getJobId()));
         Assertions.assertTrue(target.isFenceHeld(swept.fenceKey()));
     }
 
@@ -147,7 +147,7 @@ public class LanceIndexJobManagerReplayTest {
         // The mutation lifecycle is closed; only the refresh transitions remain.
         Assertions.assertFalse(target.markRunning(1L, 2L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
         Assertions.assertFalse(target.completeWithResult(1L, 2L, INVOCATION_ID, BE_EPOCH, okResult()));
-        Assertions.assertTrue(target.getJobsNeedingRefresh().contains(stored));
+        Assertions.assertTrue(containsJob(target.getJobsNeedingRefresh(), stored.getJobId()));
         Assertions.assertTrue(target.isFenceHeld(fenceKey));
         Assertions.assertEquals(1L, target.getQuota().getGlobalCount());
 
@@ -274,6 +274,62 @@ public class LanceIndexJobManagerReplayTest {
         Assertions.assertEquals(1, target.getJobCount());
         Assertions.assertEquals(0L, target.getQuota().getGlobalCount());
         Assertions.assertEquals(LanceIndexJobMutationState.PENDING, target.getJob(5L).getMutationState());
+        Assertions.assertTrue(target.getUnresolvedJobs().isEmpty());
+        Assertions.assertFalse(target.markRunning(5L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+    }
+
+    @Test
+    public void resolvingTheSmallestCollidingJobLeavesTheOtherFenceOwner() throws DdlException {
+        TestManager target = new TestManager();
+        target.replayUpsertJob(pendingRecord(1L, "IdxA"));
+        target.replayUpsertJob(pendingRecord(2L, "IdxA"));
+        LanceIndexFenceKey fenceKey = target.getJob(1L).fenceKey();
+
+        Assertions.assertEquals(2L, target.getQuota().getGlobalCount());
+        DdlException initialConflict = Assertions.assertThrows(DdlException.class,
+                () -> target.createJob(newCreateJob(9L, "IdxA"), 100, 100, 100));
+        Assertions.assertTrue(initialConflict.getMessage().contains("unresolved job 1"));
+
+        Assertions.assertTrue(target.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(target.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                new LanceIndexJobResult(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED,
+                        LanceIndexJobCompletionReason.NONE, "rejected before invocation", false)));
+
+        Assertions.assertTrue(target.isFenceHeld(fenceKey));
+        Assertions.assertEquals(1L, target.getQuota().getGlobalCount());
+        DdlException remainingConflict = Assertions.assertThrows(DdlException.class,
+                () -> target.createJob(newCreateJob(9L, "IdxA"), 100, 100, 100));
+        Assertions.assertTrue(remainingConflict.getMessage().contains("unresolved job 2"));
+    }
+
+    @Test
+    public void replayAndQueryBoundariesReturnDefensiveCopies() throws DdlException {
+        TestManager target = new TestManager();
+        LanceIndexJob replayed = pendingRecord(1L, "IdxA");
+        target.replayUpsertJob(replayed);
+
+        replayed.setMutationState(LanceIndexJobMutationState.COMMITTED);
+        replayed.setRefreshState(LanceIndexJobRefreshState.DONE);
+        replayed.setRevision(99L);
+        Assertions.assertEquals(LanceIndexJobMutationState.PENDING, target.getJob(1L).getMutationState());
+        Assertions.assertEquals(0L, target.getJob(1L).getRevision());
+
+        LanceIndexJob queried = target.getJob(1L);
+        queried.setForceReleased(true);
+        queried.setRevision(88L);
+        Assertions.assertFalse(target.getJob(1L).isForceReleased());
+        Assertions.assertEquals(0L, target.getJob(1L).getRevision());
+
+        LanceIndexJob listed = target.getUnresolvedJobs().get(0);
+        listed.setForceReleased(true);
+        Assertions.assertFalse(target.getJob(1L).isForceReleased());
+
+        target.createJob(newCreateJob(2L, "IdxB"), 100, 100, 100);
+        Assertions.assertTrue(target.markRunning(2L, 0L, BACKEND_ID, BE_EPOCH, "invocation-2", DEADLINE_MS));
+        Assertions.assertTrue(target.completeWithResult(2L, 1L, "invocation-2", BE_EPOCH, okResult()));
+        LanceIndexJob refreshCandidate = target.getJobsNeedingRefresh().get(0);
+        refreshCandidate.setRefreshState(LanceIndexJobRefreshState.DONE);
+        Assertions.assertEquals(LanceIndexJobRefreshState.REQUIRED, target.getJob(2L).getRefreshState());
     }
 
     @Test
@@ -382,6 +438,17 @@ public class LanceIndexJobManagerReplayTest {
                 displayName, LanceIndexNameNormalizer.normalize(displayName),
                 LanceIndexJobMutationType.CREATE, false, false, "IVF_PQ", "v",
                 null, 7L, null);
+    }
+
+    private static LanceIndexJob pendingRecord(long jobId, String displayName) {
+        LanceIndexJob job = newCreateJob(jobId, displayName);
+        job.setMutationState(LanceIndexJobMutationState.PENDING);
+        job.setRefreshState(LanceIndexJobRefreshState.NOT_REQUIRED);
+        return job;
+    }
+
+    private static boolean containsJob(List<LanceIndexJob> jobs, long jobId) {
+        return jobs.stream().anyMatch(job -> job.getJobId() == jobId);
     }
 
     private static LanceIndexJobResult okResult() {

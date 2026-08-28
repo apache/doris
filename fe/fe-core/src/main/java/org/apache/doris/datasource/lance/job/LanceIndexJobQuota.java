@@ -33,8 +33,7 @@ import java.util.Objects;
  *
  * <p>This class only counts. Callers hold the manager write lock, so no
  * internal synchronization exists. Config-gated limits are resolved by the
- * admission layer and passed in as plain values; a non-positive limit disables
- * that level's check. The counters are rebuilt from the durable jobs after
+ * admission layer and passed in as positive finite values. The counters are rebuilt from the durable jobs after
  * replay/image load and are never persisted themselves.
  */
 public class LanceIndexJobQuota {
@@ -47,7 +46,7 @@ public class LanceIndexJobQuota {
     /**
      * Check every level whose limit is positive, then increment all three
      * levels. Returns false (and increments nothing) when any enforced level
-     * is full: "current + 1 &lt;= limit" must hold at every enforced level.
+     * is full: "current &lt; limit" must hold at every level.
      *
      * <p>The manager admission path uses {@link #hasCapacity} plus
      * {@link #charge} instead: the check and the charge deliberately straddle
@@ -64,17 +63,20 @@ public class LanceIndexJobQuota {
 
     /**
      * Pure check variant of {@link #tryAcquire}: true when incrementing would
-     * not exceed any positive limit. A non-positive limit disables that level.
+     * not exceed any positive finite limit. A non-positive limit is rejected.
      */
     public boolean hasCapacity(LanceIndexJob job, long tableLimit, long catalogLimit, long globalLimit) {
         Objects.requireNonNull(job, "job");
-        if (globalLimit > 0 && globalCount + 1 > globalLimit) {
+        if (tableLimit <= 0 || catalogLimit <= 0 || globalLimit <= 0) {
             return false;
         }
-        if (catalogLimit > 0 && getCatalogCount(job.getCatalogId()) + 1 > catalogLimit) {
+        if (globalCount >= globalLimit) {
             return false;
         }
-        return tableLimit <= 0 || getTableCount(job.getTableQuotaKey()) + 1 <= tableLimit;
+        if (getCatalogCount(job.getCatalogId()) >= catalogLimit) {
+            return false;
+        }
+        return getTableCount(job.getTableQuotaKey()) < tableLimit;
     }
 
     /**

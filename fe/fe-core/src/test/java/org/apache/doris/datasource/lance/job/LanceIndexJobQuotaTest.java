@@ -26,8 +26,8 @@ import java.util.List;
 
 /**
  * Unit coverage for the three-level unresolved-job quota counters (table/locator,
- * catalog, global): the "current + 1 &lt;= limit" boundary at each level, disabled
- * levels for non-positive limits, release recovery with underflow clamping, and rebuild
+ * catalog, global): the "current &lt; limit" boundary at each level, rejection of
+ * non-positive limits, release recovery with underflow clamping, and rebuild
  * equivalence with live counting. The "which jobs count" semantics are
  * {@link LanceIndexJob#isUnresolved()}; the rebuild-side composition is pinned here too.
  */
@@ -50,51 +50,48 @@ public class LanceIndexJobQuotaTest {
     @Test
     public void tableLimitRejectsTheNextJobExactlyAtLimit() {
         LanceIndexJobQuota quota = new LanceIndexJobQuota();
-        Assertions.assertTrue(quota.tryAcquire(newJob(1L, CATALOG_ID, LOCATOR_A), 2, 0, 0));
-        Assertions.assertTrue(quota.tryAcquire(newJob(2L, CATALOG_ID, LOCATOR_A), 2, 0, 0));
+        Assertions.assertTrue(quota.tryAcquire(newJob(1L, CATALOG_ID, LOCATOR_A), 2, 100, 100));
+        Assertions.assertTrue(quota.tryAcquire(newJob(2L, CATALOG_ID, LOCATOR_A), 2, 100, 100));
 
         LanceIndexJob third = newJob(3L, CATALOG_ID, LOCATOR_A);
-        Assertions.assertFalse(quota.tryAcquire(third, 2, 0, 0));
+        Assertions.assertFalse(quota.tryAcquire(third, 2, 100, 100));
         // A rejected acquire charges nothing at any level.
         Assertions.assertEquals(2L, quota.getGlobalCount());
         Assertions.assertEquals(2L, quota.getTableCount(third.getTableQuotaKey()));
 
         // The limit is per table/locator identity: another table still has room.
-        Assertions.assertTrue(quota.tryAcquire(newJob(4L, CATALOG_ID, LOCATOR_B), 2, 0, 0));
+        Assertions.assertTrue(quota.tryAcquire(newJob(4L, CATALOG_ID, LOCATOR_B), 2, 100, 100));
     }
 
     @Test
     public void catalogLimitRejectsAcrossTables() {
         LanceIndexJobQuota quota = new LanceIndexJobQuota();
-        Assertions.assertTrue(quota.tryAcquire(newJob(1L, CATALOG_ID, LOCATOR_A), 0, 2, 0));
-        Assertions.assertTrue(quota.tryAcquire(newJob(2L, CATALOG_ID, LOCATOR_B), 0, 2, 0));
-        Assertions.assertFalse(quota.tryAcquire(newJob(3L, CATALOG_ID, LOCATOR_A), 0, 2, 0));
+        Assertions.assertTrue(quota.tryAcquire(newJob(1L, CATALOG_ID, LOCATOR_A), 100, 2, 100));
+        Assertions.assertTrue(quota.tryAcquire(newJob(2L, CATALOG_ID, LOCATOR_B), 100, 2, 100));
+        Assertions.assertFalse(quota.tryAcquire(newJob(3L, CATALOG_ID, LOCATOR_A), 100, 2, 100));
 
         // Another catalog is a separate level.
-        Assertions.assertTrue(quota.tryAcquire(newJob(4L, 20L, LOCATOR_A), 0, 2, 0));
+        Assertions.assertTrue(quota.tryAcquire(newJob(4L, 20L, LOCATOR_A), 100, 2, 100));
     }
 
     @Test
     public void globalLimitRejectsAcrossCatalogs() {
         LanceIndexJobQuota quota = new LanceIndexJobQuota();
-        Assertions.assertTrue(quota.tryAcquire(newJob(1L, CATALOG_ID, LOCATOR_A), 0, 0, 2));
-        Assertions.assertTrue(quota.tryAcquire(newJob(2L, 20L, LOCATOR_A), 0, 0, 2));
-        Assertions.assertFalse(quota.tryAcquire(newJob(3L, 30L, LOCATOR_B), 0, 0, 2));
+        Assertions.assertTrue(quota.tryAcquire(newJob(1L, CATALOG_ID, LOCATOR_A), 100, 100, 2));
+        Assertions.assertTrue(quota.tryAcquire(newJob(2L, 20L, LOCATOR_A), 100, 100, 2));
+        Assertions.assertFalse(quota.tryAcquire(newJob(3L, 30L, LOCATOR_B), 100, 100, 2));
         Assertions.assertEquals(2L, quota.getGlobalCount());
     }
 
     @Test
-    public void nonPositiveLimitDisablesThatLevel() {
+    public void nonPositiveLimitIsRejectedWithoutACharge() {
         LanceIndexJobQuota quota = new LanceIndexJobQuota();
-        for (int i = 0; i < 10; i++) {
-            Assertions.assertTrue(quota.tryAcquire(newJob(i, CATALOG_ID, LOCATOR_A), 0, 0, 0));
-        }
-        LanceIndexJobQuota negativeLimits = new LanceIndexJobQuota();
-        for (int i = 0; i < 10; i++) {
-            Assertions.assertTrue(negativeLimits.tryAcquire(newJob(i, CATALOG_ID, LOCATOR_A), -1, -1, -1));
-        }
-        Assertions.assertEquals(10L, quota.getGlobalCount());
-        Assertions.assertEquals(10L, negativeLimits.getGlobalCount());
+        LanceIndexJob job = newJob(1L, CATALOG_ID, LOCATOR_A);
+        Assertions.assertFalse(quota.tryAcquire(job, 0, 1, 1));
+        Assertions.assertFalse(quota.tryAcquire(job, 1, 0, 1));
+        Assertions.assertFalse(quota.tryAcquire(job, 1, 1, 0));
+        Assertions.assertFalse(quota.tryAcquire(job, -1, 1, 1));
+        Assertions.assertEquals(0L, quota.getGlobalCount());
     }
 
     @Test
@@ -132,7 +129,7 @@ public class LanceIndexJobQuotaTest {
 
         LanceIndexJobQuota incremental = new LanceIndexJobQuota();
         for (LanceIndexJob job : unresolved) {
-            Assertions.assertTrue(incremental.tryAcquire(job, 0, 0, 0));
+            Assertions.assertTrue(incremental.tryAcquire(job, 100, 100, 100));
         }
         LanceIndexJobQuota rebuilt = new LanceIndexJobQuota();
         rebuilt.rebuild(unresolved);
