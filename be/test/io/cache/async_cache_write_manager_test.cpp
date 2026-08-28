@@ -30,6 +30,7 @@
 #include <mutex>
 #include <new>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -172,6 +173,128 @@ private:
     bool _arrived {false};
     bool _released {false};
 };
+
+TEST_F(AsyncCacheWriteManagerTest, SubmitBlockCopiesDeduplicatesAndRollsBackBackpressure) {
+    auto cache = create_cache("async_write_manager_submit_block");
+    auto* manager = cache->async_write_manager();
+    auto* index = cache->inflight_write_buffer_index();
+    ASSERT_NE(manager, nullptr);
+    ASSERT_NE(index, nullptr);
+    auto options = manager->options();
+    options.worker_count = 1;
+    options.max_pending_bytes = 4096;
+    ASSERT_TRUE(manager->update_options(options).ok());
+
+    OneShotSyncPointGate worker_gate;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteManager::_persist_task:before_get_or_set",
+            [&](auto&&) { worker_gate.arrive_and_wait(); }, &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        worker_gate.release();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    const auto hash = BlockFileCache::hash("submit_block");
+    std::string payload(4096, 'p');
+    const std::string expected = payload;
+    const auto make_request = [&](const UInt128Wrapper& request_hash) {
+        return AsyncCacheWriteBlockRequest {
+                .cache_hash = request_hash,
+                .file_offset = 0,
+                .data = Slice(payload),
+                .buffer_size = 4096,
+                .admission_ctx = {},
+                .write_epoch = manager->current_write_epoch(request_hash),
+                .inflight_index = index,
+        };
+    };
+
+    EXPECT_EQ(manager->try_submit_block(make_request(hash)),
+              AsyncCacheWriteBlockSubmitResult::SUBMITTED);
+    ASSERT_TRUE(worker_gate.wait_until_arrived());
+    payload.assign(payload.size(), 'x');
+    auto inflight = index->lookup(hash, 0);
+    ASSERT_NE(inflight, nullptr);
+    EXPECT_EQ(std::string_view(inflight->buffer->data(), inflight->buffer_size), expected);
+
+    EXPECT_EQ(manager->try_submit_block(make_request(hash)),
+              AsyncCacheWriteBlockSubmitResult::ALREADY_INFLIGHT);
+    const auto rejected_hash = BlockFileCache::hash("submit_block_rejected");
+    EXPECT_EQ(manager->try_submit_block(make_request(rejected_hash)),
+              AsyncCacheWriteBlockSubmitResult::REJECTED);
+    EXPECT_EQ(index->lookup(rejected_hash, 0), nullptr);
+
+    worker_gate.release();
+    for (int attempt = 0; attempt < 100 && index->lookup(hash, 0) != nullptr; ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_EQ(index->lookup(hash, 0), nullptr);
+    ReadStatistics read_stats;
+    CacheContext context;
+    context.stats = &read_stats;
+    FileBlocks blocks;
+    bool fully_covered = false;
+    ASSERT_TRUE(cache->get_downloaded_blocks_if_fully_covered(hash, 0, expected.size(), context,
+                                                              &blocks, &fully_covered)
+                        .ok());
+    ASSERT_TRUE(fully_covered);
+    ASSERT_EQ(blocks.size(), 1);
+    std::string actual(expected.size(), '\0');
+    ASSERT_TRUE(blocks.front()->read(Slice(actual), 0).ok());
+    EXPECT_EQ(actual, expected);
+}
+
+TEST_F(AsyncCacheWriteManagerTest, SubmitBlockRejectsStaleEpochAndAllocationFailure) {
+    auto cache = create_cache("async_write_manager_submit_block_failures");
+    auto* manager = cache->async_write_manager();
+    ASSERT_NE(manager, nullptr);
+    const auto hash = BlockFileCache::hash("submit_block_failures");
+    const std::string payload(4096, 'f');
+    auto stale_epoch = manager->current_write_epoch(hash);
+    manager->invalidate_pending_writes(hash);
+
+    AsyncCacheWriteBlockRequest stale_request {
+            .cache_hash = hash,
+            .file_offset = 0,
+            .data = Slice(payload),
+            .buffer_size = 4096,
+            .admission_ctx = {},
+            .write_epoch = std::move(stale_epoch),
+            .inflight_index = nullptr,
+    };
+    EXPECT_EQ(manager->try_submit_block(std::move(stale_request)),
+              AsyncCacheWriteBlockSubmitResult::STALE_EPOCH);
+
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteManager::allocate_tracked_buffer:inject_failure",
+            [](auto&& args) {
+                auto* status = try_any_cast<Status*>(args[0]);
+                *status = Status::MemoryAllocFailed("injected block allocation failure");
+            },
+            &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+    AsyncCacheWriteBlockRequest allocation_request {
+            .cache_hash = hash,
+            .file_offset = 0,
+            .data = Slice(payload),
+            .buffer_size = 4096,
+            .admission_ctx = {},
+            .write_epoch = manager->current_write_epoch(hash),
+            .inflight_index = nullptr,
+    };
+    EXPECT_EQ(manager->try_submit_block(std::move(allocation_request)),
+              AsyncCacheWriteBlockSubmitResult::BUFFER_ALLOCATION_FAILED);
+}
 
 TEST(AsyncCacheWriteConfigTest, ResolveMaxPendingBytes) {
     constexpr int64_t kMiB = 1024 * 1024;

@@ -503,62 +503,35 @@ void CachedRemoteFileReader::_submit_async_write_tasks(const AsyncReadPlan& plan
         DORIS_CHECK(read_block.range.size() <= cache_block_size);
         DORIS_CHECK(read_block.range.left >= remote_left);
         DORIS_CHECK(read_block.range.right <= remote_right);
-        if (!manager->check_write_epoch(plan.write_epoch)) {
-            ++stats.async_cache_write_drop_stale_epoch;
-            continue;
-        }
-
-        AsyncCacheWriteBufferPtr tracked_buffer;
-        Status status = manager->allocate_tracked_buffer(cache_block_size, &tracked_buffer);
-        if (!status.ok()) {
-            ++stats.async_cache_write_buffer_alloc_fail;
-            continue;
-        }
-        DORIS_CHECK(tracked_buffer->size() == cache_block_size);
-        DORIS_CHECK(read_block.range.size() <= tracked_buffer->size());
         const size_t remote_buffer_offset = read_block.range.left - remote_left;
         DORIS_CHECK(remote_buffer_offset <= remote_size);
         DORIS_CHECK(read_block.range.size() <= remote_size - remote_buffer_offset);
-        memcpy(tracked_buffer->data(), remote_buffer.get() + remote_buffer_offset,
-               read_block.range.size());
-
-        AsyncCacheWriteTask task {
+        AsyncCacheWriteBlockRequest request {
                 .cache_hash = _cache_hash,
                 .file_offset = read_block.range.left,
-                .write_size = read_block.range.size(),
-                .buffer = tracked_buffer,
+                .data = Slice(remote_buffer.get() + remote_buffer_offset, read_block.range.size()),
+                .buffer_size = cache_block_size,
                 .admission_ctx = admission_context,
-                .submit_ts_us = MonotonicMicros(),
                 .write_epoch = plan.write_epoch,
-                .on_finalized = nullptr,
+                .inflight_index = config::enable_async_file_cache_write_inflight_write_buffer_index
+                                          ? inflight_index
+                                          : nullptr,
         };
-        std::shared_ptr<InflightWriteBufferEntry> entry;
-        if (config::enable_async_file_cache_write_inflight_write_buffer_index) {
-            entry = std::make_shared<InflightWriteBufferEntry>(
-                    tracked_buffer, read_block.range.left, read_block.range.size(),
-                    task.submit_ts_us);
-            TEST_SYNC_POINT_CALLBACK(
-                    "CachedRemoteFileReader::_submit_async_write_tasks:before_inflight_insert",
-                    &task);
-            auto existing =
-                    inflight_index->insert_if_absent(_cache_hash, read_block.range.left, entry);
-            if (existing) {
-                continue;
-            }
-            task.on_finalized = [cache_hash = _cache_hash, offset = read_block.range.left,
-                                 inflight_index, entry](const AsyncCacheWriteTask&) {
-                inflight_index->remove_if(cache_hash, offset, entry);
-            };
-        }
-
-        if (!manager->try_submit(std::move(task))) {
-            if (entry) {
-                inflight_index->remove_if(_cache_hash, read_block.range.left, entry);
-                inflight_index->record_backpressure_rollback();
-            }
-            ++stats.async_cache_write_rejected;
-        } else {
+        switch (manager->try_submit_block(std::move(request))) {
+        case AsyncCacheWriteBlockSubmitResult::SUBMITTED:
             ++stats.async_cache_write_submitted;
+            break;
+        case AsyncCacheWriteBlockSubmitResult::STALE_EPOCH:
+            ++stats.async_cache_write_drop_stale_epoch;
+            break;
+        case AsyncCacheWriteBlockSubmitResult::BUFFER_ALLOCATION_FAILED:
+            ++stats.async_cache_write_buffer_alloc_fail;
+            break;
+        case AsyncCacheWriteBlockSubmitResult::REJECTED:
+            ++stats.async_cache_write_rejected;
+            break;
+        case AsyncCacheWriteBlockSubmitResult::ALREADY_INFLIGHT:
+            break;
         }
     }
 }
