@@ -39,6 +39,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Mocked;
+import mockit.Verifications;
 import org.apache.commons.collections4.CollectionUtils;
 import org.junit.Assert;
 import org.junit.Before;
@@ -103,6 +104,10 @@ public class MTMVTaskTest {
                 mtmvRefreshInfo.getRefreshMethod();
                 minTimes = 0;
                 result = RefreshMethod.COMPLETE;
+
+                mtmv.hasCompleteRefreshSnapshot();
+                minTimes = 0;
+                result = true;
             }
         };
     }
@@ -145,6 +150,53 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
         Assert.assertEquals(allPartitionNames, result);
+    }
+
+    @Test
+    public void testCalculateNeedRefreshPartitionsSystemIncompleteRefreshSnapshot() throws AnalysisException {
+        new Expectations() {
+            {
+                mtmvRefreshInfo.getRefreshMethod();
+                minTimes = 0;
+                result = RefreshMethod.AUTO;
+
+                mtmv.hasCompleteRefreshSnapshot();
+                minTimes = 0;
+                result = false;
+            }
+        };
+
+        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
+        MTMVTask task = new MTMVTask(mtmv, relation, context);
+        List<String> result = task.calculateNeedRefreshPartitions(null);
+
+        Assert.assertEquals(allPartitionNames, result);
+        new Verifications() {
+            {
+                mtmvPartitionUtil.isMTMVSync((MTMVRefreshContext) any, (Set<BaseTableInfo>) any,
+                        (Set<TableName>) any);
+                times = 0;
+            }
+        };
+    }
+
+    @Test
+    public void testCalculateNeedRefreshPartitionsManualPartitionsIncompleteRefreshSnapshot()
+            throws AnalysisException {
+        new Expectations() {
+            {
+                mtmv.hasCompleteRefreshSnapshot();
+                minTimes = 0;
+                result = false;
+            }
+        };
+
+        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName),
+                false, null);
+        MTMVTask task = new MTMVTask(mtmv, relation, context);
+        List<String> result = task.calculateNeedRefreshPartitions(null);
+
+        Assert.assertEquals(Lists.newArrayList(poneName), result);
     }
 
     @Test
