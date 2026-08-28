@@ -277,6 +277,8 @@ public class CoordinatorContext {
     public static CoordinatorContext buildForSql(NereidsPlanner planner, NereidsCoordinator coordinator) {
         ConnectContext connectContext = planner.getCascadesContext().getConnectContext();
         TQueryOptions queryOptions = initQueryOptions(connectContext);
+        queryOptions.setBeExecVersion(planner.getBeExecVersion());
+        queryOptions.setEnableLocalShufflePlanner(planner.isLocalShufflePlanned());
         TQueryGlobals queryGlobals = createQueryGlobals(connectContext);
         TDescriptorTable descriptorTable = DescriptorToThriftConverter.toThrift(planner.getDescTable());
 
