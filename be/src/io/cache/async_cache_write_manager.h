@@ -31,12 +31,14 @@
 #include "common/status.h"
 #include "io/cache/file_cache_common.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "util/slice.h"
 #include "util/threadpool.h"
 
 namespace doris::io {
 
 class BlockFileCache;
 class AsyncCacheWriteEpochRegistry;
+class InflightWriteBufferIndex;
 
 /// Cache admission attributes captured on the query thread and replayed by a write worker.
 struct CacheAdmissionContext {
@@ -106,6 +108,33 @@ struct AsyncCacheWriteEpoch {
     std::shared_ptr<AsyncCacheWriteEpochToken> key_token;
 };
 
+enum class AsyncCacheWriteBlockSubmitResult : uint8_t {
+    /// The manager accepted ownership of a complete block buffer.
+    SUBMITTED,
+    /// The cache invalidation fence changed before submission.
+    STALE_EPOCH,
+    /// The copy-based submission could not allocate its tracked block buffer.
+    BUFFER_ALLOCATION_FAILED,
+    /// The same cache block already has a buffer indexed by an accepted write task.
+    ALREADY_INFLIGHT,
+    /// The manager is unavailable or its admission policy found no queue capacity.
+    REJECTED,
+};
+
+/// Transient source bytes and immutable metadata for one complete cache-block submission.
+/// `data` is copied before try_submit_block() returns. `buffer_size` is the fixed cache block
+/// allocation size; only the physical EOF block may provide a shorter data slice.
+struct AsyncCacheWriteBlockRequest {
+    UInt128Wrapper cache_hash;
+    size_t file_offset {0};
+    Slice data;
+    size_t buffer_size {0};
+    CacheAdmissionContext admission_ctx;
+    AsyncCacheWriteEpoch write_epoch;
+    /// Optional index whose lifetime must cover every accepted write task.
+    InflightWriteBufferIndex* inflight_index {nullptr};
+};
+
 /// One cache-block write. The sole production submitter allocates every `buffer` with exactly
 /// `file_cache_each_block_size` bytes. `write_size` is the valid prefix starting at `file_offset`;
 /// only the physical EOF block may use less than the full buffer. `write_epoch` prevents a worker
@@ -172,6 +201,12 @@ public:
     /// started, during shutdown, or on backpressure. A rejected task's finalization callback is
     /// not invoked.
     bool try_submit(AsyncCacheWriteTask task);
+
+    /// Copy and submit one complete cache block through the same epoch, inflight-deduplication,
+    /// memory-accounting, and queue path used by remote cache-miss reads.
+    /// @return ALREADY_INFLIGHT when another accepted task already owns this block; in that case
+    /// the request data is not copied.
+    AsyncCacheWriteBlockSubmitResult try_submit_block(AsyncCacheWriteBlockRequest request);
 
     /// Allocate `size` payload bytes charged to the manager tracker and return them in `buffer`.
     Status allocate_tracked_buffer(size_t size, AsyncCacheWriteBufferPtr* buffer);
