@@ -489,9 +489,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         Plan queryGlobalLimit = queryGlobalLimits.get(0);
         Plan rewrittenGlobalLimit = rewrittenGlobalLimits.get(0);
         Plan baseTableGlobalLimit = baseTableGlobalLimits.get(0);
-        // Rewriting can change the limit value and order-key expressions, but preserves the outer
-        // operator kind. The offset must still match because it cannot be safely adjusted after UNION.
-        if (rewrittenGlobalLimit.getType() != queryGlobalLimit.getType()
+        // Only remove a root global operator. An outer Project can carry expressions that differ
+        // between the query and MV branches, so unioning below it by output position is unsafe.
+        if (queryGlobalLimit != queryPlan || rewrittenGlobalLimit != rewrittenPlan
+                || baseTableGlobalLimit != baseTablePlan
+                || rewrittenGlobalLimit.getType() != queryGlobalLimit.getType()
                 || baseTableGlobalLimit.getType() != queryGlobalLimit.getType()
                 || getOffset(rewrittenGlobalLimit) != getOffset(queryGlobalLimit)
                 || getOffset(baseTableGlobalLimit) != getOffset(queryGlobalLimit)) {

@@ -27,10 +27,13 @@ import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -295,21 +298,17 @@ public class MvExplorationSuiteTest extends SqlTestBase {
     }
 
     @Test
-    void testPartitionUnionKeepsProjectsAboveGlobalTopN() {
+    void testPartitionUnionRejectsProjectsAboveGlobalTopN() {
         Plan topN = PlanChecker.from(connectContext)
                 .analyze("select id from T1 order by id limit 2 offset 1")
                 .rewrite()
                 .getPlan().child(0);
-        LogicalProject<Plan> innerProject = new LogicalProject<>(ImmutableList.of(topN.getOutput().get(0)), topN);
-        LogicalProject<Plan> queryPlan = new LogicalProject<>(
-                ImmutableList.of(innerProject.getOutput().get(0)), innerProject);
+        LogicalProject<Plan> planWithProject = new LogicalProject<>(ImmutableList.of(
+                new Alias(new Add(topN.getOutput().get(0), Literal.of(1)), "x")), topN);
 
-        Plan compensatedPlan = TEST_RULE.buildPartitionCompensationPlan(queryPlan, queryPlan, queryPlan);
-        Assertions.assertTrue(compensatedPlan instanceof LogicalProject);
-        Assertions.assertEquals(queryPlan.getOutput(), compensatedPlan.getOutput());
-        Assertions.assertTrue(compensatedPlan.child(0) instanceof LogicalProject);
-        Assertions.assertTrue(compensatedPlan.child(0).child(0) instanceof LogicalTopN);
-        Assertions.assertTrue(compensatedPlan.child(0).child(0).child(0) instanceof LogicalUnion);
+        Assertions.assertNull(TEST_RULE.buildPartitionCompensationPlan(topN, topN, planWithProject));
+        Assertions.assertNull(TEST_RULE.buildPartitionCompensationPlan(planWithProject, topN, topN));
+        Assertions.assertNull(TEST_RULE.buildPartitionCompensationPlan(topN, planWithProject, topN));
     }
 
     @Test
