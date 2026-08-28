@@ -29,11 +29,18 @@
 #include "io/fs/file_reader.h"
 #include "storage/segment/column_read_ahead.h"
 
-namespace doris::segment_v2 {
+namespace doris {
+
+class ExecEnv;
+class StorageReadOptions;
+
+namespace segment_v2 {
+
+class ColumnIterator;
 
 /// Invoked with the whole physical range at most once, when any registered page successfully
 /// consumes bytes from it.
-using ReadAheadRangeConsumer = std::function<void(const io::FileRange&, Slice)>;
+using ReadAheadRangeConsumer = std::function<void(const io::FileRangeRead&)>;
 /// Creates submission-scoped state immediately before asynchronous range tasks are admitted.
 using ReadAheadRangeConsumerFactory = std::function<ReadAheadRangeConsumer()>;
 /// Returns true when the exact compressed data-page range is already in StoragePageCache.
@@ -143,7 +150,19 @@ class SegmentReadAhead final {
 public:
     SegmentReadAhead(io::FileReaderSPtr source_reader, io::FileRangeReadScheduler* scheduler,
                      std::shared_ptr<io::FileRangeReadContext> context,
-                     io::FileRangeReadIOContext io_context, SegmentReadAheadOptions options);
+                     io::FileRangeReadIOContext io_context, SegmentReadAheadOptions options,
+                     ColumnReadAheadOptions eager_options = {},
+                     ColumnReadAheadOptions lazy_options = {});
+
+    /// Read the dynamic query read-ahead switch and cloud-mode requirement.
+    static bool enabled();
+
+    /// Create query read-ahead state when enabled for a query reader. On an inapplicable request,
+    /// return OK with `output` cleared so callers continue with the original reader.
+    static Status create_for_query(io::FileReaderSPtr source_reader, ExecEnv* exec_env,
+                                   std::shared_ptr<io::FileRangeReadContext> context,
+                                   const StorageReadOptions& read_options,
+                                   std::unique_ptr<SegmentReadAhead>* output);
 
     SegmentReadAhead(const SegmentReadAhead&) = delete;
     SegmentReadAhead& operator=(const SegmentReadAhead&) = delete;
@@ -155,6 +174,8 @@ public:
 
     const std::shared_ptr<SegmentReadAheadFileReader>& file_reader() const { return _reader; }
 
+    const ColumnReadAheadContext& column_context() const { return _column_context; }
+
 private:
     const io::FileReaderSPtr _source_reader;
     io::FileRangeReadScheduler* const _scheduler;
@@ -162,8 +183,10 @@ private:
     const io::FileRangeReadIOContext _io_context;
     const SegmentReadAheadOptions _options;
     const std::shared_ptr<SegmentReadAheadFileReader> _reader;
+    const ColumnReadAheadContext _column_context;
 };
 
 ReadAheadPageCacheProbe make_storage_page_cache_probe(const io::FileReaderSPtr& file_reader);
 
-} // namespace doris::segment_v2
+} // namespace segment_v2
+} // namespace doris
