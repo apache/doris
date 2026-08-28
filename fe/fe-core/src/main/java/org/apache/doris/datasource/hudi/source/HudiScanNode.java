@@ -598,9 +598,13 @@ public class HudiScanNode extends HiveScanNode {
                 ensureHmsRuntimeGeneration();
                 return splits;
             }
+            initPrunedPartitions();
+            if (prunedPartitions.isEmpty()) {
+                ensureHmsRuntimeGeneration();
+                return Collections.emptyList();
+            }
             acquireFsView();
             List<Split> splits = Collections.synchronizedList(new ArrayList<>());
-            initPrunedPartitions();
             hmsTable.getCatalog().getExecutionAuthenticator().execute(() -> {
                 getPartitionsSplits(prunedPartitions, splits);
                 return null;

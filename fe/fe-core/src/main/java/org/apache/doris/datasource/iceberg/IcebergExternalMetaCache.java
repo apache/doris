@@ -60,6 +60,7 @@ import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.annotation.Nullable;
@@ -206,6 +207,68 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         return table;
     }
 
+    WritableTableLease acquireWritableIcebergTable(
+            ExternalTable dorisTable, @Nullable IcebergMetadataOps expectedOps) {
+        NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
+        CatalogIf catalog = getCatalog(nameMapping.getCtlId());
+        if (catalog == null) {
+            throw new RuntimeException("Cannot find catalog " + nameMapping.getCtlId()
+                    + " when loading a writable Iceberg table");
+        }
+        if (catalog instanceof IcebergExternalCatalog) {
+            IcebergExternalCatalog icebergCatalog = (IcebergExternalCatalog) catalog;
+            try (IcebergExternalCatalog.TableLoadContext context = icebergCatalog.beginTableLoad()) {
+                IcebergMetadataOps ops = context.getOps();
+                if (expectedOps != null && ops != expectedOps) {
+                    throw catalogGenerationMoved(nameMapping);
+                }
+                Table table;
+                try {
+                    table = context.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
+                } catch (Exception e) {
+                    throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+                }
+                try (TableResourceOwner owner = new TableResourceOwner(
+                        tableCleanup(context.getCatalogType(), ops, table))) {
+                    ensureCatalogGenerationStable(catalog, ops, context.getAuthenticator(), nameMapping,
+                            context.isEnableMappingVarbinary(), context.isEnableMappingTimestampTz());
+                    owner.add(context.promote()::close);
+                    WritableTableLease lease = new WritableTableLease(
+                            table, context.getAuthenticator(), owner.cleanup());
+                    owner.transfer();
+                    return lease;
+                }
+            }
+        }
+        if (catalog instanceof HMSExternalCatalog) {
+            HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
+            try (HMSExternalCatalog.IcebergTableLoadContext context = hmsCatalog.beginIcebergTableLoad()) {
+                IcebergMetadataOps ops = context.getOps();
+                if (expectedOps != null && ops != expectedOps) {
+                    throw catalogGenerationMoved(nameMapping);
+                }
+                boolean enableMappingVarbinary = context.isEnableMappingVarbinary();
+                boolean enableMappingTimestampTz = context.isEnableMappingTimestampTz();
+                Table table;
+                try {
+                    table = context.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
+                } catch (Exception e) {
+                    throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+                }
+                try (TableResourceOwner owner = new TableResourceOwner(() -> { })) {
+                    ensureCatalogGenerationStable(catalog, ops, context.getAuthenticator(), nameMapping,
+                            enableMappingVarbinary, enableMappingTimestampTz);
+                    owner.add(context.promote()::close);
+                    WritableTableLease lease = new WritableTableLease(
+                            table, context.getAuthenticator(), owner.cleanup());
+                    owner.transfer();
+                    return lease;
+                }
+            }
+        }
+        throw new RuntimeException("Only support 'hms' and 'iceberg' type for iceberg table");
+    }
+
     Table getQueryScopedIcebergTable(ExternalTable dorisTable) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
         IcebergTableCacheValue tableValue = statementValue(nameMapping);
@@ -250,8 +313,11 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                                     : tableValue.getIcebergTable(),
                             tableValue.getRetainedIcebergTable(),
                             tableValue.getRetainedCurrentSnapshotJson(), isolateForQueries,
-                            authenticator)
-                            .bindCapturedAuthenticator(authenticator));
+                            authenticator, tableValue.isEnableMappingVarbinary(),
+                            tableValue.isEnableMappingTimestampTz())
+                            .bindCapturedAuthenticator(authenticator)
+                            .bindSchemaMappingOptions(tableValue.isEnableMappingVarbinary(),
+                                    tableValue.isEnableMappingTimestampTz()));
         }
         IcebergSnapshotEntryKey key = optionalKey.get();
         MetaCacheEntry<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> entry =
@@ -266,8 +332,11 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                             dorisTable, projectionTable,
                             tableValue.getRetainedIcebergTable(),
                             tableValue.getRetainedCurrentSnapshotJson(), isolateForQueries,
-                            authenticator)
-                            .bindCapturedAuthenticator(authenticator);
+                            authenticator, tableValue.isEnableMappingVarbinary(),
+                            tableValue.isEnableMappingTimestampTz())
+                            .bindCapturedAuthenticator(authenticator)
+                            .bindSchemaMappingOptions(tableValue.isEnableMappingVarbinary(),
+                                    tableValue.isEnableMappingTimestampTz());
                     if (entry.isWeightAccounting()) {
                         value.prepareForCachePublication(key);
                     }
@@ -317,21 +386,41 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
 
     public IcebergSchemaCacheValue getIcebergSchemaCacheValue(NameMapping nameMapping, long schemaId) {
         IcebergTableCacheValue tableValue = statementValue(nameMapping);
-        return getIcebergSchemaCacheValue(nameMapping, schemaId, tableValue.getRetainedIcebergTable());
+        return getIcebergSchemaCacheValue(nameMapping, schemaId, tableValue.getRetainedIcebergTable(),
+                tableValue.getAuthenticator(), tableValue.isEnableMappingVarbinary(),
+                tableValue.isEnableMappingTimestampTz());
     }
 
     IcebergSchemaCacheValue getIcebergSchemaCacheValue(
             NameMapping nameMapping, long schemaId, Table retainedTable) {
+        CatalogIf<?> catalog = getCatalog(nameMapping.getCtlId());
+        if (!(catalog instanceof ExternalCatalog)) {
+            return getIcebergSchemaCacheValue(nameMapping, schemaId, retainedTable,
+                    new ExecutionAuthenticator() { }, false, false);
+        }
+        ExecutionAuthenticator authenticator = requireExecutionAuthenticator(catalog);
+        ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
+        return getIcebergSchemaCacheValue(nameMapping, schemaId, retainedTable, authenticator,
+                externalCatalog.getEnableMappingVarbinary(), externalCatalog.getEnableMappingTimestampTz());
+    }
+
+    IcebergSchemaCacheValue getIcebergSchemaCacheValue(NameMapping nameMapping, long schemaId, Table retainedTable,
+            ExecutionAuthenticator authenticator,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         Optional<IcebergSnapshotEntryKey> generation = IcebergSnapshotEntryKey.tryCreate(nameMapping, retainedTable);
         if (!generation.isPresent()) {
             return (IcebergSchemaCacheValue) loadSchemaCacheValue(
-                    new IcebergSchemaCacheKey(nameMapping, schemaId), retainedTable);
+                    new IcebergSchemaCacheKey(nameMapping, "", schemaId,
+                            retainedTable.spec().specId(),
+                            enableMappingVarbinary, enableMappingTimestampTz),
+                    retainedTable, authenticator);
         }
         IcebergSchemaCacheKey key = new IcebergSchemaCacheKey(
-                nameMapping, generation.get().getTableUuid(), schemaId);
+                nameMapping, generation.get().getTableUuid(), schemaId, retainedTable.spec().specId(),
+                enableMappingVarbinary, enableMappingTimestampTz);
         MetaCacheEntry<IcebergSchemaCacheKey, SchemaCacheValue> entry = schemaEntry.get(nameMapping.getCtlId());
         SchemaCacheValue schemaCacheValue = entry
-                .get(key, ignored -> loadSchemaCacheValue(key, retainedTable));
+                .get(key, ignored -> loadSchemaCacheValue(key, retainedTable, authenticator));
         MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables =
                 tableEntry.getIfInitialized(nameMapping.getCtlId());
         if (tables == null) {
@@ -396,38 +485,52 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
             IcebergExternalCatalog icebergCatalog = (IcebergExternalCatalog) catalog;
             try (IcebergExternalCatalog.TableLoadContext context = icebergCatalog.beginTableLoad()) {
                 IcebergMetadataOps ops = context.getOps();
+                boolean enableMappingVarbinary = context.isEnableMappingVarbinary();
+                boolean enableMappingTimestampTz = context.isEnableMappingTimestampTz();
                 Table table;
                 try {
                     table = context.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
                 } catch (Exception e) {
                     throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
                 }
-                ensureCatalogGenerationStable(catalog, ops, context.getAuthenticator(), nameMapping);
-                Runnable tableCleanup = tableCleanup(context.getCatalogType(), ops, table);
-                IcebergCatalogResourceTracker.ResourceLease catalogLease = context.promote();
-                Runnable cleanup = () -> {
-                    try {
-                        tableCleanup.run();
-                    } finally {
-                        catalogLease.close();
+                try (TableResourceOwner owner = new TableResourceOwner(
+                        tableCleanup(context.getCatalogType(), ops, table))) {
+                    ensureCatalogGenerationStable(catalog, ops, context.getAuthenticator(), nameMapping,
+                            enableMappingVarbinary, enableMappingTimestampTz);
+                    try (TableResourceOwner catalogOwner = new TableResourceOwner(context.promote()::close)) {
+                        IcebergTableCacheValue value = execute(context.getAuthenticator(), () -> createLoadedTableValue(
+                                nameMapping, table, ops.getThreadPoolWithPreAuth(), context.getAuthenticator(),
+                                enableMappingVarbinary, enableMappingTimestampTz,
+                                owner, catalogOwner.cleanup()));
+                        owner.transfer();
+                        catalogOwner.transfer();
+                        return value;
                     }
-                };
-                return execute(context.getAuthenticator(), () -> createLoadedTableValue(
-                        nameMapping, table, ops.getThreadPoolWithPreAuth(), context.getAuthenticator(), cleanup));
+                }
             }
         }
         if (catalog instanceof HMSExternalCatalog) {
             HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
             try (HMSExternalCatalog.IcebergTableLoadContext context = hmsCatalog.beginIcebergTableLoad()) {
+                boolean enableMappingVarbinary = context.isEnableMappingVarbinary();
+                boolean enableMappingTimestampTz = context.isEnableMappingTimestampTz();
                 Table table;
                 try {
                     table = context.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
                 } catch (Exception e) {
                     throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
                 }
-                IcebergCatalogResourceTracker.ResourceLease catalogLease = context.promote();
-                return execute(context.getAuthenticator(), () -> createLoadedTableValue(
-                        nameMapping, table, context.getExecutor(), context.getAuthenticator(), catalogLease::close));
+                try (TableResourceOwner owner = new TableResourceOwner(() -> { })) {
+                    try (TableResourceOwner catalogOwner = new TableResourceOwner(context.promote()::close)) {
+                        IcebergTableCacheValue value = execute(context.getAuthenticator(), () -> createLoadedTableValue(
+                                nameMapping, table, context.getExecutor(), context.getAuthenticator(),
+                                enableMappingVarbinary, enableMappingTimestampTz,
+                                owner, catalogOwner.cleanup()));
+                        owner.transfer();
+                        catalogOwner.transfer();
+                        return value;
+                    }
+                }
             }
         }
 
@@ -435,12 +538,31 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private IcebergTableCacheValue createLoadedTableValue(NameMapping nameMapping, Table table,
-            ThreadPoolExecutor planningExecutor, ExecutionAuthenticator authenticator, Runnable cleanup) {
-        IcebergTableCacheValue loaded = new IcebergTableCacheValue(table, planningExecutor, () -> null, cleanup);
+            ThreadPoolExecutor planningExecutor, ExecutionAuthenticator authenticator,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz,
+            TableResourceOwner tableOwner, Runnable cleanup) {
+        IcebergTableCacheValue loaded = new IcebergTableCacheValue(
+                table, planningExecutor, () -> null, tableOwner.cleanup(), cleanup);
         try {
             loaded.bindAuthenticator(authenticator);
+            loaded.bindSchemaMappingOptions(enableMappingVarbinary, enableMappingTimestampTz);
             MetaCacheEntry<NameMapping, IcebergTableCacheValue> currentEntry =
                     tableEntry.getIfInitialized(nameMapping.getCtlId());
+            IcebergTableCacheValue currentValue = currentEntry == null
+                    ? null : currentEntry.peekIfPresent(nameMapping);
+            if (currentValue != null && currentValue.sharesFileIoIdentity(table)) {
+                // Adopt the current generation's cleanup token before cache publication. If this
+                // load is rejected, its reference is released without closing the shared FileIO;
+                // if it replaces current, the last retired generation closes the FileIO once.
+                if (!loaded.shareTableCleanupWith(currentValue)) {
+                    // The exact shared FileIO was closed after peek but before ownership could be
+                    // retained. Suppress the duplicate close and reject this unusable generation.
+                    loaded.abandonTableCleanup();
+                    tableOwner.transfer();
+                    throw catalogGenerationMoved(nameMapping);
+                }
+                tableOwner.transfer();
+            }
             if (currentEntry != null && currentEntry.isWeightAccounting()) {
                 prepareTableForCachePublication(nameMapping, loaded);
             }
@@ -563,12 +685,22 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
      */
     private void ensureCatalogGenerationStable(CatalogIf<?> catalog, IcebergMetadataOps ops,
             ExecutionAuthenticator authenticator, NameMapping nameMapping) {
+        ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
+        ensureCatalogGenerationStable(catalog, ops, authenticator, nameMapping,
+                externalCatalog.getEnableMappingVarbinary(), externalCatalog.getEnableMappingTimestampTz());
+    }
+
+    private void ensureCatalogGenerationStable(CatalogIf<?> catalog, IcebergMetadataOps ops,
+            ExecutionAuthenticator authenticator, NameMapping nameMapping,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         boolean stable;
         try {
             // Read without re-initializing: a catalog that was reset mid-flight must count as
             // unstable here, not get quietly reinitialized by the validation itself.
             stable = resolveMetadataOps(catalog) == ops
-                    && ((ExternalCatalog) catalog).getExecutionAuthenticator() == authenticator;
+                    && ((ExternalCatalog) catalog).getExecutionAuthenticator() == authenticator
+                    && ((ExternalCatalog) catalog).getEnableMappingVarbinary() == enableMappingVarbinary
+                    && ((ExternalCatalog) catalog).getEnableMappingTimestampTz() == enableMappingTimestampTz;
         } catch (RuntimeException e) {
             stable = false;
         }
@@ -627,13 +759,18 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                         key.getNameMapping().getLocalTblName(), key.getSchemaId()));
     }
 
-    private SchemaCacheValue loadSchemaCacheValue(IcebergSchemaCacheKey key, Table retainedTable) {
+    private SchemaCacheValue loadSchemaCacheValue(IcebergSchemaCacheKey key, Table retainedTable,
+            ExecutionAuthenticator authenticator) {
         ExternalTable dorisTable = findExternalTable(key.getNameMapping(), ENGINE);
         dorisTable.setUpdateTime(System.currentTimeMillis());
         boolean isView = dorisTable instanceof IcebergExternalTable
                 && ((IcebergExternalTable) dorisTable).isView();
-        SchemaCacheValue value = IcebergUtils.loadSchemaCacheValue(
-                dorisTable, key.getSchemaId(), isView, retainedTable).orElseThrow(() ->
+        SchemaCacheValue value = (isView
+                ? IcebergUtils.loadSchemaCacheValue(dorisTable, key.getSchemaId(), true, retainedTable)
+                : Optional.of(IcebergUtils.buildTableSchemaCacheValue(
+                        dorisTable, key.getSchemaId(), retainedTable, authenticator,
+                        key.isEnableMappingVarbinary(), key.isEnableMappingTimestampTz())))
+                .orElseThrow(() ->
                 new CacheException("failed to load iceberg schema cache value for: %s.%s.%s, schemaId: %s",
                         null, key.getNameMapping().getCtlId(), key.getNameMapping().getLocalDbName(),
                         key.getNameMapping().getLocalTblName(), key.getSchemaId()));
@@ -650,7 +787,9 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         }
         try {
             if (previousValue.isSameOperationalGeneration(currentValue)) {
-                return;
+                if (previousValue.sharesFileIoIdentity(currentValue.getRetainedIcebergTable())) {
+                    return;
+                }
             }
             MetaCacheEntry<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> snapshots =
                     snapshotEntry.getIfInitialized(nameMapping.getCtlId());
@@ -666,7 +805,10 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                     schemaEntry.getIfInitialized(nameMapping.getCtlId());
             if (schemas != null) {
                 schemas.invalidateIf(key -> key.getNameMapping().equals(nameMapping)
-                        && !key.getTableUuid().equals(currentUuid));
+                        && (!key.getTableUuid().equals(currentUuid)
+                                || key.isEnableMappingVarbinary() != currentValue.isEnableMappingVarbinary()
+                                || key.isEnableMappingTimestampTz()
+                                        != currentValue.isEnableMappingTimestampTz()));
             }
         } finally {
             // Caffeine REPLACED notifications intentionally do not run the removal listener because
@@ -698,10 +840,6 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         if (projection == null) {
             return false;
         }
-        if (projection.getRetainedIcebergTable().map(table -> table == currentValue.getRetainedIcebergTable())
-                .orElse(false)) {
-            return true;
-        }
         Optional<Table> retainedTable = projection.getRetainedIcebergTable();
         // Count-mode projections do not retain a table handle; nothing to rebind (and nothing is
         // planned through a frozen generation, so a stale captured context is inert).
@@ -711,14 +849,95 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         // The captured execution context must match as well: after an auth-only ALTER the frozen
         // handle is operationally equivalent but unplannable under the new context, and serving
         // it would make every retried statement hit the same rejected projection until expiry.
-        return currentValue.sharesOperationalResources(retainedTable.get())
-                && currentValue.getAuthenticator() == projection.getCapturedAuthenticator();
+        return currentValue.sharesFileIoIdentity(retainedTable.get())
+                && currentValue.getAuthenticator() == projection.getCapturedAuthenticator()
+                && currentValue.isEnableMappingVarbinary() == projection.isEnableMappingVarbinary()
+                && currentValue.isEnableMappingTimestampTz() == projection.isEnableMappingTimestampTz();
+    }
+
+    static final class WritableTableLease implements AutoCloseable {
+        private final Table table;
+        private final ExecutionAuthenticator authenticator;
+        private final Runnable cleanup;
+        private final AtomicBoolean closed = new AtomicBoolean();
+
+        private WritableTableLease(Table table, ExecutionAuthenticator authenticator, Runnable cleanup) {
+            this.table = table;
+            this.authenticator = authenticator;
+            this.cleanup = cleanup;
+        }
+
+        Table getTable() {
+            return table;
+        }
+
+        ExecutionAuthenticator getAuthenticator() {
+            return authenticator;
+        }
+
+        @Override
+        public void close() {
+            if (closed.compareAndSet(false, true)) {
+                cleanup.run();
+            }
+        }
+    }
+
+    private static final class TableResourceOwner implements AutoCloseable {
+        private final List<Runnable> cleanups = new ArrayList<>();
+        private final AtomicBoolean released = new AtomicBoolean();
+        private boolean transferred;
+
+        private TableResourceOwner(Runnable cleanup) {
+            cleanups.add(cleanup);
+        }
+
+        private void add(Runnable cleanup) {
+            cleanups.add(cleanup);
+        }
+
+        private Runnable cleanup() {
+            return this::release;
+        }
+
+        private void transfer() {
+            transferred = true;
+        }
+
+        private void release() {
+            if (!released.compareAndSet(false, true)) {
+                return;
+            }
+            RuntimeException failure = null;
+            for (Runnable cleanup : cleanups) {
+                try {
+                    cleanup.run();
+                } catch (RuntimeException e) {
+                    if (failure == null) {
+                        failure = e;
+                    } else {
+                        failure.addSuppressed(e);
+                    }
+                }
+            }
+            if (failure != null) {
+                throw failure;
+            }
+        }
+
+        @Override
+        public void close() {
+            if (!transferred) {
+                release();
+            }
+        }
     }
 
     private IcebergSnapshotCacheValue loadSnapshotProjection(
             ExternalTable dorisTable, Table projectionTable, Table retainedTable,
             String retainedCurrentSnapshotJson, boolean isolateForQueries,
-            ExecutionAuthenticator authenticator) {
+            ExecutionAuthenticator authenticator,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         if (!(dorisTable instanceof MTMVRelatedTableIf)) {
             throw new RuntimeException(String.format("Table %s.%s is not a valid MTMV related table.",
                     dorisTable.getDbName(), dorisTable.getName()));
@@ -731,7 +950,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 icebergPartitionInfo = IcebergPartitionInfo.empty();
             } else {
                 icebergPartitionInfo = IcebergUtils.loadPartitionInfo(dorisTable, projectionTable,
-                        latestIcebergSnapshot.getSnapshotId(), latestIcebergSnapshot.getSchemaId(), authenticator);
+                        latestIcebergSnapshot.getSnapshotId(), latestIcebergSnapshot.getSchemaId(), authenticator,
+                        enableMappingVarbinary, enableMappingTimestampTz);
             }
             Optional<Map<Integer, List<String>>> nameMapping =
                     IcebergUtils.getNameMapping(projectionTable);

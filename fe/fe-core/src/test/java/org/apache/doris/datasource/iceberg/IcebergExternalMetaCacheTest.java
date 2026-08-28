@@ -84,6 +84,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -94,6 +95,21 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public class IcebergExternalMetaCacheTest {
+
+    @Test
+    public void testSchemaCacheKeySeparatesMappingOptions() {
+        NameMapping mapping = NameMapping.createForTest(1L, "db", "tbl");
+        IcebergSchemaCacheKey plain = new IcebergSchemaCacheKey(
+                mapping, "table-uuid", 7L, false, false);
+
+        Assert.assertNotEquals(plain, new IcebergSchemaCacheKey(
+                mapping, "table-uuid", 7L, true, false));
+        Assert.assertNotEquals(plain, new IcebergSchemaCacheKey(
+                mapping, "table-uuid", 7L, false, true));
+        Assert.assertNotEquals(
+                new IcebergSchemaCacheKey(mapping, "table-uuid", 7L, 3, false, false),
+                new IcebergSchemaCacheKey(mapping, "table-uuid", 7L, 4, false, false));
+    }
     // U+0130 (LATIN CAPITAL LETTER I WITH DOT ABOVE) lower-cases to two characters in Locale.ROOT.
     private static final String DOTTED_CAPITAL_I = String.valueOf((char) 0x0130);
     @Rule
@@ -325,9 +341,10 @@ public class IcebergExternalMetaCacheTest {
                     IcebergPartitionInfo.empty(), new IcebergSnapshot(-1L, 0L),
                     Optional.empty(), rotated.getRetainedIcebergTable());
             snapshots.put(snapshotKey, rotatedProjection);
-            // An equivalent reload (same credentials, new FileIO instance) keeps the projection.
+            // Even an equivalent reload owns a distinct FileIO instance. Retiring the old table
+            // closes that exact instance, so its frozen projection must be rebuilt first.
             tables.put(mapping, equivalent);
-            Assert.assertSame(rotatedProjection, snapshots.peekIfPresent(snapshotKey));
+            Assert.assertNull(snapshots.peekIfPresent(snapshotKey));
 
             // A count-mode projection retains no handle and is never bound to credentials.
             IcebergSnapshotCacheValue countProjection = new IcebergSnapshotCacheValue(
@@ -340,6 +357,70 @@ public class IcebergExternalMetaCacheTest {
             cache.close();
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    public void testReplacementTransfersSharedFileIoCloseToCurrentGeneration() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
+        AtomicInteger firstCatalogCloses = new AtomicInteger();
+        AtomicInteger currentCatalogCloses = new AtomicInteger();
+        CountDownLatch currentRetired = new CountDownLatch(1);
+        try {
+            long catalogId = 1L;
+            cache.initCatalog(catalogId, Collections.emptyMap());
+            NameMapping mapping = NameMapping.createForTest(catalogId, "db", "tbl");
+            PropertiesFileIO sharedIo = new PropertiesFileIO("token", "shared");
+            TableMetadata metadata = metadataWithLocation("/metadata/shared-io-v1.json");
+            IcebergTableCacheValue first = new IcebergTableCacheValue(
+                    tableWithMetadata(metadata, sharedIo), null, () -> null,
+                    sharedIo::close, firstCatalogCloses::incrementAndGet);
+            IcebergTableCacheValue current = new IcebergTableCacheValue(
+                    tableWithMetadata(metadata, sharedIo), null, () -> null,
+                    sharedIo::close, () -> {
+                        currentCatalogCloses.incrementAndGet();
+                        currentRetired.countDown();
+                    });
+            Assert.assertTrue(current.shareTableCleanupWith(first));
+            MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables = cache.entry(
+                    catalogId, IcebergExternalMetaCache.ENTRY_TABLE,
+                    NameMapping.class, IcebergTableCacheValue.class);
+
+            tables.put(mapping, first);
+            first.releaseLoaderReference();
+            tables.put(mapping, current);
+            current.releaseLoaderReference();
+
+            Assert.assertEquals("the replacement must keep its shared IO open", 0, sharedIo.getCloseCount());
+            Assert.assertEquals(1, firstCatalogCloses.get());
+            tables.invalidateKey(mapping);
+            Assert.assertTrue(currentRetired.await(3L, TimeUnit.SECONDS));
+            Assert.assertEquals(1, sharedIo.getCloseCount());
+            Assert.assertEquals(1, currentCatalogCloses.get());
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRetiredSharedFileIoOwnerCannotBeAdoptedOrClosedTwice() {
+        PropertiesFileIO sharedIo = new PropertiesFileIO("token", "retired-shared");
+        TableMetadata metadata = metadataWithLocation("/metadata/retired-shared-io-v1.json");
+        IcebergTableCacheValue retired = new IcebergTableCacheValue(
+                tableWithMetadata(metadata, sharedIo), null, () -> null,
+                sharedIo::close, () -> { });
+        retired.retire();
+        Assert.assertEquals(1, sharedIo.getCloseCount());
+
+        IcebergTableCacheValue candidate = new IcebergTableCacheValue(
+                tableWithMetadata(metadata, sharedIo), null, () -> null,
+                sharedIo::close, () -> { });
+        Assert.assertFalse(candidate.shareTableCleanupWith(retired));
+        candidate.abandonTableCleanup();
+        candidate.retire();
+        Assert.assertEquals("a rejected generation must not close an already closed exact FileIO again",
+                1, sharedIo.getCloseCount());
     }
 
     @Test
@@ -423,6 +504,72 @@ public class IcebergExternalMetaCacheTest {
             IcebergTableCacheValue published = tables.get(mapping);
             Assert.assertSame(currentAuthenticator.get(), published.getAuthenticator());
             Assert.assertSame(table, cache.getWritableIcebergTable(dorisTable));
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testWritableTableLeaseClosesOwnedFileIoOnSuccessAndGenerationFailure() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        IcebergMetadataOps firstOps = Mockito.mock(IcebergMetadataOps.class);
+        IcebergMetadataOps nextOps = Mockito.mock(IcebergMetadataOps.class);
+        ExecutionAuthenticator authenticator = new ExecutionAuthenticator() { };
+        java.util.concurrent.atomic.AtomicReference<IcebergMetadataOps> currentOps =
+                new java.util.concurrent.atomic.AtomicReference<>(firstOps);
+        Mockito.when(catalog.getMetadataOps()).thenAnswer(invocation -> currentOps.get());
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(authenticator);
+        Mockito.when(catalog.getIcebergCatalogType()).thenReturn(IcebergExternalCatalog.ICEBERG_GLUE);
+        IcebergExternalCatalog.TableLoadContext context =
+                Mockito.mock(IcebergExternalCatalog.TableLoadContext.class);
+        Mockito.when(catalog.beginTableLoad()).thenReturn(context);
+        Mockito.when(context.getOps()).thenReturn(firstOps);
+        Mockito.when(context.getAuthenticator()).thenReturn(authenticator);
+        Mockito.when(context.getCatalogType()).thenReturn(IcebergExternalCatalog.ICEBERG_GLUE);
+        IcebergCatalogResourceTracker.ResourceLease catalogLease =
+                Mockito.mock(IcebergCatalogResourceTracker.ResourceLease.class);
+        Mockito.when(context.promote()).thenReturn(catalogLease);
+        PropertiesFileIO successfulIo = new PropertiesFileIO("token", "success");
+        PropertiesFileIO rejectedIo = new PropertiesFileIO("token", "rejected");
+        Table successfulTable = tableWithMetadata(
+                metadataWithLocation("/metadata/writable-success.json"), successfulIo);
+        Table rejectedTable = tableWithMetadata(
+                metadataWithLocation("/metadata/writable-rejected.json"), rejectedIo);
+        Mockito.when(context.loadTable("remote_db", "remote_tbl"))
+                .thenReturn(successfulTable)
+                .thenAnswer(invocation -> {
+                    currentOps.set(nextOps);
+                    return rejectedTable;
+                });
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor) {
+            @Override
+            protected CatalogIf<?> getCatalog(long catalogId) {
+                return catalog;
+            }
+        };
+        try {
+            NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
+            ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+            Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
+
+            try (IcebergExternalMetaCache.WritableTableLease lease =
+                    cache.acquireWritableIcebergTable(dorisTable, firstOps)) {
+                Assert.assertSame(successfulTable, lease.getTable());
+                Assert.assertEquals(0, successfulIo.getCloseCount());
+            }
+            Assert.assertEquals(1, successfulIo.getCloseCount());
+            Mockito.verify(catalogLease).close();
+
+            try {
+                cache.acquireWritableIcebergTable(dorisTable, firstOps);
+                Assert.fail("generation replacement must reject the writable handle");
+            } catch (RuntimeException expected) {
+                Assert.assertTrue(expected.getMessage().contains("please retry"));
+            }
+            Assert.assertEquals(1, rejectedIo.getCloseCount());
+            Mockito.verify(context, Mockito.times(1)).promote();
         } finally {
             cache.close();
             executor.shutdownNow();
@@ -519,22 +666,23 @@ public class IcebergExternalMetaCacheTest {
         };
         Method loader = IcebergExternalMetaCache.class.getDeclaredMethod(
                 "loadSnapshotProjection", ExternalTable.class, Table.class, Table.class,
-                String.class, boolean.class, ExecutionAuthenticator.class);
+                String.class, boolean.class, ExecutionAuthenticator.class,
+                boolean.class, boolean.class);
         loader.setAccessible(true);
         try (MockedStatic<IcebergUtils> icebergUtils = Mockito.mockStatic(
                 IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
             icebergUtils.when(() -> IcebergUtils.loadPartitionInfo(
-                            dorisTable, projectionTable, 11L, 3L, capturedAuthenticator))
+                            dorisTable, projectionTable, 11L, 3L, capturedAuthenticator, true, false))
                     .thenReturn(IcebergPartitionInfo.empty());
             icebergUtils.when(() -> IcebergUtils.getNameMapping(projectionTable))
                     .thenReturn(Optional.empty());
             icebergUtils.clearInvocations();
 
             loader.invoke(cache, dorisTable, projectionTable, projectionTable,
-                    null, false, capturedAuthenticator);
+                    null, false, capturedAuthenticator, true, false);
 
             icebergUtils.verify(() -> IcebergUtils.loadPartitionInfo(
-                    dorisTable, projectionTable, 11L, 3L, capturedAuthenticator));
+                    dorisTable, projectionTable, 11L, 3L, capturedAuthenticator, true, false));
         } finally {
             cache.close();
             executor.shutdownNow();
@@ -713,6 +861,59 @@ public class IcebergExternalMetaCacheTest {
     }
 
     @Test
+    public void testTableWrapperConstructionFailureReleasesTransferredResources() {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        IcebergMetadataOps metadataOps = Mockito.mock(IcebergMetadataOps.class);
+        ExecutionAuthenticator authenticator = new ExecutionAuthenticator() { };
+        PropertiesFileIO fileIo = new PropertiesFileIO("token", "constructor-failure");
+        Table table = Mockito.mock(Table.class, Mockito.withSettings().extraInterfaces(HasTableOperations.class));
+        TableOperations tableOperations = Mockito.mock(TableOperations.class);
+        Mockito.when(((HasTableOperations) table).operations()).thenReturn(tableOperations);
+        Mockito.when(tableOperations.current()).thenThrow(new RuntimeException("metadata unavailable"));
+        Mockito.when(table.io()).thenReturn(fileIo);
+        Mockito.when(catalog.getMetadataOps()).thenReturn(metadataOps);
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(authenticator);
+        Mockito.when(catalog.getIcebergCatalogType()).thenReturn(IcebergExternalCatalog.ICEBERG_GLUE);
+        IcebergExternalCatalog.TableLoadContext context =
+                Mockito.mock(IcebergExternalCatalog.TableLoadContext.class);
+        Mockito.when(catalog.beginTableLoad()).thenReturn(context);
+        Mockito.when(context.getOps()).thenReturn(metadataOps);
+        Mockito.when(context.getAuthenticator()).thenReturn(authenticator);
+        Mockito.when(context.getCatalogType()).thenReturn(IcebergExternalCatalog.ICEBERG_GLUE);
+        try {
+            Mockito.when(context.loadTable("remote_db", "remote_tbl")).thenReturn(table);
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+        IcebergCatalogResourceTracker.ResourceLease catalogLease =
+                Mockito.mock(IcebergCatalogResourceTracker.ResourceLease.class);
+        Mockito.when(context.promote()).thenReturn(catalogLease);
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor) {
+            @Override
+            protected CatalogIf<?> getCatalog(long catalogId) {
+                return catalog;
+            }
+        };
+        try {
+            cache.initCatalog(1L, Collections.emptyMap());
+            NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
+            try {
+                cache.entry(1L, IcebergExternalMetaCache.ENTRY_TABLE,
+                        NameMapping.class, IcebergTableCacheValue.class).get(mapping);
+                Assert.fail("wrapper construction must fail");
+            } catch (RuntimeException expected) {
+                Assert.assertTrue(exceptionChainContains(expected, "metadata unavailable"));
+            }
+            Assert.assertEquals(1, fileIo.getCloseCount());
+            Mockito.verify(catalogLease).close();
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testRejectedTableGenerationsDoNotAccumulateSnapshotOrSchemaProjections() {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
@@ -771,7 +972,8 @@ public class IcebergExternalMetaCacheTest {
             IcebergTableCacheValue rejected = new IcebergTableCacheValue(
                     tableWithMetadataLocation("/metadata/rejected-schema.json"));
             IcebergSchemaCacheKey schemaKey = new IcebergSchemaCacheKey(
-                    mapping, rejected.getTableUuid().get(), 0L);
+                    mapping, rejected.getTableUuid().get(), 0L,
+                    rejected.getRetainedIcebergTable().spec().specId());
             IcebergSchemaCacheValue schemaValue = new IcebergSchemaCacheValue(
                     Collections.emptyList(), Collections.emptyList());
             schemas.put(schemaKey, schemaValue);
@@ -916,11 +1118,13 @@ public class IcebergExternalMetaCacheTest {
             IcebergSnapshotCacheValue first = cache.getSnapshotCache(dorisTable);
             Assert.assertNull(tables.peekIfPresent(mapping));
             Assert.assertEquals(1L, snapshots.stats().getEstimatedSize());
-            // Same credentials on a new handle instance: the physically keyed projection is reused.
-            Assert.assertSame(first, cache.getSnapshotCache(dorisTable));
+            // A new handle owns a distinct FileIO instance. Even with equal properties, retiring
+            // that handle closes its exact IO, so the projection is rebound before retirement.
+            IcebergSnapshotCacheValue sameCredentialsProjection = cache.getSnapshotCache(dorisTable);
+            Assert.assertNotSame(first, sameCredentialsProjection);
             // Rotated credentials: the projection frozen on the first handle is rebuilt.
             IcebergSnapshotCacheValue rebound = cache.getSnapshotCache(dorisTable);
-            Assert.assertNotSame(first, rebound);
+            Assert.assertNotSame(sameCredentialsProjection, rebound);
             Assert.assertSame(rotatedHandle.io(), rebound.getIcebergTable().get().io());
             Assert.assertEquals(1L, snapshots.stats().getEstimatedSize());
             Mockito.verify(metadataOps, Mockito.times(3)).loadTable("remote_db", "remote_tbl");
@@ -1123,7 +1327,9 @@ public class IcebergExternalMetaCacheTest {
             NameMapping mapping = NameMapping.createForTest(catalogId, "db", "tbl");
             IcebergTableCacheValue table = new IcebergTableCacheValue(
                     tableWithMetadataLocation("/metadata/disabled-table-cache.json"));
-            IcebergSchemaCacheKey schemaKey = new IcebergSchemaCacheKey(mapping, table.getTableUuid().get(), 0L);
+            IcebergSchemaCacheKey schemaKey = new IcebergSchemaCacheKey(
+                    mapping, table.getTableUuid().get(), 0L,
+                    table.getRetainedIcebergTable().spec().specId());
             IcebergSchemaCacheValue schemaValue = new IcebergSchemaCacheValue(
                     Collections.emptyList(), Collections.emptyList());
             MetaCacheEntry<IcebergSchemaCacheKey, SchemaCacheValue> schemas = cache.entry(
@@ -1157,7 +1363,8 @@ public class IcebergExternalMetaCacheTest {
             cache.entry(catalogId, IcebergExternalMetaCache.ENTRY_TABLE,
                     NameMapping.class, IcebergTableCacheValue.class).put(mapping, newTable);
             IcebergSchemaCacheKey staleKey = new IcebergSchemaCacheKey(
-                    mapping, oldTable.getTableUuid().get(), 0L);
+                    mapping, oldTable.getTableUuid().get(), 0L,
+                    oldTable.getRetainedIcebergTable().spec().specId());
             IcebergSchemaCacheValue staleValue = new IcebergSchemaCacheValue(
                     Collections.emptyList(), Collections.emptyList());
             MetaCacheEntry<IcebergSchemaCacheKey, SchemaCacheValue> schemas = cache.entry(
@@ -2935,6 +3142,7 @@ public class IcebergExternalMetaCacheTest {
     /** A FileIO whose identity is its configuration, like a catalog-vended S3 FileIO. */
     private static final class PropertiesFileIO implements FileIO {
         private final Map<String, String> properties;
+        private final AtomicInteger closeCount = new AtomicInteger();
 
         private PropertiesFileIO(String key, String value) {
             this.properties = Collections.singletonMap(key, value);
@@ -2958,6 +3166,15 @@ public class IcebergExternalMetaCacheTest {
         @Override
         public void deleteFile(String path) {
             throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void close() {
+            closeCount.incrementAndGet();
+        }
+
+        private int getCloseCount() {
+            return closeCount.get();
         }
     }
 
