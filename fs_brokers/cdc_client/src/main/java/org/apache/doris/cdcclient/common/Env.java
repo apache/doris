@@ -48,6 +48,8 @@ public class Env {
     private final Map<String, SlotDropTask> pendingSlotDrops;
     private final ScheduledExecutorService backgroundCleaner;
     @Setter private int backendHttpPort;
+    @Setter private boolean backendHttpTlsEnabled;
+    @Setter private String backendHttpTlsCaCertificatePath;
     @Setter @Getter private String clusterToken;
     @Setter @Getter private volatile String feMasterAddress;
 
@@ -71,6 +73,22 @@ public class Env {
 
     public String getBackendHostPort() {
         return "127.0.0.1:" + backendHttpPort;
+    }
+
+    public String getBackendInternalHttpUrl() {
+        return getInternalHttpUrl(getBackendHostPort());
+    }
+
+    public String getInternalHttpUrl(String hostPort) {
+        return (backendHttpTlsEnabled ? "https" : "http") + "://" + hostPort;
+    }
+
+    public boolean isBackendHttpTlsEnabled() {
+        return backendHttpTlsEnabled;
+    }
+
+    public String getBackendHttpTlsCaCertificatePath() {
+        return backendHttpTlsCaCertificatePath;
     }
 
     public static Env getCurrentEnv() {

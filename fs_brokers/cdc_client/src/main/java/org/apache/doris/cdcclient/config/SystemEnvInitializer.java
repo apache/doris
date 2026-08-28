@@ -29,12 +29,20 @@ public class SystemEnvInitializer {
     @Value("${backend.http.port}")
     private int port;
 
+    @Value("${backend.http.tls.enabled:false}")
+    private boolean backendHttpTlsEnabled;
+
+    @Value("${backend.http.tls.ca-certificate-path:}")
+    private String backendHttpTlsCaCertificatePath;
+
     @Value("${cluster.token}")
     private String clusterToken;
 
     @PostConstruct
     public void init() {
         Env.getCurrentEnv().setBackendHttpPort(port);
+        Env.getCurrentEnv().setBackendHttpTlsEnabled(backendHttpTlsEnabled);
+        Env.getCurrentEnv().setBackendHttpTlsCaCertificatePath(backendHttpTlsCaCertificatePath);
         Env.getCurrentEnv().setClusterToken(clusterToken);
     }
 }

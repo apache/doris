@@ -17,11 +17,20 @@
 
 package org.apache.doris.cdcclient.common;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 class EnvTest {
+
+    @AfterEach
+    void resetTlsConfiguration() {
+        Env env = Env.getCurrentEnv();
+        env.setBackendHttpTlsEnabled(false);
+        env.setBackendHttpTlsCaCertificatePath(null);
+    }
 
     @Test
     void getReaderIfPresentReturnsNullForUnknownJob() {
@@ -33,5 +42,25 @@ class EnvTest {
     void detachReaderIfOwnerReturnsNullForUnknownJob() {
         // Stale release for an unknown job (no lock/context) must be a no-op.
         assertNull(Env.getCurrentEnv().detachReaderIfOwner("no-such-job-id", "t1"));
+    }
+
+    @Test
+    void internalHttpUrlUsesHttpWhenBackendTlsDisabled() {
+        Env env = Env.getCurrentEnv();
+        env.setBackendHttpPort(8040);
+        env.setBackendHttpTlsEnabled(false);
+
+        assertEquals("http://127.0.0.1:8040", env.getBackendInternalHttpUrl());
+        assertEquals("http://fe-host:8030", env.getInternalHttpUrl("fe-host:8030"));
+    }
+
+    @Test
+    void internalHttpUrlUsesHttpsWhenBackendTlsEnabled() {
+        Env env = Env.getCurrentEnv();
+        env.setBackendHttpPort(8040);
+        env.setBackendHttpTlsEnabled(true);
+
+        assertEquals("https://127.0.0.1:8040", env.getBackendInternalHttpUrl());
+        assertEquals("https://fe-host:8030", env.getInternalHttpUrl("fe-host:8030"));
     }
 }

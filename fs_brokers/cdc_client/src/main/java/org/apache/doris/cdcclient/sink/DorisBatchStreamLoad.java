@@ -75,10 +75,9 @@ public class DorisBatchStreamLoad implements Serializable {
     private final long STREAM_LOAD_MAX_BYTES = 500 * 1024 * 1024L; // 500MB
     private final int RETRY = 3;
     private final byte[] lineDelimiter = "\n".getBytes();
-    private static final String LOAD_URL_PATTERN = "http://%s/api/%s/%s/_stream_load";
-    private static final String COMMIT_URL_PATTERN = "http://%s/api/streaming/commit_offset";
-    private static final String REPORT_FAILURE_URL_PATTERN =
-            "http://%s/api/streaming/report_task_failure";
+    private static final String LOAD_URL_PATTERN = "%s/api/%s/%s/_stream_load";
+    private static final String COMMIT_URL_PATTERN = "%s/api/streaming/commit_offset";
+    private static final String REPORT_FAILURE_URL_PATTERN = "%s/api/streaming/report_task_failure";
     // best-effort notification: short timeout so an unreachable FE can't pin the data-write thread
     private static final int REPORT_FAILURE_TIMEOUT_MS = 60 * 1000;
     private String hostPort;
@@ -398,7 +397,12 @@ public class DorisBatchStreamLoad implements Serializable {
             BatchBufferHttpEntity entity = new BatchBufferHttpEntity(buffer);
             HttpPutBuilder putBuilder = new HttpPutBuilder();
 
-            String loadUrl = String.format(LOAD_URL_PATTERN, hostPort, targetDb, buffer.getTable());
+            String loadUrl =
+                    String.format(
+                            LOAD_URL_PATTERN,
+                            Env.getCurrentEnv().getBackendInternalHttpUrl(),
+                            targetDb,
+                            buffer.getTable());
             String finalLabel = String.format("%s_%s_%s", jobId, currentTaskId, label);
             putBuilder
                     .setUrl(loadUrl)
@@ -520,7 +524,11 @@ public class DorisBatchStreamLoad implements Serializable {
             LoadStatistic loadStatistic,
             String tableSchemas) {
         try {
-            String url = String.format(COMMIT_URL_PATTERN, frontendAddress, targetDb);
+            String url =
+                    String.format(
+                            COMMIT_URL_PATTERN,
+                            Env.getCurrentEnv().getInternalHttpUrl(frontendAddress),
+                            targetDb);
             CommitOffsetRequest commitRequest =
                     CommitOffsetRequest.builder()
                             .offset(OBJECT_MAPPER.writeValueAsString(meta))
@@ -614,7 +622,10 @@ public class DorisBatchStreamLoad implements Serializable {
     public static void reportTaskFailure(
             String frontendAddress, String token, String jobId, String taskId, String reason) {
         try {
-            String url = String.format(REPORT_FAILURE_URL_PATTERN, frontendAddress);
+            String url =
+                    String.format(
+                            REPORT_FAILURE_URL_PATTERN,
+                            Env.getCurrentEnv().getInternalHttpUrl(frontendAddress));
             String param =
                     OBJECT_MAPPER.writeValueAsString(
                             TaskFailureRequest.builder()
