@@ -1781,6 +1781,14 @@ DEFINE_mInt32(segment_file_cache_consume_rowids_batch_size, "8000");
 DEFINE_mBool(enable_query_segment_file_cache_prefetch, "false");
 // Number of blocks to prefetch ahead in segment iterator for query
 DEFINE_mInt32(query_segment_file_cache_prefetch_block_size, "2");
+// Enable exact range read-ahead for query data pages
+DEFINE_mBool(enable_query_read_ahead, "false");
+// Query-level resident read-ahead buffer limit
+DEFINE_Int64(read_ahead_max_bytes_per_query, "268435456"); // 256 MiB
+DEFINE_Validator(read_ahead_max_bytes_per_query, [](int64_t value) { return value > 0; });
+// BE-level resident read-ahead buffer limit
+DEFINE_Int64(read_ahead_max_bytes_per_be, "1073741824"); // 1 GiB
+DEFINE_Validator(read_ahead_max_bytes_per_be, [](int64_t value) { return value > 0; });
 // Enable segment file cache block prefetch for compaction
 DEFINE_mBool(enable_compaction_segment_file_cache_prefetch, "false");
 // Number of blocks to prefetch ahead in segment iterator for compaction
