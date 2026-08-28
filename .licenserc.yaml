@@ -146,6 +146,7 @@ header:
     - "tools/jeprof"
     - "tools/FlameGraph/*"
     - "thirdparty/LICENSE.txt"
+    - "fs_brokers/cdc_client/src/test/resources/tls/ca.pem"
     - "fs_brokers/cdc_client/src/main/java/io/debezium/**"
     - "fs_brokers/cdc_client/src/main/java/com/github/shyiko/**"
   comment: on-failure
