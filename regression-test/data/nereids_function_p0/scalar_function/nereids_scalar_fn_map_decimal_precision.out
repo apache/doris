@@ -68,3 +68,12 @@ true
 1	true
 2	false
 
+-- !map_contains_value_null_leaf --
+1	false
+
+-- !map_contains_key_null_leaf --
+1	false
+
+-- !array_pushfront_arr_of_arr_map --
+1	[[{12.340:1.23}], [{1234567.890:12.35}]]
+

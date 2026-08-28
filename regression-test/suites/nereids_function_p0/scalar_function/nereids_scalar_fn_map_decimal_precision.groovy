@@ -270,4 +270,53 @@ suite("nereids_scalar_fn_map_decimal_precision") {
     order_qt_array_contains_array_group """
         select id, array_contains(arr, probe) as r from fn_test_arr_contains_decimal order by id
     """
+
+    // 17. nonconstant map_contains_value / map_contains_key with a NULL MAP leaf plus a
+    // concrete probe: the Any/Follow group of the NULL leaf must still be registered so
+    // the probe links to it (e.g. map_contains_value(map(k, NULL), p)), otherwise the
+    // unrelated key makes the wider type and the MAP leaf regresses to a wider Decimal
+    // than the probe.
+    sql "drop table if exists fn_test_map_null_leaf_decimal"
+    sql """
+        create table fn_test_map_null_leaf_decimal (
+            id int null,
+            k decimal(18,18) null,
+            p decimal(9,2) null
+        ) engine=olap
+        distributed by hash(id) buckets 1
+        properties('replication_num' = '1')
+    """
+    sql """
+        insert into fn_test_map_null_leaf_decimal values
+        (1, cast('0.000000000000000001' as decimal(18,18)), cast('1234567.89' as decimal(9,2)));
+    """
+    order_qt_map_contains_value_null_leaf """
+        select id, map_contains_value(map(k, NULL), p) as r from fn_test_map_null_leaf_decimal order by id
+    """
+    order_qt_map_contains_key_null_leaf """
+        select id, map_contains_key(map(NULL, k), p) as r from fn_test_map_null_leaf_decimal order by id
+    """
+
+    // 18. array_pushfront(ARRAY<Any(0)>, Any(0)) with ARRAY-of-ARRAY-of-MAP and ARRAY-of-MAP
+    // inputs: the container Any identity must be propagated through ARRAY recursion too,
+    // otherwise the nested MAP leaves are keyed by different absolute paths and regress to
+    // incompatible MAP types.
+    sql "drop table if exists fn_test_arr_arr_map_decimal"
+    sql """
+        create table fn_test_arr_arr_map_decimal (
+            id int null,
+            arr array<array<map<decimal(10,3), decimal(5,2)>>> null,
+            x array<map<decimal(9,2), decimal(9,2)>> null
+        ) engine=olap
+        distributed by hash(id) buckets 1
+        properties('replication_num' = '1')
+    """
+    sql """
+        insert into fn_test_arr_arr_map_decimal values
+        (1, array(array(map(cast('1234567.890' as decimal(10,3)), cast('12.345' as decimal(5,2))))),
+            array(map(cast('12.34' as decimal(9,2)), cast('1.23' as decimal(9,2)))));
+    """
+    order_qt_array_pushfront_arr_of_arr_map """
+        select id, array_pushfront(arr, x) as r from fn_test_arr_arr_map_decimal order by id
+    """
 }

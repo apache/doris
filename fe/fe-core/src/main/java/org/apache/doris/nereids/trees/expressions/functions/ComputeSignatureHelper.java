@@ -728,12 +728,14 @@ public class ComputeSignatureHelper {
                     String groupKey = MAP_CONTAINER_GROUP + containerIndex + "/" + path + ":" + sigDecimal;
                     groupWider.merge(groupKey, promoted, ComputeSignatureHelper::mergeDecimalV3Type);
                 }
-            } else if (isMapNested(path) && promoted != null) {
+            } else if (isMapNested(path)) {
                 String groupKey;
                 int index = anyFollowIndex(templateType);
                 if (index >= 0) {
                     // leaves that share the original Any/Follow identity aggregate into one
-                    // group (e.g. the value of map_contains_value and its probe)
+                    // group (e.g. the value of map_contains_value and its probe). The group
+                    // is registered even when this leaf is NULL so a concrete linked scalar
+                    // can still join it; only non-NULL evidence is merged below.
                     groupKey = ANY_INDEX_GROUP + index;
                     indexToMapLeafGroup.putIfAbsent(index, groupKey);
                 } else {
@@ -742,7 +744,9 @@ public class ComputeSignatureHelper {
                     groupKey = path + ":" + sigDecimal;
                     mapLeafGroupByType.putIfAbsent(sigDecimal, groupKey);
                 }
-                groupWider.merge(groupKey, promoted, ComputeSignatureHelper::mergeDecimalV3Type);
+                if (promoted != null) {
+                    groupWider.merge(groupKey, promoted, ComputeSignatureHelper::mergeDecimalV3Type);
+                }
             } else if (promoted != null) {
                 // non-MAP ARRAY leaf (e.g. the item of ARRAY<Any(index)>): keep the original
                 // Any/Follow identity so it is promoted together with the linked scalar slot
@@ -805,11 +809,24 @@ public class ComputeSignatureHelper {
                 return;
             }
             // carry the enclosing MAP path through the ARRAY so items nested in a MAP
-            // value stay in the value group
-            DataType templateItem = templateType instanceof ArrayType
-                    ? ((ArrayType) templateType).getItemType() : null;
+            // value stay in the value group; when the ARRAY itself is an Any/Follow slot
+            // (e.g. the item of ARRAY<Any(0)>), propagate the container identity into the
+            // item and absorb the outer structural path so all occurrences of the slot
+            // share descendant-relative keys
+            DataType templateItem = null;
+            int childContainerIndex = containerIndex;
+            String childPath = path;
+            if (templateType instanceof ArrayType) {
+                templateItem = ((ArrayType) templateType).getItemType();
+            } else {
+                int index = anyFollowIndex(templateType);
+                if (index >= 0) {
+                    childContainerIndex = index;
+                    childPath = "";
+                }
+            }
             collectDecimalLeaf(((ArrayType) sigType).getItemType(), itemArgType, arg,
-                    appendPath(path, ARRAY_ITEM), templateItem, containerIndex,
+                    appendPath(childPath, ARRAY_ITEM), templateItem, childContainerIndex,
                     indexToMapLeafGroup, mapLeafGroupByType, groupWider,
                     scalarGroupWider, scalarLeaves, widerHolder);
         }
@@ -885,10 +902,22 @@ public class ComputeSignatureHelper {
             // behavior of the single wider type
             return widerType;
         } else if (sigType instanceof ArrayType) {
-            DataType templateItem = templateType instanceof ArrayType
-                    ? ((ArrayType) templateType).getItemType() : null;
+            DataType templateItem = null;
+            int childContainerIndex = containerIndex;
+            String childPath = path;
+            if (templateType instanceof ArrayType) {
+                templateItem = ((ArrayType) templateType).getItemType();
+            } else {
+                // the whole ARRAY is an Any/Follow slot: propagate the group identity into
+                // the item and absorb the outer structural path (mirror of the MAP branch)
+                int index = anyFollowIndex(templateType);
+                if (index >= 0) {
+                    childContainerIndex = index;
+                    childPath = "";
+                }
+            }
             return ArrayType.of(replaceDecimalV3Leaf(((ArrayType) sigType).getItemType(),
-                    appendPath(path, ARRAY_ITEM), templateItem, containerIndex,
+                    appendPath(childPath, ARRAY_ITEM), templateItem, childContainerIndex,
                     indexToMapLeafGroup, mapLeafGroupByType, groupWider, scalarGroupWider, widerType));
         } else if (sigType instanceof MapType) {
             MapType mapType = (MapType) sigType;
