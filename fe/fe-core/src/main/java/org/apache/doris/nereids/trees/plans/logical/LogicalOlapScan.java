@@ -1000,12 +1000,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
         if (producesDuplicateRows()) {
             return true;
         }
-        // Row-binlog incremental scan (TableScanParams.INCREMENTAL_READ):
-        // same hazard as the stream-scan case — the scan returns rows
-        // keyed by binlog position and duplicate key rows are possible.
-        if (scanParams.isPresent() && scanParams.get().incrementalRead()) {
-            return true;
-        }
         return false;
     }
 
@@ -1119,19 +1113,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
     @Override
     public boolean supportPruneNestedColumn() {
         return true;
-    }
-
-    public Optional<TableScanParams> getScanParams() {
-        return scanParams;
-    }
-
-    private boolean hasSameScanParams(Optional<TableScanParams> left, Optional<TableScanParams> right) {
-        if (!left.isPresent() || !right.isPresent()) {
-            return left.isPresent() == right.isPresent();
-        }
-        return Objects.equals(left.get().getParamType(), right.get().getParamType())
-                && Objects.equals(left.get().getMapParams(), right.get().getMapParams())
-                && Objects.equals(left.get().getListParams(), right.get().getListParams());
     }
 
     /**

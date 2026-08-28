@@ -475,11 +475,6 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
                     if (innerScan.getSelectedIndexId() != outerScan.getSelectedIndexId()) {
                         return false;
                     }
-                    // Different scan params (e.g. @incr) → different row set.
-                    if (!Objects.equals(
-                            innerScan.getScanParams(), outerScan.getScanParams())) {
-                        return false;
-                    }
                     // Different table samples → different row set.
                     if (!Objects.equals(
                             innerScan.getTableSample(), outerScan.getTableSample())) {

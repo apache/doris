@@ -7,16 +7,16 @@ PhysicalResultSink
 --------PhysicalDistribute[DistributionSpecGather]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF2 n_nationkey->c_nationkey
+--------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF2 n_nationkey->[c_nationkey]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF1 o_custkey->c_custkey
+------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF1 o_custkey->[c_custkey]
 --------------------PhysicalProject
 ----------------------PhysicalLazyMaterializeOlapScan[customer lazySlots:(customer.c_name,customer.c_address,customer.c_phone,customer.c_acctbal,customer.c_comment)] apply RFs: RF1 RF2
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN colocated] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF0 o_orderkey->l_orderkey
+----------------------------hashJoin[INNER_JOIN colocated] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF0 o_orderkey->[l_orderkey]
 ------------------------------hashAgg[GLOBAL]
 --------------------------------PhysicalProject
 ----------------------------------filter((lineitem.l_returnflag = 'R'))
