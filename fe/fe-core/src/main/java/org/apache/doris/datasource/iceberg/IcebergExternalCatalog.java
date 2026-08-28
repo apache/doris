@@ -25,6 +25,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalObjectLog;
@@ -81,6 +82,14 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    public synchronized void modifyCatalogProps(Map<String, String> props) {
+        // Keep property publication and runtime reset under the same monitor used by
+        // beginTableLoad(), so a load context cannot splice old runtime objects with new mapping
+        // options while ALTER CATALOG is between those two operations.
+        super.modifyCatalogProps(props);
+    }
+
+    @Override
     public void gsonPostProcess() throws IOException {
         super.gsonPostProcess();
         resourceTracker = new IcebergCatalogResourceTracker();
@@ -101,19 +110,34 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
     @Override
     public void checkProperties() throws DdlException {
-        super.checkProperties();
-        CacheSpec.checkBooleanProperty(catalogProperty.getOrDefault(ICEBERG_TABLE_CACHE_ENABLE, null),
+        checkProperties(catalogProperty);
+    }
+
+    @Override
+    public boolean validatePropertiesBeforeUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) throws DdlException {
+        Map<String, String> candidateProperties = currentProperties == null
+                ? new HashMap<>() : new HashMap<>(currentProperties);
+        candidateProperties.putAll(updatedProperties);
+        checkProperties(new CatalogProperty(null, candidateProperties));
+        return true;
+    }
+
+    @Override
+    protected void checkProperties(CatalogProperty property) throws DdlException {
+        super.checkProperties(property);
+        CacheSpec.checkBooleanProperty(property.getOrDefault(ICEBERG_TABLE_CACHE_ENABLE, null),
                 ICEBERG_TABLE_CACHE_ENABLE);
-        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(ICEBERG_TABLE_CACHE_TTL_SECOND, null),
+        CacheSpec.checkLongProperty(property.getOrDefault(ICEBERG_TABLE_CACHE_TTL_SECOND, null),
                 -1L, ICEBERG_TABLE_CACHE_TTL_SECOND);
-        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(ICEBERG_TABLE_CACHE_CAPACITY, null),
+        CacheSpec.checkLongProperty(property.getOrDefault(ICEBERG_TABLE_CACHE_CAPACITY, null),
                 0L, ICEBERG_TABLE_CACHE_CAPACITY);
 
-        CacheSpec.checkBooleanProperty(catalogProperty.getOrDefault(ICEBERG_MANIFEST_CACHE_ENABLE, null),
+        CacheSpec.checkBooleanProperty(property.getOrDefault(ICEBERG_MANIFEST_CACHE_ENABLE, null),
                 ICEBERG_MANIFEST_CACHE_ENABLE);
-        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(ICEBERG_MANIFEST_CACHE_TTL_SECOND, null),
+        CacheSpec.checkLongProperty(property.getOrDefault(ICEBERG_MANIFEST_CACHE_TTL_SECOND, null),
                 -1L, ICEBERG_MANIFEST_CACHE_TTL_SECOND);
-        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(ICEBERG_MANIFEST_CACHE_CAPACITY, null),
+        CacheSpec.checkLongProperty(property.getOrDefault(ICEBERG_MANIFEST_CACHE_CAPACITY, null),
                 0L, ICEBERG_MANIFEST_CACHE_CAPACITY);
         // Mandatory, non-configurable security rule for the driver jar the jdbc flavor loads into the
         // FE JVM (shared with the jdbc / paimon-jdbc catalogs; see JdbcDriverUrlSecurity). Read from the
@@ -121,14 +145,14 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         // on catalog rebuild, which must never validate, and for the jdbc flavor it already attempts to
         // register the driver. Key owned by IcebergJdbcMetaStoreProperties. Only the jdbc flavor loads
         // a jar; on every other flavor the key is dead config that must not fail a catalog.
-        if ("jdbc".equalsIgnoreCase(catalogProperty.getOrDefault(ICEBERG_CATALOG_TYPE, ""))) {
+        if ("jdbc".equalsIgnoreCase(property.getOrDefault(ICEBERG_CATALOG_TYPE, ""))) {
             try {
-                JdbcDriverUrlSecurity.check(catalogProperty.getOrDefault("iceberg.jdbc.driver_url", null));
+                JdbcDriverUrlSecurity.check(property.getOrDefault("iceberg.jdbc.driver_url", null));
             } catch (IllegalArgumentException e) {
                 throw new DdlException(e.getMessage(), e);
             }
         }
-        catalogProperty.checkMetaStoreAndStorageProperties(AbstractIcebergProperties.class);
+        property.checkMetaStoreAndStorageProperties(AbstractIcebergProperties.class);
     }
 
     @Override
@@ -184,7 +208,9 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         makeSureInitialized();
         return new TableLoadContext((IcebergMetadataOps) metadataOps, executionAuthenticator, icebergCatalogType,
                 catalogProperty.getMetastoreProperties(),
-                new HashMap<>(catalogProperty.getStoragePropertiesMap()), resourceTracker.beginLoad());
+                new HashMap<>(catalogProperty.getStoragePropertiesMap()),
+                catalogProperty.getEnableMappingVarbinary(), catalogProperty.getEnableMappingTimestampTz(),
+                resourceTracker.beginLoad());
     }
 
     public String getIcebergCatalogType() {
@@ -253,17 +279,22 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         private final String catalogType;
         private final MetastoreProperties metastoreProperties;
         private final Map<StorageProperties.Type, StorageProperties> storageProperties;
+        private final boolean enableMappingVarbinary;
+        private final boolean enableMappingTimestampTz;
         private final IcebergCatalogResourceTracker.LoadGuard guard;
 
         private TableLoadContext(IcebergMetadataOps ops, ExecutionAuthenticator authenticator, String catalogType,
                 MetastoreProperties metastoreProperties,
                 Map<StorageProperties.Type, StorageProperties> storageProperties,
+                boolean enableMappingVarbinary, boolean enableMappingTimestampTz,
                 IcebergCatalogResourceTracker.LoadGuard guard) {
             this.ops = ops;
             this.authenticator = authenticator;
             this.catalogType = catalogType;
             this.metastoreProperties = metastoreProperties;
             this.storageProperties = storageProperties;
+            this.enableMappingVarbinary = enableMappingVarbinary;
+            this.enableMappingTimestampTz = enableMappingTimestampTz;
             this.guard = guard;
         }
 
@@ -289,6 +320,14 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
         Map<StorageProperties.Type, StorageProperties> getStorageProperties() {
             return storageProperties;
+        }
+
+        boolean isEnableMappingVarbinary() {
+            return enableMappingVarbinary;
+        }
+
+        boolean isEnableMappingTimestampTz() {
+            return enableMappingTimestampTz;
         }
 
         IcebergCatalogResourceTracker.ResourceLease promote() {

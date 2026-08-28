@@ -299,6 +299,19 @@ public class HudiScanNodeTest {
         Assertions.assertNull(getField(node, HudiScanNode.class, "fsViewLease"));
     }
 
+    @Test
+    public void testEmptyFullScanDoesNotAcquireUnusedFsView() throws Exception {
+        HudiScanNode node = incrementalScanNode(
+                new StatementContext.ExternalScanTaskCache(), Mockito.mock(IncrementalRelation.class), true);
+        setField(node, HudiScanNode.class, "partitionInit", true);
+        setField(node, HudiScanNode.class, "prunedPartitions", Collections.emptyList());
+
+        List<Split> splits = node.getSplits(1);
+
+        Assertions.assertTrue(splits.isEmpty());
+        Assertions.assertNull(getField(node, HudiScanNode.class, "fsViewLease"));
+    }
+
     private static HudiScanNode partitionScanNode(
             StatementContext.ExternalScanTaskCache cache, HoodieTableFileSystemView fsView,
             String queryInstant, boolean nativeReader, boolean runtimePrune) throws Exception {
