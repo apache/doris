@@ -1561,11 +1561,25 @@ Status ParquetReader::_process_column_stat_filter(
                         return false;
                     }
 
+                    // The same ColumnStat is reused across the child predicates of an AND/OR
+                    // group, which may reference different columns. If it still holds the bloom
+                    // filter of a previous (different) column, stash it back into the per-column
+                    // cache and clear it, so the guard below reads THIS column's bloom filter
+                    // instead of wrongly reusing another column's (which would falsely miss and
+                    // skip the whole row group).
+                    if (stat->bloom_filter && stat->bloom_filter_col_id != parquet_col_id) {
+                        bloom_filter_cache[stat->bloom_filter_col_id] =
+                                std::move(stat->bloom_filter);
+                        stat->bloom_filter.reset();
+                        stat->bloom_filter_col_id = -1;
+                    }
+
                     // Check cache first
                     auto cache_iter = bloom_filter_cache.find(parquet_col_id);
                     if (cache_iter != bloom_filter_cache.end()) {
                         // Bloom filter already loaded for this column, reuse it
                         stat->bloom_filter = std::move(cache_iter->second);
+                        stat->bloom_filter_col_id = parquet_col_id;
                         bloom_filter_cache.erase(cache_iter);
                         return stat->bloom_filter != nullptr;
                     }
@@ -1579,8 +1593,10 @@ Status ParquetReader::_process_column_stat_filter(
                                          << col_schema->name << " in file " << _scan_range.path
                                          << ", status: " << st.to_string();
                             stat->bloom_filter.reset();
+                            stat->bloom_filter_col_id = -1;
                             return false;
                         }
+                        stat->bloom_filter_col_id = parquet_col_id;
                     }
                     return stat->bloom_filter != nullptr;
                 };
@@ -1605,22 +1621,13 @@ Status ParquetReader::_process_column_stat_filter(
             return Status::OK();
         }
 
-        // After evaluating, if the bloom filter was used, cache it for subsequent predicates
-        if (stat.bloom_filter) {
-            // Find the column id for caching
-            for (auto* slot : _tuple_descriptor->slots()) {
-                if (_table_info_node_ptr->children_column_exists(slot->col_name())) {
-                    const auto& file_col_name =
-                            _table_info_node_ptr->children_file_column_name(slot->col_name());
-                    const FieldSchema* col_schema =
-                            _file_metadata->schema().get_column(file_col_name);
-                    int parquet_col_id = col_schema->physical_column_index;
-                    if (stat.col_schema == col_schema) {
-                        bloom_filter_cache[parquet_col_id] = std::move(stat.bloom_filter);
-                        break;
-                    }
-                }
-            }
+        // After evaluating, if a bloom filter is still held, cache it for subsequent predicates.
+        // Use bloom_filter_col_id (the column the bloom actually belongs to) as the key: col_schema
+        // is overwritten by every child's get_stat_func and may not match the column that owns the
+        // currently held bloom filter, so keying by col_schema could stash it under the wrong column
+        // and reintroduce the cross-column reuse bug.
+        if (stat.bloom_filter && stat.bloom_filter_col_id >= 0) {
+            bloom_filter_cache[stat.bloom_filter_col_id] = std::move(stat.bloom_filter);
         }
     }
 

@@ -1969,6 +1969,84 @@ TEST_F(ParquetExprTest, test_bloom_filter_accepts_value) {
     EXPECT_EQ(1, loader_calls);
 }
 
+// A single ColumnStat is shared across the child predicates of an AND group. Before the fix, once
+// the first EQ child loaded column A's bloom filter, the second EQ child on column B found
+// stat->bloom_filter non-empty, skipped loading B's own bloom, and tested B's value against A's
+// bloom -> almost always a false miss -> the whole row group was wrongly filtered out (data loss).
+// The fix tracks ownership via ColumnStat::bloom_filter_col_id and reloads when the held bloom
+// belongs to a different column. This test injects a get_bloom_filter_func that faithfully mirrors
+// that ownership-aware guard, drives an AND of two EQ predicates on two different columns sharing
+// one ColumnStat, and asserts each column is tested against ITS OWN bloom (group not filtered, and
+// the loader ran once per distinct column). Under the old guard the second column would reuse the
+// first column's bloom and the group would be filtered (evaluate_and == false).
+TEST_F(ParquetExprTest, test_bloom_filter_not_reused_across_columns) {
+    const int col_a = 2; // int64_col
+    const int col_b = 0; // int32_partial_null_col (nulls overridden via has_null=false below)
+    const int64_t value_a = 10000000001;
+    const int32_t value_b = 12345;
+
+    const FieldSchema* schema_a = doris_file_metadata->schema().get_column(col_a);
+    const FieldSchema* schema_b = doris_file_metadata->schema().get_column(col_b);
+
+    // Return false from get_stat_func so the EQ predicate skips the min/max stage entirely and
+    // falls straight through to the bloom filter check for both columns. This keeps the test
+    // focused on the bloom cross-column reuse path and independent of min/max encoding details.
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                current_stat->col_schema = (cid == col_a) ? schema_a : schema_b;
+                return false;
+            };
+
+    int loads_a = 0;
+    int loads_b = 0;
+    // Mirrors the production ownership-aware guard: if the held bloom belongs to a different
+    // column, stash it and clear before loading this column's own bloom.
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                if (current_stat->bloom_filter && current_stat->bloom_filter_col_id != cid) {
+                    current_stat->bloom_filter.reset();
+                    current_stat->bloom_filter_col_id = -1;
+                }
+                if (!current_stat->bloom_filter) {
+                    current_stat->bloom_filter = std::make_unique<ParquetBlockSplitBloomFilter>();
+                    auto* bf = static_cast<ParquetBlockSplitBloomFilter*>(
+                            current_stat->bloom_filter.get());
+                    Status st = bf->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
+                    EXPECT_TRUE(st.ok());
+                    if (cid == col_a) {
+                        loads_a++;
+                        bf->add_bytes(reinterpret_cast<const char*>(&value_a), sizeof(value_a));
+                    } else {
+                        loads_b++;
+                        bf->add_bytes(reinterpret_cast<const char*>(&value_b), sizeof(value_b));
+                    }
+                    current_stat->bloom_filter_col_id = cid;
+                }
+                return current_stat->bloom_filter != nullptr;
+            };
+
+    // Build the AND group: col_a = value_a AND col_b = value_b, both present in their own bloom.
+    std::unique_ptr<MutilColumnBlockPredicate> pred = AndBlockColumnPredicate::create_unique();
+    pred->add_column_predicate(SingleColumnBlockPredicate::create_unique(
+            ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ>::create_shared(
+                    col_a, "", Field::create_field<TYPE_BIGINT>(value_a))));
+    pred->add_column_predicate(SingleColumnBlockPredicate::create_unique(
+            ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>::create_shared(
+                    col_b, "", Field::create_field<TYPE_INT>(value_b))));
+
+    ParquetPredicate::ColumnStat stat;
+    stat.ctz = &ctz;
+    stat.get_stat_func = &get_stat_func;
+    stat.get_bloom_filter_func = &get_bloom_filter_func;
+
+    // Both columns match their own bloom -> the AND must NOT filter the group out.
+    // With the old (buggy) guard, col_b would reuse col_a's bloom, miss, and this would be false.
+    EXPECT_TRUE(pred->evaluate_and(&stat));
+    // Each distinct column loaded its own bloom exactly once (no cross-column reuse).
+    EXPECT_EQ(1, loads_a);
+    EXPECT_EQ(1, loads_b);
+}
+
 TEST_F(ParquetExprTest, test_bloom_filter_skipped_when_min_max_evicts_rowgroup) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;

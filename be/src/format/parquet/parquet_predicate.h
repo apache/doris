@@ -163,6 +163,12 @@ public:
         const FieldSchema* col_schema;
         const cctz::time_zone* ctz;
         std::unique_ptr<ParquetBlockSplitBloomFilter> bloom_filter;
+        // Parquet physical column id that the currently held bloom_filter belongs to.
+        // A single ColumnStat is reused across the child predicates of an AND/OR group, which may
+        // reference different columns; without tracking ownership the bloom_filter of the first
+        // column would be wrongly reused to test the second column's value (false negative -> the
+        // whole row group is skipped). -1 means no bloom_filter is currently held.
+        int bloom_filter_col_id = -1;
         std::function<bool(ParquetPredicate::ColumnStat*, const int)>* get_stat_func = nullptr;
         std::function<bool(ParquetPredicate::ColumnStat*, const int)>* get_bloom_filter_func =
                 nullptr;
