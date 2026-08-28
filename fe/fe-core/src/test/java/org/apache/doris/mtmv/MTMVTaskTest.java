@@ -39,6 +39,8 @@ import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshContext;
@@ -188,6 +190,34 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
         List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
+        Assert.assertEquals(Lists.newArrayList("PARTITIONS", "COMPLETE"), toNames(attempts));
+    }
+
+    @Test
+    public void testBuildAttemptsAutoAfterSuccessfulRefreshWithoutSnapshotUsesComplete() {
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
+        Mockito.when(mtmv.hasRefreshSnapshot()).thenReturn(false);
+        MTMVStatus status = new MTMVStatus(MTMVRefreshState.SUCCESS);
+        status.setState(MTMVState.NORMAL);
+        Mockito.when(mtmv.getStatus()).thenReturn(status);
+
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
+
+        Assert.assertEquals(Lists.newArrayList("COMPLETE"), toNames(attempts));
+    }
+
+    @Test
+    public void testBuildAttemptsInitialAutoWithoutSnapshotKeepsFallbackChain() {
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
+        Mockito.when(mtmv.hasRefreshSnapshot()).thenReturn(false);
+        Mockito.when(mtmv.getStatus()).thenReturn(new MTMVStatus());
+
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
+
         Assert.assertEquals(Lists.newArrayList("PARTITIONS", "COMPLETE"), toNames(attempts));
     }
 

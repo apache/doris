@@ -57,6 +57,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshContext;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
@@ -449,6 +450,13 @@ public class MTMVTask extends AbstractTask {
         List<RefreshAttemptType> attempts = Lists.newArrayList();
         switch (request.refreshMode) {
             case AUTO:
+                // ALTER excluded_trigger_tables clears a successful baseline without changing the MV state.
+                if (!mtmv.isIvm() && !mtmv.hasRefreshSnapshot()
+                        && mtmv.getStatus().getState() == MTMVState.NORMAL
+                        && mtmv.getStatus().getRefreshState() == MTMVRefreshState.SUCCESS) {
+                    attempts.add(RefreshAttemptType.COMPLETE);
+                    break;
+                }
                 if (mtmv.isIvm()) {
                     attempts.add(RefreshAttemptType.IVM);
                 }
