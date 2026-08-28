@@ -18,7 +18,10 @@
 package org.apache.doris.connector.hms;
 
 import org.apache.doris.connector.spi.ConnectorMetadataAccessEvent;
+import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import shade.doris.hive.org.apache.thrift.TException;
 
 import java.util.ArrayList;
@@ -31,14 +34,90 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
 
-/** Executes bounded physical HMS partition batches over one leaf transport. */
 final class HmsPartitionBatchExecutor {
 
+    private static final Logger LOG = LogManager.getLogger(HmsPartitionBatchExecutor.class);
     static final long NO_FALLBACK_START_NANOS = Long.MIN_VALUE;
 
     @FunctionalInterface
     interface Fetcher {
         List<HmsPartitionInfo> fetch(String dbName, String tableName, List<String> partitionNames) throws Exception;
+    }
+
+    @FunctionalInterface
+    interface Transport {
+        List<HmsPartitionInfo> getPartitionsByNames(String dbName, String tableName,
+                List<String> partitionNames, RemoteCallTracker tracker) throws Exception;
+    }
+
+    static final class RemoteCallException extends HmsClientException {
+        RemoteCallException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    static final class Access {
+        private final HmsPartitionBatchExecutor executor;
+        private final ConnectorMetadataAccessObserver catalogObserver;
+        private final LongSupplier nanoTime;
+
+        Access(HmsPartitionBatchExecutor executor, ConnectorMetadataAccessObserver catalogObserver) {
+            this(executor, catalogObserver, System::nanoTime);
+        }
+
+        Access(HmsPartitionBatchExecutor executor, ConnectorMetadataAccessObserver catalogObserver,
+                LongSupplier nanoTime) {
+            this.executor = java.util.Objects.requireNonNull(executor, "executor");
+            this.catalogObserver = java.util.Objects.requireNonNull(catalogObserver, "catalogObserver");
+            this.nanoTime = java.util.Objects.requireNonNull(nanoTime, "nanoTime");
+        }
+
+        List<HmsPartitionInfo> load(HmsPartitionRequest request) {
+            LogicalAccess access = begin();
+            boolean success = false;
+            try {
+                List<HmsPartitionInfo> result = executor.execute(request, access.execution);
+                success = true;
+                return result;
+            } finally {
+                complete(request, access, success);
+            }
+        }
+
+        LogicalAccess begin() {
+            return new LogicalAccess(executor.newExecution(), nanoTime.getAsLong());
+        }
+
+        void executeChunks(HmsPartitionRequest request, LogicalAccess access,
+                PartitionChunkConsumer chunkConsumer) {
+            executor.executeChunks(request, access.execution, chunkConsumer);
+        }
+
+        void complete(HmsPartitionRequest request, LogicalAccess access, boolean success) {
+            ConnectorMetadataAccessEvent event = access.execution.logicalAccessEvent(request,
+                    TimeUnit.NANOSECONDS.toMillis(nanoTime.getAsLong() - access.startNanos), success);
+            recordSafely("catalog metrics", catalogObserver, event);
+            recordSafely("query profile", request.getMetadataAccessObserver(), event);
+        }
+
+        private static void recordSafely(String sinkName, ConnectorMetadataAccessObserver sink,
+                ConnectorMetadataAccessEvent event) {
+            try {
+                sink.record(event);
+            } catch (RuntimeException e) {
+                LOG.warn("Failed to record HMS partition metadata access in {}", sinkName, e);
+            }
+        }
+
+        static final class LogicalAccess {
+            private final Execution execution;
+            private final long startNanos;
+
+            private LogicalAccess(Execution execution, long startNanos) {
+                this.execution = execution;
+                this.startNanos = startNanos;
+            }
+        }
     }
 
     @FunctionalInterface
@@ -54,7 +133,7 @@ final class HmsPartitionBatchExecutor {
     private final int maxBatchSize;
     private final int minBatchSize;
     private final long fallbackTimeoutMillis;
-    private final HmsPartitionTransport transport;
+    private final Transport transport;
     private final FailureClassifier failureClassifier;
     private final LongSupplier nanoTime;
 
@@ -106,7 +185,7 @@ final class HmsPartitionBatchExecutor {
                     returned = transport.getPartitionsByNames(
                             request.getDbName(), request.getTableName(), batch,
                             remoteCalls);
-                } catch (HmsRemoteCallException e) {
+                } catch (RemoteCallException e) {
                     checkFallbackTimeout(fallbackStartNanos, fallbackTimeoutNanos);
                     if (batchSize <= minBatchSize || !failureClassifier.isDegradable(e)) {
                         throw finalBatchFailure(
@@ -218,7 +297,6 @@ final class HmsPartitionBatchExecutor {
         return new HmsClientException(message, failure);
     }
 
-    /** Mutable physical state shared by the bounded windows of one logical access. */
     static final class Execution {
         private int effectiveBatchSize = Integer.MAX_VALUE;
         private long fallbackStartNanos = NO_FALLBACK_START_NANOS;
@@ -307,7 +385,7 @@ final class HmsPartitionBatchExecutor {
     }
 
     static boolean isDegradableRemoteFailure(Throwable failure) {
-        if (!(failure instanceof HmsRemoteCallException)) {
+        if (!(failure instanceof RemoteCallException)) {
             return false;
         }
         boolean thriftFailure = false;
@@ -336,7 +414,7 @@ final class HmsPartitionBatchExecutor {
         private int maxBatchSize;
         private int minBatchSize = 1;
         private long fallbackTimeoutMillis;
-        private HmsPartitionTransport transport;
+        private Transport transport;
         private FailureClassifier failureClassifier = HmsPartitionBatchExecutor::isDegradableRemoteFailure;
         private LongSupplier nanoTime = System::nanoTime;
 
@@ -366,7 +444,7 @@ final class HmsPartitionBatchExecutor {
             return this;
         }
 
-        Builder transport(HmsPartitionTransport transport) {
+        Builder transport(Transport transport) {
             this.transport = transport;
             return this;
         }

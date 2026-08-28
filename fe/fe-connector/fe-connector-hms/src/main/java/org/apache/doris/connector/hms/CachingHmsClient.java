@@ -142,7 +142,7 @@ public class CachingHmsClient implements HmsClient {
     private final MetaCacheEntry<PartitionKey, HmsPartitionInfo> partitionsCache;
     private final MetaCacheEntry<ColumnStatsKey, List<HmsColumnStatistics>> columnStatsCache;
     private final ConnectorMetadataAccessObserver metadataAccessObserver;
-    private final HmsPartitionAccess partitionAccess;
+    private final HmsPartitionBatchExecutor.Access partitionAccess;
     private final int partitionLoadWindowSize;
     private final PartitionLoadSlotLimiter partitionLoadSlots;
     private final ConcurrentMap<PartitionKey, PartitionLoadBatch> inFlightPartitionLoads =
@@ -174,8 +174,8 @@ public class CachingHmsClient implements HmsClient {
                 newEntry("hive.column_stats", props, ENTRY_COLUMN_STATS, DEFAULT_COLUMN_STATS_CAPACITY);
         HmsClientConfig config = new HmsClientConfig(props, 0);
         this.partitionLoadWindowSize = config.getPartitionBatchSize();
-        HmsPartitionTransport transport = delegate instanceof HmsPartitionTransport
-                ? (HmsPartitionTransport) delegate
+        HmsPartitionBatchExecutor.Transport transport = delegate instanceof HmsPartitionBatchExecutor.Transport
+                ? (HmsPartitionBatchExecutor.Transport) delegate
                 : (dbName, tableName, partitionNames, tracker) -> tracker.call(
                         partitionNames.size(), () -> delegate.getPartitions(dbName, tableName, partitionNames));
         HmsPartitionBatchExecutor executor = HmsPartitionBatchExecutor.builder()
@@ -183,7 +183,7 @@ public class CachingHmsClient implements HmsClient {
                 .fallbackTimeoutMillis(config.getPartitionBatchFallbackTimeoutMillis())
                 .transport(transport)
                 .build();
-        this.partitionAccess = new HmsPartitionAccess(executor, metadataAccessObserver);
+        this.partitionAccess = new HmsPartitionBatchExecutor.Access(executor, metadataAccessObserver);
         this.partitionLoadSlots = new PartitionLoadSlotLimiter(
                 maxConcurrentPartitionLoads == 0 ? 1 : maxConcurrentPartitionLoads);
         for (int i = 0; i < partitionStateLocks.length; i++) {
@@ -276,7 +276,7 @@ public class CachingHmsClient implements HmsClient {
         if (partNames.isEmpty()) {
             return Collections.emptyList();
         }
-        HmsPartitionAccess.LogicalAccess logicalAccess = partitionAccess.begin();
+        HmsPartitionBatchExecutor.Access.LogicalAccess logicalAccess = partitionAccess.begin();
         boolean success = false;
         try {
             // Serve per-partition entries and fetch bounded miss windows so overlapping requests share objects.
@@ -317,7 +317,8 @@ public class CachingHmsClient implements HmsClient {
         }
     }
 
-    private void loadMissingPartitions(HmsPartitionRequest request, HmsPartitionAccess.LogicalAccess logicalAccess,
+    private void loadMissingPartitions(HmsPartitionRequest request,
+            HmsPartitionBatchExecutor.Access.LogicalAccess logicalAccess,
             List<HmsPartitionIdentity.ParsedPartitionName> initialMisses,
             Map<List<String>, HmsPartitionInfo> resultByIdentity) {
         for (int offset = 0; offset < initialMisses.size(); offset += partitionLoadWindowSize) {
@@ -339,7 +340,7 @@ public class CachingHmsClient implements HmsClient {
     }
 
     private void loadMissingPartitionWindow(HmsPartitionRequest request,
-            HmsPartitionAccess.LogicalAccess logicalAccess,
+            HmsPartitionBatchExecutor.Access.LogicalAccess logicalAccess,
             List<HmsPartitionIdentity.ParsedPartitionName> initialMisses,
             Map<List<String>, HmsPartitionInfo> resultByIdentity) {
         List<HmsPartitionIdentity.ParsedPartitionName> pending = initialMisses;
@@ -437,7 +438,8 @@ public class CachingHmsClient implements HmsClient {
         owned.add(new PartitionLoadRegistration(partition, key));
     }
 
-    private void loadOwnedPartitions(HmsPartitionRequest request, HmsPartitionAccess.LogicalAccess logicalAccess,
+    private void loadOwnedPartitions(HmsPartitionRequest request,
+            HmsPartitionBatchExecutor.Access.LogicalAccess logicalAccess,
             PartitionLoadBatch ownedBatch,
             List<PartitionLoadRegistration> owned, Map<List<String>, HmsPartitionInfo> resultByIdentity) {
         List<HmsPartitionIdentity.ParsedPartitionName> ownedPartitions = new ArrayList<>(owned.size());
@@ -463,7 +465,7 @@ public class CachingHmsClient implements HmsClient {
     }
 
     private void loadAndCacheMissingPartitions(HmsPartitionRequest request,
-            HmsPartitionAccess.LogicalAccess logicalAccess,
+            HmsPartitionBatchExecutor.Access.LogicalAccess logicalAccess,
             List<HmsPartitionIdentity.ParsedPartitionName> misses,
             long generation, Map<List<String>, HmsPartitionInfo> resultByIdentity) {
         HmsPartitionRequest missRequest = copiedPartitionRequest(request, misses).build();

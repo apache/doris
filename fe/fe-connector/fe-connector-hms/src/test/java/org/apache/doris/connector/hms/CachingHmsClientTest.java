@@ -734,7 +734,7 @@ public class CachingHmsClientTest {
             public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> names) {
                 attempts.add(names.size());
                 if (names.size() > 2) {
-                    throw new HmsRemoteCallException("remote",
+                    throw new HmsPartitionBatchExecutor.RemoteCallException("remote",
                             new shade.doris.hive.org.apache.thrift.TException("too many partitions"));
                 }
                 List<HmsPartitionInfo> result = new ArrayList<>();
@@ -1119,7 +1119,7 @@ public class CachingHmsClientTest {
      * A minimal {@link HmsClient} that counts calls and returns a fresh instance per call, so reference
      * identity distinguishes a cache hit (same instance) from a reload (new instance).
      */
-    private static class RecordingHmsClient implements HmsClient, HmsPartitionTransport {
+    private static class RecordingHmsClient implements HmsClient, HmsPartitionBatchExecutor.Transport {
         int getTableCalls;
         int listPartitionNamesCalls;
         int getPartitionsCalls;

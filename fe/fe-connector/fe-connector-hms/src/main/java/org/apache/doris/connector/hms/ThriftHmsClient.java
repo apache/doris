@@ -93,7 +93,7 @@ import java.util.stream.Collectors;
  * <p>Authentication is handled by an injectable {@link AuthAction}
  * functional interface, replacing fe-core's ExecutionAuthenticator.</p>
  */
-public class ThriftHmsClient implements HmsClient, HmsPartitionTransport {
+public class ThriftHmsClient implements HmsClient, HmsPartitionBatchExecutor.Transport {
 
     private static final Logger LOG = LogManager.getLogger(ThriftHmsClient.class);
 
@@ -107,7 +107,7 @@ public class ThriftHmsClient implements HmsClient, HmsPartitionTransport {
     private final AuthAction authAction;
     private final MetaStoreClientProvider clientProvider;
     private final HmsTypeMapping.Options typeMappingOptions;
-    private final HmsPartitionAccess partitionAccess;
+    private final HmsPartitionBatchExecutor.Access partitionAccess;
     private volatile boolean closed;
 
     /**
@@ -162,7 +162,7 @@ public class ThriftHmsClient implements HmsClient, HmsPartitionTransport {
                 .fallbackTimeoutMillis(config.getPartitionBatchFallbackTimeoutMillis())
                 .transport(this)
                 .build();
-        this.partitionAccess = new HmsPartitionAccess(executor, observer);
+        this.partitionAccess = new HmsPartitionBatchExecutor.Access(executor, observer);
         if (config.getPoolSize() > 0) {
             this.clientPool = new GenericObjectPool<>(
                     new HmsClientFactory(), createPoolConfig(config.getPoolSize()));
@@ -727,7 +727,8 @@ public class ThriftHmsClient implements HmsClient, HmsPartitionTransport {
                     try {
                         return action.call(pooled.client);
                     } catch (Exception e) {
-                        throw new HmsRemoteCallException("Remote HMS operation failed: " + e.getMessage(), e);
+                        throw new HmsPartitionBatchExecutor.RemoteCallException(
+                                "Remote HMS operation failed: " + e.getMessage(), e);
                     }
                 });
             } catch (Exception e) {

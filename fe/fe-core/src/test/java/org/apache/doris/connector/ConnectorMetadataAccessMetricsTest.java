@@ -17,14 +17,18 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessEvent;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricLabel;
 import org.apache.doris.metric.MetricRepo;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 
@@ -118,6 +122,57 @@ public class ConnectorMetadataAccessMetricsTest {
         }
     }
 
+    @Test
+    public void replacementRuntimeFailureStillReleasesOldContextMetrics() throws Exception {
+        String catalog = "hms_metrics_throwing_replacement_test";
+        boolean originalMetricInit = MetricRepo.isInit;
+        DefaultConnectorContext oldContext = new DefaultConnectorContext(catalog, 9878L);
+        DefaultConnectorContext newContext = new DefaultConnectorContext(catalog, 9878L);
+        ConnectorMetadataAccessObserver oldObserver = oldContext.getMetadataAccessObserver();
+        Connector oldConnector = Mockito.mock(Connector.class);
+        Connector newConnector = Mockito.mock(Connector.class);
+        Mockito.doThrow(new RuntimeException("close failed")).when(oldConnector).close();
+        ReplacingCatalog replacingCatalog = new ReplacingCatalog(
+                catalog, oldConnector, oldContext, newConnector, newContext);
+        try {
+            MetricRepo.isInit = true;
+            oldObserver.record(event());
+            Assertions.assertEquals(1L, catalogMetricValue(
+                    "connector_metadata_access_requests_total", catalog));
+
+            Assertions.assertDoesNotThrow(replacingCatalog::replaceConnector);
+            oldObserver.record(event());
+            Assertions.assertEquals(1L, catalogMetricValue(
+                    "connector_metadata_access_requests_total", catalog),
+                    "replacement must close and disable the predecessor context");
+            newContext.getMetadataAccessObserver().record(event());
+
+            newContext.close();
+            Assertions.assertFalse(hasCatalogMetric("connector_metadata_access_requests_total", catalog),
+                    "closing the replacement must unregister metrics after the old reference was released");
+        } finally {
+            oldContext.close();
+            newContext.close();
+            MetricRepo.isInit = originalMetricInit;
+        }
+    }
+
+    @Test
+    public void replacementErrorCleansOldContextBeforePropagation() throws Exception {
+        DefaultConnectorContext oldContext = Mockito.mock(DefaultConnectorContext.class);
+        DefaultConnectorContext newContext = Mockito.mock(DefaultConnectorContext.class);
+        Connector oldConnector = Mockito.mock(Connector.class);
+        Connector newConnector = Mockito.mock(Connector.class);
+        AssertionError failure = new AssertionError("fatal close failure");
+        Mockito.doThrow(failure).when(oldConnector).close();
+        ReplacingCatalog replacingCatalog = new ReplacingCatalog(
+                "fatal-replacement", oldConnector, oldContext, newConnector, newContext);
+
+        Assertions.assertSame(failure,
+                Assertions.assertThrows(AssertionError.class, replacingCatalog::replaceConnector));
+        Mockito.verify(oldContext).close();
+    }
+
     private static ConnectorMetadataAccessEvent event() {
         return ConnectorMetadataAccessEvent.builder()
                 .operation("hms.get_partitions_by_names")
@@ -153,5 +208,28 @@ public class ConnectorMetadataAccessMetricsTest {
             }
         }
         return null;
+    }
+
+    private static class ReplacingCatalog extends PluginDrivenExternalCatalog {
+        private final Connector newConnector;
+        private final DefaultConnectorContext newContext;
+
+        ReplacingCatalog(String name, Connector oldConnector, DefaultConnectorContext oldContext,
+                Connector newConnector, DefaultConnectorContext newContext) {
+            super(1L, name, null, Collections.emptyMap(), "", oldConnector);
+            this.newConnector = newConnector;
+            this.newContext = newContext;
+            Deencapsulation.setField(this, "connectorContext", oldContext);
+        }
+
+        @Override
+        protected Connector createConnectorFromProperties() {
+            Deencapsulation.setField(this, "connectorContext", newContext);
+            return newConnector;
+        }
+
+        void replaceConnector() {
+            super.initLocalObjectsImpl();
+        }
     }
 }

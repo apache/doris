@@ -159,13 +159,14 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             if (oldConnector != null && oldConnector != newConnector) {
                 try {
                     oldConnector.close();
-                } catch (IOException e) {
+                } catch (Exception e) {
                     LOG.warn("Failed to close old connector during re-initialization "
                             + "for catalog {}", name, e);
-                }
-                // ...and close the replaced context's cached engine FileSystem (never the live one).
-                if (oldContext != null && oldContext != connectorContext) {
-                    closeConnectorContextQuietly(oldContext);
+                } finally {
+                    // ...and close the replaced context's cached engine FileSystem (never the live one).
+                    if (oldContext != null && oldContext != connectorContext) {
+                        closeConnectorContextQuietly(oldContext);
+                    }
                 }
             }
         }

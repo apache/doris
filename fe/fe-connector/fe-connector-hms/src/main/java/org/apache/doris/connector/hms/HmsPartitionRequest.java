@@ -29,7 +29,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 
-/** Immutable logical HMS partition request. Physical execution state belongs to the batch executor. */
 final class HmsPartitionRequest {
 
     private final String dbName;

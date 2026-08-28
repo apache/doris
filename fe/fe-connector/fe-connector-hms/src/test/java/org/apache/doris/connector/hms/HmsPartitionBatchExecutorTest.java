@@ -29,7 +29,9 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -115,44 +117,28 @@ public class HmsPartitionBatchExecutorTest {
         HmsClientException failure = Assertions.assertThrows(
                 HmsClientException.class, () -> load(executor, request(names(2))));
         Assertions.assertEquals(Arrays.asList(2, 1), batchSizes);
-        Assertions.assertInstanceOf(HmsRemoteCallException.class, failure.getCause());
+        Assertions.assertInstanceOf(HmsPartitionBatchExecutor.RemoteCallException.class, failure.getCause());
         Assertions.assertTrue(failure.getMessage().contains("failedBatchSize=1"));
         Assertions.assertTrue(failure.getMessage().contains("attempts=2"));
     }
 
     @Test
     public void onlyClassifiedRemoteThriftFailuresCanDegrade() {
-        Assertions.assertFalse(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
-                new HmsRemoteCallException("remote",
-                        new shade.doris.hive.org.apache.thrift.transport.TTransportException("closed"))));
-        Assertions.assertTrue(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
-                new HmsRemoteCallException("remote",
-                        new shade.doris.hive.org.apache.thrift.transport.TTransportException(
-                                "MaxMessageSize reached"))));
-        Assertions.assertTrue(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
-                new HmsRemoteCallException("remote",
-                        new shade.doris.hive.org.apache.thrift.TException("too many partitions in request"))));
-        Assertions.assertTrue(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
-                new HmsRemoteCallException("remote",
-                        new shade.doris.hive.org.apache.thrift.protocol.TProtocolException(
-                                "max message size reached"))));
-        Assertions.assertTrue(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
-                new HmsRemoteCallException("remote",
-                        new shade.doris.hive.org.apache.thrift.transport.TTransportException(
-                                "Frame size (100) larger than max length (10)!"))));
-        Assertions.assertFalse(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
-                new HmsRemoteCallException("remote",
-                        new shade.doris.hive.org.apache.thrift.transport.TTransportException(
-                                "Read a negative frame size (-1)!"))));
-        Assertions.assertFalse(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
-                new HmsRemoteCallException("remote",
-                        new shade.doris.hive.org.apache.thrift.protocol.TProtocolException(
-                                "Unexpected field type"))));
-        Assertions.assertFalse(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
-                new HmsRemoteCallException("remote",
-                        new shade.doris.hive.org.apache.thrift.TException("server failure"))));
-        Assertions.assertFalse(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
-                new HmsRemoteCallException("remote", new java.io.IOException("frame too large"))));
+        assertDegradable(false, new shade.doris.hive.org.apache.thrift.transport.TTransportException("closed"));
+        assertDegradable(true, new shade.doris.hive.org.apache.thrift.transport.TTransportException(
+                "MaxMessageSize reached"));
+        assertDegradable(true,
+                new shade.doris.hive.org.apache.thrift.TException("too many partitions in request"));
+        assertDegradable(true,
+                new shade.doris.hive.org.apache.thrift.protocol.TProtocolException("max message size reached"));
+        assertDegradable(true, new shade.doris.hive.org.apache.thrift.transport.TTransportException(
+                "Frame size (100) larger than max length (10)!"));
+        assertDegradable(false, new shade.doris.hive.org.apache.thrift.transport.TTransportException(
+                "Read a negative frame size (-1)!"));
+        assertDegradable(false,
+                new shade.doris.hive.org.apache.thrift.protocol.TProtocolException("Unexpected field type"));
+        assertDegradable(false, new shade.doris.hive.org.apache.thrift.TException("server failure"));
+        assertDegradable(false, new java.io.IOException("frame too large"));
         Assertions.assertFalse(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
                 new HmsClientException("local pool failure")));
     }
@@ -233,7 +219,7 @@ public class HmsPartitionBatchExecutorTest {
                             return HmsRemoteCallTracking.trackWireAttempt(() -> infos(names));
                         }))
                 .build();
-        HmsPartitionAccess access = new HmsPartitionAccess(executor, event::set);
+        HmsPartitionBatchExecutor.Access access = new HmsPartitionBatchExecutor.Access(executor, event::set);
 
         Assertions.assertEquals(2, access.load(request(names(2))).size());
         Assertions.assertEquals(2, event.get().getRpcCount());
@@ -270,7 +256,7 @@ public class HmsPartitionBatchExecutorTest {
                 .fetcher((db, table, names) -> infos(names))
                 .nanoTime(() -> time.getAndAdd(10_000_000L))
                 .build();
-        HmsPartitionAccess access = new HmsPartitionAccess(
+        HmsPartitionBatchExecutor.Access access = new HmsPartitionBatchExecutor.Access(
                 executor, event::set, () -> time.getAndAdd(10_000_000L));
 
         HmsPartitionRequest request = HmsPartitionRequest.builder()
@@ -300,7 +286,7 @@ public class HmsPartitionBatchExecutorTest {
                 .fallbackTimeoutMillis(30_000)
                 .fetcher((db, table, names) -> infos(names))
                 .build();
-        HmsPartitionAccess access = new HmsPartitionAccess(executor, event -> {
+        HmsPartitionBatchExecutor.Access access = new HmsPartitionBatchExecutor.Access(executor, event -> {
             observerCalls.incrementAndGet();
             throw new IllegalStateException("metrics failure");
         });
@@ -316,6 +302,27 @@ public class HmsPartitionBatchExecutorTest {
 
         Assertions.assertEquals(2, access.load(request).size());
         Assertions.assertEquals(2, observerCalls.get());
+    }
+
+    @Test
+    public void batchConfigUsesBoundedDefaults() {
+        HmsClientConfig config = new HmsClientConfig(Collections.emptyMap(), 0);
+        Assertions.assertEquals(5000, config.getPartitionBatchSize());
+        Assertions.assertEquals(30_000L, config.getPartitionBatchFallbackTimeoutMillis());
+    }
+
+    @Test
+    public void batchConfigParsesAndValidatesProperties() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(HmsClientConfig.PARTITION_BATCH_SIZE_KEY, "321");
+        properties.put(HmsClientConfig.PARTITION_BATCH_FALLBACK_TIMEOUT_MS_KEY, "4567");
+        HmsClientConfig config = new HmsClientConfig(properties, 1);
+        Assertions.assertEquals(321, config.getPartitionBatchSize());
+        Assertions.assertEquals(4567L, config.getPartitionBatchFallbackTimeoutMillis());
+        properties.put(HmsClientConfig.PARTITION_BATCH_SIZE_KEY, "0");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> new HmsClientConfig(properties, 1));
+        properties.put(HmsClientConfig.PARTITION_BATCH_SIZE_KEY, "not-a-number");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> new HmsClientConfig(properties, 1));
     }
 
     private static HmsPartitionBatchExecutor executor(int maxBatchSize, HmsPartitionBatchExecutor.Fetcher fetcher) {
@@ -355,8 +362,13 @@ public class HmsPartitionBatchExecutorTest {
                 null, null, null, null);
     }
 
-    private static HmsRemoteCallException remoteFailure(String message) {
-        return new HmsRemoteCallException(
+    private static HmsPartitionBatchExecutor.RemoteCallException remoteFailure(String message) {
+        return new HmsPartitionBatchExecutor.RemoteCallException(
                 "remote", new shade.doris.hive.org.apache.thrift.TException(message));
+    }
+
+    private static void assertDegradable(boolean expected, Throwable cause) {
+        Assertions.assertEquals(expected, HmsPartitionBatchExecutor.isDegradableRemoteFailure(
+                new HmsPartitionBatchExecutor.RemoteCallException("remote", cause)));
     }
 }

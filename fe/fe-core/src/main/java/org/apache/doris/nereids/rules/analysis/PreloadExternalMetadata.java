@@ -17,30 +17,32 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.analysis.TableScanParams;
-import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.ExternalMetadataPreloadResult;
 import org.apache.doris.nereids.ExternalTablePreloadInfo;
-import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.UseMvHint;
+import org.apache.doris.nereids.properties.SelectHint;
+import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -61,7 +63,8 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
                     StatementContext statementContext = ctx.statementContext;
                     // Run preload at most once even if the collect pipeline re-enters the same statement context.
                     if (!statementContext.getExternalMetadataPreloadResult().isPresent()) {
-                        statementContext.setExternalMetadataPreloadResult(executePreload(statementContext));
+                        statementContext.setExternalMetadataPreloadResult(
+                                executePreload(statementContext, collectMtmvHints(ctx.root)));
                     }
                     return ctx.root;
                 }).toRule(RuleType.PRELOAD_EXTERNAL_METADATA)
@@ -72,8 +75,12 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
      * Execute external metadata preload after relation collection and before internal table locks.
      */
     public ExternalMetadataPreloadResult executePreload(StatementContext statementContext) {
+        return executePreload(statementContext, statementContext.getHints());
+    }
+
+    private ExternalMetadataPreloadResult executePreload(StatementContext statementContext, List<Hint> hints) {
         long preloadStartTime = TimeUtils.getStartTimeMs();
-        preloadCloudMtmvRefreshContexts(statementContext);
+        preloadCloudMtmvRefreshContexts(statementContext, hints);
         Optional<String> skipReason = getSkipReason(statementContext);
         if (skipReason.isPresent()) {
             if (LOG.isDebugEnabled()) {
@@ -95,7 +102,7 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
                 TimeUtils.getElapsedTimeMs(preloadStartTime));
     }
 
-    private void preloadCloudMtmvRefreshContexts(StatementContext statementContext) {
+    private void preloadCloudMtmvRefreshContexts(StatementContext statementContext, List<Hint> hints) {
         if (Config.isNotCloudMode()) {
             return;
         }
@@ -103,7 +110,8 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
         Map<MTMV, Set<MTMVRelatedTableIf>> eligibleMtmvs = new LinkedHashMap<>();
         Set<MTMVRelatedTableIf> pctTables = new LinkedHashSet<>();
         for (MTMV mtmv : statementContext.getCandidateMTMVs()) {
-            if (!requiresMtmvRefreshContext(statementContext, connectContext, mtmv)
+            if (!isSelectedByMtmvHints(hints, mtmv)
+                    || !requiresMtmvRefreshContext(statementContext, connectContext, mtmv)
                     || statementContext.getPreloadedMtmvRefreshContext(mtmv).isPresent()) {
                 continue;
             }
@@ -111,15 +119,14 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
                 Set<MTMVRelatedTableIf> candidatePctTables = mtmv.getMvPartitionInfo().getPctTables();
                 eligibleMtmvs.put(mtmv, candidatePctTables);
                 candidatePctTables.stream().filter(MvccTable.class::isInstance).forEach(pctTables::add);
-            } catch (AnalysisException e) {
+            } catch (Exception e) {
                 LOG.warn("Failed to resolve PCT tables for cloud MTMV {}", mtmv.getName(), e);
             }
         }
         if (eligibleMtmvs.isEmpty()) {
             return;
         }
-        int snapshotLimit = connectContext.getSessionVariable()
-                .getMaterializedViewRewriteCloudPreloadSnapshotNum();
+        int snapshotLimit = connectContext.getSessionVariable().getMaterializedViewRewriteCloudPreloadSnapshotNum();
         if (pctTables.size() > snapshotLimit) {
             LOG.warn("Skip cloud MTMV rewrite preload because {} distinct PCT snapshots exceed limit {}",
                     pctTables.size(), snapshotLimit);
@@ -129,28 +136,49 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
             MTMV mtmv = entry.getKey();
             try {
                 for (MTMVRelatedTableIf pctTable : entry.getValue()) {
-                    statementContext.loadSnapshots(
-                            pctTable, Optional.<TableSnapshot>empty(), Optional.<TableScanParams>empty());
+                    statementContext.loadSnapshots(pctTable, Optional.empty(), Optional.empty());
                 }
-                MTMVRefreshContext refreshContext = MTMVRefreshContext.buildContext(mtmv);
-                statementContext.putPreloadedMtmvRefreshContext(mtmv, refreshContext.compactCloudPreload());
-            } catch (AnalysisException | DorisConnectorException e) {
+                MTMVRefreshContext refreshContext = MTMVRefreshContext.buildCloudPreloadSeed(mtmv, entry.getValue());
+                statementContext.putPreloadedMtmvRefreshContext(mtmv, refreshContext);
+            } catch (Exception e) {
                 LOG.warn("Failed to preload cloud MTMV refresh context for {}", mtmv.getName(), e);
             }
         }
     }
 
+    private List<Hint> collectMtmvHints(Plan plan) {
+        List<Hint> hints = new ArrayList<>();
+        for (Plan hintPlan : plan.<Plan>collectToList(LogicalSelectHint.class::isInstance)) {
+            for (SelectHint hint : ((LogicalSelectHint<?>) hintPlan).getHints()) {
+                if (hint instanceof SelectHintUseMv) {
+                    hints.add(EliminateLogicalSelectHint.createMvHint((SelectHintUseMv) hint, hints));
+                }
+            }
+        }
+        return hints;
+    }
+
+    private boolean isSelectedByMtmvHints(List<Hint> hints, MTMV mtmv) {
+        Optional<UseMvHint> use = findMtmvHint(hints, "USE_MV");
+        Optional<UseMvHint> noUse = findMtmvHint(hints, "NO_USE_MV");
+        List<String> qualifier = mtmv.getFullQualifiers();
+        return (!noUse.isPresent() || (!noUse.get().isAllMv()
+                && !noUse.get().getNoUseMvTableColumnMap().containsKey(qualifier)))
+                && (!use.isPresent() || use.get().getUseMvTableColumnMap().containsKey(qualifier));
+    }
+
+    private Optional<UseMvHint> findMtmvHint(List<Hint> hints, String name) {
+        return hints.stream().filter(hint -> !hint.isSyntaxError() && hint.getHintName().equalsIgnoreCase(name))
+                .map(UseMvHint.class::cast).findFirst();
+    }
+
     private boolean requiresMtmvRefreshContext(
             StatementContext statementContext, ConnectContext connectContext, MTMV mtmv) {
         long rewriteEpochMillis = statementContext.getMtmvRewriteEpochMillis();
-        for (PlannerHook hook : statementContext.getPlannerHooks()) {
-            if (hook instanceof InitMaterializationContextHook
-                    && ((InitMaterializationContextHook) hook)
-                            .requiresMtmvRefreshContext(mtmv, connectContext, rewriteEpochMillis)) {
-                return true;
-            }
-        }
-        return false;
+        return statementContext.getPlannerHooks().stream()
+                .filter(InitMaterializationContextHook.class::isInstance)
+                .map(InitMaterializationContextHook.class::cast)
+                .anyMatch(hook -> hook.requiresMtmvRefreshContext(mtmv, connectContext, rewriteEpochMillis));
     }
 
     private Optional<String> getSkipReason(StatementContext statementContext) {

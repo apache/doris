@@ -25,6 +25,7 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 
 import com.google.common.collect.Maps;
@@ -55,9 +56,6 @@ public class MTMVRefreshContext {
     // The value is loaded/cached on the first fetch
     private Map<BaseTableInfo, MTMVSnapshotIf> baseTableSnapshotCache = Maps.newHashMap();
     private Map<MTMVRelatedTableIf, Map<String, MTMVSnapshotIf>> partitionSnapshotCache = Maps.newHashMap();
-    // Resolve each persisted base-table identity once per operation. User-session catalogs deliberately bypass
-    // shared object caches, so resolving again inside an MTMV-partition loop would become one remote lookup per
-    // MV partition even though freshness itself was already batch-preloaded.
     private Map<BaseTableInfo, TableIf> resolvedBaseTables = Maps.newHashMap();
     private Map<BaseTableInfo, AnalysisException> baseTableResolutionFailures = Maps.newHashMap();
     private Map<MTMVRelatedTableIf, BaseTableInfo> pctTableInfos = Maps.newHashMap();
@@ -180,12 +178,10 @@ public class MTMVRefreshContext {
         return true;
     }
 
-    /** Preloads every external PCT partition after mapping capture and before refresh calculations take locks. */
     public void preloadPartitionSnapshots() throws AnalysisException {
         preloadPartitionSnapshots(partitionMappings.keySet());
     }
 
-    /** Preloads the external PCT partition union required by the selected MTMV partitions. */
     public void preloadPartitionSnapshots(Set<String> mtmvPartitionNames) throws AnalysisException {
         preloadPartitionSnapshots(mtmvPartitionNames, true);
     }
@@ -211,12 +207,10 @@ public class MTMVRefreshContext {
         }
     }
 
-    /** Preloads every non-PCT table snapshot used by the context. */
     public void preloadTableSnapshots() throws AnalysisException {
         preloadTableSnapshots(baseTables, Collections.emptySet());
     }
 
-    /** Preloads only the non-PCT table snapshots that the following freshness comparison can observe. */
     public void preloadTableSnapshots(Set<BaseTableInfo> tables, Set<TableNameInfo> excludeTables)
             throws AnalysisException {
         for (BaseTableInfo baseTableInfo : tables) {
@@ -249,14 +243,12 @@ public class MTMVRefreshContext {
         preloadTableSnapshots();
     }
 
-    /** Preloads the exact partition/table snapshot set used by one freshness comparison. */
     public void preloadSnapshots(Set<String> mtmvPartitionNames, Set<BaseTableInfo> tables,
             Set<TableNameInfo> excludeTables) throws AnalysisException {
         preloadPartitionSnapshots(mtmvPartitionNames);
         preloadTableSnapshots(tables, excludeTables);
     }
 
-    /** Preloads snapshots that will be persisted after refresh, including first or mapping-changed baselines. */
     public void preloadSnapshotsForPersistence(Set<String> mtmvPartitionNames, Set<BaseTableInfo> tables)
             throws AnalysisException {
         preloadPartitionSnapshots(mtmvPartitionNames, false);
@@ -267,12 +259,10 @@ public class MTMVRefreshContext {
         refreshLocalState(false);
     }
 
-    /** Revalidates locked local structure using versions fetched and cached before the locks were acquired. */
     public void refreshLocalStateFromCachedVersions() throws AnalysisException {
         refreshLocalState(true);
     }
 
-    /** Revalidates a rewrite context with its final query partition selection without remote version calls. */
     public void refreshLocalStateFromCachedVersions(Map<List<String>, Set<String>> queryUsedPartitions)
             throws AnalysisException {
         this.queryUsedPartitions = Collections.unmodifiableMap(new LinkedHashMap<>(queryUsedPartitions));
@@ -308,20 +298,31 @@ public class MTMVRefreshContext {
         return context;
     }
 
-    /** Keeps only the state needed to rebuild this cloud context from statement-local pins and version caches. */
-    public MTMVRefreshContext compactCloudPreload() {
-        MTMVRefreshContext compact = new MTMVRefreshContext(mtmv);
-        compact.baseTables = baseTables;
-        compact.pctTables = pctTables;
-        compact.partitionType = partitionType;
-        compact.queryUsedPartitions = Collections.emptyMap();
-        compact.partitionItems = Collections.emptyMap();
-        compact.partitionMappings = Collections.emptyMap();
-        compact.metadataAccessSource = metadataAccessSource;
-        return compact;
+    public static MTMVRefreshContext buildCloudPreloadSeed(
+            MTMV mtmv, Set<MTMVRelatedTableIf> resolvedPctTables) throws AnalysisException {
+        Set<BaseTableInfo> baseTables = getBaseTables(mtmv);
+        if (resolvedPctTables.stream()
+                .allMatch(table -> table instanceof MvccTable && !(table instanceof OlapTable))) {
+            MTMVPartitionUtil.getBaseVersions(mtmv, Collections.emptyMap(), baseTables);
+            return createCloudPreloadSeed(mtmv, baseTables, resolvedPctTables,
+                    mtmv.getMvPartitionInfo().getPartitionType());
+        }
+        MTMVRefreshContext context = buildContext(mtmv, Collections.emptyMap(), baseTables);
+        return createCloudPreloadSeed(mtmv, context.baseTables, context.pctTables, context.partitionType);
     }
 
-    /** Rebuilds heavyweight mapping state without remote version access. */
+    private static MTMVRefreshContext createCloudPreloadSeed(MTMV mtmv, Set<BaseTableInfo> baseTables,
+            Set<MTMVRelatedTableIf> pctTables, MTMVPartitionInfo.MTMVPartitionType partitionType) {
+        MTMVRefreshContext seed = new MTMVRefreshContext(mtmv);
+        seed.baseTables = Collections.unmodifiableSet(new LinkedHashSet<>(baseTables));
+        seed.pctTables = Collections.unmodifiableSet(new LinkedHashSet<>(pctTables));
+        seed.partitionType = partitionType;
+        seed.queryUsedPartitions = Collections.emptyMap();
+        seed.partitionItems = Collections.emptyMap();
+        seed.partitionMappings = Collections.emptyMap();
+        return seed;
+    }
+
     public MTMVRefreshContext rebuildFromCachedVersions(
             Map<List<String>, Set<String>> queryUsedPartitions) throws AnalysisException {
         return buildContext(mtmv, queryUsedPartitions, baseTables, true);
@@ -329,19 +330,20 @@ public class MTMVRefreshContext {
 
     public static MTMVRefreshContext buildContext(MTMV mtmv,
             Map<List<String>, Set<String>> queryUsedPartitions) throws AnalysisException {
-        MTMVRelation relation = mtmv.getRelation();
-        Set<BaseTableInfo> baseTables = relation == null || relation.getBaseTablesOneLevelAndFromView() == null
-                ? Collections.emptySet() : relation.getBaseTablesOneLevelAndFromView();
-        return buildContext(mtmv, queryUsedPartitions, baseTables);
+        return buildContext(mtmv, queryUsedPartitions, getBaseTables(mtmv));
     }
 
-    /** Builds a context against the relation resolved for the current operation, not a persisted stale relation. */
+    private static Set<BaseTableInfo> getBaseTables(MTMV mtmv) {
+        MTMVRelation relation = mtmv.getRelation();
+        return relation == null || relation.getBaseTablesOneLevelAndFromView() == null
+                ? Collections.emptySet() : relation.getBaseTablesOneLevelAndFromView();
+    }
+
     public static MTMVRefreshContext buildContext(MTMV mtmv, Set<BaseTableInfo> baseTables)
             throws AnalysisException {
         return buildContext(mtmv, Maps.newHashMap(), baseTables);
     }
 
-    /** Builds a context using both the current query partition filter and the relation resolved for this operation. */
     public static MTMVRefreshContext buildContext(MTMV mtmv,
             Map<List<String>, Set<String>> queryUsedPartitions, Set<BaseTableInfo> baseTables)
             throws AnalysisException {
