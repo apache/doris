@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 // IWYU pragma: no_include <bthread/errno.h>
 #include <lz4/lz4hc.h>
 
@@ -1789,6 +1790,27 @@ DEFINE_Validator(read_ahead_max_bytes_per_query, [](int64_t value) { return valu
 // BE-level resident read-ahead buffer limit
 DEFINE_Int64(read_ahead_max_bytes_per_be, "1073741824"); // 1 GiB
 DEFINE_Validator(read_ahead_max_bytes_per_be, [](int64_t value) { return value > 0; });
+// Per-column eager read-ahead byte window
+DEFINE_mInt64(read_ahead_eager_high_watermark_bytes, "8388608"); // 8 MiB
+DEFINE_Validator(read_ahead_eager_high_watermark_bytes, [](int64_t value) { return value > 0; });
+DEFINE_mInt64(read_ahead_eager_low_watermark_bytes, "4194304"); // 4 MiB
+DEFINE_Validator(read_ahead_eager_low_watermark_bytes, [](int64_t value) { return value >= 0; });
+// Per-column lazy read-ahead byte window
+DEFINE_mInt64(read_ahead_lazy_high_watermark_bytes, "262144"); // 256 KiB
+DEFINE_Validator(read_ahead_lazy_high_watermark_bytes, [](int64_t value) { return value > 0; });
+DEFINE_mInt64(read_ahead_lazy_low_watermark_bytes, "131072"); // 128 KiB
+DEFINE_Validator(read_ahead_lazy_low_watermark_bytes, [](int64_t value) { return value >= 0; });
+// Foreground file-range coalescing and cache-block completion policy
+DEFINE_mInt64(read_ahead_max_gap_bytes, "65536"); // 64 KiB
+DEFINE_Validator(read_ahead_max_gap_bytes, [](int64_t value) { return value >= 0; });
+DEFINE_mInt64(read_ahead_max_range_bytes, "2097152"); // 2 MiB
+DEFINE_Validator(read_ahead_max_range_bytes, [](int64_t value) { return value > 0; });
+DEFINE_mDouble(read_ahead_max_read_amplification_ratio, "2.0");
+DEFINE_Validator(read_ahead_max_read_amplification_ratio,
+                 [](double value) { return std::isfinite(value) && value >= 1.0; });
+DEFINE_mDouble(read_ahead_block_fill_min_coverage, "0.5");
+DEFINE_Validator(read_ahead_block_fill_min_coverage,
+                 [](double value) { return std::isfinite(value) && value > 0.0 && value <= 1.0; });
 // Enable segment file cache block prefetch for compaction
 DEFINE_mBool(enable_compaction_segment_file_cache_prefetch, "false");
 // Number of blocks to prefetch ahead in segment iterator for compaction

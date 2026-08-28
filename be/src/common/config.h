@@ -1820,6 +1820,17 @@ DECLARE_mBool(enable_query_read_ahead);
 DECLARE_Int64(read_ahead_max_bytes_per_query);
 // BE-level resident read-ahead buffer limit
 DECLARE_Int64(read_ahead_max_bytes_per_be);
+// Per-column eager read-ahead byte window
+DECLARE_mInt64(read_ahead_eager_high_watermark_bytes);
+DECLARE_mInt64(read_ahead_eager_low_watermark_bytes);
+// Per-column lazy read-ahead byte window
+DECLARE_mInt64(read_ahead_lazy_high_watermark_bytes);
+DECLARE_mInt64(read_ahead_lazy_low_watermark_bytes);
+// Foreground file-range coalescing and cache-block completion policy
+DECLARE_mInt64(read_ahead_max_gap_bytes);
+DECLARE_mInt64(read_ahead_max_range_bytes);
+DECLARE_mDouble(read_ahead_max_read_amplification_ratio);
+DECLARE_mDouble(read_ahead_block_fill_min_coverage);
 // Enable segment file cache block prefetch for compaction
 DECLARE_mBool(enable_compaction_segment_file_cache_prefetch);
 // Number of blocks to prefetch ahead in segment iterator for compaction
