@@ -245,6 +245,21 @@ public:
     /// before the caller hands off its task.
     bool can_accept_without_eviction(size_t buffer_size) const;
 
+    /// Return how many fixed-size tasks fit in the same point-in-time spare capacity. Background
+    /// schedulers use this to avoid launching multiple remote reads against one available slot.
+    size_t available_slots_without_eviction(size_t buffer_size) const;
+
+    /// Return whether the manager currently accepts submissions. This is a point-in-time hint;
+    /// submission methods still make the race-safe final decision.
+    bool accepting() const;
+
+    /// Check inflight buffers first, then probe one aligned cache block. Skip writeback if the
+    /// block is already cached or being filled. Each lookup releases its lock before the next;
+    /// this call must run outside the hole-fill queue mutex because probe may load cache metadata.
+    bool should_skip_block_writeback(const UInt128Wrapper& cache_hash, size_t offset, size_t size,
+                                     const CacheAdmissionContext& admission_ctx,
+                                     InflightWriteBufferIndex* inflight_index) const;
+
     /// Allocate `size` payload bytes charged to the manager tracker and return them in `buffer`.
     Status allocate_tracked_buffer(size_t size, AsyncCacheWriteBufferPtr* buffer);
 
