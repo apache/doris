@@ -178,7 +178,6 @@ public interface ConnectorContext {
         return ConnectorStorageContext.NOOP;
     }
 
-    /** Returns the engine observer for logical connector metadata accesses. */
     default ConnectorMetadataAccessObserver getMetadataAccessObserver() {
         return ConnectorMetadataAccessObserver.NOOP;
     }

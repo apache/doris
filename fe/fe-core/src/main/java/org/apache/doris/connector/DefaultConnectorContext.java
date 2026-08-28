@@ -174,7 +174,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
                 Objects.requireNonNull(rawStoragePropsSupplier, "rawStoragePropsSupplier");
         this.environment = buildEnvironment();
         this.metadataAccessMetrics = collectMetadataAccessMetrics
-                ? new ConnectorMetadataAccessMetrics(catalogName) : null;
+                ? new ConnectorMetadataAccessMetrics(catalogName, catalogId) : null;
     }
 
     @Override

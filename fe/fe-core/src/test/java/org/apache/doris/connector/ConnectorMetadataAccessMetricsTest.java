@@ -32,7 +32,6 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 
-/** Verifies that per-catalog connector metadata metrics follow the connector-context lifecycle. */
 public class ConnectorMetadataAccessMetricsTest {
 
     @Test
@@ -115,6 +114,29 @@ public class ConnectorMetadataAccessMetricsTest {
 
             newContext.close();
             Assertions.assertFalse(hasCatalogMetric("connector_metadata_access_requests_total", catalog));
+        } finally {
+            oldContext.close();
+            newContext.close();
+            MetricRepo.isInit = originalMetricInit;
+        }
+    }
+
+    @Test
+    public void sameNameDifferentCatalogIdsKeepIndependentMetrics() throws Exception {
+        String catalog = "hms_metrics_recreated_catalog_test";
+        boolean originalMetricInit = MetricRepo.isInit;
+        DefaultConnectorContext oldContext = new DefaultConnectorContext(catalog, 9880L);
+        DefaultConnectorContext newContext = new DefaultConnectorContext(catalog, 9881L);
+        try {
+            MetricRepo.isInit = true;
+            oldContext.getMetadataAccessObserver().record(event());
+            newContext.getMetadataAccessObserver().record(event());
+            Assertions.assertEquals(2, catalogMetricCount(
+                    "connector_metadata_access_requests_total", catalog));
+
+            oldContext.close();
+            Assertions.assertEquals(1, catalogMetricCount(
+                    "connector_metadata_access_requests_total", catalog));
         } finally {
             oldContext.close();
             newContext.close();
@@ -208,6 +230,13 @@ public class ConnectorMetadataAccessMetricsTest {
             }
         }
         return null;
+    }
+
+    private static long catalogMetricCount(String name, String catalog) {
+        return MetricRepo.DORIS_METRIC_REGISTER.getMetricsByName(name).stream()
+                .filter(metric -> ((Metric<?>) metric).getLabels().stream().anyMatch(
+                        label -> "catalog".equals(label.getKey()) && catalog.equals(label.getValue())))
+                .count();
     }
 
     private static class ReplacingCatalog extends PluginDrivenExternalCatalog {

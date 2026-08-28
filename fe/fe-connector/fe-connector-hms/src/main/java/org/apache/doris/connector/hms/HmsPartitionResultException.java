@@ -23,7 +23,6 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
-/** Strict result-integrity failure for an HMS getPartitionsByNames batch. */
 public class HmsPartitionResultException extends HmsClientException {
 
     private static final int MAX_SAMPLES_PER_TYPE = 10;
@@ -75,17 +74,14 @@ public class HmsPartitionResultException extends HmsClientException {
         return missingCount;
     }
 
-    /** Returns the number of distinct response identities that appeared more than once. */
     public int getDuplicateCount() {
         return duplicateCount;
     }
 
-    /** Returns the number of distinct response identities absent from the request. */
     public int getUnexpectedCount() {
         return unexpectedCount;
     }
 
-    /** Returns the number of response objects that could not form a valid identity. */
     public int getInvalidCount() {
         return invalidCount;
     }

@@ -122,16 +122,12 @@ public final class ConnectorMetadataAccessEvent {
         private Builder() {
         }
 
-        /**
-         * Sets a stable, lower-case operation name. Values must describe an operation kind and must not contain
-         * catalog, table, query, user, endpoint, or other request-specific identifiers.
-         */
+        /** Sets a stable lower-case operation kind without request-specific identifiers. */
         public Builder operation(String operation) {
             this.operation = operation;
             return this;
         }
 
-        /** Sets one of the bounded {@link ConnectorMetadataAccessSource} names. */
         public Builder source(String source) {
             this.source = source;
             return this;

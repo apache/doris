@@ -41,10 +41,8 @@ public final class HmsClientConfig {
     /** Standard HMS (Thrift). */
     public static final String METASTORE_TYPE_HMS = "hms";
 
-    /** Maximum number of partition names sent by one getPartitionsByNames RPC. */
     public static final String PARTITION_BATCH_SIZE_KEY = "hive.hms_partitions_batch_size_per_rpc";
 
-    /** Safety budget that starts after the first degradable partition-batch failure. */
     public static final String PARTITION_BATCH_FALLBACK_TIMEOUT_MS_KEY =
             "hive.hms_partitions_batch_fallback_timeout_ms";
 

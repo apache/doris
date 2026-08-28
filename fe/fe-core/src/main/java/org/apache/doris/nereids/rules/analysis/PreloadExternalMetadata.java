@@ -29,13 +29,10 @@ import org.apache.doris.nereids.ExternalTablePreloadInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
-import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -64,7 +61,8 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
                     // Run preload at most once even if the collect pipeline re-enters the same statement context.
                     if (!statementContext.getExternalMetadataPreloadResult().isPresent()) {
                         statementContext.setExternalMetadataPreloadResult(
-                                executePreload(statementContext, collectMtmvHints(ctx.root)));
+                                executePreload(statementContext,
+                                        createMtmvHints(statementContext.getMtmvPreloadHints())));
                     }
                     return ctx.root;
                 }).toRule(RuleType.PRELOAD_EXTERNAL_METADATA)
@@ -146,14 +144,10 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
         }
     }
 
-    private List<Hint> collectMtmvHints(Plan plan) {
+    static List<Hint> createMtmvHints(List<SelectHintUseMv> selectHints) {
         List<Hint> hints = new ArrayList<>();
-        for (Plan hintPlan : plan.<Plan>collectToList(LogicalSelectHint.class::isInstance)) {
-            for (SelectHint hint : ((LogicalSelectHint<?>) hintPlan).getHints()) {
-                if (hint instanceof SelectHintUseMv) {
-                    hints.add(EliminateLogicalSelectHint.createMvHint((SelectHintUseMv) hint, hints));
-                }
-            }
+        for (SelectHintUseMv hint : selectHints) {
+            hints.add(EliminateLogicalSelectHint.createMvHint(hint, hints));
         }
         return hints;
     }

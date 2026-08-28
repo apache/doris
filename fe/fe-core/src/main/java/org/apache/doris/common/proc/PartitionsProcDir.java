@@ -483,8 +483,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                 && needLocked.stream().noneMatch(MvccTable.class::isInstance);
         if (olapTable instanceof MTMV && !buildContextUnderLock) {
             try {
-                // Context construction can materialize external partition mappings and fetch cloud table
-                // versions. It copies the state consumed by the lock-protected display calculation below.
+                // Materialize remote state before the display locks.
                 mtmvRefreshContext = MTMVRefreshContext.buildContextForDisplay((MTMV) olapTable);
             } catch (AnalysisException e) {
                 mtmvPartitionSyncErrorMsg = e.getMessage();
@@ -503,8 +502,7 @@ public class PartitionsProcDir implements ProcDirInterface {
         try {
             if (buildContextUnderLock) {
                 try {
-                    // This branch contains only non-cloud local tables, so construction and preloading are local
-                    // reads. Capture their partition mapping and versions atomically under the existing locks.
+                    // Capture non-cloud local mapping and versions atomically under the display locks.
                     mtmvRefreshContext = MTMVRefreshContext.buildContextForDisplay((MTMV) olapTable);
                     mtmvRefreshContext.preloadSnapshots();
                 } catch (AnalysisException e) {

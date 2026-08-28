@@ -184,6 +184,7 @@ public class InsertTask extends AbstractTask {
             this.command.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
             this.command.setJobId(getTaskId());
             stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
+            ctx.setExecutor(stmtExecutor);
         }
 
         super.before();

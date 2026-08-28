@@ -146,13 +146,6 @@ public interface ConnectorMetadata extends
         return getPartitionFreshnessMillis(session, handle, partitionName);
     }
 
-    /**
-     * Bulk form of {@link #getPartitionFreshnessMillis}. The compatibility default preserves existing
-     * connectors; metadata stores with a batch API must override it to avoid one remote call per partition.
-     * A partition the connector cannot resolve is either omitted from the returned map (the default, built on
-     * the single-partition method's empty result) or fails the whole request with a
-     * {@link DorisConnectorException} (a strict batch implementation, e.g. hive's validated HMS batch).
-     */
     default Map<String, Long> getPartitionFreshnessMillis(
             ConnectorSession session, ConnectorTableHandle handle, List<String> partitionNames) {
         Map<String, Long> result = new LinkedHashMap<>();

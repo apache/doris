@@ -204,8 +204,7 @@ public class MTMVTask extends AbstractTask {
             // Every time a task is run, the relation is regenerated because baseTables and baseViews may change,
             // such as deleting a table and creating a view with the same name
             Pair<Set<TableIf>, Set<TableIf>> tablesInPlan = MTMVPlanUtil.getBaseTableFromQuery(mtmv.getQuerySql(), ctx);
-            // getBaseTableFromQuery restores the context that preceded its temporary planner StatementContext.
-            // This task starts without one, so install the refresh-stage context before publishing MVCC pins.
+            // Install the refresh context after the temporary planner context is restored.
             installRefreshStatementContext(ctx);
             this.relation = MTMVPlanUtil.generateMTMVRelation(tablesInPlan.first, tablesInPlan.second);
             beforeMTMVRefresh();
@@ -223,9 +222,7 @@ public class MTMVTask extends AbstractTask {
                     MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, ctx);
                 }
                 if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
-                    // beforeMTMVRefresh installed every external MVCC pin into this task's StatementContext.
-                    // Plugin validity and mapping reads therefore consume frozen local objects under this lock,
-                    // while the connector I/O that built them already ran outside it.
+                    // External pins were loaded before this lock; mapping reads consume their frozen objects.
                     Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
                     for (MTMVRelatedTableIf pctTable : pctTables) {
                         if (!pctTable.isValidRelatedTable()) {
@@ -251,8 +248,7 @@ public class MTMVTask extends AbstractTask {
             boolean buildContextUnderLock = Config.isNotCloudMode()
                     && tablesInPlan.first.stream().noneMatch(MvccTable.class::isInstance);
             if (!buildContextUnderLock) {
-                // External mappings and cloud versions may issue RPCs. Build and preload those before taking the
-                // FE locks; non-cloud local-only contexts take the locked branch below for an atomic capture.
+                // Build remote mappings/versions before FE locks; local-only state is captured under the lock.
                 context = MTMVRefreshContext.buildContext(
                         mtmv, relation.getBaseTablesOneLevelAndFromView());
                 if (!calculateNeedRefreshPartitionsWithoutFreshness().isPresent()) {
@@ -280,8 +276,7 @@ public class MTMVTask extends AbstractTask {
             if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
                 return;
             }
-            // Snapshot persistence runs even for manual/COMPLETE refreshes. Batch the union once before the
-            // per-MV-partition generation loop so those branches never fall back to one HMS request per partition.
+            // Batch the persistence union before the per-MV-partition generation loop.
             context.preloadSnapshotsForPersistence(Sets.newHashSet(needRefreshPartitions),
                     relation.getBaseTablesOneLevelAndFromView());
             Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
@@ -333,7 +328,6 @@ public class MTMVTask extends AbstractTask {
                 statementContext.close();
             }
         } catch (RuntimeException e) {
-            // Refresh cleanup must not replace the task's original success/failure outcome.
             LOG.warn("Failed to close MTMV refresh statement context, taskId: {}", getTaskId(), e);
         } finally {
             ctx.setStatementContext(null);
@@ -731,8 +725,7 @@ public class MTMVTask extends AbstractTask {
         if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
             return Optional.of(Lists.newArrayList(mtmv.getPartitionNames()));
         }
-        // An incomplete baseline cannot be checked by isMTMVSync, because the current exclude rules may
-        // skip the changed base tables and incorrectly mark the MV as fresh. Rebuild it with a full refresh.
+        // An incomplete baseline requires a full refresh before exclude rules can be trusted.
         if (!mtmv.hasCompleteRefreshSnapshot()) {
             return Optional.of(Lists.newArrayList(mtmv.getPartitionNames()));
         }

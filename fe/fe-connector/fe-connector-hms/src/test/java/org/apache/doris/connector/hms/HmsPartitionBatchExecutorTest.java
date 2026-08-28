@@ -41,7 +41,7 @@ import java.util.stream.IntStream;
 public class HmsPartitionBatchExecutorTest {
 
     @Test
-    public void chunksLargeRequestAndRestoresRequestOrder() {
+    public void boundsOneHundredTwentyThousandPartitionRequestAndRestoresOrder() {
         List<Integer> batchSizes = new ArrayList<>();
         HmsPartitionBatchExecutor executor = executor(5000, (db, table, names) -> {
             batchSizes.add(names.size());
@@ -50,29 +50,13 @@ public class HmsPartitionBatchExecutorTest {
             return result;
         });
 
-        List<String> names = names(12001);
-        List<HmsPartitionInfo> result = load(executor, request(names));
-
-        Assertions.assertEquals(Arrays.asList(5000, 5000, 2001), batchSizes);
-        Assertions.assertEquals(names.stream().map(HmsPartitionIdentity::fromName).collect(Collectors.toList()),
-                result.stream().map(HmsPartitionInfo::getValues).collect(Collectors.toList()));
-    }
-
-    @Test
-    public void boundsOneHundredTwentyThousandPartitionRequest() {
-        List<Integer> batchSizes = new ArrayList<>();
-        HmsPartitionBatchExecutor executor = executor(5000, (db, table, names) -> {
-            batchSizes.add(names.size());
-            return infos(names);
-        });
-
         List<String> names = names(120_000);
         List<HmsPartitionInfo> result = load(executor, request(names));
 
-        Assertions.assertEquals(120_000, result.size());
         Assertions.assertEquals(24, batchSizes.size());
         Assertions.assertTrue(batchSizes.stream().allMatch(size -> size == 5000));
-        Assertions.assertEquals(Collections.singletonList("119999"), result.get(result.size() - 1).getValues());
+        Assertions.assertEquals(names.stream().map(HmsPartitionIdentity::fromName).collect(Collectors.toList()),
+                result.stream().map(HmsPartitionInfo::getValues).collect(Collectors.toList()));
     }
 
     @Test
@@ -305,14 +289,10 @@ public class HmsPartitionBatchExecutorTest {
     }
 
     @Test
-    public void batchConfigUsesBoundedDefaults() {
-        HmsClientConfig config = new HmsClientConfig(Collections.emptyMap(), 0);
-        Assertions.assertEquals(5000, config.getPartitionBatchSize());
-        Assertions.assertEquals(30_000L, config.getPartitionBatchFallbackTimeoutMillis());
-    }
-
-    @Test
     public void batchConfigParsesAndValidatesProperties() {
+        HmsClientConfig defaults = new HmsClientConfig(Collections.emptyMap(), 0);
+        Assertions.assertEquals(5000, defaults.getPartitionBatchSize());
+        Assertions.assertEquals(30_000L, defaults.getPartitionBatchFallbackTimeoutMillis());
         Map<String, String> properties = new HashMap<>();
         properties.put(HmsClientConfig.PARTITION_BATCH_SIZE_KEY, "321");
         properties.put(HmsClientConfig.PARTITION_BATCH_FALLBACK_TIMEOUT_MS_KEY, "4567");

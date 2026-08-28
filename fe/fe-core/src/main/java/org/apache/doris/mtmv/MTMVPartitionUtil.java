@@ -295,7 +295,6 @@ public class MTMVPartitionUtil {
         return getPartitionsUnSyncTables(context);
     }
 
-    /** Computes display state from a context whose external snapshots were preloaded outside FE table locks. */
     public static Map<Long, List<String>> getPartitionsUnSyncTables(MTMVRefreshContext context)
             throws AnalysisException {
         MTMV mtmv = context.getMtmv();
@@ -528,7 +527,6 @@ public class MTMVPartitionUtil {
         return false;
     }
 
-    /** Checks a persisted relation entry before resolving the table, so an excluded missing table is not loaded. */
     public static boolean isTableExcluded(Set<TableNameInfo> excludedTriggerTables, BaseTableInfo tableInfo) {
         if (excludedTriggerTables.isEmpty() || !tableInfo.isValid()) {
             return false;
@@ -711,7 +709,6 @@ public class MTMVPartitionUtil {
         return getBaseVersions(mtmv, partitionMappings, baseTables, false);
     }
 
-    /** Captures only locally cached versions and never calls the cloud meta service. */
     public static MTMVBaseVersions getCachedBaseVersions(MTMV mtmv,
             Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings,
             Set<BaseTableInfo> baseTables) throws AnalysisException {

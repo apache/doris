@@ -27,7 +27,9 @@ import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
+import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -43,6 +45,7 @@ import org.mockito.Mockito;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Optional;
 
 public class PreloadExternalMetadataTest {
@@ -169,6 +172,23 @@ public class PreloadExternalMetadataTest {
             Mockito.verify(statementContext).loadSnapshots(selectedPct, Optional.empty(), Optional.empty());
             Mockito.verify(statementContext).putPreloadedMtmvRefreshContext(selected, seed);
         }
+    }
+
+    @Test
+    public void collectedMtmvHintsAreIdempotentAndKeepAnalyzerDuplicateSemantics() {
+        StatementContext statementContext = new StatementContext();
+        SelectHintUseMv first = new SelectHintUseMv("USE_MV", Collections.emptyList(), true);
+        SelectHintUseMv duplicate = new SelectHintUseMv("USE_MV", Collections.emptyList(), true);
+        statementContext.addMtmvPreloadHint(first);
+        statementContext.resetMtmvPreloadHints();
+        Assertions.assertTrue(statementContext.getMtmvPreloadHints().isEmpty());
+        statementContext.addMtmvPreloadHint(first);
+        statementContext.addMtmvPreloadHint(duplicate);
+        statementContext.addMtmvPreloadHint(first);
+        Assertions.assertEquals(Arrays.asList(first, duplicate), statementContext.getMtmvPreloadHints());
+        List<Hint> hints = PreloadExternalMetadata.createMtmvHints(statementContext.getMtmvPreloadHints());
+        Assertions.assertEquals(2, hints.size());
+        Assertions.assertTrue(hints.stream().allMatch(Hint::isSyntaxError));
     }
 
     private static void prepareEligibleMtmv(StatementContext statementContext, MTMV mtmv) {

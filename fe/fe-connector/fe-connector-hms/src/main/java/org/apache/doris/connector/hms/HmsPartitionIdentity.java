@@ -24,7 +24,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
-/** Canonical ordered partition values shared by cache keys and batch-result validation. */
 final class HmsPartitionIdentity {
 
     private HmsPartitionIdentity() {

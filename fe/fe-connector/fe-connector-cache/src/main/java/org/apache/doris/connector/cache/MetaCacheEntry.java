@@ -151,7 +151,6 @@ public class MetaCacheEntry<K, V> {
         return name;
     }
 
-    /** Returns whether this entry can retain values under its effective enable/TTL/capacity settings. */
     public boolean isEffectiveEnabled() {
         return effectiveEnabled;
     }

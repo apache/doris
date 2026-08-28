@@ -141,7 +141,6 @@ public class MTMVRewriteUtil {
         return res;
     }
 
-    /** Whether this candidate can need a cloud refresh context after its cheap rewrite gates. */
     public static boolean requiresRefreshContext(MTMV mtmv, long currentTimeMills, boolean forceConsistent) {
         if (mtmv.getRelation() == null || !mtmv.canBeCandidate()) {
             return false;

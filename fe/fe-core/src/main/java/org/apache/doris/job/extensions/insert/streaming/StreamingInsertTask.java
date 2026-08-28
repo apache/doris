@@ -111,6 +111,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         this.taskCommand = offsetProvider.rewriteTvfParams(baseCommand, runningOffset, getTaskId());
         this.taskCommand.setLabelName(Optional.of(labelName));
         this.stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(taskCommand, ctx.getStatementContext()));
+        ctx.setExecutor(stmtExecutor);
     }
 
     @Override

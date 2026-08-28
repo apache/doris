@@ -21,7 +21,6 @@ import shade.doris.hive.org.apache.thrift.TException;
 
 import java.util.concurrent.Callable;
 
-/** Bridges one logical client invocation to every raw HMS attempt made by RetryingMetaStoreClient. */
 final class HmsRemoteCallTracking {
 
     private static final ThreadLocal<Context> CURRENT = new ThreadLocal<>();

@@ -157,7 +157,6 @@ public final class ConnectorSessionBuilder {
         return this;
     }
 
-    /** Sets a request-scoped metadata observer explicitly, primarily for tests and background jobs. */
     public ConnectorSessionBuilder withMetadataAccessObserver(ConnectorMetadataAccessObserver observer) {
         this.metadataAccessObserver = observer;
         return this;

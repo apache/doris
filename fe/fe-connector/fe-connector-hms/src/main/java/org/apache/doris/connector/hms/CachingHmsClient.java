@@ -279,7 +279,6 @@ public class CachingHmsClient implements HmsClient {
         HmsPartitionBatchExecutor.Access.LogicalAccess logicalAccess = partitionAccess.begin();
         boolean success = false;
         try {
-            // Serve per-partition entries and fetch bounded miss windows so overlapping requests share objects.
             Map<List<String>, HmsPartitionInfo> resultByIdentity = new LinkedHashMap<>();
             List<HmsPartitionIdentity.ParsedPartitionName> missPartitions = null;
             for (int i = 0; i < partitions.size(); i++) {
@@ -565,7 +564,7 @@ public class CachingHmsClient implements HmsClient {
             try {
                 batch.future.get(PARTITION_LOAD_WAIT_CHECK_MILLIS, TimeUnit.MILLISECONDS);
             } catch (TimeoutException e) {
-                // A chunk may publish this partition before the owner finishes the complete request.
+                // Recheck invalidation and preserve FIFO wait order.
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new HmsClientException("HMS in-flight partition load wait was interrupted", e);
@@ -649,7 +648,6 @@ public class CachingHmsClient implements HmsClient {
                 recordPartitionCoordinationWait(request, PARTITION_LOAD_SLOT_WAIT_OPERATION,
                         requestedItems, startNanos, success);
             } catch (Error e) {
-                // Preserve fail-loud Error semantics without leaking the slot acquired in this method.
                 if (acquired) {
                     partitionLoadSlots.release();
                 }
@@ -661,7 +659,6 @@ public class CachingHmsClient implements HmsClient {
     void beforePartitionLoadSlotWaitForTest() {
     }
 
-    /** Preserves FIFO position for partition-load admission. */
     private static final class PartitionLoadSlotLimiter {
         private final Deque<PartitionLoadSlotWaiter> waiters = new ArrayDeque<>();
         private int availableSlots;

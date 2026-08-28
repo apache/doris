@@ -201,15 +201,10 @@ final class HmsPartitionBatchExecutor {
                     fallbackCount++;
                     continue;
                 } catch (RuntimeException e) {
-                    // Authorization and local programming failures are not transport fallback candidates.
-                    // Preserve their original type and stack instead of disguising them as a failed HMS batch.
                     throw e;
                 } catch (Exception e) {
                     throw new HmsClientException("Unexpected checked failure fetching HMS partitions", e);
                 }
-                // Integrity validation and cache publication are deliberately outside the remote-failure catch:
-                // a malformed response or a local write-back bug must never trigger transport fallback or be
-                // wrapped as an HMS RPC failure.
                 List<HmsPartitionInfo> ordered = validateParsedAndOrder(batchPartitions, returned);
                 chunkConsumer.accept(ordered);
                 offset += batchSize;

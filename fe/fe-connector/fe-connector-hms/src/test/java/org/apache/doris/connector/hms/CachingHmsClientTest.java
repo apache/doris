@@ -771,8 +771,6 @@ public class CachingHmsClientTest {
                 .contains(HmsPartitionResultException.MismatchType.MISSING_RESULT));
         Assertions.assertEquals(1, delegate.getPartitionsCalls);
 
-        // The successful p=1 from an incomplete response must not leak into the cache: retry the whole logical
-        // request, rather than silently combining a stale partial result with a future response.
         Assertions.assertThrows(HmsPartitionResultException.class,
                 () -> cache.getPartitions("db", "t", Arrays.asList("p=1", "p=9")));
         Assertions.assertEquals(2, delegate.getPartitionsCalls,

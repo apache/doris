@@ -1356,7 +1356,6 @@ public class SummaryProfile {
         addExternalCatalogMetaTimeInternal(ms);
     }
 
-    /** Records one completed connector metadata request in this query's profile. */
     public synchronized void recordConnectorMetadataAccess(
             String catalogName, ConnectorMetadataAccessEvent event) {
         String key = catalogName + '\0' + event.getOperation() + '\0' + event.getSource();

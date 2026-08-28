@@ -99,7 +99,6 @@ public interface MTMVRelatedTableIf extends TableIf {
         return result;
     }
 
-    /** Whether this table can safely bulk-load partition snapshots outside the FE table read lock. */
     default boolean supportsPartitionSnapshotBatchLoading() {
         return false;
     }

@@ -27,7 +27,6 @@ import shade.doris.hive.org.apache.thrift.TException;
 
 import java.util.List;
 
-/** Raw HMS client used under RetryingMetaStoreClient so every retry attempt is observable. */
 public final class TrackingHiveMetaStoreClient extends HiveMetaStoreClient implements IMetaStoreClient {
 
     public TrackingHiveMetaStoreClient(Configuration conf, HiveMetaHookLoader hookLoader, Boolean allowEmbedded)

@@ -45,6 +45,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -194,6 +195,7 @@ public class StatementContext implements Closeable {
     private final List<Expression> joinFilters = new ArrayList<>();
 
     private final List<Hint> hints = new ArrayList<>();
+    private final Set<SelectHintUseMv> mtmvPreloadHints = new LinkedHashSet<>();
     private boolean hintForcePreAggOn = false;
 
     // the columns in Plan.getExpressions(), such as columns in join condition or
@@ -896,6 +898,18 @@ public class StatementContext implements Closeable {
 
     public List<Hint> getHints() {
         return ImmutableList.copyOf(hints);
+    }
+
+    public void addMtmvPreloadHint(SelectHintUseMv hint) {
+        mtmvPreloadHints.add(hint);
+    }
+
+    public List<SelectHintUseMv> getMtmvPreloadHints() {
+        return ImmutableList.copyOf(mtmvPreloadHints);
+    }
+
+    public void resetMtmvPreloadHints() {
+        mtmvPreloadHints.clear();
     }
 
     public List<Expression> getJoinFilters() {
