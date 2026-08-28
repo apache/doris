@@ -432,7 +432,8 @@ Status AsyncCacheWriteManager::start() {
     return Status::OK();
 }
 
-bool AsyncCacheWriteManager::try_submit(AsyncCacheWriteTask task) {
+bool AsyncCacheWriteManager::try_submit(AsyncCacheWriteTask task,
+                                        AsyncCacheWriteAdmissionMode admission_mode) {
     task.validate();
     const int64_t submit_start_us = MonotonicMicros();
     Defer record_submit_latency {
@@ -471,7 +472,9 @@ bool AsyncCacheWriteManager::try_submit(AsyncCacheWriteTask task) {
         }
 
         const bool has_capacity = pending_bytes <= max_pending_bytes - task_buffer_bytes;
-        if (!has_capacity && _queue.empty()) {
+        if (!has_capacity &&
+            (admission_mode == AsyncCacheWriteAdmissionMode::REQUIRE_SPARE_CAPACITY ||
+             _queue.empty())) {
             _metrics->record_task_rejected(Metrics::RejectionReason::BACKPRESSURE);
             return false;
         }
@@ -560,7 +563,7 @@ AsyncCacheWriteBlockSubmitResult AsyncCacheWriteManager::try_submit_owned_block(
         };
     }
 
-    if (!try_submit(std::move(task))) {
+    if (!try_submit(std::move(task), request.admission_mode)) {
         if (entry != nullptr) {
             request.inflight_index->remove_if(request.cache_hash, request.file_offset, entry);
             request.inflight_index->record_backpressure_rollback();
