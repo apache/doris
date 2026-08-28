@@ -27,15 +27,36 @@ import java.util.Optional;
 public class IcebergSchemaCacheKey extends SchemaCacheKey {
     private final String tableUuid;
     private final long schemaId;
+    private final int partitionSpecId;
+    private final boolean enableMappingVarbinary;
+    private final boolean enableMappingTimestampTz;
 
     public IcebergSchemaCacheKey(NameMapping nameMapping, long schemaId) {
-        this(nameMapping, "", schemaId);
+        this(nameMapping, "", schemaId, -1, false, false);
     }
 
     public IcebergSchemaCacheKey(NameMapping nameMapping, String tableUuid, long schemaId) {
+        this(nameMapping, tableUuid, schemaId, -1, false, false);
+    }
+
+    public IcebergSchemaCacheKey(NameMapping nameMapping, String tableUuid, long schemaId, int partitionSpecId) {
+        this(nameMapping, tableUuid, schemaId, partitionSpecId, false, false);
+    }
+
+    public IcebergSchemaCacheKey(NameMapping nameMapping, String tableUuid, long schemaId,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
+        this(nameMapping, tableUuid, schemaId, -1,
+                enableMappingVarbinary, enableMappingTimestampTz);
+    }
+
+    public IcebergSchemaCacheKey(NameMapping nameMapping, String tableUuid, long schemaId, int partitionSpecId,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         super(nameMapping);
         this.tableUuid = java.util.Objects.requireNonNull(tableUuid, "tableUuid can not be null");
         this.schemaId = schemaId;
+        this.partitionSpecId = partitionSpecId;
+        this.enableMappingVarbinary = enableMappingVarbinary;
+        this.enableMappingTimestampTz = enableMappingTimestampTz;
     }
 
     public Optional<String> getTableUuid() {
@@ -44,6 +65,18 @@ public class IcebergSchemaCacheKey extends SchemaCacheKey {
 
     public long getSchemaId() {
         return schemaId;
+    }
+
+    public int getPartitionSpecId() {
+        return partitionSpecId;
+    }
+
+    public boolean isEnableMappingVarbinary() {
+        return enableMappingVarbinary;
+    }
+
+    public boolean isEnableMappingTimestampTz() {
+        return enableMappingTimestampTz;
     }
 
     @Override
@@ -58,11 +91,16 @@ public class IcebergSchemaCacheKey extends SchemaCacheKey {
             return false;
         }
         IcebergSchemaCacheKey that = (IcebergSchemaCacheKey) o;
-        return schemaId == that.schemaId && tableUuid.equals(that.tableUuid);
+        return schemaId == that.schemaId
+                && partitionSpecId == that.partitionSpecId
+                && enableMappingVarbinary == that.enableMappingVarbinary
+                && enableMappingTimestampTz == that.enableMappingTimestampTz
+                && tableUuid.equals(that.tableUuid);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(super.hashCode(), tableUuid, schemaId);
+        return Objects.hashCode(super.hashCode(), tableUuid, schemaId, partitionSpecId,
+                enableMappingVarbinary, enableMappingTimestampTz);
     }
 }
