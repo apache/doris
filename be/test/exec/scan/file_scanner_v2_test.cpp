@@ -875,8 +875,9 @@ TEST(FileScannerV2Test, OrcScannerResidualFilterRetainsNextBatchContext) {
 }
 
 // Scenario: partition slots are identified from the explicit FE category when present, otherwise
-// from the legacy is_file_slot flag. Metadata columns must be classified by the explicit SYNTHESIZED
-// category so ordinary physical or partition columns with the same spelling remain readable.
+// from the legacy is_file_slot flag. The legacy fallback recognizes virtual metadata columns by name,
+// case-insensitively, so they never reach a physical file reader. Explicit categories retain precedence
+// for physical fields that share a metadata spelling.
 TEST(FileScannerV2Test, PartitionSlotClassificationMatrix) {
     TFileScanSlotInfo legacy_partition;
     legacy_partition.__set_is_file_slot(false);
@@ -895,6 +896,7 @@ TEST(FileScannerV2Test, PartitionSlotClassificationMatrix) {
     categorized_regular.__set_is_file_slot(false);
     categorized_regular.__set_category(TColumnCategory::REGULAR);
     EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(categorized_regular, "regular_col"));
+    EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(categorized_regular, "_FILE"));
 
     EXPECT_FALSE(
             FileScannerV2::TEST_is_partition_slot(legacy_partition, BeConsts::GLOBAL_ROWID_COL));
@@ -913,10 +915,10 @@ TEST(FileScannerV2Test, PartitionSlotClassificationMatrix) {
     EXPECT_FALSE(
             FileScannerV2::TEST_is_partition_slot(synthesized, BeConsts::PAIMON_ROW_POSITION_COL));
 
-    // Names alone must not hide a normal partition column. This is the collision case for a
-    // non-Iceberg connector whose physical/partition field happens to use a metadata spelling.
-    EXPECT_TRUE(FileScannerV2::TEST_is_partition_slot(legacy_partition, "_FILE"));
-    EXPECT_TRUE(FileScannerV2::TEST_is_partition_slot(legacy_partition, "__PAIMON_FILE_PATH"));
+    EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(legacy_partition, "_FILE"));
+    EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(legacy_partition, "_POS"));
+    EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(legacy_partition, "__PAIMON_FILE_PATH"));
+    EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(legacy_partition, "__PAIMON_ROW_INDEX"));
 }
 
 // Scenario: data-file slots are the complement of partition/default/synthesized columns for
@@ -935,6 +937,7 @@ TEST(FileScannerV2Test, DataFileSlotClassificationMatrix) {
     categorized_regular.__set_is_file_slot(false);
     categorized_regular.__set_category(TColumnCategory::REGULAR);
     EXPECT_TRUE(FileScannerV2::TEST_is_data_file_slot(categorized_regular, "regular_col"));
+    EXPECT_TRUE(FileScannerV2::TEST_is_data_file_slot(categorized_regular, "_POS"));
 
     TFileScanSlotInfo categorized_generated;
     categorized_generated.__set_is_file_slot(false);
@@ -966,9 +969,10 @@ TEST(FileScannerV2Test, DataFileSlotClassificationMatrix) {
     EXPECT_FALSE(
             FileScannerV2::TEST_is_data_file_slot(synthesized, BeConsts::PAIMON_ROW_POSITION_COL));
 
-    // A legacy physical slot remains a data-file slot regardless of its spelling.
-    EXPECT_TRUE(FileScannerV2::TEST_is_data_file_slot(legacy_file, "_FILE"));
-    EXPECT_TRUE(FileScannerV2::TEST_is_data_file_slot(legacy_file, "__PAIMON_FILE_PATH"));
+    EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(legacy_file, "_FILE"));
+    EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(legacy_file, "_POS"));
+    EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(legacy_file, "__PAIMON_FILE_PATH"));
+    EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(legacy_file, "__PAIMON_ROW_INDEX"));
 }
 
 // Scenario: table conjuncts are cloned into global-index space before they are handed to

@@ -75,6 +75,7 @@
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "storage/id_manager.h"
+#include "util/string_util.h"
 
 namespace doris {
 namespace {
@@ -194,12 +195,20 @@ bool is_wal_format(TFileFormatType::type format_type) {
     return format_type == TFileFormatType::FORMAT_WAL;
 }
 
+bool is_legacy_virtual_slot(const std::string& column_name) {
+    return column_name.starts_with(BeConsts::GLOBAL_ROWID_COL) ||
+           iequal(column_name, BeConsts::ICEBERG_ROWID_COL) ||
+           iequal(column_name, BeConsts::ICEBERG_FILE_PATH_COL) ||
+           iequal(column_name, BeConsts::ICEBERG_ROW_POSITION_COL) ||
+           iequal(column_name, BeConsts::PAIMON_FILE_PATH_COL) ||
+           iequal(column_name, BeConsts::PAIMON_ROW_POSITION_COL);
+}
+
 bool is_partition_slot(const TFileScanSlotInfo& slot_info, const std::string& column_name) {
     if (slot_info.__isset.category) {
         return slot_info.category == TColumnCategory::PARTITION_KEY;
     }
-    return !slot_info.is_file_slot && !column_name.starts_with(BeConsts::GLOBAL_ROWID_COL) &&
-           column_name != BeConsts::ICEBERG_ROWID_COL;
+    return !slot_info.is_file_slot && !is_legacy_virtual_slot(column_name);
 }
 
 bool is_data_file_slot(const TFileScanSlotInfo& slot_info, const std::string& column_name) {
@@ -211,8 +220,7 @@ bool is_data_file_slot(const TFileScanSlotInfo& slot_info, const std::string& co
         return slot_info.category == TColumnCategory::REGULAR ||
                slot_info.category == TColumnCategory::GENERATED;
     }
-    return slot_info.is_file_slot && !column_name.starts_with(BeConsts::GLOBAL_ROWID_COL) &&
-           column_name != BeConsts::ICEBERG_ROWID_COL;
+    return slot_info.is_file_slot && !is_legacy_virtual_slot(column_name);
 }
 
 Status rewrite_slot_refs_to_global_index(
