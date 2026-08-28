@@ -221,4 +221,23 @@ class HudiBatchFsViewOwnerTest {
         Mockito.verify(lease).close();
         Assertions.assertDoesNotThrow(owner::awaitCompletion);
     }
+
+    @Test
+    void synchronousListingCancellationWinsAfterTerminalTasksCompleteInline() {
+        HudiFsViewCacheValue.Lease lease = Mockito.mock(HudiFsViewCacheValue.Lease.class);
+        HudiScanNode.ListingFsViewOwner owner = new HudiScanNode.ListingFsViewOwner(lease);
+        HudiScanNode.TerminalTask completed = new HudiScanNode.TerminalTask(() -> { }, () -> { });
+        HudiScanNode.TerminalTask queued = new HudiScanNode.TerminalTask(
+                () -> Assertions.fail("cancelled task must not run"), () -> { });
+        owner.track(completed);
+        owner.track(queued);
+        completed.run();
+        owner.submissionDone();
+
+        owner.close();
+
+        Assertions.assertTrue(queued.isCancelled());
+        Mockito.verify(lease).close();
+        Assertions.assertThrows(CancellationException.class, owner::awaitCompletion);
+    }
 }

@@ -91,7 +91,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private volatile AbstractHiveProperties hmsProperties;
     private AtomicLong runtimeGeneration = new AtomicLong();
 
-    public long getRuntimeGeneration() {
+    public synchronized long getRuntimeGeneration() {
         return runtimeGeneration.get();
     }
 
