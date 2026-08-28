@@ -70,7 +70,9 @@ public class SkewJoin extends OneRewriteRuleFactory {
         LogicalJoin<Plan, Plan> join = ctx.root;
         Expression skewExpr = null;
         List<Expression> hotValues = new ArrayList<>();
-        if (join.getHashJoinConjuncts().size() != 1) {
+        boolean allowMultiKey =
+                ConnectContext.get().getSessionVariable().isEnableSkewJoinMultiKey();
+        if (!allowMultiKey && join.getHashJoinConjuncts().size() != 1) {
             return null;
         }
         AbstractPlan left = (AbstractPlan) join.left();
@@ -82,35 +84,37 @@ public class SkewJoin extends OneRewriteRuleFactory {
             right.accept(derive, new DeriveContext());
         }
 
-        EqualPredicate equal = (EqualPredicate) join.getHashJoinConjuncts().get(0);
-        if (join.left().getOutputSet().contains(equal.right())) {
-            equal = equal.commute();
-        }
-
-        if (join.getJoinType().isInnerJoin() || join.getJoinType().isLeftOuterJoin()) {
-            Expression leftEqHand = equal.child(0);
-            if (left.getStats().findColumnStatistics(leftEqHand) != null) {
-                ColumnStatistic leftColStats = left.getStats().findColumnStatistics(leftEqHand);
-                Map<Literal, Float> filtered = StatisticsUtil.getHotValuesWithOriginalThreshold(
-                        leftColStats.getHotValues(), leftColStats.ndv);
-                if (filtered != null) {
-                    skewExpr = leftEqHand;
-                    hotValues.addAll(filtered.keySet());
-                }
+        for (Expression conjunct : join.getHashJoinConjuncts()) {
+            EqualPredicate equal = (EqualPredicate) conjunct;
+            if (join.left().getOutputSet().contains(equal.right())) {
+                equal = equal.commute();
             }
-        } else if (join.getJoinType().isRightOuterJoin()) {
-            Expression rightEqHand = equal.child(1);
-            if (right.getStats().findColumnStatistics(rightEqHand) != null) {
-                ColumnStatistic rightColStats = right.getStats().findColumnStatistics(rightEqHand);
-                Map<Literal, Float> filtered = StatisticsUtil.getHotValuesWithOriginalThreshold(
-                        rightColStats.getHotValues(), rightColStats.ndv);
-                if (filtered != null) {
-                    skewExpr = rightEqHand;
-                    hotValues.addAll(filtered.keySet());
+            Map<Literal, Float> filtered = null;
+            Expression sideExpr = null;
+            if (join.getJoinType().isInnerJoin() || join.getJoinType().isLeftOuterJoin()) {
+                Expression leftEqHand = equal.child(0);
+                if (left.getStats().findColumnStatistics(leftEqHand) != null) {
+                    ColumnStatistic leftColStats = left.getStats().findColumnStatistics(leftEqHand);
+                    filtered = StatisticsUtil.getHotValuesWithOriginalThreshold(
+                            leftColStats.getHotValues(), leftColStats.ndv);
+                    sideExpr = leftEqHand;
                 }
+            } else if (join.getJoinType().isRightOuterJoin()) {
+                Expression rightEqHand = equal.child(1);
+                if (right.getStats().findColumnStatistics(rightEqHand) != null) {
+                    ColumnStatistic rightColStats = right.getStats().findColumnStatistics(rightEqHand);
+                    filtered = StatisticsUtil.getHotValuesWithOriginalThreshold(
+                            rightColStats.getHotValues(), rightColStats.ndv);
+                    sideExpr = rightEqHand;
+                }
+            } else {
+                return null;
             }
-        } else {
-            return null;
+            if (filtered != null && !filtered.isEmpty()) {
+                skewExpr = sideExpr;
+                hotValues.addAll(filtered.keySet());
+                break;
+            }
         }
         if (skewExpr == null || hotValues.isEmpty()) {
             return null;

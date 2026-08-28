@@ -326,6 +326,9 @@ public class SessionVariable implements Serializable, Writable {
     // turn off all automatic join reorder algorithms
     public static final String DISABLE_JOIN_REORDER = "disable_join_reorder";
 
+    // Allow SkewJoin auto-salt to trigger on joins with more than one hash key.
+    public static final String ENABLE_SKEW_JOIN_MULTI_KEY = "enable_skew_join_multi_key";
+
     public static final String MAX_JOIN_NUMBER_OF_REORDER = "max_join_number_of_reorder";
 
     public static final String ENABLE_NEREIDS_DML = "enable_nereids_dml";
@@ -1948,6 +1951,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_SKEW_JOIN_MULTI_KEY, needForward = true)
+    private boolean enableSkewJoinMultiKey = false;
 
     @VarAttrDef.VarAttr(name = MAX_JOIN_NUMBER_OF_REORDER)
     private int maxJoinNumberOfReorder = 63;
@@ -5015,6 +5021,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isDisableJoinReorder() {
         return disableJoinReorder;
+    }
+
+    public boolean isEnableSkewJoinMultiKey() {
+        return enableSkewJoinMultiKey;
+    }
+
+    public void setEnableSkewJoinMultiKey(boolean enable) {
+        this.enableSkewJoinMultiKey = enable;
     }
 
     public boolean isEnableBushyTree() {
