@@ -1952,7 +1952,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_SKEW_JOIN_MULTI_KEY, needForward = true)
+    @VarAttrDef.VarAttr(name = ENABLE_SKEW_JOIN_MULTI_KEY, needForward = true)
     private boolean enableSkewJoinMultiKey = true;
 
     @VarAttrDef.VarAttr(name = MAX_JOIN_NUMBER_OF_REORDER)
