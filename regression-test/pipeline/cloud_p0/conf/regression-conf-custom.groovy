@@ -68,6 +68,8 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "cloud_p0/cache," +
     "shape_check," + // run only in p0 is enough
     "nereids_p0/cache," + // run only in p0 is enough
+    "nereids_rules_p0/mv/increment_create," + // run only in p0 is enough
+    "nereids_rules_p0/mv/genera_constant_sql," + // run only in p0 is enough
     "backup_restore," + // not a case for cloud mode, no need to run
     "cold_heat_separation," +
     "storage_medium_p0," +

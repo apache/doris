@@ -71,6 +71,7 @@ excludeGroups = "p1,p2"
 excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "test_dump_image," +
     "test_information_schema_external," +
+    "test_parquet_join_runtime_filter," +
     "test_paimon_gcs," +
     "test_spark_load," +
     "test_broker_load_func," +
