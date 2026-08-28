@@ -152,6 +152,14 @@ public:
     }
 
 private:
+    // Fragment termination lifecycle (monotonic, with no backward transitions):
+    //
+    //     CREATED -------- normal close --------> CLOSING -------- close done --------> CLOSED
+    //        |                                      ^
+    //        +-------- cancel --------> CANCELLING --+
+    //
+    // The CREATED -> CANCELLING transition elects the sole cancellation owner. A transition
+    // from CREATED or CANCELLING to CLOSING elects the sole close owner.
     enum class LifecycleState : uint8_t {
         CREATED,
         CANCELLING,
