@@ -104,6 +104,8 @@ add_executable(util_test util_test.cpp)
 
 add_executable(network_util_test network_util_test.cpp)
 
+add_executable(client_connection_provider_test client_connection_provider_test.cpp)
+
 add_executable(cloud_server_starter_factory_test cloud_server_starter_factory_test.cpp)
 
 set(TLS_UT_TARGETS)
@@ -185,6 +187,8 @@ target_link_libraries(stopwatch_test ${TEST_LINK_LIBS})
 target_link_libraries(util_test ${TEST_LINK_LIBS})
 
 target_link_libraries(network_util_test ${TEST_LINK_LIBS})
+
+target_link_libraries(client_connection_provider_test ${TEST_LINK_LIBS})
 
 target_link_libraries(cloud_server_starter_factory_test ${TEST_LINK_LIBS})
 

@@ -31,6 +31,7 @@
 #include <tuple>
 #include <unordered_set>
 
+#include "client/client_connection_provider.h"
 #include "common/bvars.h"
 #include "common/config.h"
 #include "common/encryption_util.h"
@@ -5209,6 +5210,10 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
 
     brpc::ChannelOptions options;
     options.connection_type = brpc::ConnectionType::CONNECTION_TYPE_SHORT;
+    if (!client::configure_meta_service_channel_options(&options)) {
+        LOG(WARNING) << "failed to configure internal meta-service channel";
+        return;
+    }
 
     static std::unordered_map<std::string, std::shared_ptr<MetaService_Stub>> stubs;
     static std::mutex mtx;
