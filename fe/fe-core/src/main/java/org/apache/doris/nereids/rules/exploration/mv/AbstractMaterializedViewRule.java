@@ -594,9 +594,43 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     }
 
     /**
-     * Rebuild the query operators above {@code tempRewritedPlan} using expressions available from the MV scan.
-     * Scan rules can use the temporary plan directly; join, aggregate, window, limit, and TopN rules override this
-     * method to restore their query-specific output semantics.
+     * Build the transparent replacement plan after query/view matching and predicate compensation have succeeded.
+     *
+     * <p>{@code tempRewritedPlan} is no longer the original query subtree. It is an MV scan, optionally with a
+     * filter containing the query-only compensation predicates. This method is the boundary where each rule family
+     * restores the query operators above that new data source:
+     * <pre>
+     * original query operators                     transparent replacement
+     *
+     * Project / Aggregate / Window / Limit / TopN       same query semantics
+     *                     |                                      |
+     *              query base tables       becomes       rewritten expressions
+     *                                                            |
+     *                                             compensation Filter (optional)
+     *                                                            |
+     *                                                        MV Scan
+     * </pre>
+     *
+     * <p>Implementations use {@code viewToQuerySlotMapping} to compare view expressions in query coordinates and
+     * {@link MaterializationContext#getShuttledExprToScanExprMapping()} to replace matched expressions with actual
+     * MV scan outputs. The resulting plan must preserve the query's output expressions and operator semantics while
+     * depending on {@code tempRewritedPlan} instead of the original base-table subtree.
+     *
+     * <p>Scan and join rules normally rebuild the top projection. Aggregate rules additionally choose direct
+     * expression rewrite or aggregate roll-up. Window rules restore window outputs, while Limit and TopN rules first
+     * invoke their parent rewrite and then restore the query's limit/order semantics. Returning null means this
+     * query/view mapping cannot produce a complete equivalent plan; the caller discards it and tries another mapping
+     * or materialization. The default implementation is the identity step used by rule families that have no
+     * additional operator to restore at this level.
+     *
+     * @param matchMode relation-set relationship between the query and view
+     * @param queryStructInfo query structure whose operator and output semantics must be preserved
+     * @param viewStructInfo matched view structure used to validate rule-specific compatibility
+     * @param viewToQuerySlotMapping mapping that translates view slots into query-slot coordinates
+     * @param tempRewritedPlan MV scan with any rewritten compensation predicates already applied
+     * @param materializationContext MV scan expression mappings and rewrite diagnostic state
+     * @param cascadesContext planner context used by expression and plan rewriting
+     * @return the query-equivalent plan based on the MV scan, or null when the query cannot be fully represented
      */
     protected Plan rewriteQueryByView(MatchMode matchMode, StructInfo queryStructInfo, StructInfo viewStructInfo,
             SlotMapping viewToQuerySlotMapping, Plan tempRewritedPlan, MaterializationContext materializationContext,
