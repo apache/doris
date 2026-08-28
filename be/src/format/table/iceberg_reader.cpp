@@ -1110,18 +1110,6 @@ Status IcebergTableReader::_validate_required_table_columns(Block* block) const 
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(_col_name_to_block_idx != nullptr);
     for (const auto& [field_id, column_name] : _id_to_block_column_name) {
-        // Only the columns this scan materializes carry file data. A slot that stays
-        // unmaterialized -- `count(*)` keeps the tuple slot but never reads the column -- leaves
-        // its Block column on the NULL placeholder, which is not a required-field violation.
-        if (std::ranges::find(_all_required_col_names, column_name) ==
-            _all_required_col_names.end()) {
-            continue;
-        }
-        if (_row_lineage_columns != nullptr &&
-            (column_name == ROW_LINEAGE_ROW_ID ||
-             column_name == ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER)) {
-            continue;
-        }
         std::vector<const schema::external::TField*> path;
         if (!_find_schema_field_path_in_root(_current_schema_root(), field_id, &path)) {
             continue;
