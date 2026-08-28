@@ -83,10 +83,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -120,11 +122,8 @@ public class ThriftHmsClient implements HmsClient {
     private final MetaStoreClientProvider clientProvider;
     private final HmsTypeMapping.Options typeMappingOptions;
     private final HmsPartitionBatchLoader partitionBatchLoader;
-    private final ExecutorService clientCreationExecutor = Executors.newCachedThreadPool(runnable -> {
-        Thread thread = new Thread(runnable, "hms-client-creator");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private final ExecutorService clientCreationExecutor;
+    private final Semaphore clientCreationSlots;
     private final ThreadLocal<ConnectorOperationControl> clientCreationControl = new ThreadLocal<>();
     private volatile boolean closed;
 
@@ -175,6 +174,12 @@ public class ThriftHmsClient implements HmsClient {
         this.authAction = authAction != null ? authAction : Callable::call;
         this.clientProvider = clientProvider;
         this.typeMappingOptions = typeMappingOptions;
+        this.clientCreationSlots = new Semaphore(Math.max(1, config.getPoolSize()), true);
+        this.clientCreationExecutor = Executors.newCachedThreadPool(runnable -> {
+            Thread thread = new Thread(runnable, "hms-client-creator");
+            thread.setDaemon(true);
+            return thread;
+        });
         this.partitionBatchLoader = HmsPartitionBatchLoader.builder()
                 .maxBatchSize(config.getPartitionBatchSize())
                 .fallbackTimeoutMillis(config.getPartitionBatchFallbackTimeoutMillis())
@@ -932,17 +937,12 @@ public class ThriftHmsClient implements HmsClient {
     }
 
     private PooledHmsClient createFreshClient(ConnectorOperationControl operationControl) {
-        CompletableFuture<PooledHmsClient> result = new CompletableFuture<>();
-        Future<?> task;
+        acquireClientCreationSlot(operationControl);
+        ClientCreationAttempt attempt = new ClientCreationAttempt();
         try {
-            task = clientCreationExecutor.submit(() -> {
-                try {
-                    result.complete(doAs(() -> new PooledHmsClient(clientProvider.create(hiveConf))));
-                } catch (Throwable t) {
-                    result.completeExceptionally(t);
-                }
-            });
+            clientCreationExecutor.execute(attempt);
         } catch (RejectedExecutionException e) {
+            clientCreationSlots.release();
             throw new HmsClientException("HMS client is closed", e);
         }
         try {
@@ -960,7 +960,8 @@ public class ThriftHmsClient implements HmsClient {
                 long waitMillis = remainingMillis == Long.MAX_VALUE
                         ? POOL_BORROW_CHECK_MILLIS : Math.min(POOL_BORROW_CHECK_MILLIS, remainingMillis);
                 try {
-                    PooledHmsClient client = result.get(Math.max(1L, waitMillis), TimeUnit.MILLISECONDS);
+                    PooledHmsClient client = attempt.result.get(
+                            Math.max(1L, waitMillis), TimeUnit.MILLISECONDS);
                     operationControl.checkActive();
                     if (closed) {
                         client.destroy();
@@ -976,7 +977,7 @@ public class ThriftHmsClient implements HmsClient {
             ConnectorOperationAbortedException aborted = new ConnectorOperationAbortedException(
                     ConnectorOperationAbortedException.Reason.CANCELLED,
                     "HMS client creation was interrupted");
-            discardLateClient(result, task);
+            discardLateClient(attempt);
             throw aborted;
         } catch (ExecutionException e) {
             Throwable cause = e.getCause();
@@ -990,14 +991,41 @@ public class ThriftHmsClient implements HmsClient {
             throw new HmsClientException(withRootCause("Failed to create HMS client: "
                     + cause.getMessage(), cause), cause);
         } catch (RuntimeException | Error e) {
-            discardLateClient(result, task);
+            discardLateClient(attempt);
             throw e;
         }
     }
 
-    private static void discardLateClient(CompletableFuture<PooledHmsClient> result, Future<?> task) {
-        result.thenAccept(PooledHmsClient::destroy);
-        task.cancel(true);
+    private void acquireClientCreationSlot(ConnectorOperationControl operationControl) {
+        while (true) {
+            operationControl.checkActive();
+            if (closed) {
+                throw new HmsClientException("HMS client is closed");
+            }
+            long remainingMillis = operationControl.remainingTimeMillis();
+            if (remainingMillis <= 0) {
+                throw new ConnectorOperationAbortedException(
+                        ConnectorOperationAbortedException.Reason.DEADLINE_EXCEEDED,
+                        "HMS client creation admission deadline exceeded");
+            }
+            long waitMillis = remainingMillis == Long.MAX_VALUE
+                    ? POOL_BORROW_CHECK_MILLIS : Math.min(POOL_BORROW_CHECK_MILLIS, remainingMillis);
+            try {
+                if (clientCreationSlots.tryAcquire(Math.max(1L, waitMillis), TimeUnit.MILLISECONDS)) {
+                    return;
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new ConnectorOperationAbortedException(
+                        ConnectorOperationAbortedException.Reason.CANCELLED,
+                        "HMS client creation admission was interrupted");
+            }
+        }
+    }
+
+    private static void discardLateClient(ClientCreationAttempt attempt) {
+        attempt.result.thenAccept(PooledHmsClient::destroy);
+        attempt.interrupt();
     }
 
     /**
@@ -1065,6 +1093,38 @@ public class ThriftHmsClient implements HmsClient {
     }
 
     // ========== Inner classes ==========
+
+    private final class ClientCreationAttempt implements Runnable {
+        private final CompletableFuture<PooledHmsClient> result = new CompletableFuture<>();
+        private final AtomicReference<Thread> creatorThread = new AtomicReference<>();
+        private final AtomicBoolean interruptRequested = new AtomicBoolean();
+
+        @Override
+        public void run() {
+            Thread currentThread = Thread.currentThread();
+            creatorThread.set(currentThread);
+            if (interruptRequested.get()) {
+                currentThread.interrupt();
+            }
+            try {
+                result.complete(doAs(() -> new PooledHmsClient(clientProvider.create(hiveConf))));
+            } catch (Throwable t) {
+                result.completeExceptionally(t);
+            } finally {
+                creatorThread.compareAndSet(currentThread, null);
+                Thread.interrupted();
+                clientCreationSlots.release();
+            }
+        }
+
+        void interrupt() {
+            interruptRequested.set(true);
+            Thread thread = creatorThread.get();
+            if (thread != null) {
+                thread.interrupt();
+            }
+        }
+    }
 
     /**
      * Wrapper around {@link IMetaStoreClient} with taint tracking.

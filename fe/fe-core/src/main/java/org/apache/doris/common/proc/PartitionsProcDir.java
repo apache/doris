@@ -512,7 +512,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                 }
             } else if (mtmvRefreshContext != null && StringUtils.isEmpty(mtmvPartitionSyncErrorMsg)) {
                 try {
-                    mtmvRefreshContext.refreshLocalState();
+                    mtmvRefreshContext.refreshLocalStateFromCachedVersions();
                 } catch (AnalysisException e) {
                     mtmvPartitionSyncErrorMsg = e.getMessage();
                 }

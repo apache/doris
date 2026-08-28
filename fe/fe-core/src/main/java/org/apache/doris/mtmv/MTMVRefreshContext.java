@@ -187,13 +187,19 @@ public class MTMVRefreshContext {
 
     /** Preloads the external PCT partition union required by the selected MTMV partitions. */
     public void preloadPartitionSnapshots(Set<String> mtmvPartitionNames) throws AnalysisException {
+        preloadPartitionSnapshots(mtmvPartitionNames, true);
+    }
+
+    private void preloadPartitionSnapshots(Set<String> mtmvPartitionNames,
+            boolean requirePersistedPartitionSet) throws AnalysisException {
         Map<MTMVRelatedTableIf, Set<String>> namesByTable = Maps.newHashMap();
         for (String mtmvPartitionName : mtmvPartitionNames) {
             Map<MTMVRelatedTableIf, Set<String>> mapping = getByPartitionName(mtmvPartitionName);
             for (Map.Entry<MTMVRelatedTableIf, Set<String>> entry : mapping.entrySet()) {
                 if (entry.getKey().needAutoRefresh()
                         && entry.getKey().supportsPartitionSnapshotBatchLoading()
-                        && hasPersistedPartitionSet(mtmvPartitionName, entry.getKey(), entry.getValue())) {
+                        && (!requirePersistedPartitionSet
+                                || hasPersistedPartitionSet(mtmvPartitionName, entry.getKey(), entry.getValue()))) {
                     namesByTable.computeIfAbsent(entry.getKey(), ignored -> Sets.newLinkedHashSet())
                             .addAll(entry.getValue());
                 }
@@ -250,7 +256,30 @@ public class MTMVRefreshContext {
         preloadTableSnapshots(tables, excludeTables);
     }
 
+    /** Preloads snapshots that will be persisted after refresh, including first or mapping-changed baselines. */
+    public void preloadSnapshotsForPersistence(Set<String> mtmvPartitionNames, Set<BaseTableInfo> tables)
+            throws AnalysisException {
+        preloadPartitionSnapshots(mtmvPartitionNames, false);
+        preloadTableSnapshots(tables, Collections.emptySet());
+    }
+
     public void refreshLocalState() throws AnalysisException {
+        refreshLocalState(false);
+    }
+
+    /** Revalidates locked local structure using versions fetched and cached before the locks were acquired. */
+    public void refreshLocalStateFromCachedVersions() throws AnalysisException {
+        refreshLocalState(true);
+    }
+
+    /** Revalidates a rewrite context with its final query partition selection without remote version calls. */
+    public void refreshLocalStateFromCachedVersions(Map<List<String>, Set<String>> queryUsedPartitions)
+            throws AnalysisException {
+        this.queryUsedPartitions = Collections.unmodifiableMap(new LinkedHashMap<>(queryUsedPartitions));
+        refreshLocalState(true);
+    }
+
+    private void refreshLocalState(boolean cachedVersionsOnly) throws AnalysisException {
         for (MTMVRelatedTableIf pctTable : pctTables) {
             if (pctTable instanceof OlapTable) {
                 partitionItems.put(pctTable,
@@ -260,7 +289,9 @@ public class MTMVRefreshContext {
         partitionMappings = partitionItems.isEmpty()
                 ? mtmv.calculatePartitionMappings(queryUsedPartitions)
                 : mtmv.calculatePartitionMappings(queryUsedPartitions, partitionItems);
-        baseVersions = MTMVPartitionUtil.getBaseVersions(mtmv, partitionMappings, baseTables);
+        baseVersions = cachedVersionsOnly
+                ? MTMVPartitionUtil.getCachedBaseVersions(mtmv, partitionMappings, baseTables)
+                : MTMVPartitionUtil.getBaseVersions(mtmv, partitionMappings, baseTables);
         baseTableSnapshotCache.keySet().removeIf(BaseTableInfo::isInternalTable);
         partitionSnapshotCache.keySet().removeIf(OlapTable.class::isInstance);
         resolvedBaseTables.keySet().removeIf(BaseTableInfo::isInternalTable);

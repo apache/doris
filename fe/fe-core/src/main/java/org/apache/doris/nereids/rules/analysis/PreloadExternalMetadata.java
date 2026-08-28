@@ -17,8 +17,12 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.nereids.ExternalMetadataPreloadResult;
 import org.apache.doris.nereids.ExternalTablePreloadInfo;
 import org.apache.doris.nereids.StatementContext;
@@ -58,6 +62,7 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
      */
     public ExternalMetadataPreloadResult executePreload(StatementContext statementContext) {
         long preloadStartTime = TimeUtils.getStartTimeMs();
+        preloadCloudMtmvRefreshContexts(statementContext);
         Optional<String> skipReason = getSkipReason(statementContext);
         if (skipReason.isPresent()) {
             if (LOG.isDebugEnabled()) {
@@ -77,6 +82,22 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
                 statementContext.getExternalTablePreloadCandidateCount(),
                 preloadedTableCount,
                 TimeUtils.getElapsedTimeMs(preloadStartTime));
+    }
+
+    private void preloadCloudMtmvRefreshContexts(StatementContext statementContext) {
+        if (Config.isNotCloudMode()) {
+            return;
+        }
+        for (MTMV mtmv : statementContext.getCandidateMTMVs()) {
+            if (statementContext.getPreloadedMtmvRefreshContext(mtmv).isPresent()) {
+                continue;
+            }
+            try {
+                statementContext.putPreloadedMtmvRefreshContext(mtmv, MTMVRefreshContext.buildContext(mtmv));
+            } catch (AnalysisException e) {
+                LOG.warn("Failed to preload cloud MTMV refresh context for {}", mtmv.getName(), e);
+            }
+        }
     }
 
     private Optional<String> getSkipReason(StatementContext statementContext) {

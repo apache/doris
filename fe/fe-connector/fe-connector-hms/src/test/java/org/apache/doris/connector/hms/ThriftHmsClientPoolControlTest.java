@@ -391,6 +391,9 @@ public class ThriftHmsClientPoolControlTest {
         CountDownLatch releaseCreation = new CountDownLatch(1);
         CountDownLatch lateClientClosed = new CountDownLatch(1);
         AtomicBoolean abort = new AtomicBoolean();
+        AtomicInteger creationCount = new AtomicInteger();
+        AtomicInteger activeCreations = new AtomicInteger();
+        AtomicInteger maxActiveCreations = new AtomicInteger();
         IMetaStoreClient metastore = (IMetaStoreClient) Proxy.newProxyInstance(
                 IMetaStoreClient.class.getClassLoader(), new Class<?>[] {IMetaStoreClient.class},
                 (proxy, method, args) -> {
@@ -416,14 +419,21 @@ public class ThriftHmsClientPoolControlTest {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         HmsClientConfig config = new HmsClientConfig(new HashMap<>(), poolSize);
         try (ThriftHmsClient client = new ThriftHmsClient(config, null, hiveConf -> {
+            creationCount.incrementAndGet();
+            int active = activeCreations.incrementAndGet();
+            maxActiveCreations.accumulateAndGet(active, Math::max);
             creationEntered.countDown();
-            while (true) {
-                try {
-                    releaseCreation.await();
-                    return metastore;
-                } catch (InterruptedException ignored) {
-                    // Model DNS/Kerberos code that does not cooperate with thread interruption.
+            try {
+                while (true) {
+                    try {
+                        releaseCreation.await();
+                        return metastore;
+                    } catch (InterruptedException ignored) {
+                        // Model DNS/Kerberos code that does not cooperate with thread interruption.
+                    }
                 }
+            } finally {
+                activeCreations.decrementAndGet();
             }
         }, HmsTypeMapping.Options.DEFAULT)) {
             Future<List<HmsPartitionInfo>> request = executor.submit(
@@ -435,6 +445,27 @@ public class ThriftHmsClientPoolControlTest {
             Assertions.assertInstanceOf(ConnectorOperationAbortedException.class, failure.getCause());
             Assertions.assertEquals(reason,
                     ((ConnectorOperationAbortedException) failure.getCause()).getReason());
+            for (int i = 0; i < 3; i++) {
+                long deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(100);
+                ConnectorOperationControl deadlineControl = new ConnectorOperationControl() {
+                    @Override
+                    public void checkActive() {
+                    }
+
+                    @Override
+                    public long remainingTimeMillis() {
+                        return TimeUnit.NANOSECONDS.toMillis(deadlineNanos - System.nanoTime());
+                    }
+                };
+                ConnectorOperationAbortedException repeatedFailure = Assertions.assertThrows(
+                        ConnectorOperationAbortedException.class,
+                        () -> client.getPartitions(request("p=blocked-again", deadlineControl)));
+                Assertions.assertEquals(ConnectorOperationAbortedException.Reason.DEADLINE_EXCEEDED,
+                        repeatedFailure.getReason());
+            }
+            Assertions.assertEquals(1, creationCount.get(),
+                    "aborted requests must not start another creator while the first creator is still alive");
+            Assertions.assertEquals(1, maxActiveCreations.get());
             releaseCreation.countDown();
             Assertions.assertTrue(lateClientClosed.await(5, TimeUnit.SECONDS));
         } finally {

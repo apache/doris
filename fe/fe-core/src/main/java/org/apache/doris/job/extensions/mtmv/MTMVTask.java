@@ -270,7 +270,7 @@ public class MTMVTask extends AbstractTask {
                                 relation.getBaseTablesOneLevelAndFromView(), mtmv.getExcludedTriggerTables());
                     }
                 } else {
-                    context.refreshLocalState();
+                    context.refreshLocalStateFromCachedVersions();
                 }
                 this.needRefreshPartitions = calculateNeedRefreshPartitions(context);
             } finally {
@@ -282,8 +282,8 @@ public class MTMVTask extends AbstractTask {
             }
             // Snapshot persistence runs even for manual/COMPLETE refreshes. Batch the union once before the
             // per-MV-partition generation loop so those branches never fall back to one HMS request per partition.
-            context.preloadSnapshots(Sets.newHashSet(needRefreshPartitions),
-                    relation.getBaseTablesOneLevelAndFromView(), Sets.newHashSet());
+            context.preloadSnapshotsForPersistence(Sets.newHashSet(needRefreshPartitions),
+                    relation.getBaseTablesOneLevelAndFromView());
             Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
             this.completedPartitions = Lists.newCopyOnWriteArrayList();
             int refreshPartitionNum = mtmv.getRefreshPartitionNum();

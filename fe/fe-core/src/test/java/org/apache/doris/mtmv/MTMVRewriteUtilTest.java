@@ -25,12 +25,14 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIndexes;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -145,6 +147,28 @@ public class MTMVRewriteUtilTest {
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
                         null);
         Assert.assertEquals(1, mtmvCanRewritePartitions.size());
+    }
+
+    @Test
+    public void testCloudRewriteUsesContextPreloadedBeforePlannerLocks() throws AnalysisException {
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        Config.cloud_unique_id = "test_cloud";
+        try {
+            StatementContext statementContext = Mockito.mock(StatementContext.class);
+            MTMVRefreshContext preloaded = Mockito.mock(MTMVRefreshContext.class);
+            Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
+            Mockito.when(statementContext.getPreloadedMtmvRefreshContext(mtmv))
+                    .thenReturn(Optional.of(preloaded));
+            Mockito.when(preloaded.persistedPartitionSetsMatch("p1")).thenReturn(false);
+
+            Collection<Partition> result = MTMVRewriteUtil.getMTMVCanRewritePartitions(
+                    mtmv, ctx, currentTimeMills, false, null);
+
+            Assert.assertTrue(result.isEmpty());
+            Mockito.verify(preloaded).refreshLocalStateFromCachedVersions(Mockito.anyMap());
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
     }
 
     @Test

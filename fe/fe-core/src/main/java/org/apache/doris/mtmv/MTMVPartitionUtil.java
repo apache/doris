@@ -32,6 +32,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccUtil;
@@ -63,6 +64,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class MTMVPartitionUtil {
     private static final Logger LOG = LogManager.getLogger(MTMVPartitionUtil.class);
@@ -695,12 +697,26 @@ public class MTMVPartitionUtil {
     public static MTMVBaseVersions getBaseVersions(MTMV mtmv,
             Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings,
             Set<BaseTableInfo> baseTables) throws AnalysisException {
-        return new MTMVBaseVersions(getTableVersions(baseTables),
-                getPartitionVersions(mtmv, partitionMappings));
+        return getBaseVersions(mtmv, partitionMappings, baseTables, false);
+    }
+
+    /** Captures only locally cached versions and never calls the cloud meta service. */
+    public static MTMVBaseVersions getCachedBaseVersions(MTMV mtmv,
+            Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings,
+            Set<BaseTableInfo> baseTables) throws AnalysisException {
+        return getBaseVersions(mtmv, partitionMappings, baseTables, true);
+    }
+
+    private static MTMVBaseVersions getBaseVersions(MTMV mtmv,
+            Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings,
+            Set<BaseTableInfo> baseTables, boolean cachedOnly) throws AnalysisException {
+        return new MTMVBaseVersions(getTableVersions(baseTables, cachedOnly),
+                getPartitionVersions(mtmv, partitionMappings, cachedOnly));
     }
 
     private static Map<MTMVRelatedTableIf, Map<String, Long>> getPartitionVersions(MTMV mtmv,
-            Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings) throws AnalysisException {
+            Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings, boolean cachedOnly)
+            throws AnalysisException {
         Map<MTMVRelatedTableIf, Map<String, Long>> res = Maps.newHashMap();
         if (mtmv.getMvPartitionInfo().getPartitionType().equals(MTMVPartitionType.SELF_MANAGE)) {
             return res;
@@ -722,11 +738,15 @@ public class MTMVPartitionUtil {
             for (String partitionName : mappedPartitionNames.getOrDefault(pctTable, Collections.emptySet())) {
                 partitions.add(((OlapTable) pctTable).getPartitionOrAnalysisException(partitionName));
             }
-            List<Long> versions = null;
-            try {
-                versions = Partition.getVisibleVersions(partitions);
-            } catch (RpcException e) {
-                throw new AnalysisException("getVisibleVersions failed.", e);
+            List<Long> versions;
+            if (cachedOnly) {
+                versions = partitions.stream().map(Partition::getCachedVisibleVersion).collect(Collectors.toList());
+            } else {
+                try {
+                    versions = Partition.getVisibleVersions(partitions);
+                } catch (RpcException e) {
+                    throw new AnalysisException("getVisibleVersions failed.", e);
+                }
             }
             Preconditions.checkState(partitions.size() == versions.size());
             for (int i = 0; i < partitions.size(); i++) {
@@ -737,7 +757,7 @@ public class MTMVPartitionUtil {
         return res;
     }
 
-    private static Map<Long, Long> getTableVersions(Set<BaseTableInfo> baseTables) {
+    private static Map<Long, Long> getTableVersions(Set<BaseTableInfo> baseTables, boolean cachedOnly) {
         Map<Long, Long> res = Maps.newHashMap();
         List<OlapTable> olapTables = Lists.newArrayList();
         for (BaseTableInfo baseTableInfo : baseTables) {
@@ -755,7 +775,9 @@ public class MTMVPartitionUtil {
                 olapTables.add((OlapTable) table);
             }
         }
-        List<Long> versions = OlapTable.getVisibleVersionInBatch(olapTables);
+        List<Long> versions = cachedOnly && Config.isCloudMode()
+                ? olapTables.stream().map(OlapTable::getCachedTableVersion).collect(Collectors.toList())
+                : OlapTable.getVisibleVersionInBatch(olapTables);
         Preconditions.checkState(olapTables.size() == versions.size());
         for (int i = 0; i < olapTables.size(); i++) {
             res.put(olapTables.get(i).getId(), versions.get(i));

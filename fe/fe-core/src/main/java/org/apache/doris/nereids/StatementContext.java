@@ -39,6 +39,7 @@ import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
@@ -307,6 +308,8 @@ public class StatementContext implements Closeable {
 
     // Record mtmv and valid partitions map because this is time-consuming behavior
     private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
+    // Cloud MTMV versions are loaded before planner table locks and revalidated from their local caches later.
+    private final Map<BaseTableInfo, MTMVRefreshContext> preloadedMtmvRefreshContexts = new HashMap<>();
 
     /// for dictionary sink.
     private List<Backend> usedBackendsDistributing; // report used backends after done distribute planning.
@@ -1466,6 +1469,14 @@ public class StatementContext implements Closeable {
 
     public Map<BaseTableInfo, Collection<Partition>> getMvCanRewritePartitionsMap() {
         return mvCanRewritePartitionsMap;
+    }
+
+    public Optional<MTMVRefreshContext> getPreloadedMtmvRefreshContext(MTMV mtmv) {
+        return Optional.ofNullable(preloadedMtmvRefreshContexts.get(new BaseTableInfo(mtmv)));
+    }
+
+    public void putPreloadedMtmvRefreshContext(MTMV mtmv, MTMVRefreshContext context) {
+        preloadedMtmvRefreshContexts.put(new BaseTableInfo(mtmv), context);
     }
 
     public void setPrepareStage(boolean isPrepare) {

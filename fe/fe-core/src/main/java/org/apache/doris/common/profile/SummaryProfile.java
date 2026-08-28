@@ -54,6 +54,8 @@ import java.util.stream.Collectors;
  * It contains the summary information of a query.
  */
 public class SummaryProfile {
+    private static final String HMS_GET_PARTITIONS_OPERATION = "hms.get_partitions_by_names";
+
     // Summary
     public static final String SUMMARY_PROFILE_NAME = "Summary";
     public static final String PROFILE_ID = "Profile ID";
@@ -1364,8 +1366,8 @@ public class SummaryProfile {
             connectorMetadataAccessCounters.put(key, counters);
         }
         counters.record(event);
-        addExternalCatalogMetaTimeInternal(event.getLogicalElapsedMillis());
-        if ("hms.get_partitions_by_names".equals(event.getOperation())) {
+        if (HMS_GET_PARTITIONS_OPERATION.equals(event.getOperation())) {
+            addExternalCatalogMetaTimeInternal(event.getLogicalElapsedMillis());
             externalTableGetPartitionsTime += event.getLogicalElapsedMillis();
         }
     }

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.qe.ConnectContext;
@@ -38,6 +39,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -80,8 +82,21 @@ public class MTMVRewriteUtil {
             }
             if (refreshContext == null) {
                 try {
-                    refreshContext = MTMVRefreshContext.buildContext(mtmv,
-                            queryUsedPartitions != null ? queryUsedPartitions : Maps.newHashMap());
+                    Map<List<String>, Set<String>> effectiveQueryUsedPartitions = queryUsedPartitions != null
+                            ? queryUsedPartitions : Maps.newHashMap();
+                    if (Config.isCloudMode()) {
+                        Optional<MTMVRefreshContext> preloaded = ctx.getStatementContext()
+                                .getPreloadedMtmvRefreshContext(mtmv);
+                        if (!preloaded.isPresent()) {
+                            LOG.warn("Cloud MTMV refresh context was not preloaded before planner locks: {}",
+                                    mtmv.getName());
+                            return res;
+                        }
+                        refreshContext = preloaded.get();
+                        refreshContext.refreshLocalStateFromCachedVersions(effectiveQueryUsedPartitions);
+                    } else {
+                        refreshContext = MTMVRefreshContext.buildContext(mtmv, effectiveQueryUsedPartitions);
+                    }
                 } catch (AnalysisException e) {
                     LOG.warn("buildContext failed", e);
                     // After failure, one should quickly return to avoid repeated failures

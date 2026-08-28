@@ -167,6 +167,32 @@ public class SummaryProfileTest {
     }
 
     @Test
+    public void testConnectorMetadataWaitDoesNotInflateLegacyTotal() {
+        SummaryProfile profile = new SummaryProfile();
+        profile.recordConnectorMetadataAccess(
+                "hive_catalog", metadataEvent(100, 20, 20, 1, 5, 0, 5, 5, true));
+        profile.recordConnectorMetadataAccess("hive_catalog", ConnectorMetadataAccessEvent.builder()
+                .operation("hms.partition_inflight_wait")
+                .source("QUERY")
+                .requestedItems(5)
+                .logicalElapsedMillis(40)
+                .success(true)
+                .build());
+
+        profile.update(ImmutableMap.of());
+
+        Assertions.assertEquals("100ms", profile.getExecutionSummary().getInfoString(
+                SummaryProfile.GET_PARTITIONS_TIME));
+        Assertions.assertEquals(100, profile.getExternalCatalogMetaTimeMs());
+        RuntimeProfile group = profile.getExecutionSummary().getChildMap().get(
+                SummaryProfile.CONNECTOR_METADATA_ACCESS_PROFILE);
+        RuntimeProfile waitOperation = group.getChildMap().get(
+                "hive_catalog: hms.partition_inflight_wait [QUERY]");
+        Assertions.assertEquals(40,
+                waitOperation.getCounterMap().get("LogicalElapsedTime").getValue());
+    }
+
+    @Test
     public void testConnectorMetadataAccessProfileSerialization() throws Exception {
         SummaryProfile profile = new SummaryProfile();
         profile.recordConnectorMetadataAccess(
