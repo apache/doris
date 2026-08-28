@@ -453,6 +453,47 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction3) {
     std::cout << "######### AggFunction with row_number test end #########" << std::endl;
 }
 
+TEST_F(AnalyticSinkOperatorTest, UnboundedRowsRetainsNextUnreadRowDuringEviction) {
+    constexpr int batch_size = 2;
+    Initialize(batch_size);
+    create_operator(true, 1, "sum", {std::make_shared<DataTypeInt64>()},
+                    std::make_shared<DataTypeInt64>());
+    sink->_agg_expr_ctxs.resize(1);
+    sink->_agg_expr_ctxs[0] =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+    TAnalyticWindow window;
+    window.type = TAnalyticWindowType::ROWS;
+    TAnalyticWindowBoundary window_end;
+    window_end.type = TAnalyticWindowBoundaryType::PRECEDING;
+    window_end.__set_rows_offset_value(5);
+    window.__set_window_end(window_end);
+    create_window_type(false, true, window);
+    create_local_state();
+
+    for (int row = 1; row <= 8; row += batch_size) {
+        Block block = ColumnHelper::create_block<DataTypeInt64>({row, row + 1});
+        auto status = sink->sink(state.get(), &block, row + batch_size > 8);
+        EXPECT_TRUE(status.ok()) << status.msg();
+    }
+
+    const std::vector<int64_t> expected_sums {0, 0, 0, 0, 0, 1, 3, 6};
+    for (int row = 1; row <= 8; row += batch_size) {
+        Block block = ColumnHelper::create_block<DataTypeInt64>({});
+        bool eos = false;
+        auto status = source->get_block(state.get(), &block, &eos);
+        EXPECT_TRUE(status.ok()) << status.msg();
+        EXPECT_TRUE(ColumnHelper::block_equal(
+                block, ColumnHelper::create_block<DataTypeInt64>(
+                               {row, row + 1}, {expected_sums[row - 1], expected_sums[row]})));
+    }
+
+    Block block = ColumnHelper::create_block<DataTypeInt64>({});
+    bool eos = false;
+    auto status = source->get_block(state.get(), &block, &eos);
+    EXPECT_TRUE(status.ok()) << status.msg();
+    EXPECT_TRUE(eos);
+}
+
 TEST_F(AnalyticSinkOperatorTest, SlidingRowsSumRetainsOutgoingRowDuringEviction) {
     int batch_size = 2;
     Initialize(batch_size);

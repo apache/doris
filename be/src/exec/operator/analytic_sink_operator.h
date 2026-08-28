@@ -74,6 +74,8 @@ public:
     Status close(RuntimeState* state, Status exec_status) override;
 
 private:
+    enum class RowsWindowType { NONE, UNBOUNDED_START, SLIDING };
+
     friend class AnalyticSinkOperatorX;
     Status _execute_impl(RuntimeState* state);
     // over(partition by k1 order by k2 range|rows unbounded preceding and unbounded following)
@@ -146,7 +148,7 @@ private:
     std::vector<uint8_t> _use_null_result;
     std::vector<uint8_t> _could_use_previous_result;
     bool _streaming_mode = false;
-    bool _is_sliding_rows = false;
+    RowsWindowType _rows_window_type = RowsWindowType::NONE;
     bool _support_incremental_calculate = true;
     bool _need_more_data = false;
     int64_t _current_row_position = 0;
