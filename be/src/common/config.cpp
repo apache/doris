@@ -1752,6 +1752,24 @@ DEFINE_Validator(read_ahead_max_read_amplification_ratio,
 DEFINE_mDouble(read_ahead_block_fill_min_coverage, "0.5");
 DEFINE_Validator(read_ahead_block_fill_min_coverage,
                  [](double value) { return std::isfinite(value) && value > 0.0 && value <= 1.0; });
+// Background completion policy and BE-wide resource limits for partial File Cache blocks
+DEFINE_Int64(hole_fill_max_gap_bytes, "32768"); // 32 KiB
+DEFINE_Validator(hole_fill_max_gap_bytes, [](int64_t value) { return value >= 0; });
+DEFINE_Int64(hole_fill_max_range_bytes, "1048576"); // 1 MiB
+DEFINE_Validator(hole_fill_max_range_bytes, [](int64_t value) { return value > 0; });
+DEFINE_Double(hole_fill_max_read_amplification_ratio, "2.0");
+DEFINE_Validator(hole_fill_max_read_amplification_ratio,
+                 [](double value) { return std::isfinite(value) && value >= 1.0; });
+DEFINE_Int64(hole_fill_max_pending_bytes_per_be, "268435456"); // 256 MiB
+DEFINE_Validator(hole_fill_max_pending_bytes_per_be, [](int64_t value) { return value > 0; });
+DEFINE_mInt32(hole_fill_workers_per_be, "32");
+DEFINE_Validator(hole_fill_workers_per_be, [](int32_t value) { return value > 0 && value <= 128; });
+// With 32 block workers, allow two pooled hole reads per active block on average.
+DEFINE_mInt32(hole_fill_remote_read_threads_per_be, "64");
+DEFINE_Validator(hole_fill_remote_read_threads_per_be, [](int32_t value) { return value > 0; });
+// Minimum aggregation time from first partial-block admission; zero disables the delay.
+DEFINE_mInt32(hole_fill_merge_delay_ms, "10"); // 10 ms
+DEFINE_Validator(hole_fill_merge_delay_ms, [](int32_t value) { return value >= 0; });
 // Enable segment file cache block prefetch for compaction
 DEFINE_mBool(enable_compaction_segment_file_cache_prefetch, "false");
 // Number of blocks to prefetch ahead in segment iterator for compaction
