@@ -135,6 +135,19 @@ struct AsyncCacheWriteBlockRequest {
     InflightWriteBufferIndex* inflight_index {nullptr};
 };
 
+/// Owned complete cache-block payload. The buffer must come from allocate_tracked_buffer() on the
+/// target manager and is transferred without another data copy.
+struct AsyncCacheWriteOwnedBlockRequest {
+    UInt128Wrapper cache_hash;
+    size_t file_offset {0};
+    size_t write_size {0};
+    AsyncCacheWriteBufferPtr buffer;
+    CacheAdmissionContext admission_ctx;
+    AsyncCacheWriteEpoch write_epoch;
+    /// Optional index whose lifetime must cover every accepted write task.
+    InflightWriteBufferIndex* inflight_index {nullptr};
+};
+
 /// One cache-block write. The sole production submitter allocates every `buffer` with exactly
 /// `file_cache_each_block_size` bytes. `write_size` is the valid prefix starting at `file_offset`;
 /// only the physical EOF block may use less than the full buffer. `write_epoch` prevents a worker
@@ -207,6 +220,17 @@ public:
     /// @return ALREADY_INFLIGHT when another accepted task already owns this block; in that case
     /// the request data is not copied.
     AsyncCacheWriteBlockSubmitResult try_submit_block(AsyncCacheWriteBlockRequest request);
+
+    /// Submit an already owned complete cache block without copying its payload. This is the
+    /// handoff used after background hole filling completes a tracked block buffer.
+    /// The manager retains the buffer after this call only when SUBMITTED is returned.
+    AsyncCacheWriteBlockSubmitResult try_submit_owned_block(
+            AsyncCacheWriteOwnedBlockRequest request);
+
+    /// Return whether a fixed-size task fits in currently unused pending capacity. The result is a
+    /// point-in-time scheduling hint: a concurrent foreground submission may consume the capacity
+    /// before the caller hands off its task.
+    bool can_accept_without_eviction(size_t buffer_size) const;
 
     /// Allocate `size` payload bytes charged to the manager tracker and return them in `buffer`.
     Status allocate_tracked_buffer(size_t size, AsyncCacheWriteBufferPtr* buffer);
