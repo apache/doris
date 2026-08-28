@@ -57,6 +57,20 @@ public class HttpURLUtil {
         }
     }
 
+    public static HttpURLConnection getInternalConnection(String request,
+            InternalHttpClientProvider.Target target) throws IOException {
+        InternalHttpClientProvider provider = InternalHttpClientProviderFactory.getProvider();
+        String normalizedRequest = provider.normalizeInternalUrl(request, target);
+        try {
+            SecurityChecker.getInstance().startSSRFChecking(normalizedRequest);
+            return provider.openConnection(normalizedRequest, target);
+        } catch (Exception e) {
+            throw e instanceof IOException ? (IOException) e : new IOException(e);
+        } finally {
+            SecurityChecker.getInstance().stopSSRFChecking();
+        }
+    }
+
     public static Map<String, String> getNodeIdentHeaders() throws IOException {
         Map<String, String> headers = Maps.newHashMap();
         // Must use Env.getServingEnv() instead of getCurrentEnv(),

@@ -28,7 +28,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.HttpURLUtil;
+import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
+import org.apache.doris.httpv2.client.InternalHttpClientProviderFactory;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -99,17 +101,22 @@ public class MinidumpUtils {
         return HTTP_GET_STRING;
     }
 
+    static String buildHttpGetString(String feAddress, int feHttpPort, String queryId) {
+        String url = "http://" + NetUtils.getHostPortInAccessibleFormat(feAddress, feHttpPort)
+                + "/api/minidump?query_id=" + queryId;
+        return InternalHttpClientProviderFactory.getProvider().normalizeInternalUrl(
+                url, InternalHttpClientProvider.Target.FE);
+    }
+
     /**
      * Saving of minidump file to fe log path
      */
     public static void saveMinidumpString(JSONObject minidump, String querId) {
         String dumpPath = MinidumpUtils.DUMP_PATH + File.separator + "_" + querId;
         String feAddress = FrontendsProcNode.getCurrentFrontendVersion(Env.getCurrentEnv()).getHost();
-        int feHttpPort = HttpURLUtil.getHttpPort();
-        String scheme = Config.enable_https ? "https" : "http";
+        int feHttpPort = Config.http_port;
         MinidumpUtils.DUMP_FILE_FULL_PATH = dumpPath + ".json";
-        MinidumpUtils.HTTP_GET_STRING = scheme + "://" + feAddress + ":" + feHttpPort
-                + "/api/minidump?query_id=" + querId;
+        MinidumpUtils.HTTP_GET_STRING = buildHttpGetString(feAddress, feHttpPort, querId);
         String jsonMinidump = minidump.toString(4);
         try (FileWriter file = new FileWriter(MinidumpUtils.DUMP_FILE_FULL_PATH)) {
             file.write(jsonMinidump);

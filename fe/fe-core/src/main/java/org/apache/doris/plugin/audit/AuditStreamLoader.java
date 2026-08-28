@@ -23,7 +23,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.httpv2.client.InternalHttpClientProvider;
-import org.apache.doris.httpv2.client.InternalHttpClientProviderFactory;
 import org.apache.doris.qe.GlobalVariable;
 
 import org.apache.logging.log4j.LogManager;
@@ -49,16 +48,25 @@ public class AuditStreamLoader {
     public AuditStreamLoader() {
         this.db = FeConstants.INTERNAL_DB_NAME;
         this.auditLogTbl = AuditLoader.AUDIT_LOG_TABLE;
-        String scheme = Config.enable_https ? "https" : "http";
-        String hostPort = "127.0.0.1:" + HttpURLUtil.getHttpPort();
-        this.auditLogLoadUrlStr = scheme + "://" + hostPort + "/api/" + db + "/" + auditLogTbl + "/_stream_load?";
+        String hostPort = "127.0.0.1:" + Config.http_port;
+        this.auditLogLoadUrlStr = "http://" + hostPort + "/api/" + db + "/" + auditLogTbl + "/_stream_load?";
         // currently, FE identity is FE's IP:port, so we replace the "." and ":" to make it suitable for label
         this.feIdentity = Env.getCurrentEnv().getSelfNode().getIdent().replaceAll("\\.", "_").replaceAll(":", "_");
     }
 
-    private HttpURLConnection getConnection(String urlStr, String label, String clusterToken) throws IOException {
-        HttpURLConnection conn = InternalHttpClientProviderFactory.getProvider()
-                .openConnection(urlStr, InternalHttpClientProvider.Target.FE);
+    private HttpURLConnection getFeConnection(String urlStr, String label, String clusterToken) throws IOException {
+        HttpURLConnection conn = getConnection(urlStr, label, clusterToken, InternalHttpClientProvider.Target.FE);
+        conn.addRequestProperty("redirect-policy", "random-be");
+        return conn;
+    }
+
+    private HttpURLConnection getBeConnection(String urlStr, String label, String clusterToken) throws IOException {
+        return getConnection(urlStr, label, clusterToken, InternalHttpClientProvider.Target.BE);
+    }
+
+    private HttpURLConnection getConnection(String urlStr, String label, String clusterToken,
+            InternalHttpClientProvider.Target target) throws IOException {
+        HttpURLConnection conn = HttpURLUtil.getInternalConnection(urlStr, target);
         conn.setInstanceFollowRedirects(false);
         conn.setRequestMethod("PUT");
         conn.setRequestProperty("token", clusterToken);
@@ -73,7 +81,6 @@ public class AuditStreamLoader {
         conn.addRequestProperty("columns",
                 InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(
                         Collectors.joining(",")));
-        conn.addRequestProperty("redirect-policy", "random-be");
         conn.addRequestProperty("column_separator", AuditLoader.AUDIT_TABLE_COL_SEPARATOR_STR);
         conn.addRequestProperty("line_delimiter", AuditLoader.AUDIT_TABLE_LINE_DELIMITER_STR);
         conn.addRequestProperty("skip_record_to_audit_log_table", "true");
@@ -125,7 +132,7 @@ public class AuditStreamLoader {
         try {
             // build request and send to fe
             label = "audit" + label;
-            feConn = getConnection(auditLogLoadUrlStr, label, clusterToken);
+            feConn = getFeConnection(auditLogLoadUrlStr, label, clusterToken);
             int status = feConn.getResponseCode();
             // fe send back http response code TEMPORARY_REDIRECT 307 and new be location
             if (status != 307) {
@@ -137,7 +144,7 @@ public class AuditStreamLoader {
                 throw new Exception("redirect location is null");
             }
             // build request and send to new be location
-            beConn = getConnection(location, label, clusterToken);
+            beConn = getBeConnection(location, label, clusterToken);
             // send data to be
             try (BufferedOutputStream bos = new BufferedOutputStream(beConn.getOutputStream())) {
                 bos.write(sb.toString().getBytes());

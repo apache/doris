@@ -100,10 +100,12 @@ public class RestBaseController extends BaseController {
         return buildRedirectUrl(request.getScheme(), request, addr, requestPath, queryString);
     }
 
-    // BE's stream-load listener never terminates TLS, so BE-bound redirects must stay "http".
+    // Start from the BE's ordinary HTTP endpoint. An extension may normalize it to HTTPS.
     protected String buildRedirectUrlToBackend(HttpServletRequest request, TNetworkAddress addr,
             String requestPath, String queryString) {
-        return buildRedirectUrl("http", request, addr, requestPath, queryString);
+        String url = buildRedirectUrl("http", request, addr, requestPath, queryString);
+        return InternalHttpClientProviderFactory.getProvider()
+                .normalizeInternalUrl(url, InternalHttpClientProvider.Target.BE);
     }
 
     private String buildRedirectUrl(String scheme, HttpServletRequest request, TNetworkAddress addr,
@@ -143,7 +145,7 @@ public class RestBaseController extends BaseController {
         return redirectView;
     }
 
-    // Use for redirects whose destination is a BE (e.g. stream load), which never speaks HTTPS.
+    // Use for redirects whose destination is a BE (for example, stream load).
     public RedirectView redirectToBackend(HttpServletRequest request, TNetworkAddress addr) {
         RedirectView redirectView = new RedirectView(
                 buildRedirectUrlToBackend(request, addr, request.getRequestURI(), request.getQueryString()));

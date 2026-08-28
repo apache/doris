@@ -31,8 +31,10 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.ByteBufferNetworkInputStream;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
 import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.load.StreamLoadHandler;
@@ -62,7 +64,6 @@ import org.apache.http.client.methods.HttpPut;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.InputStreamEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -188,7 +189,9 @@ public class MysqlLoadManager {
         MySqlLoadContext loadContext = new MySqlLoadContext();
         loadContextMap.put(loadId, loadContext);
         LOG.info("Executing mysql load with id: {}.", loadId);
-        try (final CloseableHttpClient httpclient = HttpUtils.getHttpClient()) {
+        final CloseableHttpClient httpclient =
+                HttpUtils.getInternalHttpClient(InternalHttpClientProvider.Target.BE);
+        try {
             for (String file : filePaths) {
                 InputStreamEntity entity = getInputStreamEntity(context, clientLocal, file, loadId);
                 HttpPut request = generateRequestForMySqlLoadV2(context, entity, dataDesc, database, table, token);
@@ -255,7 +258,9 @@ public class MysqlLoadManager {
         MySqlLoadContext loadContext = new MySqlLoadContext();
         loadContextMap.put(loadId, loadContext);
         LOG.info("Executing mysql load with id: {}.", loadId);
-        try (final CloseableHttpClient httpclient = HttpClients.createDefault()) {
+        final CloseableHttpClient httpclient =
+                HttpUtils.getInternalHttpClient(InternalHttpClientProvider.Target.BE);
+        try {
             for (String file : filePaths) {
                 InputStreamEntity entity = getInputStreamEntity(context, clientLocal, file, loadId);
                 HttpPut request = generateRequestForMySqlLoad(context, entity, dataDesc, database, table, token);
@@ -706,14 +711,12 @@ public class MysqlLoadManager {
 
         StringBuilder sb = new StringBuilder();
         sb.append("http://");
-        sb.append(backend.getHost());
-        sb.append(":");
-        sb.append(backend.getHttpPort());
+        sb.append(NetUtils.getHostPortInAccessibleFormat(backend.getHost(), backend.getHttpPort()));
         sb.append("/api/");
         sb.append(database);
         sb.append("/");
         sb.append(table);
         sb.append("/_stream_load");
-        return  sb.toString();
+        return HttpUtils.normalizeInternalUrl(sb.toString(), InternalHttpClientProvider.Target.BE);
     }
 }

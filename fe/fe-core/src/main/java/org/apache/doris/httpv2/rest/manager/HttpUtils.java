@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.rest.manager;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.HttpURLUtil;
+import org.apache.doris.common.util.InternalHttpsUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.httpv2.client.InternalHttpClientProvider;
@@ -101,8 +102,20 @@ public class HttpUtils {
         return executeRequest(httpGet);
     }
 
+    public static String doInternalGet(String url, Map<String, String> headers, int timeoutMs,
+            InternalHttpClientProvider.Target target) throws IOException {
+        HttpGet httpGet = new HttpGet(normalizeInternalUrl(url, target));
+        setRequestConfig(httpGet, headers, timeoutMs);
+        return executeInternalRequest(httpGet, target);
+    }
+
     public static String doGet(String url, Map<String, String> headers) throws IOException {
         return doGet(url, headers, DEFAULT_TIME_OUT_MS);
+    }
+
+    public static String doInternalGet(String url, Map<String, String> headers,
+            InternalHttpClientProvider.Target target) throws IOException {
+        return doInternalGet(url, headers, DEFAULT_TIME_OUT_MS, target);
     }
 
     public static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
@@ -115,6 +128,19 @@ public class HttpUtils {
 
         setRequestConfig(httpPost, headers, DEFAULT_TIME_OUT_MS);
         return executeRequest(httpPost);
+    }
+
+    public static String doInternalPost(String url, Map<String, String> headers, Object body,
+            InternalHttpClientProvider.Target target) throws IOException {
+        HttpPost httpPost = new HttpPost(normalizeInternalUrl(url, target));
+        if (Objects.nonNull(body)) {
+            String jsonString = GsonUtils.GSON.toJson(body);
+            StringEntity stringEntity = new StringEntity(jsonString, "UTF-8");
+            httpPost.setEntity(stringEntity);
+        }
+
+        setRequestConfig(httpPost, headers, DEFAULT_TIME_OUT_MS);
+        return executeInternalRequest(httpPost, target);
     }
 
     private static void setRequestConfig(HttpRequestBase request, Map<String, String> headers, int timeoutMs) {
@@ -136,13 +162,27 @@ public class HttpUtils {
         return HttpClientBuilder.create().build();
     }
 
+    public static CloseableHttpClient getInternalHttpClient(InternalHttpClientProvider.Target target) {
+        return InternalHttpClientProviderFactory.getProvider().getHttpClient(target);
+    }
+
     private static String executeRequest(HttpRequestBase request) throws IOException {
-        // Pick client by this request's own scheme, since this method also serves plain http BE calls.
         boolean useHttpsClient = "https".equalsIgnoreCase(request.getURI().getScheme());
-        InternalHttpClientProvider.Target target = useHttpsClient
-                ? InternalHttpClientProvider.Target.FE : InternalHttpClientProvider.Target.BE;
-        CloseableHttpClient client = InternalHttpClientProviderFactory.getProvider().getHttpClient(target);
+        try (CloseableHttpClient client = useHttpsClient
+                ? InternalHttpsUtils.createValidatedHttpClient()
+                : getHttpClient()) {
+            return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));
+        }
+    }
+
+    private static String executeInternalRequest(HttpRequestBase request,
+            InternalHttpClientProvider.Target target) throws IOException {
+        CloseableHttpClient client = getInternalHttpClient(target);
         return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));
+    }
+
+    public static String normalizeInternalUrl(String url, InternalHttpClientProvider.Target target) {
+        return InternalHttpClientProviderFactory.getProvider().normalizeInternalUrl(url, target);
     }
 
     static String parseResponse(String response) {

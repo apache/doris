@@ -51,6 +51,8 @@ public class LoadActionTest {
     private final String originalCloudUniqueId = Config.cloud_unique_id;
     private final boolean originalEnableGroupCommitStreamLoadBeForward =
             Config.enable_group_commit_streamload_be_forward;
+    private final boolean originalEnableTls = Config.enable_tls;
+    private final String originalTlsExcludedProtocols = Config.tls_excluded_protocols;
 
 
     @AfterEach
@@ -59,6 +61,8 @@ public class LoadActionTest {
         Config.enable_debug_points = originalEnableDebugPoints;
         Config.cloud_unique_id = originalCloudUniqueId;
         Config.enable_group_commit_streamload_be_forward = originalEnableGroupCommitStreamLoadBeForward;
+        Config.enable_tls = originalEnableTls;
+        Config.tls_excluded_protocols = originalTlsExcludedProtocols;
         DebugPointUtil.clearDebugPoints();
         Thread.interrupted();
         org.apache.doris.qe.ConnectContext.remove();
@@ -393,6 +397,34 @@ public class LoadActionTest {
     }
 
     @Test
+    public void testHttpTlsSkipsGroupCommitBeForward() throws Exception {
+        Config.enable_debug_points = true;
+        Config.cloud_unique_id = "cloud-mode";
+        Config.enable_group_commit_streamload_be_forward = true;
+        Config.enable_tls = true;
+        Config.tls_excluded_protocols = "";
+        DebugPointUtil.addDebugPointWithValue("LoadAction.selectRedirectBackend.backendId", 1L);
+
+        LoadAction loadAction = new LoadAction();
+        HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        Backend backend = mockBackend("group-commit-be", 8040, null);
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+        Mockito.when(systemInfoService.getBackend(1L)).thenReturn(backend);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<StreamLoadHandler> mockedStreamLoad = Mockito.mockStatic(StreamLoadHandler.class)) {
+            mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+
+            TNetworkAddress addr = invokeHandleStreamLoadRedirect(
+                    loadAction, request, true, 10L, "db1", "tbl1", "label1");
+
+            Assertions.assertEquals("group-commit-be", addr.getHostname());
+            Assertions.assertEquals(8040, addr.getPort());
+            mockedStreamLoad.verifyNoInteractions();
+        }
+    }
+
+    @Test
     public void testSelectCloudRedirectBackendIgnoresLoadSelection() throws Exception {
         LoadAction loadAction = new LoadAction();
         HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
@@ -521,6 +553,14 @@ public class LoadActionTest {
                 HttpServletRequest.class, TNetworkAddress.class, String.class);
         method.setAccessible(true);
         return (RedirectView) method.invoke(loadAction, request, addr, forwardTarget);
+    }
+
+    private TNetworkAddress invokeHandleStreamLoadRedirect(LoadAction loadAction, HttpServletRequest request,
+            boolean groupCommit, long tableId, String dbName, String tableName, String label) throws Exception {
+        Method method = LoadAction.class.getDeclaredMethod("handleStreamLoadRedirect",
+                HttpServletRequest.class, boolean.class, long.class, String.class, String.class, String.class);
+        method.setAccessible(true);
+        return (TNetworkAddress) method.invoke(loadAction, request, groupCommit, tableId, dbName, tableName, label);
     }
 
     private String invokeGetCloudClusterName(LoadAction loadAction, HttpServletRequest request) throws Exception {

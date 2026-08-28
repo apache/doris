@@ -20,6 +20,8 @@ package org.apache.doris.nereids.minidump;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.proc.FrontendsProcNode;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
+import org.apache.doris.httpv2.client.InternalHttpClientProviderFactory;
 import org.apache.doris.system.Frontend;
 
 import org.json.JSONObject;
@@ -36,6 +38,40 @@ import org.mockito.Mockito;
  * Output: ResultPlan in json format, which we can get information from it directly
  */
 class MinidumpUtTest {
+
+    @Test
+    public void testHttpGetStringUsesInternalHttpProvider() {
+        InternalHttpClientProvider provider = Mockito.mock(InternalHttpClientProvider.class);
+        Mockito.when(provider.normalizeInternalUrl(
+                "http://fe-host:8030/api/minidump?query_id=query-1",
+                InternalHttpClientProvider.Target.FE))
+                .thenReturn("https://fe-host:8030/api/minidump?query_id=query-1");
+
+        try (MockedStatic<InternalHttpClientProviderFactory> factory =
+                Mockito.mockStatic(InternalHttpClientProviderFactory.class)) {
+            factory.when(InternalHttpClientProviderFactory::getProvider).thenReturn(provider);
+
+            Assertions.assertEquals("https://fe-host:8030/api/minidump?query_id=query-1",
+                    MinidumpUtils.buildHttpGetString("fe-host", 8030, "query-1"));
+        }
+    }
+
+    @Test
+    public void testHttpGetStringFormatsIpv6Address() {
+        InternalHttpClientProvider provider = Mockito.mock(InternalHttpClientProvider.class);
+        Mockito.when(provider.normalizeInternalUrl(
+                "http://[2001:db8::1]:8030/api/minidump?query_id=query-2",
+                InternalHttpClientProvider.Target.FE))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        try (MockedStatic<InternalHttpClientProviderFactory> factory =
+                Mockito.mockStatic(InternalHttpClientProviderFactory.class)) {
+            factory.when(InternalHttpClientProviderFactory::getProvider).thenReturn(provider);
+
+            Assertions.assertEquals("http://[2001:db8::1]:8030/api/minidump?query_id=query-2",
+                    MinidumpUtils.buildHttpGetString("2001:db8::1", 8030, "query-2"));
+        }
+    }
 
     @Disabled
     @Test

@@ -106,4 +106,15 @@ public class OssInternalHttpClientProviderTest {
 
         provider.normalizeInternalUrl("http://fe-host:8030/check", InternalHttpClientProvider.Target.FE);
     }
+
+    @Test
+    public void testExcludedHttpTlsKeepsOssProviderAvailable() {
+        Config.enable_tls = true;
+        Config.tls_excluded_protocols = "brpc, HTTP ";
+        OssInternalHttpClientProvider provider = new OssInternalHttpClientProvider();
+
+        Assert.assertEquals("http://fe-host:8030/check",
+                provider.normalizeInternalUrl(
+                        "http://fe-host:8030/check", InternalHttpClientProvider.Target.FE));
+    }
 }
