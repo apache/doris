@@ -187,6 +187,56 @@ public class IcebergMetadataOpTest {
     }
 
     @Test
+    public void testCreateDatabaseWithLocationForSupportedCatalogs() throws Exception {
+        List<String> supportedCatalogTypes = Arrays.asList(
+                IcebergExternalCatalog.ICEBERG_HMS,
+                IcebergExternalCatalog.ICEBERG_GLUE);
+        for (String catalogType : supportedCatalogTypes) {
+            String dbName = catalogType + "_location_db";
+            Catalog icebergCatalog = Mockito.mock(Catalog.class,
+                    Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
+            SupportsNamespaces namespaceCatalog = (SupportsNamespaces) icebergCatalog;
+            IcebergExternalCatalog dorisCatalog = Mockito.mock(IcebergExternalCatalog.class);
+            Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
+            Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
+            Mockito.when(dorisCatalog.getIcebergCatalogType()).thenReturn(catalogType);
+            Mockito.when(namespaceCatalog.namespaceExists(Namespace.of(dbName))).thenReturn(false);
+            IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
+            Map<String, String> properties = Collections.singletonMap(
+                    "location", "s3://warehouse/" + dbName);
+
+            Assert.assertFalse(ops.createDbImpl(dbName, false, properties));
+
+            Mockito.verify(namespaceCatalog).createNamespace(Namespace.of(dbName), properties);
+        }
+    }
+
+    @Test
+    public void testCreateDatabaseWithLocationForJdbcCatalogIsRejected() {
+        String dbName = "jdbc_location_db";
+        Catalog icebergCatalog = Mockito.mock(Catalog.class,
+                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
+        SupportsNamespaces namespaceCatalog = (SupportsNamespaces) icebergCatalog;
+        IcebergExternalCatalog dorisCatalog = Mockito.mock(IcebergExternalCatalog.class);
+        Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
+        Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
+        Mockito.when(dorisCatalog.getIcebergCatalogType()).thenReturn(IcebergExternalCatalog.ICEBERG_JDBC);
+        Mockito.when(namespaceCatalog.namespaceExists(Namespace.of(dbName))).thenReturn(false);
+        IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
+        Map<String, String> properties = Collections.singletonMap(
+                "location", "s3://warehouse/" + dbName);
+
+        DdlException exception = Assert.assertThrows(
+                DdlException.class,
+                () -> ops.createDbImpl(dbName, false, properties));
+
+        Assert.assertTrue(exception.getMessage().contains(
+                "database property 'location' for iceberg catalog type: jdbc"));
+        Mockito.verify(namespaceCatalog, Mockito.never())
+                .createNamespace(Mockito.any(Namespace.class), Mockito.anyMap());
+    }
+
+    @Test
     public void testCreateDatabaseWithPropertiesForUnsupportedCatalogs() {
         List<String> unsupportedCatalogTypes = Arrays.asList(
                 IcebergExternalCatalog.ICEBERG_HADOOP,

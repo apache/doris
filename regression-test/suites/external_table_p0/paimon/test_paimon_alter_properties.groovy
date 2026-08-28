@@ -131,4 +131,13 @@ suite("test_paimon_alter_properties", "p0,external,paimon") {
     assertEquals(beforeSchemaId, schemaId())
     assertEquals("8", optionValue("snapshot.num-retained.max"))
     assertTrue(optionRows("fields.missing.sequence-group").isEmpty())
+
+    // Paimon exposes path as an internal option, but changing it does not
+    // relocate an existing table. Reject it before creating a schema version.
+    beforeSchemaId = schemaId()
+    test {
+        sql """ALTER TABLE `${tableName}` SET ('PATH' = 's3://warehouse/relocated_table')"""
+        exception "Change path is not supported yet"
+    }
+    assertEquals(beforeSchemaId, schemaId())
 }

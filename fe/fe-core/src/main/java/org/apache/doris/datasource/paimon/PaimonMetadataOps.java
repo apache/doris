@@ -52,6 +52,7 @@ import org.apache.paimon.catalog.Catalog.TableNotExistException;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
+import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 
@@ -109,10 +110,7 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
 
         if (!properties.isEmpty() && dorisCatalog instanceof PaimonExternalCatalog) {
             String catalogType = ((PaimonExternalCatalog) dorisCatalog).getCatalogType();
-            if (!supportsDatabaseProperties(catalogType)) {
-                throw new DdlException(
-                    "Not supported: create database with properties for paimon catalog type: " + catalogType);
-            }
+            validateDatabaseProperties(catalogType, properties);
         }
 
         catalog.createDatabase(dbName, ifNotExists, properties);
@@ -124,6 +122,22 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
                 || PaimonExternalCatalog.PAIMON_JDBC.equals(catalogType)
                 || PaimonExternalCatalog.PAIMON_REST.equals(catalogType)
                 || PaimonExternalCatalog.PAIMON_DLF.equals(catalogType);
+    }
+
+    private boolean supportsDatabaseLocation(String catalogType) {
+        return PaimonExternalCatalog.PAIMON_HMS.equals(catalogType)
+                || PaimonExternalCatalog.PAIMON_DLF.equals(catalogType);
+    }
+
+    private void validateDatabaseProperties(String catalogType, Map<String, String> properties) throws DdlException {
+        if (!supportsDatabaseProperties(catalogType)) {
+            throw new DdlException(
+                    "Not supported: create database with properties for paimon catalog type: " + catalogType);
+        }
+        if (properties.containsKey(PROP_LOCATION) && !supportsDatabaseLocation(catalogType)) {
+            throw new DdlException("Not supported: database property 'location' for paimon catalog type: "
+                    + catalogType + " because it does not determine the default table location");
+        }
     }
 
     @Override
@@ -540,6 +554,13 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
     @Override
     public void updateTableProperties(ExternalTable dorisTable, Map<String, String> properties, long updateTime)
             throws UserException {
+        try {
+            properties.keySet().forEach(SchemaManager::checkAlterTablePath);
+        } catch (UnsupportedOperationException e) {
+            throw new UserException("Failed to set properties for Paimon table " + dorisTable.getName()
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
+        }
+
         List<SchemaChange> changes = new ArrayList<>(properties.size());
         properties.forEach((key, value) -> changes.add(SchemaChange.setOption(key, value)));
         alterTable(dorisTable, changes, "set properties", updateTime);

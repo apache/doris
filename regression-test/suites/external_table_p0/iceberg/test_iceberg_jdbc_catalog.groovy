@@ -153,6 +153,12 @@ suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external
 
         // Test: Create database
         sql """DROP DATABASE IF EXISTS ${db_name} FORCE"""
+        test {
+            sql """CREATE DATABASE ${db_name} PROPERTIES (
+                    'location' = 's3://warehouse/rejected_database_location/'
+                )"""
+            exception "database property 'location' for iceberg catalog type: jdbc"
+        }
         sql """CREATE DATABASE ${db_name} PROPERTIES ('owner' = 'doris')"""
         
         def databases = sql """SHOW DATABASES"""

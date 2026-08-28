@@ -188,6 +188,25 @@ public class PaimonMetadataOpsTest {
     }
 
     @Test
+    public void testUpdateTablePropertiesRejectsPathBeforeRemoteAlter() throws Exception {
+        String tableName = getTableName();
+        Catalog remoteCatalog = Mockito.mock(Catalog.class);
+        ExternalCatalog dorisCatalog = Mockito.mock(ExternalCatalog.class);
+        PaimonMetadataOps propertyOps = newMetadataOps(dorisCatalog, remoteCatalog);
+        Map<String, String> properties = new LinkedHashMap<>();
+        properties.put("snapshot.num-retained.max", "10");
+        properties.put("PATH", "s3://warehouse/relocated_table");
+
+        UserException exception = Assert.assertThrows(UserException.class,
+                () -> propertyOps.updateTableProperties(mockExternalTable(tableName), properties, 123L));
+
+        Assert.assertTrue(exception.getMessage().contains("Change path is not supported yet"));
+        Mockito.verify(remoteCatalog, Mockito.never())
+                .alterTable(Mockito.any(Identifier.class), Mockito.anyList(), Mockito.anyBoolean());
+        Mockito.verify(dorisCatalog, Mockito.never()).getDbForReplay(Mockito.anyString());
+    }
+
+    @Test
     public void testUpdateTablePropertiesRejectsInvalidBatchAtomically() throws Exception {
         String tableName = getTableName();
         Identifier identifier = new Identifier(dbName, tableName);
@@ -473,6 +492,57 @@ public class PaimonMetadataOpsTest {
             Assert.assertFalse(catalogOps.createDbImpl(remoteDbName, false, properties));
 
             Mockito.verify(remoteCatalog).createDatabase(remoteDbName, false, properties);
+        }
+    }
+
+    @Test
+    public void testCreateDatabaseWithLocationForSupportedCatalogs() throws Exception {
+        List<String> supportedCatalogTypes = Arrays.asList(
+                PaimonExternalCatalog.PAIMON_HMS,
+                PaimonExternalCatalog.PAIMON_DLF);
+        for (String catalogType : supportedCatalogTypes) {
+            String remoteDbName = catalogType + "_location_db";
+            Catalog remoteCatalog = Mockito.mock(Catalog.class);
+            PaimonExternalCatalog dorisCatalog = Mockito.mock(PaimonExternalCatalog.class);
+            Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
+            Mockito.when(dorisCatalog.getCatalogType()).thenReturn(catalogType);
+            Mockito.doThrow(new Catalog.DatabaseNotExistException(remoteDbName))
+                    .when(remoteCatalog).getDatabase(remoteDbName);
+            PaimonMetadataOps catalogOps = new PaimonMetadataOps(dorisCatalog, remoteCatalog);
+            HashMap<String, String> properties = Maps.newHashMap();
+            properties.put("location", "s3://warehouse/" + remoteDbName);
+
+            Assert.assertFalse(catalogOps.createDbImpl(remoteDbName, false, properties));
+
+            Mockito.verify(remoteCatalog).createDatabase(remoteDbName, false, properties);
+        }
+    }
+
+    @Test
+    public void testCreateDatabaseWithLocationForCatalogsThatIgnoreItIsRejected() throws Exception {
+        List<String> unsupportedCatalogTypes = Arrays.asList(
+                PaimonExternalCatalog.PAIMON_JDBC,
+                PaimonExternalCatalog.PAIMON_REST);
+        for (String catalogType : unsupportedCatalogTypes) {
+            String remoteDbName = catalogType + "_location_db";
+            Catalog remoteCatalog = Mockito.mock(Catalog.class);
+            PaimonExternalCatalog dorisCatalog = Mockito.mock(PaimonExternalCatalog.class);
+            Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
+            Mockito.when(dorisCatalog.getCatalogType()).thenReturn(catalogType);
+            Mockito.doThrow(new Catalog.DatabaseNotExistException(remoteDbName))
+                    .when(remoteCatalog).getDatabase(remoteDbName);
+            PaimonMetadataOps catalogOps = new PaimonMetadataOps(dorisCatalog, remoteCatalog);
+            HashMap<String, String> properties = Maps.newHashMap();
+            properties.put("location", "s3://warehouse/" + remoteDbName);
+
+            DdlException exception = Assert.assertThrows(
+                    DdlException.class,
+                    () -> catalogOps.createDbImpl(remoteDbName, false, properties));
+
+            Assert.assertTrue(exception.getMessage().contains(
+                    "database property 'location' for paimon catalog type: " + catalogType));
+            Mockito.verify(remoteCatalog, Mockito.never())
+                    .createDatabase(Mockito.anyString(), Mockito.anyBoolean(), Mockito.anyMap());
         }
     }
 
