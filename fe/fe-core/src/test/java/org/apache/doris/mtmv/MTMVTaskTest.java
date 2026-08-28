@@ -25,6 +25,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
@@ -44,10 +45,8 @@ import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.io.Closeable;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MTMVTaskTest {
     private String poneName = "p1";
@@ -231,19 +230,22 @@ public class MTMVTaskTest {
     }
 
     @Test
-    public void testRefreshStageClosesStatementScopedConnectorResources() {
+    public void testRefreshStageCleanupErrorClearsContexts() {
         ConnectContext ctx = new ConnectContext();
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
         Deencapsulation.invoke(task, "installRefreshStatementContext", ctx);
-        AtomicBoolean closed = new AtomicBoolean();
-        Closeable resource = () -> closed.set(true);
+        AssertionError failure = new AssertionError("close failed");
+        AutoCloseable resource = () -> {
+            throw failure;
+        };
         ctx.getStatementContext().getOrCreateConnectorStatementScope()
                 .computeIfAbsent("metadata:test", () -> resource);
-
-        Deencapsulation.invoke(task, "closeRefreshStatementContext", ctx);
-
-        Assert.assertTrue(closed.get());
+        Deencapsulation.setField(task, "taskConnectContext", ctx);
+        JobException exception = Assert.assertThrows(JobException.class,
+                () -> Deencapsulation.invoke(task, "closeRefreshStatementContext", ctx));
+        Assert.assertSame(failure, exception.getCause());
         Assert.assertNull(ctx.getStatementContext());
+        Assert.assertNull(Deencapsulation.getField(task, "taskConnectContext"));
     }
 
     @Test

@@ -35,7 +35,7 @@ import java.util.Set;
 final class ConnectorMetadataAccessMetrics implements AutoCloseable {
 
     static final int MAX_DISTINCT_OPERATIONS_PER_CATALOG = 64;
-    static final String OVERFLOW_OPERATION = "other";
+    static final String OVERFLOW_OPERATION = "_overflow";
     private static final Map<Pair<Long, String>, SharedCatalogMetrics> SHARED_METRICS = new HashMap<>();
 
     private final Pair<Long, String> catalogIdentity;

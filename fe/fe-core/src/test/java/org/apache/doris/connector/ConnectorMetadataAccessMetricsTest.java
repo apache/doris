@@ -68,11 +68,11 @@ public class ConnectorMetadataAccessMetricsTest {
         DefaultConnectorContext context = context(catalog, 9876L);
         ConnectorMetadataAccessObserver observer = context.getMetadataAccessObserver();
         observer.record(event("hms.get_partitions_by_names"));
-        Assertions.assertEquals(1, catalogMetricCount("connector_metadata_access_requests_total", catalog));
+        Assertions.assertEquals(1, catalogMetricCount("connector_metadata_access_rpc_elapsed_ms_total", catalog));
         context.close();
-        Assertions.assertEquals(0, catalogMetricCount("connector_metadata_access_requests_total", catalog));
+        Assertions.assertEquals(0, catalogMetricCount("connector_metadata_access_rpc_elapsed_ms_total", catalog));
         observer.record(event("hms.get_partitions_by_names"));
-        Assertions.assertEquals(0, catalogMetricCount("connector_metadata_access_requests_total", catalog));
+        Assertions.assertEquals(0, catalogMetricCount("connector_metadata_access_rpc_elapsed_ms_total", catalog));
     }
 
     @Test
@@ -148,7 +148,7 @@ public class ConnectorMetadataAccessMetricsTest {
         DefaultConnectorContext context = context(catalog, 9882L);
         int requests = ConnectorMetadataAccessMetrics.MAX_DISTINCT_OPERATIONS_PER_CATALOG + 5;
         for (int i = 0; i < requests; i++) {
-            context.getMetadataAccessObserver().record(event("operation." + i));
+            context.getMetadataAccessObserver().record(event(i == 0 ? "other" : "operation." + i));
         }
         Assertions.assertEquals(ConnectorMetadataAccessMetrics.MAX_DISTINCT_OPERATIONS_PER_CATALOG + 1,
                 catalogMetricCount("connector_metadata_access_requests_total", catalog));

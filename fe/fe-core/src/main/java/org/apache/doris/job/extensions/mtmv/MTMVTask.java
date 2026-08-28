@@ -314,11 +314,10 @@ public class MTMVTask extends AbstractTask {
             }
         } finally {
             closeRefreshStatementContext(ctx);
-            taskConnectContext = null;
         }
     }
 
-    private void closeRefreshStatementContext(ConnectContext ctx) {
+    private void closeRefreshStatementContext(ConnectContext ctx) throws JobException {
         StatementContext statementContext = ctx.getStatementContext();
         try {
             if (statementContext != null) {
@@ -326,8 +325,11 @@ public class MTMVTask extends AbstractTask {
             }
         } catch (RuntimeException e) {
             LOG.warn("Failed to close MTMV refresh statement context, taskId: {}", getTaskId(), e);
+        } catch (Error e) {
+            throw new JobException("Failed to close MTMV refresh statement context", e);
         } finally {
             ctx.setStatementContext(null);
+            taskConnectContext = null;
         }
     }
 
