@@ -27,7 +27,6 @@ import org.apache.doris.authentication.spi.AuthenticationPluginFactory;
 import org.apache.doris.extension.loader.ApiVersionGate;
 import org.apache.doris.extension.loader.ClassLoadingPolicy;
 import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
-import org.apache.doris.extension.loader.LoadFailure;
 import org.apache.doris.extension.loader.LoadReport;
 import org.apache.doris.extension.loader.PluginHandle;
 
@@ -405,27 +404,22 @@ public class AuthenticationPluginManagerTest {
     }
 
     @Test
-    @DisplayName("UT-HANDLER-PM-022: Plugin declaring no API version is refused (fail-closed)")
-    void testLoadAll_UndeclaredApiVersionIsRefused() throws Exception {
-        // Given: a jar built with no awareness of this contract at all.
+    @DisplayName("UT-HANDLER-PM-022: Legacy plugin declaring no API version remains loadable")
+    void testLoadAll_UndeclaredLegacyApiVersionIsAccepted() throws Exception {
+        // Given: an authentication plugin built before the manifest version contract existed.
         Path root = Files.createTempDirectory("plugin-root-no-api-version");
         createPluginJar(
                 Files.createDirectories(root.resolve("external-dir-test")).resolve("external-dir-test.jar"),
                 DirectoryPluginFactory.class.getName(),
                 null);
 
-        // When: this is the only directory, so loadAll reports total failure...
-        AuthenticationException ex = Assertions.assertThrows(
-                AuthenticationException.class,
-                () -> pluginManager.loadAll(
-                        Arrays.asList(root),
-                        Thread.currentThread().getContextClassLoader()));
+        // When
+        pluginManager.loadAll(Arrays.asList(root), Thread.currentThread().getContextClassLoader());
 
-        // Then: ...and the thrown message already carries the version reason, so the caller that wraps it
-        // does not have to.
-        Assertions.assertFalse(pluginManager.hasFactory("external-dir-test"));
-        Assertions.assertTrue(ex.getMessage().contains(LoadFailure.STAGE_API_VERSION), ex.getMessage());
-        Assertions.assertTrue(ex.getMessage().contains(AUTH_GATE.getManifestAttribute()), ex.getMessage());
+        // Then: absence maps to the documented legacy API 1.0, while explicitly incompatible versions are
+        // still covered by UT-HANDLER-PM-021.
+        Assertions.assertTrue(pluginManager.hasFactory("external-dir-test"));
+        Assertions.assertEquals("", pluginManager.apiVersionRejectionHint());
     }
 
     @Test
