@@ -17,23 +17,9 @@
 
 #pragma once
 
-#include <brpc/channel.h>
-#include <curl/curl.h>
-#include <thrift/transport/TSocket.h>
+namespace doris {
 
-#include <memory>
-#include <string>
+// Returns the effective scheme, including "://", for HTTP requests between Doris nodes.
+const char* get_internal_http_scheme();
 
-#include "common/status.h"
-
-namespace doris::client {
-
-Status configure_brpc_channel_options(brpc::ChannelOptions* options);
-
-// Configures a curl handle for public (internal=false) or trusted Doris-internal requests.
-Status configure_http_client(CURL* curl, bool internal);
-
-std::shared_ptr<apache::thrift::transport::TSocket> create_thrift_client_socket(
-        const std::string& host, int port);
-
-} // namespace doris::client
+} // namespace doris

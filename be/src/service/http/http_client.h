@@ -49,6 +49,10 @@ public:
     // you can call this multiple times to reuse this object
     Status init(const std::string& url, bool set_fail_on_error = true);
 
+    // Initialize a request to a trusted Doris-internal endpoint. TLS modules may apply
+    // internal-only client policy, such as hostname-verification exceptions, on this path.
+    Status init_internal(const std::string& url, bool set_fail_on_error = true);
+
     void set_method(HttpMethod method);
 
     void set_basic_auth(const std::string& user, const std::string& passwd) {
@@ -202,6 +206,7 @@ public:
     }
 
 private:
+    Status _init(const std::string& url, bool set_fail_on_error, bool internal);
     const char* _to_errmsg(CURLcode code) const;
     const char* _get_url() const;
 

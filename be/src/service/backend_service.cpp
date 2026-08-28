@@ -50,6 +50,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "common/tls_protocol_config.h"
 #include "exprs/function/dictionary_factory.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "io/fs/connectivity/storage_connectivity_tester.h"
@@ -119,7 +120,7 @@ Status _download_binlog_segment_file(HttpClient* client, const std::string& get_
                                      const std::string& segment_path, uint64_t segment_file_size,
                                      uint64_t estimate_timeout,
                                      std::vector<std::string>& download_success_files) {
-    RETURN_IF_ERROR(client->init(get_segment_file_url));
+    RETURN_IF_ERROR(client->init_internal(get_segment_file_url));
     client->set_timeout_ms(estimate_timeout * 1000);
     RETURN_IF_ERROR(client->download(segment_path));
     download_success_files.push_back(segment_path);
@@ -169,7 +170,7 @@ Status _download_binlog_index_file(HttpClient* client,
                                    const std::string& local_segment_index_path,
                                    uint64_t segment_index_file_size, uint64_t estimate_timeout,
                                    std::vector<std::string>& download_success_files) {
-    RETURN_IF_ERROR(client->init(get_segment_index_file_url));
+    RETURN_IF_ERROR(client->init_internal(get_segment_index_file_url));
     client->set_timeout_ms(estimate_timeout * 1000);
     RETURN_IF_ERROR(client->download(local_segment_index_path));
     download_success_files.push_back(local_segment_index_path);
@@ -298,8 +299,8 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     };
 
     // Step 3: get binlog info
-    auto binlog_api_url = fmt::format("http://{}:{}/api/_binlog/_download", request.remote_host,
-                                      request.remote_port);
+    auto binlog_api_url = fmt::format("{}{}:{}/api/_binlog/_download", get_internal_http_scheme(),
+                                      request.remote_host, request.remote_port);
     constexpr int max_retry = 3;
 
     auto get_binlog_info_url =
@@ -307,7 +308,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                         "get_binlog_info", request.remote_tablet_id, request.binlog_version);
     std::string binlog_info;
     auto get_binlog_info_cb = [&get_binlog_info_url, &binlog_info](HttpClient* client) {
-        RETURN_IF_ERROR(client->init(get_binlog_info_url));
+        RETURN_IF_ERROR(client->init_internal(get_binlog_info_url));
         client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
         return client->execute(&binlog_info);
     };
@@ -347,7 +348,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             "get_rowset_meta", request.remote_tablet_id, remote_rowset_id, request.binlog_version);
     std::string rowset_meta_str;
     auto get_rowset_meta_cb = [&get_rowset_meta_url, &rowset_meta_str](HttpClient* client) {
-        RETURN_IF_ERROR(client->init(get_rowset_meta_url));
+        RETURN_IF_ERROR(client->init_internal(get_rowset_meta_url));
         client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
         return client->execute(&rowset_meta_str);
     };
@@ -403,7 +404,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         uint64_t segment_file_size;
         auto get_segment_file_size_cb = [&get_segment_file_size_url,
                                          &segment_file_size](HttpClient* client) {
-            RETURN_IF_ERROR(client->init(get_segment_file_size_url));
+            RETURN_IF_ERROR(client->init_internal(get_segment_file_size_url));
             client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
             RETURN_IF_ERROR(client->head());
             return client->get_content_length(&segment_file_size);
@@ -484,7 +485,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                 auto get_segment_index_file_size_cb =
                         [&get_segment_index_file_size_url,
                          &segment_index_file_size](HttpClient* client) {
-                            RETURN_IF_ERROR(client->init(get_segment_index_file_size_url));
+                            RETURN_IF_ERROR(client->init_internal(get_segment_index_file_size_url));
                             client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
                             RETURN_IF_ERROR(client->head());
                             return client->get_content_length(&segment_index_file_size);
@@ -522,7 +523,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                 auto get_segment_index_file_size_cb =
                         [&get_segment_index_file_size_url,
                          &segment_index_file_size](HttpClient* client) {
-                            RETURN_IF_ERROR(client->init(get_segment_index_file_size_url));
+                            RETURN_IF_ERROR(client->init_internal(get_segment_index_file_size_url));
                             client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
                             RETURN_IF_ERROR(client->head());
                             return client->get_content_length(&segment_index_file_size);

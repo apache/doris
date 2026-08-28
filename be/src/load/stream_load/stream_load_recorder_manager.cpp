@@ -29,6 +29,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "common/tls_protocol_config.h"
 #include "load/stream_load/stream_load_recorder.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -275,7 +276,7 @@ Status StreamLoadRecorderManager::_send_stream_load(const std::string& data) {
     std::string label = _generate_label();
 
     HttpClient client;
-    Status st = client.init(url);
+    Status st = client.init_internal(url);
     if (!st.ok()) {
         return Status::InternalError("Failed to init http client: {}", st.to_string());
     }
@@ -334,8 +335,8 @@ std::string StreamLoadRecorderManager::_generate_label() {
 }
 
 std::string StreamLoadRecorderManager::_generate_url() {
-    return fmt::format("http://127.0.0.1:{}/api/{}/{}/_stream_load", config::webserver_port,
-                       DEFAULT_INTERNAL_DB_NAME, STREAM_LOAD_RECORD_TABLE);
+    return fmt::format("{}127.0.0.1:{}/api/{}/{}/_stream_load", get_internal_http_scheme(),
+                       config::webserver_port, DEFAULT_INTERNAL_DB_NAME, STREAM_LOAD_RECORD_TABLE);
 }
 
 void StreamLoadRecorderManager::_reset_batch(int64_t current_time) {

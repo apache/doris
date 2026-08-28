@@ -61,6 +61,7 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "common/tls_protocol_config.h"
 #include "common/utils.h"
 #include "core/data_type/primitive_type.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
@@ -120,7 +121,7 @@ std::string to_load_error_http_path(const std::string& file_name) {
         return file_name;
     }
     std::stringstream url;
-    url << (config::enable_https ? "https" : "http") << "://"
+    url << get_internal_http_scheme()
         << get_host_port(BackendOptions::get_localhost(), config::webserver_port)
         << "/api/_load_error_log?"
         << "file=" << file_name;

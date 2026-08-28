@@ -194,7 +194,7 @@ Status SmallFileMgr::_download_file(int64_t file_id, const std::string& md5,
     std::string url = "http://" + host_port + query;
     LOG(INFO) << "download file from: " << url;
     HttpClient client;
-    RETURN_IF_ERROR(client.init(url));
+    RETURN_IF_ERROR(client.init_internal(url));
     Status execute_status = client.execute(download_cb);
 
     if (!execute_status.ok()) {
@@ -208,7 +208,7 @@ Status SmallFileMgr::_download_file(int64_t file_id, const std::string& md5,
         url = "https://" + host_port + query;
         LOG(INFO) << "HTTP failed, retrying with HTTPS: " << url;
         HttpClient https_client;
-        RETURN_IF_ERROR(https_client.init(url));
+        RETURN_IF_ERROR(https_client.init_internal(url));
         // Skip TLS cert verification: internal cluster traffic only; file integrity
         // is guaranteed independently by MD5 checksum verification below.
         https_client.use_untrusted_ssl();

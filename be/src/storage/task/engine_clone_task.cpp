@@ -42,6 +42,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/tls_protocol_config.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
@@ -450,8 +451,8 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
             std::string remote_url_prefix;
             {
                 std::stringstream ss;
-                ss << "http://" << address << HTTP_REQUEST_PREFIX << HTTP_REQUEST_TOKEN_PARAM
-                   << token << HTTP_REQUEST_FILE_PARAM << remote_dir;
+                ss << get_internal_http_scheme() << address << HTTP_REQUEST_PREFIX
+                   << HTTP_REQUEST_TOKEN_PARAM << token << HTTP_REQUEST_FILE_PARAM << remote_dir;
                 remote_url_prefix = ss.str();
             }
 
@@ -546,7 +547,7 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
     // Get remote dir file list
     std::string file_list_str;
     auto list_files_cb = [&remote_url_prefix, &file_list_str](HttpClient* client) {
-        RETURN_IF_ERROR(client->init(remote_url_prefix));
+        RETURN_IF_ERROR(client->init_internal(remote_url_prefix));
         client->set_timeout_ms(LIST_REMOTE_FILE_TIMEOUT * 1000);
         return client->execute(&file_list_str);
     };
@@ -574,7 +575,7 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
         // get file length
         uint64_t file_size = 0;
         auto get_file_size_cb = [&remote_file_url, &file_size](HttpClient* client) {
-            RETURN_IF_ERROR(client->init(remote_file_url));
+            RETURN_IF_ERROR(client->init_internal(remote_file_url));
             client->set_timeout_ms(GET_LENGTH_TIMEOUT * 1000);
             RETURN_IF_ERROR(client->head());
             RETURN_IF_ERROR(client->get_content_length(&file_size));
@@ -603,7 +604,7 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
 
         auto download_cb = [&remote_file_url, estimate_timeout, &local_file_path,
                             file_size](HttpClient* client) {
-            RETURN_IF_ERROR(client->init(remote_file_url));
+            RETURN_IF_ERROR(client->init_internal(remote_file_url));
             client->set_timeout_ms(estimate_timeout * 1000);
             RETURN_IF_ERROR(client->download(local_file_path));
 

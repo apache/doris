@@ -45,6 +45,7 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "common/tls_protocol_config.h"
 #include "exec/exchange/local_exchange_sink_operator.h"
 #include "exec/exchange/local_exchange_source_operator.h"
 #include "exec/exchange/local_exchanger.h"
@@ -2346,8 +2347,8 @@ std::string PipelineFragmentContext::get_first_error_msg() {
 
 std::string PipelineFragmentContext::_to_http_path(const std::string& file_name) const {
     std::stringstream url;
-    url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
-        << "/api/_download_load?"
+    url << get_internal_http_scheme() << BackendOptions::get_localhost() << ":"
+        << config::webserver_port << "/api/_download_load?"
         << "token=" << _exec_env->token() << "&file=" << file_name;
     return url.str();
 }
