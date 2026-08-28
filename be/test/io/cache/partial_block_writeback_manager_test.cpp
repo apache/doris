@@ -33,6 +33,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_test_common.h"
 #include "io/cache/inflight_write_buffer_index.h"
@@ -1318,6 +1319,48 @@ TEST(PartialBlockWritebackOptionsTest, AcceptsProductionDefaults) {
     };
     EXPECT_EQ(options.merge_delay_ms, 10);
     EXPECT_TRUE(options.validate().ok());
+}
+
+TEST(PartialBlockWritebackOptionsTest, WorkerConfigIsMutableAndBounded) {
+    const int32_t old_worker_count = config::hole_fill_workers_per_be;
+    const int32_t old_merge_delay = config::hole_fill_merge_delay_ms;
+    Defer restore_worker_count {[&]() {
+        EXPECT_TRUE(config::set_config("hole_fill_workers_per_be", std::to_string(old_worker_count))
+                            .ok());
+        EXPECT_TRUE(config::set_config("hole_fill_merge_delay_ms", std::to_string(old_merge_delay))
+                            .ok());
+    }};
+
+    EXPECT_FALSE(config::set_config("hole_fill_workers_per_be", "0").ok());
+    EXPECT_FALSE(config::set_config("hole_fill_workers_per_be", "129").ok());
+    EXPECT_EQ(config::hole_fill_workers_per_be, old_worker_count);
+    const int32_t new_worker_count = old_worker_count == 1 ? 2 : 1;
+    EXPECT_TRUE(
+            config::set_config("hole_fill_workers_per_be", std::to_string(new_worker_count)).ok());
+    EXPECT_EQ(config::hole_fill_workers_per_be, new_worker_count);
+    EXPECT_FALSE(config::set_config("hole_fill_merge_delay_ms", "-1").ok());
+    EXPECT_EQ(config::hole_fill_merge_delay_ms, old_merge_delay);
+    EXPECT_TRUE(config::set_config("hole_fill_merge_delay_ms", "0").ok());
+    EXPECT_EQ(config::hole_fill_merge_delay_ms, 0);
+    EXPECT_TRUE(config::set_config("hole_fill_merge_delay_ms", "20").ok());
+    EXPECT_EQ(config::hole_fill_merge_delay_ms, 20);
+}
+
+TEST(PartialBlockWritebackOptionsTest, RemoteReadThreadConfigIsMutableAndPositive) {
+    const int32_t old_count = config::hole_fill_remote_read_threads_per_be;
+    Defer restore {[&]() {
+        EXPECT_TRUE(config::set_config("hole_fill_remote_read_threads_per_be",
+                                       std::to_string(old_count))
+                            .ok());
+    }};
+    EXPECT_FALSE(config::set_config("hole_fill_remote_read_threads_per_be", "0").ok());
+    EXPECT_FALSE(config::set_config("hole_fill_remote_read_threads_per_be", "-1").ok());
+    EXPECT_EQ(config::hole_fill_remote_read_threads_per_be, old_count);
+    const int32_t new_count = old_count == 1 ? 2 : 1;
+    EXPECT_TRUE(
+            config::set_config("hole_fill_remote_read_threads_per_be", std::to_string(new_count))
+                    .ok());
+    EXPECT_EQ(config::hole_fill_remote_read_threads_per_be, new_count);
 }
 
 } // namespace
