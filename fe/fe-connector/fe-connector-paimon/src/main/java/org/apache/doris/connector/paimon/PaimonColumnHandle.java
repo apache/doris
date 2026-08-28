@@ -45,6 +45,10 @@ public class PaimonColumnHandle implements ConnectorColumnHandle {
         return fieldIndex;
     }
 
+    public boolean isMetadataColumn() {
+        return fieldIndex < 0;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {

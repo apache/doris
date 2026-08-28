@@ -24,6 +24,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
@@ -95,6 +96,9 @@ import java.util.Optional;
  * {@link RecordingPaimonCatalogOps} fake and a {@code null} real catalog — entirely offline.
  */
 public class PaimonScanPlanProviderTest {
+
+    private static final String PAIMON_FILE_PATH_COL = "__paimon_file_path";
+    private static final String PAIMON_ROW_POSITION_COL = "__paimon_row_index";
 
     private static RowType rowType(String... columnNames) {
         RowType.Builder builder = RowType.builder();
@@ -2678,6 +2682,39 @@ public class PaimonScanPlanProviderTest {
                 .getRootField().getFields().get(0).getFieldPtr().getId());
         Assertions.assertEquals("new_a", params.getHistorySchemaInfo().get(2)
                 .getRootField().getFields().get(0).getFieldPtr().getName());
+    }
+
+    @Test
+    public void metadataColumnsAreExcludedFromSchemaEvolutionAndFenceBackendVersion(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            FileStoreTable base = createSingleSchemaTable(catalog);
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = base;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = plainHandle();
+
+            List<ConnectorColumnHandle> metadataOnly = Collections.singletonList(
+                    new PaimonColumnHandle(PAIMON_FILE_PATH_COL, -1));
+            Map<String, String> metadataOnlyProps = provider.getScanNodeProperties(
+                    null, handle, metadataOnly, Optional.empty());
+            Assertions.assertEquals("Current Paimon metadata column semantics",
+                    metadataOnlyProps.get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS));
+            Assertions.assertNotNull(metadataOnlyProps.get("paimon.schema_evolution"),
+                    "metadata-only scans must still carry a valid physical schema dictionary");
+
+            List<ConnectorColumnHandle> mixed = Arrays.asList(
+                    new PaimonColumnHandle("id", 0),
+                    new PaimonColumnHandle(PAIMON_ROW_POSITION_COL, -1));
+            Map<String, String> mixedProps = provider.getScanNodeProperties(
+                    null, handle, mixed, Optional.empty());
+            Assertions.assertEquals("Current Paimon metadata column semantics",
+                    mixedProps.get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS));
+            Assertions.assertNotNull(mixedProps.get("paimon.schema_evolution"),
+                    "mixed scans must build the schema dictionary from physical columns only");
+        }
     }
 
     @Test

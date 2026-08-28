@@ -324,6 +324,35 @@ public class IcebergConnectorMetadataDdlTest {
     }
 
     @Test
+    public void testSchemaEvolutionRejectsReservedFileMetadataColumns() {
+        ConnectorColumn reserved = new ConnectorColumn("_file", ConnectorType.of("STRING"), "", true, null, false);
+
+        RecordingIcebergCatalogOps addOps = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext addContext = new RecordingConnectorContext();
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(addOps, addContext, IcebergCatalogProperties.TYPE_REST)
+                        .addColumn(null, new IcebergTableHandle("db1", "t1"), reserved, null));
+        Assertions.assertTrue(addOps.log.isEmpty());
+        Assertions.assertEquals(0, addContext.authCount);
+
+        RecordingIcebergCatalogOps batchOps = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext batchContext = new RecordingConnectorContext();
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(batchOps, batchContext, IcebergCatalogProperties.TYPE_REST)
+                        .addColumns(null, new IcebergTableHandle("db1", "t1"), Collections.singletonList(reserved)));
+        Assertions.assertTrue(batchOps.log.isEmpty());
+        Assertions.assertEquals(0, batchContext.authCount);
+
+        RecordingIcebergCatalogOps renameOps = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext renameContext = new RecordingConnectorContext();
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(renameOps, renameContext, IcebergCatalogProperties.TYPE_REST)
+                        .renameColumn(null, new IcebergTableHandle("db1", "t1"), "id", "_POS"));
+        Assertions.assertTrue(renameOps.log.isEmpty());
+        Assertions.assertEquals(0, renameContext.authCount);
+    }
+
+    @Test
     public void testCreateTableRejectsReservedColumnViaCatalogTableDefaultV3() {
         // FULL effective-format-version precedence: a catalog-level table-default.format-version=3 with NO
         // table-level format-version must still trip the rejection (else the version resolves to 2 and a v3

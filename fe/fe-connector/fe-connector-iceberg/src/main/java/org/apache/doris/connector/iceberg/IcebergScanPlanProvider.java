@@ -2316,6 +2316,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Table table, TableScan scan, Schema scanSchema, List<ConnectorColumnHandle> columns,
             boolean hasApplicableEqualityDeletes,
             Optional<Map<Integer, List<String>>> nameMapping) {
+        if (requiresMetadataColumns(columns)) {
+            return true;
+        }
         if (hasApplicableEqualityDeletes) {
             return true;
         }

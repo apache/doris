@@ -699,6 +699,37 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
+    public void externalPhysicalMetadataColumnFailsBeforeSyntheticSchemaAssembly() {
+        // An externally-created Iceberg table may legally contain a physical _file or _pos field. The
+        // connector cannot expose that table together with Doris's synthetic metadata columns because the
+        // schema/handle maps are name-keyed. Reject the collision before appending synthetic fields instead of
+        // silently replacing the physical field handle with a metadata handle.
+        for (String reserved : new String[] {"_file", "_pos", "_FILE", "_POS"}) {
+            Schema physicalSchema = new Schema(
+                    Types.NestedField.optional(1, reserved, Types.StringType.get()),
+                    Types.NestedField.optional(2, "id", Types.IntegerType.get()));
+
+            RecordingIcebergCatalogOps schemaOps = new RecordingIcebergCatalogOps();
+            schemaOps.table = new FakeIcebergTable(
+                    "t1", physicalSchema, PartitionSpec.unpartitioned(),
+                    "s3://bucket/db1/t1", Collections.emptyMap());
+            DorisConnectorException schemaException = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadataWith(schemaOps).getTableSchema(null, new IcebergTableHandle("db1", "t1")));
+            Assertions.assertTrue(schemaException.getMessage().contains("reserved metadata column"),
+                    schemaException.getMessage());
+
+            RecordingIcebergCatalogOps handleOps = new RecordingIcebergCatalogOps();
+            handleOps.table = new FakeIcebergTable(
+                    "t1", physicalSchema, PartitionSpec.unpartitioned(),
+                    "s3://bucket/db1/t1", Collections.emptyMap());
+            DorisConnectorException handleException = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadataWith(handleOps).getColumnHandles(null, new IcebergTableHandle("db1", "t1")));
+            Assertions.assertTrue(handleException.getMessage().contains("reserved metadata column"),
+                    handleException.getMessage());
+        }
+    }
+
+    @Test
     public void getTableSchemaCarriesFieldDocAsComment() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         Schema docSchema = new Schema(

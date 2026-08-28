@@ -502,6 +502,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // SELECT * / DESCRIBE unless explicitly requested. They are synthesized by the native BE
         // reader and are not part of the Iceberg schema or physical file projection.
         if (appendDataFileMetadataColumns) {
+            rejectReservedMetadataColumns(schema);
             columns.add(new ConnectorColumn(ICEBERG_FILE_PATH_COL, ConnectorType.of("STRING"),
                     "Iceberg data file path", false, null, false).invisible());
             columns.add(new ConnectorColumn(ICEBERG_ROW_POSITION_COL, ConnectorType.of("BIGINT"),
@@ -757,6 +758,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     private static Map<String, ConnectorColumnHandle> buildColumnHandles(
             Schema schema, boolean appendDataFileMetadataColumns) {
         List<Types.NestedField> fields = schema.columns();
+        if (appendDataFileMetadataColumns) {
+            rejectReservedMetadataColumns(schema);
+        }
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(
                 fields.size() + (appendDataFileMetadataColumns ? 2 : 0));
         for (Types.NestedField field : fields) {
@@ -1073,17 +1077,26 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         int formatVersion = IcebergSchemaBuilder.getEffectiveFormatVersion(request.getProperties(), properties);
         for (ConnectorColumn column : request.getColumns()) {
             String name = column.getName();
-            if (ICEBERG_FILE_PATH_COL.equalsIgnoreCase(name)
-                    || ICEBERG_ROW_POSITION_COL.equalsIgnoreCase(name)) {
-                throw new DorisConnectorException("Cannot create Iceberg table with reserved metadata column: "
-                        + name);
-            }
+            rejectReservedMetadataColumn(name);
             if (formatVersion >= ICEBERG_ROW_LINEAGE_MIN_VERSION
                     && (ICEBERG_ROW_ID_COL.equalsIgnoreCase(name)
                     || ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL.equalsIgnoreCase(name))) {
                 throw new DorisConnectorException("Cannot create Iceberg v" + formatVersion
                         + " table with reserved row lineage column: " + name);
             }
+        }
+    }
+
+    private static void rejectReservedMetadataColumn(String name) {
+        if (ICEBERG_FILE_PATH_COL.equalsIgnoreCase(name)
+                || ICEBERG_ROW_POSITION_COL.equalsIgnoreCase(name)) {
+            throw new DorisConnectorException("Cannot create Iceberg table with reserved metadata column: " + name);
+        }
+    }
+
+    private static void rejectReservedMetadataColumns(Schema schema) {
+        for (Types.NestedField field : schema.columns()) {
+            rejectReservedMetadataColumn(field.name());
         }
     }
 
@@ -1212,6 +1225,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     public void addColumn(ConnectorSession session, ConnectorTableHandle handle,
             ConnectorColumn column, ConnectorColumnPosition position) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        rejectReservedMetadataColumn(column.getName());
         IcebergColumnChange change = toAddColumnChange(column);
         try {
             context.executeAuthenticated(() -> {
@@ -1231,6 +1245,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         List<IcebergColumnChange> changes = new ArrayList<>(columns.size());
         for (ConnectorColumn column : columns) {
+            rejectReservedMetadataColumn(column.getName());
             changes.add(toAddColumnChange(column));
         }
         try {
@@ -1266,6 +1281,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     public void renameColumn(ConnectorSession session, ConnectorTableHandle handle, String oldName,
             String newName) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        rejectReservedMetadataColumn(newName);
         try {
             context.executeAuthenticated(() -> {
                 catalogOps.renameColumn(iceHandle.getDbName(), iceHandle.getTableName(), oldName, newName);

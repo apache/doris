@@ -642,11 +642,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             boolean countPushdown) {
 
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
-        boolean requiresMetadataColumns = columns.stream()
-                .filter(column -> column instanceof PaimonColumnHandle)
-                .map(column -> ((PaimonColumnHandle) column).getName())
-                .anyMatch(name -> PAIMON_FILE_PATH_COL.equalsIgnoreCase(name)
-                        || PAIMON_ROW_POSITION_COL.equalsIgnoreCase(name));
+        boolean requiresMetadataColumns = requiresMetadataColumns(columns);
         validateMetadataColumnReader(session, paimonHandle, requiresMetadataColumns);
         Map<String, String> pinnedOptions = paimonHandle.getScanOptions();
         boolean optionsPin = PaimonScanParams.isOptionsPin(pinnedOptions);
@@ -683,8 +679,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 .collect(Collectors.toList());
         int[] projected = columns.stream()
                 .filter(c -> c instanceof PaimonColumnHandle)
+                .map(PaimonColumnHandle.class::cast)
+                .filter(c -> !c.isMetadataColumn())
                 .mapToInt(c -> fieldNames.indexOf(
-                        ((PaimonColumnHandle) c).getName().toLowerCase()))
+                        c.getName().toLowerCase()))
                 .filter(i -> optionsPin || i >= 0)
                 .toArray();
         boolean hasVariantProjection = Arrays.stream(projected)
@@ -979,6 +977,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         Table table = resolveScanTable(paimonHandle);
 
         Map<String, String> props = new LinkedHashMap<>();
+
+        if (requiresMetadataColumns(columns)) {
+            props.put(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS,
+                    "Current Paimon metadata column semantics");
+        }
 
         // File format type (default)
         props.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE, "jni");
@@ -2232,7 +2235,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         List<String> columnNames = new ArrayList<>(columns == null ? 0 : columns.size());
         if (columns != null) {
             for (ConnectorColumnHandle handle : columns) {
-                columnNames.add(((PaimonColumnHandle) handle).getName());
+                PaimonColumnHandle paimonColumn = (PaimonColumnHandle) handle;
+                if (!paimonColumn.isMetadataColumn()) {
+                    columnNames.add(paimonColumn.getName());
+                }
             }
         }
         List<DataField> latestFields = schemaManager.latest()
@@ -2271,6 +2277,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             currentFields.add(field);
         }
         return currentFields;
+    }
+
+    private static boolean requiresMetadataColumns(List<ConnectorColumnHandle> columns) {
+        return columns.stream()
+                .filter(PaimonColumnHandle.class::isInstance)
+                .map(PaimonColumnHandle.class::cast)
+                .anyMatch(PaimonColumnHandle::isMetadataColumn);
     }
 
     /**

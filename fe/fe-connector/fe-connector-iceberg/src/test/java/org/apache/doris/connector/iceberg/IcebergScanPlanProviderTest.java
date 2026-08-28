@@ -937,6 +937,21 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void metadataColumnsRequireCurrentBackendSemantics() {
+        IcebergScanPlanProvider provider = providerOver(
+                createTable("metadata_semantics", SCHEMA, PartitionSpec.unpartitioned()));
+        List<ConnectorColumnHandle> columns = Arrays.asList(
+                new IcebergColumnHandle("id", 1),
+                new IcebergColumnHandle("_pos", -1));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "metadata_semantics"), columns, Optional.empty());
+
+        Assertions.assertEquals("Current Iceberg scan semantics",
+                props.get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS));
+    }
+
+    @Test
     public void metadataColumnsRejectForceJniInStreamingPath() throws IOException {
         IcebergScanPlanProvider provider = providerOver(
                 createTable("stream_metadata", SCHEMA, PartitionSpec.unpartitioned()));
