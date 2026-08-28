@@ -899,7 +899,7 @@ public class HudiScanNode extends HiveScanNode {
         }
 
         void discardBeforeSubmission() {
-            close();
+            stopping.compareAndSet(false, true);
             submissionDone();
         }
 
@@ -924,7 +924,7 @@ public class HudiScanNode extends HiveScanNode {
             } catch (java.util.concurrent.ExecutionException e) {
                 throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
             }
-            if (cancelled.isDone() && !tasksFinished.isDone()) {
+            if (cancelled.isDone()) {
                 throw new CancellationException("Hudi split listing was cancelled");
             }
         }
@@ -932,8 +932,11 @@ public class HudiScanNode extends HiveScanNode {
         @Override
         public void close() {
             if (stopping.compareAndSet(false, true)) {
-                tasks.forEach(TerminalTask::requestStop);
+                // Publish cancellation first. Cancelling a FutureTask before it starts invokes
+                // done() synchronously and may complete terminal accounting on this thread.
+                // awaitCompletion must still observe cancellation rather than return partial splits.
                 cancelled.complete(null);
+                tasks.forEach(TerminalTask::requestStop);
             }
         }
     }
