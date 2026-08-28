@@ -17,12 +17,14 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.gson.annotations.SerializedName;
 import com.googlecode.ipv6.IPv6Address;
 
+import java.nio.ByteBuffer;
 import java.util.regex.Pattern;
 
 public class IPv6Literal extends LiteralExpr {
@@ -139,6 +141,11 @@ public class IPv6Literal extends LiteralExpr {
     @Override
     public String getStringValue() {
         return this.value;
+    }
+
+    @Override
+    public ByteBuffer getHashValue(PrimitiveType type) {
+        return ByteBuffer.wrap(parseAddress(value).toByteArray());
     }
 
     public String getValue() {

@@ -22,19 +22,21 @@
 
 #include "common/object_pool.h"
 #include "core/block/block.h"
-#include "core/data_type/primitive_type.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "exec/partitioner/partitioner.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "util/raw_value.h"
 
 namespace doris {
 
 // Unit tests for the BE-side identity reshuffle partitioner used by bucket-shuffle join when the
-// target table is bucketed with distribution_hash_type = identity. It must place a row on the
-// channel matching the row's storage bucket: bucket = ((int128(v) % n) + n) % n, NULL -> 0, so it
-// stays bit-identical with FE HashDistributionPruner and BE tablet_info's identity tablet index.
+// target table is bucketed with distribution_hash_type = identity. It must interpret every value's
+// canonical little-endian bytes as unsigned and compose multiple columns identically to FE pruning
+// and BE tablet routing.
 class IdentityPartitionerTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -46,6 +48,12 @@ protected:
                                        .column_name("c1")
                                        .column_pos(1)
                                        .build());
+        tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .type(TYPE_STRING)
+                                       .nullable(false)
+                                       .column_name("c2")
+                                       .column_pos(2)
+                                       .build());
         tuple_builder.build(&dtb);
         TDescriptorTable thrift_tbl = dtb.desc_tbl();
 
@@ -56,45 +64,56 @@ protected:
 
         _tuple_id = thrift_tbl.tupleDescriptors[0].id;
         _row_desc = std::make_unique<RowDescriptor>(*desc_tbl, std::vector<TTupleId> {_tuple_id});
-        _slot_id = thrift_tbl.slotDescriptors[0].id;
+        _slot_ids.push_back(thrift_tbl.slotDescriptors[0].id);
+        _slot_ids.push_back(thrift_tbl.slotDescriptors[1].id);
     }
 
-    TExpr make_int_slot_ref() {
+    TExpr make_slot_ref(size_t slot_index, PrimitiveType type, bool nullable) {
         TExprNode node;
         node.__set_node_type(TExprNodeType::SLOT_REF);
         node.__set_num_children(0);
         TSlotRef slot_ref;
-        slot_ref.__set_slot_id(_slot_id);
+        slot_ref.__set_slot_id(_slot_ids[slot_index]);
         slot_ref.__set_tuple_id(_tuple_id);
         node.__set_slot_ref(slot_ref);
-        TTypeDesc type_desc = create_type_desc(TYPE_INT);
-        type_desc.__set_is_nullable(true);
+        TTypeDesc type_desc = create_type_desc(type);
+        type_desc.__set_is_nullable(nullable);
         node.__set_type(type_desc);
-        node.__set_is_nullable(true);
+        node.__set_is_nullable(nullable);
         TExpr expr;
         expr.nodes.emplace_back(std::move(node));
         return expr;
     }
 
+    TExpr make_int_slot_ref() { return make_slot_ref(0, TYPE_INT, true); }
+
+    TExpr make_string_slot_ref() { return make_slot_ref(1, TYPE_STRING, false); }
+
     template <typename Partitioner>
-    std::vector<PartitionerBase::HashValType> run(int partition_count, Block block) {
+    std::vector<PartitionerBase::HashValType> run(int partition_count, Block block,
+                                                   std::vector<TExpr> exprs) {
         Partitioner partitioner(partition_count);
-        EXPECT_TRUE(partitioner.init({make_int_slot_ref()}).ok());
+        EXPECT_TRUE(partitioner.init(exprs).ok());
         EXPECT_TRUE(partitioner.prepare(&_state, *_row_desc).ok());
         EXPECT_TRUE(partitioner.open(&_state).ok());
         EXPECT_TRUE(partitioner.do_partitioning(&_state, &block).ok());
         return partitioner.get_channel_ids();
     }
 
+    template <typename Partitioner>
+    std::vector<PartitionerBase::HashValType> run(int partition_count, Block block) {
+        return run<Partitioner>(partition_count, std::move(block), {make_int_slot_ref()});
+    }
+
     ObjectPool _pool;
     MockRuntimeState _state;
     std::unique_ptr<RowDescriptor> _row_desc;
     TTupleId _tuple_id = 0;
-    TSlotId _slot_id = -1;
+    std::vector<TSlotId> _slot_ids;
 };
 
-// bucket = ((v % n) + n) % n; negatives and out-of-range values wrap the same way BE find_tablets
-// and FE pruning compute them.
+// Positive integers retain value-modulo behavior; for a power-of-two bucket count, two's-complement
+// unsigned bytes also place negative values in the same buckets as negative-safe signed modulo.
 TEST_F(IdentityPartitionerTest, ChannelIsValueModBucketCount) {
     constexpr int n = 8;
     std::vector<int32_t> values = {3, 8, 100, 999, -1, -8};
@@ -107,7 +126,30 @@ TEST_F(IdentityPartitionerTest, ChannelIsValueModBucketCount) {
     }
 }
 
-// A null distribution value lands on channel 0, matching the storage bucket rule.
+// Canonical two's-complement bytes are unsigned, so negative values need no special branch.
+TEST_F(IdentityPartitionerTest, NegativeValueUsesUnsignedBytes) {
+    constexpr int n = 10;
+    auto channels = run<IdentityHashPartitioner>(
+            n, ColumnHelper::create_block<DataTypeInt32>({-1, -8}));
+    ASSERT_EQ(2u, channels.size());
+    EXPECT_EQ(5u, channels[0]); // UINT32_MAX % 10
+    EXPECT_EQ(8u, channels[1]); // (UINT32_MAX - 7) % 10
+}
+
+TEST_F(IdentityPartitionerTest, SupportsMultipleTypedColumns) {
+    constexpr int n = 257;
+    auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2});
+    auto strings = ColumnHelper::create_block<DataTypeString>({"A", "BC"});
+    block.insert(strings.get_by_position(0));
+    auto channels = run<IdentityHashPartitioner>(
+            n, std::move(block), {make_int_slot_ref(), make_string_slot_ref()});
+    ASSERT_EQ(2u, channels.size());
+    EXPECT_EQ(64u, channels[0]); // (1 * 256 + 'A') % 257
+    // unsigned_le("BC") = 0x4342; append it after uint32_le(2).
+    EXPECT_EQ((2u * 256u * 256u + 0x4342u) % n, channels[1]);
+}
+
+// A null distribution value is represented by four zero bytes.
 TEST_F(IdentityPartitionerTest, NullGoesToChannelZero) {
     constexpr int n = 8;
     // row 0 null -> 0; row 1 = 300 -> 300 % 8 = 4
@@ -137,6 +179,16 @@ TEST_F(IdentityPartitionerTest, Crc32DiffersFromIdentity) {
         }
     }
     EXPECT_TRUE(differs);
+}
+
+TEST(IdentityHashTest, IpCanonicalBytes) {
+    constexpr uint32_t n = 257;
+    const uint8_t ipv4[] = {1, 2, 3, 4};
+    EXPECT_EQ(255u, RawValue::identity_hash(ipv4, sizeof(ipv4), TYPE_IPV4, 0, n));
+
+    uint8_t ipv6[16] = {};
+    ipv6[15] = 1;
+    EXPECT_EQ(256u, RawValue::identity_hash(ipv6, sizeof(ipv6), TYPE_IPV6, 0, n));
 }
 
 } // namespace doris

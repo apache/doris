@@ -43,8 +43,8 @@ import java.util.Map;
 // Tests for the pluggable bucketing hash function carried by the `distribution_hash_type` table
 // property. Today HashType has CRC32 (default/legacy) and IDENTITY; more types will be added later,
 // so the framework-level cases (gson round-trip, equals, property parse) iterate over
-// HashType.values() and stay correct as new constants appear, while the value-specific behavior
-// (identity's single-integer-column rule) is asserted explicitly.
+// HashType.values() and stay correct as new constants appear. Identity-specific cases verify that
+// canonical bytes from every valid distribution-column type and multiple columns are accepted.
 public class DistributionHashTypeTest {
 
     private Column intCol(String name) {
@@ -161,7 +161,7 @@ public class DistributionHashTypeTest {
     }
 
     // ------------------------------------------------------------------
-    // identity value-specific rule: single integer distribution column
+    // identity accepts canonical bytes from all valid distribution columns
     // ------------------------------------------------------------------
 
     @Test
@@ -183,19 +183,23 @@ public class DistributionHashTypeTest {
     }
 
     @Test
-    public void testToDistributionInfoIdentityRejectsNonIntegerColumn() {
+    public void testToDistributionInfoIdentityAllowsNonIntegerColumn() throws DdlException {
         List<Column> schema = Lists.newArrayList(new Column("s", PrimitiveType.VARCHAR, true));
         HashDistributionDesc desc = new HashDistributionDesc(8, false, Lists.newArrayList("s"), HashType.IDENTITY);
-        DdlException e = Assert.assertThrows(DdlException.class, () -> desc.toDistributionInfo(schema));
-        Assert.assertTrue(e.getMessage().contains("integer distribution column"));
+        HashDistributionInfo info = (HashDistributionInfo) desc.toDistributionInfo(schema);
+        Assert.assertEquals(HashType.IDENTITY, info.getHashType());
+        Assert.assertEquals(PrimitiveType.VARCHAR,
+                info.getDistributionColumns().get(0).getType().getPrimitiveType());
     }
 
     @Test
-    public void testToDistributionInfoIdentityRejectsMultipleColumns() {
-        List<Column> schema = Lists.newArrayList(intCol("a"), intCol("b"));
-        HashDistributionDesc desc = new HashDistributionDesc(8, false, Lists.newArrayList("a", "b"), HashType.IDENTITY);
-        DdlException e = Assert.assertThrows(DdlException.class, () -> desc.toDistributionInfo(schema));
-        Assert.assertTrue(e.getMessage().contains("one distribution column"));
+    public void testToDistributionInfoIdentityAllowsMultipleColumns() throws DdlException {
+        List<Column> schema = Lists.newArrayList(intCol("a"), new Column("b", PrimitiveType.VARCHAR, true));
+        HashDistributionDesc desc = new HashDistributionDesc(8, false, Lists.newArrayList("a", "b"),
+                HashType.IDENTITY);
+        HashDistributionInfo info = (HashDistributionInfo) desc.toDistributionInfo(schema);
+        Assert.assertEquals(HashType.IDENTITY, info.getHashType());
+        Assert.assertEquals(2, info.getDistributionColumns().size());
     }
 
     @Test

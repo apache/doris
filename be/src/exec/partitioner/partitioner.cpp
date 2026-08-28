@@ -23,6 +23,7 @@
 #include "exec/exchange/local_exchange_sink_operator.h"
 #include "exec/exchange/vdata_stream_sender.h"
 #include "runtime/thread_context.h"
+#include "util/raw_value.h"
 
 namespace doris {
 
@@ -86,40 +87,11 @@ Status Crc32CHashPartitioner::clone(RuntimeState* state,
 
 void IdentityHashPartitioner::_do_hash(const ColumnPtr& column, HashValType* __restrict result,
                                        int idx) const {
-    // Keep this bit-identical with tablet_info.cpp::_compute_tablet_index_for_identity and FE
-    // HashDistributionPruner: single integer column, NULL -> bucket 0, negative-safe modulo.
-    const __int128 n = _partition_count;
     const PrimitiveType type = _partition_expr_ctxs[idx]->root()->data_type()->get_primitive_type();
-    const size_t rows = column->size();
-    for (size_t row = 0; row < rows; ++row) {
+    for (size_t row = 0; row < column->size(); ++row) {
         auto val = column->get_data_at(row);
-        if (val.data == nullptr) {
-            result[row] = 0;
-            continue;
-        }
-        __int128 v = 0;
-        switch (type) {
-        case TYPE_TINYINT:
-            v = *reinterpret_cast<const int8_t*>(val.data);
-            break;
-        case TYPE_SMALLINT:
-            v = *reinterpret_cast<const int16_t*>(val.data);
-            break;
-        case TYPE_INT:
-            v = *reinterpret_cast<const int32_t*>(val.data);
-            break;
-        case TYPE_BIGINT:
-            v = *reinterpret_cast<const int64_t*>(val.data);
-            break;
-        case TYPE_LARGEINT:
-            memcpy(&v, val.data, sizeof(__int128));
-            break;
-        default:
-            LOG(WARNING) << "identity distribution on non-integer column, primitive_type=" << type;
-            result[row] = 0;
-            continue;
-        }
-        result[row] = cast_set<HashValType>(((v % n) + n) % n);
+        result[row] = RawValue::identity_hash(val.data, val.size, type, result[row],
+                                              _partition_count);
     }
 }
 

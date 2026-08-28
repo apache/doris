@@ -17,12 +17,14 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.io.BaseEncoding;
 import com.google.gson.annotations.SerializedName;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
 public class VarBinaryLiteral extends LiteralExpr {
@@ -113,6 +115,11 @@ public class VarBinaryLiteral extends LiteralExpr {
         }
         throw new RuntimeException("Cannot compare two values with different data types: "
                 + this + " (" + this.type + ") vs " + other + " (" + ((LiteralExpr) other).type + ")");
+    }
+
+    @Override
+    public ByteBuffer getHashValue(PrimitiveType type) {
+        return ByteBuffer.wrap(value);
     }
 
     @Override

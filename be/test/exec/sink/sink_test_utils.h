@@ -224,9 +224,7 @@ inline TOlapTableLocationParam build_location_param() {
 
 // A single range partition [-1000, 1000) with `num_buckets` tablets (ids 300, 301, ...),
 // bucketed by the integer column "c1" using the given distribution hash type. The range spans
-// negatives so identity's negative-safe modulo can be exercised end-to-end. For identity,
-// tablet_index for a row is ((value % num_buckets) + num_buckets) % num_buckets, bit-identical
-// with FE pruning.
+// negatives so identity's unsigned two's-complement byte handling can be exercised end-to-end.
 inline TOlapTablePartitionParam build_single_col_partition_param(
         int64_t schema_index_id, int32_t num_buckets, TDistributionHashType::type hash_type) {
     TOlapTablePartitionParam param;

@@ -253,6 +253,23 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         return hashValue.getValue();
     }
 
+    /**
+     * Treat each distribution value's canonical bytes as an unsigned integer with the first byte
+     * as the least-significant byte, then append it to the preceding values. Keeping only the
+     * remainder avoids constructing an arbitrarily wide integer for multi-column keys.
+     */
+    public int getIdentityHashValue(int hashMod) {
+        Preconditions.checkArgument(hashMod > 0, "hash modulus must be positive");
+        long result = 0;
+        for (int keyIndex = 0; keyIndex < keys.size(); keyIndex++) {
+            ByteBuffer buffer = keys.get(keyIndex).getHashValue(types.get(keyIndex));
+            for (int byteIndex = buffer.limit() - 1; byteIndex >= 0; byteIndex--) {
+                result = (result * 256 + Byte.toUnsignedInt(buffer.get(byteIndex))) % hashMod;
+            }
+        }
+        return (int) result;
+    }
+
     public boolean isMinValue() {
         for (LiteralExpr literalExpr : keys) {
             if (!literalExpr.isMinValue()) {

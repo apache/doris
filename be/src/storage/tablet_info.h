@@ -247,7 +247,16 @@ public:
             if (_t_param.distribution_hash_type == TDistributionHashType::IDENTITY) {
                 compute_function = [this](Block* block, uint32_t row,
                                           const VOlapTablePartition& partition) -> uint32_t {
-                    return _compute_tablet_index_for_identity(block, row, partition);
+                    uint32_t bucket = 0;
+                    for (unsigned short distributed_slot_loc : _distributed_slot_locs) {
+                        auto* slot_desc = _slots[distributed_slot_loc];
+                        const auto& column = block->get_by_position(distributed_slot_loc).column;
+                        auto val = column->get_data_at(row);
+                        bucket = RawValue::identity_hash(
+                                val.data, val.size, slot_desc->type()->get_primitive_type(), bucket,
+                                cast_set<uint32_t>(partition.num_buckets));
+                    }
+                    return bucket;
                 };
             } else {
                 //TODO: refactor by saving the hash values. then we can calculate in columnwise.
@@ -333,9 +342,6 @@ private:
 
     // check if this partition contain this key
     bool _part_contains(VOlapTablePartition* part, BlockRowWithIndicator key) const;
-
-    uint32_t _compute_tablet_index_for_identity(Block* block, uint32_t row,
-                                                const VOlapTablePartition& partition) const;
 
     // this partition only valid in this schema
     std::shared_ptr<OlapTableSchemaParam> _schema;

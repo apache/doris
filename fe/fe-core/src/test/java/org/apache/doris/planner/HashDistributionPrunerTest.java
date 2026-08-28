@@ -18,6 +18,8 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.IPv4Literal;
+import org.apache.doris.analysis.IPv6Literal;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
@@ -144,8 +146,9 @@ public class HashDistributionPrunerTest {
         Assert.assertEquals(39, tablets.size());
     }
 
-    // Identity bucketing prunes an equality predicate to the single bucket ((v % n) + n) % n,
-    // bit-identical with BE find_tablets. null -> bucket 0. LARGEINT uses full int128 width.
+    // Identity bucketing treats each value's canonical bytes as an unsigned integer with its first
+    // byte least significant, then appends multiple columns before taking the bucket modulus. This
+    // must remain bit-identical with BE tablet routing and bucket-shuffle partitioning.
     @Test
     public void testIdentityPrune() {
         List<Long> tabletIds = Lists.newArrayListWithExpectedSize(512);
@@ -159,15 +162,60 @@ public class HashDistributionPrunerTest {
         assertIdentityBucket(tabletIds, columns, "SHARD_NUM", new IntLiteral(100), 100L);
         // wraps: 600 % 512 = 88
         assertIdentityBucket(tabletIds, columns, "SHARD_NUM", new IntLiteral(600), 88L);
-        // negative-safe: -1 -> 511
+        // Two's-complement bytes are interpreted as unsigned. A power-of-two modulus therefore
+        // still maps -1 to the final bucket.
         assertIdentityBucket(tabletIds, columns, "SHARD_NUM", new IntLiteral(-1), 511L);
 
-        // LARGEINT full int128 width matches BE memcpy + BigInteger.mod
+        // LARGEINT uses all 128 bits of its canonical little-endian representation.
         Column bigId = new Column("big_id", PrimitiveType.LARGEINT, false);
         List<Column> bigCols = Lists.newArrayList(bigId);
         BigInteger huge = BigInteger.ONE.shiftLeft(100).add(BigInteger.valueOf(5));
         long expected = huge.mod(BigInteger.valueOf(512)).longValue();
         assertIdentityBucket(tabletIds, bigCols, "BIG_ID", new LargeIntLiteral(huge), expected);
+
+        // With a non-power-of-two bucket count, -1 is UINT32_MAX rather than signed -1.
+        List<Long> tenTablets = Lists.newArrayListWithExpectedSize(10);
+        for (long i = 0; i < 10; i++) {
+            tenTablets.add(i);
+        }
+        assertIdentityBucket(tenTablets, columns, "SHARD_NUM", new IntLiteral(-1), 5L);
+    }
+
+    @Test
+    public void testIdentityPruneWithMultipleTypedColumns() {
+        List<Long> tabletIds = Lists.newArrayListWithExpectedSize(257);
+        for (long i = 0; i < 257; i++) {
+            tabletIds.add(i);
+        }
+        List<Column> columns = Lists.newArrayList(
+                new Column("id", PrimitiveType.INT, false),
+                new Column("name", PrimitiveType.VARCHAR, false));
+
+        Map<String, PartitionColumnFilter> filters = new CaseInsensitiveMap();
+        PartitionColumnFilter idFilter = new PartitionColumnFilter();
+        idFilter.setLowerBound(new IntLiteral(1), true);
+        idFilter.setUpperBound(new IntLiteral(1), true);
+        filters.put("ID", idFilter);
+        PartitionColumnFilter nameFilter = new PartitionColumnFilter();
+        nameFilter.setLowerBound(new StringLiteral("A"), true);
+        nameFilter.setUpperBound(new StringLiteral("A"), true);
+        filters.put("NAME", nameFilter);
+
+        HashDistributionPruner pruner = new HashDistributionPruner(null, tabletIds, columns, filters,
+                tabletIds.size(), true, HashType.IDENTITY);
+        // append(uint32_le(1), bytes("A")) = 1 * 256 + 65; 321 % 257 = 64
+        Assert.assertEquals(Lists.newArrayList(64L), pruner.prune());
+    }
+
+    @Test
+    public void testIdentityPruneWithIpCanonicalBytes() throws Exception {
+        PartitionKey ipv4 = new PartitionKey();
+        ipv4.pushColumn(new IPv4Literal("1.2.3.4"), PrimitiveType.IPV4);
+        Assert.assertEquals(255, ipv4.getIdentityHashValue(257));
+
+        PartitionKey ipv6 = new PartitionKey();
+        ipv6.pushColumn(new IPv6Literal("::1"), PrimitiveType.IPV6);
+        Assert.assertEquals(256, ipv6.getIdentityHashValue(257));
     }
 
     private void assertIdentityBucket(List<Long> tabletIds, List<Column> columns, String colName, Expr value,

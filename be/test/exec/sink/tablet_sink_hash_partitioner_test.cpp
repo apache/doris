@@ -276,7 +276,8 @@ TEST(TabletSinkHashPartitionerTest, OlapTabletFinderRoundRobinEveryBatch) {
     }
 }
 
-// identity distribution_hash_type: bucket = ((v % n) + n) % n, bit-identical with FE pruning.
+// identity distribution_hash_type: canonical bytes are interpreted as unsigned, bit-identical
+// with FE pruning.
 TEST(TabletSinkHashPartitionerTest, IdentityBucketingModsValueByNumBuckets) {
     OperatorContext ctx;
     constexpr int32_t num_buckets = 8;
@@ -313,8 +314,8 @@ TEST(TabletSinkHashPartitionerTest, IdentityBucketingModsValueByNumBuckets) {
     EXPECT_EQ(tablet_index[1], 0u);
     EXPECT_EQ(tablet_index[2], 4u);
     EXPECT_EQ(tablet_index[3], 7u);
-    EXPECT_EQ(tablet_index[4], 7u); // -1 negative-safe -> 7
-    EXPECT_EQ(tablet_index[5], 0u); // -8 negative-safe -> 0
+    EXPECT_EQ(tablet_index[4], 7u); // UINT32_MAX % 8
+    EXPECT_EQ(tablet_index[5], 0u); // (UINT32_MAX - 7) % 8
 }
 
 // identity with a null distribution value falls into bucket 0 (FE/BE write the same rule).

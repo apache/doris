@@ -18,7 +18,6 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.InPredicate;
-import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
@@ -102,20 +101,7 @@ public class HashDistributionPruner implements DistributionPruner {
             // compute Hash Key
             int bucket;
             if (hashType == HashType.IDENTITY) {
-                // Must stay bit-identical with BE find_tablets.
-                // identity: single integer column, value itself modulo hashMod;
-                // null -> bucket 0; negative-safe modulo. Use BigInteger to match BE's
-                // full-width (up to int128 for LARGEINT) modulo exactly.
-                LiteralExpr key = hashKey.getKeys().get(0);
-                if (key.isNullLiteral()) {
-                    bucket = 0;
-                } else {
-                    java.math.BigInteger v = (key instanceof LargeIntLiteral)
-                            ? ((LargeIntLiteral) key).getRealValue()
-                            : java.math.BigInteger.valueOf(key.getLongValue());
-                    java.math.BigInteger n = java.math.BigInteger.valueOf(hashMod);
-                    bucket = v.mod(n).intValue();
-                }
+                bucket = hashKey.getIdentityHashValue(hashMod);
             } else {
                 long hashValue = hashKey.getHashValue();
                 bucket = (int) ((hashValue & 0xffffffff) % hashMod);

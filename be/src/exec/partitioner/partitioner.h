@@ -191,11 +191,10 @@ private:
     }
 };
 
-// Bucket-shuffle repartitioner for tables bucketed with the identity hash. The (single, integer)
-// distribution column value is taken modulo the bucket count (== _partition_count == channel count),
-// so the row lands on the channel matching its storage bucket.
-// Must stay bit-identical with FE HashDistributionPruner and BE tablet_info.cpp::_compute_tablet_index_for_identity:
-// bucket = ((int128(v) % n) + n) % n, NULL -> 0.
+// Bucket-shuffle repartitioner for tables bucketed with the identity hash. Each distribution
+// column's canonical bytes are interpreted as an unsigned integer with the first byte as the least
+// significant, then appended to the preceding columns; the combined value is kept modulo the
+// bucket count. Must stay bit-identical with FE HashDistributionPruner and BE tablet routing.
 class IdentityHashPartitioner : public Crc32HashPartitioner<ShuffleChannelIds> {
 public:
     IdentityHashPartitioner(int partition_count)

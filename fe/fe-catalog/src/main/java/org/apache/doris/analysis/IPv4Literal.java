@@ -17,10 +17,13 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.gson.annotations.SerializedName;
+
+import java.nio.ByteBuffer;
 
 public class IPv4Literal extends LiteralExpr {
 
@@ -157,6 +160,16 @@ public class IPv4Literal extends LiteralExpr {
     @Override
     public String getStringValue() {
         return parseLongToIPv4(this.value);
+    }
+
+    @Override
+    public ByteBuffer getHashValue(PrimitiveType type) {
+        ByteBuffer buffer = ByteBuffer.allocate(Integer.BYTES);
+        for (int shift = 24; shift >= 0; shift -= 8) {
+            buffer.put((byte) (value >> shift));
+        }
+        buffer.flip();
+        return buffer;
     }
 
     public long getValue() {

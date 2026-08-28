@@ -56,43 +56,36 @@ suite("test_distribution_hash_type_identity") {
     assertFalse(defaultStmt[0][1].toString().toLowerCase().contains("distribution_hash_type"))
 
     // ---------------------------------------------------------------------
-    // 2. identity constraint: single integer column only
+    // 2. identity accepts multiple distribution columns and all valid types
     // ---------------------------------------------------------------------
-    // non-integer distribution column rejected
-    sql "DROP TABLE IF EXISTS test_dist_hash_bad_type"
-    test {
-        sql """
-            CREATE TABLE `test_dist_hash_bad_type` (
-                `id` BIGINT NOT NULL,
-                `name` VARCHAR(32) NOT NULL
-            ) ENGINE=OLAP
-            DUPLICATE KEY(`id`, `name`)
-            DISTRIBUTED BY HASH(`name`) BUCKETS 8
-            PROPERTIES (
-                "replication_allocation" = "tag.location.default: 1",
-                "distribution_hash_type" = "identity"
-            );
-        """
-        exception "Only supports integer distribution column"
-    }
+    sql "DROP TABLE IF EXISTS test_dist_hash_string"
+    sql """
+        CREATE TABLE `test_dist_hash_string` (
+            `name` VARCHAR(32) NOT NULL,
+            `v` INT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`name`)
+        DISTRIBUTED BY HASH(`name`) BUCKETS 8
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "distribution_hash_type" = "identity"
+        );
+    """
 
-    // multiple distribution columns rejected
     sql "DROP TABLE IF EXISTS test_dist_hash_multi_col"
-    test {
-        sql """
-            CREATE TABLE `test_dist_hash_multi_col` (
-                `id1` BIGINT NOT NULL,
-                `id2` BIGINT NOT NULL
-            ) ENGINE=OLAP
-            DUPLICATE KEY(`id1`, `id2`)
-            DISTRIBUTED BY HASH(`id1`, `id2`) BUCKETS 8
-            PROPERTIES (
-                "replication_allocation" = "tag.location.default: 1",
-                "distribution_hash_type" = "identity"
-            );
-        """
-        exception "Only supports one distribution column"
-    }
+    sql """
+        CREATE TABLE `test_dist_hash_multi_col` (
+            `id` INT NOT NULL,
+            `name` VARCHAR(32) NOT NULL,
+            `v` INT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`, `name`)
+        DISTRIBUTED BY HASH(`id`, `name`) BUCKETS 10
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "distribution_hash_type" = "identity"
+        );
+    """
 
     // invalid hash type value rejected
     sql "DROP TABLE IF EXISTS test_dist_hash_bad_value"
@@ -183,6 +176,25 @@ suite("test_distribution_hash_type_identity") {
     def inRows = sql("SELECT id FROM test_dist_hash_identity WHERE id IN (7, 8, 1024) ORDER BY id")
     assertEquals(3, inRows.size())
     assertEquals([7L, 8L, 1024L], inRows.collect { it[0] as long })
+
+    // Non-integer and multi-column identity layouts must use the same canonical bytes in BE
+    // writes, FE tablet pruning, and bucket shuffle.
+    sql "INSERT INTO test_dist_hash_string VALUES ('alpha', 1), ('beta', 2)"
+    def stringRows = sql("SELECT name, v FROM test_dist_hash_string WHERE name = 'beta'")
+    assertEquals(1, stringRows.size())
+    assertEquals("beta", stringRows[0][0].toString())
+    assertEquals(2, stringRows[0][1] as int)
+
+    sql """ INSERT INTO test_dist_hash_multi_col VALUES
+                (1, 'A', 10), (1, 'B', 11), (-1, 'A', 12), (2, 'BC', 13) """
+    def multiRows = sql("""
+        SELECT id, name, v FROM test_dist_hash_multi_col
+        WHERE id = -1 AND name = 'A'
+    """)
+    assertEquals(1, multiRows.size())
+    assertEquals(-1, multiRows[0][0] as int)
+    assertEquals("A", multiRows[0][1].toString())
+    assertEquals(12, multiRows[0][2] as int)
 
     // ---------------------------------------------------------------------
     // 5. bucket data distribution: identity spreads rows evenly, crc32 does not.
@@ -377,7 +389,7 @@ suite("test_distribution_hash_type_identity") {
             "distribution_hash_type" = "identity"
         );
     """
-    // include negatives, out-of-range and boundary keys to exercise identity's negative-safe modulo
+    // include negatives, out-of-range and boundary keys to exercise unsigned binary identity
     // reshuffle across channels.
     sql """INSERT INTO test_dist_hash_bs_left VALUES
              (0, 1), (7, 2), (8, 3), (513, 4), (-1, 5), (1024, 6), (-8, 7)"""
@@ -398,4 +410,38 @@ suite("test_distribution_hash_type_identity") {
     def pair513 = bsJoin.find { (it[0] as long) == 513L }
     assertEquals(4, pair513[1] as int)
     assertEquals(40, pair513[2] as int)
+
+    // Multi-column mixed-type identity bucket shuffle follows the same composition as storage.
+    sql "DROP TABLE IF EXISTS test_dist_hash_bs_multi_right"
+    sql """
+        CREATE TABLE `test_dist_hash_bs_multi_right` (
+            `id` INT NOT NULL,
+            `name` VARCHAR(32) NOT NULL,
+            `w` INT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`, `name`)
+        DISTRIBUTED BY HASH(`id`, `name`) BUCKETS 7
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "distribution_hash_type" = "identity"
+        );
+    """
+    sql """ INSERT INTO test_dist_hash_bs_multi_right VALUES
+                (1, 'A', 20), (-1, 'A', 22), (2, 'BC', 23), (9, 'missing', 24) """
+
+    explain {
+        sql("""SELECT l.id, l.name FROM test_dist_hash_multi_col l
+                 JOIN [shuffle] test_dist_hash_bs_multi_right r
+                 ON l.id = r.id AND l.name = r.name""")
+        contains "INNER JOIN(BUCKET_SHUFFLE)"
+    }
+
+    def multiBsJoin = sql("""SELECT l.id, l.name, l.v, r.w
+                                FROM test_dist_hash_multi_col l
+                                JOIN test_dist_hash_bs_multi_right r
+                                ON l.id = r.id AND l.name = r.name
+                                ORDER BY l.id, l.name""")
+    assertEquals(3, multiBsJoin.size())
+    assertEquals([-1, 1, 2], multiBsJoin.collect { it[0] as int })
+    assertEquals(["A", "A", "BC"], multiBsJoin.collect { it[1].toString() })
 }

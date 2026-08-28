@@ -137,20 +137,6 @@ public class HashDistributionDesc extends DistributionDesc {
             }
         }
 
-        if (hashType == HashType.IDENTITY) {
-            if (distributionColumns.size() != 1) {
-                throw new DdlException(
-                        "Only supports one distribution column when distribution_hash_type is 'identity', " + "but got "
-                                + distributionColumns.size());
-            }
-            if (!distributionColumns.get(0).getType().isFixedPointType()) {
-                throw new DdlException(
-                        "Only supports integer distribution column when distribution_hash_type is 'identity', "
-                                + "but column[" + distributionColumns.get(0).getName() + "] is "
-                                + distributionColumns.get(0).getType() + ".");
-            }
-        }
-
         HashDistributionInfo hashDistributionInfo
                 = new HashDistributionInfo(numBucket, autoBucket, distributionColumns, hashType);
         return hashDistributionInfo;
