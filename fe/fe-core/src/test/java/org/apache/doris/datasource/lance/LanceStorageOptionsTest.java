@@ -125,9 +125,13 @@ public class LanceStorageOptionsTest {
         Assertions.assertEquals("oss-sk", options.get("oss_secret_access_key"));
         Assertions.assertEquals("cn-hangzhou", options.get("oss_region"));
         Assertions.assertEquals("oss-token", options.get("oss_security_token"));
+        // Stated rather than implied, so the host environment cannot decide it; see
+        // testOssVirtualHostAddressingIsStatedExplicitly.
+        Assertions.assertEquals("virtual", options.get("addressing_style"));
         Assertions.assertEquals(
                 new TreeSet<>(Arrays.asList("oss_endpoint", "oss_access_key_id",
-                        "oss_secret_access_key", "oss_region", "oss_security_token")),
+                        "oss_secret_access_key", "oss_region", "oss_security_token",
+                        "addressing_style")),
                 new TreeSet<>(options.keySet()));
     }
 
@@ -470,10 +474,33 @@ public class LanceStorageOptionsTest {
         Assertions.assertEquals("path", options.get("addressing_style"));
     }
 
+    /**
+     * Lance snapshots the host's {@code OSS_} and {@code AWS_} environment variables into the same
+     * config map before storage options are applied, so the default has to be stated rather than
+     * left implicit - otherwise an exported OSS_ADDRESSING_STYLE would outrank the catalog.
+     */
     @Test
-    public void testOssVirtualHostAddressingStaysImplicit() {
+    public void testOssVirtualHostAddressingIsStatedExplicitly() {
         Map<String, String> options = LanceStorageOptions.forUri(OSS_URI, createAll(ossProperties()));
 
-        Assertions.assertNull(options.get("addressing_style"));
+        Assertions.assertEquals("virtual", options.get("addressing_style"));
+    }
+
+    /**
+     * Doris accepts a whitespace-only key pair as "both set", so the emitted credentials and the
+     * anonymous claim have to agree: whatever this provider treats as a usable credential must
+     * suppress allow_anonymous, or OpenDAL signs with the blank key and cannot fall back.
+     */
+    @Test
+    public void testWhitespaceOssCredentialsAreNotAlsoCalledAnonymous() {
+        Map<String, String> properties = ossProperties();
+        properties.put("oss.access_key", " ");
+        properties.put("oss.secret_key", " ");
+
+        Map<String, String> options = LanceStorageOptions.forUri(OSS_URI, createAll(properties));
+
+        Assertions.assertNotEquals(
+                options.containsKey("oss_access_key_id"), options.containsKey("allow_anonymous"),
+                "a credential and a claim of anonymity must never both be emitted");
     }
 }
