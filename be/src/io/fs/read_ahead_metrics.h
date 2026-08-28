@@ -55,6 +55,8 @@ struct ReadAheadStatistics {
     RuntimeProfile::Counter planned_bytes {TUnit::BYTES};
     RuntimeProfile::Counter submitted_ranges {TUnit::UNIT};
     RuntimeProfile::Counter submitted_bytes {TUnit::BYTES};
+    /// Whole-batch rejections and byte-budget partial rejections. The budget counters below also
+    /// include partially admitted batches; their cause is the first budget rejection in that batch.
     RuntimeProfile::Counter rejected_batches {TUnit::UNIT};
     RuntimeProfile::Counter query_budget_rejected_batches {TUnit::UNIT};
     RuntimeProfile::Counter be_budget_rejected_batches {TUnit::UNIT};
