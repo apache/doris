@@ -567,6 +567,64 @@ public class ComputeSignatureHelperTest {
     }
 
     @Test
+    void testArrayPushFrontMapContainerSharesGroup() {
+        // array_pushfront(ARRAY<Any(0)>, Any(0)) with ARRAY-of-MAP and MAP inputs: both
+        // occurrences resolve to the same wider MAP. The container Any(0) identity must be
+        // propagated into descendant-relative keys, otherwise the two MAP slots are keyed by
+        // different absolute paths (array/key versus key) and regress to incompatible types.
+        FunctionSignature template = FunctionSignature.ret(ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX))
+                .args(ArrayType.of(new AnyDataType(0)), new AnyDataType(0));
+        // resolved signature (after implementAnyDataTypeWithIndex)
+        FunctionSignature signature = FunctionSignature.ret(
+                        ArrayType.of(MapType.of(DecimalV3Type.createDecimalV3Type(10, 3),
+                                DecimalV3Type.createDecimalV3Type(9, 2))))
+                .args(ArrayType.of(MapType.of(DecimalV3Type.createDecimalV3Type(10, 3),
+                                DecimalV3Type.createDecimalV3Type(9, 2))),
+                        MapType.of(DecimalV3Type.createDecimalV3Type(10, 3),
+                                DecimalV3Type.createDecimalV3Type(9, 2)));
+        Map<Literal, Literal> arg0Map = Maps.newLinkedHashMap();
+        arg0Map.put(new DecimalV3Literal(new BigDecimal("12.34")),
+                new DecimalV3Literal(new BigDecimal("1.23")));
+        Map<Literal, Literal> arg1Map = Maps.newLinkedHashMap();
+        arg1Map.put(new DecimalV3Literal(new BigDecimal("1234567.890")),
+                new DecimalV3Literal(new BigDecimal("12.34")));
+        List<Expression> arguments = Lists.newArrayList(
+                new ArrayLiteral(Lists.newArrayList(new MapLiteral(arg0Map))),
+                new MapLiteral(arg1Map));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(template), signature, arguments);
+        // both the ARRAY-of-MAP item and the MAP argument must be promoted to one type:
+        // the key group widens DECIMAL(4,2) and DECIMAL(10,3) to DECIMAL(10,3), and the
+        // value group widens DECIMAL(3,2) and DECIMAL(4,2) to DECIMAL(4,2)
+        MapType itemMap = (MapType) ((ArrayType) signature.getArgType(0)).getItemType();
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(10, 3), itemMap.getKeyType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(4, 2), itemMap.getValueType());
+        MapType argMap = (MapType) signature.getArgType(1);
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(10, 3), argMap.getKeyType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(4, 2), argMap.getValueType());
+    }
+
+    @Test
+    void testArrayContainsLinkedScalarSharesArrayGroup() {
+        // array_contains(ARRAY<Any(0)>, Any(0)): the ARRAY item and the probe are one
+        // logical group. A wider ARRAY<DECIMAL(27,9)> with a DECIMAL(9,3) probe must
+        // promote both to DECIMAL(27,9) instead of keeping the array as Decimal128 while
+        // regressing only the probe to Decimal32.
+        FunctionSignature template = FunctionSignature.ret(BooleanType.INSTANCE)
+                .args(ArrayType.of(new AnyDataType(0)), new AnyDataType(0));
+        FunctionSignature signature = FunctionSignature.ret(BooleanType.INSTANCE)
+                .args(ArrayType.of(DecimalV3Type.createDecimalV3Type(27, 9)),
+                        DecimalV3Type.createDecimalV3Type(27, 9));
+        List<Expression> arguments = Lists.newArrayList(
+                new ArrayLiteral(Lists.newArrayList(
+                        new DecimalV3Literal(new BigDecimal("123456789012345678.123456789")))),
+                new DecimalV3Literal(new BigDecimal("123456.789")));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(template), signature, arguments);
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(27, 9),
+                ((ArrayType) signature.getArgType(0)).getItemType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(27, 9), signature.getArgType(1));
+    }
+
+    @Test
     void testMapNestedArrayDecimalV3ComputePrecision() {
         // the item of an ARRAY nested in a MAP value keeps its own precision/scale
         // instead of being merged with the MAP key into the global wider type, otherwise
