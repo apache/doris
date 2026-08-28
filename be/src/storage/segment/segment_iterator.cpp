@@ -70,6 +70,7 @@
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
+#include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
@@ -105,6 +106,7 @@
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_prefetcher.h"
+#include "storage/segment/segment_read_ahead.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/segment/virtual_column_iterator.h"
 #include "storage/tablet/tablet_schema.h"
@@ -372,6 +374,64 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     return status;
 }
 
+Status SegmentIterator::_init_query_read_ahead() {
+    if (!config::enable_query_read_ahead || !config::is_cloud_mode() ||
+        _opts.io_ctx.reader_type != ReaderType::READER_QUERY) {
+        return Status::OK();
+    }
+
+    DORIS_CHECK(_opts.runtime_state != nullptr);
+    auto* exec_env = _opts.runtime_state->exec_env();
+    DORIS_CHECK(exec_env != nullptr);
+    auto* scheduler = exec_env->file_range_read_scheduler();
+    DORIS_CHECK(scheduler != nullptr);
+    auto* query_context = _opts.runtime_state->get_query_ctx();
+    DORIS_CHECK(query_context != nullptr);
+
+    ColumnReadAheadOptions eager_options {
+            .high_watermark_bytes = cast_set<size_t>(config::read_ahead_eager_high_watermark_bytes),
+            .low_watermark_bytes = cast_set<size_t>(config::read_ahead_eager_low_watermark_bytes),
+    };
+    ColumnReadAheadOptions lazy_options {
+            .high_watermark_bytes = cast_set<size_t>(config::read_ahead_lazy_high_watermark_bytes),
+            .low_watermark_bytes = cast_set<size_t>(config::read_ahead_lazy_low_watermark_bytes),
+    };
+    const auto eager_status = eager_options.validate();
+    const auto lazy_status = lazy_options.validate();
+    if (!eager_status.ok() || !lazy_status.ok()) {
+        LOG_EVERY_N(WARNING, 100) << "invalid query read-ahead byte windows; feature disabled for "
+                                     "this segment: eager="
+                                  << eager_status << ", lazy=" << lazy_status;
+        return Status::OK();
+    }
+
+    SegmentReadAheadOptions options {
+            .range_plan = {.coalesce_options =
+                                   {.max_gap_bytes =
+                                            cast_set<size_t>(config::read_ahead_max_gap_bytes),
+                                    .max_range_bytes =
+                                            cast_set<size_t>(config::read_ahead_max_range_bytes),
+                                    .max_read_amplification_ratio =
+                                            config::read_ahead_max_read_amplification_ratio},
+                           .cache_block_size = cast_set<size_t>(config::file_cache_each_block_size),
+                           .block_fill_min_coverage = config::read_ahead_block_fill_min_coverage},
+            .page_cache_probe = _opts.use_page_cache ? make_storage_page_cache_probe(_file_reader)
+                                                     : ReadAheadPageCacheProbe {},
+            .range_consumer_factory = {},
+    };
+    auto read_context = query_context->get_or_create_file_range_read_context(scheduler);
+    _segment_read_ahead = std::make_unique<SegmentReadAhead>(
+            _file_reader, scheduler, std::move(read_context),
+            io::FileRangeReadIOContext::from_caller(_opts.io_ctx), std::move(options));
+    _file_reader = _segment_read_ahead->file_reader();
+    _column_read_ahead_context = std::make_unique<ColumnReadAheadContext>(ColumnReadAheadContext {
+            .eager_options = eager_options,
+            .lazy_options = lazy_options,
+            .segment = _segment_read_ahead.get(),
+    });
+    return Status::OK();
+}
+
 std::unique_ptr<AdaptiveBlockSizePredictor> SegmentIterator::_make_block_size_predictor() const {
     if (!config::enable_adaptive_batch_size || _opts.preferred_block_size_bytes == 0) {
         return nullptr;
@@ -407,6 +467,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_timer_ns);
     _inited = true;
     _file_reader = _segment->_file_reader;
+    RETURN_IF_ERROR(_init_query_read_ahead());
     _col_predicates.clear();
 
     for (const auto& predicate : opts.column_predicates) {
@@ -597,7 +658,9 @@ Status SegmentIterator::_lazy_init(Block* block) {
 
     _lazy_inited = true;
 
-    _init_segment_prefetchers();
+    if (_column_read_ahead_context == nullptr) {
+        _init_segment_prefetchers();
+    }
 
     // G03: engage the count-emission shortcut. All inputs are final here (the
     // index apply ran, _row_bitmap saw every subtraction/intersection above,
@@ -699,6 +762,77 @@ void SegmentIterator::_init_segment_prefetchers() {
             }
         }
     }
+}
+
+void SegmentIterator::_prepare_batch_read_ahead(size_t current_rowid_count) {
+    auto plans = _plan_batch_read_ahead(current_rowid_count);
+    if (!plans.empty()) {
+        DORIS_CHECK(_segment_read_ahead != nullptr);
+        static_cast<void>(_segment_read_ahead->apply_plans(std::move(plans)));
+    }
+}
+
+std::vector<ColumnReadAheadPlan> SegmentIterator::_plan_batch_read_ahead(
+        size_t current_rowid_count) {
+    if (_column_read_ahead_context == nullptr || current_rowid_count == 0) {
+        return {};
+    }
+    std::vector<ColumnReadAheadPlan> plans;
+    const auto prepare_columns = [&](const std::vector<ColumnId>& ordinals,
+                                     ColumnReadAheadRole role,
+                                     ColumnIterator::ReadPhase fixed_phase) {
+        for (ColumnId cid : ordinals) {
+            DORIS_CHECK_LT(cid, _column_iterators.size());
+            if (_no_need_read_key_data_eligible(cid) || !_need_read_data(cid)) {
+                continue;
+            }
+            auto* column_iterator = _column_iterators[cid].get();
+            DORIS_CHECK(column_iterator != nullptr);
+            auto phase = fixed_phase;
+            if (fixed_phase == ColumnIterator::ReadPhase::NORMAL &&
+                _has_lazy_pruned_children(cid)) {
+                phase = ColumnIterator::ReadPhase::PREDICATE;
+            }
+            ScopedColumnIteratorReadPhase scoped_read_phase {column_iterator, phase};
+            const ColumnReadAheadRequest request {
+                    .current_rowids = _block_rowids.data(),
+                    .current_rowid_count = current_rowid_count,
+                    .scan_rowids = &_row_bitmap,
+                    .context = _column_read_ahead_context.get(),
+                    .role = role,
+                    .reverse = _opts.read_orderby_key_reverse,
+            };
+            const auto status = column_iterator->prepare_read_ahead(request, &plans);
+            if (!status.ok()) {
+                LOG_EVERY_N(WARNING, 100)
+                        << "failed to prepare column read-ahead; use the original read path: "
+                        << status;
+            }
+        }
+    };
+
+    const bool need_predicate_eval = _is_need_vec_eval || _is_need_short_eval;
+    if (need_predicate_eval) {
+        prepare_columns(_predicate_ordinals, ColumnReadAheadRole::EAGER,
+                        ColumnIterator::ReadPhase::NORMAL);
+        prepare_columns(_common_expr_ordinals, ColumnReadAheadRole::LAZY,
+                        ColumnIterator::ReadPhase::NORMAL);
+    } else if (_is_need_expr_eval) {
+        prepare_columns(_common_expr_ordinals, ColumnReadAheadRole::EAGER,
+                        ColumnIterator::ReadPhase::NORMAL);
+    }
+
+    if (need_predicate_eval || _is_need_expr_eval) {
+        prepare_columns(_output_ordinals, ColumnReadAheadRole::LAZY,
+                        ColumnIterator::ReadPhase::NORMAL);
+        prepare_columns(_lazy_pruned_ordinals, ColumnReadAheadRole::LAZY,
+                        ColumnIterator::ReadPhase::LAZY);
+    } else {
+        prepare_columns(_output_ordinals, ColumnReadAheadRole::EAGER,
+                        ColumnIterator::ReadPhase::NORMAL);
+    }
+
+    return plans;
 }
 
 Status SegmentIterator::_get_row_ranges_by_keys() {
@@ -2352,6 +2486,7 @@ Status SegmentIterator::_read_columns_by_index(const std::vector<ColumnId>& read
     SCOPED_RAW_TIMER(&_opts.stats->predicate_column_read_ns);
 
     nrows_read = (uint16_t)_range_iter->read_batch_rowids(_block_rowids.data(), nrows_read_limit);
+    _prepare_batch_read_ahead(nrows_read);
     bool is_continuous = (nrows_read > 1) &&
                          (_block_rowids[nrows_read - 1] - _block_rowids[0] == nrows_read - 1);
     VLOG_DEBUG << fmt::format(
