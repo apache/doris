@@ -17,9 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
@@ -32,11 +35,15 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.PreparedStatementContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.ShortCircuitQueryContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
@@ -235,6 +242,67 @@ public class ExecuteCommandTest {
         Assertions.assertSame(second,
                 nextContext.getSnapshot(table, Optional.empty(), Optional.empty()).orElse(null));
         Mockito.verify(table, Mockito.times(2)).loadSnapshot(Optional.empty(), Optional.empty());
+    }
+
+    @Test
+    public void testFastPathInstallsCachedShortCircuitContextAcrossExecutions() throws Exception {
+        // ExecuteCommand allocates a fresh StatementContext per EXECUTE. The fresh context carries the
+        // short-circuit flag but not the cached plan, so the fast path must install the just-validated
+        // ShortCircuitQueryContext before direct execution -- otherwise result sending falls back to
+        // `new ShortCircuitQueryContext(planner, ...)` with a null planner (this path never plans) and
+        // NPEs on planner.getDescTable(). Two executions exercise the second (reusable) EXECUTE that
+        // hits the regression.
+        // MUTATION: removing the install in ExecuteCommand.run() -> the fresh context has no
+        // statement-level cache -> the assertSame below flips -> red.
+        String sql = "select * from tbl";
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = new StatementContext();
+        statementContext.setShortCircuitQuery(true);
+        PrepareCommand prepareCommand = new PrepareCommand(
+                "stmt", logicalPlan, Collections.emptyList(), new OriginStatement(sql, 0));
+        PreparedStatementContext preparedStatement = new PreparedStatementContext(
+                prepareCommand, connectContext, statementContext, "stmt");
+
+        // A real ShortCircuitQueryContext (built from a mocked planner) that passes isReusable().
+        Planner planner = Mockito.mock(Planner.class);
+        Mockito.when(planner.getQueryOptions()).thenReturn(new TQueryOptions());
+        DescriptorTable descriptorTable = new DescriptorTable();
+        descriptorTable.createTupleDescriptor();
+        Mockito.when(planner.getDescTable()).thenReturn(descriptorTable);
+        OlapScanNode scanNode = Mockito.mock(OlapScanNode.class);
+        OlapTable table = Mockito.spy(new OlapTable());
+        Mockito.doReturn("tbl").when(table).getName();
+        Mockito.doReturn(10).when(table).getBaseSchemaVersion();
+        Mockito.when(scanNode.getPointQueryProjectList()).thenReturn(Collections.emptyList());
+        Mockito.when(scanNode.getOlapTable()).thenReturn(table);
+        Mockito.when(scanNode.getTableNameInPlan()).thenReturn("tbl");
+        Mockito.when(scanNode.getConjuncts()).thenReturn(Collections.emptyList());
+        Mockito.when(planner.getScanNodes()).thenReturn(Collections.singletonList(scanNode));
+        ShortCircuitQueryContext cachedPlan = new ShortCircuitQueryContext(planner, Mockito.mock(Queriable.class));
+        preparedStatement.shortCircuitQueryContext = Optional.of(cachedPlan);
+
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(connectContext.getPreparedStementContext("stmt")).thenReturn(preparedStatement);
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableGroupCommitFullPrepare = false;
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(executor.getContext()).thenReturn(connectContext);
+
+        ExecuteCommand execute = new ExecuteCommand("stmt", prepareCommand, statementContext);
+        execute.run(connectContext, executor);
+        Assertions.assertSame(cachedPlan, preparedStatement.getStatementContext().getShortCircuitQueryContext(),
+                "the fast path installs the validated cache on the fresh context (first EXECUTE)");
+        Mockito.verify(executor, Mockito.times(1)).executeAndSendResult(Mockito.anyBoolean(), Mockito.anyBoolean(),
+                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+
+        execute.run(connectContext, executor);
+        Assertions.assertSame(cachedPlan, preparedStatement.getStatementContext().getShortCircuitQueryContext(),
+                "the fast path installs the validated cache on the fresh context (second, reusable EXECUTE)");
+        Mockito.verify(executor, Mockito.times(2)).executeAndSendResult(Mockito.anyBoolean(), Mockito.anyBoolean(),
+                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
     }
 
     private String resolveNextSnapshot(TableScanParams scanParams, AtomicInteger snapshotId) {

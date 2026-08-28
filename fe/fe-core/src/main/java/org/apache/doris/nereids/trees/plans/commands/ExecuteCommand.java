@@ -157,6 +157,11 @@ public class ExecuteCommand extends Command {
                 && hasShortCircuitContext
                 && shortCircuitContextReusable
                 && !statementContext.hasNondeterministic()) {
+            // The fresh per-execution context carries the short-circuit flag but not the cached plan.
+            // Install the just-validated cache before the direct path: result sending reads it via
+            // statementContext.getShortCircuitQueryContext(), and the fallback (building one from a
+            // null planner, since this path skips planning) would NPE.
+            statementContext.setShortCircuitQueryContext(preparedStmtCtx.shortCircuitQueryContext.get());
             PointQueryExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx, statementContext);
             return;
         }

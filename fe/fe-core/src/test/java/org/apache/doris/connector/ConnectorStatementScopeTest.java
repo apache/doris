@@ -197,9 +197,13 @@ public class ConnectorStatementScopeTest {
         // seeded value survives in the context still used by the next execution -> the assertNotSame below flips
         // -> red.
         StatementContext statementContext = new StatementContext();
-        // Seed a value the way a first execution's connector planning would (one loaded table the statement shares).
+        // Seed values the way a first execution's connector planning would (one loaded table the statement
+        // shares, plus closeable metadata that must be finalized when the context is dropped).
         ConnectorStatementScope firstScope = statementContext.getOrCreateConnectorStatementScope();
         Object memoizedTable = firstScope.computeIfAbsent("table:1", Object::new);
+        AtomicInteger closes = new AtomicInteger();
+        AutoCloseable closeable = () -> closes.incrementAndGet();
+        firstScope.computeIfAbsent("closeable:1", () -> closeable);
 
         // A prepared statement wrapping that StatementContext, with a plain (non-cache, non-insert) plan.
         LogicalPlan plan = Mockito.mock(LogicalPlan.class);
@@ -226,7 +230,12 @@ public class ConnectorStatementScopeTest {
         StatementContext nextContext = preparedStmtCtx.getStatementContext();
         Assertions.assertNotSame(statementContext, nextContext,
                 "ExecuteCommand allocates a fresh StatementContext per EXECUTE so the old one is released");
-        // ...whose connector scope is brand-new, so a prior execution's memoized connector table cannot leak.
+        // ...finalizing the outgoing scope's closeable connector values (COM_STMT_EXECUTE has no per-statement
+        // StatementContext.close() finally, so dropping the context must close the scope, or closeable metadata
+        // and active connector transactions would be abandoned and never finalized by GC).
+        Assertions.assertEquals(1, closes.get(),
+                "dropping the outgoing context finalizes its closeable connector values");
+        // ...and whose connector scope is brand-new, so a prior execution's memoized connector table cannot leak.
         ConnectorStatementScope secondScope = nextContext.getOrCreateConnectorStatementScope();
         Assertions.assertNotSame(firstScope, secondScope,
                 "the fresh context starts with a fresh connector scope");
