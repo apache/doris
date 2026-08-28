@@ -555,6 +555,12 @@ public class MTMV extends OlapTable {
      */
     public Map<String, Map<MTMVRelatedTableIf, Set<String>>> calculatePartitionMappings(
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap) throws AnalysisException {
+        return calculatePartitionMappings(queryUsedBaseTablePartitionMap, Maps.newHashMap());
+    }
+
+    public Map<String, Map<MTMVRelatedTableIf, Set<String>>> calculatePartitionMappings(
+            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
+            Map<MTMVRelatedTableIf, Map<String, PartitionItem>> initialPartitionItems) throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return Maps.newHashMap();
         }
@@ -571,7 +577,7 @@ public class MTMV extends OlapTable {
         Map<String, Map<MTMVRelatedTableIf, Set<String>>> res = Maps.newHashMap();
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> pctPartitionDescs = MTMVPartitionUtil
                 .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, getPartitionColumns(),
-                        effectiveFilter);
+                        effectiveFilter, initialPartitionItems);
         for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
             res.put(entry.getKey(),
                     pctPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Maps.newHashMap()));

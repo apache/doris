@@ -253,7 +253,8 @@ public class HudiConnector implements Connector {
      * assert the cache decoration.
      */
     HmsClient wrapWithCache(HmsClient raw) {
-        return new CachingHmsClient(raw, properties, props.getHmsClientPoolSize());
+        return new CachingHmsClient(
+                raw, properties, props.getHmsClientPoolSize(), context.getMetadataAccessObserver());
     }
 
     /**

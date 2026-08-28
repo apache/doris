@@ -25,7 +25,6 @@ import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsColumnStatistics;
 import org.apache.doris.connector.hms.HmsCreateDatabaseRequest;
 import org.apache.doris.connector.hms.HmsCreateTableRequest;
-import org.apache.doris.connector.hms.HmsPartitionAccessSource;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.hms.HmsTypeMapping;
@@ -36,6 +35,7 @@ import org.apache.doris.connector.spi.ConnectorColumnStatistics;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorDatabaseMetadata;
 import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
 import org.apache.doris.connector.spi.ConnectorOperationAbortedException;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -1117,7 +1117,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             selectedNames = shuffled.subList(0, sampleSize);
         }
         List<HmsPartitionInfo> partitions = hmsClient.getPartitions(
-                session, HmsPartitionAccessSource.STATISTICS,
+                session, ConnectorMetadataAccessSource.STATISTICS,
                 handle.getDbName(), handle.getTableName(), selectedNames);
         List<PartitionRef> refs = new ArrayList<>(partitions.size());
         for (HmsPartitionInfo partition : partitions) {
@@ -1217,7 +1217,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         List<HmsPartitionInfo> prunedPartitions = matchedPartNames.isEmpty()
                 ? Collections.emptyList()
                 : hmsClient.getPartitions(
-                        session, HmsPartitionAccessSource.QUERY,
+                        session, ConnectorMetadataAccessSource.QUERY,
                         hiveHandle.getDbName(), hiveHandle.getTableName(), matchedPartNames);
 
         LOG.info("Partition pruning: {}.{} all={} pruned={}",
@@ -1410,8 +1410,14 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorTableFreshness> getTableFreshness(ConnectorSession session,
             ConnectorTableHandle handle) {
+        return getTableFreshness(session, handle, ConnectorMetadataAccessSource.MTMV);
+    }
+
+    @Override
+    public Optional<ConnectorTableFreshness> getTableFreshness(ConnectorSession session,
+            ConnectorTableHandle handle, ConnectorMetadataAccessSource source) {
         if (!(handle instanceof HiveTableHandle)) {
-            return siblingMetadata(session, handle).getTableFreshness(session, handle);
+            return siblingMetadata(session, handle).getTableFreshness(session, handle, source);
         }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
         List<String> partKeyNames = hiveHandle.getPartitionKeyNames();
@@ -1427,7 +1433,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             return Optional.of(new ConnectorTableFreshness(hiveHandle.getTableName(), 0L));
         }
         List<HmsPartitionInfo> partitions = hmsClient.getPartitions(
-                session, HmsPartitionAccessSource.MTMV,
+                session, source,
                 hiveHandle.getDbName(), hiveHandle.getTableName(), partitionNames);
         String maxName = hiveHandle.getTableName();
         long maxMillis = 0L;
@@ -1453,11 +1459,19 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     @Override
     public OptionalLong getPartitionFreshnessMillis(ConnectorSession session, ConnectorTableHandle handle,
             String partitionName) {
+        return getPartitionFreshnessMillis(
+                session, handle, partitionName, ConnectorMetadataAccessSource.MTMV);
+    }
+
+    @Override
+    public OptionalLong getPartitionFreshnessMillis(ConnectorSession session, ConnectorTableHandle handle,
+            String partitionName, ConnectorMetadataAccessSource source) {
         if (!(handle instanceof HiveTableHandle)) {
-            return siblingMetadata(session, handle).getPartitionFreshnessMillis(session, handle, partitionName);
+            return siblingMetadata(session, handle)
+                    .getPartitionFreshnessMillis(session, handle, partitionName, source);
         }
         Map<String, Long> freshness = getPartitionFreshnessMillis(
-                session, handle, Collections.singletonList(partitionName));
+                session, handle, Collections.singletonList(partitionName), source);
         Long partitionFreshness = freshness.get(partitionName);
         if (partitionFreshness == null) {
             return OptionalLong.empty();
@@ -1468,16 +1482,22 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     @Override
     public Map<String, Long> getPartitionFreshnessMillis(ConnectorSession session, ConnectorTableHandle handle,
             List<String> partitionNames) {
+        return getPartitionFreshnessMillis(session, handle, partitionNames, ConnectorMetadataAccessSource.MTMV);
+    }
+
+    @Override
+    public Map<String, Long> getPartitionFreshnessMillis(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> partitionNames, ConnectorMetadataAccessSource source) {
         if (!(handle instanceof HiveTableHandle)) {
             return siblingMetadata(session, handle)
-                    .getPartitionFreshnessMillis(session, handle, partitionNames);
+                    .getPartitionFreshnessMillis(session, handle, partitionNames, source);
         }
         if (partitionNames.isEmpty()) {
             return Collections.emptyMap();
         }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
         List<HmsPartitionInfo> partitions = hmsClient.getPartitions(
-                session, HmsPartitionAccessSource.MTMV,
+                session, source,
                 hiveHandle.getDbName(), hiveHandle.getTableName(), partitionNames);
         Map<String, Long> result = new LinkedHashMap<>();
         for (int i = 0; i < partitions.size(); i++) {

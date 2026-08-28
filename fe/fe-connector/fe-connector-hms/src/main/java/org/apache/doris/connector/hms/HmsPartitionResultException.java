@@ -37,8 +37,6 @@ public class HmsPartitionResultException extends HmsClientException {
     }
 
     private final Set<MismatchType> mismatchTypes;
-    private final int requestedCount;
-    private final int returnedCount;
     private final int missingCount;
     private final int duplicateCount;
     private final int unexpectedCount;
@@ -46,7 +44,6 @@ public class HmsPartitionResultException extends HmsClientException {
     private final List<String> missingSamples;
     private final List<String> duplicateSamples;
     private final List<String> unexpectedSamples;
-    private final List<String> invalidSamples;
 
     private HmsPartitionResultException(Builder builder) {
         super("Invalid HMS partition result: mismatches=%s, requested=%d, returned=%d, "
@@ -57,8 +54,6 @@ public class HmsPartitionResultException extends HmsClientException {
                 builder.missingSamples, builder.duplicateSamples,
                 builder.unexpectedSamples, builder.invalidSamples);
         this.mismatchTypes = Collections.unmodifiableSet(EnumSet.copyOf(builder.mismatchTypes));
-        this.requestedCount = builder.requestedCount;
-        this.returnedCount = builder.returnedCount;
         this.missingCount = builder.missingCount;
         this.duplicateCount = builder.duplicateCount;
         this.unexpectedCount = builder.unexpectedCount;
@@ -66,7 +61,6 @@ public class HmsPartitionResultException extends HmsClientException {
         this.missingSamples = immutableCopy(builder.missingSamples);
         this.duplicateSamples = immutableCopy(builder.duplicateSamples);
         this.unexpectedSamples = immutableCopy(builder.unexpectedSamples);
-        this.invalidSamples = immutableCopy(builder.invalidSamples);
     }
 
     static Builder builder(int requestedCount, int returnedCount) {
@@ -75,14 +69,6 @@ public class HmsPartitionResultException extends HmsClientException {
 
     public Set<MismatchType> getMismatchTypes() {
         return mismatchTypes;
-    }
-
-    public int getRequestedCount() {
-        return requestedCount;
-    }
-
-    public int getReturnedCount() {
-        return returnedCount;
     }
 
     public int getMissingCount() {
@@ -114,10 +100,6 @@ public class HmsPartitionResultException extends HmsClientException {
 
     public List<String> getUnexpectedSamples() {
         return unexpectedSamples;
-    }
-
-    public List<String> getInvalidSamples() {
-        return invalidSamples;
     }
 
     private static List<String> immutableCopy(List<String> values) {

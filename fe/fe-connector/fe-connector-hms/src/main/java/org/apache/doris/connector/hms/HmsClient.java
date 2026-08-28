@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hms;
 
+import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
 import org.apache.doris.connector.spi.ConnectorSession;
 
 import java.io.Closeable;
@@ -172,7 +173,7 @@ public interface HmsClient extends Closeable {
      * only the logical access; the HMS implementation owns chunking, adaptive fallback and result validation.
      * Implementations without those facilities remain compatible through the legacy three-argument method.
      */
-    default List<HmsPartitionInfo> getPartitions(ConnectorSession session, HmsPartitionAccessSource source,
+    default List<HmsPartitionInfo> getPartitions(ConnectorSession session, ConnectorMetadataAccessSource source,
             String dbName, String tableName, List<String> partNames) {
         Objects.requireNonNull(source, "source");
         if (session != null) {

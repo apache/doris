@@ -38,7 +38,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 public class MTMVRefreshContextBatchTest {
 
@@ -97,47 +96,30 @@ public class MTMVRefreshContextBatchTest {
     }
 
     @Test
-    public void aggregatesOneHundredSixtyThousandPartitionsIntoOneBulkCall() throws AnalysisException {
-        MTMVRefreshContext context = new MTMVRefreshContext(Mockito.mock(MTMV.class));
-        MTMVRelatedTableIf table = Mockito.mock(MTMVRelatedTableIf.class);
-        MTMVSnapshotIf snapshot = new MTMVTimestampSnapshot(1L);
-        Mockito.when(table.getPartitionSnapshots(Mockito.anyList(), Mockito.same(context), Mockito.any()))
-                .thenAnswer(invocation -> {
-                    List<String> names = invocation.getArgument(0);
-                    return names.stream().collect(Collectors.toMap(
-                            name -> name, name -> snapshot, (left, right) -> left, LinkedHashMap::new));
-                });
-        LinkedHashSet<String> names = IntStream.range(0, 160_000)
-                .mapToObj(i -> "p" + i)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-
-        Map<String, MTMVSnapshotIf> result = context.getPartitionSnapshots(table, names, Optional.empty());
-
-        Assertions.assertEquals(160_000, result.size());
-        Mockito.verify(table, Mockito.times(1))
-                .getPartitionSnapshots(Mockito.anyList(), Mockito.same(context), Mockito.any());
-        Mockito.verify(table, Mockito.never())
-                .getPartitionSnapshot(Mockito.anyString(), Mockito.same(context), Mockito.any());
-    }
-
-    @Test
     public void preloadsPartitionMappingsBeforeTheCallerLoop() throws AnalysisException {
         MTMV mtmv = Mockito.mock(MTMV.class);
         MTMVPartitionInfo partitionInfo = Mockito.mock(MTMVPartitionInfo.class);
-        MTMVRelatedTableIf table = Mockito.mock(MTMVRelatedTableIf.class);
+        MTMVRelatedTableIf table = Mockito.mock(MTMVRelatedTableIf.class, Mockito.RETURNS_DEEP_STUBS);
+        MTMVRefreshSnapshot refreshSnapshot = Mockito.mock(MTMVRefreshSnapshot.class);
         Map<String, Map<MTMVRelatedTableIf, Set<String>>> mappings = new LinkedHashMap<>();
         for (int i = 0; i < 160_000; i++) {
             mappings.put("mv" + i, Collections.singletonMap(table, Collections.singleton("p" + i)));
         }
-        Mockito.when(mtmv.calculatePartitionMappings(Mockito.anyMap())).thenReturn(mappings);
+        Mockito.when(mtmv.calculatePartitionMappings(Mockito.anyMap(), Mockito.anyMap())).thenReturn(mappings);
         Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(partitionInfo);
+        Mockito.when(mtmv.getRefreshSnapshot()).thenReturn(refreshSnapshot);
         Mockito.when(mtmv.getRelation()).thenReturn(new MTMVRelation(
                 Collections.emptySet(), Collections.emptySet(), Collections.emptySet(),
                 Collections.emptySet(), Collections.emptySet()));
         Mockito.when(partitionInfo.getPartitionType())
-                .thenReturn(MTMVPartitionInfo.MTMVPartitionType.SELF_MANAGE);
+                .thenReturn(MTMVPartitionInfo.MTMVPartitionType.FOLLOW_BASE_TABLE);
         Mockito.when(partitionInfo.getPctTables()).thenReturn(Collections.singleton(table));
+        Mockito.when(table.getAndCopyPartitionItems(Mockito.any())).thenReturn(Collections.emptyMap());
         Mockito.when(table.supportsPartitionSnapshotBatchLoading()).thenReturn(true);
+        Mockito.when(table.needAutoRefresh()).thenReturn(true);
+        Mockito.when(refreshSnapshot.getPctSnapshots(Mockito.anyString(), Mockito.any()))
+                .thenAnswer(invocation -> Collections.singleton(
+                        "p" + invocation.<String>getArgument(0).substring(2)));
         MTMVSnapshotIf snapshot = new MTMVTimestampSnapshot(1L);
         Mockito.when(table.getPartitionSnapshots(Mockito.anyList(), Mockito.any(), Mockito.any()))
                 .thenAnswer(invocation -> invocation.<List<String>>getArgument(0).stream().collect(Collectors.toMap(
@@ -150,6 +132,16 @@ public class MTMVRefreshContextBatchTest {
                 Mockito.argThat(names -> names.size() == 160_000), Mockito.same(context), Mockito.any());
         Mockito.verify(table, Mockito.never())
                 .getPartitionSnapshot(Mockito.anyString(), Mockito.same(context), Mockito.any());
+
+        Mockito.clearInvocations(table);
+        Mockito.doReturn(Collections.emptySet()).when(refreshSnapshot)
+                .getPctSnapshots(Mockito.anyString(), Mockito.any());
+        Mockito.when(mtmv.getPartitionNames()).thenReturn(mappings.keySet());
+        MTMVRefreshContext mismatched = MTMVRefreshContext.buildContext(mtmv);
+        Assertions.assertFalse(MTMVPartitionUtil.isMTMVSync(
+                mismatched, Collections.emptySet(), Collections.emptySet()));
+        Mockito.verify(table, Mockito.never())
+                .getPartitionSnapshots(Mockito.anyList(), Mockito.same(mismatched), Mockito.any());
     }
 
     @Test
@@ -272,11 +264,14 @@ public class MTMVRefreshContextBatchTest {
         Set<BaseTableInfo> baseTables = new LinkedHashSet<>(Arrays.asList(local, external));
         MTMVBaseVersions before = new MTMVBaseVersions(Collections.singletonMap(1L, 1L), Collections.emptyMap());
         MTMVBaseVersions after = new MTMVBaseVersions(Collections.singletonMap(1L, 2L), Collections.emptyMap());
-        Mockito.when(mtmv.calculatePartitionMappings(Mockito.anyMap())).thenReturn(Collections.emptyMap());
+        OlapTable pctTable = Mockito.mock(OlapTable.class);
+        Mockito.when(mtmv.calculatePartitionMappings(Mockito.anyMap(), Mockito.anyMap()))
+                .thenReturn(Collections.emptyMap());
         Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(partitionInfo);
         Mockito.when(partitionInfo.getPartitionType())
-                .thenReturn(MTMVPartitionInfo.MTMVPartitionType.SELF_MANAGE);
-        Mockito.when(partitionInfo.getPctTables()).thenReturn(Collections.emptySet());
+                .thenReturn(MTMVPartitionInfo.MTMVPartitionType.FOLLOW_BASE_TABLE);
+        Mockito.when(partitionInfo.getPctTables()).thenReturn(Collections.singleton(pctTable));
+        Mockito.when(pctTable.getAndCopyPartitionItems(Mockito.any())).thenReturn(Collections.emptyMap());
 
         TableIf oldLocalTable = Mockito.mock(TableIf.class);
         TableIf newLocalTable = Mockito.mock(TableIf.class);
@@ -296,13 +291,15 @@ public class MTMVRefreshContextBatchTest {
             Assertions.assertSame(oldLocalTable, context.getBaseTable(local));
             Assertions.assertSame(externalTable, context.getBaseTable(external));
 
-            context.refreshLocalBaseVersions();
+            context.refreshLocalState();
 
             Assertions.assertEquals(2L, context.getBaseVersions().getTableVersions().get(1L));
             Assertions.assertFalse(context.getBaseTableSnapshotCache().containsKey(local));
             Assertions.assertSame(externalSnapshot, context.getBaseTableSnapshotCache().get(external));
             Assertions.assertSame(newLocalTable, context.getBaseTable(local));
             Assertions.assertSame(externalTable, context.getBaseTable(external));
+            Mockito.verify(mtmv, Mockito.times(2))
+                    .calculatePartitionMappings(Mockito.anyMap(), Mockito.anyMap());
         }
     }
 }

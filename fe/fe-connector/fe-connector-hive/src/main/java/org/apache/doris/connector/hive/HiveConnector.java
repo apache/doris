@@ -654,7 +654,8 @@ public class HiveConnector implements Connector {
      * {@code HiveConnector}, and {@link #createClient()} wraps its {@code ThriftHmsClient} here.
      */
     HmsClient wrapWithCache(HmsClient raw) {
-        return new CachingHmsClient(raw, properties, props.getHmsClientPoolSize());
+        return new CachingHmsClient(
+                raw, properties, props.getHmsClientPoolSize(), context.getMetadataAccessObserver());
     }
 
     /**

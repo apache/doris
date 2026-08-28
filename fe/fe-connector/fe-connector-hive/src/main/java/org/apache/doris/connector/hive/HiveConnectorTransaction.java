@@ -24,7 +24,7 @@ package org.apache.doris.connector.hive;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsCommonStatistics;
 import org.apache.doris.connector.hms.HmsNotificationEvent;
-import org.apache.doris.connector.hms.HmsPartitionAccessSource;
+import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsPartitionStatistics;
 import org.apache.doris.connector.hms.HmsPartitionWithStatistics;
@@ -697,7 +697,7 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
             }
 
             List<HmsPartitionInfo> hmsPartitions = hmsClient.getPartitions(
-                    session, HmsPartitionAccessSource.WRITE,
+                    session, ConnectorMetadataAccessSource.WRITE,
                     nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(), partitionNames);
             // Mirror HiveUtil.convertToNamePartitionMap's Collectors.toMap: fail loud on a duplicate
             // key (two HMS partitions with identical values, or a repeated requested partition name)

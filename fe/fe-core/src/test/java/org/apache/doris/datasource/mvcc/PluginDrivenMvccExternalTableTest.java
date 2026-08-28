@@ -30,6 +30,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
 import org.apache.doris.connector.spi.ConnectorOperationAbortedException;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -52,6 +53,7 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenSchemaCacheValue;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
+import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import org.apache.doris.nereids.StatementContext;
@@ -179,6 +181,22 @@ public class PluginDrivenMvccExternalTableTest {
         MTMVMaxTimestampSnapshot snap =
                 (MTMVMaxTimestampSnapshot) f.table.getTableSnapshot(null, Optional.empty());
         Assertions.assertEquals(new MTMVMaxTimestampSnapshot("t", 4242L), snap);
+    }
+
+    @Test
+    public void testDisplayContextLabelsFreshnessProbe() throws AnalysisException {
+        Fixture f = Fixture.partitioned();
+        flagPinLastModified(f);
+        MTMVRefreshContext context = Mockito.mock(MTMVRefreshContext.class);
+        Mockito.when(context.getMetadataAccessSource()).thenReturn(ConnectorMetadataAccessSource.DISPLAY);
+        Mockito.when(f.metadata.getTableFreshness(
+                Mockito.any(), Mockito.any(), Mockito.eq(ConnectorMetadataAccessSource.DISPLAY)))
+                .thenReturn(Optional.of(new ConnectorTableFreshness("t", 4242L)));
+
+        f.table.getTableSnapshot(context, Optional.empty());
+
+        Mockito.verify(f.metadata).getTableFreshness(
+                Mockito.any(), Mockito.any(), Mockito.eq(ConnectorMetadataAccessSource.DISPLAY));
     }
 
     @Test
@@ -1152,7 +1170,8 @@ public class PluginDrivenMvccExternalTableTest {
         // getNewestUpdateVersionOrTime must return the connector's whole-table freshness millis instead.
         Fixture f = Fixture.partitioned();
         flagPinLastModified(f);
-        Mockito.when(f.metadata.getTableFreshness(Mockito.any(), Mockito.any()))
+        Mockito.when(f.metadata.getTableFreshness(
+                Mockito.any(), Mockito.any(), Mockito.eq(ConnectorMetadataAccessSource.UNKNOWN)))
                 .thenReturn(Optional.of(new ConnectorTableFreshness("dt=2024-02-02", TS_TABLE_FRESH)));
 
         // MUTATION: taking the max-over-partitions path (ignoring the pin flag) would return the partition max
@@ -1167,7 +1186,8 @@ public class PluginDrivenMvccExternalTableTest {
         // degrade to 0 (parity legacy getNewestUpdateVersionOrTime), NOT throw or leak a sentinel.
         Fixture f = Fixture.partitioned();
         flagPinLastModified(f);
-        Mockito.when(f.metadata.getTableFreshness(Mockito.any(), Mockito.any()))
+        Mockito.when(f.metadata.getTableFreshness(
+                Mockito.any(), Mockito.any(), Mockito.eq(ConnectorMetadataAccessSource.UNKNOWN)))
                 .thenReturn(Optional.empty());
         // MUTATION: mapping an empty freshness to anything but 0 (e.g. throwing, or leaking -1) makes this red.
         Assertions.assertEquals(0L, f.table.getNewestUpdateVersionOrTime(),
@@ -1183,7 +1203,8 @@ public class PluginDrivenMvccExternalTableTest {
         Assertions.assertEquals(TS_2024_02_02, f.table.getNewestUpdateVersionOrTime(),
                 "a snapshot-id connector must keep the max-partition-modify path");
         // MUTATION: dropping the pin-flag gate (probing unconditionally) makes this verify red.
-        Mockito.verify(f.metadata, Mockito.never()).getTableFreshness(Mockito.any(), Mockito.any());
+        Mockito.verify(f.metadata, Mockito.never()).getTableFreshness(
+                Mockito.any(), Mockito.any(), Mockito.eq(ConnectorMetadataAccessSource.UNKNOWN));
     }
 
     @Test

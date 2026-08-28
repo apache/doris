@@ -92,12 +92,15 @@ final class HmsPartitionBatchLoader {
         boolean success = false;
         try {
             List<HmsPartitionInfo> result = new ArrayList<>(names.size());
+            List<HmsPartitionIdentity.ParsedPartitionName> partitions = request.getPartitions();
             int offset = 0;
             int effectiveBatchSize = request.effectiveBatchSize(maxBatchSize);
             while (offset < names.size()) {
                 checkActive(request, fallbackStartNanos, fallbackTimeoutNanos);
                 int batchSize = Math.min(effectiveBatchSize, names.size() - offset);
                 List<String> batch = new ArrayList<>(names.subList(offset, offset + batchSize));
+                List<HmsPartitionIdentity.ParsedPartitionName> batchPartitions
+                        = partitions.subList(offset, offset + batchSize);
                 List<HmsPartitionInfo> returned;
                 ConnectorOperationControl effectiveControl = operationControlForAttempt(
                         request, fallbackStartNanos, fallbackTimeoutNanos);
@@ -132,7 +135,8 @@ final class HmsPartitionBatchLoader {
                 // a malformed response or a local write-back bug must never trigger transport fallback or be
                 // wrapped as an HMS RPC failure.
                 checkActive(effectiveControl);
-                List<HmsPartitionInfo> ordered = validateAndOrder(batch, returned, effectiveControl);
+                List<HmsPartitionInfo> ordered = validateParsedAndOrder(
+                        batchPartitions, returned, effectiveControl);
                 checkActive(effectiveControl);
                 request.getPartitionChunkConsumer().accept(batch, ordered, effectiveControl);
                 checkActive(effectiveControl);
@@ -159,8 +163,12 @@ final class HmsPartitionBatchLoader {
                     .maxRpcElapsedMillis(TimeUnit.NANOSECONDS.toMillis(remoteCalls.maxElapsedNanos))
                     .success(success)
                     .build();
-            recordSafely("catalog metrics", observer, event);
-            recordSafely("query profile", request.getMetadataAccessObserver(), event);
+            if (request.isLogicalAccessOwner()) {
+                recordSafely("catalog metrics", observer, event);
+                recordSafely("query profile", request.getMetadataAccessObserver(), event);
+            } else {
+                request.addPhysicalAccess(event);
+            }
         }
     }
 
@@ -243,29 +251,24 @@ final class HmsPartitionBatchLoader {
         }
     }
 
-    static List<HmsPartitionInfo> validateAndOrder(
-            List<String> requestedNames, List<HmsPartitionInfo> returned) {
-        return validateAndOrder(requestedNames, returned, ConnectorOperationControl.NONE);
-    }
-
-    static List<HmsPartitionInfo> validateAndOrder(List<String> requestedNames,
+    static List<HmsPartitionInfo> validateParsedAndOrder(
+            List<HmsPartitionIdentity.ParsedPartitionName> requested,
             List<HmsPartitionInfo> returned, ConnectorOperationControl operationControl) {
-        int expectedValueCount = HmsPartitionIdentity.fromName(requestedNames.get(0)).size();
+        int expectedValueCount = requested.get(0).getValues().size();
         Map<List<String>, Integer> expected = new HashMap<>();
-        List<List<String>> requestedIdentities = new ArrayList<>(requestedNames.size());
-        for (int i = 0; i < requestedNames.size(); i++) {
+        for (int i = 0; i < requested.size(); i++) {
             checkActivePeriodically(operationControl, i);
-            List<String> identity = HmsPartitionIdentity.fromName(requestedNames.get(i));
-            requestedIdentities.add(identity);
+            HmsPartitionIdentity.ParsedPartitionName partition = requested.get(i);
+            List<String> identity = partition.getValues();
             Integer previous = expected.put(identity, i);
             if (previous != null) {
                 throw new IllegalArgumentException(
-                        "duplicate partition identity in request: " + requestedNames.get(i));
+                        "duplicate partition identity in request: " + partition.getName());
             }
         }
         HmsPartitionResultException.Builder failure = HmsPartitionResultException.builder(
-                requestedNames.size(), returned == null ? 0 : returned.size());
-        List<HmsPartitionInfo> ordered = new ArrayList<>(java.util.Collections.nCopies(requestedNames.size(), null));
+                requested.size(), returned == null ? 0 : returned.size());
+        List<HmsPartitionInfo> ordered = new ArrayList<>(java.util.Collections.nCopies(requested.size(), null));
         Map<List<String>, Integer> returnedCounts = new LinkedHashMap<>();
         if (returned == null) {
             failure.invalid("<null response>");
@@ -289,10 +292,10 @@ final class HmsPartitionBatchLoader {
                 }
             }
         }
-        for (int i = 0; i < requestedIdentities.size(); i++) {
+        for (int i = 0; i < requested.size(); i++) {
             checkActivePeriodically(operationControl, i);
-            if (!returnedCounts.containsKey(requestedIdentities.get(i))) {
-                failure.missing(requestedNames.get(i));
+            if (!returnedCounts.containsKey(requested.get(i).getValues())) {
+                failure.missing(requested.get(i).getName());
             }
         }
         int returnedIndex = 0;
@@ -367,14 +370,11 @@ final class HmsPartitionBatchLoader {
             return false;
         }
         for (Throwable current = failure.getCause(); current != null; current = current.getCause()) {
-            String className = current.getClass().getName();
-            if (className.endsWith(".TTransportException")) {
-                return true;
-            }
             String message = current.getMessage();
             if (message != null) {
                 String normalized = message.toLowerCase(Locale.ROOT);
                 if (normalized.contains("message size") || normalized.contains("max message")
+                        || normalized.contains("maxmessagesize")
                         || normalized.contains("frame size") || normalized.contains("frame too large")
                         || normalized.contains("request too large") || normalized.contains("payload too large")
                         || normalized.contains("too many partitions")

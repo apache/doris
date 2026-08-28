@@ -270,8 +270,7 @@ public class MTMVTask extends AbstractTask {
                                 relation.getBaseTablesOneLevelAndFromView(), mtmv.getExcludedTriggerTables());
                     }
                 } else {
-                    // Re-capture lock-protected local OLAP versions after the external work.
-                    context.refreshLocalBaseVersions();
+                    context.refreshLocalState();
                 }
                 this.needRefreshPartitions = calculateNeedRefreshPartitions(context);
             } finally {

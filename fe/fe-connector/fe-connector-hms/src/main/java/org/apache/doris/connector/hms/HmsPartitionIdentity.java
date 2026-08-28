@@ -62,16 +62,22 @@ final class HmsPartitionIdentity {
             }
         }
         return new ParsedPartitionName(
-                Collections.unmodifiableList(keys), Collections.unmodifiableList(values));
+                partitionName, Collections.unmodifiableList(keys), Collections.unmodifiableList(values));
     }
 
     static final class ParsedPartitionName {
+        private final String name;
         private final List<String> keys;
         private final List<String> values;
 
-        private ParsedPartitionName(List<String> keys, List<String> values) {
+        private ParsedPartitionName(String name, List<String> keys, List<String> values) {
+            this.name = name;
             this.keys = keys;
             this.values = values;
+        }
+
+        String getName() {
+            return name;
         }
 
         List<String> getKeys() {

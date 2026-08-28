@@ -204,17 +204,22 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         // This handles image deserialization of old resource-backed catalogs whose
         // properties never contained "type" (it was derived from the Resource object).
         String catalogType = getType();
-        // Build the context up front and stash it so the catalog can close its cached engine FileSystem on
-        // teardown (onClose / connector replacement). The connector — and any sibling it builds — shares this
-        // one context instance, so there is a single cached FS per catalog.
         DefaultConnectorContext context = new DefaultConnectorContext(name, id, this::getExecutionAuthenticator,
                 () -> catalogProperty.getStorageAdaptersMap(),
                 catalogProperty::getEffectiveRawStorageProperties);
-        this.connectorContext = context;
-        // The standalone entry point, same as CatalogFactory uses: this is the second door onto a catalog (the
-        // lazy build after image deserialization), and both doors must agree on what may become a catalog.
-        return ConnectorFactory.createStandaloneCatalogConnector(
-                catalogType, catalogProperty.getProperties(), context);
+        try {
+            Connector created = ConnectorFactory.createStandaloneCatalogConnector(
+                    catalogType, catalogProperty.getProperties(), context);
+            if (created == null) {
+                closeConnectorContextQuietly(context);
+                return null;
+            }
+            connectorContext = context;
+            return created;
+        } catch (RuntimeException | Error e) {
+            closeConnectorContextQuietly(context);
+            throw e;
+        }
     }
 
     @Override

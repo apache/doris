@@ -26,8 +26,24 @@ import org.apache.doris.metric.MetricRepo;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
+
 /** Verifies that per-catalog connector metadata metrics follow the connector-context lifecycle. */
 public class ConnectorMetadataAccessMetricsTest {
+
+    @Test
+    public void catalogValidationContextDoesNotAcquireRuntimeMetrics() {
+        String catalog = "hms_validation_context_metrics_test";
+        boolean originalMetricInit = MetricRepo.isInit;
+        try {
+            MetricRepo.isInit = true;
+            DefaultConnectorContext.forCatalogCreationValidation(catalog, 9875L, Collections.emptyMap())
+                    .getMetadataAccessObserver().record(event());
+            Assertions.assertFalse(hasCatalogMetric("connector_metadata_access_requests_total", catalog));
+        } finally {
+            MetricRepo.isInit = originalMetricInit;
+        }
+    }
 
     @Test
     public void contextCloseUnregistersMetricsAndDisablesCapturedObserver() throws Exception {

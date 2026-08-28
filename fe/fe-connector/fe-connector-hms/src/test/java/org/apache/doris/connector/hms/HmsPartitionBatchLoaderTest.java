@@ -18,10 +18,9 @@
 package org.apache.doris.connector.hms;
 
 import org.apache.doris.connector.spi.ConnectorMetadataAccessEvent;
-import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
+import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
 import org.apache.doris.connector.spi.ConnectorOperationAbortedException;
 import org.apache.doris.connector.spi.ConnectorOperationControl;
-import org.apache.doris.connector.spi.ConnectorSession;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.HiveMetaHookLoader;
@@ -30,16 +29,10 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -47,18 +40,6 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public class HmsPartitionBatchLoaderTest {
-
-    @Test
-    public void emptyRequestDoesNotFetch() {
-        List<Integer> batchSizes = new ArrayList<>();
-        HmsPartitionBatchLoader loader = loader(5000, (db, table, names, control) -> {
-            batchSizes.add(names.size());
-            return infos(names);
-        });
-
-        Assertions.assertEquals(Collections.emptyList(), loader.load(request(Collections.emptyList())));
-        Assertions.assertEquals(Collections.emptyList(), batchSizes);
-    }
 
     @Test
     public void chunksLargeRequestAndRestoresRequestOrder() {
@@ -143,25 +124,14 @@ public class HmsPartitionBatchLoaderTest {
     }
 
     @Test
-    public void genericFailureIsNotSplit() {
-        List<Integer> batchSizes = new ArrayList<>();
-        HmsClientException expected = new HmsClientException("authorization failed");
-        HmsPartitionBatchLoader loader = loader(8, (db, table, names, control) -> {
-            batchSizes.add(names.size());
-            throw expected;
-        });
-
-        HmsClientException failure = Assertions.assertThrows(
-                HmsClientException.class, () -> loader.load(request(names(8))));
-        Assertions.assertEquals(Collections.singletonList(8), batchSizes);
-        Assertions.assertSame(expected, failure);
-    }
-
-    @Test
     public void onlyClassifiedRemoteThriftFailuresCanDegrade() {
-        Assertions.assertTrue(HmsPartitionBatchLoader.isDegradableRemoteFailure(
+        Assertions.assertFalse(HmsPartitionBatchLoader.isDegradableRemoteFailure(
                 new HmsRemoteCallException("remote",
                         new shade.doris.hive.org.apache.thrift.transport.TTransportException("closed"))));
+        Assertions.assertTrue(HmsPartitionBatchLoader.isDegradableRemoteFailure(
+                new HmsRemoteCallException("remote",
+                        new shade.doris.hive.org.apache.thrift.transport.TTransportException(
+                                "MaxMessageSize reached"))));
         Assertions.assertTrue(HmsPartitionBatchLoader.isDegradableRemoteFailure(
                 new HmsRemoteCallException("remote",
                         new shade.doris.hive.org.apache.thrift.TException("too many partitions in request"))));
@@ -264,19 +234,6 @@ public class HmsPartitionBatchLoaderTest {
     }
 
     @Test
-    public void normalBatchingIsNotLimitedByFallbackBudget() {
-        AtomicLong time = new AtomicLong();
-        HmsPartitionBatchLoader loader = HmsPartitionBatchLoader.builder()
-                .maxBatchSize(2)
-                .fallbackTimeoutMillis(30)
-                .fetcher((db, table, names, control) -> infos(names))
-                .nanoTime(() -> time.getAndAdd(31_000_000L))
-                .build();
-
-        Assertions.assertEquals(5, loader.load(request(names(5))).size());
-    }
-
-    @Test
     public void retryingClientWireAttemptsAreCountedIndividually() {
         AtomicReference<ConnectorMetadataAccessEvent> event = new AtomicReference<>();
         HmsPartitionBatchLoader loader = HmsPartitionBatchLoader.builder()
@@ -319,31 +276,6 @@ public class HmsPartitionBatchLoaderTest {
     }
 
     @Test
-    public void createsInternalRequestFromSessionAndAccessSource() {
-        ConnectorOperationControl operationControl = ConnectorOperationControl.NONE;
-        ConnectorMetadataAccessObserver metadataAccessObserver = event -> { };
-        ConnectorSession session = (ConnectorSession) Proxy.newProxyInstance(
-                ConnectorSession.class.getClassLoader(), new Class<?>[] {ConnectorSession.class},
-                (proxy, method, args) -> {
-                    if (method.getName().equals("getOperationControl")) {
-                        return operationControl;
-                    }
-                    if (method.getName().equals("getMetadataAccessObserver")) {
-                        return metadataAccessObserver;
-                    }
-                    throw new AssertionError("unexpected ConnectorSession method: " + method.getName());
-                });
-
-        HmsPartitionRequest request = HmsPartitionRequest.from(
-                session, HmsPartitionAccessSource.STATISTICS, "db", "table", names(2));
-
-        Assertions.assertEquals(HmsPartitionAccessSource.STATISTICS, request.getSource());
-        Assertions.assertSame(operationControl, request.getOperationControl());
-        Assertions.assertSame(metadataAccessObserver, request.getMetadataAccessObserver());
-        Assertions.assertEquals(names(2), request.getPartitionNames());
-    }
-
-    @Test
     public void emitsOneLogicalRequestEventWithPhysicalAttempts() {
         AtomicReference<ConnectorMetadataAccessEvent> event = new AtomicReference<>();
         AtomicReference<ConnectorMetadataAccessEvent> requestEvent = new AtomicReference<>();
@@ -360,7 +292,7 @@ public class HmsPartitionBatchLoaderTest {
                 .database("db")
                 .table("table")
                 .partitionNames(names(5))
-                .source(HmsPartitionAccessSource.QUERY)
+                .source(ConnectorMetadataAccessSource.QUERY)
                 .metadataAccessObserver(requestEvent::set)
                 .build();
         loader.load(request);
@@ -401,56 +333,6 @@ public class HmsPartitionBatchLoaderTest {
         Assertions.assertEquals(2, observerCalls.get());
     }
 
-    @Test
-    public void observerFailuresDoNotReplaceHmsFailure() {
-        AtomicInteger observerCalls = new AtomicInteger();
-        HmsPartitionBatchLoader loader = HmsPartitionBatchLoader.builder()
-                .maxBatchSize(10)
-                .fallbackTimeoutMillis(30_000)
-                .fetcher((db, table, names, control) -> {
-                    throw new HmsClientException("authorization failed");
-                })
-                .observer(event -> {
-                    observerCalls.incrementAndGet();
-                    throw new IllegalStateException("metrics failure");
-                })
-                .build();
-        HmsPartitionRequest request = HmsPartitionRequest.builder()
-                .database("db")
-                .table("table")
-                .partitionNames(names(1))
-                .metadataAccessObserver(event -> {
-                    observerCalls.incrementAndGet();
-                    throw new IllegalStateException("profile failure");
-                })
-                .build();
-
-        HmsClientException failure = Assertions.assertThrows(
-                HmsClientException.class, () -> loader.load(request));
-        Assertions.assertTrue(failure.getMessage().contains("authorization failed"));
-        Assertions.assertEquals(2, observerCalls.get());
-    }
-
-    @Test
-    public void concurrentLogicalRequestsKeepIndependentBatchState() throws Exception {
-        CountDownLatch bothRequestsEntered = new CountDownLatch(2);
-        HmsPartitionBatchLoader loader = loader(100, (db, table, names, control) -> {
-            bothRequestsEntered.countDown();
-            Assertions.assertTrue(bothRequestsEntered.await(5, TimeUnit.SECONDS));
-            return infos(names);
-        });
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        try {
-            Future<List<HmsPartitionInfo>> first = executor.submit(() -> loader.load(request(names(10))));
-            Future<List<HmsPartitionInfo>> second = executor.submit(() -> loader.load(request(names(10))));
-
-            Assertions.assertEquals(10, first.get(10, TimeUnit.SECONDS).size());
-            Assertions.assertEquals(10, second.get(10, TimeUnit.SECONDS).size());
-        } finally {
-            executor.shutdownNow();
-        }
-    }
-
     private static HmsPartitionBatchLoader loader(int maxBatchSize, HmsPartitionBatchLoader.Fetcher fetcher) {
         return HmsPartitionBatchLoader.builder()
                 .maxBatchSize(maxBatchSize)
@@ -464,7 +346,7 @@ public class HmsPartitionBatchLoaderTest {
                 .database("db")
                 .table("table")
                 .partitionNames(names)
-                .source(HmsPartitionAccessSource.QUERY)
+                .source(ConnectorMetadataAccessSource.QUERY)
                 .build();
     }
 

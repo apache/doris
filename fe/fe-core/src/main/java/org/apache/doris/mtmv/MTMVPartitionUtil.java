@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -199,8 +200,17 @@ public class MTMVPartitionUtil {
             MTMVPartitionInfo mvPartitionInfo,
             Map<String, String> mvProperties, List<Column> partitionColumns,
             Map<List<String>, Set<String>> queryUsedPartitions) throws AnalysisException {
+        return generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, partitionColumns,
+                queryUsedPartitions, Maps.newHashMap());
+    }
+
+    public static Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> generateRelatedPartitionDescs(
+            MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties, List<Column> partitionColumns,
+            Map<List<String>, Set<String>> queryUsedPartitions,
+            Map<MTMVRelatedTableIf, Map<String, PartitionItem>> initialPartitionItems) throws AnalysisException {
         long start = System.currentTimeMillis();
         RelatedPartitionDescResult result = new RelatedPartitionDescResult();
+        result.setItems(initialPartitionItems);
         for (MTMVRelatedPartitionDescGeneratorService service : partitionDescGenerators) {
             service.apply(mvPartitionInfo, mvProperties, result, partitionColumns, queryUsedPartitions);
         }
@@ -245,6 +255,9 @@ public class MTMVPartitionUtil {
             throws AnalysisException {
         MTMV mtmv = context.getMtmv();
         Set<String> partitionNames = mtmv.getPartitionNames();
+        if (!context.persistedPartitionSetsMatch(partitionNames)) {
+            return false;
+        }
         context.preloadSnapshots(partitionNames, tables, excludeTables);
         for (String partitionName : partitionNames) {
             if (!isMTMVPartitionSync(context, partitionName, tables,
@@ -355,10 +368,7 @@ public class MTMVPartitionUtil {
         }
         // check if partitions of related table is changed
         BaseTableInfo pctTableInfo = new BaseTableInfo(pctTable);
-        // check if partitions of related table is changed
-        Set<String> snapshotPartitions = mtmv.getRefreshSnapshot()
-                .getPctSnapshots(mtmvPartitionName, pctTableInfo);
-        if (!Objects.equals(pctPartitionNames, snapshotPartitions)) {
+        if (!context.hasPersistedPartitionSet(mtmvPartitionName, pctTable, pctPartitionNames)) {
             return false;
         }
         if (CollectionUtils.isEmpty(pctPartitionNames)) {

@@ -118,6 +118,11 @@ public interface ConnectorMetadata extends
         return Optional.empty();
     }
 
+    default Optional<ConnectorTableFreshness> getTableFreshness(ConnectorSession session,
+            ConnectorTableHandle handle, ConnectorMetadataAccessSource source) {
+        return getTableFreshness(session, handle);
+    }
+
     /**
      * Per-partition last-modified millis for a last-modified connector, wrapped by the generic model in an
      * {@code MTMVTimestampSnapshot}. Fetched on the MTMV refresh path only — a last-modified connector's
@@ -136,6 +141,11 @@ public interface ConnectorMetadata extends
         return OptionalLong.empty();
     }
 
+    default OptionalLong getPartitionFreshnessMillis(ConnectorSession session, ConnectorTableHandle handle,
+            String partitionName, ConnectorMetadataAccessSource source) {
+        return getPartitionFreshnessMillis(session, handle, partitionName);
+    }
+
     /**
      * Bulk form of {@link #getPartitionFreshnessMillis}. The compatibility default preserves existing
      * connectors; metadata stores with a batch API must override it to avoid one remote call per partition.
@@ -150,6 +160,18 @@ public interface ConnectorMetadata extends
         Map<String, Long> result = new LinkedHashMap<>();
         for (String partitionName : partitionNames) {
             OptionalLong freshness = getPartitionFreshnessMillis(session, handle, partitionName);
+            if (freshness.isPresent()) {
+                result.put(partitionName, freshness.getAsLong());
+            }
+        }
+        return result;
+    }
+
+    default Map<String, Long> getPartitionFreshnessMillis(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> partitionNames, ConnectorMetadataAccessSource source) {
+        Map<String, Long> result = new LinkedHashMap<>();
+        for (String partitionName : partitionNames) {
+            OptionalLong freshness = getPartitionFreshnessMillis(session, handle, partitionName, source);
             if (freshness.isPresent()) {
                 result.put(partitionName, freshness.getAsLong());
             }

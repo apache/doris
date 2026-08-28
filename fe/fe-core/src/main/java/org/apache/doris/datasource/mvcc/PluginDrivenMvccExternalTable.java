@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
 import org.apache.doris.connector.spi.ConnectorOperationAbortedException;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -787,7 +788,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
             Map<String, Long> onDemandFreshness = Collections.emptyMap();
             if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
-                onDemandFreshness = queryPartitionFreshnessMillis(partitionNames);
+                ConnectorMetadataAccessSource source = context == null
+                        ? ConnectorMetadataAccessSource.MTMV : context.getMetadataAccessSource();
+                onDemandFreshness = queryPartitionFreshnessMillis(partitionNames, source);
             }
             Map<String, MTMVSnapshotIf> result = new LinkedHashMap<>();
             for (String partitionName : partitionNames) {
@@ -842,11 +845,18 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     @Override
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
-        return getTableSnapshot(snapshot);
+        ConnectorMetadataAccessSource source = context == null
+                ? ConnectorMetadataAccessSource.MTMV : context.getMetadataAccessSource();
+        return getTableSnapshot(snapshot, source);
     }
 
     @Override
     public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        return getTableSnapshot(snapshot, ConnectorMetadataAccessSource.MTMV);
+    }
+
+    private MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot,
+            ConnectorMetadataAccessSource source) throws AnalysisException {
         // Freshness-kind-aware (mirrors getPartitionSnapshot), gated by the pin fe-core already holds so a
         // snapshot-id connector pays ZERO extra metadata calls. A last-modified connector (e.g. hive, whose
         // whole-table change signal is transient_lastDdlTime / the max partition modify time, NOT a snapshot
@@ -858,7 +868,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         try {
             PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
             if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
-                Optional<ConnectorTableFreshness> tableFreshness = queryTableFreshness();
+                Optional<ConnectorTableFreshness> tableFreshness = queryTableFreshness(source);
                 if (tableFreshness.isPresent()) {
                     return new MTMVMaxTimestampSnapshot(tableFreshness.get().getName(),
                             tableFreshness.get().getTimestampMillis());
@@ -879,13 +889,15 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
      * Whole-table freshness from a last-modified connector (present only for e.g. hive), or empty for a
      * snapshot-id connector / a dropped catalog/table. See {@link ConnectorMetadata#getTableFreshness}.
      */
-    private Optional<ConnectorTableFreshness> queryTableFreshness() {
+    private Optional<ConnectorTableFreshness> queryTableFreshness(ConnectorMetadataAccessSource source) {
         Optional<FreshnessProbe> probe = resolveFreshnessProbe();
         if (!probe.isPresent()) {
             return Optional.empty();
         }
         FreshnessProbe p = probe.get();
-        return p.metadata.getTableFreshness(p.session, p.handle);
+        return source == ConnectorMetadataAccessSource.MTMV
+                ? p.metadata.getTableFreshness(p.session, p.handle)
+                : p.metadata.getTableFreshness(p.session, p.handle, source);
     }
 
     /**
@@ -893,13 +905,16 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
      * empty for a snapshot-id connector / a dropped catalog/table. See
      * {@link ConnectorMetadata#getPartitionFreshnessMillis}.
      */
-    private Map<String, Long> queryPartitionFreshnessMillis(List<String> partitionNames) {
+    private Map<String, Long> queryPartitionFreshnessMillis(
+            List<String> partitionNames, ConnectorMetadataAccessSource source) {
         Optional<FreshnessProbe> probe = resolveFreshnessProbe();
         if (!probe.isPresent()) {
             return Collections.emptyMap();
         }
         FreshnessProbe p = probe.get();
-        return p.metadata.getPartitionFreshnessMillis(p.session, p.handle, partitionNames);
+        return source == ConnectorMetadataAccessSource.MTMV
+                ? p.metadata.getPartitionFreshnessMillis(p.session, p.handle, partitionNames)
+                : p.metadata.getPartitionFreshnessMillis(p.session, p.handle, partitionNames, source);
     }
 
     /**
@@ -949,7 +964,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // parity legacy). A snapshot-id connector (paimon/iceberg) leaves the flag false and takes the EXACT
         // pre-change path below: a single boolean read, zero added metadata calls — byte- and cost-neutral.
         if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
-            return queryTableFreshness().map(ConnectorTableFreshness::getTimestampMillis).orElse(0L);
+            return queryTableFreshness(ConnectorMetadataAccessSource.UNKNOWN)
+                    .map(ConnectorTableFreshness::getTimestampMillis).orElse(0L);
         }
         if (pin.getPartitionType() != null) {
             // Range-view path: nameToLastModifiedMillis holds (non-monotonic) snapshot ids, NOT a usable
@@ -975,7 +991,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // branches already yield epoch millis, so they are unchanged.
         PluginDrivenMvccSnapshot pin = materializeLatest();
         if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
-            return queryTableFreshness().map(ConnectorTableFreshness::getTimestampMillis).orElse(0L);
+            return queryTableFreshness(ConnectorMetadataAccessSource.UNKNOWN)
+                    .map(ConnectorTableFreshness::getTimestampMillis).orElse(0L);
         }
         if (pin.getPartitionType() != null) {
             return pin.getNewestUpdateWallClockMillis();

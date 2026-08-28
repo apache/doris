@@ -18,7 +18,7 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.hms.HmsClient;
-import org.apache.doris.connector.hms.HmsPartitionAccessSource;
+import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -245,7 +245,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
 
         // Resolve ONLY this batch's partitions (scoped to partitionBatch), NOT handle.getPrunedPartitions().
         List<HmsPartitionInfo> hmsPartitions = hmsClient.getPartitions(
-                session, HmsPartitionAccessSource.QUERY, dbName, tableName, partitionBatch);
+                session, ConnectorMetadataAccessSource.QUERY, dbName, tableName, partitionBatch);
         List<PartitionScanInfo> partitions = convertPartitions(
                 hmsPartitions, hiveHandle.getPartitionKeyNames());
         if (partitions.isEmpty()) {
@@ -502,7 +502,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             return Collections.emptyList();
         }
         List<HmsPartitionInfo> hmsPartitions = hmsClient.getPartitions(
-                session, HmsPartitionAccessSource.QUERY,
+                session, ConnectorMetadataAccessSource.QUERY,
                 handle.getDbName(), handle.getTableName(), partNames);
         return convertPartitions(hmsPartitions, partKeyNames);
     }

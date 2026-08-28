@@ -140,7 +140,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         Map<String, String> rawSnapshot = Collections.unmodifiableMap(
                 new HashMap<>(Objects.requireNonNull(rawStorageProperties, "rawStorageProperties")));
         return new DefaultConnectorContext(catalogName, catalogId, () -> NOOP_AUTH,
-                Collections::emptyMap, () -> new HashMap<>(rawSnapshot));
+                Collections::emptyMap, () -> new HashMap<>(rawSnapshot), false);
     }
 
     public DefaultConnectorContext(String catalogName, long catalogId,
@@ -158,6 +158,13 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
             Supplier<ExecutionAuthenticator> authSupplier,
             Supplier<Map<StorageTypeId, StorageAdapter>> storagePropertiesSupplier,
             Supplier<Map<String, String>> rawStoragePropsSupplier) {
+        this(catalogName, catalogId, authSupplier, storagePropertiesSupplier, rawStoragePropsSupplier, true);
+    }
+
+    private DefaultConnectorContext(String catalogName, long catalogId,
+            Supplier<ExecutionAuthenticator> authSupplier,
+            Supplier<Map<StorageTypeId, StorageAdapter>> storagePropertiesSupplier,
+            Supplier<Map<String, String>> rawStoragePropsSupplier, boolean collectMetadataAccessMetrics) {
         this.catalogName = Objects.requireNonNull(catalogName, "catalogName");
         this.catalogId = catalogId;
         this.authSupplier = Objects.requireNonNull(authSupplier, "authSupplier");
@@ -166,7 +173,8 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         this.rawStoragePropsSupplier =
                 Objects.requireNonNull(rawStoragePropsSupplier, "rawStoragePropsSupplier");
         this.environment = buildEnvironment();
-        this.metadataAccessMetrics = new ConnectorMetadataAccessMetrics(catalogName);
+        this.metadataAccessMetrics = collectMetadataAccessMetrics
+                ? new ConnectorMetadataAccessMetrics(catalogName) : null;
     }
 
     @Override
@@ -217,7 +225,8 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
 
     @Override
     public ConnectorMetadataAccessObserver getMetadataAccessObserver() {
-        return metadataAccessMetrics::record;
+        return metadataAccessMetrics == null
+                ? ConnectorMetadataAccessObserver.NOOP : metadataAccessMetrics::record;
     }
 
     @Override
@@ -407,7 +416,9 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
             fs = catalogFileSystem;
             catalogFileSystem = null;
         }
-        metadataAccessMetrics.close();
+        if (metadataAccessMetrics != null) {
+            metadataAccessMetrics.close();
+        }
         if (fs != null) {
             fs.close();
         }

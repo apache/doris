@@ -15,10 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.connector.hms;
+package org.apache.doris.connector.spi;
 
-/** Logical source of an HMS partition-object access. */
-public enum HmsPartitionAccessSource {
+public enum ConnectorMetadataAccessSource {
     QUERY,
     MTMV,
     STATISTICS,

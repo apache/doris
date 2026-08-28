@@ -19,6 +19,7 @@ package org.apache.doris.connector.hms;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
+import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
 import org.apache.doris.connector.spi.ConnectorOperationAbortedException;
 import org.apache.doris.connector.spi.ConnectorOperationControl;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -78,7 +79,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -112,6 +120,12 @@ public class ThriftHmsClient implements HmsClient {
     private final MetaStoreClientProvider clientProvider;
     private final HmsTypeMapping.Options typeMappingOptions;
     private final HmsPartitionBatchLoader partitionBatchLoader;
+    private final ExecutorService clientCreationExecutor = Executors.newCachedThreadPool(runnable -> {
+        Thread thread = new Thread(runnable, "hms-client-creator");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private final ThreadLocal<ConnectorOperationControl> clientCreationControl = new ThreadLocal<>();
     private volatile boolean closed;
 
     /**
@@ -265,11 +279,11 @@ public class ThriftHmsClient implements HmsClient {
     @Override
     public List<HmsPartitionInfo> getPartitions(String dbName,
             String tableName, List<String> partNames) {
-        return getPartitions(null, HmsPartitionAccessSource.UNKNOWN, dbName, tableName, partNames);
+        return getPartitions(null, ConnectorMetadataAccessSource.UNKNOWN, dbName, tableName, partNames);
     }
 
     @Override
-    public List<HmsPartitionInfo> getPartitions(ConnectorSession session, HmsPartitionAccessSource source,
+    public List<HmsPartitionInfo> getPartitions(ConnectorSession session, ConnectorMetadataAccessSource source,
             String dbName, String tableName, List<String> partNames) {
         return getPartitions(HmsPartitionRequest.from(session, source, dbName, tableName, partNames));
     }
@@ -715,6 +729,7 @@ public class ThriftHmsClient implements HmsClient {
             return;
         }
         closed = true;
+        clientCreationExecutor.shutdownNow();
         if (clientPool != null) {
             try {
                 clientPool.close();
@@ -863,7 +878,7 @@ public class ThriftHmsClient implements HmsClient {
 
     private PooledHmsClient borrowClient(ConnectorOperationControl operationControl) {
         if (clientPool == null) {
-            return createFreshClient();
+            return createFreshClient(operationControl);
         }
         long poolWaitDeadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(POOL_BORROW_TIMEOUT_MS);
         while (true) {
@@ -885,6 +900,7 @@ public class ThriftHmsClient implements HmsClient {
                 waitMillis = Math.min(waitMillis, operationRemainingMillis);
             }
             try {
+                clientCreationControl.set(operationControl);
                 return clientPool.borrowObject(waitMillis);
             } catch (InterruptedException e) {
                 // GenericObjectPool clears the interrupted status when its blocking deque throws. Restore it before
@@ -896,23 +912,92 @@ public class ThriftHmsClient implements HmsClient {
             } catch (NoSuchElementException e) {
                 // A short poll timed out while the pool remains exhausted. Re-check statement cancellation and
                 // deadline instead of hiding KILL QUERY behind the pool's full 60-second wait budget.
+                ConnectorOperationAbortedException operationAbort = findOperationAbort(e);
+                if (operationAbort != null) {
+                    throw operationAbort;
+                }
                 operationControl.checkActive();
             } catch (Exception e) {
+                ConnectorOperationAbortedException operationAbort = findOperationAbort(e);
+                if (operationAbort != null) {
+                    throw operationAbort;
+                }
                 operationControl.checkActive();
                 throw new HmsClientException(withRootCause("Failed to borrow HMS client "
                         + "from pool: " + e.getMessage(), e), e);
+            } finally {
+                clientCreationControl.remove();
             }
         }
     }
 
-    private PooledHmsClient createFreshClient() {
+    private PooledHmsClient createFreshClient(ConnectorOperationControl operationControl) {
+        CompletableFuture<PooledHmsClient> result = new CompletableFuture<>();
+        Future<?> task;
         try {
-            return doAs(() -> new PooledHmsClient(
-                    clientProvider.create(hiveConf)));
-        } catch (Exception e) {
-            throw new HmsClientException(withRootCause("Failed to create HMS client: "
-                    + e.getMessage(), e), e);
+            task = clientCreationExecutor.submit(() -> {
+                try {
+                    result.complete(doAs(() -> new PooledHmsClient(clientProvider.create(hiveConf))));
+                } catch (Throwable t) {
+                    result.completeExceptionally(t);
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            throw new HmsClientException("HMS client is closed", e);
         }
+        try {
+            while (true) {
+                operationControl.checkActive();
+                if (closed) {
+                    throw new HmsClientException("HMS client is closed");
+                }
+                long remainingMillis = operationControl.remainingTimeMillis();
+                if (remainingMillis <= 0) {
+                    throw new ConnectorOperationAbortedException(
+                            ConnectorOperationAbortedException.Reason.DEADLINE_EXCEEDED,
+                            "HMS client creation deadline exceeded");
+                }
+                long waitMillis = remainingMillis == Long.MAX_VALUE
+                        ? POOL_BORROW_CHECK_MILLIS : Math.min(POOL_BORROW_CHECK_MILLIS, remainingMillis);
+                try {
+                    PooledHmsClient client = result.get(Math.max(1L, waitMillis), TimeUnit.MILLISECONDS);
+                    operationControl.checkActive();
+                    if (closed) {
+                        client.destroy();
+                        throw new HmsClientException("HMS client is closed");
+                    }
+                    return client;
+                } catch (TimeoutException e) {
+                    // Re-check cancellation, deadline and client lifecycle at a bounded interval.
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            ConnectorOperationAbortedException aborted = new ConnectorOperationAbortedException(
+                    ConnectorOperationAbortedException.Reason.CANCELLED,
+                    "HMS client creation was interrupted");
+            discardLateClient(result, task);
+            throw aborted;
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            ConnectorOperationAbortedException operationAbort = findOperationAbort(cause);
+            if (operationAbort != null) {
+                throw operationAbort;
+            }
+            if (cause instanceof HmsClientException) {
+                throw (HmsClientException) cause;
+            }
+            throw new HmsClientException(withRootCause("Failed to create HMS client: "
+                    + cause.getMessage(), cause), cause);
+        } catch (RuntimeException | Error e) {
+            discardLateClient(result, task);
+            throw e;
+        }
+    }
+
+    private static void discardLateClient(CompletableFuture<PooledHmsClient> result, Future<?> task) {
+        result.thenAccept(PooledHmsClient::destroy);
+        task.cancel(true);
     }
 
     /**
@@ -1003,7 +1088,7 @@ public class ThriftHmsClient implements HmsClient {
             return !destroyed && throwable == null;
         }
 
-        void destroy() {
+        synchronized void destroy() {
             if (destroyed) {
                 return;
             }
@@ -1040,7 +1125,8 @@ public class ThriftHmsClient implements HmsClient {
             extends BasePooledObjectFactory<PooledHmsClient> {
         @Override
         public PooledHmsClient create() throws Exception {
-            return createFreshClient();
+            ConnectorOperationControl control = clientCreationControl.get();
+            return createFreshClient(control == null ? ConnectorOperationControl.NONE : control);
         }
 
         @Override

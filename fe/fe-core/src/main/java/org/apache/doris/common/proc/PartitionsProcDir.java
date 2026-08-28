@@ -485,7 +485,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             try {
                 // Context construction can materialize external partition mappings and fetch cloud table
                 // versions. It copies the state consumed by the lock-protected display calculation below.
-                mtmvRefreshContext = MTMVRefreshContext.buildContext((MTMV) olapTable);
+                mtmvRefreshContext = MTMVRefreshContext.buildContextForDisplay((MTMV) olapTable);
             } catch (AnalysisException e) {
                 mtmvPartitionSyncErrorMsg = e.getMessage();
             }
@@ -505,14 +505,14 @@ public class PartitionsProcDir implements ProcDirInterface {
                 try {
                     // This branch contains only non-cloud local tables, so construction and preloading are local
                     // reads. Capture their partition mapping and versions atomically under the existing locks.
-                    mtmvRefreshContext = MTMVRefreshContext.buildContext((MTMV) olapTable);
+                    mtmvRefreshContext = MTMVRefreshContext.buildContextForDisplay((MTMV) olapTable);
                     mtmvRefreshContext.preloadSnapshots();
                 } catch (AnalysisException e) {
                     mtmvPartitionSyncErrorMsg = e.getMessage();
                 }
             } else if (mtmvRefreshContext != null && StringUtils.isEmpty(mtmvPartitionSyncErrorMsg)) {
                 try {
-                    mtmvRefreshContext.refreshLocalBaseVersions();
+                    mtmvRefreshContext.refreshLocalState();
                 } catch (AnalysisException e) {
                     mtmvPartitionSyncErrorMsg = e.getMessage();
                 }

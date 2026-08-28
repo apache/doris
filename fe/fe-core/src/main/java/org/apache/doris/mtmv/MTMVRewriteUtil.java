@@ -68,9 +68,13 @@ public class MTMVRewriteUtil {
         MTMVRefreshContext refreshContext = null;
         // check gracePeriod
         long gracePeriodMills = mtmv.getGracePeriod();
+        Set<String> partitionsToCompare = allPartitions.stream()
+                .filter(partition -> forceConsistent || gracePeriodMills <= 0
+                        || currentTimeMills > partition.getVisibleVersionTime() + gracePeriodMills)
+                .map(Partition::getName)
+                .collect(Collectors.toSet());
         for (Partition partition : allPartitions) {
-            if (gracePeriodMills > 0 && currentTimeMills <= (partition.getVisibleVersionTime()
-                    + gracePeriodMills) && !forceConsistent) {
+            if (!partitionsToCompare.contains(partition.getName())) {
                 res.add(partition);
                 continue;
             }
@@ -86,8 +90,15 @@ public class MTMVRewriteUtil {
             }
             if (mtmvNeedComparePartitions == null) {
                 try {
-                    mtmvNeedComparePartitions = getMtmvPartitionsByRelatedPartitions(mtmv, refreshContext,
-                            queryUsedPartitions);
+                    mtmvNeedComparePartitions = Sets.newLinkedHashSet(
+                            getMtmvPartitionsByRelatedPartitions(mtmv, refreshContext, queryUsedPartitions));
+                    mtmvNeedComparePartitions.retainAll(partitionsToCompare);
+                    MTMVRefreshContext currentRefreshContext = refreshContext;
+                    mtmvNeedComparePartitions.removeIf(
+                            partitionName -> !currentRefreshContext.persistedPartitionSetsMatch(partitionName));
+                    if (mtmvNeedComparePartitions.isEmpty()) {
+                        return res;
+                    }
                     Set<TableNameInfo> excludeTables = forceConsistent
                             ? ImmutableSet.of() : mtmv.getQueryRewriteConsistencyRelaxedTables();
                     refreshContext.preloadSnapshots(mtmvNeedComparePartitions,

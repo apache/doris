@@ -52,6 +52,7 @@ import org.mockito.Mockito;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -253,6 +254,53 @@ public class MTMVRewriteUtilTest {
     }
 
     @Test
+    public void testPersistedPartitionMismatchSkipsFreshnessPreload() throws AnalysisException {
+        MTMVRelatedTableIf pctTable = Mockito.mock(MTMVRelatedTableIf.class, Mockito.RETURNS_DEEP_STUBS);
+        MTMVRelatedTableIf nonPctTable = Mockito.mock(MTMVRelatedTableIf.class);
+        BaseTableInfo nonPctTableInfo = Mockito.mock(BaseTableInfo.class);
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> mappings = Collections.singletonMap(
+                "p1", Collections.singletonMap(pctTable, Collections.singleton("base_p1")));
+        configurePartitionedMv(pctTable, nonPctTable, nonPctTableInfo, mappings);
+        MTMVRefreshSnapshot refreshSnapshot = Mockito.mock(MTMVRefreshSnapshot.class);
+        Mockito.when(mtmv.getRefreshSnapshot()).thenReturn(refreshSnapshot);
+        Mockito.when(refreshSnapshot.getPctSnapshots(Mockito.anyString(), Mockito.any()))
+                .thenReturn(Collections.emptySet());
+
+        Collection<Partition> result = MTMVRewriteUtil.getMTMVCanRewritePartitions(
+                mtmv, ctx, currentTimeMills, false, null);
+
+        Assert.assertTrue(result.isEmpty());
+        Mockito.verify(pctTable, Mockito.never())
+                .getPartitionSnapshots(Mockito.anyList(), Mockito.any(), Mockito.any());
+        mtmvPartitionUtilStatic.verify(() -> MTMVPartitionUtil.getTableSnapshotFromContext(
+                Mockito.same(nonPctTable), Mockito.any(MTMVRefreshContext.class)), Mockito.never());
+    }
+
+    @Test
+    public void testEmptyQuerySelectionSkipsFreshnessPreload() throws AnalysisException {
+        MTMVRelatedTableIf pctTable = Mockito.mock(MTMVRelatedTableIf.class, Mockito.RETURNS_DEEP_STUBS);
+        MTMVRelatedTableIf nonPctTable = Mockito.mock(MTMVRelatedTableIf.class);
+        BaseTableInfo nonPctTableInfo = Mockito.mock(BaseTableInfo.class);
+        List<String> pctQualifier = Lists.newArrayList("ctl", "db", "pct");
+        Mockito.when(pctTable.getFullQualifiers()).thenReturn(pctQualifier);
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> mappings = Collections.singletonMap(
+                "p1", Collections.singletonMap(pctTable, Collections.singleton("base_p1")));
+        configurePartitionedMv(pctTable, nonPctTable, nonPctTableInfo, mappings);
+        mtmvUtilStatic.when(() -> MTMVUtil.getTable(pctQualifier)).thenReturn(pctTable);
+        Map<List<String>, Set<String>> queryUsedPartitions = Collections.singletonMap(
+                pctQualifier, Collections.emptySet());
+
+        Collection<Partition> result = MTMVRewriteUtil.getMTMVCanRewritePartitions(
+                mtmv, ctx, currentTimeMills, false, queryUsedPartitions);
+
+        Assert.assertTrue(result.isEmpty());
+        Mockito.verify(pctTable, Mockito.never())
+                .getPartitionSnapshots(Mockito.anyList(), Mockito.any(), Mockito.any());
+        mtmvPartitionUtilStatic.verify(() -> MTMVPartitionUtil.getTableSnapshotFromContext(
+                Mockito.same(nonPctTable), Mockito.any(MTMVRefreshContext.class)), Mockito.never());
+    }
+
+    @Test
     public void testPctToMv() {
         TestMTMVRelatedTable t1 = new TestMTMVRelatedTable("t1");
         TestMTMVRelatedTable t2 = new TestMTMVRelatedTable("t2");
@@ -265,6 +313,21 @@ public class MTMVRewriteUtilTest {
         Assert.assertEquals("mv_p1", pctToMv.get(Pair.of(t1, "t1_p2")));
         Assert.assertEquals("mv_p1", pctToMv.get(Pair.of(t2, "t2_p1")));
         Assert.assertEquals("mv_p2", pctToMv.get(Pair.of(t2, "t2_p2")));
+    }
+
+    private void configurePartitionedMv(MTMVRelatedTableIf pctTable, MTMVRelatedTableIf nonPctTable,
+            BaseTableInfo nonPctTableInfo,
+            Map<String, Map<MTMVRelatedTableIf, Set<String>>> mappings) throws AnalysisException {
+        Mockito.when(mvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.FOLLOW_BASE_TABLE);
+        Mockito.when(mvPartitionInfo.getPctTables()).thenReturn(Collections.singleton(pctTable));
+        Mockito.when(relation.getBaseTablesOneLevelAndFromView())
+                .thenReturn(Collections.singleton(nonPctTableInfo));
+        Mockito.when(pctTable.getAndCopyPartitionItems(Mockito.any())).thenReturn(Collections.emptyMap());
+        Mockito.when(pctTable.needAutoRefresh()).thenReturn(true);
+        Mockito.when(pctTable.supportsPartitionSnapshotBatchLoading()).thenReturn(true);
+        Mockito.when(nonPctTable.needAutoRefresh()).thenReturn(true);
+        Mockito.when(mtmv.calculatePartitionMappings(Mockito.anyMap(), Mockito.anyMap())).thenReturn(mappings);
+        mtmvUtilStatic.when(() -> MTMVUtil.getTable(nonPctTableInfo)).thenReturn(nonPctTable);
     }
 
     private static class TestMTMVRelatedTable implements MTMVRelatedTableIf {

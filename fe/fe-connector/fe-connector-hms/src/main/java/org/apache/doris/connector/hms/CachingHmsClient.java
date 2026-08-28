@@ -20,6 +20,8 @@ package org.apache.doris.connector.hms;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCacheEntry;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessEvent;
+import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
+import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
 import org.apache.doris.connector.spi.ConnectorOperationAbortedException;
 import org.apache.doris.connector.spi.ConnectorOperationControl;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -144,6 +146,7 @@ public class CachingHmsClient implements HmsClient {
     private final MetaCacheEntry<PartitionNamesKey, List<String>> partitionNamesCache;
     private final MetaCacheEntry<PartitionKey, HmsPartitionInfo> partitionsCache;
     private final MetaCacheEntry<ColumnStatsKey, List<HmsColumnStatistics>> columnStatsCache;
+    private final ConnectorMetadataAccessObserver metadataAccessObserver;
     private final int partitionLoadWindowSize;
     private final PartitionLoadSlotLimiter partitionLoadSlots;
     private final ConcurrentMap<PartitionKey, PartitionLoadBatch> inFlightPartitionLoads =
@@ -151,15 +154,17 @@ public class CachingHmsClient implements HmsClient {
     private final ReentrantLock[] partitionStateLocks = new ReentrantLock[PARTITION_STATE_LOCK_STRIPES];
 
     public CachingHmsClient(HmsClient delegate, Map<String, String> properties) {
-        this(delegate, properties, DEFAULT_MAX_CONCURRENT_PARTITION_LOADS);
+        this(delegate, properties, DEFAULT_MAX_CONCURRENT_PARTITION_LOADS, ConnectorMetadataAccessObserver.NOOP);
     }
 
-    /**
-     * Creates a cache whose concurrent cold-load windows are bounded by the underlying HMS client capacity.
-     * A non-pooled raw client reports zero and is conservatively limited to one cold window.
-     */
     public CachingHmsClient(HmsClient delegate, Map<String, String> properties, int maxConcurrentPartitionLoads) {
+        this(delegate, properties, maxConcurrentPartitionLoads, ConnectorMetadataAccessObserver.NOOP);
+    }
+
+    public CachingHmsClient(HmsClient delegate, Map<String, String> properties, int maxConcurrentPartitionLoads,
+            ConnectorMetadataAccessObserver metadataAccessObserver) {
         this.delegate = Objects.requireNonNull(delegate, "delegate can not be null");
+        this.metadataAccessObserver = Objects.requireNonNull(metadataAccessObserver, "metadataAccessObserver");
         if (maxConcurrentPartitionLoads < 0) {
             throw new IllegalArgumentException("maxConcurrentPartitionLoads must be >= 0");
         }
@@ -171,9 +176,6 @@ public class CachingHmsClient implements HmsClient {
         this.partitionsCache = newEntry("hive.partition", props, ENTRY_PARTITION, DEFAULT_PARTITION_CAPACITY);
         this.columnStatsCache =
                 newEntry("hive.column_stats", props, ENTRY_COLUMN_STATS, DEFAULT_COLUMN_STATS_CAPACITY);
-        // Keep the coordination footprint bounded by the same configured ceiling as the raw HMS loader. This
-        // window is not a transport policy: every delegated request still goes through the one raw chunk/fallback
-        // implementation, including when a degradable failure makes the effective wire batch smaller.
         this.partitionLoadWindowSize = new HmsClientConfig(props, 0).getPartitionBatchSize();
         this.partitionLoadSlots = new PartitionLoadSlotLimiter(
                 maxConcurrentPartitionLoads == 0 ? 1 : maxConcurrentPartitionLoads);
@@ -186,9 +188,6 @@ public class CachingHmsClient implements HmsClient {
             String entry, long defaultCapacity) {
         CacheSpec spec = CacheSpec.fromProperties(props, ENGINE, entry,
                 CacheSpec.of(true, DEFAULT_TTL_SECOND, defaultCapacity));
-        // Contextual-only + manual-miss load so a slow HMS RPC runs outside Caffeine's sync compute lock.
-        // Partition-object misses are deduplicated per identity by inFlightPartitionLoads; other entries retain
-        // the cache framework's existing loading behavior.
         return new MetaCacheEntry<>(name, null, spec, ForkJoinPool.commonPool(), false, true, 0L, true);
     }
 
@@ -253,11 +252,11 @@ public class CachingHmsClient implements HmsClient {
 
     @Override
     public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
-        return getPartitions(null, HmsPartitionAccessSource.UNKNOWN, dbName, tableName, partNames);
+        return getPartitions(null, ConnectorMetadataAccessSource.UNKNOWN, dbName, tableName, partNames);
     }
 
     @Override
-    public List<HmsPartitionInfo> getPartitions(ConnectorSession session, HmsPartitionAccessSource source,
+    public List<HmsPartitionInfo> getPartitions(ConnectorSession session, ConnectorMetadataAccessSource source,
             String dbName, String tableName, List<String> partNames) {
         return getPartitions(HmsPartitionRequest.from(session, source, dbName, tableName, partNames));
     }
@@ -267,84 +266,95 @@ public class CachingHmsClient implements HmsClient {
         String dbName = request.getDbName();
         String tableName = request.getTableName();
         List<String> partNames = request.getPartitionNames();
+        List<HmsPartitionIdentity.ParsedPartitionName> partitions = request.getPartitions();
         if (partNames.isEmpty()) {
             return Collections.emptyList();
         }
-        checkOperationActive(request.getEffectiveOperationControl());
-        // Per-partition assembly (Trino CachingHiveMetastore / legacy HiveExternalMetaCache shape): serve each
-        // requested partition from its own entry and fetch only bounded windows of misses, so
-        // overlapping requests share partition objects and the capacity bounds partition OBJECTS, not
-        // request-lists. Correctness is independent of name-parse fidelity: a LOOKUP is keyed by the requested
-        // name parsed to values, while a STORE is keyed by the partition's OWN values. The delegate result is
-        // validated per physical chunk before publication and the final list is reconstructed in exact request
-        // order.
-        Map<List<String>, HmsPartitionInfo> resultByIdentity = new LinkedHashMap<>();
-        List<String> missNames = null;
-        for (int i = 0; i < partNames.size(); i++) {
-            checkOperationActivePeriodically(request.getEffectiveOperationControl(), i);
-            String name = partNames.get(i);
-            List<String> values = HmsPartitionIdentity.fromName(name);
-            HmsPartitionInfo hit =
-                    partitionsCache.getIfPresent(new PartitionKey(dbName, tableName, values));
-            if (hit != null) {
-                resultByIdentity.put(values, hit);
-            } else {
-                if (missNames == null) {
-                    missNames = new ArrayList<>();
-                }
-                missNames.add(name);
-            }
-        }
-        if (missNames != null) {
-            loadMissingPartitions(request, missNames, resultByIdentity);
-        }
-        List<HmsPartitionInfo> result = new ArrayList<>(partNames.size());
-        for (int i = 0; i < partNames.size(); i++) {
-            checkOperationActivePeriodically(request.getEffectiveOperationControl(), i);
-            String name = partNames.get(i);
-            List<String> identity = HmsPartitionIdentity.fromName(name);
-            HmsPartitionInfo partition = resultByIdentity.get(identity);
-            if (partition == null) {
-                throw HmsPartitionResultException.builder(partNames.size(), resultByIdentity.size())
-                        .missing(name)
-                        .build();
-            }
-            result.add(partition);
-        }
-        checkOperationActive(request.getEffectiveOperationControl());
-        return result;
-    }
-
-    private void loadMissingPartitions(HmsPartitionRequest request, List<String> initialMissNames,
-            Map<List<String>, HmsPartitionInfo> resultByIdentity) {
-        if (!partitionsCache.isEffectiveEnabled()) {
-            loadAndCacheMissingPartitions(
-                    request, initialMissNames, partitionsCache.invalidationGeneration(), resultByIdentity);
-            return;
-        }
-        for (int offset = 0; offset < initialMissNames.size(); offset += partitionLoadWindowSize) {
+        long startNanos = System.nanoTime();
+        boolean success = false;
+        try {
             checkOperationActive(request.getEffectiveOperationControl());
-            int end = Math.min(offset + partitionLoadWindowSize, initialMissNames.size());
-            loadMissingPartitionWindow(request, initialMissNames.subList(offset, end), resultByIdentity);
+            // Serve per-partition entries and fetch bounded miss windows so overlapping requests share objects.
+            Map<List<String>, HmsPartitionInfo> resultByIdentity = new LinkedHashMap<>();
+            List<HmsPartitionIdentity.ParsedPartitionName> missPartitions = null;
+            for (int i = 0; i < partitions.size(); i++) {
+                checkOperationActivePeriodically(request.getEffectiveOperationControl(), i);
+                HmsPartitionIdentity.ParsedPartitionName partition = partitions.get(i);
+                List<String> values = partition.getValues();
+                HmsPartitionInfo hit =
+                        partitionsCache.getIfPresent(new PartitionKey(dbName, tableName, values));
+                if (hit != null) {
+                    resultByIdentity.put(values, hit);
+                } else {
+                    if (missPartitions == null) {
+                        missPartitions = new ArrayList<>();
+                    }
+                    missPartitions.add(partition);
+                }
+            }
+            if (missPartitions != null) {
+                loadMissingPartitions(request, missPartitions, resultByIdentity);
+            }
+            List<HmsPartitionInfo> result = new ArrayList<>(partNames.size());
+            for (int i = 0; i < partitions.size(); i++) {
+                checkOperationActivePeriodically(request.getEffectiveOperationControl(), i);
+                HmsPartitionIdentity.ParsedPartitionName requested = partitions.get(i);
+                HmsPartitionInfo partition = resultByIdentity.get(requested.getValues());
+                if (partition == null) {
+                    throw HmsPartitionResultException.builder(partNames.size(), resultByIdentity.size())
+                            .missing(requested.getName())
+                            .build();
+                }
+                result.add(partition);
+            }
+            checkOperationActive(request.getEffectiveOperationControl());
+            success = true;
+            return result;
+        } finally {
+            ConnectorMetadataAccessEvent event = request.logicalAccessEvent(
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos), success);
+            recordSafely("catalog metrics", metadataAccessObserver, event);
+            recordSafely("query profile", request.getMetadataAccessObserver(), event);
         }
     }
 
-    private void loadMissingPartitionWindow(HmsPartitionRequest request, List<String> initialMissNames,
+    private void loadMissingPartitions(HmsPartitionRequest request,
+            List<HmsPartitionIdentity.ParsedPartitionName> initialMisses,
+            Map<List<String>, HmsPartitionInfo> resultByIdentity) {
+        for (int offset = 0; offset < initialMisses.size(); offset += partitionLoadWindowSize) {
+            checkOperationActive(request.getEffectiveOperationControl());
+            int end = Math.min(offset + partitionLoadWindowSize, initialMisses.size());
+            List<HmsPartitionIdentity.ParsedPartitionName> window = initialMisses.subList(offset, end);
+            if (partitionsCache.isEffectiveEnabled()) {
+                loadMissingPartitionWindow(request, window, resultByIdentity);
+            } else {
+                acquirePartitionLoadSlot(request, window.size());
+                try {
+                    loadAndCacheMissingPartitions(
+                            request, window, partitionsCache.invalidationGeneration(), resultByIdentity);
+                } finally {
+                    partitionLoadSlots.release();
+                }
+            }
+        }
+    }
+
+    private void loadMissingPartitionWindow(HmsPartitionRequest request,
+            List<HmsPartitionIdentity.ParsedPartitionName> initialMisses,
             Map<List<String>, HmsPartitionInfo> resultByIdentity) {
         ConnectorOperationControl operationControl = request.getEffectiveOperationControl();
-        List<String> pendingNames = initialMissNames;
-        while (!pendingNames.isEmpty()) {
+        List<HmsPartitionIdentity.ParsedPartitionName> pending = initialMisses;
+        while (!pending.isEmpty()) {
             checkOperationActive(operationControl);
             PartitionLoadBatch ownedBatch = new PartitionLoadBatch();
             List<PartitionLoadRegistration> owned = new ArrayList<>();
             Map<PartitionLoadBatch, List<PartitionLoadRegistration>> waiting = new IdentityHashMap<>();
-            acquirePartitionLoadSlot(request, pendingNames.size());
+            acquirePartitionLoadSlot(request, pending.size());
             try {
                 try {
-                    for (int i = 0; i < pendingNames.size(); i++) {
+                    for (int i = 0; i < pending.size(); i++) {
                         checkOperationActivePeriodically(operationControl, i);
-                        registerPartitionLoad(
-                                request, pendingNames.get(i), ownedBatch, resultByIdentity, owned, waiting);
+                        registerPartitionLoad(request, pending.get(i), ownedBatch, resultByIdentity, owned, waiting);
                     }
                     afterPartitionLoadRegistrationForTest();
                     if (!owned.isEmpty()) {
@@ -358,31 +368,33 @@ public class CachingHmsClient implements HmsClient {
                     releaseOwnedPartitionLoads(ownedBatch);
                 }
             } finally {
-                // A pure waiter does not consume HMS capacity. Release the owner-registration/load budget before
-                // waiting so one slow identity cannot block unrelated cold loads while pool clients are idle.
+                // A pure waiter releases HMS capacity before waiting, so unrelated cold loads can proceed.
                 partitionLoadSlots.release();
             }
-            List<String> retryNames = new ArrayList<>();
+            List<HmsPartitionIdentity.ParsedPartitionName> retries = new ArrayList<>();
             for (Map.Entry<PartitionLoadBatch, List<PartitionLoadRegistration>> entry : waiting.entrySet()) {
-                consumeWaitingBatch(request, entry.getKey(), entry.getValue(), resultByIdentity, retryNames);
+                consumeWaitingBatch(request, entry.getKey(), entry.getValue(), resultByIdentity, retries);
             }
-            pendingNames = retryNames;
+            pending = retries;
         }
     }
 
-    /** Test seam for observing registrations without changing the production coordination contract. */
     void afterPartitionLoadRegistrationForTest() {
+    }
+
+    void beforePartitionCacheInvalidationForTest() {
     }
 
     int inFlightPartitionLoadCountForTest() {
         return inFlightPartitionLoads.size();
     }
 
-    private void registerPartitionLoad(HmsPartitionRequest request, String partitionName,
+    private void registerPartitionLoad(HmsPartitionRequest request,
+            HmsPartitionIdentity.ParsedPartitionName partition,
             PartitionLoadBatch ownedBatch, Map<List<String>, HmsPartitionInfo> resultByIdentity,
             List<PartitionLoadRegistration> owned,
             Map<PartitionLoadBatch, List<PartitionLoadRegistration>> waiting) {
-        List<String> values = HmsPartitionIdentity.fromName(partitionName);
+        List<String> values = partition.getValues();
         PartitionKey key = new PartitionKey(request.getDbName(), request.getTableName(), values);
         ReentrantLock stateLock = partitionStateLock(request.getDbName(), request.getTableName());
         acquirePartitionStateLock(stateLock, request.getEffectiveOperationControl());
@@ -399,7 +411,7 @@ public class CachingHmsClient implements HmsClient {
                 }
                 if (!existing.isInvalidated(key)) {
                     waiting.computeIfAbsent(existing, ignored -> new ArrayList<>())
-                            .add(new PartitionLoadRegistration(partitionName, key));
+                            .add(new PartitionLoadRegistration(partition, key));
                     return;
                 }
                 if (inFlightPartitionLoads.replace(key, existing, ownedBatch)) {
@@ -407,8 +419,6 @@ public class CachingHmsClient implements HmsClient {
                 }
             }
             ownedBatch.claimedKeys.add(key);
-            // Close the cache-check/register race: a previous owner may have filled the cache and removed its
-            // future after our first cache check but before this putIfAbsent.
             hit = partitionsCache.getIfPresent(key);
             if (hit != null) {
                 ownedBatch.resolvedPartitions.put(key, hit);
@@ -417,7 +427,7 @@ public class CachingHmsClient implements HmsClient {
                 inFlightPartitionLoads.remove(key, ownedBatch);
                 return;
             }
-            owned.add(new PartitionLoadRegistration(partitionName, key));
+            owned.add(new PartitionLoadRegistration(partition, key));
         } finally {
             stateLock.unlock();
         }
@@ -425,13 +435,13 @@ public class CachingHmsClient implements HmsClient {
 
     private void loadOwnedPartitions(HmsPartitionRequest request, PartitionLoadBatch ownedBatch,
             List<PartitionLoadRegistration> owned, Map<List<String>, HmsPartitionInfo> resultByIdentity) {
-        List<String> ownedNames = new ArrayList<>(owned.size());
+        List<HmsPartitionIdentity.ParsedPartitionName> ownedPartitions = new ArrayList<>(owned.size());
         Map<List<String>, PartitionLoadRegistration> ownedByIdentity = new HashMap<>();
         for (PartitionLoadRegistration registration : owned) {
-            ownedNames.add(registration.partitionName);
+            ownedPartitions.add(registration.partition);
             ownedByIdentity.put(registration.key.values, registration);
         }
-        HmsPartitionRequest missRequest = copiedPartitionRequest(request, ownedNames)
+        HmsPartitionRequest missRequest = copiedPartitionRequest(request, ownedPartitions)
                 .partitionChunkConsumer((chunkNames, chunkPartitions, effectiveControl) -> publishOwnedPartitions(
                         request, chunkPartitions, resultByIdentity, ownedBatch, ownedByIdentity, effectiveControl))
                 .build();
@@ -441,14 +451,13 @@ public class CachingHmsClient implements HmsClient {
         if (ownedByIdentity.isEmpty()) {
             return;
         }
-        if (ownedByIdentity.size() != ownedNames.size()) {
+        if (ownedByIdentity.size() != ownedPartitions.size()) {
             throw new HmsClientException("HMS delegate invoked the partition chunk consumer for only part of "
-                    + "the request: requested=" + ownedNames.size() + ", unpublished=" + ownedByIdentity.size());
+                    + "the request: requested=" + ownedPartitions.size()
+                    + ", unpublished=" + ownedByIdentity.size());
         }
-        // Compatibility fallback for legacy/test delegates that implement the request overload without invoking
-        // its chunk consumer. The production raw client always takes the zero-extra-validation branch above.
-        List<HmsPartitionInfo> validated = HmsPartitionBatchLoader.validateAndOrder(
-                ownedNames, loaded, effectiveControl);
+        List<HmsPartitionInfo> validated = HmsPartitionBatchLoader.validateParsedAndOrder(
+                ownedPartitions, loaded, effectiveControl);
         publishOwnedPartitions(
                 request, validated, resultByIdentity, ownedBatch, ownedByIdentity, effectiveControl);
     }
@@ -459,13 +468,14 @@ public class CachingHmsClient implements HmsClient {
         }
     }
 
-    private void loadAndCacheMissingPartitions(HmsPartitionRequest request, List<String> missNames,
+    private void loadAndCacheMissingPartitions(HmsPartitionRequest request,
+            List<HmsPartitionIdentity.ParsedPartitionName> misses,
             long generation, Map<List<String>, HmsPartitionInfo> resultByIdentity) {
         Set<List<String>> unpublishedIdentities = new LinkedHashSet<>();
-        for (String missName : missNames) {
-            unpublishedIdentities.add(HmsPartitionIdentity.fromName(missName));
+        for (HmsPartitionIdentity.ParsedPartitionName miss : misses) {
+            unpublishedIdentities.add(miss.getValues());
         }
-        HmsPartitionRequest missRequest = copiedPartitionRequest(request, missNames)
+        HmsPartitionRequest missRequest = copiedPartitionRequest(request, misses)
                 .partitionChunkConsumer((chunkNames, chunkPartitions, effectiveControl) ->
                         publishUncachedPartitions(request, chunkPartitions, generation,
                                 resultByIdentity, unpublishedIdentities, effectiveControl))
@@ -476,13 +486,13 @@ public class CachingHmsClient implements HmsClient {
         if (unpublishedIdentities.isEmpty()) {
             return;
         }
-        if (unpublishedIdentities.size() != missNames.size()) {
+        if (unpublishedIdentities.size() != misses.size()) {
             throw new HmsClientException("HMS delegate invoked the partition chunk consumer for only part of "
-                    + "the request: requested=" + missNames.size()
+                    + "the request: requested=" + misses.size()
                     + ", unpublished=" + unpublishedIdentities.size());
         }
-        List<HmsPartitionInfo> validated = HmsPartitionBatchLoader.validateAndOrder(
-                missNames, loaded, effectiveControl);
+        List<HmsPartitionInfo> validated = HmsPartitionBatchLoader.validateParsedAndOrder(
+                misses, loaded, effectiveControl);
         publishUncachedPartitions(request, validated, generation,
                 resultByIdentity, unpublishedIdentities, effectiveControl);
     }
@@ -505,11 +515,11 @@ public class CachingHmsClient implements HmsClient {
     }
 
     private static HmsPartitionRequest.Builder copiedPartitionRequest(
-            HmsPartitionRequest request, List<String> partitionNames) {
+            HmsPartitionRequest request, List<HmsPartitionIdentity.ParsedPartitionName> partitions) {
         return HmsPartitionRequest.builder()
                 .database(request.getDbName())
                 .table(request.getTableName())
-                .partitionNames(partitionNames)
+                .partitions(partitions)
                 .source(request.getSource())
                 .operationControl(request.getOperationControl())
                 .metadataAccessObserver(request.getMetadataAccessObserver())
@@ -528,10 +538,7 @@ public class CachingHmsClient implements HmsClient {
                 throw new HmsClientException(
                         "HMS chunk consumer published an unowned partition: " + info.getValues());
             }
-            // Every partition-cache invalidation takes the same table state lock (flushDb/flushAll take all
-            // stripes). Therefore a relevant refresh either invalidates this key before this critical section,
-            // making isInvalidated true, or runs after the put and removes it. Direct publication under that lock
-            // also avoids a refresh of an unrelated table suppressing this valid result.
+            // Shared stripes order invalidation and publication without suppressing unrelated-table results.
             ReentrantLock stateLock = partitionStateLock(request.getDbName(), request.getTableName());
             acquirePartitionStateLock(stateLock, effectiveControl);
             try {
@@ -549,7 +556,7 @@ public class CachingHmsClient implements HmsClient {
 
     private void consumeWaitingBatch(HmsPartitionRequest request, PartitionLoadBatch batch,
             List<PartitionLoadRegistration> registrations, Map<List<String>, HmsPartitionInfo> resultByIdentity,
-            List<String> retryNames) {
+            List<HmsPartitionIdentity.ParsedPartitionName> retries) {
         long startNanos = System.nanoTime();
         boolean success = false;
         try {
@@ -558,7 +565,7 @@ public class CachingHmsClient implements HmsClient {
                 awaitPartitionLoad(batch, registration.key, request.getEffectiveOperationControl());
                 if (batch.isInvalidated(registration.key)) {
                     inFlightPartitionLoads.remove(registration.key, batch);
-                    retryNames.add(registration.partitionName);
+                    retries.add(registration.partition);
                     retrying = true;
                     continue;
                 }
@@ -573,7 +580,7 @@ public class CachingHmsClient implements HmsClient {
                         Objects.requireNonNull(outcome,
                                 "partition load is unresolved but its completion is not available").failure,
                         "completed partition load has neither a result nor a failure");
-                if (!isRetryableSharedFailure(ownerFailure)) {
+                if (!isRetryableSharedFailure(ownerFailure, batch, registrations)) {
                     rethrow(ownerFailure);
                 }
                 // Only an exception published by the OWNER reaches this branch. Cancellation, deadline and
@@ -581,7 +588,7 @@ public class CachingHmsClient implements HmsClient {
                 // never remove or replace a normally-running owner's future.
                 checkOperationActive(request.getEffectiveOperationControl());
                 inFlightPartitionLoads.remove(registration.key, batch);
-                retryNames.add(registration.partitionName);
+                retries.add(registration.partition);
                 retrying = true;
             }
             success = !retrying;
@@ -618,9 +625,18 @@ public class CachingHmsClient implements HmsClient {
         }
     }
 
-    private static boolean isRetryableSharedFailure(Throwable failure) {
-        return failure instanceof ConnectorOperationAbortedException
-                || failure instanceof HmsPartitionResultException;
+    private static boolean isRetryableSharedFailure(Throwable failure, PartitionLoadBatch ownerBatch,
+            List<PartitionLoadRegistration> waiterRegistrations) {
+        if (failure instanceof ConnectorOperationAbortedException) {
+            return true;
+        }
+        if (!(failure instanceof HmsPartitionResultException)) {
+            return false;
+        }
+        boolean samePartitionSet = ownerBatch.claimedKeys.size() == waiterRegistrations.size()
+                && waiterRegistrations.stream().allMatch(
+                        registration -> ownerBatch.claimedKeys.contains(registration.key));
+        return !samePartitionSet;
     }
 
     private static void rethrow(Throwable failure) {
@@ -633,13 +649,13 @@ public class CachingHmsClient implements HmsClient {
         throw new HmsClientException("HMS in-flight partition load failed", failure);
     }
 
-    private static void recordPartitionWait(HmsPartitionRequest request, int requestedItems,
+    private void recordPartitionWait(HmsPartitionRequest request, int requestedItems,
             long startNanos, boolean success) {
         recordPartitionCoordinationWait(
                 request, PARTITION_INFLIGHT_WAIT_OPERATION, requestedItems, startNanos, success);
     }
 
-    private static void recordPartitionCoordinationWait(HmsPartitionRequest request, String operation,
+    private void recordPartitionCoordinationWait(HmsPartitionRequest request, String operation,
             int requestedItems, long startNanos, boolean success) {
         ConnectorMetadataAccessEvent event = ConnectorMetadataAccessEvent.builder()
                 .operation(operation)
@@ -648,10 +664,16 @@ public class CachingHmsClient implements HmsClient {
                 .logicalElapsedMillis(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos))
                 .success(success)
                 .build();
+        recordSafely("catalog metrics", metadataAccessObserver, event);
+        recordSafely("query profile", request.getMetadataAccessObserver(), event);
+    }
+
+    private static void recordSafely(String sinkName, ConnectorMetadataAccessObserver sink,
+            ConnectorMetadataAccessEvent event) {
         try {
-            request.getMetadataAccessObserver().record(event);
+            sink.record(event);
         } catch (RuntimeException e) {
-            LOG.warn("Failed to record HMS partition coordination wait in query profile", e);
+            LOG.warn("Failed to record HMS partition metadata access in {}", sinkName, e);
         }
     }
 
@@ -806,11 +828,11 @@ public class CachingHmsClient implements HmsClient {
     }
 
     private static final class PartitionLoadRegistration {
-        private final String partitionName;
+        private final HmsPartitionIdentity.ParsedPartitionName partition;
         private final PartitionKey key;
 
-        private PartitionLoadRegistration(String partitionName, PartitionKey key) {
-            this.partitionName = partitionName;
+        private PartitionLoadRegistration(HmsPartitionIdentity.ParsedPartitionName partition, PartitionKey key) {
+            this.partition = partition;
             this.key = key;
         }
     }
@@ -866,10 +888,11 @@ public class CachingHmsClient implements HmsClient {
         stateLock.lock();
         try {
             invalidateInFlightPartitionLoads(key -> key.matches(dbName, tableName), true);
+            beforePartitionCacheInvalidationForTest();
+            partitionsCache.invalidateIf(key -> key.matches(dbName, tableName));
         } finally {
             stateLock.unlock();
         }
-        partitionsCache.invalidateIf(key -> key.matches(dbName, tableName));
         tableCache.invalidateKey(new TableKey(dbName, tableName));
         partitionNamesCache.invalidateIf(key -> key.matches(dbName, tableName));
         columnStatsCache.invalidateIf(key -> key.matches(dbName, tableName));
@@ -889,11 +912,11 @@ public class CachingHmsClient implements HmsClient {
         try {
             invalidateInFlightPartitionLoads(
                     key -> key.matchesPartitions(dbName, tableName, partitionValues), false);
+            if (!partitionValues.isEmpty()) {
+                partitionsCache.invalidateIf(key -> key.matchesPartitions(dbName, tableName, partitionValues));
+            }
         } finally {
             stateLock.unlock();
-        }
-        if (!partitionValues.isEmpty()) {
-            partitionsCache.invalidateIf(key -> key.matchesPartitions(dbName, tableName, partitionValues));
         }
         partitionNamesCache.invalidateIf(key -> key.matches(dbName, tableName));
     }
@@ -903,10 +926,10 @@ public class CachingHmsClient implements HmsClient {
         lockAllPartitionStateStripes();
         try {
             invalidateInFlightPartitionLoads(key -> key.matchesDb(dbName), true);
+            partitionsCache.invalidateIf(key -> key.matchesDb(dbName));
         } finally {
             unlockAllPartitionStateStripes();
         }
-        partitionsCache.invalidateIf(key -> key.matchesDb(dbName));
         tableCache.invalidateIf(key -> key.matchesDb(dbName));
         partitionNamesCache.invalidateIf(key -> key.matchesDb(dbName));
         columnStatsCache.invalidateIf(key -> key.matchesDb(dbName));
@@ -917,10 +940,10 @@ public class CachingHmsClient implements HmsClient {
         lockAllPartitionStateStripes();
         try {
             invalidateInFlightPartitionLoads(key -> true, true);
+            partitionsCache.invalidateAll();
         } finally {
             unlockAllPartitionStateStripes();
         }
-        partitionsCache.invalidateAll();
         tableCache.invalidateAll();
         partitionNamesCache.invalidateAll();
         columnStatsCache.invalidateAll();

@@ -45,6 +45,16 @@ import java.util.concurrent.atomic.AtomicReference;
 public class ThriftHmsClientPoolControlTest {
 
     @Test
+    public void cancellationBoundsPoolDisabledClientCreationAndDestroysLateClient() throws Exception {
+        assertBlockingCreationAborted(0, ConnectorOperationAbortedException.Reason.CANCELLED);
+    }
+
+    @Test
+    public void deadlineBoundsPooledClientCreationAndDestroysLateClient() throws Exception {
+        assertBlockingCreationAborted(1, ConnectorOperationAbortedException.Reason.DEADLINE_EXCEEDED);
+    }
+
+    @Test
     public void expiredDeadlineNeverTurnsIntoAnInfinitePoolWait() throws Exception {
         try (PoolHarness harness = new PoolHarness()) {
             harness.occupyOnlyClient();
@@ -373,6 +383,64 @@ public class ThriftHmsClientPoolControlTest {
                 .partitionNames(Collections.singletonList(name))
                 .operationControl(control)
                 .build();
+    }
+
+    private static void assertBlockingCreationAborted(
+            int poolSize, ConnectorOperationAbortedException.Reason reason) throws Exception {
+        CountDownLatch creationEntered = new CountDownLatch(1);
+        CountDownLatch releaseCreation = new CountDownLatch(1);
+        CountDownLatch lateClientClosed = new CountDownLatch(1);
+        AtomicBoolean abort = new AtomicBoolean();
+        IMetaStoreClient metastore = (IMetaStoreClient) Proxy.newProxyInstance(
+                IMetaStoreClient.class.getClassLoader(), new Class<?>[] {IMetaStoreClient.class},
+                (proxy, method, args) -> {
+                    if ("close".equals(method.getName())) {
+                        lateClientClosed.countDown();
+                    }
+                    return null;
+                });
+        ConnectorOperationControl control = new ConnectorOperationControl() {
+            @Override
+            public void checkActive() {
+                if (abort.get() && reason == ConnectorOperationAbortedException.Reason.CANCELLED) {
+                    throw new ConnectorOperationAbortedException(reason, "query killed");
+                }
+            }
+
+            @Override
+            public long remainingTimeMillis() {
+                return abort.get() && reason == ConnectorOperationAbortedException.Reason.DEADLINE_EXCEEDED
+                        ? 0L : TimeUnit.SECONDS.toMillis(30);
+            }
+        };
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        HmsClientConfig config = new HmsClientConfig(new HashMap<>(), poolSize);
+        try (ThriftHmsClient client = new ThriftHmsClient(config, null, hiveConf -> {
+            creationEntered.countDown();
+            while (true) {
+                try {
+                    releaseCreation.await();
+                    return metastore;
+                } catch (InterruptedException ignored) {
+                    // Model DNS/Kerberos code that does not cooperate with thread interruption.
+                }
+            }
+        }, HmsTypeMapping.Options.DEFAULT)) {
+            Future<List<HmsPartitionInfo>> request = executor.submit(
+                    () -> client.getPartitions(request("p=blocked", control)));
+            Assertions.assertTrue(creationEntered.await(5, TimeUnit.SECONDS));
+            abort.set(true);
+            ExecutionException failure = Assertions.assertThrows(
+                    ExecutionException.class, () -> request.get(2, TimeUnit.SECONDS));
+            Assertions.assertInstanceOf(ConnectorOperationAbortedException.class, failure.getCause());
+            Assertions.assertEquals(reason,
+                    ((ConnectorOperationAbortedException) failure.getCause()).getReason());
+            releaseCreation.countDown();
+            Assertions.assertTrue(lateClientClosed.await(5, TimeUnit.SECONDS));
+        } finally {
+            releaseCreation.countDown();
+            executor.shutdownNow();
+        }
     }
 
     private static final class PoolHarness implements AutoCloseable {
