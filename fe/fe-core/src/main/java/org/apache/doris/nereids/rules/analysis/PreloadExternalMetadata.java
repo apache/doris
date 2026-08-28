@@ -29,9 +29,11 @@ import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.ExternalMetadataPreloadResult;
 import org.apache.doris.nereids.ExternalTablePreloadInfo;
+import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -92,8 +94,10 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
         if (Config.isNotCloudMode()) {
             return;
         }
+        ConnectContext connectContext = statementContext.getConnectContext();
         for (MTMV mtmv : statementContext.getCandidateMTMVs()) {
-            if (statementContext.getPreloadedMtmvRefreshContext(mtmv).isPresent()) {
+            if (!requiresMtmvRefreshContext(statementContext, connectContext, mtmv)
+                    || statementContext.getPreloadedMtmvRefreshContext(mtmv).isPresent()) {
                 continue;
             }
             try {
@@ -106,6 +110,18 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
                 LOG.warn("Failed to preload cloud MTMV refresh context for {}", mtmv.getName(), e);
             }
         }
+    }
+
+    private boolean requiresMtmvRefreshContext(
+            StatementContext statementContext, ConnectContext connectContext, MTMV mtmv) {
+        for (PlannerHook hook : statementContext.getPlannerHooks()) {
+            if (hook instanceof InitMaterializationContextHook
+                    && ((InitMaterializationContextHook) hook)
+                            .requiresMtmvRefreshContext(mtmv, connectContext)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Optional<String> getSkipReason(StatementContext statementContext) {

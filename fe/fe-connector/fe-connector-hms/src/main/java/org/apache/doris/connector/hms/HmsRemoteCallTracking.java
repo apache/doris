@@ -29,7 +29,7 @@ final class HmsRemoteCallTracking {
     private HmsRemoteCallTracking() {
     }
 
-    static <T> T withTracker(HmsPartitionBatchLoader.RemoteCallTracker tracker, int itemCount,
+    static <T> T withTracker(HmsPartitionBatchExecutor.RemoteCallTracker tracker, int itemCount,
             Callable<T> clientInvocation) throws Exception {
         Context previous = CURRENT.get();
         CURRENT.set(new Context(tracker, itemCount));
@@ -64,10 +64,10 @@ final class HmsRemoteCallTracking {
     }
 
     private static final class Context {
-        private final HmsPartitionBatchLoader.RemoteCallTracker tracker;
+        private final HmsPartitionBatchExecutor.RemoteCallTracker tracker;
         private final int itemCount;
 
-        private Context(HmsPartitionBatchLoader.RemoteCallTracker tracker, int itemCount) {
+        private Context(HmsPartitionBatchExecutor.RemoteCallTracker tracker, int itemCount) {
             this.tracker = tracker;
             this.itemCount = itemCount;
         }

@@ -71,8 +71,8 @@ public class MTMVRewriteUtil {
         // check gracePeriod
         long gracePeriodMills = mtmv.getGracePeriod();
         Set<String> partitionsToCompare = allPartitions.stream()
-                .filter(partition -> forceConsistent || gracePeriodMills <= 0
-                        || currentTimeMills > partition.getVisibleVersionTime() + gracePeriodMills)
+                .filter(partition -> requiresPartitionComparison(
+                        partition, currentTimeMills, gracePeriodMills, forceConsistent))
                 .map(Partition::getName)
                 .collect(Collectors.toSet());
         for (Partition partition : allPartitions) {
@@ -139,6 +139,22 @@ public class MTMVRewriteUtil {
             }
         }
         return res;
+    }
+
+    /** Whether this candidate can need a cloud refresh context after its cheap rewrite gates. */
+    public static boolean requiresRefreshContext(MTMV mtmv, long currentTimeMills, boolean forceConsistent) {
+        if (mtmv.getRelation() == null || !mtmv.canBeCandidate()) {
+            return false;
+        }
+        long gracePeriodMills = mtmv.getGracePeriod();
+        return mtmv.getPartitions().stream().anyMatch(partition -> requiresPartitionComparison(
+                partition, currentTimeMills, gracePeriodMills, forceConsistent));
+    }
+
+    private static boolean requiresPartitionComparison(Partition partition, long currentTimeMills,
+            long gracePeriodMills, boolean forceConsistent) {
+        return forceConsistent || gracePeriodMills <= 0
+                || currentTimeMills > partition.getVisibleVersionTime() + gracePeriodMills;
     }
 
     /**

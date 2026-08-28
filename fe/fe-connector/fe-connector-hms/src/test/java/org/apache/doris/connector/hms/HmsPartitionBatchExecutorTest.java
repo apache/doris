@@ -26,7 +26,6 @@ import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -37,12 +36,12 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-public class HmsPartitionBatchLoaderTest {
+public class HmsPartitionBatchExecutorTest {
 
     @Test
     public void chunksLargeRequestAndRestoresRequestOrder() {
         List<Integer> batchSizes = new ArrayList<>();
-        HmsPartitionBatchLoader loader = loader(5000, (db, table, names) -> {
+        HmsPartitionBatchExecutor executor = executor(5000, (db, table, names) -> {
             batchSizes.add(names.size());
             List<HmsPartitionInfo> result = infos(names);
             Collections.reverse(result);
@@ -50,7 +49,7 @@ public class HmsPartitionBatchLoaderTest {
         });
 
         List<String> names = names(12001);
-        List<HmsPartitionInfo> result = loader.load(request(names));
+        List<HmsPartitionInfo> result = load(executor, request(names));
 
         Assertions.assertEquals(Arrays.asList(5000, 5000, 2001), batchSizes);
         Assertions.assertEquals(names.stream().map(HmsPartitionIdentity::fromName).collect(Collectors.toList()),
@@ -60,13 +59,13 @@ public class HmsPartitionBatchLoaderTest {
     @Test
     public void boundsOneHundredTwentyThousandPartitionRequest() {
         List<Integer> batchSizes = new ArrayList<>();
-        HmsPartitionBatchLoader loader = loader(5000, (db, table, names) -> {
+        HmsPartitionBatchExecutor executor = executor(5000, (db, table, names) -> {
             batchSizes.add(names.size());
             return infos(names);
         });
 
         List<String> names = names(120_000);
-        List<HmsPartitionInfo> result = loader.load(request(names));
+        List<HmsPartitionInfo> result = load(executor, request(names));
 
         Assertions.assertEquals(120_000, result.size());
         Assertions.assertEquals(24, batchSizes.size());
@@ -77,30 +76,30 @@ public class HmsPartitionBatchLoaderTest {
     @Test
     public void halvesDegradableBatchAndReusesTheSafeSize() {
         List<Integer> batchSizes = new ArrayList<>();
-        HmsPartitionBatchLoader loader = loader(8, (db, table, names) -> {
+        HmsPartitionBatchExecutor executor = executor(8, (db, table, names) -> {
             batchSizes.add(names.size());
             if (names.size() > 2) {
-                throw new HmsRemoteCallException("remote", new IOException("frame too large"));
+                throw remoteFailure("frame too large");
             }
             return infos(names);
         });
 
-        Assertions.assertEquals(10, loader.load(request(names(10))).size());
+        Assertions.assertEquals(10, load(executor, request(names(10))).size());
         Assertions.assertEquals(Arrays.asList(8, 4, 2, 2, 2, 2, 2), batchSizes);
     }
 
     @Test
     public void doesNotReplayAnEarlierSuccessfulBatch() {
         List<List<String>> attempts = new ArrayList<>();
-        HmsPartitionBatchLoader loader = loader(4, (db, table, names) -> {
+        HmsPartitionBatchExecutor executor = executor(4, (db, table, names) -> {
             attempts.add(new ArrayList<>(names));
             if (names.contains("p=4") && names.size() > 1) {
-                throw new HmsRemoteCallException("remote", new IOException("message size limit"));
+                throw remoteFailure("message size limit");
             }
             return infos(names);
         });
 
-        loader.load(request(names(8)));
+        load(executor, request(names(8)));
         Assertions.assertEquals(names(4), attempts.get(0));
         Assertions.assertEquals(1, attempts.stream().filter(names(4)::equals).count());
     }
@@ -108,13 +107,13 @@ public class HmsPartitionBatchLoaderTest {
     @Test
     public void minimumBatchFailurePropagates() {
         List<Integer> batchSizes = new ArrayList<>();
-        HmsPartitionBatchLoader loader = loader(2, (db, table, names) -> {
+        HmsPartitionBatchExecutor executor = executor(2, (db, table, names) -> {
             batchSizes.add(names.size());
-            throw new HmsRemoteCallException("remote", new IOException("frame too large"));
+            throw remoteFailure("frame too large");
         });
 
         HmsClientException failure = Assertions.assertThrows(
-                HmsClientException.class, () -> loader.load(request(names(2))));
+                HmsClientException.class, () -> load(executor, request(names(2))));
         Assertions.assertEquals(Arrays.asList(2, 1), batchSizes);
         Assertions.assertInstanceOf(HmsRemoteCallException.class, failure.getCause());
         Assertions.assertTrue(failure.getMessage().contains("failedBatchSize=1"));
@@ -123,39 +122,41 @@ public class HmsPartitionBatchLoaderTest {
 
     @Test
     public void onlyClassifiedRemoteThriftFailuresCanDegrade() {
-        Assertions.assertFalse(HmsPartitionBatchLoader.isDegradableRemoteFailure(
+        Assertions.assertFalse(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
                 new HmsRemoteCallException("remote",
                         new shade.doris.hive.org.apache.thrift.transport.TTransportException("closed"))));
-        Assertions.assertTrue(HmsPartitionBatchLoader.isDegradableRemoteFailure(
+        Assertions.assertTrue(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
                 new HmsRemoteCallException("remote",
                         new shade.doris.hive.org.apache.thrift.transport.TTransportException(
                                 "MaxMessageSize reached"))));
-        Assertions.assertTrue(HmsPartitionBatchLoader.isDegradableRemoteFailure(
+        Assertions.assertTrue(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
                 new HmsRemoteCallException("remote",
                         new shade.doris.hive.org.apache.thrift.TException("too many partitions in request"))));
-        Assertions.assertTrue(HmsPartitionBatchLoader.isDegradableRemoteFailure(
+        Assertions.assertTrue(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
                 new HmsRemoteCallException("remote",
                         new shade.doris.hive.org.apache.thrift.protocol.TProtocolException(
                                 "max message size reached"))));
-        Assertions.assertFalse(HmsPartitionBatchLoader.isDegradableRemoteFailure(
+        Assertions.assertFalse(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
                 new HmsRemoteCallException("remote",
                         new shade.doris.hive.org.apache.thrift.protocol.TProtocolException(
                                 "Unexpected field type"))));
-        Assertions.assertFalse(HmsPartitionBatchLoader.isDegradableRemoteFailure(
+        Assertions.assertFalse(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
                 new HmsRemoteCallException("remote",
                         new shade.doris.hive.org.apache.thrift.TException("server failure"))));
-        Assertions.assertFalse(HmsPartitionBatchLoader.isDegradableRemoteFailure(
+        Assertions.assertFalse(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
+                new HmsRemoteCallException("remote", new java.io.IOException("frame too large"))));
+        Assertions.assertFalse(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
                 new HmsClientException("local pool failure")));
     }
 
     @Test
     public void reportsOverlappingMismatchTypesPrecisely() {
-        HmsPartitionBatchLoader loader = loader(10, (db, table, names) -> Arrays.asList(
+        HmsPartitionBatchExecutor executor = executor(10, (db, table, names) -> Arrays.asList(
                 info("a"), info("c"), info("c")));
 
         HmsPartitionResultException failure = Assertions.assertThrows(
                 HmsPartitionResultException.class,
-                () -> loader.load(request(Arrays.asList("p=a", "p=b"))));
+                () -> load(executor, request(Arrays.asList("p=a", "p=b"))));
         Assertions.assertEquals(
                 java.util.EnumSet.of(
                         HmsPartitionResultException.MismatchType.MISSING_RESULT,
@@ -172,12 +173,12 @@ public class HmsPartitionBatchLoaderTest {
 
     @Test
     public void reportsInvalidResultIdentity() {
-        HmsPartitionBatchLoader loader = loader(10, (db, table, names) -> Collections.singletonList(
+        HmsPartitionBatchExecutor executor = executor(10, (db, table, names) -> Collections.singletonList(
                 new HmsPartitionInfo(Arrays.asList("a", "extra"), null, null, null, null, null)));
 
         HmsPartitionResultException failure = Assertions.assertThrows(
                 HmsPartitionResultException.class,
-                () -> loader.load(request(Collections.singletonList("p=a"))));
+                () -> load(executor, request(Collections.singletonList("p=a"))));
         Assertions.assertEquals(
                 java.util.EnumSet.of(
                         HmsPartitionResultException.MismatchType.MISSING_RESULT,
@@ -191,18 +192,18 @@ public class HmsPartitionBatchLoaderTest {
     public void fallbackTimeoutStopsBeforeRetry() {
         AtomicLong time = new AtomicLong();
         List<Integer> calls = new ArrayList<>();
-        HmsPartitionBatchLoader timeoutLoader = HmsPartitionBatchLoader.builder()
+        HmsPartitionBatchExecutor timeoutLoader = HmsPartitionBatchExecutor.builder()
                 .maxBatchSize(10)
                 .fallbackTimeoutMillis(30)
                 .fetcher((db, table, names) -> {
                     calls.add(names.size());
-                    throw new HmsRemoteCallException("remote", new IOException("frame too large"));
+                    throw remoteFailure("frame too large");
                 })
                 .nanoTime(() -> time.getAndAdd(31_000_000L))
                 .build();
         HmsClientException timeout = Assertions.assertThrows(
                 HmsClientException.class,
-                () -> timeoutLoader.load(request(names(2))));
+                () -> load(timeoutLoader, request(names(2))));
         Assertions.assertTrue(timeout.getMessage().contains("fallback timeout"));
         Assertions.assertEquals(Collections.singletonList(2), calls);
     }
@@ -210,9 +211,9 @@ public class HmsPartitionBatchLoaderTest {
     @Test
     public void retryingClientWireAttemptsAreCountedIndividually() {
         AtomicReference<ConnectorMetadataAccessEvent> event = new AtomicReference<>();
-        HmsPartitionBatchLoader loader = HmsPartitionBatchLoader.builder()
+        HmsPartitionBatchExecutor executor = HmsPartitionBatchExecutor.builder()
                 .maxBatchSize(10).fallbackTimeoutMillis(30_000)
-                .trackedFetcher((db, table, names, tracker) ->
+                .transport((db, table, names, tracker) ->
                         HmsRemoteCallTracking.withTracker(tracker, names.size(), () -> {
                             try {
                                 HmsRemoteCallTracking.trackWireAttempt(() -> {
@@ -223,9 +224,10 @@ public class HmsPartitionBatchLoaderTest {
                             }
                             return HmsRemoteCallTracking.trackWireAttempt(() -> infos(names));
                         }))
-                .observer(event::set).build();
+                .build();
+        HmsPartitionAccess access = new HmsPartitionAccess(executor, event::set);
 
-        Assertions.assertEquals(2, loader.load(request(names(2))).size());
+        Assertions.assertEquals(2, access.load(request(names(2))).size());
         Assertions.assertEquals(2, event.get().getRpcCount());
         Assertions.assertEquals(4, event.get().getRpcItems());
     }
@@ -254,13 +256,14 @@ public class HmsPartitionBatchLoaderTest {
         AtomicReference<ConnectorMetadataAccessEvent> event = new AtomicReference<>();
         AtomicReference<ConnectorMetadataAccessEvent> requestEvent = new AtomicReference<>();
         AtomicLong time = new AtomicLong();
-        HmsPartitionBatchLoader loader = HmsPartitionBatchLoader.builder()
+        HmsPartitionBatchExecutor executor = HmsPartitionBatchExecutor.builder()
                 .maxBatchSize(3)
                 .fallbackTimeoutMillis(30_000)
                 .fetcher((db, table, names) -> infos(names))
-                .observer(event::set)
                 .nanoTime(() -> time.getAndAdd(10_000_000L))
                 .build();
+        HmsPartitionAccess access = new HmsPartitionAccess(
+                executor, event::set, () -> time.getAndAdd(10_000_000L));
 
         HmsPartitionRequest request = HmsPartitionRequest.builder()
                 .database("db")
@@ -269,7 +272,7 @@ public class HmsPartitionBatchLoaderTest {
                 .source(ConnectorMetadataAccessSource.QUERY)
                 .metadataAccessObserver(requestEvent::set)
                 .build();
-        loader.load(request);
+        access.load(request);
         Assertions.assertEquals(2, event.get().getRpcCount());
         Assertions.assertEquals(5, event.get().getRpcItems());
         Assertions.assertEquals(3, event.get().getLargestBatchSize());
@@ -284,15 +287,15 @@ public class HmsPartitionBatchLoaderTest {
     @Test
     public void observerFailuresDoNotFailSuccessfulRequestAndBothSinksRun() {
         AtomicInteger observerCalls = new AtomicInteger();
-        HmsPartitionBatchLoader loader = HmsPartitionBatchLoader.builder()
+        HmsPartitionBatchExecutor executor = HmsPartitionBatchExecutor.builder()
                 .maxBatchSize(10)
                 .fallbackTimeoutMillis(30_000)
                 .fetcher((db, table, names) -> infos(names))
-                .observer(event -> {
+                .build();
+        HmsPartitionAccess access = new HmsPartitionAccess(executor, event -> {
                     observerCalls.incrementAndGet();
                     throw new IllegalStateException("metrics failure");
-                })
-                .build();
+                });
         HmsPartitionRequest request = HmsPartitionRequest.builder()
                 .database("db")
                 .table("table")
@@ -303,16 +306,21 @@ public class HmsPartitionBatchLoaderTest {
                 })
                 .build();
 
-        Assertions.assertEquals(2, loader.load(request).size());
+        Assertions.assertEquals(2, access.load(request).size());
         Assertions.assertEquals(2, observerCalls.get());
     }
 
-    private static HmsPartitionBatchLoader loader(int maxBatchSize, HmsPartitionBatchLoader.Fetcher fetcher) {
-        return HmsPartitionBatchLoader.builder()
+    private static HmsPartitionBatchExecutor executor(int maxBatchSize, HmsPartitionBatchExecutor.Fetcher fetcher) {
+        return HmsPartitionBatchExecutor.builder()
                 .maxBatchSize(maxBatchSize)
                 .fallbackTimeoutMillis(30_000)
                 .fetcher(fetcher)
                 .build();
+    }
+
+    private static List<HmsPartitionInfo> load(
+            HmsPartitionBatchExecutor executor, HmsPartitionRequest request) {
+        return executor.execute(request, executor.newExecution());
     }
 
     private static HmsPartitionRequest request(List<String> names) {
@@ -337,5 +345,10 @@ public class HmsPartitionBatchLoaderTest {
     private static HmsPartitionInfo info(String value) {
         return new HmsPartitionInfo(Collections.singletonList(value), "loc/" + value,
                 null, null, null, null);
+    }
+
+    private static HmsRemoteCallException remoteFailure(String message) {
+        return new HmsRemoteCallException(
+                "remote", new shade.doris.hive.org.apache.thrift.TException(message));
     }
 }

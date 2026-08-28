@@ -93,7 +93,7 @@ import java.util.stream.Collectors;
  * <p>Authentication is handled by an injectable {@link AuthAction}
  * functional interface, replacing fe-core's ExecutionAuthenticator.</p>
  */
-public class ThriftHmsClient implements HmsClient {
+public class ThriftHmsClient implements HmsClient, HmsPartitionTransport {
 
     private static final Logger LOG = LogManager.getLogger(ThriftHmsClient.class);
 
@@ -107,7 +107,7 @@ public class ThriftHmsClient implements HmsClient {
     private final AuthAction authAction;
     private final MetaStoreClientProvider clientProvider;
     private final HmsTypeMapping.Options typeMappingOptions;
-    private final HmsPartitionBatchLoader partitionBatchLoader;
+    private final HmsPartitionAccess partitionAccess;
     private volatile boolean closed;
 
     /**
@@ -157,12 +157,12 @@ public class ThriftHmsClient implements HmsClient {
         this.authAction = authAction != null ? authAction : Callable::call;
         this.clientProvider = clientProvider;
         this.typeMappingOptions = typeMappingOptions;
-        this.partitionBatchLoader = HmsPartitionBatchLoader.builder()
+        HmsPartitionBatchExecutor executor = HmsPartitionBatchExecutor.builder()
                 .maxBatchSize(config.getPartitionBatchSize())
                 .fallbackTimeoutMillis(config.getPartitionBatchFallbackTimeoutMillis())
-                .trackedFetcher(this::fetchPartitions)
-                .observer(observer)
+                .transport(this)
                 .build();
+        this.partitionAccess = new HmsPartitionAccess(executor, observer);
         if (config.getPoolSize() > 0) {
             this.clientPool = new GenericObjectPool<>(
                     new HmsClientFactory(), createPoolConfig(config.getPoolSize()));
@@ -267,16 +267,12 @@ public class ThriftHmsClient implements HmsClient {
     @Override
     public List<HmsPartitionInfo> getPartitions(ConnectorSession session, ConnectorMetadataAccessSource source,
             String dbName, String tableName, List<String> partNames) {
-        return getPartitions(HmsPartitionRequest.from(session, source, dbName, tableName, partNames));
+        return partitionAccess.load(HmsPartitionRequest.from(session, source, dbName, tableName, partNames));
     }
 
     @Override
-    public List<HmsPartitionInfo> getPartitions(HmsPartitionRequest request) {
-        return partitionBatchLoader.load(request);
-    }
-
-    private List<HmsPartitionInfo> fetchPartitions(String dbName, String tableName, List<String> partNames,
-            HmsPartitionBatchLoader.RemoteCallTracker remoteCallTracker) {
+    public List<HmsPartitionInfo> getPartitionsByNames(String dbName, String tableName, List<String> partNames,
+            HmsPartitionBatchExecutor.RemoteCallTracker remoteCallTracker) {
         return execute(client -> {
             List<Partition> partitions;
             if (clientProvider.supportsPartitionWireCallTracking()) {
@@ -289,7 +285,7 @@ public class ThriftHmsClient implements HmsClient {
             if (partitions == null) {
                 return null;
             }
-            // Preserve malformed null elements for the common batch loader. It owns the typed integrity
+            // Preserve malformed null elements for the common batch executor. It owns the typed integrity
             // classification; dereferencing here would turn INVALID_RESULT into an unrelated remote-call NPE.
             return partitions.stream()
                     .map(partition -> partition == null ? null : convertPartition(partition))

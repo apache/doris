@@ -179,11 +179,6 @@ public interface HmsClient extends Closeable {
         return getPartitions(dbName, tableName, partNames);
     }
 
-    /** Internal logical-request bridge used by HMS client decorators. */
-    default List<HmsPartitionInfo> getPartitions(HmsPartitionRequest request) {
-        return getPartitions(request.getDbName(), request.getTableName(), request.getPartitionNames());
-    }
-
     /**
      * Get a single partition by its values.
      *

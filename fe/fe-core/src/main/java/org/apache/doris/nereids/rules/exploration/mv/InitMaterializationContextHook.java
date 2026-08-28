@@ -31,6 +31,7 @@ import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVPlanUtil;
+import org.apache.doris.mtmv.MTMVRewriteUtil;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.PlannerHook;
@@ -184,10 +185,24 @@ public class InitMaterializationContextHook implements PlannerHook {
         return Env.getCurrentEnv().getMtmvService().getRelationManager()
                 .getAvailableMTMVs(cascadesContext.getStatementContext().getCandidateMTMVs(),
                         cascadesContext.getConnectContext(),
-                        false, ((connectContext, mtmv) -> {
-                            return MTMVUtil.mtmvContainsExternalTable(mtmv) && (!connectContext.getSessionVariable()
-                                    .isEnableMaterializedViewRewriteWhenBaseTableUnawareness());
-                        }));
+                        forceConsistent(), this::rejectMtmvCandidate);
+    }
+
+    /** Whether cloud planning must preload the refresh context for this rewrite candidate. */
+    public boolean requiresMtmvRefreshContext(MTMV mtmv, ConnectContext connectContext) {
+        return mtmv.isUseForRewrite()
+                && MTMVRewriteUtil.requiresRefreshContext(
+                        mtmv, System.currentTimeMillis(), forceConsistent())
+                && !rejectMtmvCandidate(connectContext, mtmv);
+    }
+
+    protected boolean forceConsistent() {
+        return false;
+    }
+
+    protected boolean rejectMtmvCandidate(ConnectContext connectContext, MTMV mtmv) {
+        return MTMVUtil.mtmvContainsExternalTable(mtmv) && !connectContext.getSessionVariable()
+                .isEnableMaterializedViewRewriteWhenBaseTableUnawareness();
     }
 
     private List<MaterializationContext> createAsyncMaterializationContext(CascadesContext cascadesContext,

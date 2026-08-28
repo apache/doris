@@ -17,16 +17,13 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.PlannerHook;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
-
-import java.util.Set;
 
 /**
  * If enable query rewrite with mv in dml, should init consistent materialization context after analyze
@@ -45,13 +42,14 @@ public class InitConsistentMaterializationContextHook extends InitMaterializatio
         super.doInitMaterializationContext(cascadesContext);
     }
 
-    protected Set<MTMV> getAvailableMTMVs(Set<TableIf> usedTables, CascadesContext cascadesContext) {
-        return Env.getCurrentEnv().getMtmvService().getRelationManager()
-                .getAvailableMTMVs(cascadesContext.getStatementContext().getCandidateMTMVs(),
-                        cascadesContext.getConnectContext(),
-                        true, ((connectContext, mtmv) -> {
-                            return MTMVUtil.mtmvContainsExternalTable(mtmv) && (!connectContext.getSessionVariable()
-                                    .isEnableDmlMaterializedViewRewriteWhenBaseTableUnawareness());
-                        }));
+    @Override
+    protected boolean forceConsistent() {
+        return true;
+    }
+
+    @Override
+    protected boolean rejectMtmvCandidate(ConnectContext connectContext, MTMV mtmv) {
+        return MTMVUtil.mtmvContainsExternalTable(mtmv) && !connectContext.getSessionVariable()
+                .isEnableDmlMaterializedViewRewriteWhenBaseTableUnawareness();
     }
 }

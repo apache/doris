@@ -118,6 +118,25 @@ public class ConnectorPluginSurfaceTest {
                         + "Full actual surface:\n" + String.join("\n", actual));
     }
 
+    @Test
+    public void metadataAccessEventsRejectInvalidDimensionsAndMeasurements() {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> validMetadataEvent()
+                .operation("HMS get partitions").build());
+        Assertions.assertThrows(IllegalArgumentException.class, () -> validMetadataEvent()
+                .source("QUERY_123").build());
+        Assertions.assertThrows(IllegalArgumentException.class, () -> validMetadataEvent()
+                .rpcCount(-1).build());
+        Assertions.assertThrows(IllegalArgumentException.class, () -> validMetadataEvent()
+                .largestBatchSize(1).smallestBatchSize(2).build());
+    }
+
+    private static ConnectorMetadataAccessEvent.Builder validMetadataEvent() {
+        return ConnectorMetadataAccessEvent.builder()
+                .operation("hms.get_partitions_by_names")
+                .source(ConnectorMetadataAccessSource.QUERY.name())
+                .success(true);
+    }
+
     /**
      * One line per method reachable on a frozen type, keyed by that type rather than by the interface that
      * happens to declare it: what matters is what a plugin can call on the type it was handed, so moving a
@@ -126,6 +145,11 @@ public class ConnectorPluginSurfaceTest {
     private static TreeSet<String> renderSurface() {
         TreeSet<String> rendered = new TreeSet<>();
         for (Class<?> frozen : FROZEN_TYPES) {
+            if (frozen.isEnum()) {
+                for (Object value : frozen.getEnumConstants()) {
+                    rendered.add(frozen.getName() + "#" + ((Enum<?>) value).name());
+                }
+            }
             for (Method m : frozen.getMethods()) {
                 if (m.isSynthetic() || !m.getDeclaringClass().getName().startsWith("org.apache.doris.")) {
                     continue;

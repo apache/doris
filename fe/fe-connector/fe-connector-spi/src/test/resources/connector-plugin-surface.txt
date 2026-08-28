@@ -56,6 +56,12 @@ org.apache.doris.connector.spi.ConnectorMetadataAccessEvent$Builder#smallestBatc
 org.apache.doris.connector.spi.ConnectorMetadataAccessEvent$Builder#source(java.lang.String):org.apache.doris.connector.spi.ConnectorMetadataAccessEvent$Builder
 org.apache.doris.connector.spi.ConnectorMetadataAccessEvent$Builder#success(boolean):org.apache.doris.connector.spi.ConnectorMetadataAccessEvent$Builder
 org.apache.doris.connector.spi.ConnectorMetadataAccessObserver#record(org.apache.doris.connector.spi.ConnectorMetadataAccessEvent):void
+org.apache.doris.connector.spi.ConnectorMetadataAccessSource#DISPLAY
+org.apache.doris.connector.spi.ConnectorMetadataAccessSource#MTMV
+org.apache.doris.connector.spi.ConnectorMetadataAccessSource#QUERY
+org.apache.doris.connector.spi.ConnectorMetadataAccessSource#STATISTICS
+org.apache.doris.connector.spi.ConnectorMetadataAccessSource#UNKNOWN
+org.apache.doris.connector.spi.ConnectorMetadataAccessSource#WRITE
 org.apache.doris.connector.spi.ConnectorMetadataAccessSource#valueOf(java.lang.String):org.apache.doris.connector.spi.ConnectorMetadataAccessSource
 org.apache.doris.connector.spi.ConnectorMetadataAccessSource#values():org.apache.doris.connector.spi.ConnectorMetadataAccessSource[]
 org.apache.doris.connector.spi.ConnectorProvider#acceptedCreateTableEngineNames():java.util.Set

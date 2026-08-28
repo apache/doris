@@ -18,9 +18,12 @@
 package org.apache.doris.connector.spi;
 
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 /** One completed connector metadata access, emitted once for a logical request. */
 public final class ConnectorMetadataAccessEvent {
+
+    private static final Pattern OPERATION_PATTERN = Pattern.compile("[a-z][a-z0-9_.-]{0,127}");
 
     private final String operation;
     private final String source;
@@ -119,11 +122,16 @@ public final class ConnectorMetadataAccessEvent {
         private Builder() {
         }
 
+        /**
+         * Sets a stable, lower-case operation name. Values must describe an operation kind and must not contain
+         * catalog, table, query, user, endpoint, or other request-specific identifiers.
+         */
         public Builder operation(String operation) {
             this.operation = operation;
             return this;
         }
 
+        /** Sets one of the bounded {@link ConnectorMetadataAccessSource} names. */
         public Builder source(String source) {
             this.source = source;
             return this;
@@ -182,7 +190,30 @@ public final class ConnectorMetadataAccessEvent {
         public ConnectorMetadataAccessEvent build() {
             Objects.requireNonNull(operation, "operation");
             Objects.requireNonNull(source, "source");
+            if (!OPERATION_PATTERN.matcher(operation).matches()) {
+                throw new IllegalArgumentException(
+                        "operation must be a stable lower-case metric name: " + operation);
+            }
+            ConnectorMetadataAccessSource.valueOf(source);
+            requireNonNegative(requestedItems, "requestedItems");
+            requireNonNegative(rpcCount, "rpcCount");
+            requireNonNegative(rpcItems, "rpcItems");
+            requireNonNegative(largestBatchSize, "largestBatchSize");
+            requireNonNegative(smallestBatchSize, "smallestBatchSize");
+            requireNonNegative(fallbackCount, "fallbackCount");
+            requireNonNegative(logicalElapsedMillis, "logicalElapsedMillis");
+            requireNonNegative(rpcElapsedMillis, "rpcElapsedMillis");
+            requireNonNegative(maxRpcElapsedMillis, "maxRpcElapsedMillis");
+            if (smallestBatchSize > largestBatchSize) {
+                throw new IllegalArgumentException("smallestBatchSize must not exceed largestBatchSize");
+            }
             return new ConnectorMetadataAccessEvent(this);
+        }
+
+        private static void requireNonNegative(long value, String field) {
+            if (value < 0) {
+                throw new IllegalArgumentException(field + " must be non-negative");
+            }
         }
     }
 }

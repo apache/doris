@@ -18,10 +18,8 @@
 package org.apache.doris.connector.hms;
 
 import org.apache.doris.connector.spi.ConnectorMetadataAccessEvent;
-import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import shade.doris.hive.org.apache.thrift.TException;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -33,10 +31,10 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
 
-/** The single chunking, adaptive fallback, integrity and observability implementation for HMS partitions. */
-final class HmsPartitionBatchLoader {
+/** Executes bounded physical HMS partition batches over one leaf transport. */
+final class HmsPartitionBatchExecutor {
 
-    private static final Logger LOG = LogManager.getLogger(HmsPartitionBatchLoader.class);
+    static final long NO_FALLBACK_START_NANOS = Long.MIN_VALUE;
 
     @FunctionalInterface
     interface Fetcher {
@@ -44,31 +42,28 @@ final class HmsPartitionBatchLoader {
     }
 
     @FunctionalInterface
-    interface TrackedFetcher {
-        List<HmsPartitionInfo> fetch(String dbName, String tableName, List<String> partitionNames,
-                RemoteCallTracker remoteCallTracker) throws Exception;
+    interface FailureClassifier {
+        boolean isDegradable(Throwable failure);
     }
 
     @FunctionalInterface
-    interface FailureClassifier {
-        boolean isDegradable(Throwable failure);
+    interface PartitionChunkConsumer {
+        void accept(List<HmsPartitionInfo> partitions);
     }
 
     private final int maxBatchSize;
     private final int minBatchSize;
     private final long fallbackTimeoutMillis;
-    private final TrackedFetcher fetcher;
+    private final HmsPartitionTransport transport;
     private final FailureClassifier failureClassifier;
-    private final ConnectorMetadataAccessObserver observer;
     private final LongSupplier nanoTime;
 
-    private HmsPartitionBatchLoader(Builder builder) {
+    private HmsPartitionBatchExecutor(Builder builder) {
         this.maxBatchSize = builder.maxBatchSize;
         this.minBatchSize = builder.minBatchSize;
         this.fallbackTimeoutMillis = builder.fallbackTimeoutMillis;
-        this.fetcher = builder.fetcher;
+        this.transport = builder.transport;
         this.failureClassifier = builder.failureClassifier;
-        this.observer = builder.observer;
         this.nanoTime = builder.nanoTime;
     }
 
@@ -76,22 +71,30 @@ final class HmsPartitionBatchLoader {
         return new Builder();
     }
 
-    List<HmsPartitionInfo> load(HmsPartitionRequest request) {
+    Execution newExecution() {
+        return new Execution();
+    }
+
+    List<HmsPartitionInfo> execute(HmsPartitionRequest request, Execution execution) {
+        List<HmsPartitionInfo> result = new ArrayList<>(request.getPartitionNames().size());
+        executeChunks(request, execution, result::addAll);
+        return result;
+    }
+
+    void executeChunks(HmsPartitionRequest request, Execution execution,
+            PartitionChunkConsumer chunkConsumer) {
         List<String> names = request.getPartitionNames();
         if (names.isEmpty()) {
-            return java.util.Collections.emptyList();
+            return;
         }
-        long startNanos = nanoTime.getAsLong();
         long fallbackTimeoutNanos = TimeUnit.MILLISECONDS.toNanos(fallbackTimeoutMillis);
-        long fallbackStartNanos = request.fallbackStartNanos();
+        long fallbackStartNanos = execution.fallbackStartNanos;
         RemoteCallTracker remoteCalls = new RemoteCallTracker(nanoTime);
         int fallbackCount = 0;
-        boolean success = false;
         try {
-            List<HmsPartitionInfo> result = new ArrayList<>(names.size());
             List<HmsPartitionIdentity.ParsedPartitionName> partitions = request.getPartitions();
             int offset = 0;
-            int effectiveBatchSize = request.effectiveBatchSize(maxBatchSize);
+            int effectiveBatchSize = execution.effectiveBatchSize(maxBatchSize);
             while (offset < names.size()) {
                 checkFallbackTimeout(fallbackStartNanos, fallbackTimeoutNanos);
                 int batchSize = Math.min(effectiveBatchSize, names.size() - offset);
@@ -100,7 +103,7 @@ final class HmsPartitionBatchLoader {
                         = partitions.subList(offset, offset + batchSize);
                 List<HmsPartitionInfo> returned;
                 try {
-                    returned = fetcher.fetch(
+                    returned = transport.getPartitionsByNames(
                             request.getDbName(), request.getTableName(), batch,
                             remoteCalls);
                 } catch (HmsRemoteCallException e) {
@@ -110,12 +113,12 @@ final class HmsPartitionBatchLoader {
                                 request, offset, batchSize, effectiveBatchSize,
                                 remoteCalls.count, fallbackCount, e);
                     }
-                    if (fallbackStartNanos == HmsPartitionRequest.NO_FALLBACK_START_NANOS) {
-                        fallbackStartNanos = request.startFallback(nanoTime.getAsLong());
+                    if (fallbackStartNanos == NO_FALLBACK_START_NANOS) {
+                        fallbackStartNanos = execution.startFallback(nanoTime.getAsLong());
                     }
                     checkFallbackTimeout(fallbackStartNanos, fallbackTimeoutNanos);
                     effectiveBatchSize = Math.max(minBatchSize, batchSize / 2);
-                    request.reduceEffectiveBatchSize(effectiveBatchSize);
+                    execution.reduceEffectiveBatchSize(effectiveBatchSize);
                     fallbackCount++;
                     continue;
                 } catch (RuntimeException e) {
@@ -129,49 +132,17 @@ final class HmsPartitionBatchLoader {
                 // a malformed response or a local write-back bug must never trigger transport fallback or be
                 // wrapped as an HMS RPC failure.
                 List<HmsPartitionInfo> ordered = validateParsedAndOrder(batchPartitions, returned);
-                request.getPartitionChunkConsumer().accept(batch, ordered);
-                result.addAll(ordered);
+                chunkConsumer.accept(ordered);
                 offset += batchSize;
             }
             checkFallbackTimeout(fallbackStartNanos, fallbackTimeoutNanos);
-            success = true;
-            return result;
         } finally {
-            ConnectorMetadataAccessEvent event = ConnectorMetadataAccessEvent.builder()
-                    .operation("hms.get_partitions_by_names")
-                    .source(request.getSource().name())
-                    .requestedItems(names.size())
-                    .rpcCount(remoteCalls.count)
-                    .rpcItems(remoteCalls.items)
-                    .largestBatchSize(remoteCalls.largestBatchSize)
-                    .smallestBatchSize(remoteCalls.smallestBatchSize == Integer.MAX_VALUE
-                            ? 0 : remoteCalls.smallestBatchSize)
-                    .fallbackCount(fallbackCount)
-                    .logicalElapsedMillis(TimeUnit.NANOSECONDS.toMillis(nanoTime.getAsLong() - startNanos))
-                    .rpcElapsedMillis(TimeUnit.NANOSECONDS.toMillis(remoteCalls.elapsedNanos))
-                    .maxRpcElapsedMillis(TimeUnit.NANOSECONDS.toMillis(remoteCalls.maxElapsedNanos))
-                    .success(success)
-                    .build();
-            if (request.isLogicalAccessOwner()) {
-                recordSafely("catalog metrics", observer, event);
-                recordSafely("query profile", request.getMetadataAccessObserver(), event);
-            } else {
-                request.addPhysicalAccess(event);
-            }
-        }
-    }
-
-    private void recordSafely(String sinkName, ConnectorMetadataAccessObserver sink,
-            ConnectorMetadataAccessEvent event) {
-        try {
-            sink.record(event);
-        } catch (RuntimeException e) {
-            LOG.warn("Failed to record HMS partition metadata access in {}", sinkName, e);
+            execution.addPhysicalAccess(remoteCalls, fallbackCount);
         }
     }
 
     private void checkFallbackTimeout(long fallbackStartNanos, long fallbackTimeoutNanos) {
-        if (fallbackStartNanos != HmsPartitionRequest.NO_FALLBACK_START_NANOS
+        if (fallbackStartNanos != NO_FALLBACK_START_NANOS
                 && nanoTime.getAsLong() - fallbackStartNanos >= fallbackTimeoutNanos) {
             throw new HmsClientException("HMS partition batch fallback timeout exceeded");
         }
@@ -237,9 +208,6 @@ final class HmsPartitionBatchLoader {
 
     private RuntimeException finalBatchFailure(HmsPartitionRequest request, int offset,
             int failedBatchSize, int effectiveBatchSize, int rpcCount, int fallbackCount, Exception failure) {
-        if (failure instanceof HmsPartitionResultException) {
-            return (RuntimeException) failure;
-        }
         String message = String.format(
                 "HMS partition batch request failed: db=%s, table=%s, requested=%d, offset=%d, "
                         + "failedBatchSize=%d, effectiveBatchSize=%d, minBatchSize=%d, attempts=%d, "
@@ -248,6 +216,65 @@ final class HmsPartitionBatchLoader {
                 failedBatchSize, effectiveBatchSize, minBatchSize, rpcCount, fallbackCount,
                 failure.getMessage());
         return new HmsClientException(message, failure);
+    }
+
+    /** Mutable physical state shared by the bounded windows of one logical access. */
+    static final class Execution {
+        private int effectiveBatchSize = Integer.MAX_VALUE;
+        private long fallbackStartNanos = NO_FALLBACK_START_NANOS;
+        private int rpcCount;
+        private long rpcItems;
+        private int largestBatchSize;
+        private int smallestBatchSize = Integer.MAX_VALUE;
+        private int fallbackCount;
+        private long rpcElapsedMillis;
+        private long maxRpcElapsedMillis;
+
+        private int effectiveBatchSize(int configuredMaxBatchSize) {
+            return Math.min(configuredMaxBatchSize, effectiveBatchSize);
+        }
+
+        private void reduceEffectiveBatchSize(int batchSize) {
+            effectiveBatchSize = Math.min(effectiveBatchSize, batchSize);
+        }
+
+        private long startFallback(long startNanos) {
+            if (fallbackStartNanos == NO_FALLBACK_START_NANOS) {
+                fallbackStartNanos = startNanos;
+            }
+            return fallbackStartNanos;
+        }
+
+        private void addPhysicalAccess(RemoteCallTracker calls, int fallbacks) {
+            rpcCount += calls.count;
+            rpcItems += calls.items;
+            largestBatchSize = Math.max(largestBatchSize, calls.largestBatchSize);
+            if (calls.smallestBatchSize != Integer.MAX_VALUE) {
+                smallestBatchSize = Math.min(smallestBatchSize, calls.smallestBatchSize);
+            }
+            fallbackCount += fallbacks;
+            rpcElapsedMillis += TimeUnit.NANOSECONDS.toMillis(calls.elapsedNanos);
+            maxRpcElapsedMillis = Math.max(
+                    maxRpcElapsedMillis, TimeUnit.NANOSECONDS.toMillis(calls.maxElapsedNanos));
+        }
+
+        ConnectorMetadataAccessEvent logicalAccessEvent(
+                HmsPartitionRequest request, long elapsedMillis, boolean success) {
+            return ConnectorMetadataAccessEvent.builder()
+                    .operation("hms.get_partitions_by_names")
+                    .source(request.getSource().name())
+                    .requestedItems(request.getPartitionNames().size())
+                    .rpcCount(rpcCount)
+                    .rpcItems(rpcItems)
+                    .largestBatchSize(largestBatchSize)
+                    .smallestBatchSize(smallestBatchSize == Integer.MAX_VALUE ? 0 : smallestBatchSize)
+                    .fallbackCount(fallbackCount)
+                    .logicalElapsedMillis(elapsedMillis)
+                    .rpcElapsedMillis(rpcElapsedMillis)
+                    .maxRpcElapsedMillis(maxRpcElapsedMillis)
+                    .success(success)
+                    .build();
+        }
     }
 
     static final class RemoteCallTracker {
@@ -283,7 +310,10 @@ final class HmsPartitionBatchLoader {
         if (!(failure instanceof HmsRemoteCallException)) {
             return false;
         }
+        boolean thriftFailure = false;
+        boolean sizeFailure = false;
         for (Throwable current = failure.getCause(); current != null; current = current.getCause()) {
+            thriftFailure |= current instanceof TException;
             String message = current.getMessage();
             if (message != null) {
                 String normalized = message.toLowerCase(Locale.ROOT);
@@ -293,20 +323,19 @@ final class HmsPartitionBatchLoader {
                         || normalized.contains("request too large") || normalized.contains("payload too large")
                         || normalized.contains("too many partitions")
                         || normalized.contains("partition limit")) {
-                    return true;
+                    sizeFailure = true;
                 }
             }
         }
-        return false;
+        return thriftFailure && sizeFailure;
     }
 
     static final class Builder {
         private int maxBatchSize;
         private int minBatchSize = 1;
         private long fallbackTimeoutMillis;
-        private TrackedFetcher fetcher;
-        private FailureClassifier failureClassifier = HmsPartitionBatchLoader::isDegradableRemoteFailure;
-        private ConnectorMetadataAccessObserver observer = ConnectorMetadataAccessObserver.NOOP;
+        private HmsPartitionTransport transport;
+        private FailureClassifier failureClassifier = HmsPartitionBatchExecutor::isDegradableRemoteFailure;
         private LongSupplier nanoTime = System::nanoTime;
 
         private Builder() {
@@ -329,14 +358,14 @@ final class HmsPartitionBatchLoader {
 
         Builder fetcher(Fetcher fetcher) {
             java.util.Objects.requireNonNull(fetcher, "fetcher");
-            this.fetcher = (dbName, tableName, partitionNames, remoteCallTracker) ->
+            this.transport = (dbName, tableName, partitionNames, remoteCallTracker) ->
                     remoteCallTracker.call(partitionNames.size(),
                             () -> fetcher.fetch(dbName, tableName, partitionNames));
             return this;
         }
 
-        Builder trackedFetcher(TrackedFetcher fetcher) {
-            this.fetcher = fetcher;
+        Builder transport(HmsPartitionTransport transport) {
+            this.transport = transport;
             return this;
         }
 
@@ -345,28 +374,22 @@ final class HmsPartitionBatchLoader {
             return this;
         }
 
-        Builder observer(ConnectorMetadataAccessObserver observer) {
-            this.observer = observer;
-            return this;
-        }
-
         Builder nanoTime(LongSupplier nanoTime) {
             this.nanoTime = nanoTime;
             return this;
         }
 
-        HmsPartitionBatchLoader build() {
+        HmsPartitionBatchExecutor build() {
             if (maxBatchSize <= 0 || minBatchSize <= 0 || minBatchSize > maxBatchSize) {
                 throw new IllegalArgumentException("invalid HMS partition batch size range");
             }
             if (fallbackTimeoutMillis <= 0) {
                 throw new IllegalArgumentException("fallback timeout must be positive");
             }
-            java.util.Objects.requireNonNull(fetcher, "fetcher");
+            java.util.Objects.requireNonNull(transport, "transport");
             java.util.Objects.requireNonNull(failureClassifier, "failureClassifier");
-            java.util.Objects.requireNonNull(observer, "observer");
             java.util.Objects.requireNonNull(nanoTime, "nanoTime");
-            return new HmsPartitionBatchLoader(this);
+            return new HmsPartitionBatchExecutor(this);
         }
     }
 }

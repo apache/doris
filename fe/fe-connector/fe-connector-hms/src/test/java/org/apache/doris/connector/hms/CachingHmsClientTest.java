@@ -18,7 +18,6 @@
 package org.apache.doris.connector.hms;
 
 import org.apache.doris.connector.spi.ConnectorMetadataAccessEvent;
-import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
 
 import org.junit.jupiter.api.Assertions;
@@ -238,18 +237,19 @@ public class CachingHmsClientTest {
     public void getPartitionsPropagatesRequestObserverToCacheMiss() {
         RecordingHmsClient delegate = new RecordingHmsClient();
         CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
-        ConnectorMetadataAccessObserver observer = event -> { };
+        List<ConnectorMetadataAccessEvent> events = new ArrayList<>();
         HmsPartitionRequest request = HmsPartitionRequest.builder()
                 .database("db")
                 .table("t")
                 .partitionNames(Arrays.asList("p=1", "p=2"))
                 .source(ConnectorMetadataAccessSource.QUERY)
-                .metadataAccessObserver(observer)
+                .metadataAccessObserver(events::add)
                 .build();
 
-        cache.getPartitions(request);
+        cache.loadPartitions(request);
 
-        Assertions.assertSame(observer, delegate.lastMetadataAccessObserver);
+        Assertions.assertEquals(1, events.size());
+        Assertions.assertEquals("QUERY", events.get(0).getSource());
         Assertions.assertEquals(Arrays.asList("p=1", "p=2"), delegate.lastGetPartitionsArg);
     }
 
@@ -267,23 +267,13 @@ public class CachingHmsClientTest {
                     parses.incrementAndGet();
                     return HmsPartitionIdentity.parse(name);
                 }).build();
-        List<HmsPartitionIdentity.ParsedPartitionName> expected = request.getPartitions();
-        RecordingHmsClient delegate = new RecordingHmsClient() {
-            @Override
-            public List<HmsPartitionInfo> getPartitions(HmsPartitionRequest child) {
-                for (HmsPartitionIdentity.ParsedPartitionName partition : child.getPartitions()) {
-                    int index = Integer.parseInt(partition.getName().substring(2));
-                    Assertions.assertSame(expected.get(index), partition);
-                }
-                return super.getPartitions(child);
-            }
-        };
+        RecordingHmsClient delegate = new RecordingHmsClient();
         CachingHmsClient cache = new CachingHmsClient(delegate, props(
                 HmsClientConfig.PARTITION_BATCH_SIZE_KEY, "5000",
                 "meta.cache.hive.partition.capacity", String.valueOf(partitionCount + 1)));
 
-        Assertions.assertEquals(partitionCount, cache.getPartitions(request).size());
-        Assertions.assertEquals(partitionCount, cache.getPartitions(request).size());
+        Assertions.assertEquals(partitionCount, cache.loadPartitions(request).size());
+        Assertions.assertEquals(partitionCount, cache.loadPartitions(request).size());
         Assertions.assertEquals(partitionCount, parses.get());
         Assertions.assertEquals(24, delegate.getPartitionsCalls);
     }
@@ -377,7 +367,7 @@ public class CachingHmsClientTest {
         CountDownLatch releaseOwner = new CountDownLatch(1);
         CountDownLatch waitersRegistered = new CountDownLatch(2);
         AtomicInteger registrations = new AtomicInteger();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap()) {
+        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap(), 1) {
             @Override
             void afterPartitionLoadRegistrationForTest() {
                 if (registrations.incrementAndGet() > 1) {
@@ -491,7 +481,7 @@ public class CachingHmsClientTest {
             Future<List<HmsPartitionInfo>> owner = executor.submit(
                     () -> cache.getPartitions("db", "t", Collections.singletonList("p=1")));
             Assertions.assertTrue(ownerEntered.await(5, TimeUnit.SECONDS));
-            Future<List<HmsPartitionInfo>> waiter = executor.submit(() -> cache.getPartitions(failing));
+            Future<List<HmsPartitionInfo>> waiter = executor.submit(() -> cache.loadPartitions(failing));
             Assertions.assertTrue(waiterQueued.await(5, TimeUnit.SECONDS));
             releaseOwner.countDown();
             Assertions.assertEquals(1, owner.get(5, TimeUnit.SECONDS).size());
@@ -582,7 +572,7 @@ public class CachingHmsClientTest {
             Future<List<HmsPartitionInfo>> owner = executor.submit(
                     () -> cache.getPartitions("db", "t", Collections.singletonList("p=0")));
             Assertions.assertTrue(ownerEntered.await(5, TimeUnit.SECONDS));
-            Future<List<HmsPartitionInfo>> first = executor.submit(() -> cache.getPartitions(firstRequest));
+            Future<List<HmsPartitionInfo>> first = executor.submit(() -> cache.loadPartitions(firstRequest));
             Assertions.assertTrue(firstQueued.await(5, TimeUnit.SECONDS));
             Future<List<HmsPartitionInfo>> second = executor.submit(
                     () -> cache.getPartitions("db", "t", Collections.singletonList("p=2")));
@@ -644,25 +634,20 @@ public class CachingHmsClientTest {
     public void fallbackStateIsSharedAcrossCacheWindows() {
         List<Integer> attempts = new ArrayList<>();
         List<ConnectorMetadataAccessEvent> events = new ArrayList<>();
-        HmsPartitionBatchLoader rawLoader = HmsPartitionBatchLoader.builder()
-                .maxBatchSize(4).fallbackTimeoutMillis(30)
-                .fetcher((db, table, names) -> {
-                    attempts.add(names.size());
-                    if (names.size() > 2) {
-                        throw new HmsRemoteCallException("remote",
-                                new shade.doris.hive.org.apache.thrift.TException("too many partitions"));
-                    }
-                    List<HmsPartitionInfo> result = new ArrayList<>();
-                    for (String name : names) {
-                        result.add(new HmsPartitionInfo(HmsPartitionIdentity.fromName(name),
-                                "loc/" + name, null, null, null, null));
-                    }
-                    return result;
-                }).build();
         RecordingHmsClient delegate = new RecordingHmsClient() {
             @Override
-            public List<HmsPartitionInfo> getPartitions(HmsPartitionRequest request) {
-                return rawLoader.load(request);
+            public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> names) {
+                attempts.add(names.size());
+                if (names.size() > 2) {
+                    throw new HmsRemoteCallException("remote",
+                            new shade.doris.hive.org.apache.thrift.TException("too many partitions"));
+                }
+                List<HmsPartitionInfo> result = new ArrayList<>();
+                for (String name : names) {
+                    result.add(new HmsPartitionInfo(HmsPartitionIdentity.fromName(name),
+                            "loc/" + name, null, null, null, null));
+                }
+                return result;
             }
         };
         CachingHmsClient cache = new CachingHmsClient(delegate, Collections.singletonMap(
@@ -1039,7 +1024,7 @@ public class CachingHmsClientTest {
      * A minimal {@link HmsClient} that counts calls and returns a fresh instance per call, so reference
      * identity distinguishes a cache hit (same instance) from a reload (new instance).
      */
-    private static class RecordingHmsClient implements HmsClient {
+    private static class RecordingHmsClient implements HmsClient, HmsPartitionTransport {
         int getTableCalls;
         int listPartitionNamesCalls;
         int getPartitionsCalls;
@@ -1058,7 +1043,6 @@ public class CachingHmsClientTest {
         // The partition-name list the decorator actually asked the delegate for on the LAST getPartitions call
         // (so a test can assert the decorator fetches only the MISSES, not the whole requested list).
         List<String> lastGetPartitionsArg;
-        ConnectorMetadataAccessObserver lastMetadataAccessObserver;
         // Optional hook fired INSIDE getPartitions (after counting, before returning) to model a concurrent
         // mutation (e.g. a REFRESH flush) racing the in-flight cold-cache RPC.
         Runnable onGetPartitions;
@@ -1101,9 +1085,10 @@ public class CachingHmsClientTest {
         }
 
         @Override
-        public List<HmsPartitionInfo> getPartitions(HmsPartitionRequest request) {
-            lastMetadataAccessObserver = request.getMetadataAccessObserver();
-            return getPartitions(request.getDbName(), request.getTableName(), request.getPartitionNames());
+        public List<HmsPartitionInfo> getPartitionsByNames(String dbName, String tableName,
+                List<String> partitionNames, HmsPartitionBatchExecutor.RemoteCallTracker tracker) throws Exception {
+            return tracker.call(partitionNames.size(),
+                    () -> getPartitions(dbName, tableName, partitionNames));
         }
 
         // "p=1" -> ["1"]; "k1=a/k2=b" -> ["a", "b"] (simple split; test names carry no escaped characters).
