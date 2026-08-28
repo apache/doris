@@ -390,7 +390,7 @@ under the License.
         <httpclient5.version>5.6.3</httpclient5.version>
         <httpcore5.version>5.4.3</httpcore5.version>
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
-        <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
+        <mariadb-java-client.version>3.3.5</mariadb-java-client.version>
         <postgresql.version>42.7.13</postgresql.version>
         <hadoop.version>3.4.2</hadoop.version>
         <re2j.version>1.8</re2j.version>
