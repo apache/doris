@@ -65,6 +65,6 @@ true
 1	[{12.340:1.23}, {1234567.890:12.35}]
 
 -- !array_contains_array_group --
-1	false
+1	true
 2	false
 
