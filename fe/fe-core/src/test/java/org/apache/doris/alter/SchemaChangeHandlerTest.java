@@ -359,7 +359,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         try {
             table.setBloomFilterInfo(Sets.newHashSet("K1"), table.getBfFpp());
             schemaChangeHandler.modifyTableLightSchemaChange("", db, table, indexSchemaMap, table.getIndexes(),
-                    null, false, replayJobId, true, Maps.newHashMap());
+                    null, false, replayJobId, true, Maps.newHashMap(), null, null);
 
             Assertions.assertNotNull(table.getColumn("v2"));
             Assertions.assertEquals(Sets.newHashSet("k1"), table.getCopiedBfColumns());

@@ -210,6 +210,14 @@ public abstract class AlterJobV2 implements Writable {
         return jobState.isFinalState();
     }
 
+    public long getCreateTimeMs() {
+        return createTimeMs;
+    }
+
+    public void setCreateTimeMs(long createTimeMs) {
+        this.createTimeMs = createTimeMs;
+    }
+
     public long getFinishedTimeMs() {
         return finishedTimeMs;
     }

@@ -55,6 +55,8 @@ public class TableAddOrDropColumnsInfoTest {
         long dbId = 12345678;
         long tableId = 87654321;
         long jobId = 23456781;
+        long createTimeMs = 1234L;
+        long finishedTimeMs = 5678L;
         LinkedList<Column> fullSchema = new LinkedList<>();
         fullSchema.add(new Column("testCol1", ScalarType.createType(PrimitiveType.INT)));
         fullSchema.add(new Column("testCol2", ScalarType.createType(PrimitiveType.VARCHAR)));
@@ -75,7 +77,8 @@ public class TableAddOrDropColumnsInfoTest {
 
         TableAddOrDropColumnsInfo tableAddOrDropColumnsInfo1 = new TableAddOrDropColumnsInfo(
                 "", dbId, tableId, tableId,
-                indexSchemaMap, oldIndexSchemaMap, indexNameToId, indexes, jobId);
+                indexSchemaMap, oldIndexSchemaMap, indexNameToId, indexes, jobId,
+                createTimeMs, finishedTimeMs);
 
         String c1Json = GsonUtils.GSON.toJson(tableAddOrDropColumnsInfo1);
         Text.writeString(out, c1Json);
@@ -93,6 +96,10 @@ public class TableAddOrDropColumnsInfoTest {
         Assert.assertEquals(tableAddOrDropColumnsInfo1.getTableId(), tableAddOrDropColumnsInfo2.getTableId());
         Assert.assertEquals(tableAddOrDropColumnsInfo1.getIndexSchemaMap(),
                 tableAddOrDropColumnsInfo2.getIndexSchemaMap());
+        Assert.assertEquals(tableAddOrDropColumnsInfo1.getCreateTimeMs(),
+                tableAddOrDropColumnsInfo2.getCreateTimeMs());
+        Assert.assertEquals(tableAddOrDropColumnsInfo1.getFinishedTimeMs(),
+                tableAddOrDropColumnsInfo2.getFinishedTimeMs());
 
     }
 
