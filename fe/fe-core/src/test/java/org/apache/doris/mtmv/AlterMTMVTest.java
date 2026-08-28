@@ -190,6 +190,102 @@ public class AlterMTMVTest extends TestWithFeService {
     }
 
     @Test
+    public void testAlterIvmWindowLimitOnNonIvmRejected() throws Exception {
+        createDatabaseAndUse("alter_ivm_window");
+        createTable("CREATE TABLE alter_ivm_window.alt_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_ivm_window_mv\n"
+                + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> alterMv(
+                "ALTER MATERIALIZED VIEW alt_ivm_window_mv"
+                        + " SET ('ivm_partition_window_limit' = 'alt_base:1')"));
+        Assertions.assertTrue(exception.getMessage().contains("can only be set on IVM"),
+                exception.getMessage());
+    }
+
+    @Test
+    public void testCreateIvmWindowLimitOnNonIvmAllowed() throws Exception {
+        // REFRESH AUTO may probe IVM and fall back to a regular MTMV, so creation must not
+        // reject the property on a non-IVM MV; it is simply ineffective there.
+        createDatabaseAndUse("create_ivm_window");
+        createTable("CREATE TABLE create_ivm_window.alt_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW create_ivm_window.alt_ivm_window_mv\n"
+                + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1',"
+                + " 'ivm_partition_window_limit' = 'alt_base:1')\n"
+                + " AS SELECT k1, v1 FROM alt_base");
+        // Should not throw.
+    }
+
+    @Test
+    public void testCreateIvmWindowLimitUnknownTableRejected() throws Exception {
+        // The base-table membership check runs at creation even for non-IVM MVs.
+        createDatabaseAndUse("create_ivm_window_unknown");
+        createTable("CREATE TABLE create_ivm_window_unknown.alt_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        Exception exception = Assertions.assertThrows(Exception.class, () -> createMvByNereids(
+                "CREATE MATERIALIZED VIEW create_ivm_window_unknown.alt_ivm_mv\n"
+                        + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                        + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                        + " PROPERTIES ('replication_num' = '1',"
+                        + " 'ivm_partition_window_limit' = 'unknown_table:1')\n"
+                        + " AS SELECT k1, v1 FROM alt_base"));
+        Assertions.assertTrue(exception.getMessage().contains("not a base table"),
+                exception.getMessage());
+    }
+
+    @Test
+    public void testAlterIvmWindowLimitUnknownTableRejected() throws Exception {
+        // ALTER on an IVM MV with a table that is not a base table is rejected.
+        createDatabaseAndUse("alter_ivm_window_unknown_ivm");
+        createTable("CREATE TABLE alter_ivm_window_unknown_ivm.alt_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true',"
+                + " 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alter_ivm_window_unknown_ivm.alt_ivm_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> alterMv(
+                "ALTER MATERIALIZED VIEW alter_ivm_window_unknown_ivm.alt_ivm_mv"
+                        + " SET ('ivm_partition_window_limit' = 'unknown_table:1')"));
+        Assertions.assertTrue(exception.getMessage().contains("not a base table"),
+                exception.getMessage());
+    }
+
+    @Test
+    public void testAlterIvmUseFullKeysRejected() throws Exception {
+        createDatabaseAndUse("alter_ivm_full_keys");
+        createTable("CREATE TABLE alter_ivm_full_keys.alt_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_ivm_full_keys_mv\n"
+                + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> alterMv(
+                "ALTER MATERIALIZED VIEW alt_ivm_full_keys_mv"
+                        + " SET ('ivm_use_full_keys' = 'true')"));
+        Assertions.assertTrue(exception.getMessage().contains("cannot be altered"),
+                exception.getMessage());
+    }
+
+    @Test
     public void testAlterFromAutoToCompleteAllowed() throws Exception {
         createDatabaseAndUse("alter_test_auto_complete");
         createTable("CREATE TABLE alter_test_auto_complete.alt_base (k1 int, v1 int)\n"

@@ -18,15 +18,28 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ListPartitionInfo;
+import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -43,7 +56,8 @@ public class MTMVPropertyUtil {
             PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT,
             PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION,
             PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE,
-            PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS
+            PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS,
+            PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT
     );
 
     public static void analyzeProperty(String key, String value) {
@@ -80,6 +94,9 @@ public class MTMVPropertyUtil {
                 break;
             case PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS:
                 analyzeBooleanProperty(value, PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS);
+                break;
+            case PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT:
+                analyzePartitionWindowLimit(value);
                 break;
             default:
                 throw new AnalysisException("illegal key:" + key);
@@ -129,6 +146,137 @@ public class MTMVPropertyUtil {
 
     private static void analyzeExcludedTriggerTables(String value) {
         // do nothing
+    }
+
+    private static void analyzePartitionWindowLimit(String value) {
+        parsePartitionWindowLimit(value);
+    }
+
+    /**
+     * Parse {@code "tbl:N,tbl2:M"} into table -> window partition count.
+     * Only validates the value syntax; membership against MV base tables is
+     * checked at create/alter time where the relation is known.
+     *
+     * <p>The window applies only to IVM incremental refresh: COMPLETE refresh always
+     * covers the full table, so the window never reduces a full baseline.
+     */
+    public static Map<TableNameInfo, Integer> parsePartitionWindowLimit(String value) {
+        Map<TableNameInfo, Integer> windowLimits = Maps.newHashMap();
+        if (StringUtils.isEmpty(value)) {
+            return windowLimits;
+        }
+        for (String entry : value.split(",")) {
+            String trimmed = entry.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            int colon = trimmed.lastIndexOf(':');
+            if (colon <= 0 || colon == trimmed.length() - 1) {
+                throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT
+                        + ": " + value + ", expected 'tableName:N' entries separated by ','");
+            }
+            String tableName = trimmed.substring(0, colon).trim();
+            String limitStr = trimmed.substring(colon + 1).trim();
+            int limit;
+            try {
+                limit = Integer.parseInt(limitStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT
+                        + ": " + value + ", invalid partition count '" + limitStr + "'");
+            }
+            if (limit <= 0) {
+                throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT
+                        + ": " + value + ", partition count must be positive");
+            }
+            TableNameInfo tableNameInfo;
+            try {
+                tableNameInfo = new TableNameInfo(tableName);
+            } catch (IllegalArgumentException e) {
+                // TableNameInfo rejects names like ".." with a raw IllegalArgumentException.
+                throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT
+                        + ": " + value + ", invalid table name '" + tableName + "'");
+            }
+            if (windowLimits.containsKey(tableNameInfo)) {
+                throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT
+                        + ": " + value + ", duplicated table '" + tableName + "'");
+            }
+            windowLimits.put(tableNameInfo, limit);
+        }
+        return windowLimits;
+    }
+
+    /**
+     * Returns the configured window limit (last N partitions to refresh) per base table,
+     * or an empty map when the property is not set.
+     */
+    public static Map<TableNameInfo, Integer> getIvmPartitionWindowLimit(Map<String, String> mvProperties) {
+        if (mvProperties == null || !mvProperties.containsKey(
+                PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT)) {
+            return Maps.newHashMap();
+        }
+        return parsePartitionWindowLimit(mvProperties.get(
+                PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT));
+    }
+
+    /**
+     * Look up the window limit configured for a base table, mirroring the
+     * excluded_trigger_tables name-matching semantics (empty db/ctl wildcard).
+     * Returns -1 when the table is not configured, meaning the full table.
+     */
+    public static int getPartitionWindowLimit(Map<TableNameInfo, Integer> windowLimits, TableNameInfo baseTableName) {
+        int matchedLimit = -1;
+        for (Map.Entry<TableNameInfo, Integer> entry : windowLimits.entrySet()) {
+            if (MTMVPartitionUtil.isTableNamelike(entry.getKey(), baseTableName)) {
+                if (matchedLimit != -1) {
+                    throw new AnalysisException("valid "
+                            + PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT
+                            + ": table '" + baseTableName.getTbl() + "' is configured more than once");
+                }
+                matchedLimit = entry.getValue();
+            }
+        }
+        return matchedLimit;
+    }
+
+    /**
+     * Partition ids of the configured window — the last N partitions ordered by
+     * partition value (range upper bound / list value), matching the semantics of
+     * {@code partition_sync_limit} and dynamic partition retention. Returns
+     * {@code null} when the table is not configured or when the window covers all
+     * current partitions — in both cases the caller keeps the full table semantics.
+     * A non-partitioned table has a single default partition and returns {@code null}.
+     */
+    public static List<Long> getIvmPartitionWindowIds(OlapTable table, TableNameInfo tableName,
+            Map<TableNameInfo, Integer> windowLimits) {
+        int limit = getPartitionWindowLimit(windowLimits, tableName);
+        if (limit <= 0) {
+            return null;
+        }
+        PartitionInfo partitionInfo = table.getPartitionInfo();
+        List<Map.Entry<Long, PartitionItem>> idToItems =
+                new ArrayList<>(partitionInfo.getIdToItem(false).entrySet());
+        Comparator<Map.Entry<Long, PartitionItem>> valueOrder;
+        if (partitionInfo instanceof RangePartitionInfo) {
+            // Range partition: order by the range upper bound (same as auto-partition retention).
+            valueOrder = Comparator.comparing(
+                    entry -> ((RangePartitionItem) entry.getValue()).getItems().upperEndpoint());
+        } else if (partitionInfo instanceof ListPartitionInfo) {
+            // List partition: order by the minimum list value; there is no time semantics.
+            valueOrder = Comparator.comparing(entry -> Collections.min(
+                    ((ListPartitionItem) entry.getValue()).getItems()));
+        } else {
+            // Non-partitioned (single default partition) table: the window covers the full table.
+            return null;
+        }
+        idToItems.sort(valueOrder);
+        if (idToItems.size() <= limit) {
+            return null;
+        }
+        List<Long> windowPartitionIds = Lists.newArrayListWithCapacity(limit);
+        for (int i = idToItems.size() - limit; i < idToItems.size(); i++) {
+            windowPartitionIds.add(idToItems.get(i).getKey());
+        }
+        return windowPartitionIds;
     }
 
     public static Set<TableNameInfo> parseTableNameInfos(String value) {
