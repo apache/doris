@@ -574,15 +574,26 @@ AsyncCacheWriteBlockSubmitResult AsyncCacheWriteManager::try_submit_owned_block(
 }
 
 bool AsyncCacheWriteManager::can_accept_without_eviction(size_t buffer_size) const {
+    return available_slots_without_eviction(buffer_size) > 0;
+}
+
+size_t AsyncCacheWriteManager::available_slots_without_eviction(size_t buffer_size) const {
     DORIS_CHECK(buffer_size > 0);
     std::lock_guard lock(_queue_mutex);
     if (!_started.load(std::memory_order_acquire) || !_accepting.load(std::memory_order_acquire)) {
-        return false;
+        return 0;
     }
     DORIS_CHECK(_task_buffer_size == 0 || _task_buffer_size == buffer_size);
     const size_t max_pending_bytes = _options.load(std::memory_order_acquire)->max_pending_bytes;
     const size_t pending_bytes = _pending_bytes.load(std::memory_order_relaxed);
-    return buffer_size <= max_pending_bytes && pending_bytes <= max_pending_bytes - buffer_size;
+    if (pending_bytes >= max_pending_bytes) {
+        return 0;
+    }
+    return (max_pending_bytes - pending_bytes) / buffer_size;
+}
+
+bool AsyncCacheWriteManager::accepting() const {
+    return _started.load(std::memory_order_acquire) && _accepting.load(std::memory_order_acquire);
 }
 
 Status AsyncCacheWriteManager::allocate_tracked_buffer(size_t size,
