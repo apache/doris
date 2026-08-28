@@ -20,6 +20,8 @@
 
 #include <stdint.h>
 
+#include <algorithm>
+
 #include "exec/operator/operator.h"
 #include "exec/pipeline/dependency.h"
 
@@ -31,8 +33,8 @@ struct BoundaryPose {
     int64_t end = 0;
     bool is_ended = false;
     void remove_unused_rows(int64_t cnt) {
-        start -= cnt;
-        end -= cnt;
+        start = std::max<int64_t>(0, start - cnt);
+        end = std::max<int64_t>(0, end - cnt);
     }
 };
 
@@ -144,6 +146,7 @@ private:
     std::vector<uint8_t> _use_null_result;
     std::vector<uint8_t> _could_use_previous_result;
     bool _streaming_mode = false;
+    bool _is_sliding_rows = false;
     bool _support_incremental_calculate = true;
     bool _need_more_data = false;
     int64_t _current_row_position = 0;

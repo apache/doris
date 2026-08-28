@@ -66,6 +66,7 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_unbounded_rows;
         } else {
             _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_sliding_rows;
+            _is_sliding_rows = true;
         }
         _streaming_mode = true;
         _support_incremental_calculate = (p._has_window_start && p._has_window_end);
@@ -843,6 +844,14 @@ void AnalyticSinkLocalState::_remove_unused_rows() {
         auto idx = _output_block_index - 1;
         if (idx < 0 || _input_block_first_row_positions[idx] <= unused_rows_pos) {
             return;
+        }
+        if (_is_sliding_rows) {
+            // A sliding aggregate may still need frame_start - 1 to remove the outgoing row.
+            const int64_t earliest_required_row = std::max(
+                    _partition_by_pose.start, _current_row_position + _rows_start_offset - 1);
+            if (_have_removed_rows + earliest_required_row < unused_rows_pos) {
+                return;
+            }
         }
     } else {
         if (_have_removed_rows + _partition_by_pose.start <= unused_rows_pos) {

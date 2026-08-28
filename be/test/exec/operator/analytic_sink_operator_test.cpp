@@ -86,6 +86,15 @@ private:
 
 } // namespace
 
+TEST(BoundaryPoseTest, RemoveUnusedRowsKeepsPhysicalCoordinatesNonNegative) {
+    BoundaryPose pose {.start = 1, .end = 5};
+
+    pose.remove_unused_rows(2);
+
+    EXPECT_EQ(pose.start, 0);
+    EXPECT_EQ(pose.end, 3);
+}
+
 struct AnalyticSinkOperatorTest : public ::testing::Test {
     void Initialize(int batch_size) {
         sink = std::make_unique<AnalyticSinkOperatorX>(&pool);
@@ -444,7 +453,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction3) {
     std::cout << "######### AggFunction with row_number test end #########" << std::endl;
 }
 
-TEST_F(AnalyticSinkOperatorTest, AggFunction4) {
+TEST_F(AnalyticSinkOperatorTest, SlidingRowsSumRetainsOutgoingRowDuringEviction) {
     int batch_size = 2;
     Initialize(batch_size);
     create_operator(true, 1, "sum", {std::make_shared<DataTypeInt64>()},
@@ -456,14 +465,14 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction4) {
     temp_window.type = TAnalyticWindowType::ROWS;
     TAnalyticWindowBoundary window_start;
     window_start.type = TAnalyticWindowBoundaryType::PRECEDING;
-    window_start.__set_rows_offset_value(1);
+    window_start.__set_rows_offset_value(4);
     temp_window.__set_window_start(window_start);
     TAnalyticWindowBoundary window_end;
     window_end.type = TAnalyticWindowBoundaryType::CURRENT_ROW;
     temp_window.__set_window_end(window_end);
     create_window_type(true, true, temp_window);
     create_local_state();
-    // test with row_number agg function and has window: _get_next_for_unbounded_rows
+    // The frame is wider than one buffered block, so eviction must retain its outgoing row.
 
     auto sink_data = [&](int row_count, bool eos) {
         std::vector<int64_t> data_vals;
@@ -507,7 +516,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction4) {
     {
         int row_count = 0;
         std::vector<int64_t> data_vals {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-        std::vector<int64_t> expect_vals {0, 1, 3, 5, 7, 9, 11, 13, 15, 17}; //sum
+        std::vector<int64_t> expect_vals {0, 1, 3, 6, 10, 15, 20, 25, 30, 35}; //sum
         for (int i = 0; i < 5; i++) {
             compare_block_result(row_count, data_vals, expect_vals);
             row_count += batch_size;
@@ -519,7 +528,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction4) {
         EXPECT_EQ(block2.rows(), 0);
         EXPECT_TRUE(eos2);
     }
-    std::cout << "######### AggFunction with row_number test end #########" << std::endl;
+    std::cout << "######### sliding rows sum eviction test end #########" << std::endl;
 }
 
 TEST_F(AnalyticSinkOperatorTest, AggFunction5) {
