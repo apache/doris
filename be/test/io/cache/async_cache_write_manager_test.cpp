@@ -385,11 +385,14 @@ TEST_F(AsyncCacheWriteManagerTest, ReportsOnlyUnusedPendingCapacity) {
     };
 
     EXPECT_TRUE(manager->can_accept_without_eviction(4096));
+    EXPECT_EQ(manager->available_slots_without_eviction(4096), 2);
     EXPECT_EQ(submit("spare_capacity_active"), AsyncCacheWriteBlockSubmitResult::SUBMITTED);
     ASSERT_TRUE(worker_gate.wait_until_arrived());
     EXPECT_TRUE(manager->can_accept_without_eviction(4096));
+    EXPECT_EQ(manager->available_slots_without_eviction(4096), 1);
     EXPECT_EQ(submit("spare_capacity_queued"), AsyncCacheWriteBlockSubmitResult::SUBMITTED);
     EXPECT_FALSE(manager->can_accept_without_eviction(4096));
+    EXPECT_EQ(manager->available_slots_without_eviction(4096), 0);
 
     const auto background_hash = BlockFileCache::hash("spare_capacity_background");
     AsyncCacheWriteBufferPtr background_buffer;
@@ -414,7 +417,18 @@ TEST_F(AsyncCacheWriteManagerTest, ReportsOnlyUnusedPendingCapacity) {
     }
     EXPECT_EQ(manager->pending_count(), 0);
     EXPECT_TRUE(manager->can_accept_without_eviction(4096));
+    EXPECT_EQ(manager->available_slots_without_eviction(4096), 2);
     EXPECT_FALSE(is_cache_range_downloaded(cache.get(), background_hash));
+}
+
+TEST_F(AsyncCacheWriteManagerTest, ReportsSubmissionLifecycle) {
+    auto cache = create_cache("async_write_manager_accepting");
+    auto* manager = cache->async_write_manager();
+    ASSERT_NE(manager, nullptr);
+
+    EXPECT_TRUE(manager->accepting());
+    manager->shutdown();
+    EXPECT_FALSE(manager->accepting());
 }
 
 TEST(AsyncCacheWriteConfigTest, ResolveMaxPendingBytes) {
