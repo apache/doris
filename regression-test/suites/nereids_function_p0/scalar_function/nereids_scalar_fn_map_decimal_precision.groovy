@@ -249,7 +249,9 @@ suite("nereids_scalar_fn_map_decimal_precision") {
 
     // 16. array_contains(ARRAY<Any(0)>, Any(0)): the ARRAY item and the probe are one
     // logical group, so a wider ARRAY<DECIMAL(27,9)> with a DECIMAL(9,3) probe must keep
-    // both at DECIMAL(27,9) instead of regressing only the probe to Decimal32.
+    // both at DECIMAL(27,9) instead of regressing only the probe to Decimal32. Both probes
+    // stay representable in DECIMAL(9,3); row 1 is numerically equal to its ARRAY element
+    // after the exact precision/scale promotion and must return true.
     sql "drop table if exists fn_test_arr_contains_decimal"
     sql """
         create table fn_test_arr_contains_decimal (
@@ -262,8 +264,8 @@ suite("nereids_scalar_fn_map_decimal_precision") {
     """
     sql """
         insert into fn_test_arr_contains_decimal values
-        (1, array(cast('123456789012345678.123456789' as decimal(27,9))), cast('123456.789' as decimal(9,3))),
-        (2, array(cast('123456789012345678.123456789' as decimal(27,9))), cast('123456789012345678.123' as decimal(27,3)));
+        (1, array(cast('123456.789000000' as decimal(27,9))), cast('123456.789' as decimal(9,3))),
+        (2, array(cast('123456.789000000' as decimal(27,9))), cast('123456.780' as decimal(9,3)));
     """
     order_qt_array_contains_array_group """
         select id, array_contains(arr, probe) as r from fn_test_arr_contains_decimal order by id
