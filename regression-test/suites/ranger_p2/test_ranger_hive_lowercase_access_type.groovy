@@ -39,7 +39,6 @@ suite("test_ranger_hive_lowercase_access_type", "p2,ranger,external") {
     String rangerHiveServiceName = "${rangerServiceName}_hive"
 
     String catalog = "ranger_hive_lowercase_catalog"
-    String cleanupCatalog = "ranger_hive_lowercase_cleanup_catalog"
     String database = "ranger_hive_lowercase_db"
     String table = "ranger_hive_lowercase_tbl"
     String user = "ranger_hive_lowercase_user"
@@ -94,9 +93,8 @@ suite("test_ranger_hive_lowercase_access_type", "p2,ranger,external") {
             createdHiveService = true
         }
 
-        // Prepare the Hive data through a catalog without Ranger, so setup and cleanup do not need policies.
+        // Prepare the Hive data through a catalog without Ranger, so setup does not need policies.
         sql """DROP CATALOG IF EXISTS `${catalog}`"""
-        sql """DROP CATALOG IF EXISTS `${cleanupCatalog}`"""
         sql """CREATE CATALOG `${catalog}` PROPERTIES (
                 'type' = 'hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}'
@@ -185,18 +183,6 @@ suite("test_ranger_hive_lowercase_access_type", "p2,ranger,external") {
             } catch (Exception e) {
                 logger.warn("Failed to delete Ranger-Hive service ${rangerHiveServiceName}: ${e.getMessage()}")
             }
-        }
-
-        try {
-            sql """DROP CATALOG IF EXISTS `${cleanupCatalog}`"""
-            sql """CREATE CATALOG `${cleanupCatalog}` PROPERTIES (
-                    'type' = 'hms',
-                    'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}'
-            )"""
-            try_sql """DROP TABLE IF EXISTS `${cleanupCatalog}`.`${database}`.`${table}`"""
-            try_sql """DROP DATABASE IF EXISTS `${cleanupCatalog}`.`${database}`"""
-        } finally {
-            try_sql "DROP CATALOG IF EXISTS `${cleanupCatalog}`"
         }
     }
 }
