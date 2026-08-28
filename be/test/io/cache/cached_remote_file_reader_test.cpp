@@ -61,6 +61,7 @@ public:
     size_t last_offset() const { return _last_offset; }
     size_t last_size() const { return _last_size; }
     bool last_bypass_peer_read() const { return _last_bypass_peer_read; }
+    const std::vector<std::pair<size_t, size_t>>& read_ranges() const { return _read_ranges; }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -69,6 +70,7 @@ protected:
         _last_offset = offset;
         _last_size = result.size;
         _last_bypass_peer_read = io_ctx != nullptr && io_ctx->bypass_peer_read;
+        _read_ranges.emplace_back(offset, result.size);
         return _delegate->read_at(offset, result, bytes_read, io_ctx);
     }
 
@@ -78,6 +80,7 @@ private:
     size_t _last_offset {0};
     size_t _last_size {0};
     bool _last_bypass_peer_read {false};
+    std::vector<std::pair<size_t, size_t>> _read_ranges;
 };
 
 // Provides one isolated cache disk with phase-one async-read settings for concise end-to-end
@@ -926,6 +929,161 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     EXPECT_EQ(second_stats.async_cache_write_submitted, 0);
 }
 
+TEST_F(AsyncCachedRemoteFileReaderTest, exact_no_write_cold_miss_reads_only_the_requested_bytes) {
+    create_cache("cached_remote_reader_exact_cold_miss");
+    auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(counting_reader);
+
+    constexpr size_t read_offset = 12345;
+    constexpr size_t read_size = 64_kb;
+    std::string result(read_size, '\0');
+    FileCacheStatistics stats;
+    IOContext context;
+    context.file_cache_stats = &stats;
+    context.cache_write_mode_override = CacheWriteMode::NO_WRITE;
+    size_t bytes_read = 0;
+    ASSERT_TRUE(
+            reader->read_at(read_offset, Slice(result.data(), result.size()), &bytes_read, &context)
+                    .ok());
+
+    EXPECT_EQ(bytes_read, read_size);
+    EXPECT_EQ(result, std::string(read_size, '0'));
+    ASSERT_EQ(counting_reader->read_ranges().size(), 1);
+    EXPECT_EQ(counting_reader->read_ranges().front(), std::make_pair(read_offset, read_size));
+    EXPECT_EQ(stats.bytes_read_from_remote, read_size);
+    EXPECT_EQ(stats.bytes_read_from_local, 0);
+    EXPECT_EQ(stats.bytes_read_from_peer, 0);
+    EXPECT_EQ(stats.bytes_write_into_cache, 0);
+    EXPECT_EQ(stats.num_skip_cache_io_total, 1);
+    EXPECT_EQ(cache()->async_write_manager()->pending_count(), 0);
+
+    ReadStatistics probe_stats;
+    CacheContext probe_context;
+    probe_context.stats = &probe_stats;
+    auto probe_result = cache()->probe(reader->_cache_hash, 0, 1_mb, probe_context);
+    ASSERT_EQ(probe_result.file_blocks.size(), 1);
+    EXPECT_EQ(probe_result.file_blocks.front(), nullptr);
+}
+
+TEST_F(AsyncCachedRemoteFileReaderTest,
+       exact_no_write_reuses_only_complete_multiblock_inflight_coverage) {
+    create_cache("cached_remote_reader_exact_inflight_coverage");
+    auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(counting_reader);
+    auto* manager = cache()->async_write_manager();
+    auto* index = cache()->inflight_write_buffer_index();
+
+    AsyncCacheWriteBufferPtr first_buffer;
+    ASSERT_TRUE(manager->allocate_tracked_buffer(1_mb, &first_buffer).ok());
+    std::memset(first_buffer->data(), 'a', first_buffer->size());
+    auto first_entry =
+            std::make_shared<InflightWriteBufferEntry>(first_buffer, 0, 1_mb, MonotonicMicros());
+    ASSERT_EQ(index->insert_if_absent(reader->_cache_hash, 0, first_entry), nullptr);
+    Defer remove_first {
+            [&]() { static_cast<void>(index->remove_if(reader->_cache_hash, 0, first_entry)); }};
+
+    AsyncCacheWriteBufferPtr second_buffer;
+    ASSERT_TRUE(manager->allocate_tracked_buffer(1_mb, &second_buffer).ok());
+    std::memset(second_buffer->data(), 'b', second_buffer->size());
+    auto second_entry = std::make_shared<InflightWriteBufferEntry>(second_buffer, 1_mb, 1_mb,
+                                                                   MonotonicMicros());
+    ASSERT_EQ(index->insert_if_absent(reader->_cache_hash, 1_mb, second_entry), nullptr);
+
+    IOContext context;
+    context.cache_write_mode_override = CacheWriteMode::NO_WRITE;
+    constexpr size_t covered_offset = 1_mb - 64_kb;
+    constexpr size_t covered_size = 128_kb;
+    std::string fully_covered_result(covered_size, '\0');
+    FileCacheStatistics fully_covered_stats;
+    context.file_cache_stats = &fully_covered_stats;
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader->read_at(covered_offset,
+                                Slice(fully_covered_result.data(), fully_covered_result.size()),
+                                &bytes_read, &context)
+                        .ok());
+
+    EXPECT_EQ(bytes_read, covered_size);
+    EXPECT_EQ(fully_covered_result, std::string(64_kb, 'a') + std::string(64_kb, 'b'));
+    EXPECT_EQ(counting_reader->read_count(), 0);
+    EXPECT_EQ(fully_covered_stats.bytes_read_from_local, covered_size);
+    EXPECT_EQ(fully_covered_stats.bytes_read_from_remote, 0);
+    EXPECT_EQ(fully_covered_stats.inflight_write_buffer_index_hit, 2);
+    EXPECT_EQ(fully_covered_stats.inflight_write_buffer_index_miss, 0);
+
+    ASSERT_TRUE(index->remove_if(reader->_cache_hash, 1_mb, second_entry));
+    constexpr size_t partial_offset = covered_offset;
+    constexpr size_t partial_size = covered_size;
+    std::string partially_covered_result(partial_size, '\0');
+    FileCacheStatistics partially_covered_stats;
+    context.file_cache_stats = &partially_covered_stats;
+    bytes_read = 0;
+    ASSERT_TRUE(
+            reader->read_at(partial_offset,
+                            Slice(partially_covered_result.data(), partially_covered_result.size()),
+                            &bytes_read, &context)
+                    .ok());
+
+    EXPECT_EQ(bytes_read, partial_size);
+    EXPECT_EQ(partially_covered_result, std::string(64_kb, '0') + std::string(64_kb, '1'));
+    ASSERT_EQ(counting_reader->read_ranges().size(), 1);
+    EXPECT_EQ(counting_reader->read_ranges().front(), std::make_pair(partial_offset, partial_size));
+    EXPECT_EQ(partially_covered_stats.bytes_read_from_local, 0);
+    EXPECT_EQ(partially_covered_stats.bytes_read_from_remote, partial_size);
+    EXPECT_EQ(partially_covered_stats.inflight_write_buffer_index_hit, 1);
+    EXPECT_EQ(partially_covered_stats.inflight_write_buffer_index_miss, 1);
+}
+
+TEST_F(AsyncCachedRemoteFileReaderTest,
+       exact_no_write_partial_cache_coverage_uses_one_remote_read) {
+    create_cache("cached_remote_reader_exact_partial_hit");
+    auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(counting_reader);
+
+    ReadStatistics cache_stats;
+    CacheContext cache_context;
+    cache_context.stats = &cache_stats;
+    auto holder = cache()->get_or_set(reader->_cache_hash, 1_mb, 1_mb, cache_context);
+    ASSERT_EQ(holder.file_blocks.size(), 1);
+    const auto& cached_block = holder.file_blocks.front();
+    ASSERT_EQ(cached_block->get_or_set_downloader(), FileBlock::get_caller_id());
+    const std::string cached_payload(1_mb, 'x');
+    ASSERT_TRUE(cached_block->append(Slice(cached_payload.data(), cached_payload.size())).ok());
+    ASSERT_TRUE(cached_block->finalize().ok());
+
+    constexpr size_t gap_size = 64_kb;
+    constexpr size_t read_offset = 1_mb - gap_size;
+    constexpr size_t read_size = 1_mb + 2 * gap_size;
+    std::string result(read_size, '\0');
+    FileCacheStatistics stats;
+    IOContext context;
+    context.file_cache_stats = &stats;
+    context.cache_write_mode_override = CacheWriteMode::NO_WRITE;
+    size_t bytes_read = 0;
+    ASSERT_TRUE(
+            reader->read_at(read_offset, Slice(result.data(), result.size()), &bytes_read, &context)
+                    .ok());
+
+    EXPECT_EQ(bytes_read, read_size);
+    EXPECT_EQ(result.substr(0, gap_size), std::string(gap_size, '0'));
+    EXPECT_EQ(result.substr(gap_size, 1_mb), std::string(1_mb, '1'));
+    EXPECT_EQ(result.substr(gap_size + 1_mb), std::string(gap_size, '2'));
+    ASSERT_EQ(counting_reader->read_ranges().size(), 1);
+    EXPECT_EQ(counting_reader->read_ranges().front(), std::make_pair(read_offset, read_size));
+    EXPECT_EQ(stats.bytes_read_from_local, 0);
+    EXPECT_EQ(stats.bytes_read_from_remote, read_size);
+    EXPECT_EQ(stats.bytes_write_into_cache, 0);
+    EXPECT_EQ(cache()->async_write_manager()->pending_count(), 0);
+
+    ReadStatistics probe_stats;
+    CacheContext probe_context;
+    probe_context.stats = &probe_stats;
+    auto probe_result = cache()->probe(reader->_cache_hash, 0, 3_mb, probe_context);
+    ASSERT_EQ(probe_result.file_blocks.size(), 3);
+    EXPECT_EQ(probe_result.file_blocks[0], nullptr);
+    EXPECT_EQ(probe_result.file_blocks[1], cached_block);
+    EXPECT_EQ(probe_result.file_blocks[2], nullptr);
+}
+
 TEST_F(BlockFileCacheTest,
        direct_partial_hit_with_downloaded_remainder_should_not_read_remote_again) {
     std::string local_cache_base_path =
@@ -1598,6 +1756,9 @@ TEST_F(BlockFileCacheTest, cache_write_mode_is_resolved_for_each_read_context) {
     config::deploy_mode = "cloud";
     config::enable_cache_read_from_peer = true;
     EXPECT_EQ(reader->_resolve_cache_write_mode(&context), CacheWriteMode::SYNC_WRITE);
+    context.cache_write_mode_override = CacheWriteMode::NO_WRITE;
+    EXPECT_EQ(reader->_resolve_cache_write_mode(&context), CacheWriteMode::NO_WRITE);
+    context.cache_write_mode_override = CacheWriteMode::ASYNC_WRITE;
     context.bypass_peer_read = true;
     EXPECT_EQ(reader->_resolve_cache_write_mode(&context), CacheWriteMode::ASYNC_WRITE);
 

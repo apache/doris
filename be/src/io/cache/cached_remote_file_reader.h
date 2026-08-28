@@ -149,7 +149,7 @@ private:
     /// Resolve the write policy for the current read instead of freezing a global setting in the
     /// reader constructor. Explicit cache-population reads always remain synchronous.
     /// @param[in] io_ctx Per-read flags and an optional write-mode override.
-    /// @return The effective synchronous or asynchronous cache-write mode for this read.
+    /// @return The effective no-write, synchronous, or asynchronous cache-write mode.
     CacheWriteMode _resolve_cache_write_mode(const IOContext* io_ctx) const;
 
     /// Serve a normal read while moving cache-miss writes off the query thread. The method uses
@@ -335,8 +335,13 @@ private:
                                      SourceReadBreakdown& source_read_breakdown,
                                      const IOContext* io_ctx);
 
-    /// Read local cache only when downloaded blocks fully cover the request; otherwise read remote
-    /// data directly without writing file cache.
+    /// Try to read the complete request from indexed async-write buffers. Return false without
+    /// modifying `result` when any covered cache block has no in-flight entry.
+    bool _try_read_from_inflight_buffers(size_t offset, Slice result, size_t bytes_req,
+                                         bool is_dryrun, ReadStatistics& stats);
+
+    /// Read in-flight buffers or downloaded cache blocks only when one source fully covers the
+    /// request; otherwise read remote data directly without writing file cache.
     /// @param[in] offset Original request offset.
     /// @param[out] result Destination buffer for the original request.
     /// @param[in] bytes_req Original request size.
