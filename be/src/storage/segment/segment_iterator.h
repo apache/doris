@@ -66,8 +66,11 @@ struct RowLocation;
 namespace segment_v2 {
 
 class ColumnIterator;
+struct ColumnReadAheadContext;
+struct ColumnReadAheadPlan;
 class RowRanges;
 class IndexIterator;
+class SegmentReadAhead;
 
 class SegmentIterator : public RowwiseIterator {
 public:
@@ -125,8 +128,15 @@ private:
 
     [[nodiscard]] Status _lazy_init(Block* block);
     [[nodiscard]] Status _init_impl(const StorageReadOptions& opts);
+    // Install the read-ahead reader before column iterators capture their FileReader.
+    [[nodiscard]] Status _init_query_read_ahead();
     [[nodiscard]] Status _init_column_iterators();
     [[nodiscard]] Status _init_index_iterators();
+    // Initialize eager and lazy page sequences after pruning and submit their first windows
+    // together. Subsequent data-page reads advance each physical column's window.
+    void _prepare_scan_read_ahead();
+    // Classify physical iterators by filtering dependency and plan their initial windows.
+    std::vector<ColumnReadAheadPlan> _plan_scan_read_ahead();
 
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
@@ -427,6 +437,8 @@ private:
     std::vector<std::unique_ptr<ColumnIterator>> _owned_seek_column_iterators;
 
     io::FileReaderSPtr _file_reader;
+    std::unique_ptr<SegmentReadAhead> _segment_read_ahead;
+    std::unique_ptr<ColumnReadAheadContext> _column_read_ahead_context;
 
     // used for compaction, record selectd rowids of current batch
     uint16_t _selected_size;
