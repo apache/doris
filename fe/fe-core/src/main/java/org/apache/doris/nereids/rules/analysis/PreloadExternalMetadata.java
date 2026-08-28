@@ -17,12 +17,16 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.mtmv.MTMVRefreshContext;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.ExternalMetadataPreloadResult;
 import org.apache.doris.nereids.ExternalTablePreloadInfo;
 import org.apache.doris.nereids.StatementContext;
@@ -93,8 +97,12 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
                 continue;
             }
             try {
+                for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+                    statementContext.loadSnapshots(
+                            pctTable, Optional.<TableSnapshot>empty(), Optional.<TableScanParams>empty());
+                }
                 statementContext.putPreloadedMtmvRefreshContext(mtmv, MTMVRefreshContext.buildContext(mtmv));
-            } catch (AnalysisException e) {
+            } catch (AnalysisException | DorisConnectorException e) {
                 LOG.warn("Failed to preload cloud MTMV refresh context for {}", mtmv.getName(), e);
             }
         }

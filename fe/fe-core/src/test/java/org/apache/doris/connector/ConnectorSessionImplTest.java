@@ -22,8 +22,6 @@ import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.connector.spi.ConnectorDelegatedCredential;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessEvent;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
-import org.apache.doris.connector.spi.ConnectorOperationAbortedException;
-import org.apache.doris.connector.spi.ConnectorOperationControl;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
@@ -191,27 +189,6 @@ public class ConnectorSessionImplTest {
         Assertions.assertEquals("UTC", session.getTimeZone());
         Assertions.assertEquals("en_US", session.getLocale());
         Assertions.assertEquals("", session.getCatalogName());
-        Assertions.assertSame(ConnectorOperationControl.NONE, session.getOperationControl());
-    }
-
-    @Test
-    public void explicitOperationControlIsCarriedBySession() {
-        ConnectorOperationControl control = new ConnectorOperationControl() {
-            @Override
-            public void checkActive() {
-            }
-
-            @Override
-            public long remainingTimeMillis() {
-                return 123L;
-            }
-        };
-
-        ConnectorSession session = ConnectorSessionBuilder.create()
-                .withOperationControl(control)
-                .build();
-
-        Assertions.assertSame(control, session.getOperationControl());
     }
 
     @Test
@@ -266,25 +243,6 @@ public class ConnectorSessionImplTest {
         Assertions.assertEquals(5, operation.getCounterMap().get("RpcElapsedTime").getValue());
         Assertions.assertEquals(3, operation.getCounterMap().get("MaxRpcElapsedTime").getValue());
         Assertions.assertEquals(2, operation.getCounterMap().get("RpcAttempts").getValue());
-    }
-
-    @Test
-    public void operationControlTracksOriginatingQueryCancellation() {
-        ConnectContext context = new ConnectContext();
-        context.setStartTime();
-        context.getSessionVariable().setQueryTimeoutS(60);
-        StmtExecutor executor = new StmtExecutor(context, "select 1");
-        ConnectorOperationControl control = ConnectorSessionBuilder.from(context)
-                .build()
-                .getOperationControl();
-
-        Assertions.assertTrue(control.remainingTimeMillis() > 0);
-        context.kill(false);
-        Assertions.assertFalse(context.isKilled(), "KILL QUERY must not kill the connection");
-        Assertions.assertTrue(executor.isCancelled());
-        ConnectorOperationAbortedException failure = Assertions.assertThrows(
-                ConnectorOperationAbortedException.class, control::checkActive);
-        Assertions.assertEquals(ConnectorOperationAbortedException.Reason.CANCELLED, failure.getReason());
     }
 
     // ──────────────── transaction binding (P4-T06a W-a / gap G1) ────────────────

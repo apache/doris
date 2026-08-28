@@ -20,7 +20,10 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRefreshContext;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.StatementContext;
 
 import org.junit.jupiter.api.Test;
@@ -39,19 +42,55 @@ public class PreloadExternalMetadataTest {
         try {
             StatementContext statementContext = Mockito.mock(StatementContext.class);
             MTMV mtmv = Mockito.mock(MTMV.class);
+            MTMVPartitionInfo partitionInfo = Mockito.mock(MTMVPartitionInfo.class);
+            MTMVRelatedTableIf pctTable = Mockito.mock(MTMVRelatedTableIf.class);
             MTMVRefreshContext refreshContext = Mockito.mock(MTMVRefreshContext.class);
             Mockito.when(statementContext.getCandidateMTMVs()).thenReturn(Collections.singleton(mtmv));
             Mockito.when(statementContext.getPreloadedMtmvRefreshContext(mtmv)).thenReturn(Optional.empty());
+            Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(partitionInfo);
+            Mockito.when(partitionInfo.getPctTables()).thenReturn(Collections.singleton(pctTable));
 
             try (MockedStatic<MTMVRefreshContext> refreshContextStatic =
                     Mockito.mockStatic(MTMVRefreshContext.class)) {
                 refreshContextStatic.when(() -> MTMVRefreshContext.buildContext(mtmv))
-                        .thenReturn(refreshContext);
+                        .thenAnswer(invocation -> {
+                            Mockito.verify(statementContext).loadSnapshots(
+                                    pctTable, Optional.empty(), Optional.empty());
+                            return refreshContext;
+                        });
 
                 new PreloadExternalMetadata().executePreload(statementContext);
 
                 refreshContextStatic.verify(() -> MTMVRefreshContext.buildContext(mtmv), Mockito.times(1));
                 Mockito.verify(statementContext).putPreloadedMtmvRefreshContext(mtmv, refreshContext);
+            }
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
+    }
+
+    @Test
+    public void cloudMtmvConnectorFailureSkipsOnlyThatCandidate() throws AnalysisException {
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        Config.cloud_unique_id = "test_cloud";
+        try {
+            StatementContext statementContext = Mockito.mock(StatementContext.class);
+            MTMV mtmv = Mockito.mock(MTMV.class);
+            MTMVPartitionInfo partitionInfo = Mockito.mock(MTMVPartitionInfo.class);
+            Mockito.when(statementContext.getCandidateMTMVs()).thenReturn(Collections.singleton(mtmv));
+            Mockito.when(statementContext.getPreloadedMtmvRefreshContext(mtmv)).thenReturn(Optional.empty());
+            Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(partitionInfo);
+            Mockito.when(partitionInfo.getPctTables()).thenReturn(Collections.emptySet());
+
+            try (MockedStatic<MTMVRefreshContext> refreshContextStatic =
+                    Mockito.mockStatic(MTMVRefreshContext.class)) {
+                refreshContextStatic.when(() -> MTMVRefreshContext.buildContext(mtmv))
+                        .thenThrow(new DorisConnectorException("metastore unavailable"));
+
+                new PreloadExternalMetadata().executePreload(statementContext);
+
+                Mockito.verify(statementContext, Mockito.never())
+                        .putPreloadedMtmvRefreshContext(Mockito.any(), Mockito.any());
             }
         } finally {
             Config.cloud_unique_id = originalCloudUniqueId;

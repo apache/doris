@@ -22,8 +22,6 @@ import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.connector.spi.ConnectorDelegatedCredential;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
-import org.apache.doris.connector.spi.ConnectorOperationAbortedException;
-import org.apache.doris.connector.spi.ConnectorOperationControl;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.datasource.DelegatedCredential;
@@ -31,7 +29,6 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
-import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 
 import java.util.Collections;
@@ -66,7 +63,6 @@ public final class ConnectorSessionBuilder {
     // Explicit per-statement scope override for tests without a live ConnectContext; when set it wins over
     // the ConnectContext capture in build().
     private ConnectorStatementScope statementScope;
-    private ConnectorOperationControl operationControl;
     private ConnectorMetadataAccessObserver metadataAccessObserver;
 
     private ConnectorSessionBuilder() {}
@@ -161,12 +157,6 @@ public final class ConnectorSessionBuilder {
         return this;
     }
 
-    /** Sets cooperative cancellation and deadline control explicitly, primarily for tests and background jobs. */
-    public ConnectorSessionBuilder withOperationControl(ConnectorOperationControl operationControl) {
-        this.operationControl = operationControl;
-        return this;
-    }
-
     /** Sets a request-scoped metadata observer explicitly, primarily for tests and background jobs. */
     public ConnectorSessionBuilder withMetadataAccessObserver(ConnectorMetadataAccessObserver observer) {
         this.metadataAccessObserver = observer;
@@ -194,7 +184,7 @@ public final class ConnectorSessionBuilder {
         }
         return new ConnectorSessionImpl(queryId, user, timeZone, locale,
                 catalogId, catalogName, catalogProperties, sessionProperties, sid, cred,
-                captureStatementScope(), captureOperationControl(), captureMetadataAccessObserver());
+                captureStatementScope(), captureMetadataAccessObserver());
     }
 
     private ConnectorMetadataAccessObserver captureMetadataAccessObserver() {
@@ -208,41 +198,6 @@ public final class ConnectorSessionBuilder {
         SummaryProfile profile = SummaryProfile.getSummaryProfile(ctx);
         return profile == null ? ConnectorMetadataAccessObserver.NOOP
                 : event -> profile.recordConnectorMetadataAccess(catalogName, event);
-    }
-
-    private ConnectorOperationControl captureOperationControl() {
-        if (operationControl != null) {
-            return operationControl;
-        }
-        ConnectContext ctx = connectContext != null ? connectContext : ConnectContext.get();
-        if (ctx == null) {
-            return ConnectorOperationControl.NONE;
-        }
-        long startMillis = ctx.getStartTime() > 0 ? ctx.getStartTime() : System.currentTimeMillis();
-        long deadlineMillis = startMillis + ctx.getExecTimeoutS() * 1000L;
-        // The connection may execute another statement later; bind cancellation to this session's statement.
-        StmtExecutor originatingExecutor = ctx.getExecutor();
-        return new ConnectorOperationControl() {
-            @Override
-            public void checkActive() {
-                if (Thread.currentThread().isInterrupted() || ctx.isKilled()
-                        || (originatingExecutor != null && originatingExecutor.isCancelled())) {
-                    throw new ConnectorOperationAbortedException(
-                            ConnectorOperationAbortedException.Reason.CANCELLED,
-                            "Connector metadata operation was cancelled");
-                }
-                if (remainingTimeMillis() <= 0) {
-                    throw new ConnectorOperationAbortedException(
-                            ConnectorOperationAbortedException.Reason.DEADLINE_EXCEEDED,
-                            "Connector metadata operation deadline exceeded");
-                }
-            }
-
-            @Override
-            public long remainingTimeMillis() {
-                return deadlineMillis - System.currentTimeMillis();
-            }
-        };
     }
 
     /**

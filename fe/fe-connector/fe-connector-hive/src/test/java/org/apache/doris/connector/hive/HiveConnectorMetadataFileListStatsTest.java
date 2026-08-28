@@ -21,7 +21,6 @@ import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
-import org.apache.doris.connector.spi.ConnectorOperationAbortedException;
 import org.apache.doris.filesystem.FileSystem;
 
 import org.junit.jupiter.api.Assertions;
@@ -128,26 +127,6 @@ public class HiveConnectorMetadataFileListStatsTest {
                     throw new RuntimeException("boom");
                 }));
         Assertions.assertEquals(-1L, size);
-    }
-
-    @Test
-    public void partitionMetadataCancellationIsNotDegradedToUnknownSize() {
-        ConnectorOperationAbortedException aborted = new ConnectorOperationAbortedException(
-                ConnectorOperationAbortedException.Reason.CANCELLED, "query cancelled");
-        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Collections.singletonList("dt=p0")) {
-            @Override
-            public List<HmsPartitionInfo> getPartitions(
-                    String dbName, String tableName, List<String> partNames) {
-                throw aborted;
-            }
-        };
-
-        ConnectorOperationAbortedException actual = Assertions.assertThrows(
-                ConnectorOperationAbortedException.class,
-                () -> metadata(client).estimateDataSize(partitioned(), 30, (loc, vals) -> 100));
-
-        Assertions.assertSame(aborted, actual,
-                "statistics best-effort fallback must not swallow query cancellation or deadline");
     }
 
     @Test

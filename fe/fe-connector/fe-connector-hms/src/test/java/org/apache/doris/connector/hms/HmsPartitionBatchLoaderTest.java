@@ -19,8 +19,6 @@ package org.apache.doris.connector.hms;
 
 import org.apache.doris.connector.spi.ConnectorMetadataAccessEvent;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
-import org.apache.doris.connector.spi.ConnectorOperationAbortedException;
-import org.apache.doris.connector.spi.ConnectorOperationControl;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.HiveMetaHookLoader;
@@ -44,7 +42,7 @@ public class HmsPartitionBatchLoaderTest {
     @Test
     public void chunksLargeRequestAndRestoresRequestOrder() {
         List<Integer> batchSizes = new ArrayList<>();
-        HmsPartitionBatchLoader loader = loader(5000, (db, table, names, control) -> {
+        HmsPartitionBatchLoader loader = loader(5000, (db, table, names) -> {
             batchSizes.add(names.size());
             List<HmsPartitionInfo> result = infos(names);
             Collections.reverse(result);
@@ -62,7 +60,7 @@ public class HmsPartitionBatchLoaderTest {
     @Test
     public void boundsOneHundredTwentyThousandPartitionRequest() {
         List<Integer> batchSizes = new ArrayList<>();
-        HmsPartitionBatchLoader loader = loader(5000, (db, table, names, control) -> {
+        HmsPartitionBatchLoader loader = loader(5000, (db, table, names) -> {
             batchSizes.add(names.size());
             return infos(names);
         });
@@ -79,7 +77,7 @@ public class HmsPartitionBatchLoaderTest {
     @Test
     public void halvesDegradableBatchAndReusesTheSafeSize() {
         List<Integer> batchSizes = new ArrayList<>();
-        HmsPartitionBatchLoader loader = loader(8, (db, table, names, control) -> {
+        HmsPartitionBatchLoader loader = loader(8, (db, table, names) -> {
             batchSizes.add(names.size());
             if (names.size() > 2) {
                 throw new HmsRemoteCallException("remote", new IOException("frame too large"));
@@ -94,7 +92,7 @@ public class HmsPartitionBatchLoaderTest {
     @Test
     public void doesNotReplayAnEarlierSuccessfulBatch() {
         List<List<String>> attempts = new ArrayList<>();
-        HmsPartitionBatchLoader loader = loader(4, (db, table, names, control) -> {
+        HmsPartitionBatchLoader loader = loader(4, (db, table, names) -> {
             attempts.add(new ArrayList<>(names));
             if (names.contains("p=4") && names.size() > 1) {
                 throw new HmsRemoteCallException("remote", new IOException("message size limit"));
@@ -110,7 +108,7 @@ public class HmsPartitionBatchLoaderTest {
     @Test
     public void minimumBatchFailurePropagates() {
         List<Integer> batchSizes = new ArrayList<>();
-        HmsPartitionBatchLoader loader = loader(2, (db, table, names, control) -> {
+        HmsPartitionBatchLoader loader = loader(2, (db, table, names) -> {
             batchSizes.add(names.size());
             throw new HmsRemoteCallException("remote", new IOException("frame too large"));
         });
@@ -152,7 +150,7 @@ public class HmsPartitionBatchLoaderTest {
 
     @Test
     public void reportsOverlappingMismatchTypesPrecisely() {
-        HmsPartitionBatchLoader loader = loader(10, (db, table, names, control) -> Arrays.asList(
+        HmsPartitionBatchLoader loader = loader(10, (db, table, names) -> Arrays.asList(
                 info("a"), info("c"), info("c")));
 
         HmsPartitionResultException failure = Assertions.assertThrows(
@@ -174,7 +172,7 @@ public class HmsPartitionBatchLoaderTest {
 
     @Test
     public void reportsInvalidResultIdentity() {
-        HmsPartitionBatchLoader loader = loader(10, (db, table, names, control) -> Collections.singletonList(
+        HmsPartitionBatchLoader loader = loader(10, (db, table, names) -> Collections.singletonList(
                 new HmsPartitionInfo(Arrays.asList("a", "extra"), null, null, null, null, null)));
 
         HmsPartitionResultException failure = Assertions.assertThrows(
@@ -190,47 +188,23 @@ public class HmsPartitionBatchLoaderTest {
     }
 
     @Test
-    public void timeoutAndCancellationStopBeforeAnRpc() {
+    public void fallbackTimeoutStopsBeforeRetry() {
         AtomicLong time = new AtomicLong();
         List<Integer> calls = new ArrayList<>();
         HmsPartitionBatchLoader timeoutLoader = HmsPartitionBatchLoader.builder()
                 .maxBatchSize(10)
                 .fallbackTimeoutMillis(30)
-                .fetcher((db, table, names, control) -> {
+                .fetcher((db, table, names) -> {
                     calls.add(names.size());
                     throw new HmsRemoteCallException("remote", new IOException("frame too large"));
                 })
                 .nanoTime(() -> time.getAndAdd(31_000_000L))
                 .build();
-        ConnectorOperationAbortedException timeout = Assertions.assertThrows(
-                ConnectorOperationAbortedException.class,
+        HmsClientException timeout = Assertions.assertThrows(
+                HmsClientException.class,
                 () -> timeoutLoader.load(request(names(2))));
-        Assertions.assertEquals(ConnectorOperationAbortedException.Reason.DEADLINE_EXCEEDED,
-                timeout.getReason());
+        Assertions.assertTrue(timeout.getMessage().contains("fallback timeout"));
         Assertions.assertEquals(Collections.singletonList(2), calls);
-
-        ConnectorOperationControl cancelled = new ConnectorOperationControl() {
-            @Override
-            public void checkActive() {
-                throw new ConnectorOperationAbortedException(
-                        ConnectorOperationAbortedException.Reason.CANCELLED, "cancelled");
-            }
-
-            @Override
-            public long remainingTimeMillis() {
-                return 1000;
-            }
-        };
-        ConnectorOperationAbortedException cancellation = Assertions.assertThrows(
-                ConnectorOperationAbortedException.class, () -> loader(10,
-                        (db, table, names, control) -> infos(names)).load(HmsPartitionRequest.builder()
-                                .database("db")
-                                .table("table")
-                                .partitionNames(names(1))
-                                .operationControl(cancelled)
-                                .build()));
-        Assertions.assertEquals(ConnectorOperationAbortedException.Reason.CANCELLED,
-                cancellation.getReason());
     }
 
     @Test
@@ -238,8 +212,8 @@ public class HmsPartitionBatchLoaderTest {
         AtomicReference<ConnectorMetadataAccessEvent> event = new AtomicReference<>();
         HmsPartitionBatchLoader loader = HmsPartitionBatchLoader.builder()
                 .maxBatchSize(10).fallbackTimeoutMillis(30_000)
-                .trackedFetcher((db, table, names, control, tracker) ->
-                        HmsRemoteCallTracking.withTracker(tracker, names.size(), control, () -> {
+                .trackedFetcher((db, table, names, tracker) ->
+                        HmsRemoteCallTracking.withTracker(tracker, names.size(), () -> {
                             try {
                                 HmsRemoteCallTracking.trackWireAttempt(() -> {
                                     throw new shade.doris.hive.org.apache.thrift.TException("retry");
@@ -283,7 +257,7 @@ public class HmsPartitionBatchLoaderTest {
         HmsPartitionBatchLoader loader = HmsPartitionBatchLoader.builder()
                 .maxBatchSize(3)
                 .fallbackTimeoutMillis(30_000)
-                .fetcher((db, table, names, control) -> infos(names))
+                .fetcher((db, table, names) -> infos(names))
                 .observer(event::set)
                 .nanoTime(() -> time.getAndAdd(10_000_000L))
                 .build();
@@ -313,7 +287,7 @@ public class HmsPartitionBatchLoaderTest {
         HmsPartitionBatchLoader loader = HmsPartitionBatchLoader.builder()
                 .maxBatchSize(10)
                 .fallbackTimeoutMillis(30_000)
-                .fetcher((db, table, names, control) -> infos(names))
+                .fetcher((db, table, names) -> infos(names))
                 .observer(event -> {
                     observerCalls.incrementAndGet();
                     throw new IllegalStateException("metrics failure");

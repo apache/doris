@@ -41,18 +41,4 @@ public final class TrackingHiveMetaStoreClient extends HiveMetaStoreClient imple
         return HmsRemoteCallTracking.trackWireAttempt(
                 () -> super.getPartitionsByNames(dbName, tableName, partitionNames));
     }
-
-    @Override
-    public void reconnect() throws MetaException {
-        HmsRemoteCallTracking.checkReconnectActive();
-        try {
-            super.reconnect();
-        } catch (MetaException | RuntimeException | Error e) {
-            // reconnect() may have already closed the old transport before opening the replacement failed.
-            HmsRemoteCallTracking.markReconnectFailure();
-            throw e;
-        }
-        HmsRemoteCallTracking.markReconnectSuccess();
-        HmsRemoteCallTracking.checkReconnectActive();
-    }
 }

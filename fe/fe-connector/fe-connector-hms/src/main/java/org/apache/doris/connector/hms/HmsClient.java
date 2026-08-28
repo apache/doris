@@ -169,21 +169,14 @@ public interface HmsClient extends Closeable {
             List<String> partNames);
 
     /**
-     * Gets partition metadata with request-scoped query control and an observability source. Callers describe
-     * only the logical access; the HMS implementation owns chunking, adaptive fallback and result validation.
+     * Gets partition metadata with an observability source. Callers describe only the logical access; the HMS
+     * implementation owns chunking, adaptive fallback and result validation.
      * Implementations without those facilities remain compatible through the legacy three-argument method.
      */
     default List<HmsPartitionInfo> getPartitions(ConnectorSession session, ConnectorMetadataAccessSource source,
             String dbName, String tableName, List<String> partNames) {
         Objects.requireNonNull(source, "source");
-        if (session != null) {
-            session.getOperationControl().checkActive();
-        }
-        List<HmsPartitionInfo> partitions = getPartitions(dbName, tableName, partNames);
-        if (session != null) {
-            session.getOperationControl().checkActive();
-        }
-        return partitions;
+        return getPartitions(dbName, tableName, partNames);
     }
 
     /** Internal logical-request bridge used by HMS client decorators. */

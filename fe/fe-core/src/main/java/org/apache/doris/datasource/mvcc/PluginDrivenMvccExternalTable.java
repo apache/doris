@@ -33,7 +33,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
-import org.apache.doris.connector.spi.ConnectorOperationAbortedException;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
@@ -802,8 +801,6 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                         partitionName, value, pin, onDemandFreshness));
             }
             return result;
-        } catch (ConnectorOperationAbortedException e) {
-            throw e;
         } catch (DorisConnectorException e) {
             throw new AnalysisException("failed to load partition freshness for " + partitionNames.size()
                     + " partition(s) of " + getName() + ": " + e.getMessage(), e);
@@ -875,8 +872,6 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                 }
             }
             return new MTMVSnapshotIdSnapshot(pin.getConnectorSnapshot().getSnapshotId());
-        } catch (ConnectorOperationAbortedException e) {
-            throw e;
         } catch (DorisConnectorException e) {
             throw new AnalysisException(
                     "failed to load table freshness for " + getName() + ": " + e.getMessage(), e);

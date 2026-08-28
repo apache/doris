@@ -20,8 +20,6 @@ package org.apache.doris.connector.hms;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessEvent;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
-import org.apache.doris.connector.spi.ConnectorOperationAbortedException;
-import org.apache.doris.connector.spi.ConnectorOperationControl;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -372,49 +370,6 @@ public class CachingHmsClientTest {
     }
 
     @Test
-    public void waiterRetriesAfterItsOwnerIsCancelled() throws Exception {
-        RecordingHmsClient delegate = new RecordingHmsClient();
-        CountDownLatch waiterRegistered = new CountDownLatch(1);
-        AtomicInteger registrations = new AtomicInteger();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap()) {
-            @Override
-            void afterPartitionLoadRegistrationForTest() {
-                if (registrations.incrementAndGet() == 2) {
-                    waiterRegistered.countDown();
-                }
-            }
-        };
-        CountDownLatch ownerEntered = new CountDownLatch(1);
-        CountDownLatch cancelOwner = new CountDownLatch(1);
-        delegate.onGetPartitions = () -> {
-            if (delegate.getPartitionsCalls == 1) {
-                ownerEntered.countDown();
-                await(cancelOwner);
-                throw new ConnectorOperationAbortedException(
-                        ConnectorOperationAbortedException.Reason.CANCELLED, "owner cancelled");
-            }
-        };
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        try {
-            Future<List<HmsPartitionInfo>> owner = executor.submit(
-                    () -> cache.getPartitions("db", "t", Collections.singletonList("p=1")));
-            Assertions.assertTrue(ownerEntered.await(5, TimeUnit.SECONDS));
-            Future<List<HmsPartitionInfo>> waiter = executor.submit(
-                    () -> cache.getPartitions("db", "t", Collections.singletonList("p=1")));
-            Assertions.assertTrue(waiterRegistered.await(5, TimeUnit.SECONDS));
-            cancelOwner.countDown();
-            Assertions.assertInstanceOf(ConnectorOperationAbortedException.class,
-                    Assertions.assertThrows(ExecutionException.class,
-                            () -> owner.get(5, TimeUnit.SECONDS)).getCause());
-            Assertions.assertEquals(1, waiter.get(5, TimeUnit.SECONDS).size());
-            Assertions.assertEquals(2, delegate.getPartitionsCalls);
-        } finally {
-            cancelOwner.countDown();
-            executor.shutdownNow();
-        }
-    }
-
-    @Test
     public void identicalWaitersShareTerminalIntegrityFailure() throws Exception {
         RecordingHmsClient delegate = new RecordingHmsClient();
         delegate.absentPartitionNames.add("p=missing");
@@ -502,64 +457,6 @@ public class CachingHmsClientTest {
             Assertions.assertEquals(1, waiter.get(5, TimeUnit.SECONDS).size());
             Assertions.assertEquals(2, delegate.getPartitionsCalls);
             Assertions.assertEquals(Collections.singletonList("p=1"), delegate.lastGetPartitionsArg);
-        } finally {
-            releaseOwner.countDown();
-            executor.shutdownNow();
-        }
-    }
-
-    @Test
-    public void cancelledDisabledCacheSlotWaiterDoesNotLeakThePermit() throws Exception {
-        RecordingHmsClient delegate = new RecordingHmsClient();
-        CountDownLatch ownerEntered = new CountDownLatch(1);
-        CountDownLatch releaseOwner = new CountDownLatch(1);
-        CountDownLatch slotWaitStarted = new CountDownLatch(1);
-        delegate.onGetPartitions = () -> {
-            if (delegate.getPartitionsCalls == 1) {
-                ownerEntered.countDown();
-                await(releaseOwner);
-            }
-        };
-        CachingHmsClient cache = new CachingHmsClient(delegate,
-                props("meta.cache.hive.partition.enable", "false"), 1) {
-            @Override
-            void beforePartitionLoadSlotWaitForTest() {
-                slotWaitStarted.countDown();
-            }
-        };
-        AtomicBoolean cancelled = new AtomicBoolean();
-        ConnectorOperationControl control = new ConnectorOperationControl() {
-            @Override
-            public void checkActive() {
-                if (cancelled.get()) {
-                    throw new ConnectorOperationAbortedException(
-                            ConnectorOperationAbortedException.Reason.CANCELLED, "slot waiter cancelled");
-                }
-            }
-
-            @Override
-            public long remainingTimeMillis() {
-                return TimeUnit.SECONDS.toMillis(30);
-            }
-        };
-        HmsPartitionRequest waiting = HmsPartitionRequest.builder().database("db").table("t")
-                .partitionNames(Collections.singletonList("p=2")).operationControl(control).build();
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        try {
-            Future<List<HmsPartitionInfo>> owner = executor.submit(
-                    () -> cache.getPartitions("db", "t", Collections.singletonList("p=1")));
-            Assertions.assertTrue(ownerEntered.await(5, TimeUnit.SECONDS));
-            Future<List<HmsPartitionInfo>> waiter = executor.submit(() -> cache.getPartitions(waiting));
-            Assertions.assertTrue(slotWaitStarted.await(5, TimeUnit.SECONDS));
-            cancelled.set(true);
-            Assertions.assertInstanceOf(ConnectorOperationAbortedException.class,
-                    Assertions.assertThrows(ExecutionException.class,
-                            () -> waiter.get(5, TimeUnit.SECONDS)).getCause());
-            releaseOwner.countDown();
-            Assertions.assertEquals(1, owner.get(5, TimeUnit.SECONDS).size());
-            Future<List<HmsPartitionInfo>> next = executor.submit(
-                    () -> cache.getPartitions("db", "t", Collections.singletonList("p=3")));
-            Assertions.assertEquals(1, next.get(5, TimeUnit.SECONDS).size());
         } finally {
             releaseOwner.countDown();
             executor.shutdownNow();
@@ -656,7 +553,7 @@ public class CachingHmsClientTest {
     }
 
     @Test
-    public void loadSlotWaitersKeepFifoOrderAcrossControlPolling() throws Exception {
+    public void loadSlotWaitersKeepFifoOrder() throws Exception {
         RecordingHmsClient delegate = new RecordingHmsClient();
         CountDownLatch ownerEntered = new CountDownLatch(1);
         CountDownLatch releaseOwner = new CountDownLatch(1);
@@ -669,8 +566,6 @@ public class CachingHmsClientTest {
         CountDownLatch firstQueued = new CountDownLatch(1);
         CountDownLatch bothQueued = new CountDownLatch(2);
         AtomicBoolean queued = new AtomicBoolean();
-        AtomicInteger checks = new AtomicInteger();
-        CountDownLatch polled = new CountDownLatch(1);
         CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap(), 1) {
             @Override
             void beforePartitionLoadSlotWaitForTest() {
@@ -680,21 +575,8 @@ public class CachingHmsClientTest {
                 bothQueued.countDown();
             }
         };
-        ConnectorOperationControl control = new ConnectorOperationControl() {
-            @Override
-            public void checkActive() {
-                if (queued.get() && checks.incrementAndGet() == 2) {
-                    polled.countDown();
-                }
-            }
-
-            @Override
-            public long remainingTimeMillis() {
-                return TimeUnit.SECONDS.toMillis(30);
-            }
-        };
         HmsPartitionRequest firstRequest = HmsPartitionRequest.builder().database("db").table("t")
-                .partitionNames(Collections.singletonList("p=1")).operationControl(control).build();
+                .partitionNames(Collections.singletonList("p=1")).build();
         ExecutorService executor = Executors.newFixedThreadPool(3);
         try {
             Future<List<HmsPartitionInfo>> owner = executor.submit(
@@ -705,7 +587,6 @@ public class CachingHmsClientTest {
             Future<List<HmsPartitionInfo>> second = executor.submit(
                     () -> cache.getPartitions("db", "t", Collections.singletonList("p=2")));
             Assertions.assertTrue(bothQueued.await(5, TimeUnit.SECONDS));
-            Assertions.assertTrue(polled.await(5, TimeUnit.SECONDS));
             releaseOwner.countDown();
             Assertions.assertEquals(1, owner.get(5, TimeUnit.SECONDS).size());
             Assertions.assertEquals(1, first.get(5, TimeUnit.SECONDS).size());
@@ -765,7 +646,7 @@ public class CachingHmsClientTest {
         List<ConnectorMetadataAccessEvent> events = new ArrayList<>();
         HmsPartitionBatchLoader rawLoader = HmsPartitionBatchLoader.builder()
                 .maxBatchSize(4).fallbackTimeoutMillis(30)
-                .fetcher((db, table, names, control) -> {
+                .fetcher((db, table, names) -> {
                     attempts.add(names.size());
                     if (names.size() > 2) {
                         throw new HmsRemoteCallException("remote",

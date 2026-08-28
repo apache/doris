@@ -221,10 +221,6 @@ public class StmtExecutor {
     // The profile of this execution
     private final Profile profile;
     private Boolean isForwardedToMaster = null;
-    // Statement-scoped cancellation state. ConnectContext.isKilled is connection-scoped and therefore remains
-    // false for KILL QUERY. Connector metadata operations can run before a Coordinator exists, so they must be
-    // able to observe cancellation directly from the originating executor.
-    private volatile boolean cancelled;
     // Flag for execute prepare statement, need to use binary protocol resultset
     private boolean isComStmtExecute = false;
     // Set to true if there are more stmt need to execute.
@@ -1304,7 +1300,6 @@ public class StmtExecutor {
 
     // Because this is called by other thread
     public void cancel(Status cancelReason, boolean needWaitCancelComplete) {
-        cancelled = true;
         if (masterOpExecutor != null) {
             try {
                 masterOpExecutor.cancel();
@@ -1333,10 +1328,6 @@ public class StmtExecutor {
 
     public void cancel(Status cancelReason) {
         cancel(cancelReason, true);
-    }
-
-    public boolean isCancelled() {
-        return cancelled;
     }
 
     private Optional<InsertOverwriteTableCommand> getInsertOverwriteTableCommand() {

@@ -20,7 +20,6 @@ package org.apache.doris.connector.hms;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessEvent;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
-import org.apache.doris.connector.spi.ConnectorOperationControl;
 import org.apache.doris.connector.spi.ConnectorSession;
 
 import java.util.ArrayList;
@@ -31,7 +30,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
 /** Immutable logical HMS request data with request-scoped adaptive execution state. */
@@ -44,7 +42,6 @@ final class HmsPartitionRequest {
     private final List<String> partitionNames;
     private final List<HmsPartitionIdentity.ParsedPartitionName> partitions;
     private final ConnectorMetadataAccessSource source;
-    private final ConnectorOperationControl operationControl;
     private final ConnectorMetadataAccessObserver metadataAccessObserver;
     private final PartitionChunkConsumer partitionChunkConsumer;
     private final BatchExecutionState batchExecutionState;
@@ -54,7 +51,7 @@ final class HmsPartitionRequest {
         this.dbName = builder.dbName;
         this.tableName = builder.tableName;
         this.partitions = builder.partitions == null
-                ? parsePartitions(builder.partitionNames, builder.operationControl, builder.partitionParser)
+                ? parsePartitions(builder.partitionNames, builder.partitionParser)
                 : Collections.unmodifiableList(new ArrayList<>(builder.partitions));
         List<String> names = new ArrayList<>(partitions.size());
         for (HmsPartitionIdentity.ParsedPartitionName partition : partitions) {
@@ -62,7 +59,6 @@ final class HmsPartitionRequest {
         }
         this.partitionNames = Collections.unmodifiableList(names);
         this.source = builder.source;
-        this.operationControl = builder.operationControl;
         this.metadataAccessObserver = builder.metadataAccessObserver;
         this.partitionChunkConsumer = builder.partitionChunkConsumer;
         this.batchExecutionState = builder.batchExecutionState;
@@ -76,8 +72,6 @@ final class HmsPartitionRequest {
                 .table(tableName)
                 .partitionNames(partitionNames)
                 .source(source)
-                .operationControl(session == null
-                        ? ConnectorOperationControl.NONE : session.getOperationControl())
                 .metadataAccessObserver(session == null
                         ? ConnectorMetadataAccessObserver.NOOP : session.getMetadataAccessObserver())
                 .build();
@@ -105,19 +99,6 @@ final class HmsPartitionRequest {
 
     ConnectorMetadataAccessSource getSource() {
         return source;
-    }
-
-    ConnectorOperationControl getOperationControl() {
-        return operationControl;
-    }
-
-    ConnectorOperationControl getEffectiveOperationControl() {
-        ConnectorOperationControl effective = batchExecutionState.effectiveOperationControl.get();
-        return effective == null ? operationControl : effective;
-    }
-
-    void updateEffectiveOperationControl(ConnectorOperationControl effectiveOperationControl) {
-        batchExecutionState.effectiveOperationControl.set(effectiveOperationControl);
     }
 
     ConnectorMetadataAccessObserver getMetadataAccessObserver() {
@@ -160,10 +141,9 @@ final class HmsPartitionRequest {
     /** Receives one fully validated and request-ordered physical chunk before the next HMS chunk starts. */
     @FunctionalInterface
     interface PartitionChunkConsumer {
-        PartitionChunkConsumer NOOP = (partitionNames, partitions, operationControl) -> { };
+        PartitionChunkConsumer NOOP = (partitionNames, partitions) -> { };
 
-        void accept(List<String> partitionNames, List<HmsPartitionInfo> partitions,
-                ConnectorOperationControl operationControl);
+        void accept(List<String> partitionNames, List<HmsPartitionInfo> partitions);
     }
 
     static final class Builder {
@@ -172,7 +152,6 @@ final class HmsPartitionRequest {
         private List<String> partitionNames;
         private List<HmsPartitionIdentity.ParsedPartitionName> partitions;
         private ConnectorMetadataAccessSource source = ConnectorMetadataAccessSource.UNKNOWN;
-        private ConnectorOperationControl operationControl = ConnectorOperationControl.NONE;
         private ConnectorMetadataAccessObserver metadataAccessObserver = ConnectorMetadataAccessObserver.NOOP;
         private PartitionChunkConsumer partitionChunkConsumer = PartitionChunkConsumer.NOOP;
         private BatchExecutionState batchExecutionState = new BatchExecutionState();
@@ -214,11 +193,6 @@ final class HmsPartitionRequest {
             return this;
         }
 
-        Builder operationControl(ConnectorOperationControl operationControl) {
-            this.operationControl = operationControl;
-            return this;
-        }
-
         Builder metadataAccessObserver(ConnectorMetadataAccessObserver metadataAccessObserver) {
             this.metadataAccessObserver = metadataAccessObserver;
             return this;
@@ -242,7 +216,6 @@ final class HmsPartitionRequest {
                 Objects.requireNonNull(partitionNames, "partitionNames");
             }
             Objects.requireNonNull(source, "source");
-            Objects.requireNonNull(operationControl, "operationControl");
             Objects.requireNonNull(metadataAccessObserver, "metadataAccessObserver");
             Objects.requireNonNull(partitionChunkConsumer, "partitionChunkConsumer");
             Objects.requireNonNull(batchExecutionState, "batchExecutionState");
@@ -257,15 +230,11 @@ final class HmsPartitionRequest {
     }
 
     private static List<HmsPartitionIdentity.ParsedPartitionName> parsePartitions(List<String> names,
-            ConnectorOperationControl operationControl,
             Function<String, HmsPartitionIdentity.ParsedPartitionName> parser) {
         List<HmsPartitionIdentity.ParsedPartitionName> parsedPartitions = new ArrayList<>(names.size());
         Set<List<String>> identities = new HashSet<>();
         List<String> partitionKeys = null;
         for (int i = 0; i < names.size(); i++) {
-            if ((i & 1023) == 0) {
-                operationControl.checkActive();
-            }
             HmsPartitionIdentity.ParsedPartitionName parsed = parser.apply(names.get(i));
             if (partitionKeys == null) {
                 partitionKeys = parsed.getKeys();
@@ -284,7 +253,6 @@ final class HmsPartitionRequest {
     private static final class BatchExecutionState {
         private final AtomicInteger effectiveBatchSize = new AtomicInteger(Integer.MAX_VALUE);
         private final AtomicLong fallbackStartNanos = new AtomicLong(NO_FALLBACK_START_NANOS);
-        private final AtomicReference<ConnectorOperationControl> effectiveOperationControl = new AtomicReference<>();
         private int rpcCount;
         private long rpcItems;
         private int largestBatchSize;

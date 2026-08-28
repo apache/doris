@@ -20,7 +20,6 @@ package org.apache.doris.connector;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.connector.spi.ConnectorDelegatedCredential;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
-import org.apache.doris.connector.spi.ConnectorOperationControl;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
@@ -55,7 +54,6 @@ public class ConnectorSessionImpl implements ConnectorSession {
     // reachable) so off-thread scan pumps that reuse this one session still reach it. NONE when there is no
     // live statement context (offline planning, tests) -- then getStatementScope() memoizes nothing.
     private final ConnectorStatementScope statementScope;
-    private final ConnectorOperationControl operationControl;
     private final ConnectorMetadataAccessObserver metadataAccessObserver;
     // Otherwise-immutable session; this is bound once by the insert executor at write time
     // for connectors using the SPI transaction model (e.g. maxcompute), and read back by the
@@ -66,15 +64,14 @@ public class ConnectorSessionImpl implements ConnectorSession {
             long catalogId, String catalogName, Map<String, String> catalogProperties,
             Map<String, String> sessionProperties) {
         this(queryId, user, timeZone, locale, catalogId, catalogName, catalogProperties, sessionProperties,
-                null, null, ConnectorStatementScope.NONE, ConnectorOperationControl.NONE,
-                ConnectorMetadataAccessObserver.NOOP);
+                null, null, ConnectorStatementScope.NONE, ConnectorMetadataAccessObserver.NOOP);
     }
 
     ConnectorSessionImpl(String queryId, String user, String timeZone, String locale,
             long catalogId, String catalogName, Map<String, String> catalogProperties,
             Map<String, String> sessionProperties, String sessionId,
             ConnectorDelegatedCredential delegatedCredential, ConnectorStatementScope statementScope,
-            ConnectorOperationControl operationControl, ConnectorMetadataAccessObserver metadataAccessObserver) {
+            ConnectorMetadataAccessObserver metadataAccessObserver) {
         this.queryId = queryId != null ? queryId : "";
         this.user = user != null ? user : "";
         this.timeZone = timeZone != null ? timeZone : "UTC";
@@ -88,7 +85,6 @@ public class ConnectorSessionImpl implements ConnectorSession {
         this.sessionId = sessionId;
         this.delegatedCredential = delegatedCredential;
         this.statementScope = statementScope != null ? statementScope : ConnectorStatementScope.NONE;
-        this.operationControl = operationControl != null ? operationControl : ConnectorOperationControl.NONE;
         this.metadataAccessObserver = metadataAccessObserver != null
                 ? metadataAccessObserver : ConnectorMetadataAccessObserver.NOOP;
     }
@@ -192,11 +188,6 @@ public class ConnectorSessionImpl implements ConnectorSession {
     @Override
     public ConnectorStatementScope getStatementScope() {
         return statementScope;
-    }
-
-    @Override
-    public ConnectorOperationControl getOperationControl() {
-        return operationControl;
     }
 
     @Override

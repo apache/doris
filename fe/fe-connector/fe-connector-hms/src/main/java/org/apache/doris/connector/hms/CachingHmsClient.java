@@ -22,8 +22,6 @@ import org.apache.doris.connector.cache.MetaCacheEntry;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessEvent;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
-import org.apache.doris.connector.spi.ConnectorOperationAbortedException;
-import org.apache.doris.connector.spi.ConnectorOperationControl;
 import org.apache.doris.connector.spi.ConnectorSession;
 
 import org.apache.logging.log4j.LogManager;
@@ -273,12 +271,10 @@ public class CachingHmsClient implements HmsClient {
         long startNanos = System.nanoTime();
         boolean success = false;
         try {
-            checkOperationActive(request.getEffectiveOperationControl());
             // Serve per-partition entries and fetch bounded miss windows so overlapping requests share objects.
             Map<List<String>, HmsPartitionInfo> resultByIdentity = new LinkedHashMap<>();
             List<HmsPartitionIdentity.ParsedPartitionName> missPartitions = null;
             for (int i = 0; i < partitions.size(); i++) {
-                checkOperationActivePeriodically(request.getEffectiveOperationControl(), i);
                 HmsPartitionIdentity.ParsedPartitionName partition = partitions.get(i);
                 List<String> values = partition.getValues();
                 HmsPartitionInfo hit =
@@ -297,7 +293,6 @@ public class CachingHmsClient implements HmsClient {
             }
             List<HmsPartitionInfo> result = new ArrayList<>(partNames.size());
             for (int i = 0; i < partitions.size(); i++) {
-                checkOperationActivePeriodically(request.getEffectiveOperationControl(), i);
                 HmsPartitionIdentity.ParsedPartitionName requested = partitions.get(i);
                 HmsPartitionInfo partition = resultByIdentity.get(requested.getValues());
                 if (partition == null) {
@@ -307,7 +302,6 @@ public class CachingHmsClient implements HmsClient {
                 }
                 result.add(partition);
             }
-            checkOperationActive(request.getEffectiveOperationControl());
             success = true;
             return result;
         } finally {
@@ -322,7 +316,6 @@ public class CachingHmsClient implements HmsClient {
             List<HmsPartitionIdentity.ParsedPartitionName> initialMisses,
             Map<List<String>, HmsPartitionInfo> resultByIdentity) {
         for (int offset = 0; offset < initialMisses.size(); offset += partitionLoadWindowSize) {
-            checkOperationActive(request.getEffectiveOperationControl());
             int end = Math.min(offset + partitionLoadWindowSize, initialMisses.size());
             List<HmsPartitionIdentity.ParsedPartitionName> window = initialMisses.subList(offset, end);
             if (partitionsCache.isEffectiveEnabled()) {
@@ -342,10 +335,8 @@ public class CachingHmsClient implements HmsClient {
     private void loadMissingPartitionWindow(HmsPartitionRequest request,
             List<HmsPartitionIdentity.ParsedPartitionName> initialMisses,
             Map<List<String>, HmsPartitionInfo> resultByIdentity) {
-        ConnectorOperationControl operationControl = request.getEffectiveOperationControl();
         List<HmsPartitionIdentity.ParsedPartitionName> pending = initialMisses;
         while (!pending.isEmpty()) {
-            checkOperationActive(operationControl);
             PartitionLoadBatch ownedBatch = new PartitionLoadBatch();
             List<PartitionLoadRegistration> owned = new ArrayList<>();
             Map<PartitionLoadBatch, List<PartitionLoadRegistration>> waiting = new IdentityHashMap<>();
@@ -353,7 +344,6 @@ public class CachingHmsClient implements HmsClient {
             try {
                 try {
                     for (int i = 0; i < pending.size(); i++) {
-                        checkOperationActivePeriodically(operationControl, i);
                         registerPartitionLoad(request, pending.get(i), ownedBatch, resultByIdentity, owned, waiting);
                     }
                     afterPartitionLoadRegistrationForTest();
@@ -397,7 +387,7 @@ public class CachingHmsClient implements HmsClient {
         List<String> values = partition.getValues();
         PartitionKey key = new PartitionKey(request.getDbName(), request.getTableName(), values);
         ReentrantLock stateLock = partitionStateLock(request.getDbName(), request.getTableName());
-        acquirePartitionStateLock(stateLock, request.getEffectiveOperationControl());
+        stateLock.lock();
         try {
             HmsPartitionInfo hit = partitionsCache.getIfPresent(key);
             if (hit != null) {
@@ -442,12 +432,10 @@ public class CachingHmsClient implements HmsClient {
             ownedByIdentity.put(registration.key.values, registration);
         }
         HmsPartitionRequest missRequest = copiedPartitionRequest(request, ownedPartitions)
-                .partitionChunkConsumer((chunkNames, chunkPartitions, effectiveControl) -> publishOwnedPartitions(
-                        request, chunkPartitions, resultByIdentity, ownedBatch, ownedByIdentity, effectiveControl))
+                .partitionChunkConsumer((chunkNames, chunkPartitions) -> publishOwnedPartitions(
+                        request, chunkPartitions, resultByIdentity, ownedBatch, ownedByIdentity))
                 .build();
         List<HmsPartitionInfo> loaded = delegate.getPartitions(missRequest);
-        ConnectorOperationControl effectiveControl = request.getEffectiveOperationControl();
-        checkOperationActive(effectiveControl);
         if (ownedByIdentity.isEmpty()) {
             return;
         }
@@ -457,9 +445,8 @@ public class CachingHmsClient implements HmsClient {
                     + ", unpublished=" + ownedByIdentity.size());
         }
         List<HmsPartitionInfo> validated = HmsPartitionBatchLoader.validateParsedAndOrder(
-                ownedPartitions, loaded, effectiveControl);
-        publishOwnedPartitions(
-                request, validated, resultByIdentity, ownedBatch, ownedByIdentity, effectiveControl);
+                ownedPartitions, loaded);
+        publishOwnedPartitions(request, validated, resultByIdentity, ownedBatch, ownedByIdentity);
     }
 
     private void releaseOwnedPartitionLoads(PartitionLoadBatch ownedBatch) {
@@ -476,13 +463,11 @@ public class CachingHmsClient implements HmsClient {
             unpublishedIdentities.add(miss.getValues());
         }
         HmsPartitionRequest missRequest = copiedPartitionRequest(request, misses)
-                .partitionChunkConsumer((chunkNames, chunkPartitions, effectiveControl) ->
+                .partitionChunkConsumer((chunkNames, chunkPartitions) ->
                         publishUncachedPartitions(request, chunkPartitions, generation,
-                                resultByIdentity, unpublishedIdentities, effectiveControl))
+                                resultByIdentity, unpublishedIdentities))
                 .build();
         List<HmsPartitionInfo> loaded = delegate.getPartitions(missRequest);
-        ConnectorOperationControl effectiveControl = request.getEffectiveOperationControl();
-        checkOperationActive(effectiveControl);
         if (unpublishedIdentities.isEmpty()) {
             return;
         }
@@ -492,16 +477,14 @@ public class CachingHmsClient implements HmsClient {
                     + ", unpublished=" + unpublishedIdentities.size());
         }
         List<HmsPartitionInfo> validated = HmsPartitionBatchLoader.validateParsedAndOrder(
-                misses, loaded, effectiveControl);
-        publishUncachedPartitions(request, validated, generation,
-                resultByIdentity, unpublishedIdentities, effectiveControl);
+                misses, loaded);
+        publishUncachedPartitions(request, validated, generation, resultByIdentity, unpublishedIdentities);
     }
 
     private void publishUncachedPartitions(HmsPartitionRequest request, List<HmsPartitionInfo> loaded,
             long generation, Map<List<String>, HmsPartitionInfo> resultByIdentity,
-            Set<List<String>> unpublishedIdentities, ConnectorOperationControl effectiveControl) {
+            Set<List<String>> unpublishedIdentities) {
         for (int i = 0; i < loaded.size(); i++) {
-            checkOperationActivePeriodically(effectiveControl, i);
             HmsPartitionInfo info = loaded.get(i);
             if (!unpublishedIdentities.remove(info.getValues())) {
                 throw new HmsClientException(
@@ -511,7 +494,6 @@ public class CachingHmsClient implements HmsClient {
             partitionsCache.putIfNotInvalidatedSince(generation, key, info);
             resultByIdentity.put(info.getValues(), info);
         }
-        checkOperationActive(effectiveControl);
     }
 
     private static HmsPartitionRequest.Builder copiedPartitionRequest(
@@ -521,17 +503,14 @@ public class CachingHmsClient implements HmsClient {
                 .table(request.getTableName())
                 .partitions(partitions)
                 .source(request.getSource())
-                .operationControl(request.getOperationControl())
                 .metadataAccessObserver(request.getMetadataAccessObserver())
                 .shareBatchExecutionWith(request);
     }
 
     private void publishOwnedPartitions(HmsPartitionRequest request,
             List<HmsPartitionInfo> loaded, Map<List<String>, HmsPartitionInfo> resultByIdentity,
-            PartitionLoadBatch ownedBatch, Map<List<String>, PartitionLoadRegistration> ownedByIdentity,
-            ConnectorOperationControl effectiveControl) {
+            PartitionLoadBatch ownedBatch, Map<List<String>, PartitionLoadRegistration> ownedByIdentity) {
         for (int i = 0; i < loaded.size(); i++) {
-            checkOperationActivePeriodically(effectiveControl, i);
             HmsPartitionInfo info = loaded.get(i);
             PartitionLoadRegistration registration = ownedByIdentity.remove(info.getValues());
             if (registration == null) {
@@ -540,7 +519,7 @@ public class CachingHmsClient implements HmsClient {
             }
             // Shared stripes order invalidation and publication without suppressing unrelated-table results.
             ReentrantLock stateLock = partitionStateLock(request.getDbName(), request.getTableName());
-            acquirePartitionStateLock(stateLock, effectiveControl);
+            stateLock.lock();
             try {
                 if (!ownedBatch.isInvalidated(registration.key)) {
                     partitionsCache.put(registration.key, info);
@@ -551,7 +530,6 @@ public class CachingHmsClient implements HmsClient {
             }
             resultByIdentity.put(info.getValues(), info);
         }
-        checkOperationActive(effectiveControl);
     }
 
     private void consumeWaitingBatch(HmsPartitionRequest request, PartitionLoadBatch batch,
@@ -562,7 +540,7 @@ public class CachingHmsClient implements HmsClient {
         try {
             boolean retrying = false;
             for (PartitionLoadRegistration registration : registrations) {
-                awaitPartitionLoad(batch, registration.key, request.getEffectiveOperationControl());
+                awaitPartitionLoad(batch, registration.key);
                 if (batch.isInvalidated(registration.key)) {
                     inFlightPartitionLoads.remove(registration.key, batch);
                     retries.add(registration.partition);
@@ -575,7 +553,6 @@ public class CachingHmsClient implements HmsClient {
                     continue;
                 }
                 PartitionLoadOutcome outcome = batch.future.getNow(null);
-                checkOperationActive(request.getEffectiveOperationControl());
                 Throwable ownerFailure = Objects.requireNonNull(
                         Objects.requireNonNull(outcome,
                                 "partition load is unresolved but its completion is not available").failure,
@@ -583,10 +560,7 @@ public class CachingHmsClient implements HmsClient {
                 if (!isRetryableSharedFailure(ownerFailure, batch, registrations)) {
                     rethrow(ownerFailure);
                 }
-                // Only an exception published by the OWNER reaches this branch. Cancellation, deadline and
-                // interruption of the waiting request itself escape directly from awaitPartitionLoad and must
-                // never remove or replace a normally-running owner's future.
-                checkOperationActive(request.getEffectiveOperationControl());
+                // Only an exception published by the owner reaches this branch.
                 inFlightPartitionLoads.remove(registration.key, batch);
                 retries.add(registration.partition);
                 retrying = true;
@@ -597,26 +571,19 @@ public class CachingHmsClient implements HmsClient {
         }
     }
 
-    private static void awaitPartitionLoad(
-            PartitionLoadBatch batch, PartitionKey key, ConnectorOperationControl control) {
+    private static void awaitPartitionLoad(PartitionLoadBatch batch, PartitionKey key) {
         while (true) {
-            long remainingMillis = checkOperationActive(control);
             if (batch.isInvalidated(key)
                     || batch.resolvedPartitions.containsKey(key) || batch.future.isDone()) {
                 return;
             }
-            long waitMillis = remainingMillis == Long.MAX_VALUE
-                    ? PARTITION_LOAD_WAIT_CHECK_MILLIS
-                    : Math.min(remainingMillis, PARTITION_LOAD_WAIT_CHECK_MILLIS);
             try {
-                batch.future.get(waitMillis, TimeUnit.MILLISECONDS);
+                batch.future.get(PARTITION_LOAD_WAIT_CHECK_MILLIS, TimeUnit.MILLISECONDS);
             } catch (TimeoutException e) {
-                // Re-check the waiting request's cancellation and deadline at a bounded interval.
+                // A chunk may publish this partition before the owner finishes the complete request.
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                throw new ConnectorOperationAbortedException(
-                        ConnectorOperationAbortedException.Reason.CANCELLED,
-                        "HMS in-flight partition load wait was interrupted");
+                throw new HmsClientException("HMS in-flight partition load wait was interrupted", e);
             } catch (ExecutionException e) {
                 Throwable cause = e.getCause();
                 rethrow(cause);
@@ -627,9 +594,6 @@ public class CachingHmsClient implements HmsClient {
 
     private static boolean isRetryableSharedFailure(Throwable failure, PartitionLoadBatch ownerBatch,
             List<PartitionLoadRegistration> waiterRegistrations) {
-        if (failure instanceof ConnectorOperationAbortedException) {
-            return true;
-        }
         if (!(failure instanceof HmsPartitionResultException)) {
             return false;
         }
@@ -677,55 +641,9 @@ public class CachingHmsClient implements HmsClient {
         }
     }
 
-    private static long checkOperationActive(ConnectorOperationControl control) {
-        control.checkActive();
-        long remainingMillis = control.remainingTimeMillis();
-        if (remainingMillis <= 0) {
-            throw new ConnectorOperationAbortedException(
-                    ConnectorOperationAbortedException.Reason.DEADLINE_EXCEEDED,
-                    "HMS in-flight partition load deadline exceeded");
-        }
-        return remainingMillis;
-    }
-
-    private static void checkOperationActivePeriodically(ConnectorOperationControl control, int index) {
-        if ((index & 1023) == 0) {
-            checkOperationActive(control);
-        }
-    }
-
-    private static void acquirePartitionStateLock(
-            ReentrantLock lock, ConnectorOperationControl operationControl) {
-        while (true) {
-            long remainingMillis = checkOperationActive(operationControl);
-            long waitMillis = remainingMillis == Long.MAX_VALUE
-                    ? PARTITION_LOAD_WAIT_CHECK_MILLIS
-                    : Math.min(remainingMillis, PARTITION_LOAD_WAIT_CHECK_MILLIS);
-            try {
-                if (lock.tryLock(waitMillis, TimeUnit.MILLISECONDS)) {
-                    try {
-                        checkOperationActive(operationControl);
-                        return;
-                    } catch (RuntimeException | Error e) {
-                        lock.unlock();
-                        throw e;
-                    }
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new ConnectorOperationAbortedException(
-                        ConnectorOperationAbortedException.Reason.CANCELLED,
-                        "HMS partition state lock wait was interrupted");
-            }
-        }
-    }
-
     private void acquirePartitionLoadSlot(HmsPartitionRequest request, int requestedItems) {
-        ConnectorOperationControl operationControl = request.getEffectiveOperationControl();
-        checkOperationActive(operationControl);
         PartitionLoadSlotWaiter waiter = partitionLoadSlots.tryAcquireOrEnqueue();
         if (waiter == null) {
-            checkAcquiredPartitionLoadSlot(operationControl);
             return;
         }
         beforePartitionLoadSlotWaitForTest();
@@ -733,8 +651,7 @@ public class CachingHmsClient implements HmsClient {
         boolean success = false;
         boolean acquired = false;
         try {
-            partitionLoadSlots.await(waiter, operationControl);
-            checkAcquiredPartitionLoadSlot(operationControl);
+            partitionLoadSlots.await(waiter);
             acquired = true;
             success = true;
         } finally {
@@ -752,20 +669,11 @@ public class CachingHmsClient implements HmsClient {
         }
     }
 
-    private void checkAcquiredPartitionLoadSlot(ConnectorOperationControl operationControl) {
-        try {
-            checkOperationActive(operationControl);
-        } catch (RuntimeException | Error e) {
-            partitionLoadSlots.release();
-            throw e;
-        }
-    }
-
     /** Test seam for deterministic load-slot waiter coordination. */
     void beforePartitionLoadSlotWaitForTest() {
     }
 
-    /** Preserves FIFO position while still polling each waiter's own cancellation and deadline. */
+    /** Preserves FIFO position for partition-load admission. */
     private static final class PartitionLoadSlotLimiter {
         private final Deque<PartitionLoadSlotWaiter> waiters = new ArrayDeque<>();
         private int availableSlots;
@@ -784,14 +692,10 @@ public class CachingHmsClient implements HmsClient {
             return waiter;
         }
 
-        private void await(PartitionLoadSlotWaiter waiter, ConnectorOperationControl operationControl) {
+        private void await(PartitionLoadSlotWaiter waiter) {
             boolean acquired = false;
             try {
                 while (true) {
-                    long remainingMillis = checkOperationActive(operationControl);
-                    long waitMillis = remainingMillis == Long.MAX_VALUE
-                            ? PARTITION_LOAD_WAIT_CHECK_MILLIS
-                            : Math.min(remainingMillis, PARTITION_LOAD_WAIT_CHECK_MILLIS);
                     synchronized (this) {
                         if (waiters.peekFirst() == waiter && availableSlots > 0) {
                             waiters.removeFirst();
@@ -800,14 +704,12 @@ public class CachingHmsClient implements HmsClient {
                             notifyAll();
                             return;
                         }
-                        wait(waitMillis);
+                        wait();
                     }
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                throw new ConnectorOperationAbortedException(
-                        ConnectorOperationAbortedException.Reason.CANCELLED,
-                        "HMS partition load slot wait was interrupted");
+                throw new HmsClientException("HMS partition load slot wait was interrupted", e);
             } finally {
                 if (!acquired) {
                     synchronized (this) {

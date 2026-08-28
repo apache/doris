@@ -152,8 +152,6 @@ public interface ConnectorMetadata extends
      * A partition the connector cannot resolve is either omitted from the returned map (the default, built on
      * the single-partition method's empty result) or fails the whole request with a
      * {@link DorisConnectorException} (a strict batch implementation, e.g. hive's validated HMS batch).
-     * Cooperative cancellation and deadline failures use {@link ConnectorOperationAbortedException} instead
-     * and must retain that control-flow meaning rather than being normalized as an ordinary metadata failure.
      */
     default Map<String, Long> getPartitionFreshnessMillis(
             ConnectorSession session, ConnectorTableHandle handle, List<String> partitionNames) {

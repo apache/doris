@@ -58,11 +58,6 @@ org.apache.doris.connector.spi.ConnectorMetadataAccessEvent$Builder#success(bool
 org.apache.doris.connector.spi.ConnectorMetadataAccessObserver#record(org.apache.doris.connector.spi.ConnectorMetadataAccessEvent):void
 org.apache.doris.connector.spi.ConnectorMetadataAccessSource#valueOf(java.lang.String):org.apache.doris.connector.spi.ConnectorMetadataAccessSource
 org.apache.doris.connector.spi.ConnectorMetadataAccessSource#values():org.apache.doris.connector.spi.ConnectorMetadataAccessSource[]
-org.apache.doris.connector.spi.ConnectorOperationAbortedException#getReason():org.apache.doris.connector.spi.ConnectorOperationAbortedException$Reason
-org.apache.doris.connector.spi.ConnectorOperationAbortedException$Reason#valueOf(java.lang.String):org.apache.doris.connector.spi.ConnectorOperationAbortedException$Reason
-org.apache.doris.connector.spi.ConnectorOperationAbortedException$Reason#values():org.apache.doris.connector.spi.ConnectorOperationAbortedException$Reason[]
-org.apache.doris.connector.spi.ConnectorOperationControl#checkActive():void
-org.apache.doris.connector.spi.ConnectorOperationControl#remainingTimeMillis():long
 org.apache.doris.connector.spi.ConnectorProvider#acceptedCreateTableEngineNames():java.util.Set
 org.apache.doris.connector.spi.ConnectorProvider#create():org.apache.doris.extension.spi.Plugin
 org.apache.doris.connector.spi.ConnectorProvider#create(java.util.Map,org.apache.doris.connector.spi.ConnectorContext):org.apache.doris.connector.spi.Connector
@@ -85,7 +80,6 @@ org.apache.doris.connector.spi.ConnectorSession#getCurrentTransaction():java.uti
 org.apache.doris.connector.spi.ConnectorSession#getDelegatedCredential():java.util.Optional
 org.apache.doris.connector.spi.ConnectorSession#getLocale():java.lang.String
 org.apache.doris.connector.spi.ConnectorSession#getMetadataAccessObserver():org.apache.doris.connector.spi.ConnectorMetadataAccessObserver
-org.apache.doris.connector.spi.ConnectorSession#getOperationControl():org.apache.doris.connector.spi.ConnectorOperationControl
 org.apache.doris.connector.spi.ConnectorSession#getProperty(java.lang.String,java.lang.Class):java.lang.Object
 org.apache.doris.connector.spi.ConnectorSession#getQueryId():java.lang.String
 org.apache.doris.connector.spi.ConnectorSession#getSessionId():java.lang.String

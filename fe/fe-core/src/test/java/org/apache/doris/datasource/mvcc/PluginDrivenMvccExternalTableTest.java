@@ -31,7 +31,6 @@ import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
-import org.apache.doris.connector.spi.ConnectorOperationAbortedException;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
@@ -283,26 +282,6 @@ public class PluginDrivenMvccExternalTableTest {
                 "a typed connector failure in the freshness probe must surface as AnalysisException");
         Assertions.assertSame(connectorFailure, e.getCause(),
                 "the original connector failure must be preserved as the cause");
-    }
-
-    @Test
-    public void testFreshnessCancellationAndDeadlineAreNotNormalized() {
-        for (ConnectorOperationAbortedException.Reason reason
-                : ConnectorOperationAbortedException.Reason.values()) {
-            Fixture f = Fixture.with(Collections.singletonList(
-                    cpi("dt=2024-01-01", ConnectorPartitionInfo.UNKNOWN)));
-            flagPinLastModified(f);
-            ConnectorOperationAbortedException abort =
-                    new ConnectorOperationAbortedException(reason, reason.name());
-            Mockito.when(f.metadata.getPartitionFreshnessMillis(
-                    Mockito.any(), Mockito.any(), Mockito.anyList())).thenThrow(abort);
-
-            ConnectorOperationAbortedException actual = Assertions.assertThrows(
-                    ConnectorOperationAbortedException.class,
-                    () -> f.table.getPartitionSnapshot("dt=2024-01-01", null, Optional.empty()));
-
-            Assertions.assertSame(abort, actual);
-        }
     }
 
     @Test

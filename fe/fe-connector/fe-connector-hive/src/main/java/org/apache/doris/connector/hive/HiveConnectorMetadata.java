@@ -36,7 +36,6 @@ import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorDatabaseMetadata;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
-import org.apache.doris.connector.spi.ConnectorOperationAbortedException;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
@@ -1069,8 +1068,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                         totalSize, selection.totalPartitions, selection.selectedPartitions);
             }
             return totalSize;
-        } catch (ConnectorOperationAbortedException e) {
-            throw e;
         } catch (RuntimeException e) {
             LOG.warn("Failed to estimate hive data size for {}.{} from file list",
                     handle.getDbName(), handle.getTableName(), e);

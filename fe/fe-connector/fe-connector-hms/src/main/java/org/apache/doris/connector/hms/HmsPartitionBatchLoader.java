@@ -19,8 +19,6 @@ package org.apache.doris.connector.hms;
 
 import org.apache.doris.connector.spi.ConnectorMetadataAccessEvent;
 import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
-import org.apache.doris.connector.spi.ConnectorOperationAbortedException;
-import org.apache.doris.connector.spi.ConnectorOperationControl;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -42,14 +40,13 @@ final class HmsPartitionBatchLoader {
 
     @FunctionalInterface
     interface Fetcher {
-        List<HmsPartitionInfo> fetch(String dbName, String tableName, List<String> partitionNames,
-                ConnectorOperationControl operationControl) throws Exception;
+        List<HmsPartitionInfo> fetch(String dbName, String tableName, List<String> partitionNames) throws Exception;
     }
 
     @FunctionalInterface
     interface TrackedFetcher {
         List<HmsPartitionInfo> fetch(String dbName, String tableName, List<String> partitionNames,
-                ConnectorOperationControl operationControl, RemoteCallTracker remoteCallTracker) throws Exception;
+                RemoteCallTracker remoteCallTracker) throws Exception;
     }
 
     @FunctionalInterface
@@ -96,20 +93,18 @@ final class HmsPartitionBatchLoader {
             int offset = 0;
             int effectiveBatchSize = request.effectiveBatchSize(maxBatchSize);
             while (offset < names.size()) {
-                checkActive(request, fallbackStartNanos, fallbackTimeoutNanos);
+                checkFallbackTimeout(fallbackStartNanos, fallbackTimeoutNanos);
                 int batchSize = Math.min(effectiveBatchSize, names.size() - offset);
                 List<String> batch = new ArrayList<>(names.subList(offset, offset + batchSize));
                 List<HmsPartitionIdentity.ParsedPartitionName> batchPartitions
                         = partitions.subList(offset, offset + batchSize);
                 List<HmsPartitionInfo> returned;
-                ConnectorOperationControl effectiveControl = operationControlForAttempt(
-                        request, fallbackStartNanos, fallbackTimeoutNanos);
                 try {
                     returned = fetcher.fetch(
                             request.getDbName(), request.getTableName(), batch,
-                            effectiveControl, remoteCalls);
+                            remoteCalls);
                 } catch (HmsRemoteCallException e) {
-                    checkActive(request, fallbackStartNanos, fallbackTimeoutNanos);
+                    checkFallbackTimeout(fallbackStartNanos, fallbackTimeoutNanos);
                     if (batchSize <= minBatchSize || !failureClassifier.isDegradable(e)) {
                         throw finalBatchFailure(
                                 request, offset, batchSize, effectiveBatchSize,
@@ -118,15 +113,14 @@ final class HmsPartitionBatchLoader {
                     if (fallbackStartNanos == HmsPartitionRequest.NO_FALLBACK_START_NANOS) {
                         fallbackStartNanos = request.startFallback(nanoTime.getAsLong());
                     }
-                    checkActive(request, fallbackStartNanos, fallbackTimeoutNanos);
+                    checkFallbackTimeout(fallbackStartNanos, fallbackTimeoutNanos);
                     effectiveBatchSize = Math.max(minBatchSize, batchSize / 2);
                     request.reduceEffectiveBatchSize(effectiveBatchSize);
                     fallbackCount++;
                     continue;
                 } catch (RuntimeException e) {
-                    // Authorization, cancellation and local programming failures are not transport fallback
-                    // candidates. Preserve their original type and stack instead of disguising them as a failed
-                    // HMS batch.
+                    // Authorization and local programming failures are not transport fallback candidates.
+                    // Preserve their original type and stack instead of disguising them as a failed HMS batch.
                     throw e;
                 } catch (Exception e) {
                     throw new HmsClientException("Unexpected checked failure fetching HMS partitions", e);
@@ -134,17 +128,12 @@ final class HmsPartitionBatchLoader {
                 // Integrity validation and cache publication are deliberately outside the remote-failure catch:
                 // a malformed response or a local write-back bug must never trigger transport fallback or be
                 // wrapped as an HMS RPC failure.
-                checkActive(effectiveControl);
-                List<HmsPartitionInfo> ordered = validateParsedAndOrder(
-                        batchPartitions, returned, effectiveControl);
-                checkActive(effectiveControl);
-                request.getPartitionChunkConsumer().accept(batch, ordered, effectiveControl);
-                checkActive(effectiveControl);
+                List<HmsPartitionInfo> ordered = validateParsedAndOrder(batchPartitions, returned);
+                request.getPartitionChunkConsumer().accept(batch, ordered);
                 result.addAll(ordered);
-                checkActive(effectiveControl);
                 offset += batchSize;
             }
-            checkActive(request, fallbackStartNanos, fallbackTimeoutNanos);
+            checkFallbackTimeout(fallbackStartNanos, fallbackTimeoutNanos);
             success = true;
             return result;
         } finally {
@@ -181,83 +170,19 @@ final class HmsPartitionBatchLoader {
         }
     }
 
-    private void checkActive(HmsPartitionRequest request,
-            long fallbackStartNanos, long fallbackTimeoutNanos) {
-        checkActive(request.getOperationControl());
+    private void checkFallbackTimeout(long fallbackStartNanos, long fallbackTimeoutNanos) {
         if (fallbackStartNanos != HmsPartitionRequest.NO_FALLBACK_START_NANOS
                 && nanoTime.getAsLong() - fallbackStartNanos >= fallbackTimeoutNanos) {
-            throw new ConnectorOperationAbortedException(
-                    ConnectorOperationAbortedException.Reason.DEADLINE_EXCEEDED,
-                    "HMS partition batch fallback deadline exceeded");
-        }
-    }
-
-    private static void checkActive(ConnectorOperationControl operationControl) {
-        operationControl.checkActive();
-        if (operationControl.remainingTimeMillis() <= 0) {
-            throw new ConnectorOperationAbortedException(
-                    ConnectorOperationAbortedException.Reason.DEADLINE_EXCEEDED,
-                    "HMS partition batch request deadline exceeded");
-        }
-    }
-
-    private ConnectorOperationControl operationControlForAttempt(HmsPartitionRequest request,
-            long fallbackStartNanos, long fallbackTimeoutNanos) {
-        if (fallbackStartNanos == HmsPartitionRequest.NO_FALLBACK_START_NANOS) {
-            request.updateEffectiveOperationControl(request.getOperationControl());
-            return request.getOperationControl();
-        }
-        ConnectorOperationControl effectiveControl = new FallbackOperationControl(
-                request.getOperationControl(), fallbackStartNanos, fallbackTimeoutNanos, nanoTime);
-        request.updateEffectiveOperationControl(effectiveControl);
-        return effectiveControl;
-    }
-
-    /** Applies the fallback budget inside pool waits and RetryingMetaStoreClient retries, not only between RPCs. */
-    private static final class FallbackOperationControl implements ConnectorOperationControl {
-        private final ConnectorOperationControl callerControl;
-        private final long fallbackStartNanos;
-        private final long fallbackTimeoutNanos;
-        private final LongSupplier nanoTime;
-
-        private FallbackOperationControl(ConnectorOperationControl callerControl,
-                long fallbackStartNanos, long fallbackTimeoutNanos, LongSupplier nanoTime) {
-            this.callerControl = callerControl;
-            this.fallbackStartNanos = fallbackStartNanos;
-            this.fallbackTimeoutNanos = fallbackTimeoutNanos;
-            this.nanoTime = nanoTime;
-        }
-
-        @Override
-        public void checkActive() {
-            HmsPartitionBatchLoader.checkActive(callerControl);
-            if (fallbackRemainingNanos() <= 0) {
-                throw new ConnectorOperationAbortedException(
-                        ConnectorOperationAbortedException.Reason.DEADLINE_EXCEEDED,
-                        "HMS partition batch fallback deadline exceeded");
-            }
-        }
-
-        @Override
-        public long remainingTimeMillis() {
-            long callerRemainingMillis = callerControl.remainingTimeMillis();
-            long fallbackRemainingMillis = TimeUnit.NANOSECONDS.toMillis(
-                    Math.max(0L, fallbackRemainingNanos()));
-            return Math.min(callerRemainingMillis, fallbackRemainingMillis);
-        }
-
-        private long fallbackRemainingNanos() {
-            return fallbackTimeoutNanos - (nanoTime.getAsLong() - fallbackStartNanos);
+            throw new HmsClientException("HMS partition batch fallback timeout exceeded");
         }
     }
 
     static List<HmsPartitionInfo> validateParsedAndOrder(
             List<HmsPartitionIdentity.ParsedPartitionName> requested,
-            List<HmsPartitionInfo> returned, ConnectorOperationControl operationControl) {
+            List<HmsPartitionInfo> returned) {
         int expectedValueCount = requested.get(0).getValues().size();
         Map<List<String>, Integer> expected = new HashMap<>();
         for (int i = 0; i < requested.size(); i++) {
-            checkActivePeriodically(operationControl, i);
             HmsPartitionIdentity.ParsedPartitionName partition = requested.get(i);
             List<String> identity = partition.getValues();
             Integer previous = expected.put(identity, i);
@@ -274,7 +199,6 @@ final class HmsPartitionBatchLoader {
             failure.invalid("<null response>");
         } else {
             for (int i = 0; i < returned.size(); i++) {
-                checkActivePeriodically(operationControl, i);
                 HmsPartitionInfo partition = returned.get(i);
                 if (partition == null) {
                     failure.invalid("<null partition>");
@@ -293,14 +217,11 @@ final class HmsPartitionBatchLoader {
             }
         }
         for (int i = 0; i < requested.size(); i++) {
-            checkActivePeriodically(operationControl, i);
             if (!returnedCounts.containsKey(requested.get(i).getValues())) {
                 failure.missing(requested.get(i).getName());
             }
         }
-        int returnedIndex = 0;
         for (Map.Entry<List<String>, Integer> entry : returnedCounts.entrySet()) {
-            checkActivePeriodically(operationControl, returnedIndex++);
             if (!expected.containsKey(entry.getKey())) {
                 failure.unexpected(entry.getKey().toString());
             }
@@ -314,16 +235,9 @@ final class HmsPartitionBatchLoader {
         return ordered;
     }
 
-    private static void checkActivePeriodically(ConnectorOperationControl operationControl, int index) {
-        if ((index & 1023) == 0) {
-            checkActive(operationControl);
-        }
-    }
-
     private RuntimeException finalBatchFailure(HmsPartitionRequest request, int offset,
             int failedBatchSize, int effectiveBatchSize, int rpcCount, int fallbackCount, Exception failure) {
-        if (failure instanceof ConnectorOperationAbortedException
-                || failure instanceof HmsPartitionResultException) {
+        if (failure instanceof HmsPartitionResultException) {
             return (RuntimeException) failure;
         }
         String message = String.format(
@@ -415,9 +329,9 @@ final class HmsPartitionBatchLoader {
 
         Builder fetcher(Fetcher fetcher) {
             java.util.Objects.requireNonNull(fetcher, "fetcher");
-            this.fetcher = (dbName, tableName, partitionNames, operationControl, remoteCallTracker) ->
+            this.fetcher = (dbName, tableName, partitionNames, remoteCallTracker) ->
                     remoteCallTracker.call(partitionNames.size(),
-                            () -> fetcher.fetch(dbName, tableName, partitionNames, operationControl));
+                            () -> fetcher.fetch(dbName, tableName, partitionNames));
             return this;
         }
 
