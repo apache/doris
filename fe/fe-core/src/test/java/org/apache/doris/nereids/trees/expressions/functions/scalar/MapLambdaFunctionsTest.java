@@ -243,6 +243,10 @@ public class MapLambdaFunctionsTest extends TestWithFeService {
                 () -> analyze("map_apply((k, v) -> if(k > 0, struct(k, v), null), map(1, 10))"));
         Assertions.assertThrows(RuntimeException.class,
                 () -> analyze("map_apply((k, v) -> (k, v, k + v), map(1, 10))"));
+        AnalysisException unsupportedLambda = Assertions.assertThrows(AnalysisException.class,
+                () -> analyze("abs(x -> x, [1])"));
+        Assertions.assertTrue(unsupportedLambda.getMessage().contains(
+                "does not support lambda arguments"), unsupportedLambda::getMessage);
     }
 
     private Expression analyze(String sql) {
