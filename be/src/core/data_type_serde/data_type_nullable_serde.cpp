@@ -493,7 +493,7 @@ Status DataTypeNullableSerDe::write_column_to_mysql_binary(const IColumn& column
                                                            const FormatOptions& options) const {
     const auto& col = assert_cast<const ColumnNullable&>(column);
     const auto col_index = index_check_const(row_idx, col_const);
-    if (col.has_null() && col.is_null_at(col_index)) {
+    if (col.is_null_at(col_index)) {
         if (UNLIKELY(0 != result.push_null())) {
             return Status::InternalError("pack mysql buffer failed.");
         }

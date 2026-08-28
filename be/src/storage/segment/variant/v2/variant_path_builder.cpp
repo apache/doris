@@ -962,16 +962,23 @@ struct VariantPathBuilder::Impl {
         // Inferred widening is only a storage representation choice. If CAST loses a valid value
         // at any array depth, preserve the whole path as JSONB instead. Forced typed-path
         // conversion intentionally retains its existing cast-null filtering below.
+        bool promoted_has_null = false;
+        bool promoted_null_state_known = false;
         if (!filter_cast_nulls && target->get_primitive_type() != TYPE_JSONB &&
             cast_introduced_null(*column, *promoted)) {
             target = jsonb_type();
             RETURN_IF_ERROR(
                     variant_util::cast_column({column->get_ptr(), nullable_type, path.get_path()},
                                               make_nullable(target), &promoted));
-            DORIS_CHECK(!assert_cast<const ColumnNullable&>(*promoted).has_null());
+            promoted_has_null = assert_cast<const ColumnNullable&>(*promoted).has_null();
+            promoted_null_state_known = true;
+            DORIS_CHECK(!promoted_has_null);
         }
         const auto& nullable = assert_cast<const ColumnNullable&>(*promoted);
-        if (nullable.has_null()) {
+        if (!promoted_null_state_known) {
+            promoted_has_null = nullable.has_null();
+        }
+        if (promoted_has_null) {
             DORIS_CHECK(filter_cast_nulls);
             DORIS_CHECK_EQ(promoted->size(), rowids.size());
             IColumn::Filter non_null_filter(promoted->size(), 1);

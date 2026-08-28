@@ -357,4 +357,53 @@ TEST_F(DataTypeStringSerDeTest, FixedSizeBinaryReadColumnFromArrowWithNonZeroSta
     EXPECT_EQ(column->get_data_at(2).to_string(), "dddd");
 }
 
+TEST_F(DataTypeStringSerDeTest, NullableMysqlBinaryUsesRowNullMap) {
+    auto nested = ColumnString::create();
+    nested->insert_data("one", 3);
+    nested->insert_data("two", 3);
+    nested->insert_data("three", 5);
+    auto null_map = ColumnUInt8::create();
+    null_map->get_data() = {0, 1, 0};
+    auto column = ColumnNullable::create(std::move(nested), std::move(null_map));
+    DataTypeNullableSerDe serde(serde_str);
+    DataTypeSerDe::FormatOptions options;
+
+    for (size_t row = 0; row < column->size(); ++row) {
+        MysqlRowBinaryBuffer buffer;
+        buffer.start_binary_row(1);
+        ASSERT_TRUE(serde.write_column_to_mysql_binary(*column, buffer, row, false, options).ok());
+        if (row == 1) {
+            EXPECT_EQ(static_cast<unsigned char>(buffer.buf()[1]), 4);
+        } else {
+            EXPECT_EQ(static_cast<unsigned char>(buffer.buf()[1]), 0);
+            EXPECT_EQ(static_cast<unsigned char>(buffer.buf()[2]), row == 0 ? 3 : 5);
+        }
+    }
+
+    auto const_nested = ColumnString::create();
+    const_nested->insert_data("constant", 8);
+    auto const_null_map = ColumnUInt8::create();
+    const_null_map->get_data().push_back(1);
+    auto const_null = ColumnNullable::create(std::move(const_nested), std::move(const_null_map));
+    MysqlRowBinaryBuffer const_null_buffer;
+    const_null_buffer.start_binary_row(1);
+    ASSERT_TRUE(serde.write_column_to_mysql_binary(*const_null, const_null_buffer, 3, true, options)
+                        .ok());
+    EXPECT_EQ(static_cast<unsigned char>(const_null_buffer.buf()[1]), 4);
+
+    auto const_value_nested = ColumnString::create();
+    const_value_nested->insert_data("constant", 8);
+    auto const_value_null_map = ColumnUInt8::create();
+    const_value_null_map->get_data().push_back(0);
+    auto const_value =
+            ColumnNullable::create(std::move(const_value_nested), std::move(const_value_null_map));
+    MysqlRowBinaryBuffer const_value_buffer;
+    const_value_buffer.start_binary_row(1);
+    ASSERT_TRUE(
+            serde.write_column_to_mysql_binary(*const_value, const_value_buffer, 3, true, options)
+                    .ok());
+    EXPECT_EQ(static_cast<unsigned char>(const_value_buffer.buf()[1]), 0);
+    EXPECT_EQ(static_cast<unsigned char>(const_value_buffer.buf()[2]), 8);
+}
+
 } // namespace doris
