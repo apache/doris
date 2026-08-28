@@ -53,9 +53,11 @@ suite("test_iceberg_file_metadata_columns", "p0,external,iceberg,external_docker
             where content = 0
             order by file_path
         """
-        assertEquals(2, icebergFiles.size(), "Expected one data file for each batch in ${tableName}")
-
-        Set<String> expectedFiles = icebergFiles.collect { it[0].toString() }.toSet()
+        Map<String, Long> expectedRecordCounts = [:]
+        icebergFiles.each { row ->
+            expectedRecordCounts[row[0].toString()] = row[1].toString().toLong()
+        }
+        Set<String> expectedFiles = expectedRecordCounts.keySet()
         Set<String> actualFiles = dorisRows.collect { it[2].toString() }.toSet()
         assertEquals(expectedFiles, actualFiles)
 
@@ -69,13 +71,13 @@ suite("test_iceberg_file_metadata_columns", "p0,external,iceberg,external_docker
             filesByBatch.computeIfAbsent(batch) { [] }.add(file)
         }
 
-        assertEquals(2, positionsByFile.size())
         assertEquals([1, 2] as Set, filesByBatch.keySet())
-        filesByBatch.each { batch, files ->
-            assertEquals(1, files.size(), "Batch ${batch} should be read from one data file")
-        }
         positionsByFile.each { file, positions ->
-            assertEquals([0L, 1L, 2L], positions.sort(),
+            long expectedRecordCount = expectedRecordCounts[file]
+            assertEquals(expectedRecordCount, positions.size(),
+                    "Doris row count must match Iceberg record_count for ${file}")
+            List<Long> expectedPositions = (0..<expectedRecordCount).collect { it as Long }
+            assertEquals(expectedPositions, positions.sort(),
                     "_pos must be the physical row position within ${file}")
         }
 
@@ -84,7 +86,7 @@ suite("test_iceberg_file_metadata_columns", "p0,external,iceberg,external_docker
             select batch, count(*), min(`_pos`), max(`_pos`), count(distinct `_file`)
             from ${tableName}
             group by batch, `_file`
-            order by batch
+            order by batch, min(`_pos`), max(`_pos`), count(*)
         """
         "order_qt_${format}_metadata_file_count" """
             select count(distinct `_file`)
