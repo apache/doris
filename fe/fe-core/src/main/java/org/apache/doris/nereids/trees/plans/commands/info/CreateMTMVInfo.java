@@ -62,7 +62,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.AnalyzerForCreateView;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.PlanSlotFinder;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
@@ -103,7 +102,6 @@ public class CreateMTMVInfo extends CreateTableInfo {
     private boolean enableIvm;
     private DataType sequenceDataType = BigIntType.INSTANCE;
     private String ivmPlanSignature;
-    private boolean containsOneRowRelation;
 
     /**
      * constructor for create MTMV
@@ -175,7 +173,6 @@ public class CreateMTMVInfo extends CreateTableInfo {
             enableIvm = isExplicitIncremental();
             analyzeQuery(ctx);
         }
-        validateIvmOneRowRelationPartition();
         validateRefreshStrategyForCreate();
         validateIvmOnlyProperties();
         this.partitionDesc = generatePartitionDesc(ctx);
@@ -365,11 +362,8 @@ public class CreateMTMVInfo extends CreateTableInfo {
                     + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE, sequenceDataType.toCatalogDataType().toSql());
             IvmPlanSignature planSignature = mtmvAnalyzeQueryInfo.getIvmRewriteResult().getPlanSignature();
             this.ivmPlanSignature = planSignature.getSha256();
-            this.containsOneRowRelation = mtmvAnalyzeQueryInfo.getIvmNormalizedPlan()
-                    .containsType(LogicalOneRowRelation.class);
         } else {
             this.ivmPlanSignature = null;
-            this.containsOneRowRelation = false;
         }
     }
 
@@ -542,16 +536,6 @@ public class CreateMTMVInfo extends CreateTableInfo {
         }
     }
 
-    private void validateIvmOneRowRelationPartition() {
-        if (!isEnableIvm() || mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return;
-        }
-        if (containsOneRowRelation) {
-            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                    "IVM with PARTITION BY does not support OneRowRelation");
-        }
-    }
-
     public MTMVPartitionInfo getMvPartitionInfo() {
         return mvPartitionInfo;
     }
@@ -577,7 +561,6 @@ public class CreateMTMVInfo extends CreateTableInfo {
         private final Expression mvPartitionExpression;
         private final boolean enableIvm;
         private final String ivmPlanSignature;
-        private final boolean containsOneRowRelation;
 
         private AnalyzeQueryState(CreateMTMVInfo info) {
             this.properties = info.properties == null ? null : Maps.newHashMap(info.properties);
@@ -592,7 +575,6 @@ public class CreateMTMVInfo extends CreateTableInfo {
             this.mvPartitionExpression = info.mvPartitionDefinition.getFunctionCallExpression();
             this.enableIvm = info.enableIvm;
             this.ivmPlanSignature = info.ivmPlanSignature;
-            this.containsOneRowRelation = info.containsOneRowRelation;
         }
 
         private static AnalyzeQueryState capture(CreateMTMVInfo info) {
@@ -612,7 +594,6 @@ public class CreateMTMVInfo extends CreateTableInfo {
             info.mvPartitionDefinition.setFunctionCallExpression(mvPartitionExpression);
             info.enableIvm = enableIvm;
             info.ivmPlanSignature = ivmPlanSignature;
-            info.containsOneRowRelation = containsOneRowRelation;
         }
     }
 }

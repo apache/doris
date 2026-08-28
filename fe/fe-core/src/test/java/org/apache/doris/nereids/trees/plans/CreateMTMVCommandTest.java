@@ -1759,7 +1759,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testCreateIncrementalPartitionedMVRejectsOneRowRelation() throws Exception {
+    public void testCreateIncrementalPartitionedMVAllowsOneRowRelation() throws Exception {
         createTable("CREATE TABLE test.ivm_partition_one_row_base (\n"
                 + " `k1` INT NOT NULL,\n"
                 + " `dt` DATE NOT NULL,\n"
@@ -1773,15 +1773,15 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 + " DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
                 + " PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW');");
 
-        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
-                () -> getPartitionTableInfo("CREATE MATERIALIZED VIEW ivm_partition_one_row_mv\n"
-                        + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
-                        + " PARTITION BY(`dt`)\n"
-                        + " PROPERTIES ('replication_num' = '1')\n"
-                        + " AS SELECT dt, k1, v1 FROM ivm_partition_one_row_base\n"
-                        + " UNION ALL SELECT DATE '2024-01-01', 1, 2;"));
-        Assertions.assertTrue(ex.getMessage().contains("PARTITION BY does not support OneRowRelation"),
-                "unexpected message: " + ex.getMessage());
+        CreateMTMVInfo info = getPartitionTableInfo("CREATE MATERIALIZED VIEW ivm_partition_one_row_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " PARTITION BY(`dt`)\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT dt, k1, v1 FROM ivm_partition_one_row_base\n"
+                + " UNION ALL SELECT DATE '2024-01-01', 1, 2;");
+        // A partitioned IVM MV may contain a OneRowRelation; it is no longer rejected.
+        Assertions.assertNotEquals(PartitionTableInfo.EMPTY, info.getPartitionTableInfo());
+        Assertions.assertEquals(1, info.getPartitionTableInfo().getPartitionDefs().size());
     }
 
     @Test
@@ -1970,27 +1970,34 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testCreateIncrementalMVRejectsOuterJoinWithNonDeterministicRequiredRowId() throws Exception {
+    public void testCreateIncrementalOuterJoinWithDeterministicRowIdAllowed() throws Exception {
+        // DUP tables carry a deterministic row-lsn row-id, and MOW tables hash their
+        // unique keys, so both outer join retained sides are deterministic and the
+        // outer joins are supported (previously rejected before the row-lsn row-id).
         createIvmDupTable("ivm_loj_nondet_l");
         createIvmMowTable("ivm_loj_nondet_r");
         createIvmMowTable("ivm_foj_nondet_l");
         createIvmDupTable("ivm_foj_nondet_r");
 
-        assertCreateMtmvFails("CREATE MATERIALIZED VIEW ivm_loj_nondet_mv\n"
+        createMtmv("CREATE MATERIALIZED VIEW ivm_loj_nondet_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " PROPERTIES ('replication_num' = '1')\n"
                 + " AS SELECT ivm_loj_nondet_l.k1, ivm_loj_nondet_l.v1, ivm_loj_nondet_r.v1 AS rv1\n"
                 + " FROM ivm_loj_nondet_l\n"
-                + " LEFT OUTER JOIN ivm_loj_nondet_r ON ivm_loj_nondet_l.k1 = ivm_loj_nondet_r.k1;",
-                "requires deterministic row_id on retained side (left side)");
+                + " LEFT OUTER JOIN ivm_loj_nondet_r ON ivm_loj_nondet_l.k1 = ivm_loj_nondet_r.k1;");
+        MTMV lojMtmv = getMtmv("ivm_loj_nondet_mv");
+        Assertions.assertTrue(lojMtmv.isIvm());
+        Assertions.assertTrue(lojMtmv.getIvmInfo().isEnableIvm());
 
-        assertCreateMtmvFails("CREATE MATERIALIZED VIEW ivm_foj_nondet_mv\n"
+        createMtmv("CREATE MATERIALIZED VIEW ivm_foj_nondet_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " PROPERTIES ('replication_num' = '1')\n"
                 + " AS SELECT ivm_foj_nondet_l.k1, ivm_foj_nondet_l.v1, ivm_foj_nondet_r.v1 AS rv1\n"
                 + " FROM ivm_foj_nondet_l\n"
-                + " FULL OUTER JOIN ivm_foj_nondet_r ON ivm_foj_nondet_l.k1 = ivm_foj_nondet_r.k1;",
-                "requires deterministic row_id on retained side (right side)");
+                + " FULL OUTER JOIN ivm_foj_nondet_r ON ivm_foj_nondet_l.k1 = ivm_foj_nondet_r.k1;");
+        MTMV fojMtmv = getMtmv("ivm_foj_nondet_mv");
+        Assertions.assertTrue(fojMtmv.isIvm());
+        Assertions.assertTrue(fojMtmv.getIvmInfo().isEnableIvm());
     }
 
     // TODO: Add CREATE MV coverage for null-side UNION ALL after subquery alias is supported by IVM.
