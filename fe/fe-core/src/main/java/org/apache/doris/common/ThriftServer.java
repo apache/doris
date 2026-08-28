@@ -165,7 +165,7 @@ public class ThriftServer {
      *
      * <p>Callers that interoperate with a threaded-selector endpoint can retain its framed wire
      * protocol by setting {@code useFramedTransport} to true while using a blocking server transport.
-    */
+     */
     public static TThreadPoolServer createThreadPoolServer(
             TServerTransport serverTransport, TProcessor processor, boolean useFramedTransport) {
         TThreadPoolServer.Args serverArgs = new TThreadPoolServer.Args(serverTransport)
