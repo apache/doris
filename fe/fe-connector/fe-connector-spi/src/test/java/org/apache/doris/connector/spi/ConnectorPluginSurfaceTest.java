@@ -45,14 +45,10 @@ import java.util.TreeSet;
  *
  * <p><b>Why this exists.</b> Every method here has a default body or is implemented by eight shipped connectors, so the compiler forces nothing on a plugin author and nothing fails when a method quietly appears, disappears, or changes shape. The plugin API version in
  * {@code <connector.plugin.api.version>} is the contract that says which FE a given plugin may load into,
- * and a change to a published surface — adding a type or a method just as much as removing or re-signing
- * one — is a MAJOR change. An unreleased surface may still evolve before its first artifact is published.
- * No unit test can discover that release boundary, so this is a review speed bump: it makes every delta
- * visible and requires the author to either bump the published major or establish that it is still unreleased.
+ * and any published-surface change is MAJOR. An unreleased surface may evolve, but each delta must stay visible.
  *
  * <p><b>Regenerating.</b> Run this test, copy the "actual" block out of the failure message into
- * {@code src/test/resources/connector-plugin-surface.txt}. If the current API version has been published,
- * also bump the major of {@code connector.plugin.api.version} in {@code fe/fe-connector/pom.xml}.
+ * {@code src/test/resources/connector-plugin-surface.txt}; bump the API major if it is already published.
  *
  * <p>{@code Plugin} / {@code PluginFactory} / {@code PluginContext} from fe-extension-spi are frozen here
  * too, and identically in the other three families' baselines. They are loaded parent-first for every family
@@ -75,9 +71,6 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Write binding gained execution-capability methods, while metadata access gained telemetry and bulk
-        // partition freshness. A plugin built against major 5 must be refused rather than
-        // run against a contract it did not compile against.
         Assertions.assertEquals("6.0", version.getProperty("api.version"));
     }
 
@@ -135,6 +128,10 @@ public class ConnectorPluginSurfaceTest {
 
     @Test
     public void sourceAwareFreshnessPreservesExistingBulkOverride() {
+        Assertions.assertTrue(Arrays.stream(ConnectorMetadata.class.getMethods())
+                .filter(method -> Arrays.asList(method.getParameterTypes())
+                        .contains(ConnectorMetadataAccessSource.class))
+                .allMatch(Method::isDefault), "source-aware freshness overloads must remain default methods");
         ConnectorMetadata metadata = new ConnectorMetadata() {
             @Override
             public Map<String, Long> getPartitionFreshnessMillis(
@@ -153,11 +150,6 @@ public class ConnectorPluginSurfaceTest {
                 .success(true);
     }
 
-    /**
-     * One line per method reachable on a frozen type, keyed by that type rather than by the interface that
-     * happens to declare it: what matters is what a plugin can call on the type it was handed, so moving a
-     * default method up or down a super-interface chain is not by itself a surface change.
-     */
     private static TreeSet<String> renderSurface() {
         TreeSet<String> rendered = new TreeSet<>();
         for (Class<?> frozen : FROZEN_TYPES) {

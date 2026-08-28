@@ -472,6 +472,39 @@ public class CachingHmsClientTest {
     }
 
     @Test
+    public void waiterRetriesWhenActiveOwnerIsInterrupted() throws Exception {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CountDownLatch ownerEntered = new CountDownLatch(1);
+        CountDownLatch requestsRegistered = new CountDownLatch(2);
+        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap()) {
+            @Override
+            void afterPartitionLoadRegistrationForTest() {
+                requestsRegistered.countDown();
+            }
+        };
+        delegate.onGetPartitions = () -> {
+            if (delegate.getPartitionsCalls == 1) {
+                ownerEntered.countDown();
+                await(new CountDownLatch(1));
+            }
+        };
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<List<HmsPartitionInfo>> owner = executor.submit(
+                    () -> cache.getPartitions("db", "t", Collections.singletonList("p=1")));
+            Assertions.assertTrue(ownerEntered.await(5, TimeUnit.SECONDS));
+            Future<List<HmsPartitionInfo>> waiter = executor.submit(
+                    () -> cache.getPartitions("db", "t", Collections.singletonList("p=1")));
+            Assertions.assertTrue(requestsRegistered.await(5, TimeUnit.SECONDS));
+            Assertions.assertTrue(owner.cancel(true));
+            Assertions.assertEquals(1, waiter.get(5, TimeUnit.SECONDS).size());
+            Assertions.assertEquals(2, delegate.getPartitionsCalls);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void narrowerWaiterRetriesIntegrityFailureFromWiderOwner() throws Exception {
         RecordingHmsClient delegate = new RecordingHmsClient();
         delegate.absentPartitionNames.add("p=missing");

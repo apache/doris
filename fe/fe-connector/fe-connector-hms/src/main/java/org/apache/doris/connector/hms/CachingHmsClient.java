@@ -75,10 +75,7 @@ import java.util.function.Predicate;
  *       {@code maxParts} in the key keeps a bounded request from ever being served a fuller list.</li>
  *   <li>{@code getPartitions} — one entry PER PARTITION, keyed by {@code (db, table, partition-values)} →
  *       {@link HmsPartitionInfo}. A bulk request looks up each requested name (parsed to its values) and
- *       fetches only bounded windows of misses, storing each returned partition under its OWN values — so
- *       overlapping requests SHARE partition entries, the in-flight footprint is bounded, and the capacity
- *       bounds partition OBJECTS (legacy {@code HiveExternalMetaCache} / Trino
- *       {@code CachingHiveMetastore} shape), not request-lists.
+ *       fetches bounded miss windows so overlapping requests share per-partition entries.
  *       {@link HmsPartitionInfo} carries {@code transient_lastDdlTime} in its parameters, which a later step
  *       reads through this cache for the table max-modify-time.</li>
  *   <li>{@code getTableColumnStatistics} — keyed by {@code (db, table, requested-column-list)} → the
@@ -505,7 +502,6 @@ public class CachingHmsClient implements HmsClient {
                 throw new HmsClientException(
                         "HMS chunk consumer published an unowned partition: " + info.getValues());
             }
-            // Shared stripes order invalidation and publication without suppressing unrelated-table results.
             ReentrantLock stateLock = partitionStateLock(request.getDbName(), request.getTableName());
             stateLock.lock();
             try {
@@ -548,7 +544,6 @@ public class CachingHmsClient implements HmsClient {
                 if (!isRetryableSharedFailure(ownerFailure, batch, registrations)) {
                     rethrow(ownerFailure);
                 }
-                // Only an exception published by the owner reaches this branch.
                 inFlightPartitionLoads.remove(registration.key, batch);
                 retries.add(registration.partition);
                 retrying = true;
@@ -582,8 +577,10 @@ public class CachingHmsClient implements HmsClient {
 
     private static boolean isRetryableSharedFailure(Throwable failure, PartitionLoadBatch ownerBatch,
             List<PartitionLoadRegistration> waiterRegistrations) {
-        if (failure instanceof HmsClientException && failure.getCause() instanceof InterruptedException) {
-            return true;
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            if (current instanceof InterruptedException) {
+                return true;
+            }
         }
         if (!(failure instanceof HmsPartitionResultException)) {
             return false;
@@ -650,8 +647,7 @@ public class CachingHmsClient implements HmsClient {
                 recordPartitionCoordinationWait(request, PARTITION_LOAD_SLOT_WAIT_OPERATION,
                         requestedItems, startNanos, success);
             } catch (Error e) {
-                // The caller's release-finally is established only after this method returns. Preserve fail-loud
-                // Error semantics without leaking a slot that the slow path already acquired.
+                // Preserve fail-loud Error semantics without leaking the slot acquired in this method.
                 if (acquired) {
                     partitionLoadSlots.release();
                 }
@@ -660,7 +656,6 @@ public class CachingHmsClient implements HmsClient {
         }
     }
 
-    /** Test seam for deterministic load-slot waiter coordination. */
     void beforePartitionLoadSlotWaitForTest() {
     }
 
