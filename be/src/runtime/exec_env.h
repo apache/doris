@@ -59,6 +59,7 @@ class FDCache;
 class FileCacheFactory;
 class HdfsMgr;
 class PackedFileManager;
+class PartialBlockWritebackManager;
 } // namespace io
 
 namespace segment_v2 {
@@ -270,6 +271,9 @@ public:
     ThreadPool* segment_prefetch_thread_pool() { return _segment_prefetch_thread_pool.get(); }
     io::FileRangeReadScheduler* file_range_read_scheduler() {
         return _file_range_read_scheduler.get();
+    }
+    io::PartialBlockWritebackManager* partial_block_writeback_manager() {
+        return _partial_block_writeback_manager.get();
     }
     ThreadPool* peer_race_s3_thread_pool() { return _peer_race_s3_thread_pool.get(); }
 
@@ -514,6 +518,7 @@ private:
     // Threadpool used to prefetch segment file cache blocks
     std::unique_ptr<ThreadPool> _segment_prefetch_thread_pool;
     std::unique_ptr<io::FileRangeReadScheduler> _file_range_read_scheduler;
+    std::unique_ptr<io::PartialBlockWritebackManager> _partial_block_writeback_manager;
     std::unique_ptr<ThreadPool> _peer_race_s3_thread_pool;
 
     FragmentMgr* _fragment_mgr = nullptr;

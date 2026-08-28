@@ -1831,6 +1831,12 @@ DECLARE_mInt64(read_ahead_max_gap_bytes);
 DECLARE_mInt64(read_ahead_max_range_bytes);
 DECLARE_mDouble(read_ahead_max_read_amplification_ratio);
 DECLARE_mDouble(read_ahead_block_fill_min_coverage);
+// Background completion policy and BE-wide resource limits for partial File Cache blocks
+DECLARE_Int64(hole_fill_max_gap_bytes);
+DECLARE_Int64(hole_fill_max_range_bytes);
+DECLARE_Double(hole_fill_max_read_amplification_ratio);
+DECLARE_Int64(hole_fill_max_pending_bytes_per_be);
+DECLARE_mInt32(hole_fill_workers_per_be);
 // Enable segment file cache block prefetch for compaction
 DECLARE_mBool(enable_compaction_segment_file_cache_prefetch);
 // Number of blocks to prefetch ahead in segment iterator for compaction

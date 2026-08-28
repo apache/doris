@@ -61,8 +61,9 @@
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
-#include "io/fs/file_range_read_scheduler.h"
+#include "io/cache/partial_block_writeback_manager.h"
 #include "io/fs/file_meta_cache.h"
+#include "io/fs/file_range_read_scheduler.h"
 #include "io/fs/hdfs_file_writer.h"
 #include "io/fs/local_file_reader.h"
 #include "load/channel/load_channel_mgr.h"
@@ -331,6 +332,23 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _file_cache_factory = new io::FileCacheFactory();
     std::vector<doris::CachePath> cache_paths;
     init_file_cache_factory(cache_paths);
+    if (config::is_cloud_mode()) {
+        io::PartialBlockWritebackOptions options {
+                .block_size = cast_set<size_t>(config::file_cache_each_block_size),
+                .worker_count = cast_set<size_t>(config::hole_fill_workers_per_be),
+                .max_pending_bytes = cast_set<size_t>(config::hole_fill_max_pending_bytes_per_be),
+                .hole_fill_coalesce =
+                        {
+                                .max_gap_bytes = cast_set<size_t>(config::hole_fill_max_gap_bytes),
+                                .max_range_bytes =
+                                        cast_set<size_t>(config::hole_fill_max_range_bytes),
+                                .max_read_amplification_ratio =
+                                        config::hole_fill_max_read_amplification_ratio,
+                        },
+        };
+        RETURN_IF_ERROR(io::PartialBlockWritebackManager::create(
+                options, &_partial_block_writeback_manager));
+    }
     doris::io::BeConfDataDirReader::init_be_conf_data_dir(store_paths, spill_store_paths,
                                                           cache_paths);
     _init_runtime_filter_timer_queue();
@@ -889,6 +907,7 @@ void ExecEnv::destroy() {
     SAFE_STOP(_external_scan_context_mgr);
     SAFE_STOP(_fragment_mgr);
     SAFE_SHUTDOWN(_file_range_read_scheduler);
+    SAFE_SHUTDOWN(_partial_block_writeback_manager);
     SAFE_STOP(_runtime_filter_timer_queue);
     // NewLoadStreamMgr should be destoried before storage_engine & after fragment_mgr stopped.
     _load_stream_mgr.reset();
@@ -975,6 +994,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_workload_sched_mgr);
     SAFE_DELETE(_workload_group_manager);
+    _partial_block_writeback_manager.reset(nullptr);
     SAFE_DELETE(_file_cache_factory);
     SAFE_DELETE(_runtime_filter_timer_queue);
     SAFE_DELETE(_dict_factory);
@@ -985,8 +1005,8 @@ void ExecEnv::destroy() {
     _peer_race_s3_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
-    _segment_prefetch_thread_pool.reset(nullptr);
     _file_range_read_scheduler.reset(nullptr);
+    _segment_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
     _udf_close_workers_thread_pool.reset(nullptr);
@@ -1050,6 +1070,21 @@ void ExecEnv::destroy() {
 namespace doris::config {
 namespace {
 
+void resize_hole_fill_workers(int32_t old_value, int32_t new_value) {
+    if (old_value == new_value) {
+        return;
+    }
+    auto* manager = ExecEnv::GetInstance()->partial_block_writeback_manager();
+    if (manager == nullptr) {
+        return;
+    }
+    Status status = manager->resize_workers(cast_set<size_t>(new_value));
+    if (!status.ok()) {
+        LOG(WARNING) << "Failed to resize partial block writeback workers from " << old_value
+                     << " to " << new_value << ": " << status;
+    }
+}
+
 void refresh_ms_rpc_rate_limiters() {
     auto* services = ExecEnv::GetInstance()->ms_rpc_rate_limit_services();
     if (services != nullptr) {
@@ -1075,6 +1110,8 @@ void refresh_ms_backpressure_coordinator_params() {
 }
 
 } // namespace
+
+DEFINE_ON_UPDATE(hole_fill_workers_per_be, resize_hole_fill_workers);
 
 // Callback to update warmup download rate limiter when config changes is registered
 DEFINE_ON_UPDATE(file_cache_warmup_download_rate_limit_bytes_per_second,
