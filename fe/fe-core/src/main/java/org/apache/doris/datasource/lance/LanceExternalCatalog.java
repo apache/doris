@@ -144,8 +144,12 @@ public class LanceExternalCatalog extends ExternalCatalog {
                 closeNamespace(testNamespace);
             }
         } catch (Exception e) {
+            // The catalog is not initialized yet, so the namespace options this test just built are
+            // the only ones the sanitizer can see.
+            String sanitizedMessage = sanitizedRootCauseMessage(
+                    e, properties.getNamespaceStorageUri(), storageOptions);
             throw new DdlException("Lance " + type + " catalog connectivity test failed: "
-                    + sanitizedRootCauseMessage(e), safeCause(e));
+                    + sanitizedMessage, sanitizedCause(e, sanitizedMessage));
         }
     }
 
@@ -330,8 +334,10 @@ public class LanceExternalCatalog extends ExternalCatalog {
                     : LanceMetadataLoader.loadLatest(
                             tableAccess.datasetUri, tableAccess.storageOptions, allocator);
         } catch (Exception e) {
+            String sanitizedMessage = sanitizedRootCauseMessage(
+                    e, tableAccess.datasetUri, tableAccess.storageOptions);
             throw new RuntimeException("Failed to load Lance table metadata for " + dbName + "." + tableName
-                    + ": " + sanitizedRootCauseMessage(e), safeCause(e));
+                    + ": " + sanitizedMessage, sanitizedCause(e, sanitizedMessage));
         }
     }
 
@@ -377,11 +383,8 @@ public class LanceExternalCatalog extends ExternalCatalog {
             Throwable throwable, String datasetUri, Map<String, String> runtimeStorageOptions) {
         String sanitizedMessage = sanitizedRootCauseMessage(
                 throwable, datasetUri, runtimeStorageOptions);
-        Throwable sanitizedCause = throwable instanceof IllegalArgumentException
-                ? new IllegalArgumentException(sanitizedMessage)
-                : new RuntimeException(sanitizedMessage);
         return new RuntimeException("Failed to load Lance index metadata for " + dbName + "." + tableName
-                + ": " + sanitizedMessage, sanitizedCause);
+                + ": " + sanitizedMessage, sanitizedCause(throwable, sanitizedMessage));
     }
 
     private ResolvedTableAccess resolveTableAccess(String dbName, String tableName) {
@@ -468,15 +471,13 @@ public class LanceExternalCatalog extends ExternalCatalog {
         }
     }
 
+    /**
+     * Every provider-facing failure has at least the namespace's own storage options behind it, so
+     * default to those rather than redacting only the REST secrets. Callers holding a resolved
+     * table pass its dataset URI and options to the overload below instead.
+     */
     private String sanitizedRootCauseMessage(Throwable throwable) {
-        String message = ExceptionUtils.getRootCauseMessage(throwable);
-        for (String sensitiveKey : new String[] {REST_BEARER_TOKEN, REST_API_KEY}) {
-            String sensitiveValue = catalogProperty.getOrDefault(sensitiveKey, "");
-            if (StringUtils.isNotEmpty(sensitiveValue)) {
-                message = message.replace(sensitiveValue, "***");
-            }
-        }
-        return message;
+        return sanitizedRootCauseMessage(throwable, null, namespaceStorageOptions);
     }
 
     @VisibleForTesting
@@ -488,9 +489,19 @@ public class LanceExternalCatalog extends ExternalCatalog {
         List<String> sensitiveValues = new ArrayList<>();
         sensitiveValues.add(catalogProperty.getOrDefault(REST_BEARER_TOKEN, ""));
         sensitiveValues.add(catalogProperty.getOrDefault(REST_API_KEY, ""));
-        for (String sensitiveKey : RUNTIME_SENSITIVE_OPTION_KEYS) {
-            sensitiveValues.add(nonNullStorageOptions.getOrDefault(sensitiveKey, ""));
-        }
+        // Lance also accepts these options scoped to one base, as base_<id>.oss_secret_access_key,
+        // so match on the suffix rather than looking each bare key up exactly.
+        nonNullStorageOptions.forEach((key, value) -> {
+            if (key == null) {
+                return;
+            }
+            for (String sensitiveKey : RUNTIME_SENSITIVE_OPTION_KEYS) {
+                if (key.equals(sensitiveKey) || key.endsWith("." + sensitiveKey)) {
+                    sensitiveValues.add(value);
+                    return;
+                }
+            }
+        });
         sensitiveValues.add(datasetUri);
         sensitiveValues.removeIf(StringUtils::isEmpty);
         sensitiveValues.sort((left, right) -> Integer.compare(right.length(), left.length()));
@@ -500,12 +511,19 @@ public class LanceExternalCatalog extends ExternalCatalog {
         return truncateUtf8(removeControlCharacters(message), MAX_PROVIDER_MESSAGE_BYTES);
     }
 
+    /**
+     * Always hand back a rebuilt cause. Returning the original once left every catalog without REST
+     * auth - a directory namespace on OSS, say - free to carry provider text holding its
+     * credentials, which the message beside it had just redacted.
+     */
     private Throwable safeCause(Throwable throwable) {
-        if (StringUtils.isNotEmpty(catalogProperty.getOrDefault(REST_BEARER_TOKEN, ""))
-                || StringUtils.isNotEmpty(catalogProperty.getOrDefault(REST_API_KEY, ""))) {
-            return new RuntimeException(sanitizedRootCauseMessage(throwable));
-        }
-        return throwable;
+        return sanitizedCause(throwable, sanitizedRootCauseMessage(throwable));
+    }
+
+    private static Throwable sanitizedCause(Throwable throwable, String sanitizedMessage) {
+        return throwable instanceof IllegalArgumentException
+                ? new IllegalArgumentException(sanitizedMessage)
+                : new RuntimeException(sanitizedMessage);
     }
 
     private static String removeControlCharacters(String value) {

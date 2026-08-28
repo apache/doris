@@ -362,4 +362,30 @@ public class LanceFilesystemCatalogTest {
             Assert.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
         }
     }
+
+    /**
+     * Lance also accepts a storage option scoped to one base, so a secret can arrive spelled
+     * base_0.oss_secret_access_key. An exact-key lookup would walk straight past it.
+     */
+    @Test
+    public void testBaseScopedOssSecretsAreRedacted() {
+        String scopedSecret = "sentinel-base-scoped-secret";
+        String scopedToken = "sentinel-base-scoped-token";
+        LanceExternalCatalog catalog = new LanceExternalCatalog(
+                1, "lance_filesystem", null, new HashMap<>(), "");
+
+        Map<String, String> runtimeStorageOptions = new HashMap<>();
+        runtimeStorageOptions.put("base_0.oss_secret_access_key", scopedSecret);
+        runtimeStorageOptions.put("base_1.oss_security_token", scopedToken);
+
+        RuntimeException exposed = catalog.indexMetadataLoadFailure("db", "table",
+                new RuntimeException("provider failure secret=" + scopedSecret
+                        + " token=" + scopedToken),
+                "oss://bucket/table.lance", runtimeStorageOptions);
+
+        for (String sentinel : Arrays.asList(scopedSecret, scopedToken)) {
+            Assert.assertFalse(exposed.getMessage().contains(sentinel));
+            Assert.assertFalse(exposed.getCause().getMessage().contains(sentinel));
+        }
+    }
 }

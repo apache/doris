@@ -21,6 +21,7 @@ import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashMap;
 import java.util.List;
@@ -36,6 +37,8 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
     private static final String SECRET_ACCESS_KEY = "oss_secret_access_key";
     private static final String REGION = "oss_region";
     private static final String SECURITY_TOKEN = "oss_security_token";
+    private static final String ADDRESSING_STYLE = "addressing_style";
+    private static final String ALLOW_ANONYMOUS = "allow_anonymous";
 
     /**
      * Lance exposes the {@code oss_*} names as its public storage-option vocabulary and normalizes
@@ -70,6 +73,21 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
         putIfNotEmpty(result, SECRET_ACCESS_KEY, properties.getSecretKey());
         putIfNotEmpty(result, REGION, properties.getRegion());
         putIfNotEmpty(result, SECURITY_TOKEN, properties.getSessionToken());
+
+        // Doris reads a blank key pair as a request for anonymous access. Lance forwards options it
+        // does not recognize straight to OpenDAL, whose OSS service only skips request signing when
+        // allow_anonymous is set; without it the open fails in credential loading instead of
+        // issuing the unsigned request Doris asked for.
+        if (StringUtils.isBlank(properties.getAccessKey())
+                && StringUtils.isBlank(properties.getSecretKey())) {
+            result.put(ALLOW_ANONYMOUS, "true");
+        }
+
+        // OpenDAL's OSS service addresses buckets virtual-host style by default, which is also
+        // Doris's default, so only an explicit path-style request needs translating.
+        if (Boolean.parseBoolean(properties.getUsePathStyle())) {
+            result.put(ADDRESSING_STYLE, "path");
+        }
         return result;
     }
 

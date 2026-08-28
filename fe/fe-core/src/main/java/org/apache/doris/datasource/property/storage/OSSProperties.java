@@ -346,7 +346,13 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
      * @return the rewritten URI string, or the original URI if no rewrite is needed
      */
     @VisibleForTesting
-    protected static String rewriteOssBucketIfNecessary(String uri) {
+    /**
+     * Collapses the qualified {@code oss://bucket.oss-<region>.aliyuncs.com/path} form Doris
+     * accepts down to {@code oss://bucket/path}. Public so that callers outside this package
+     * which take an OSS URL before any {@link OSSProperties} instance exists - the Lance
+     * directory namespace root, for one - can apply the same contract.
+     */
+    public static String rewriteOssBucketIfNecessary(String uri) {
         if (uri == null || uri.isEmpty()) {
             return uri;
         }

@@ -431,4 +431,49 @@ public class LanceStorageOptionsTest {
         Assertions.assertTrue(
                 LanceOssStorageProvider.INSTANCE.normalizeVended(null).isEmpty());
     }
+
+    /**
+     * Doris reads a blank key pair as anonymous access. OpenDAL only skips signing when it is told
+     * to, so the flag has to be emitted rather than merely leaving the credentials out.
+     */
+    @Test
+    public void testOssAnonymousModeIsForwardedToOpenDal() {
+        Map<String, String> properties = ossProperties();
+        properties.remove("oss.access_key");
+        properties.remove("oss.secret_key");
+
+        Map<String, String> options = LanceStorageOptions.forUri(OSS_URI, createAll(properties));
+
+        Assertions.assertEquals("true", options.get("allow_anonymous"));
+        Assertions.assertNull(options.get("oss_access_key_id"));
+        Assertions.assertNull(options.get("oss_secret_access_key"));
+    }
+
+    @Test
+    public void testOssCredentialedModeDoesNotClaimAnonymous() {
+        Map<String, String> options = LanceStorageOptions.forUri(OSS_URI, createAll(ossProperties()));
+
+        Assertions.assertNull(options.get("allow_anonymous"));
+    }
+
+    /**
+     * OpenDAL's OSS service addresses buckets virtual-host style by default, so only an explicit
+     * path-style request is translated; the default must stay absent rather than say "virtual".
+     */
+    @Test
+    public void testOssPathStyleAddressingIsForwarded() {
+        Map<String, String> properties = ossProperties();
+        properties.put("oss.use_path_style", "true");
+
+        Map<String, String> options = LanceStorageOptions.forUri(OSS_URI, createAll(properties));
+
+        Assertions.assertEquals("path", options.get("addressing_style"));
+    }
+
+    @Test
+    public void testOssVirtualHostAddressingStaysImplicit() {
+        Map<String, String> options = LanceStorageOptions.forUri(OSS_URI, createAll(ossProperties()));
+
+        Assertions.assertNull(options.get("addressing_style"));
+    }
 }
