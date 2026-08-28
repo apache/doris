@@ -75,6 +75,7 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
         sv.setEnableLocalShufflePlanner(true);
         sv.setEnableLocalShuffle(true);
         sv.setEnableNereidsDistributePlanner(true);
+        sv.setEnableSqlCache(false);
         sv.setIgnoreStorageDataDistribution(true);
         sv.setPipelineTaskNum("4");
         sv.setForceToLocalShuffle(false);
@@ -83,6 +84,7 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
         // the default strategy) before applying this test's own tweaks.
         sv.aggPhase = 0;
         sv.enableBroadcastJoinForcePassthrough = false;
+        sv.enableShareHashTableForBroadcastJoin = true;
         if (tweaks != null) {
             tweaks.accept(sv);
         }
@@ -167,6 +169,18 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
                                         agg(
                                                 localExchange(PT,
                                                         olapScan("t1")))))));
+    }
+
+    @Test
+    public void testSerialDistinctAggGathersParallelJoinOutput() throws Exception {
+        setupLocalShuffleSession(sv -> sv.enableShareHashTableForBroadcastJoin = false);
+        assertPlanShape(
+                "select sum(distinct a.k1) from test.t1 a "
+                        + "left join [shuffle] test.t2 b on a.k1 = b.k1",
+                anyTree(
+                        agg(
+                                localExchange(PASS_TO_ONE_LE,
+                                        anyTree(hashJoin())))));
     }
 
     @Test
@@ -283,6 +297,18 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
                                 localExchange(PT,
                                         olapScan()),
                                 localExchange(PASS_TO_ONE_LE,
+                                        anyTree(exchange())))));
+    }
+
+    @Test
+    public void testPrivateBroadcastJoinBuildUsesBroadcastLocalExchange() throws Exception {
+        setupLocalShuffleSession(sv -> sv.enableShareHashTableForBroadcastJoin = false);
+        assertPlanShape("select * from test.t1 a join [broadcast] test.t2 b on a.k1=b.k1",
+                anyTree(
+                        hashJoin(
+                                localExchange(PT,
+                                        olapScan()),
+                                localExchange(BROADCAST_LE,
                                         anyTree(exchange())))));
     }
 

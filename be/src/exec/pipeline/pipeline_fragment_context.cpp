@@ -39,8 +39,10 @@
 #include <ostream>
 #include <utility>
 
+#include "agent/be_exec_version_manager.h"
 #include "cloud/config.h"
 #include "common/cast_set.h"
+#include "common/check.h"
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
@@ -720,6 +722,8 @@ Status PipelineFragmentContext::_build_pipelines(ObjectPool* pool, const Descrip
 
 Status PipelineFragmentContext::_create_deferred_local_exchangers() {
     for (auto& info : _deferred_exchangers) {
+        const int source_count = cast_set<int>(info.shared_state->source_deps.size());
+        DORIS_CHECK_EQ(cast_set<size_t>(source_count), info.shared_state->mem_counters.size());
         // DANGER ZONE — do not "fix" this line without reading the history.
         //
         // sender_count seeds Exchanger::_running_sink_operators, which the source side
@@ -752,34 +756,35 @@ Status PipelineFragmentContext::_create_deferred_local_exchangers() {
         switch (info.partition_type) {
         case TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE:
         case TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE:
-            info.shared_state->exchanger = ShuffleExchanger::create_unique(
-                    sender_count, _num_instances, info.num_partitions, info.free_blocks_limit,
-                    info.partition_type);
+            info.shared_state->exchanger =
+                    ShuffleExchanger::create_unique(sender_count, source_count, info.num_partitions,
+                                                    info.free_blocks_limit, info.partition_type);
             break;
         case TLocalPartitionType::BUCKET_HASH_SHUFFLE:
             info.shared_state->exchanger = BucketShuffleExchanger::create_unique(
-                    sender_count, _num_instances, info.num_partitions, info.free_blocks_limit);
+                    sender_count, source_count, info.num_partitions, info.free_blocks_limit);
             break;
         case TLocalPartitionType::PASSTHROUGH:
             info.shared_state->exchanger = PassthroughExchanger::create_unique(
-                    sender_count, _num_instances, info.free_blocks_limit);
+                    sender_count, source_count, info.free_blocks_limit);
             break;
         case TLocalPartitionType::BROADCAST:
             info.shared_state->exchanger = BroadcastExchanger::create_unique(
-                    sender_count, _num_instances, info.free_blocks_limit);
+                    sender_count, source_count, info.free_blocks_limit);
             break;
         case TLocalPartitionType::PASS_TO_ONE:
-            if (_runtime_state->enable_share_hash_table_for_broadcast_join()) {
+            if (_runtime_state->be_exec_version() >= SUPPORT_UNCONDITIONAL_PASS_TO_ONE_VERSION ||
+                _runtime_state->enable_share_hash_table_for_broadcast_join()) {
                 info.shared_state->exchanger = PassToOneExchanger::create_unique(
-                        sender_count, _num_instances, info.free_blocks_limit);
+                        sender_count, source_count, info.free_blocks_limit);
             } else {
                 info.shared_state->exchanger = BroadcastExchanger::create_unique(
-                        sender_count, _num_instances, info.free_blocks_limit);
+                        sender_count, source_count, info.free_blocks_limit);
             }
             break;
         case TLocalPartitionType::ADAPTIVE_PASSTHROUGH:
             info.shared_state->exchanger = AdaptivePassthroughExchanger::create_unique(
-                    sender_count, _num_instances, info.free_blocks_limit);
+                    sender_count, source_count, info.free_blocks_limit);
             break;
         case TLocalPartitionType::NOOP:
         case TLocalPartitionType::LOCAL_MERGE_SORT:
@@ -856,11 +861,17 @@ void PipelineFragmentContext::_propagate_local_exchange_num_tasks() {
         if (pit != id_to_pipe.end()) {
             auto& pipe = pit->second;
             const auto& ops = pipe->operators();
-            const bool le_source =
-                    !ops.empty() && dynamic_cast<LocalExchangeSourceOperatorX*>(ops.front().get());
+            auto* le_source =
+                    !ops.empty() ? dynamic_cast<LocalExchangeSourceOperatorX*>(ops.front().get())
+                                 : nullptr;
             const bool serial_source = !ops.empty() && ops.front()->is_serial_operator();
             if (le_source) {
-                pipe->set_num_tasks(_num_instances);
+                // PASS_TO_ONE is the explicit N-to-one boundary. Its upstream pipeline
+                // keeps all active tasks, while only fragment instance 0 creates the
+                // downstream serial pipeline task.
+                if (le_source->exchange_type() != TLocalPartitionType::PASS_TO_ONE) {
+                    pipe->set_num_tasks(_num_instances);
+                }
             } else if (!serial_source) {
                 int target = pipe->num_tasks();
                 const auto up_it = _dag.find(id);
@@ -1073,8 +1084,11 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                         : 0);
         break;
     case TLocalPartitionType::PASS_TO_ONE:
+        // BE-native local-shuffle planning still uses PASS_TO_ONE for a serial broadcast
+        // build. Private hash tables need every build row, so preserve the historical
+        // broadcast fallback when sharing is disabled. The unconditional v14 meaning is
+        // only for FE-planned local exchanges in _create_deferred_local_exchangers().
         if (_runtime_state->enable_share_hash_table_for_broadcast_join()) {
-            // If shared hash table is enabled for BJ, hash table will be built by only one task
             shared_state->exchanger = PassToOneExchanger::create_unique(
                     cur_pipe->num_tasks(), _num_instances,
                     _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
@@ -2047,9 +2061,11 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     }
     case TPlanNodeType::LOCAL_EXCHANGE_NODE: {
         op = std::make_shared<LocalExchangeSourceOperatorX>(pool, tnode, next_operator_id(), descs);
-        // The downstream pipeline (containing LocalExchangeSource) must have
-        // _num_instances tasks — matching BE-native _inherit_pipeline_properties
-        // which sets pipe_with_source.set_num_tasks(_num_instances).
+        const auto partition_type = tnode.local_exchange_node.partition_type;
+        // Except at an explicit PASS_TO_ONE boundary, the downstream pipeline
+        // (containing LocalExchangeSource) must have _num_instances tasks. This
+        // matches BE-native _inherit_pipeline_properties, which sets
+        // pipe_with_source.set_num_tasks(_num_instances).
         // Without this, when the parent pipeline was reduced by a serial operator
         // (e.g., serial Exchange with use_serial_exchange=true, or UNPARTITIONED
         // Exchange), the downstream inherits the reduced num_tasks via
@@ -2058,14 +2074,23 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         // sink round-robins to all channels and crashes on uninitialized ones.
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
         // Restore downstream pipeline's num_tasks (mirroring _inherit_pipeline_properties:
-        // downstream keeps _num_instances, upstream gets the serial/reduced count)
-        cur_pipe->set_num_tasks(_num_instances);
+        // downstream keeps _num_instances, upstream gets the serial/reduced count).
+        // PASS_TO_ONE is the explicit parallel-to-serial boundary: its downstream
+        // pipeline must keep the serial parent's single active task, while the upstream
+        // pipeline is expanded below so every fragment instance keeps an active receiver.
+        if (partition_type != TLocalPartitionType::PASS_TO_ONE) {
+            cur_pipe->set_num_tasks(_num_instances);
+        }
+        const int downstream_num_tasks = cur_pipe->num_tasks();
 
         const auto downstream_pipeline_id = cur_pipe->id();
         if (!_dag.contains(downstream_pipeline_id)) {
             _dag.insert({downstream_pipeline_id, {}});
         }
         cur_pipe = add_pipeline(cur_pipe);
+        if (partition_type == TLocalPartitionType::PASS_TO_ONE) {
+            cur_pipe->set_num_tasks(_num_instances);
+        }
         // If this local exchange was inserted because of a serial scan (is_serial_operator),
         // the upstream pipeline (cur_pipe) should have num_tasks=1 (only 1 scan task).
         // We set this now so the exchanger is created with the correct sender count.
@@ -2077,7 +2102,6 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
         int num_partitions = 0;
         std::map<int, int> shuffle_id_to_instance_idx;
-        auto partition_type = tnode.local_exchange_node.partition_type;
         switch (partition_type) {
         case TLocalPartitionType::BUCKET_HASH_SHUFFLE:
             num_partitions = _params.num_buckets;
@@ -2117,9 +2141,10 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                         ? cast_set<int>(
                                   _runtime_state->query_options().local_exchange_free_blocks_limit)
                         : 0;
-        auto shared_state = LocalExchangeSharedState::create_shared(_num_instances);
-        shared_state->create_source_dependencies(_num_instances, local_exchange_id,
-                                                 local_exchange_id, "LOCAL_EXCHANGE_OPERATOR");
+        const int source_count = downstream_num_tasks;
+        auto shared_state = LocalExchangeSharedState::create_shared(source_count);
+        shared_state->create_source_dependencies(source_count, local_exchange_id, local_exchange_id,
+                                                 "LOCAL_EXCHANGE_OPERATOR");
         shared_state->create_sink_dependency(sink_id, local_exchange_id, "LOCAL_EXCHANGE_SINK");
         _op_id_to_shared_state.insert({local_exchange_id, {shared_state, shared_state->sink_deps}});
         // Defer exchanger creation: sender count depends on final upstream num_tasks

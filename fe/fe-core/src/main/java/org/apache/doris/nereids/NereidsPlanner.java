@@ -77,6 +77,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.planner.AddLocalExchange;
+import org.apache.doris.planner.LocalExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.Planner;
@@ -135,6 +136,8 @@ public class NereidsPlanner extends Planner {
 
     private FragmentIdMapping<DistributedPlan> distributedPlans;
     private PlanTranslatorContext planTranslatorContext;
+    private int beExecVersion = Config.be_exec_version;
+    private boolean localShufflePlanned;
     // The cost of optimized plan
     private double cost = 0;
     private LogicalPlanAdapter logicalPlanAdapter;
@@ -665,7 +668,8 @@ public class NereidsPlanner extends Planner {
             return;
         }
 
-        this.planTranslatorContext = new PlanTranslatorContext(cascadesContext);
+        this.beExecVersion = Config.be_exec_version;
+        this.planTranslatorContext = new PlanTranslatorContext(cascadesContext, beExecVersion);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
                 statementContext.getConnectContext().getStatsErrorEstimator());
         SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
@@ -776,8 +780,7 @@ public class NereidsPlanner extends Planner {
     }
 
     private void addLocalExchangeAfterDistribute() {
-        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
-        if (!sessionVariable.isEnableLocalShufflePlanner() || !sessionVariable.isEnableLocalShuffle()) {
+        if (!localShufflePlanned) {
             return;
         }
         AddLocalExchange adder = new AddLocalExchange();
@@ -813,8 +816,13 @@ public class NereidsPlanner extends Planner {
         }
 
         boolean useLoadBackendSelection = physicalPlan.anyMatch(PhysicalOlapTableSink.class::isInstance);
+        SessionVariable sessionVariable = statementContext.getConnectContext().getSessionVariable();
+        localShufflePlanned = sessionVariable.isEnableLocalShufflePlanner()
+                && sessionVariable.isEnableLocalShuffle()
+                && LocalExchangeNode.supportsUnconditionalPassToOne(beExecVersion);
         distributedPlans = new DistributePlanner(
-                statementContext, fragments, notNeedBackend, false, useLoadBackendSelection).plan();
+                statementContext, fragments, notNeedBackend, false, useLoadBackendSelection)
+                .plan(sessionVariable.enableShareHashTableForBroadcastJoin, localShufflePlanned);
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile()
                     .setNereidsDistributeTime(TimeUtils.getStartTimeMs());
@@ -1292,6 +1300,14 @@ public class NereidsPlanner extends Planner {
 
     public FragmentIdMapping<DistributedPlan> getDistributedPlans() {
         return distributedPlans;
+    }
+
+    public int getBeExecVersion() {
+        return beExecVersion;
+    }
+
+    public boolean isLocalShufflePlanned() {
+        return localShufflePlanned;
     }
 
     public LogicalPlanAdapter getLogicalPlanAdapter() {

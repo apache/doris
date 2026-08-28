@@ -45,6 +45,7 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TUniqueId;
@@ -88,6 +89,17 @@ public class DistributePlanner {
 
     /** plan */
     public FragmentIdMapping<DistributedPlan> plan() {
+        SessionVariable sessionVariable = statementContext.getConnectContext().getSessionVariable();
+        return plan(sessionVariable.enableShareHashTableForBroadcastJoin,
+                sessionVariable.isEnableLocalShufflePlanner() && sessionVariable.isEnableLocalShuffle());
+    }
+
+    /** Plan with query-level decisions which affect receiver destination selection. */
+    public FragmentIdMapping<DistributedPlan> plan(
+            boolean enableShareHashTableForBroadcastJoin, boolean enableLocalShufflePlanner) {
+        idToFragments.values().forEach(fragment -> fragment.getPlanRoot()
+                .<ExchangeNode>collectInCurrentFragment(ExchangeNode.class::isInstance)
+                .forEach(exchange -> exchange.setEffectiveEnableLocalShufflePlanner(enableLocalShufflePlanner)));
         updateProfileIfPresent(profile -> profile.setQueryPlanFinishTime(TimeUtils.getStartTimeMs()));
         try {
             BackendDistributedPlanWorkerManager workerManager = new BackendDistributedPlanWorkerManager(
@@ -104,7 +116,8 @@ public class DistributePlanner {
             FragmentIdMapping<DistributedPlan> distributedPlans = buildDistributePlans(fragmentJobs, instanceJobs);
             // for broadcast or something impacts links' shape, they're in Node's property (like exchange's
             // partitionType). we use them to link plans. no needs of extra modification.
-            FragmentIdMapping<DistributedPlan> linkedPlans = linkPlans(distributedPlans);
+            FragmentIdMapping<DistributedPlan> linkedPlans = linkPlans(
+                    distributedPlans, enableShareHashTableForBroadcastJoin, enableLocalShufflePlanner);
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("=== LinkedPlans Debug Info ===");
@@ -180,17 +193,17 @@ public class DistributePlanner {
         return (FragmentIdMapping) idToDistributedPlans;
     }
 
-    private FragmentIdMapping<DistributedPlan> linkPlans(FragmentIdMapping<DistributedPlan> plans) {
-        boolean enableShareHashTableForBroadcastJoin = statementContext.getConnectContext()
-                .getSessionVariable()
-                .enableShareHashTableForBroadcastJoin;
+    private FragmentIdMapping<DistributedPlan> linkPlans(
+            FragmentIdMapping<DistributedPlan> plans, boolean enableShareHashTableForBroadcastJoin,
+            boolean enableLocalShufflePlanner) {
         for (DistributedPlan receiverPlan : plans.values()) {
             for (Entry<ExchangeNode, DistributedPlan> link : receiverPlan.getInputs().entries()) {
                 linkPipelinePlan(
                         (PipelineDistributedPlan) receiverPlan,
                         (PipelineDistributedPlan) link.getValue(),
                         link.getKey(),
-                        enableShareHashTableForBroadcastJoin
+                        enableShareHashTableForBroadcastJoin,
+                        enableLocalShufflePlanner
                 );
                 for (Entry<DataSink, List<AssignedJob>> kv :
                         ((PipelineDistributedPlan) link.getValue()).getDestinations().entrySet()) {
@@ -212,12 +225,14 @@ public class DistributePlanner {
             PipelineDistributedPlan receiverPlan,
             PipelineDistributedPlan senderPlan,
             ExchangeNode linkNode,
-            boolean enableShareHashTableForBroadcastJoin) {
+            boolean enableShareHashTableForBroadcastJoin,
+            boolean enableLocalShufflePlanner) {
 
         List<AssignedJob> receiverInstances = filterInstancesWhichCanReceiveDataFromRemote(
                 receiverPlan, enableShareHashTableForBroadcastJoin, linkNode);
         if (linkNode.getPartitionType() == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED) {
-            receiverInstances = getDestinationsByBuckets(receiverPlan, receiverInstances, linkNode);
+            receiverInstances = getDestinationsByBuckets(
+                    receiverPlan, receiverInstances, linkNode, enableLocalShufflePlanner);
         }
 
         DataSink sink = senderPlan.getFragmentJob().getFragment().getSink();
@@ -238,7 +253,8 @@ public class DistributePlanner {
     private List<AssignedJob> getDestinationsByBuckets(
             PipelineDistributedPlan joinSide,
             List<AssignedJob> receiverInstances,
-            ExchangeNode linkNode) {
+            ExchangeNode linkNode,
+            boolean enableLocalShufflePlanner) {
         UnassignedScanBucketOlapTableJob bucketJob = (UnassignedScanBucketOlapTableJob) joinSide.getFragmentJob();
         int bucketNum = bucketJob.getOlapScanNodes().get(0).getBucketNum();
         // The spread is only valid for a NON-serial exchange: a serial exchange
@@ -246,7 +262,7 @@ public class DistributePlanner {
         // expects funnel destinations; spreading them loses every row addressed to a
         // non-first instance. Mirrors the !is_serial_operator() gate on the BE orphan
         // receiver fix.
-        if (isEnableLocalShufflePlanner()
+        if (enableLocalShufflePlanner
                 && !linkNode.isSerialOperatorOnBe(statementContext.getConnectContext())
                 && !joinSide.getInstanceJobs().isEmpty()
                 && joinSide.getInstanceJobs().stream()
@@ -258,11 +274,6 @@ public class DistributePlanner {
             return sortDestinationInstancesByJoinBuckets(joinSide, bucketNum);
         }
         return sortDestinationInstancesByBuckets(joinSide, receiverInstances, bucketNum);
-    }
-
-    private boolean isEnableLocalShufflePlanner() {
-        ConnectContext connectContext = statementContext.getConnectContext();
-        return connectContext != null && connectContext.getSessionVariable().isEnableLocalShufflePlanner();
     }
 
     @VisibleForTesting

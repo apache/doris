@@ -37,6 +37,12 @@ import java.util.List;
 /** LocalExchangeNode */
 public class LocalExchangeNode extends PlanNode {
     public static final String EXCHANGE_NODE = "LOCAL-EXCHANGE";
+    public static final int SUPPORT_UNCONDITIONAL_PASS_TO_ONE_VERSION = 14;
+
+    /** Whether PASS_TO_ONE always has literal gather semantics on the selected BE version. */
+    public static boolean supportsUnconditionalPassToOne(int beExecVersion) {
+        return beExecVersion >= SUPPORT_UNCONDITIONAL_PASS_TO_ONE_VERSION;
+    }
 
     private LocalExchangeType exchangeType;
 

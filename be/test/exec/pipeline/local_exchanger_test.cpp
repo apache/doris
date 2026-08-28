@@ -1397,4 +1397,5 @@ TEST_F(LocalExchangerTest, ShuffleExchangerRestoreOutputBlockOnAddRowsError) {
     EXPECT_EQ(output_block.rows(), 1);
     EXPECT_NO_THROW(output_block.check_number_of_rows());
 }
+
 } // namespace doris

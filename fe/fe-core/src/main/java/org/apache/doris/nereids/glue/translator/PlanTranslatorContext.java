@@ -25,6 +25,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -65,6 +66,7 @@ import java.util.stream.Collectors;
 public class PlanTranslatorContext {
     private final ConnectContext connectContext;
     private final StatementContext statementContext;
+    private final int beExecVersion;
     private final ScanContext scanContext;
     private final List<PlanFragment> planFragments = Lists.newArrayList();
 
@@ -165,8 +167,14 @@ public class PlanTranslatorContext {
 
     /** PlanTranslatorContext */
     public PlanTranslatorContext(CascadesContext ctx) {
+        this(ctx, Config.be_exec_version);
+    }
+
+    /** PlanTranslatorContext with the query's BE execution-version snapshot. */
+    public PlanTranslatorContext(CascadesContext ctx, int beExecVersion) {
         this.connectContext = ctx.getConnectContext();
         this.statementContext = ctx.getStatementContext();
+        this.beExecVersion = beExecVersion;
         this.scanContext = connectContext == null || connectContext.getSessionVariable() == null
                 ? ScanContext.EMPTY
                 : ScanContext.builder()
@@ -181,6 +189,7 @@ public class PlanTranslatorContext {
     public PlanTranslatorContext(CascadesContext ctx, DescriptorTable descTable) {
         this.connectContext = ctx.getConnectContext();
         this.statementContext = ctx.getStatementContext();
+        this.beExecVersion = Config.be_exec_version;
         this.scanContext = connectContext == null || connectContext.getSessionVariable() == null
                 ? ScanContext.EMPTY
                 : ScanContext.builder()
@@ -198,6 +207,7 @@ public class PlanTranslatorContext {
     public PlanTranslatorContext() {
         this.connectContext = null;
         this.statementContext = new StatementContext();
+        this.beExecVersion = Config.be_exec_version;
         this.scanContext = ScanContext.EMPTY;
         this.translator = null;
         this.topnFilterContext = new TopnFilterContext();
@@ -234,6 +244,10 @@ public class PlanTranslatorContext {
 
     public ConnectContext getConnectContext() {
         return connectContext;
+    }
+
+    public int getBeExecVersion() {
+        return beExecVersion;
     }
 
     public StatementContext getStatementContext() {

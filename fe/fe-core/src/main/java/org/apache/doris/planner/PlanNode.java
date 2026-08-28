@@ -1077,8 +1077,11 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         // serial-source mode, BE treats this operator as non-serial regardless of isSerialNode.
         // Using isSerialNode here would set the child's serial-ancestor flag wider than BE's
         // view and over-skip required LocalExchanges downstream.
-        boolean childHasSerialAncestor = inheritedSerial
-                || isSerialOperatorOnBe(translatorContext.getConnectContext());
+        boolean selfSerial = isSerialOperatorOnBe(translatorContext.getConnectContext());
+        boolean passToOneAtSerialBoundary = selfSerial
+                && !child.isSerialOperatorOnBe(translatorContext.getConnectContext());
+        boolean childHasSerialAncestor = passToOneAtSerialBoundary
+                ? false : inheritedSerial || selfSerial;
         translatorContext.setHasSerialAncestorInPipeline(child, childHasSerialAncestor);
 
         // 1b. Propagate shuffle-for-correctness-ancestor flag to child.
@@ -1099,6 +1102,18 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         // 2. Recurse child (Layer 2: child declares its own require/output)
         Pair<PlanNode, LocalExchangeType> childOutput =
                 child.enforceAndDeriveLocalExchange(translatorContext, this, require);
+
+        // A serial consumer must not implicitly reduce a non-serial subtree to one pipeline
+        // task. Besides losing parallelism, that can make a remote Exchange expose fewer
+        // receiver tasks than FE addresses. Keep the subtree parallel and make the N-to-one
+        // transition explicit. PASS_TO_ONE keeps every upstream receiver task alive and
+        // funnels their output into the serial downstream pipeline's only task.
+        if (passToOneAtSerialBoundary && childOutput.second != LocalExchangeType.PASS_TO_ONE) {
+            childOutput = Pair.of(
+                    createLocalExchange(translatorContext, childOutput.first,
+                            LocalExchangeType.PASS_TO_ONE, null),
+                    LocalExchangeType.PASS_TO_ONE);
+        }
 
         // Steps 2.5 and 3 both react to a serial child but address different concerns:
         //   - Step 2.5 rewrites the OUTPUT-side view (what we tell satisfy/parent about
