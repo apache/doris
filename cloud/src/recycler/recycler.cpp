@@ -3592,6 +3592,9 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
             return -1;
         }
         int64_t tablet_id = tablet_meta_pb.tablet_id();
+        int64_t partition_id = tablet_meta_pb.partition_id();
+        bool is_mow = tablet_meta_pb.enable_unique_key_merge_on_write();
+        auto tablet_role = tablet_meta_pb.tablet_role();
 
         if (config::enable_recycler_check_lazy_txn_finished &&
             !check_lazy_txn_finished(txn_kv_, instance_id_, tablet_meta_pb.tablet_id())) {
@@ -3601,18 +3604,23 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
         }
 
         TEST_SYNC_POINT_RETURN_WITH_VALUE("recycle_tablet::bypass_check", false);
-        sync_executor.add(
-                [this, &num_recycled, tid = tablet_id, &metrics_context, k]() -> TabletInfo {
-                    if (recycle_tablet(tid, metrics_context) != 0) {
-                        LOG_WARNING("failed to recycle tablet")
-                                .tag("instance_id", instance_id_)
-                                .tag("tablet_id", tid);
-                        return {.tablet_meta_key = std::string_view(), .tablet_id = tid};
-                    }
-                    ++num_recycled;
-                    LOG(INFO) << "recycle_tablets scan, key=" << (k.empty() ? "(empty)" : hex(k));
-                    return {.tablet_meta_key = k, .tablet_id = tid};
-                });
+        sync_executor.add([this, &num_recycled, tid = tablet_id, part_id = partition_id,
+                           &metrics_context, k, is_mow = is_mow,
+                           tablet_role = tablet_role]() -> TabletInfo {
+            if (recycle_tablet(tid, metrics_context) != 0) {
+                LOG_WARNING("failed to recycle tablet")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tid);
+                return {.tablet_meta_key = std::string_view(), .tablet_id = tid};
+            }
+            if (tablet_role == TabletRolePB::TABLET_ROLE_DATA) {
+                std::lock_guard lock(partition_mow_cache_mutex);
+                partition_mow_cache.try_emplace(part_id, is_mow);
+            }
+            ++num_recycled;
+            LOG(INFO) << "recycle_tablets scan, key=" << (k.empty() ? "(empty)" : hex(k));
+            return {.tablet_meta_key = k, .tablet_id = tid};
+        });
         return 0;
     };
 
@@ -4467,17 +4475,6 @@ int InstanceRecycler::delete_rowset_data(
     bool is_formal_rowset = (type == RowsetRecyclingState::FORMAL_ROWSET);
 
     for (const auto& [_, rs] : rowsets) {
-        // we have to treat tmp rowset as "orphans" that may not related to any existing tablets
-        // due to aborted schema change.
-        if (is_formal_rowset) {
-            if (is_tablet_recycled(rs.tablet_id()) && rs.packed_slice_locations_size() == 0) {
-                // Tablet has been recycled and this rowset has no packed slices, so file data
-                // should already be gone; skip to avoid redundant deletes. Rowsets with packed
-                // slice info must still run to decrement packed file ref counts.
-                continue;
-            }
-        }
-
         int64_t num_segments = rs.num_segments();
         // Check num_segments before accessor lookup, because empty rowsets
         // (e.g. base compaction output of empty rowsets) may have no resource_id
@@ -4524,6 +4521,20 @@ int InstanceRecycler::delete_rowset_data(
             ret = -1;
             continue;
         }
+
+        // we have to treat tmp rowset as "orphans" that may not related to any existing tablets
+        // due to aborted schema change.
+        if (is_formal_rowset) {
+            std::lock_guard lock(recycled_tablets_mtx_);
+            if (recycled_tablets_.contains(rs.tablet_id()) &&
+                rs.packed_slice_locations_size() == 0) {
+                // Tablet has been recycled and this rowset has no packed slices, so file data
+                // should already be gone; skip to avoid redundant deletes. Rowsets with packed
+                // slice info must still run to decrement packed file ref counts.
+                continue;
+            }
+        }
+
         if (delete_bitmap_storage_type == DeleteBitmapStorageType::STANDALONE_FILE) {
             file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
         }
@@ -4747,7 +4758,7 @@ int InstanceRecycler::should_delete_versioned_delete_bitmap_kvs(int64_t partitio
     int ret = get_tablet_idx(txn_kv_.get(), instance_id_, tablet_id, tablet_index);
     if (ret == 1) {
         // maybe recycled
-        return is_tablet_recycled(tablet_id) ? 0 : 1;
+        return 1;
     }
     if (ret != 0) {
         LOG(WARNING) << "failed to get tablet index, instance_id=" << instance_id_
@@ -4773,7 +4784,7 @@ int InstanceRecycler::should_delete_versioned_delete_bitmap_kvs(int64_t partitio
     ret = txn_get(txn_kv_.get(), tablet_meta_key, tablet_meta_value);
     if (ret == 1) {
         // maybe recycled
-        return is_tablet_recycled(tablet_id) ? 0 : 1;
+        return 1;
     }
     if (ret != 0) {
         LOG(WARNING) << "failed to get tablet meta, instance_id=" << instance_id_
@@ -5049,12 +5060,11 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
     // collect resource ids
     std::string rs_key0 = meta_rowset_key({instance_id_, tablet_id, 0});
     std::string rs_key1 = meta_rowset_key({instance_id_, tablet_id + 1, 0});
-    std::string recyc_rs_key0 = recycle_rowset_key({instance_id_, tablet_id, ""});
-    std::string recyc_rs_key1 = recycle_rowset_key({instance_id_, tablet_id + 1, ""});
     std::string restore_job_rs_key0 = job_restore_rowset_key({instance_id_, tablet_id, 0});
     std::string restore_job_rs_key1 = job_restore_rowset_key({instance_id_, tablet_id + 1, 0});
 
     std::set<std::string> resource_ids;
+    std::unordered_set<std::string> versioned_delete_bitmap_rowset_ids;
     int64_t recycle_rowsets_number = 0;
     int64_t recycle_segments_number = 0;
     int64_t recycle_rowsets_data_size = 0;
@@ -5118,6 +5128,7 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
     TEST_SYNC_POINT_CALLBACK("InstanceRecycler::recycle_tablet.create_rowset_meta", &resp);
 
     for (const auto& rs_meta : resp.rowset_meta()) {
+        versioned_delete_bitmap_rowset_ids.emplace(rs_meta.rowset_id_v2());
         if (!rs_meta.has_resource_id() || rs_meta.resource_id().empty()) {
             if (rs_meta.num_segments() <= 0) {
                 LOG_INFO("rowset meta has no segments and no resource id, skip this rowset")
@@ -5187,6 +5198,7 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
     }
 
     for (auto& [_, rs_meta] : restore_job_rs_metas) {
+        versioned_delete_bitmap_rowset_ids.emplace(rs_meta.rowset_id_v2());
         if (!rs_meta.has_resource_id()) {
             LOG_WARNING("rowset meta does not have a resource id, impossible!")
                     .tag("rs_meta", rs_meta.ShortDebugString())
@@ -5305,7 +5317,6 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
     }
     // delete all rowset kv in this tablet
     txn->remove(rs_key0, rs_key1);
-    txn->remove(recyc_rs_key0, recyc_rs_key1);
     txn->remove(restore_job_rs_key0, restore_job_rs_key1);
 
     // remove delete bitmap for MoW table
@@ -5315,11 +5326,17 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
     std::string delete_bitmap_end = meta_delete_bitmap_key({instance_id_, tablet_id + 1, "", 0, 0});
     txn->remove(delete_bitmap_start, delete_bitmap_end);
 
-    std::string dbm_start_key = versioned::meta_delete_bitmap_key({instance_id_, tablet_id, ""});
-    std::string dbm_end_key = versioned::meta_delete_bitmap_key({instance_id_, tablet_id + 1, ""});
-    txn->remove(dbm_start_key, dbm_end_key);
-    LOG(INFO) << "remove delete bitmap kv, tablet=" << tablet_id << ", begin=" << hex(dbm_start_key)
-              << " end=" << hex(dbm_end_key);
+    for (const auto& rowset_id : versioned_delete_bitmap_rowset_ids) {
+        std::string dbm_start_key =
+                versioned::meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id});
+        std::string dbm_end_key = dbm_start_key;
+        encode_int64(INT64_MAX, &dbm_end_key);
+        txn->remove(dbm_start_key, dbm_end_key);
+    }
+    LOG_INFO("remove versioned delete bitmap kvs")
+            .tag("instance_id", instance_id_)
+            .tag("tablet_id", tablet_id)
+            .tag("rowsets", versioned_delete_bitmap_rowset_ids.size());
 
     TxnErrorCode err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
