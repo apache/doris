@@ -52,7 +52,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -229,8 +228,9 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 } catch (Exception e) {
                     throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
                 }
-                try (TableResourceOwner owner = new TableResourceOwner(
-                        tableCleanup(context.getCatalogType(), ops, table))) {
+                // REST, Glue and S3 Tables SDK trackers own their per-table FileIO. Doris only
+                // retains the catalog generation here so the tracker outlives this table lease.
+                try (TableResourceOwner owner = new TableResourceOwner(() -> { })) {
                     ensureCatalogGenerationStable(catalog, ops, context.getAuthenticator(), nameMapping,
                             context.isEnableMappingVarbinary(), context.isEnableMappingTimestampTz());
                     owner.add(context.promote()::close);
@@ -256,6 +256,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 } catch (Exception e) {
                     throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
                 }
+                // The SDK tracker is the sole FileIO close owner; the cache value retains its
+                // catalog generation until every borrower releases the frozen table.
                 try (TableResourceOwner owner = new TableResourceOwner(() -> { })) {
                     ensureCatalogGenerationStable(catalog, ops, context.getAuthenticator(), nameMapping,
                             enableMappingVarbinary, enableMappingTimestampTz);
@@ -495,8 +497,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 } catch (Exception e) {
                     throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
                 }
-                try (TableResourceOwner owner = new TableResourceOwner(
-                        tableCleanup(context.getCatalogType(), ops, table))) {
+                try (TableResourceOwner owner = new TableResourceOwner(() -> { })) {
                     ensureCatalogGenerationStable(catalog, ops, context.getAuthenticator(), nameMapping,
                             enableMappingVarbinary, enableMappingTimestampTz);
                     try (TableResourceOwner catalogOwner = new TableResourceOwner(context.promote()::close)) {
@@ -612,51 +613,6 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 return lease;
             }
         }
-    }
-
-    private Runnable tableCleanup(String catalogType, IcebergMetadataOps ops, Table table) {
-        FileIO catalogFileIO = IcebergExternalCatalog.ICEBERG_REST.equals(catalogType) ? catalogFileIO(ops) : null;
-        if (!shouldCloseTableFileIO(catalogType, table.io(), catalogFileIO)) {
-            return () -> { };
-        }
-        FileIO tableFileIO = table.io();
-        return () -> {
-            try {
-                tableFileIO.close();
-            } catch (Exception e) {
-                LOG.warn("Failed to close Iceberg table FileIO", e);
-            }
-        };
-    }
-
-    static boolean shouldCloseTableFileIO(String catalogType, FileIO tableFileIO, FileIO catalogFileIO) {
-        if (IcebergExternalCatalog.ICEBERG_GLUE.equals(catalogType)
-                || IcebergExternalCatalog.ICEBERG_S3_TABLES.equals(catalogType)) {
-            return true;
-        }
-        return IcebergExternalCatalog.ICEBERG_REST.equals(catalogType)
-                && catalogFileIO != null && tableFileIO != catalogFileIO;
-    }
-
-    @Nullable
-    private FileIO catalogFileIO(IcebergMetadataOps ops) {
-        Object catalog = ops.getCatalog();
-        try {
-            if (catalog instanceof org.apache.iceberg.rest.RESTCatalog) {
-                Field sessionCatalogField = org.apache.iceberg.rest.RESTCatalog.class
-                        .getDeclaredField("sessionCatalog");
-                sessionCatalogField.setAccessible(true);
-                catalog = sessionCatalogField.get(catalog);
-            }
-            if (catalog instanceof org.apache.iceberg.rest.RESTSessionCatalog) {
-                Field ioField = org.apache.iceberg.rest.RESTSessionCatalog.class.getDeclaredField("io");
-                ioField.setAccessible(true);
-                return (FileIO) ioField.get(catalog);
-            }
-        } catch (Exception e) {
-            LOG.warn("Failed to identify REST catalog FileIO; skip per-table close to protect shared IO", e);
-        }
-        return null;
     }
 
     private static ExecutionAuthenticator requireExecutionAuthenticator(CatalogIf<?> catalog) {

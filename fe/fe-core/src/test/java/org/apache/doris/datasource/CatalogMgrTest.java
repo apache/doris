@@ -192,6 +192,37 @@ public class CatalogMgrTest {
         Assertions.assertTrue(restoredProperties.getTableOptionsMap().isEmpty());
     }
 
+    @Test
+    void testReplayPublishesPropertiesOnlyThroughTheFencedCommit() throws Exception {
+        CatalogMgr catalogMgr = new CatalogMgr();
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        long catalogId = 46L;
+        Mockito.when(catalog.getId()).thenReturn(catalogId);
+        addCatalog(catalogMgr, catalog);
+        Map<String, String> oldProperties = ImmutableMap.of("s3.access_key", "old");
+        Map<String, String> newProperties = ImmutableMap.of("s3.access_key", "new");
+        CatalogLog log = new CatalogLog();
+        log.setCatalogId(catalogId);
+        log.setNewProps(newProperties);
+
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.when(cacheMgr.withCatalogLifecycleLock(Mockito.eq(catalogId), Mockito.any()))
+                .thenAnswer(invocation -> {
+                    java.util.function.Supplier<?> action = invocation.getArgument(1);
+                    return action.get();
+                });
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            catalogMgr.replayAlterCatalogProps(log, oldProperties, true);
+        }
+
+        Mockito.verify(catalog, Mockito.never()).tryModifyCatalogProps(Mockito.any());
+        Mockito.verify(catalog).modifyCatalogProps(newProperties);
+        Mockito.verify(cacheMgr).onCatalogOperationalContextChanged(catalogId);
+    }
+
     private static class LatchingValidationCatalog extends ExternalCatalog {
         private final CountDownLatch validationStarted = new CountDownLatch(1);
         private final CountDownLatch initializationReadProperties = new CountDownLatch(1);
