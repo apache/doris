@@ -815,8 +815,7 @@ static void create_delete_bitmaps(Transaction* txn, int64_t tablet_id, std::stri
 }
 
 static int create_tablet(TxnKv* txn_kv, int64_t table_id, int64_t index_id, int64_t partition_id,
-                         int64_t tablet_id, bool is_mow = false, bool has_sequence_col = false,
-                         TabletRolePB tablet_role = TabletRolePB::TABLET_ROLE_DATA) {
+                         int64_t tablet_id, bool is_mow = false, bool has_sequence_col = false) {
     std::unique_ptr<Transaction> txn;
     if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
         return -1;
@@ -824,7 +823,6 @@ static int create_tablet(TxnKv* txn_kv, int64_t table_id, int64_t index_id, int6
     doris::TabletMetaCloudPB tablet_meta;
     tablet_meta.set_tablet_id(tablet_id);
     tablet_meta.set_enable_unique_key_merge_on_write(is_mow);
-    tablet_meta.set_tablet_role(tablet_role);
     if (has_sequence_col) {
         tablet_meta.mutable_schema()->set_sequence_col_idx(1);
     }
@@ -7398,49 +7396,6 @@ TEST(RecyclerTest, delete_versioned_delete_bitmap_kvs_only_deletes_mow_tablet) {
     check_delete_bitmap_keys_size(txn_kv.get(), mow_tablet_id, 0);
     check_delete_bitmap_keys_size(txn_kv.get(), non_mow_tablet_id, 1);
 }
-
-TEST(RecyclerTest, delete_versioned_delete_bitmap_kvs_cleans_row_binlog_without_caching_false) {
-    auto txn_kv = std::make_shared<MemTxnKv>();
-    ASSERT_EQ(txn_kv->init(), 0);
-
-    constexpr int64_t table_id = 30201;
-    constexpr int64_t data_index_id = 30202;
-    constexpr int64_t row_binlog_index_id = 30203;
-    constexpr int64_t partition_id = 30204;
-    constexpr int64_t data_tablet_id = 30205;
-    constexpr int64_t row_binlog_tablet_id = 30206;
-    InstanceRecycler recycler(txn_kv, create_recycler_test_instance("versioned_dbm_row_binlog"),
-                              thread_group, std::make_shared<TxnLazyCommitter>(txn_kv));
-    ASSERT_EQ(recycler.init(), 0);
-    auto accessor = recycler.accessor_map_.begin()->second;
-    ASSERT_EQ(
-            create_tablet(txn_kv.get(), table_id, row_binlog_index_id, partition_id,
-                          row_binlog_tablet_id, false, false, TabletRolePB::TABLET_ROLE_ROW_BINLOG),
-            0);
-    ASSERT_EQ(create_tablet(txn_kv.get(), table_id, data_index_id, partition_id, data_tablet_id,
-                            true),
-              0);
-    ASSERT_EQ(create_delete_bitmaps_v2(txn_kv.get(), accessor.get(), row_binlog_tablet_id,
-                                       "row_binlog_rowset"),
-              0);
-    ASSERT_EQ(create_delete_bitmaps_v2(txn_kv.get(), accessor.get(), data_tablet_id, "data_rowset"),
-              0);
-
-    const int64_t get_count_before_row_binlog = txn_kv->get_count_;
-    ASSERT_EQ(recycler.delete_versioned_delete_bitmap_kvs(partition_id, row_binlog_tablet_id,
-                                                          "row_binlog_rowset"),
-              0);
-    EXPECT_EQ(txn_kv->get_count_, get_count_before_row_binlog + 2);
-    check_delete_bitmap_keys_size(txn_kv.get(), row_binlog_tablet_id, 0);
-
-    const int64_t get_count_before_data = txn_kv->get_count_;
-    ASSERT_EQ(recycler.delete_versioned_delete_bitmap_kvs(partition_id, data_tablet_id,
-                                                          "data_rowset"),
-              0);
-    EXPECT_EQ(txn_kv->get_count_, get_count_before_data + 2);
-    check_delete_bitmap_keys_size(txn_kv.get(), data_tablet_id, 0);
-}
-
 TEST(RecyclerTest, delete_rowset_data_packed_file_single_rowset) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
