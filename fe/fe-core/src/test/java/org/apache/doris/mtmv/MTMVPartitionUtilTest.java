@@ -71,6 +71,8 @@ public class MTMVPartitionUtilTest {
         refreshContextStatic = Mockito.mockStatic(MTMVRefreshContext.class);
         refreshContextStatic.when(() -> MTMVRefreshContext.buildContext(Mockito.any(MTMV.class), Mockito.anyMap()))
                 .thenReturn(context);
+        refreshContextStatic.when(() -> MTMVRefreshContext.buildContextForDisplay(Mockito.any(MTMV.class)))
+                .thenReturn(context);
 
         Mockito.when(mtmv.getRelation()).thenReturn(relation);
 
@@ -154,6 +156,12 @@ public class MTMVPartitionUtilTest {
     public void testIsMTMVSyncNormal() {
         boolean mtmvSync = MTMVPartitionUtil.isMTMVSync(mtmv);
         Assert.assertTrue(mtmvSync);
+    }
+
+    @Test
+    public void testIsMTMVSyncForDisplay() {
+        Assert.assertTrue(MTMVPartitionUtil.isMTMVSyncForDisplay(mtmv));
+        refreshContextStatic.verify(() -> MTMVRefreshContext.buildContextForDisplay(mtmv));
     }
 
     @Test

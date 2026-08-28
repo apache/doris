@@ -25,6 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.ExternalMetadataPreloadResult;
@@ -40,8 +41,12 @@ import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Preload external metadata after relation collection and before internal table locks are acquired.
@@ -95,17 +100,40 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
             return;
         }
         ConnectContext connectContext = statementContext.getConnectContext();
+        Map<MTMV, Set<MTMVRelatedTableIf>> eligibleMtmvs = new LinkedHashMap<>();
+        Set<MTMVRelatedTableIf> pctTables = new LinkedHashSet<>();
         for (MTMV mtmv : statementContext.getCandidateMTMVs()) {
             if (!requiresMtmvRefreshContext(statementContext, connectContext, mtmv)
                     || statementContext.getPreloadedMtmvRefreshContext(mtmv).isPresent()) {
                 continue;
             }
             try {
-                for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+                Set<MTMVRelatedTableIf> candidatePctTables = mtmv.getMvPartitionInfo().getPctTables();
+                eligibleMtmvs.put(mtmv, candidatePctTables);
+                candidatePctTables.stream().filter(MvccTable.class::isInstance).forEach(pctTables::add);
+            } catch (AnalysisException e) {
+                LOG.warn("Failed to resolve PCT tables for cloud MTMV {}", mtmv.getName(), e);
+            }
+        }
+        if (eligibleMtmvs.isEmpty()) {
+            return;
+        }
+        int snapshotLimit = connectContext.getSessionVariable()
+                .getMaterializedViewRewriteCloudPreloadSnapshotNum();
+        if (pctTables.size() > snapshotLimit) {
+            LOG.warn("Skip cloud MTMV rewrite preload because {} distinct PCT snapshots exceed limit {}",
+                    pctTables.size(), snapshotLimit);
+            return;
+        }
+        for (Map.Entry<MTMV, Set<MTMVRelatedTableIf>> entry : eligibleMtmvs.entrySet()) {
+            MTMV mtmv = entry.getKey();
+            try {
+                for (MTMVRelatedTableIf pctTable : entry.getValue()) {
                     statementContext.loadSnapshots(
                             pctTable, Optional.<TableSnapshot>empty(), Optional.<TableScanParams>empty());
                 }
-                statementContext.putPreloadedMtmvRefreshContext(mtmv, MTMVRefreshContext.buildContext(mtmv));
+                MTMVRefreshContext refreshContext = MTMVRefreshContext.buildContext(mtmv);
+                statementContext.putPreloadedMtmvRefreshContext(mtmv, refreshContext.compactCloudPreload());
             } catch (AnalysisException | DorisConnectorException e) {
                 LOG.warn("Failed to preload cloud MTMV refresh context for {}", mtmv.getName(), e);
             }
@@ -114,10 +142,11 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
 
     private boolean requiresMtmvRefreshContext(
             StatementContext statementContext, ConnectContext connectContext, MTMV mtmv) {
+        long rewriteEpochMillis = statementContext.getMtmvRewriteEpochMillis();
         for (PlannerHook hook : statementContext.getPlannerHooks()) {
             if (hook instanceof InitMaterializationContextHook
                     && ((InitMaterializationContextHook) hook)
-                            .requiresMtmvRefreshContext(mtmv, connectContext)) {
+                            .requiresMtmvRefreshContext(mtmv, connectContext, rewriteEpochMillis)) {
                 return true;
             }
         }

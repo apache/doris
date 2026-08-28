@@ -308,6 +308,25 @@ public class MTMVRefreshContext {
         return context;
     }
 
+    /** Keeps only the state needed to rebuild this cloud context from statement-local pins and version caches. */
+    public MTMVRefreshContext compactCloudPreload() {
+        MTMVRefreshContext compact = new MTMVRefreshContext(mtmv);
+        compact.baseTables = baseTables;
+        compact.pctTables = pctTables;
+        compact.partitionType = partitionType;
+        compact.queryUsedPartitions = Collections.emptyMap();
+        compact.partitionItems = Collections.emptyMap();
+        compact.partitionMappings = Collections.emptyMap();
+        compact.metadataAccessSource = metadataAccessSource;
+        return compact;
+    }
+
+    /** Rebuilds heavyweight mapping state without remote version access. */
+    public MTMVRefreshContext rebuildFromCachedVersions(
+            Map<List<String>, Set<String>> queryUsedPartitions) throws AnalysisException {
+        return buildContext(mtmv, queryUsedPartitions, baseTables, true);
+    }
+
     public static MTMVRefreshContext buildContext(MTMV mtmv,
             Map<List<String>, Set<String>> queryUsedPartitions) throws AnalysisException {
         MTMVRelation relation = mtmv.getRelation();
@@ -326,6 +345,12 @@ public class MTMVRefreshContext {
     public static MTMVRefreshContext buildContext(MTMV mtmv,
             Map<List<String>, Set<String>> queryUsedPartitions, Set<BaseTableInfo> baseTables)
             throws AnalysisException {
+        return buildContext(mtmv, queryUsedPartitions, baseTables, false);
+    }
+
+    private static MTMVRefreshContext buildContext(MTMV mtmv,
+            Map<List<String>, Set<String>> queryUsedPartitions, Set<BaseTableInfo> baseTables,
+            boolean cachedVersionsOnly) throws AnalysisException {
         MTMVRefreshContext context = new MTMVRefreshContext(mtmv);
         context.baseTables = Collections.unmodifiableSet(new LinkedHashSet<>(baseTables));
         context.pctTables = Collections.unmodifiableSet(new LinkedHashSet<>(
@@ -339,7 +364,7 @@ public class MTMVRefreshContext {
                         pctTable.getAndCopyPartitionItems(MvccUtil.getSnapshotFromContext(pctTable)));
             }
         }
-        context.refreshLocalState();
+        context.refreshLocalState(cachedVersionsOnly);
         return context;
     }
 

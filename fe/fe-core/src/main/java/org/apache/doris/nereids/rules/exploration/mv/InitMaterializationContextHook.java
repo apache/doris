@@ -189,10 +189,11 @@ public class InitMaterializationContextHook implements PlannerHook {
     }
 
     /** Whether cloud planning must preload the refresh context for this rewrite candidate. */
-    public boolean requiresMtmvRefreshContext(MTMV mtmv, ConnectContext connectContext) {
+    public boolean requiresMtmvRefreshContext(
+            MTMV mtmv, ConnectContext connectContext, long rewriteEpochMillis) {
         return mtmv.isUseForRewrite()
                 && MTMVRewriteUtil.requiresRefreshContext(
-                        mtmv, System.currentTimeMillis(), forceConsistent())
+                        mtmv, rewriteEpochMillis, forceConsistent())
                 && !rejectMtmvCandidate(connectContext, mtmv);
     }
 

@@ -136,6 +136,14 @@ public class HmsPartitionBatchExecutorTest {
                 new HmsRemoteCallException("remote",
                         new shade.doris.hive.org.apache.thrift.protocol.TProtocolException(
                                 "max message size reached"))));
+        Assertions.assertTrue(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
+                new HmsRemoteCallException("remote",
+                        new shade.doris.hive.org.apache.thrift.transport.TTransportException(
+                                "Frame size (100) larger than max length (10)!"))));
+        Assertions.assertFalse(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
+                new HmsRemoteCallException("remote",
+                        new shade.doris.hive.org.apache.thrift.transport.TTransportException(
+                                "Read a negative frame size (-1)!"))));
         Assertions.assertFalse(HmsPartitionBatchExecutor.isDegradableRemoteFailure(
                 new HmsRemoteCallException("remote",
                         new shade.doris.hive.org.apache.thrift.protocol.TProtocolException(
@@ -293,9 +301,9 @@ public class HmsPartitionBatchExecutorTest {
                 .fetcher((db, table, names) -> infos(names))
                 .build();
         HmsPartitionAccess access = new HmsPartitionAccess(executor, event -> {
-                    observerCalls.incrementAndGet();
-                    throw new IllegalStateException("metrics failure");
-                });
+            observerCalls.incrementAndGet();
+            throw new IllegalStateException("metrics failure");
+        });
         HmsPartitionRequest request = HmsPartitionRequest.builder()
                 .database("db")
                 .table("table")

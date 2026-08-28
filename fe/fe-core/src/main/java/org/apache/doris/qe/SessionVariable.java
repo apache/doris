@@ -770,6 +770,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MATERIALIZED_VIEW_REWRITE_SUCCESS_CANDIDATE_NUM
             = "materialized_view_rewrite_success_candidate_num";
+    public static final String MATERIALIZED_VIEW_REWRITE_CLOUD_PRELOAD_SNAPSHOT_NUM
+            = "materialized_view_rewrite_cloud_preload_snapshot_num";
 
     public static final String ENABLE_MATERIALIZED_VIEW_UNION_REWRITE
             = "enable_materialized_view_union_rewrite";
@@ -2868,6 +2870,9 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = MATERIALIZED_VIEW_REWRITE_SUCCESS_CANDIDATE_NUM, needForward = true,
             description = "The max candidate num which participate in CBO when using asynchronous materialized views")
     public int materializedViewRewriteSuccessCandidateNum = 3;
+    @VarAttrDef.VarAttr(name = MATERIALIZED_VIEW_REWRITE_CLOUD_PRELOAD_SNAPSHOT_NUM, needForward = true,
+            description = "The max distinct PCT snapshot num preloaded for cloud materialized view rewrite")
+    public int materializedViewRewriteCloudPreloadSnapshotNum = 8;
 
     @VarAttrDef.VarAttr(name = ENABLE_DML_MATERIALIZED_VIEW_REWRITE, needForward = true,
             description = "Whether to enable materialized view rewriting based on struct info")
@@ -6365,6 +6370,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getMaterializedViewRewriteSuccessCandidateNum() {
         return materializedViewRewriteSuccessCandidateNum;
+    }
+
+    public int getMaterializedViewRewriteCloudPreloadSnapshotNum() {
+        return materializedViewRewriteCloudPreloadSnapshotNum;
     }
 
     public boolean isEnableMaterializedViewUnionRewrite() {

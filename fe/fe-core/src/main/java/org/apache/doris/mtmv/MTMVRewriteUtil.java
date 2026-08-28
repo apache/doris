@@ -92,8 +92,8 @@ public class MTMVRewriteUtil {
                                     mtmv.getName());
                             return res;
                         }
-                        refreshContext = preloaded.get();
-                        refreshContext.refreshLocalStateFromCachedVersions(effectiveQueryUsedPartitions);
+                        refreshContext = preloaded.get()
+                                .rebuildFromCachedVersions(effectiveQueryUsedPartitions);
                     } else {
                         refreshContext = MTMVRefreshContext.buildContext(mtmv, effectiveQueryUsedPartitions);
                     }

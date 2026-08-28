@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelation;
@@ -29,7 +30,9 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -49,11 +52,13 @@ public class PreloadExternalMetadataTest {
             MTMVPartitionInfo partitionInfo = Mockito.mock(MTMVPartitionInfo.class);
             MTMVRelatedTableIf pctTable = Mockito.mock(MTMVRelatedTableIf.class);
             MTMVRefreshContext refreshContext = Mockito.mock(MTMVRefreshContext.class);
+            MTMVRefreshContext compactContext = Mockito.mock(MTMVRefreshContext.class);
             prepareEligibleMtmv(statementContext, mtmv);
             Mockito.when(statementContext.getCandidateMTMVs()).thenReturn(Collections.singleton(mtmv));
             Mockito.when(statementContext.getPreloadedMtmvRefreshContext(mtmv)).thenReturn(Optional.empty());
             Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(partitionInfo);
             Mockito.when(partitionInfo.getPctTables()).thenReturn(Collections.singleton(pctTable));
+            Mockito.when(refreshContext.compactCloudPreload()).thenReturn(compactContext);
 
             try (MockedStatic<MTMVRefreshContext> refreshContextStatic =
                     Mockito.mockStatic(MTMVRefreshContext.class)) {
@@ -67,7 +72,7 @@ public class PreloadExternalMetadataTest {
                 new PreloadExternalMetadata().executePreload(statementContext);
 
                 refreshContextStatic.verify(() -> MTMVRefreshContext.buildContext(mtmv), Mockito.times(1));
-                Mockito.verify(statementContext).putPreloadedMtmvRefreshContext(mtmv, refreshContext);
+                Mockito.verify(statementContext).putPreloadedMtmvRefreshContext(mtmv, compactContext);
             }
         } finally {
             Config.cloud_unique_id = originalCloudUniqueId;
@@ -84,6 +89,7 @@ public class PreloadExternalMetadataTest {
             MTMVPartitionInfo partitionInfo = Mockito.mock(MTMVPartitionInfo.class);
             prepareEligibleMtmv(statementContext, mtmv);
             Mockito.when(statementContext.getCandidateMTMVs()).thenReturn(Collections.singleton(mtmv));
+            Mockito.when(statementContext.getMtmvRewriteEpochMillis()).thenReturn(100L);
             Mockito.when(statementContext.getPreloadedMtmvRefreshContext(mtmv)).thenReturn(Optional.empty());
             Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(partitionInfo);
             Mockito.when(partitionInfo.getPctTables()).thenReturn(Collections.emptySet());
@@ -97,6 +103,39 @@ public class PreloadExternalMetadataTest {
 
                 Mockito.verify(statementContext, Mockito.never())
                         .putPreloadedMtmvRefreshContext(Mockito.any(), Mockito.any());
+            }
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
+    }
+
+    @Test
+    public void cloudMtmvPreloadBudgetFallsBackBeforeLoading() throws AnalysisException {
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        Config.cloud_unique_id = "test_cloud";
+        try {
+            StatementContext statementContext = Mockito.mock(StatementContext.class);
+            MTMV mtmv = Mockito.mock(MTMV.class);
+            MTMVPartitionInfo partitionInfo = Mockito.mock(MTMVPartitionInfo.class);
+            MTMVRelatedTableIf firstPct = Mockito.mock(MTMVRelatedTableIf.class,
+                    Mockito.withSettings().extraInterfaces(MvccTable.class));
+            MTMVRelatedTableIf secondPct = Mockito.mock(MTMVRelatedTableIf.class,
+                    Mockito.withSettings().extraInterfaces(MvccTable.class));
+            prepareEligibleMtmv(statementContext, mtmv);
+            Mockito.when(statementContext.getCandidateMTMVs()).thenReturn(Collections.singleton(mtmv));
+            Mockito.when(statementContext.getPreloadedMtmvRefreshContext(mtmv)).thenReturn(Optional.empty());
+            Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(partitionInfo);
+            Mockito.when(partitionInfo.getPctTables()).thenReturn(ImmutableSet.of(firstPct, secondPct));
+            Mockito.when(statementContext.getConnectContext().getSessionVariable()
+                    .getMaterializedViewRewriteCloudPreloadSnapshotNum()).thenReturn(1);
+
+            try (MockedStatic<MTMVRefreshContext> refreshContextStatic =
+                    Mockito.mockStatic(MTMVRefreshContext.class)) {
+                new PreloadExternalMetadata().executePreload(statementContext);
+
+                refreshContextStatic.verify(() -> MTMVRefreshContext.buildContext(mtmv), Mockito.never());
+                Mockito.verify(statementContext, Mockito.never())
+                        .loadSnapshots(Mockito.any(), Mockito.any(), Mockito.any());
             }
         } finally {
             Config.cloud_unique_id = originalCloudUniqueId;
@@ -137,12 +176,13 @@ public class PreloadExternalMetadataTest {
             Mockito.when(statementContext.getPlannerHooks()).thenReturn(
                     Collections.singleton(rewriteHook()));
             Mockito.when(statementContext.getCandidateMTMVs()).thenReturn(Collections.singleton(mtmv));
+            Mockito.when(statementContext.getMtmvRewriteEpochMillis()).thenReturn(100L);
             Mockito.when(mtmv.isUseForRewrite()).thenReturn(true);
             Mockito.when(mtmv.canBeCandidate()).thenReturn(true);
             Mockito.when(mtmv.getRelation()).thenReturn(Mockito.mock(MTMVRelation.class));
             Mockito.when(mtmv.getGracePeriod()).thenReturn(60_000L);
             Mockito.when(mtmv.getPartitions()).thenReturn(Collections.singleton(partition));
-            Mockito.when(partition.getVisibleVersionTime()).thenReturn(System.currentTimeMillis());
+            Mockito.when(partition.getVisibleVersionTime()).thenReturn(100L);
 
             new PreloadExternalMetadata().executePreload(statementContext);
 
@@ -156,7 +196,11 @@ public class PreloadExternalMetadataTest {
 
     private static void prepareEligibleMtmv(StatementContext statementContext, MTMV mtmv) {
         Partition partition = Mockito.mock(Partition.class);
-        Mockito.when(statementContext.getConnectContext()).thenReturn(Mockito.mock(ConnectContext.class));
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        SessionVariable sessionVariable = Mockito.mock(SessionVariable.class);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(sessionVariable.getMaterializedViewRewriteCloudPreloadSnapshotNum()).thenReturn(8);
+        Mockito.when(statementContext.getConnectContext()).thenReturn(connectContext);
         Mockito.when(statementContext.getPlannerHooks()).thenReturn(Collections.singleton(rewriteHook()));
         Mockito.when(mtmv.isUseForRewrite()).thenReturn(true);
         Mockito.when(mtmv.canBeCandidate()).thenReturn(true);

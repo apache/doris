@@ -132,7 +132,7 @@ public class MTMVRelationManager implements MTMVHookService {
     @VisibleForTesting
     public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent,
             Map<List<String>, Set<String>> queryUsedPartitions) {
-        long currentTimeMillis = System.currentTimeMillis();
+        long currentTimeMillis = ctx.getStatementContext().getMtmvRewriteEpochMillis();
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil.getMTMVCanRewritePartitions(
                 mtmv, ctx, currentTimeMillis, forceConsistent, queryUsedPartitions);
         // MTMVRewriteUtil.getMTMVCanRewritePartitions is time-consuming behavior, So record for used later

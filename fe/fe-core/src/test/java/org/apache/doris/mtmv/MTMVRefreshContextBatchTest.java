@@ -129,6 +129,12 @@ public class MTMVRefreshContextBatchTest {
         MTMVRefreshContext context = MTMVRefreshContext.buildContext(mtmv);
         context.preloadPartitionSnapshots();
 
+        MTMVRefreshContext compact = context.compactCloudPreload();
+        Assertions.assertTrue(compact.getPartitionMappings().isEmpty());
+        Assertions.assertNull(compact.getBaseVersions());
+        Assertions.assertEquals(160_000,
+                compact.rebuildFromCachedVersions(Collections.emptyMap()).getPartitionMappings().size());
+
         Mockito.verify(table, Mockito.times(1)).getPartitionSnapshots(
                 Mockito.argThat(names -> names.size() == 160_000), Mockito.same(context), Mockito.any());
         Mockito.verify(table, Mockito.never())

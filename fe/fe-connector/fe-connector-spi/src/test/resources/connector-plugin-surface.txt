@@ -55,6 +55,7 @@ org.apache.doris.connector.spi.ConnectorMetadataAccessEvent$Builder#rpcItems(lon
 org.apache.doris.connector.spi.ConnectorMetadataAccessEvent$Builder#smallestBatchSize(int):org.apache.doris.connector.spi.ConnectorMetadataAccessEvent$Builder
 org.apache.doris.connector.spi.ConnectorMetadataAccessEvent$Builder#source(java.lang.String):org.apache.doris.connector.spi.ConnectorMetadataAccessEvent$Builder
 org.apache.doris.connector.spi.ConnectorMetadataAccessEvent$Builder#success(boolean):org.apache.doris.connector.spi.ConnectorMetadataAccessEvent$Builder
+org.apache.doris.connector.spi.ConnectorMetadataAccessObserver#NOOP:org.apache.doris.connector.spi.ConnectorMetadataAccessObserver
 org.apache.doris.connector.spi.ConnectorMetadataAccessObserver#record(org.apache.doris.connector.spi.ConnectorMetadataAccessEvent):void
 org.apache.doris.connector.spi.ConnectorMetadataAccessSource#DISPLAY
 org.apache.doris.connector.spi.ConnectorMetadataAccessSource#MTMV
@@ -94,6 +95,13 @@ org.apache.doris.connector.spi.ConnectorSession#getStatementScope():org.apache.d
 org.apache.doris.connector.spi.ConnectorSession#getTimeZone():java.lang.String
 org.apache.doris.connector.spi.ConnectorSession#getUser():java.lang.String
 org.apache.doris.connector.spi.ConnectorSession#setCurrentTransaction(org.apache.doris.connector.spi.handle.ConnectorTransaction):void
+org.apache.doris.connector.spi.ConnectorTableSchema#DISTRIBUTION_COLUMNS_KEY:java.lang.String
+org.apache.doris.connector.spi.ConnectorTableSchema#INTERNAL_KEY_PREFIX:java.lang.String
+org.apache.doris.connector.spi.ConnectorTableSchema#PARTITION_COLUMNS_KEY:java.lang.String
+org.apache.doris.connector.spi.ConnectorTableSchema#RESERVED_CONTROL_KEYS:java.util.Set
+org.apache.doris.connector.spi.ConnectorTableSchema#SHOW_LOCATION_KEY:java.lang.String
+org.apache.doris.connector.spi.ConnectorTableSchema#SHOW_PARTITION_CLAUSE_KEY:java.lang.String
+org.apache.doris.connector.spi.ConnectorTableSchema#SHOW_SORT_CLAUSE_KEY:java.lang.String
 org.apache.doris.connector.spi.ConnectorTableSchema#equals(java.lang.Object):boolean
 org.apache.doris.connector.spi.ConnectorTableSchema#getColumns():java.util.List
 org.apache.doris.connector.spi.ConnectorTableSchema#getProperties():java.util.Map

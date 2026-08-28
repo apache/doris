@@ -159,13 +159,14 @@ public class MTMVRewriteUtilTest {
             Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
             Mockito.when(statementContext.getPreloadedMtmvRefreshContext(mtmv))
                     .thenReturn(Optional.of(preloaded));
+            Mockito.when(preloaded.rebuildFromCachedVersions(Mockito.anyMap())).thenReturn(preloaded);
             Mockito.when(preloaded.persistedPartitionSetsMatch("p1")).thenReturn(false);
 
             Collection<Partition> result = MTMVRewriteUtil.getMTMVCanRewritePartitions(
                     mtmv, ctx, currentTimeMills, false, null);
 
             Assert.assertTrue(result.isEmpty());
-            Mockito.verify(preloaded).refreshLocalStateFromCachedVersions(Mockito.anyMap());
+            Mockito.verify(preloaded).rebuildFromCachedVersions(Mockito.anyMap());
         } finally {
             Config.cloud_unique_id = originalCloudUniqueId;
         }

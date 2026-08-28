@@ -350,20 +350,23 @@ public class CachingHmsClient implements HmsClient {
             PartitionLoadBatch ownedBatch = new PartitionLoadBatch();
             List<PartitionLoadRegistration> owned = new ArrayList<>();
             Map<PartitionLoadBatch, List<PartitionLoadRegistration>> waiting = new IdentityHashMap<>();
-            List<HmsPartitionIdentity.ParsedPartitionName> deferred = new ArrayList<>();
             boolean slotAcquired = false;
             try {
                 try {
-                    if (requiresPartitionLoadSlot(request, pending)) {
-                        acquirePartitionLoadSlot(request, pending.size());
-                        slotAcquired = true;
-                    }
-                    for (int i = 0; i < pending.size(); i++) {
-                        registerPartitionLoad(request, pending.get(i), slotAcquired, ownedBatch,
-                                resultByIdentity, owned, waiting, deferred);
+                    ReentrantLock stateLock = partitionStateLock(request.getDbName(), request.getTableName());
+                    stateLock.lock();
+                    try {
+                        for (int i = 0; i < pending.size(); i++) {
+                            registerPartitionLoad(request, pending.get(i), ownedBatch,
+                                    resultByIdentity, owned, waiting);
+                        }
+                    } finally {
+                        stateLock.unlock();
                     }
                     afterPartitionLoadRegistrationForTest();
                     if (!owned.isEmpty()) {
+                        acquirePartitionLoadSlot(request, owned.size());
+                        slotAcquired = true;
                         loadOwnedPartitions(request, logicalAccess, ownedBatch, owned, resultByIdentity);
                     }
                     ownedBatch.future.complete(PartitionLoadOutcome.success());
@@ -378,7 +381,7 @@ public class CachingHmsClient implements HmsClient {
                     partitionLoadSlots.release();
                 }
             }
-            List<HmsPartitionIdentity.ParsedPartitionName> retries = deferred;
+            List<HmsPartitionIdentity.ParsedPartitionName> retries = new ArrayList<>();
             for (Map.Entry<PartitionLoadBatch, List<PartitionLoadRegistration>> entry : waiting.entrySet()) {
                 consumeWaitingBatch(request, entry.getKey(), entry.getValue(), resultByIdentity, retries);
             }
@@ -396,77 +399,45 @@ public class CachingHmsClient implements HmsClient {
         return inFlightPartitionLoads.size();
     }
 
-    private boolean requiresPartitionLoadSlot(HmsPartitionRequest request,
-            List<HmsPartitionIdentity.ParsedPartitionName> partitions) {
-        // This is only an admission hint. Registration rechecks under the table stripe and defers instead of
-        // claiming ownership when a concurrently completed owner made the hint stale.
-        for (HmsPartitionIdentity.ParsedPartitionName partition : partitions) {
-            PartitionKey key = new PartitionKey(
-                    request.getDbName(), request.getTableName(), partition.getValues());
-            PartitionLoadBatch existing = inFlightPartitionLoads.get(key);
-            if (partitionsCache.getIfPresent(key) == null
-                    && (existing == null || existing.isInvalidated(key))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private void registerPartitionLoad(HmsPartitionRequest request,
             HmsPartitionIdentity.ParsedPartitionName partition,
-            boolean canOwn,
             PartitionLoadBatch ownedBatch, Map<List<String>, HmsPartitionInfo> resultByIdentity,
             List<PartitionLoadRegistration> owned,
-            Map<PartitionLoadBatch, List<PartitionLoadRegistration>> waiting,
-            List<HmsPartitionIdentity.ParsedPartitionName> deferred) {
+            Map<PartitionLoadBatch, List<PartitionLoadRegistration>> waiting) {
         List<String> values = partition.getValues();
         PartitionKey key = new PartitionKey(request.getDbName(), request.getTableName(), values);
-        ReentrantLock stateLock = partitionStateLock(request.getDbName(), request.getTableName());
-        stateLock.lock();
-        try {
-            HmsPartitionInfo hit = partitionsCache.getIfPresent(key);
-            if (hit != null) {
-                resultByIdentity.put(values, hit);
-                return;
-            }
-            while (true) {
-                PartitionLoadBatch existing = inFlightPartitionLoads.get(key);
+        HmsPartitionInfo hit = partitionsCache.getIfPresent(key);
+        if (hit != null) {
+            resultByIdentity.put(values, hit);
+            return;
+        }
+        while (true) {
+            PartitionLoadBatch existing = inFlightPartitionLoads.get(key);
+            if (existing == null) {
+                existing = inFlightPartitionLoads.putIfAbsent(key, ownedBatch);
                 if (existing == null) {
-                    if (!canOwn) {
-                        deferred.add(partition);
-                        return;
-                    }
-                    existing = inFlightPartitionLoads.putIfAbsent(key, ownedBatch);
-                    if (existing == null) {
-                        break;
-                    }
-                }
-                if (!existing.isInvalidated(key)) {
-                    waiting.computeIfAbsent(existing, ignored -> new ArrayList<>())
-                            .add(new PartitionLoadRegistration(partition, key));
-                    return;
-                }
-                if (!canOwn) {
-                    deferred.add(partition);
-                    return;
-                }
-                if (inFlightPartitionLoads.replace(key, existing, ownedBatch)) {
                     break;
                 }
             }
-            ownedBatch.claimedKeys.add(key);
-            hit = partitionsCache.getIfPresent(key);
-            if (hit != null) {
-                ownedBatch.resolvedPartitions.put(key, hit);
-                resultByIdentity.put(values, hit);
-                ownedBatch.claimedKeys.remove(key);
-                inFlightPartitionLoads.remove(key, ownedBatch);
+            if (!existing.isInvalidated(key)) {
+                waiting.computeIfAbsent(existing, ignored -> new ArrayList<>())
+                        .add(new PartitionLoadRegistration(partition, key));
                 return;
             }
-            owned.add(new PartitionLoadRegistration(partition, key));
-        } finally {
-            stateLock.unlock();
+            if (inFlightPartitionLoads.replace(key, existing, ownedBatch)) {
+                break;
+            }
         }
+        ownedBatch.claimedKeys.add(key);
+        hit = partitionsCache.getIfPresent(key);
+        if (hit != null) {
+            ownedBatch.resolvedPartitions.put(key, hit);
+            resultByIdentity.put(values, hit);
+            ownedBatch.claimedKeys.remove(key);
+            inFlightPartitionLoads.remove(key, ownedBatch);
+            return;
+        }
+        owned.add(new PartitionLoadRegistration(partition, key));
     }
 
     private void loadOwnedPartitions(HmsPartitionRequest request, HmsPartitionAccess.LogicalAccess logicalAccess,
@@ -611,6 +582,9 @@ public class CachingHmsClient implements HmsClient {
 
     private static boolean isRetryableSharedFailure(Throwable failure, PartitionLoadBatch ownerBatch,
             List<PartitionLoadRegistration> waiterRegistrations) {
+        if (failure instanceof HmsClientException && failure.getCause() instanceof InterruptedException) {
+            return true;
+        }
         if (!(failure instanceof HmsPartitionResultException)) {
             return false;
         }

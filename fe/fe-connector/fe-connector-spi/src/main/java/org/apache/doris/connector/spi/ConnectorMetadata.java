@@ -167,14 +167,7 @@ public interface ConnectorMetadata extends
 
     default Map<String, Long> getPartitionFreshnessMillis(ConnectorSession session, ConnectorTableHandle handle,
             List<String> partitionNames, ConnectorMetadataAccessSource source) {
-        Map<String, Long> result = new LinkedHashMap<>();
-        for (String partitionName : partitionNames) {
-            OptionalLong freshness = getPartitionFreshnessMillis(session, handle, partitionName, source);
-            if (freshness.isPresent()) {
-                result.put(partitionName, freshness.getAsLong());
-            }
-        }
-        return result;
+        return getPartitionFreshnessMillis(session, handle, partitionNames);
     }
 
     /**

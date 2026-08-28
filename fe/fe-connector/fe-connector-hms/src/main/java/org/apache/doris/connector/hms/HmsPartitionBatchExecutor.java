@@ -319,7 +319,9 @@ final class HmsPartitionBatchExecutor {
                 String normalized = message.toLowerCase(Locale.ROOT);
                 if (normalized.contains("message size") || normalized.contains("max message")
                         || normalized.contains("maxmessagesize")
-                        || normalized.contains("frame size") || normalized.contains("frame too large")
+                        || (normalized.contains("frame size")
+                                && normalized.contains("larger than max length"))
+                        || normalized.contains("frame too large")
                         || normalized.contains("request too large") || normalized.contains("payload too large")
                         || normalized.contains("too many partitions")
                         || normalized.contains("partition limit")) {

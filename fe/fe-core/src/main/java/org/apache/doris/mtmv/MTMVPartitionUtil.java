@@ -230,12 +230,23 @@ public class MTMVPartitionUtil {
      * @return
      */
     public static boolean isMTMVSync(MTMV mtmv) {
+        return isMTMVSync(mtmv, false);
+    }
+
+    public static boolean isMTMVSyncForDisplay(MTMV mtmv) {
+        return isMTMVSync(mtmv, true);
+    }
+
+    private static boolean isMTMVSync(MTMV mtmv, boolean display) {
         MTMVRelation mtmvRelation = mtmv.getRelation();
         if (mtmvRelation == null) {
             return false;
         }
         try {
-            return isMTMVSync(MTMVRefreshContext.buildContext(mtmv, Maps.newHashMap()),
+            MTMVRefreshContext context = display
+                    ? MTMVRefreshContext.buildContextForDisplay(mtmv)
+                    : MTMVRefreshContext.buildContext(mtmv, Maps.newHashMap());
+            return isMTMVSync(context,
                     mtmvRelation.getBaseTablesOneLevelAndFromView(), Sets.newHashSet());
         } catch (AnalysisException e) {
             LOG.warn("isMTMVSync failed: ", e);

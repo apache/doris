@@ -18,6 +18,7 @@
 package org.apache.doris.connector.spi;
 
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
@@ -29,10 +30,12 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.TreeSet;
 
@@ -130,6 +133,19 @@ public class ConnectorPluginSurfaceTest {
                 .largestBatchSize(1).smallestBatchSize(2).build());
     }
 
+    @Test
+    public void sourceAwareFreshnessPreservesExistingBulkOverride() {
+        ConnectorMetadata metadata = new ConnectorMetadata() {
+            @Override
+            public Map<String, Long> getPartitionFreshnessMillis(
+                    ConnectorSession session, ConnectorTableHandle handle, List<String> partitionNames) {
+                return Map.of("p=1", 1L);
+            }
+        };
+        Assertions.assertEquals(Map.of("p=1", 1L), metadata.getPartitionFreshnessMillis(
+                null, null, Arrays.asList("p=1"), ConnectorMetadataAccessSource.DISPLAY));
+    }
+
     private static ConnectorMetadataAccessEvent.Builder validMetadataEvent() {
         return ConnectorMetadataAccessEvent.builder()
                 .operation("hms.get_partitions_by_names")
@@ -148,6 +164,13 @@ public class ConnectorPluginSurfaceTest {
             if (frozen.isEnum()) {
                 for (Object value : frozen.getEnumConstants()) {
                     rendered.add(frozen.getName() + "#" + ((Enum<?>) value).name());
+                }
+            }
+            for (Field field : frozen.getFields()) {
+                if (!field.isSynthetic() && !field.isEnumConstant()
+                        && field.getDeclaringClass().getName().startsWith("org.apache.doris.")) {
+                    rendered.add(frozen.getName() + "#" + field.getName()
+                            + ":" + field.getType().getTypeName());
                 }
             }
             for (Method m : frozen.getMethods()) {
