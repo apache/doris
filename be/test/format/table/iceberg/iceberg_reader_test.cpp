@@ -127,6 +127,9 @@ public:
                                    const DataTypePtr& type) {
         _id_to_block_column_name[field_id] = name;
         _required_column_types[name] = type;
+        // A projected field is always among the columns the scan reads, which is what the reader
+        // now checks before validating a required field.
+        _all_required_col_names.push_back(name);
     }
 
     Status materialize_missing_table_columns(Block* block) {
