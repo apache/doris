@@ -2364,9 +2364,8 @@ public class IcebergUtils {
         List<Column> tmpColumns = Lists.newArrayList();
         PartitionSpec spec = icebergTable.spec();
         for (PartitionField field : spec.fields()) {
-            Types.NestedField col = icebergTable.schema().findField(field.sourceId());
             for (Column c : schema) {
-                if (c.getName().equalsIgnoreCase(col.name())) {
+                if (c.getUniqueId() == field.sourceId()) {
                     tmpColumns.add(c);
                     break;
                 }

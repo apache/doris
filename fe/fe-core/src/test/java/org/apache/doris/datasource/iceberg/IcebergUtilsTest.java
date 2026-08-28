@@ -197,29 +197,30 @@ public class IcebergUtilsTest {
 
     @Test
     public void testPartitionColumnsUseFrozenTableSpec() {
-        Schema frozenSchema = new Schema(17, Arrays.asList(
+        Schema historicalSchema = new Schema(17, Arrays.asList(
                 Types.NestedField.required(1, "p", Types.IntegerType.get()),
                 Types.NestedField.optional(2, "q", Types.IntegerType.get())));
+        Schema currentSchema = new Schema(18, Arrays.asList(
+                Types.NestedField.required(1, "p_renamed", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "q", Types.IntegerType.get())));
         Table frozenTable = Mockito.mock(Table.class);
-        Mockito.when(frozenTable.schema()).thenReturn(frozenSchema);
-        Mockito.when(frozenTable.schemas()).thenReturn(
-                Collections.singletonMap(frozenSchema.schemaId(), frozenSchema));
-        Mockito.when(frozenTable.spec()).thenReturn(PartitionSpec.builderFor(frozenSchema).identity("p").build());
+        Mockito.when(frozenTable.schema()).thenReturn(currentSchema);
+        Mockito.when(frozenTable.schemas()).thenReturn(ImmutableMap.of(
+                historicalSchema.schemaId(), historicalSchema,
+                currentSchema.schemaId(), currentSchema));
+        Mockito.when(frozenTable.spec()).thenReturn(
+                PartitionSpec.builderFor(currentSchema).identity("p_renamed").build());
         Mockito.when(frozenTable.currentSnapshot()).thenReturn(Mockito.mock(Snapshot.class));
 
         IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
         IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
         Mockito.when(dorisTable.getCatalog()).thenReturn(catalog);
-        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
         Mockito.when(catalog.getName()).thenReturn("catalog");
-        IcebergSnapshotCacheValue cacheValue = new IcebergSnapshotCacheValue(
-                IcebergPartitionInfo.empty(), new IcebergSnapshot(101L, frozenSchema.schemaId()),
-                Optional.empty(), frozenTable);
+        IcebergSchemaCacheValue cacheValue = IcebergUtils.buildTableSchemaCacheValue(
+                dorisTable, historicalSchema.schemaId(), frozenTable,
+                new ExecutionAuthenticator() { }, false, false);
 
-        List<Column> partitionColumns = IcebergUtils.getIcebergPartitionColumns(
-                Optional.of(new IcebergMvccSnapshot(cacheValue)), dorisTable);
-
-        Assert.assertEquals(Collections.singletonList("p"), partitionColumns.stream()
+        Assert.assertEquals(Collections.singletonList("p"), cacheValue.getPartitionColumns().stream()
                 .map(Column::getName).collect(java.util.stream.Collectors.toList()));
     }
 
