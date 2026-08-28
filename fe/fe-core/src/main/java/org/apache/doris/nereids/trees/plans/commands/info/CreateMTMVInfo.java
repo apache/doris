@@ -79,6 +79,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
@@ -176,6 +177,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         }
         validateIvmOneRowRelationPartition();
         validateRefreshStrategyForCreate();
+        validateIvmOnlyProperties();
         this.partitionDesc = generatePartitionDesc(ctx);
 
         if (properties == null) {
@@ -208,6 +210,36 @@ public class CreateMTMVInfo extends CreateTableInfo {
 
         // set CreateTableInfo information
         setTableInformation(ctx);
+    }
+
+    private void validateIvmOnlyProperties() {
+        if (!mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT)) {
+            return;
+        }
+        // Creation does not reject the property on a non-IVM MV: REFRESH AUTO may probe IVM
+        // and fall back to a regular MTMV, so rejecting here would break AUTO creation. The
+        // property is simply ineffective on the non-IVM MV; ALTER is the enforcement point.
+        if (relation == null || relation.getBaseTables() == null) {
+            return;
+        }
+        Set<TableNameInfo> baseTableNames = relation.getBaseTables().stream()
+                .map(baseTableInfo -> new TableNameInfo(baseTableInfo.getCtlName(),
+                        baseTableInfo.getDbName(), baseTableInfo.getTableName()))
+                .collect(Collectors.toSet());
+        Map<TableNameInfo, Integer> windowLimits =
+                MTMVPropertyUtil.getIvmPartitionWindowLimit(mvProperties);
+        for (TableNameInfo configured : windowLimits.keySet()) {
+            boolean matched = baseTableNames.stream()
+                    .anyMatch(baseTableName -> MTMVPartitionUtil.isTableNamelike(configured, baseTableName));
+            if (!matched) {
+                throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT
+                        + ": table '" + configured.getTbl() + "' is not a base table of the materialized view");
+            }
+        }
+        // Each base table may be configured at most once (e.g. 's' and 'db.s' together).
+        for (TableNameInfo baseTableName : baseTableNames) {
+            MTMVPropertyUtil.getPartitionWindowLimit(windowLimits, baseTableName);
+        }
     }
 
     private void validateUserDistributionForIvm(Map<String, ColumnDefinition> columnMap) {

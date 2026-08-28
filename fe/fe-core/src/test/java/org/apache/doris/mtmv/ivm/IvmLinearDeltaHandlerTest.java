@@ -61,6 +61,7 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -93,7 +94,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
             });
             IvmDeltaRewriteVisitor visitor = new IvmDeltaRewriteVisitor(
                     new IvmLinearDeltaHandler(), new IvmJoinDeltaHandler(), new IvmAggDeltaHandler(),
-                    new IvmDeltaRewriteState(streams, true, 0, BigIntType.INSTANCE));
+                    new IvmDeltaRewriteState(streams, true, 0, BigIntType.INSTANCE, ImmutableMap.of()));
             return visitor.rewritePlan(plan, ctx);
         }
 

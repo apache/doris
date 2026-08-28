@@ -24,6 +24,7 @@ import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.common.Pair;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.MTMVPropertyUtil;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
@@ -34,6 +35,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -103,8 +105,11 @@ public class IvmDeltaRewriter {
             }
             LogicalOlapScan scan = (LogicalOlapScan) node;
             if (rewriteState.isExcluded(scan)) {
-                return scan;
+                // Excluded tables produce no delta, but their snapshot side still joins
+                // the delta side; apply the window so the property also saves their scan.
+                return rewriteState.restrictWindow(scan);
             }
+            scan = rewriteState.restrictWindow(scan);
             LogicalPlan snapshotScan = preSnapshot
                     ? scan.withPreSnapshot(Optional.of(rewriteState.getStream(scan)))
                     : scan.withPostSnapshot();
@@ -115,20 +120,35 @@ public class IvmDeltaRewriter {
 
     private IvmDeltaRewriteState createDeltaRewriteState(Plan plan, IvmIncrRefreshContext ctx, long refreshVersion) {
         Map<OlapTable, OlapTableStream> streams = new HashMap<>();
+        // Window limits apply to every base table in the plan, including excluded
+        // trigger tables (their snapshot side is windowed too, so the property saves
+        // the join-opposite scan cost even when the table produces no delta).
+        Set<OlapTable> planTables = new HashSet<>();
         Set<TableNameInfo> excludedTriggerTables = ctx.getMtmv().getExcludedTriggerTables();
         plan.foreach(node -> {
             if (!(node instanceof LogicalOlapScan)) {
                 return;
             }
             LogicalOlapScan scan = (LogicalOlapScan) node;
+            OlapTable table = (OlapTable) scan.getTable();
+            planTables.add(table);
             if (isExcludedTriggerTable(scan, excludedTriggerTables)) {
                 return;
             }
-            OlapTableStream stream = IvmUtil.getIvmStream(ctx.getMtmv(), (OlapTable) scan.getTable());
-            streams.put((OlapTable) scan.getTable(), stream);
+            streams.put(table, IvmUtil.getIvmStream(ctx.getMtmv(), table));
         });
+        Map<TableNameInfo, Integer> windowLimits =
+                MTMVPropertyUtil.getIvmPartitionWindowLimit(ctx.getMtmv().getMvProperties());
+        Map<OlapTable, List<Long>> windowPartitionIdsByTable = new HashMap<>();
+        if (!windowLimits.isEmpty()) {
+            for (OlapTable table : planTables) {
+                windowPartitionIdsByTable.put(table, MTMVPropertyUtil.getIvmPartitionWindowIds(table,
+                        new TableNameInfo(table.getFullQualifiers()), windowLimits));
+            }
+        }
         return new IvmDeltaRewriteState(streams, ctx.isIncludeExhaustedStreams(), refreshVersion,
-                DataType.fromCatalogType(ctx.getMtmv().getColumn(Column.SEQUENCE_COL).getType()));
+                DataType.fromCatalogType(ctx.getMtmv().getColumn(Column.SEQUENCE_COL).getType()),
+                windowPartitionIdsByTable);
     }
 
     boolean isExcludedTriggerTable(LogicalOlapScan scan, Set<TableNameInfo> excludedTriggerTables) {
