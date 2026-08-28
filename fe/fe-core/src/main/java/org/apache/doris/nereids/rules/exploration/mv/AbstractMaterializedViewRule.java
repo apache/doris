@@ -94,7 +94,36 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
- * The abstract class for all materialized view rules
+ * Template for matching a query region with a materialized view and constructing an equivalent plan.
+ *
+ * <p>The common rewrite pipeline is shared by scan, join, aggregate, window, limit, and TopN MV rules:
+ * <pre>
+ * query plan + candidate MV
+ *          |
+ *          v
+ * extract StructInfo and map query relations/slots to view relations/slots
+ *          |
+ *          v
+ * isGraphLogicalEquals: compare join graphs and collect predicates that can be pulled up
+ *          |
+ *          v
+ * predicatesCompensate: prove query predicate implies view predicate and compute query-only predicates
+ *          |
+ *          v
+ * rewriteExpression: express compensation predicates with MV scan outputs
+ *          |
+ *          v
+ * rewriteQueryByView: rebuild projections/aggregates/windows/limits for the concrete rule
+ *          |
+ *          v
+ * prune MV partitions -> optionally UNION ALL stale/missing partitions from base tables
+ *          |
+ *          v
+ * normalize and validate outputs -> record a successful MV alternative
+ * </pre>
+ *
+ * <p>Any stage that cannot prove semantic equivalence rejects only the current query/view mapping and lets the
+ * caller try the next mapping or materialization.
  */
 public abstract class AbstractMaterializedViewRule implements ExplorationRuleFactory {
 
@@ -115,9 +144,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             JoinType.ASOF_RIGHT_OUTER_JOIN);
 
     /**
-     * The abstract template method for query rewrite, it contains the main logic, try to rewrite query by
-     * multi materialization every time. if exception it will catch the exception and record it to
-     * materialization context.
+     * Top-level template that tries every candidate materialization and every valid query {@link StructInfo}.
+     * Candidate limits and the global rewrite-duration budget are enforced here; detailed equivalence checks are
+     * delegated to {@link #doRewrite(StructInfo, CascadesContext, MaterializationContext)}.
      */
     public List<Plan> rewrite(Plan queryPlan, CascadesContext cascadesContext) {
         List<Plan> rewrittenPlans = new ArrayList<>();
@@ -140,11 +169,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             if (checkIfRewritten(queryPlan, materializationContext)) {
                 continue;
             }
-            // check mv plan is valid or not
+            // Step 1: reject an invalid or unsupported MV definition before extracting query structures.
             if (!isMaterializationValid(queryPlan, cascadesContext, materializationContext)) {
                 continue;
             }
-            // get query struct infos according to the view strut info, if valid query struct infos is empty, bail out
+            // Step 2: extract query regions compatible with this rule and the candidate MV's table set.
             List<StructInfo> queryStructInfos = getValidQueryStructInfos(queryPlan, cascadesContext,
                     materializationContext);
             if (queryStructInfos.isEmpty()) {
@@ -213,13 +242,17 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     }
 
     /**
-     * The abstract template method for query rewrite, it contains the main logic, try to rewrite query by
-     * only one materialization every time. Different query pattern should override the sub logic.
+     * Core template that rewrites one query structure with one materialization.
+     *
+     * <p>Subclasses customize pattern checks, pre-checks, and {@link #rewriteQueryByView}; relation mapping,
+     * graph compatibility, predicate compensation, partition compensation, and final validation stay centralized
+     * here so all MV rule families use the same correctness gates.
      */
     protected List<Plan> doRewrite(StructInfo queryStructInfo, CascadesContext cascadesContext,
             MaterializationContext materializationContext) throws AnalysisException {
         List<Plan> rewriteResults = new ArrayList<>();
         StructInfo viewStructInfo = materializationContext.getStructInfo();
+        // Step 1: compare table sets and enumerate legal query-to-view relation mappings, including self-joins.
         MatchMode matchMode = decideMatchMode(queryStructInfo.getRelations(), viewStructInfo.getRelations(),
                 cascadesContext);
         if (MatchMode.COMPLETE != matchMode && MatchMode.QUERY_PARTIAL != matchMode) {
@@ -252,6 +285,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             SlotMapping viewToQuerySlotMapping = queryToViewSlotMapping.inverse();
+            // Step 2: compare query and view hypergraphs under this relation/slot mapping.
             LogicalCompatibilityContext compatibilityContext = LogicalCompatibilityContext.from(
                     queryToViewTableMapping, viewToQuerySlotMapping, queryStructInfo, viewStructInfo);
             ComparisonResult comparisonResult = StructInfo.isGraphLogicalEquals(queryStructInfo, viewStructInfo,
@@ -262,6 +296,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         comparisonResult::getErrorMessage);
                 continue;
             }
+            // Step 3: prove query predicates imply view predicates and retain the query-only difference.
             SplitPredicate compensatePredicates = predicatesCompensate(queryStructInfo, viewStructInfo,
                     viewToQuerySlotMapping, comparisonResult, cascadesContext);
             // Can not compensate, bail out
@@ -275,6 +310,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                 viewStructInfo.getEquivalenceClass(), comparisonResult));
                 continue;
             }
+            // Step 4: start from the MV scan and rewrite query-based compensation predicates onto MV outputs.
             Plan rewrittenPlan;
             Plan mvScan = materializationContext.getScanPlan(queryStructInfo, cascadesContext);
             Plan queryPlan = queryStructInfo.getTopPlan();
@@ -296,15 +332,17 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 }
                 rewrittenPlan = new LogicalFilter<>(Sets.newLinkedHashSet(rewriteCompensatePredicates), mvScan);
             }
+            // Step 5: let the concrete rule reject unsupported shapes before rebuilding query operators.
             boolean checkResult = rewriteQueryByViewPreCheck(matchMode, queryStructInfo,
                     viewStructInfo, viewToQuerySlotMapping, rewrittenPlan, materializationContext,
                     comparisonResult);
             if (!checkResult) {
                 continue;
             }
-            // Rewrite query by view
+            // Step 6: rebuild rule-specific operators, such as projects, aggregates, windows, limits, or TopN.
             rewrittenPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
                     rewrittenPlan, materializationContext, cascadesContext);
+            // Step 7: apply regular rewrites, especially partition pruning, before calculating stale partitions.
             // This is needed whenever by pre rbo mv rewrite or final cbo rewrite, because the following optimize
             // has the partition prune, this is important for the baseTableNeedUnionPartitionNameSet.addAll code
             // in method calcInvalidPartitions, such as mv has 17, 18, 19 three partitions, 18 is invalid as insert data
@@ -320,6 +358,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             if (rewrittenPlan == null) {
                 continue;
             }
+            // Step 8: for partitioned async MVs, remove unusable MV partitions and read their data from base tables.
             Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> invalidPartitions;
             if (PartitionCompensator.needUnionRewrite(materializationContext, cascadesContext.getStatementContext())
                     && sessionVariable.isEnableMaterializedViewUnionRewrite()) {
@@ -415,6 +454,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     }
                 }
             }
+            // Step 9: normalize expression IDs and verify that the replacement preserves the query output contract.
             List<Slot> rewrittenPlanOutput = rewrittenPlan.getOutput();
             rewrittenPlan = MaterializedViewUtils.normalizeExpressions(rewrittenPlan, queryPlan);
             if (rewrittenPlan == null) {
@@ -444,6 +484,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                 logicalProperties, queryPlan.getLogicalProperties()));
                 continue;
             }
+            // Step 10: register partition/statistics metadata and record the alternative for later costing.
             // need to collect table partition again, because the rewritten plan would contain new relation
             // and the rewritten plan would part in rewritten later, the table used partition info is needed
             // for later rewrite
@@ -534,9 +575,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     }
 
     /**
-    * Query rewrite result may output origin plan , this will cause loop.
-    * if return origin plan, need add check hear.
-    */
+     * Rule-family pre-check before rebuilding query operators on top of the MV scan.
+     *
+     * <p>The common check prevents a synchronous roll-up index from rewriting an already selected non-base index,
+     * which would re-enter the same rewrite path. Subclasses add shape-specific correctness checks.
+     */
     protected boolean rewriteQueryByViewPreCheck(MatchMode matchMode, StructInfo queryStructInfo,
             StructInfo viewStructInfo, SlotMapping viewToQuerySlotMapping, Plan tempRewritedPlan,
             MaterializationContext materializationContext, ComparisonResult comparisonResult) {
@@ -551,7 +594,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     }
 
     /**
-     * Rewrite query by view, for aggregate or join rewriting should be different inherit class implementation
+     * Rebuild the query operators above {@code tempRewritedPlan} using expressions available from the MV scan.
+     * Scan rules can use the temporary plan directly; join, aggregate, window, limit, and TopN rules override this
+     * method to restore their query-specific output semantics.
      */
     protected Plan rewriteQueryByView(MatchMode matchMode, StructInfo queryStructInfo, StructInfo viewStructInfo,
             SlotMapping viewToQuerySlotMapping, Plan tempRewritedPlan, MaterializationContext materializationContext,
@@ -560,9 +605,16 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     }
 
     /**
-     * Use target expression to represent the source expression. Visit the source expression,
-     * try to replace the source expression with target expression in targetExpressionMapping, if found then
-     * replace the source expression by target expression mapping value.
+     * Express query-side source expressions with target outputs, normally slots produced by the MV scan.
+     *
+     * <p>The rewrite has two coordinate conversions:
+     * <pre>
+     * query expression -> lineage-shuttled query expression
+     *                  -> match against MV expressions translated to query slots
+     *                  -> replace with MV scan output expressions
+     * </pre>
+     * Every non-literal source expression must be fully representable. If any original query slot remains after
+     * replacement, the whole batch fails with an empty list so callers cannot build a partially rewritten plan.
      *
      * @param sourceExpressionsToWrite the source expression to write by target expression
      * @param sourcePlan the source plan witch the source expression belong to
@@ -791,7 +843,18 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     }
 
     /**
-     * Compensate mv predicates by query predicates, compensate predicate result is query based.
+     * Prove that the query predicate domain is contained in the MV predicate domain and return the difference.
+     * The compensation result remains query-based; {@link #rewriteExpression} later translates it to MV scan slots.
+     *
+     * <p>The method combines three sources of compensation:
+     * <pre>
+     * graph comparison pull-up predicates
+     *              + predicates needed to prove null rejection for compatible join-type changes
+     *              + equality/range/residual predicate differences
+     *              = predicates to evaluate above the MV scan
+     * </pre>
+     *
+     * <p>Compensate mv predicates by query predicates, compensate predicate result is query based.
      * Such as a > 5 in mv, and a > 10 in query, the compensatory predicate is a > 10.
      * For another example as following:
      * predicate a = b in mv, and a = b and c = d in query, the compensatory predicate is c = d

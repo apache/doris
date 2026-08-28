@@ -36,13 +36,48 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Individual materialized view rewriter based CBO
+ * Runs an early, isolated CBO pass when shape-changing RBO rules could otherwise hide a transparent
+ * materialized view rewrite candidate.
+ *
+ * <p>The pre-rewrite flow is:
+ * <pre>
+ * analyzed plan
+ *      |
+ *      v
+ * RecordPlanForMvPreRewrite saves a normalized plan before shape-changing RBO rules
+ *      |
+ *      v
+ * RBO records every successfully applied RuleType
+ *      |
+ *      v
+ * needPreRewrite: applied rules intersect NEED_PRE_REWRITE_RULE_TYPES, or strategy is FORCE_IN_RBO
+ *      |
+ *      v
+ * initialize MV contexts from the saved plan
+ *      |
+ *      v
+ * rewrite: explore MV alternatives -> choose the best physical plan -> recover its logical plan
+ *      |
+ *      v
+ * continue the normal rewrite and optimization pipeline with the MV-based plan
+ * </pre>
  */
 public class PreMaterializedViewRewriter {
+    /**
+     * Rules whose successful application can materially change the plan shape seen by MV matching.
+     *
+     * <p>In {@link #needPreRewrite(CascadesContext)}, this mask is intersected with the rules actually applied
+     * during RBO. A non-empty intersection means that matching only the post-RBO plan could miss an MV alternative,
+     * so the saved pre-RBO plan is sent through the early CBO rewrite path.
+     *
+     * <p>When adding a shape-changing RBO rule that can move or transform joins, aggregates, limits, windows,
+     * projections, or scan expressions relevant to MV matching, add its {@link RuleType} here as well.
+     */
     public static BitSet NEED_PRE_REWRITE_RULE_TYPES = new BitSet();
     private static final Logger LOG = LogManager.getLogger(PreMaterializedViewRewriter.class);
 
     static {
+        // TopN and limit pushdown rules change which operators belong to the query region matched with an MV.
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_TOP_N_THROUGH_JOIN.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_TOP_N_THROUGH_PROJECT_JOIN.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_TOP_N_DISTINCT_THROUGH_JOIN.ordinal());
@@ -59,11 +94,15 @@ public class PreMaterializedViewRewriter {
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_LIMIT_THROUGH_PROJECT_WINDOW.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_LIMIT_THROUGH_UNION.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_LIMIT_THROUGH_WINDOW.ordinal());
+
+        // Join and expression normalization rules change the graph edges or expression forms used for matching.
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.ELIMINATE_CONST_JOIN_CONDITION.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.MERGE_PERCENTILE_TO_ARRAY.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.SUM_LITERAL_REWRITE.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.DISTINCT_AGG_STRATEGY_SELECTOR.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.CONSTANT_PROPAGATION.ordinal());
+
+        // Scan, aggregate, join, and TopN rewrites below change structures consumed by specialized MV rules.
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.DISTINCT_AGGREGATE_SPLIT.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT.ordinal());
@@ -74,23 +113,27 @@ public class PreMaterializedViewRewriter {
     }
 
     /**
-     * Materialize view pre rewrite
+     * Optimize the saved pre-RBO plan with MV exploration and return the logical plan represented by the chosen
+     * physical alternative.
+     *
+     * <p>Returning a logical plan is important: the caller still needs to run the remaining rewrite and CBO stages.
+     * A null result means either pre-rewrite is disabled or the best alternative does not use a materialization.
      */
     public static Plan rewrite(CascadesContext cascadesContext) {
         if (cascadesContext.getMaterializationContexts().isEmpty()
                 || !cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
             return null;
         }
-        // Do optimize
+        // Step 1: explore and cost all alternatives, including MV alternatives registered for pre-rewrite.
         new Optimizer(cascadesContext).execute();
-        // Chose the best physical plan
+        // Step 2: choose the cheapest physical alternative from the isolated memo.
         Group root = cascadesContext.getMemo().getRoot();
         PhysicalPlan physicalPlan = NereidsPlanner.chooseBestPlan(root,
                 cascadesContext.getCurrentJobContext().getRequiredProperties(), cascadesContext);
         Pair<Map<List<String>, MaterializationContext>, BitSet> chosenMaterializationAndUsedTable
                 = MaterializedViewUtils.getChosenMaterializationAndUsedTable(physicalPlan,
                 cascadesContext.getAllMaterializationContexts());
-        // Extract logical plan by table id set by the corresponding best physical plan
+        // Step 3: use the chosen MV/table set to recover the corresponding logical expression from the memo.
         StructInfo structInfo = root.getStructInfoMap().getStructInfo(cascadesContext,
                 chosenMaterializationAndUsedTable.value(), root, null, true, false);
         if (structInfo == null) {
@@ -108,8 +151,8 @@ public class PreMaterializedViewRewriter {
     }
 
     /**
-     * Calc need to record tmp plan for rewrite or not, this would be calculated in RBO phase
-     * if needed should return true, or would return false
+     * Decide whether RBO should preserve a normalized plan before later rules change its shape.
+     * Recording is allowed only when the strategy permits pre-rewrite and the statement has candidate MVs.
      */
     public static boolean needRecordTmpPlanForRewrite(CascadesContext cascadesContext) {
         StatementContext statementContext = cascadesContext.getStatementContext();
@@ -129,7 +172,11 @@ public class PreMaterializedViewRewriter {
     }
 
     /**
-     * Calc need pre mv rewrite or not, this would be calculated after RBO phase
+     * Decide after RBO whether to run the saved plan through pre-rewrite.
+     *
+     * <p>TRY_IN_RBO requires at least one applied rule from {@link #NEED_PRE_REWRITE_RULE_TYPES}; FORCE_IN_RBO
+     * bypasses that rule-mask condition. Both strategies still require a recorded plan, an MV hook, and a supported
+     * optimizer mode.
      */
     public static boolean needPreRewrite(CascadesContext cascadesContext) {
         StatementContext statementContext = cascadesContext.getStatementContext();
