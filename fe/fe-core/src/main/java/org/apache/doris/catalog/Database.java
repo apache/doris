@@ -843,7 +843,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         }
     }
 
-    public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
+    public synchronized List<Long> dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
         Function udfFunction = null;
         try {
             // here we must first getFunction, as dropFunctionImpl will remove it
@@ -853,11 +853,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 throw new UserException(e);
             } else {
                 // ignore it, as drop it if exist, so can't sure it must exist
-                return;
+                return ImmutableList.of();
             }
         }
 
+        List<Long> droppedFunctionIds = Lists.newArrayList();
         dropFunctionImpl(function, ifExists);
+        droppedFunctionIds.add(udfFunction.getId());
         if (udfFunction != null && udfFunction.isUDTFunction()) {
             // all of the table function in doris will have two function
             // one is the normal, and another is outer, the different of them is deal with
@@ -866,8 +868,18 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                     function.getName().getFunction() + "_outer");
             FunctionSearchDesc functionOuter = new FunctionSearchDesc(name, function.getArgTypes(),
                     function.isVariadic());
+            Function udfOuterFunction = null;
+            try {
+                udfOuterFunction = getFunction(functionOuter);
+            } catch (AnalysisException e) {
+                // Let dropFunctionImpl preserve the existing IF EXISTS and error behavior.
+            }
             dropFunctionImpl(functionOuter, ifExists);
+            if (udfOuterFunction != null) {
+                droppedFunctionIds.add(udfOuterFunction.getId());
+            }
         }
+        return droppedFunctionIds;
     }
 
     public synchronized void dropFunctionImpl(FunctionSearchDesc function, boolean ifExists) throws UserException {
