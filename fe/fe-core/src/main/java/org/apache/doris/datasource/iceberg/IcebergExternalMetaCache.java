@@ -411,12 +411,13 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         if (!generation.isPresent()) {
             return (IcebergSchemaCacheValue) loadSchemaCacheValue(
                     new IcebergSchemaCacheKey(nameMapping, "", schemaId,
-                            retainedTable.spec().specId(),
+                            retainedTable.spec().specId(), retainedTable.schema().schemaId(),
                             enableMappingVarbinary, enableMappingTimestampTz),
                     retainedTable, authenticator);
         }
         IcebergSchemaCacheKey key = new IcebergSchemaCacheKey(
                 nameMapping, generation.get().getTableUuid(), schemaId, retainedTable.spec().specId(),
+                retainedTable.schema().schemaId(),
                 enableMappingVarbinary, enableMappingTimestampTz);
         MetaCacheEntry<IcebergSchemaCacheKey, SchemaCacheValue> entry = schemaEntry.get(nameMapping.getCtlId());
         SchemaCacheValue schemaCacheValue = entry

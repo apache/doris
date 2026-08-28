@@ -109,6 +109,9 @@ public class IcebergExternalMetaCacheTest {
         Assert.assertNotEquals(
                 new IcebergSchemaCacheKey(mapping, "table-uuid", 7L, 3, false, false),
                 new IcebergSchemaCacheKey(mapping, "table-uuid", 7L, 4, false, false));
+        Assert.assertNotEquals(
+                new IcebergSchemaCacheKey(mapping, "table-uuid", 7L, 3, 8, false, false),
+                new IcebergSchemaCacheKey(mapping, "table-uuid", 7L, 3, 9, false, false));
     }
 
     // U+0130 (LATIN CAPITAL LETTER I WITH DOT ABOVE) lower-cases to two characters in Locale.ROOT.
@@ -975,7 +978,8 @@ public class IcebergExternalMetaCacheTest {
                     tableWithMetadataLocation("/metadata/rejected-schema.json"));
             IcebergSchemaCacheKey schemaKey = new IcebergSchemaCacheKey(
                     mapping, rejected.getTableUuid().get(), 0L,
-                    rejected.getRetainedIcebergTable().spec().specId());
+                    rejected.getRetainedIcebergTable().spec().specId(),
+                    rejected.getRetainedIcebergTable().schema().schemaId(), false, false);
             IcebergSchemaCacheValue schemaValue = new IcebergSchemaCacheValue(
                     Collections.emptyList(), Collections.emptyList());
             schemas.put(schemaKey, schemaValue);
@@ -1331,7 +1335,8 @@ public class IcebergExternalMetaCacheTest {
                     tableWithMetadataLocation("/metadata/disabled-table-cache.json"));
             IcebergSchemaCacheKey schemaKey = new IcebergSchemaCacheKey(
                     mapping, table.getTableUuid().get(), 0L,
-                    table.getRetainedIcebergTable().spec().specId());
+                    table.getRetainedIcebergTable().spec().specId(),
+                    table.getRetainedIcebergTable().schema().schemaId(), false, false);
             IcebergSchemaCacheValue schemaValue = new IcebergSchemaCacheValue(
                     Collections.emptyList(), Collections.emptyList());
             MetaCacheEntry<IcebergSchemaCacheKey, SchemaCacheValue> schemas = cache.entry(
@@ -1366,7 +1371,8 @@ public class IcebergExternalMetaCacheTest {
                     NameMapping.class, IcebergTableCacheValue.class).put(mapping, newTable);
             IcebergSchemaCacheKey staleKey = new IcebergSchemaCacheKey(
                     mapping, oldTable.getTableUuid().get(), 0L,
-                    oldTable.getRetainedIcebergTable().spec().specId());
+                    oldTable.getRetainedIcebergTable().spec().specId(),
+                    oldTable.getRetainedIcebergTable().schema().schemaId(), false, false);
             IcebergSchemaCacheValue staleValue = new IcebergSchemaCacheValue(
                     Collections.emptyList(), Collections.emptyList());
             MetaCacheEntry<IcebergSchemaCacheKey, SchemaCacheValue> schemas = cache.entry(
