@@ -26,6 +26,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
@@ -82,6 +83,7 @@ public class AlterTableCommandLanceIndexTest {
         private final Env env;
         private final CatalogMgr catalogMgr;
         private final LanceExternalCatalog catalog;
+        private final LanceExternalDatabase database;
         private final LanceExternalTable table;
 
         LanceFixture(boolean restCatalog, boolean alterGranted) throws DdlException {
@@ -90,7 +92,7 @@ public class AlterTableCommandLanceIndexTest {
             catalogMgr = Mockito.mock(CatalogMgr.class);
             AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
             catalog = Mockito.mock(LanceExternalCatalog.class);
-            LanceExternalDatabase database = Mockito.mock(LanceExternalDatabase.class);
+            database = Mockito.mock(LanceExternalDatabase.class);
             table = Mockito.mock(LanceExternalTable.class);
 
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
@@ -179,6 +181,18 @@ public class AlterTableCommandLanceIndexTest {
         }
     }
 
+    private AnalysisException runAndGetCommonAnalysisException(String sql) {
+        AlterTableCommand command = (AlterTableCommand) parser.parseSingle(sql);
+        try {
+            command.run(connectContext, null);
+            throw new AssertionError("expected an AnalysisException but the statement succeeded: " + sql);
+        } catch (AnalysisException e) {
+            return e;
+        } catch (Exception e) {
+            throw new AssertionError("unexpected exception " + e.getClass().getName() + ": " + e.getMessage(), e);
+        }
+    }
+
     @Test
     public void testCreateIndexOnLanceTableIsTypedRejected() throws Exception {
         try (LanceFixture fixture = new LanceFixture(false, true)) {
@@ -214,6 +228,20 @@ public class AlterTableCommandLanceIndexTest {
     }
 
     @Test
+    public void testFilesystemCatalogRejectionsExposeNotSupportedErrorCode() throws Exception {
+        try (LanceFixture fixture = new LanceFixture(false, true)) {
+            for (String sql : new String[] {
+                    "CREATE INDEX idx ON " + CTL + "." + DB + "." + TBL + " (c) USING BTREE",
+                    "CREATE OR REPLACE INDEX idx ON " + CTL + "." + DB + "." + TBL + " (c) USING BTREE",
+                    "DROP INDEX idx ON " + CTL + "." + DB + "." + TBL}) {
+                AnalysisException exception = runAndGetCommonAnalysisException(sql);
+                Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_OPERATION_NOT_SUPPORTED,
+                        exception.getMysqlErrorCode());
+            }
+        }
+    }
+
+    @Test
     public void testRestCatalogMessagesFireFirst() throws Exception {
         try (LanceFixture fixture = new LanceFixture(true, true)) {
             Assertions.assertEquals("CREATE INDEX is not supported for Lance REST catalogs",
@@ -224,6 +252,8 @@ public class AlterTableCommandLanceIndexTest {
                             + " (c) USING BTREE"));
             Assertions.assertEquals("DROP INDEX is not supported for Lance REST catalogs",
                     runAndGetMessage("DROP INDEX idx ON " + CTL + "." + DB + "." + TBL));
+            Mockito.verify(fixture.catalog, Mockito.never()).getDbOrDdlException(Mockito.anyString());
+            Mockito.verify(fixture.database, Mockito.never()).getTableOrDdlException(Mockito.anyString());
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
         }
     }
@@ -268,9 +298,9 @@ public class AlterTableCommandLanceIndexTest {
 
     @Test
     public void testAlterTableAddAndDropIndexKeepTheGenericRejection() throws Exception {
-        try (LanceFixture fixture = new LanceFixture(false, true)) {
-            // alter = true ops skip the Lance branch and fall through to the existing generic
-            // external-table rejection.
+        try (LanceFixture fixture = new LanceFixture(true, true)) {
+            // alter = true ops skip both the REST fail-fast branch and the Lance branch, then
+            // fall through to the existing generic external-table rejection.
             String addMessage = runAndGetMessage(
                     "ALTER TABLE " + CTL + "." + DB + "." + TBL + " ADD INDEX idx (c) USING INVERTED");
             Assertions.assertTrue(addMessage.contains("do not support SCHEMA_CHANGE clause now"),
@@ -280,12 +310,14 @@ public class AlterTableCommandLanceIndexTest {
                     "ALTER TABLE " + CTL + "." + DB + "." + TBL + " DROP INDEX idx");
             Assertions.assertTrue(dropMessage.contains("do not support SCHEMA_CHANGE clause now"),
                     dropMessage);
+            Mockito.verify(fixture.catalog, Mockito.times(2)).getDbOrDdlException(DB);
+            Mockito.verify(fixture.database, Mockito.times(2)).getTableOrDdlException(TBL);
         }
     }
 
     @Test
     public void testPrivilegeDeniedPrecedesTheTypedRejection() throws Exception {
-        try (LanceFixture fixture = new LanceFixture(false, false)) {
+        try (LanceFixture fixture = new LanceFixture(true, false)) {
             String message = runAndGetMessage(
                     "CREATE INDEX idx ON " + CTL + "." + DB + "." + TBL + " (v) USING ANN "
                             + VALID_ANN_PROPERTIES);
