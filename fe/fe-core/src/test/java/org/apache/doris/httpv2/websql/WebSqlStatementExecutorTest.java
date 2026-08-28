@@ -271,7 +271,7 @@ public class WebSqlStatementExecutorTest {
         Mockito.when(connection.unwrap(org.mariadb.jdbc.Connection.class)).thenReturn(mariaDbConnection);
         Mockito.when(mariaDbConnection.getContext()).thenReturn(context);
         Mockito.when(context.getServerStatus()).thenReturn(
-                noBackslashEscapes ? ServerStatus.NO_BACKSLASH_ESCAPES : 0);
+                noBackslashEscapes ? (int) ServerStatus.NO_BACKSLASH_ESCAPES : 0);
     }
 
     private WebSqlLimits limits() {
