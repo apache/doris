@@ -50,6 +50,7 @@
 #include "io/cache/file_block.h"
 #include "io/cache/inflight_write_buffer_index.h"
 #include "io/cache/peer_file_cache_reader.h"
+#include "io/cache/range_cache_writeback.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
@@ -131,6 +132,32 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
     } else {
         _init_external_table_cache(opts);
     }
+}
+
+std::shared_ptr<RangeCacheWriteback> CachedRemoteFileReader::make_range_cache_writeback(
+        const IOContext& io_context, PartialBlockWritebackManager* partial_block_manager) const {
+    DORIS_CHECK(_cache != nullptr);
+    DORIS_CHECK(partial_block_manager != nullptr);
+    if (_resolve_cache_write_mode(&io_context) == CacheWriteMode::NO_WRITE ||
+        use_remote_only_on_cache_miss(&io_context)) {
+        return nullptr;
+    }
+    auto* write_manager = _cache->async_write_manager();
+    DORIS_CHECK(write_manager != nullptr);
+    CacheContext cache_context(&io_context);
+    return std::make_shared<RangeCacheWriteback>(RangeCacheWritebackOptions {
+            .write_manager = write_manager,
+            .partial_block_manager = partial_block_manager,
+            .inflight_index = config::enable_async_file_cache_write_inflight_write_buffer_index
+                                      ? _cache->inflight_write_buffer_index()
+                                      : nullptr,
+            .source_reader = _remote_file_reader,
+            .cache_hash = _cache_hash,
+            .file_size = size(),
+            .block_size = static_cast<size_t>(config::file_cache_each_block_size),
+            .admission_ctx = CacheAdmissionContext::from_cache_context(cache_context, _tablet_id),
+            .io_context = FileRangeReadIOContext::from_caller(io_context),
+    });
 }
 
 void CachedRemoteFileReader::_init_doris_table_cache() {
