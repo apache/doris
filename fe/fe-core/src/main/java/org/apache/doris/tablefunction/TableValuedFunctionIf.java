@@ -104,6 +104,8 @@ public abstract class TableValuedFunctionIf {
                 return new HttpTableValuedFunction(params);
             case VectorSearchTableValuedFunction.NAME:
                 return new VectorSearchTableValuedFunction(params);
+            case FullTextSearchTableValuedFunction.NAME:
+                return new FullTextSearchTableValuedFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }

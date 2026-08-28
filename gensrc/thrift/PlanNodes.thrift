@@ -478,6 +478,11 @@ struct TVectorSearchParams {
     5: optional TVectorMetric metric
 }
 
+enum TFtsCoverageMode {
+    STRICT,
+    INDEX_ONLY
+}
+
 // Logical parameters for one full-text query. `query` initially carries the backend query string;
 // richer structured query forms can be added as new fields without changing this basic contract.
 struct TFullTextSearchParams {
@@ -485,6 +490,13 @@ struct TFullTextSearchParams {
     2: optional string query
     3: optional i64 top_k
     4: optional i64 offset
+    // STRICT requires the selected FTS index to cover the complete pinned snapshot. INDEX_ONLY
+    // searches and scores only fragments covered by committed FTS index segments.
+    5: optional TFtsCoverageMode coverage_mode
+    // Opaque, versioned global BM25 statistics prepared by Lance for this exact snapshot and
+    // query. Unset while BE scanners prepare statistics locally; future FE versions may populate
+    // this field once the bundled lance-c exposes the corresponding consumer API.
+    6: optional binary global_statistics
 }
 
 enum TSearchFilterFormat {
@@ -534,8 +546,9 @@ struct TLanceFileDesc {
     // most this many rows; the upper LIMIT operator still enforces the global bound.
     // Only set for ordinary scans whose predicates are fully pushed into Lance.
     4: optional i64 limit
-    // Physical vector-index segments assigned to this distributed search split. Each value is one
-    // UUID encoded as 16 bytes in RFC 4122 order. Unset for ordinary and unindexed-fragment scans.
+    // Physical vector or FTS index segments assigned to this distributed search split. Each value
+    // is one UUID encoded as 16 bytes in RFC 4122 order. Unset for ordinary and vector
+    // unindexed-fragment scans.
     5: optional list<binary> index_segment_uuids
 }
 
@@ -544,8 +557,8 @@ struct TLanceScanParams {
     // ScanNode level so it is not serialized once per fragment split.
     1: optional binary lance_substrait_filter
     // Provider-independent search request. Set at ScanNode level so all ranges use the same logical
-    // query. Lance vector search uses one range per fragment and Doris merges the split-local
-    // candidates.
+    // query. Lance external search uses one range per fragment or physical index segment, and Doris
+    // merges the split-local candidates.
     2: optional TExternalSearchRequest external_search_request
     // Lance-native storage options, handed to lance-c untranslated. The namespace protocol treats
     // storage_options as opaque configuration passed directly to Lance, so any key vocabulary the

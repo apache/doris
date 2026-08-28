@@ -39,6 +39,7 @@ import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.Assert;
 import org.junit.Test;
+import org.lance.index.IndexType;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -203,9 +204,11 @@ public class LanceScanNodeTest {
                 Collections.singletonMap("vector", 9),
                 Arrays.asList(
                         new LanceIndexSegmentInfo(firstSegment, "vector_idx",
-                                Collections.singletonList(9), Arrays.asList(1L, 2L), "L2"),
+                                Collections.singletonList(9), Arrays.asList(1L, 2L),
+                                IndexType.VECTOR, "L2"),
                         new LanceIndexSegmentInfo(secondSegment, "vector_idx",
-                                Collections.singletonList(9), Arrays.asList(3L, 4L), "L2")),
+                                Collections.singletonList(9), Arrays.asList(3L, 4L),
+                                IndexType.VECTOR, "L2")),
                 Collections.emptyMap());
         LanceScanNode node = newSearchNode(metadata, vectorSearchRequest(5, 0));
 
@@ -238,7 +241,8 @@ public class LanceScanNodeTest {
                 Collections.emptyMap(),
                 Collections.singletonList(
                         new LanceIndexSegmentInfo(UUID.randomUUID(), "vector_idx",
-                                Collections.singletonList(9), Arrays.asList(1L, 2L), "L2")),
+                                Collections.singletonList(9), Arrays.asList(1L, 2L),
+                                IndexType.VECTOR, "L2")),
                 Collections.emptyMap());
         TExternalSearchRequest request = vectorSearchRequest(5, 0);
         request.setVectorSearchOptions(new TVectorSearchOptions().setUseIndex(false));
@@ -263,7 +267,8 @@ public class LanceScanNodeTest {
                 Collections.singletonMap("vector", 9),
                 Collections.singletonList(
                         new LanceIndexSegmentInfo(UUID.randomUUID(), "vector_idx",
-                                Collections.singletonList(9), Arrays.asList(1L, 2L), "L2")),
+                                Collections.singletonList(9), Arrays.asList(1L, 2L),
+                                IndexType.VECTOR, "L2")),
                 Collections.emptyMap());
         TExternalSearchRequest request = vectorSearchRequest(5, 0);
         request.getSearchQuery().getVectorSearch().setMetric(TVectorMetric.COSINE);
@@ -286,7 +291,8 @@ public class LanceScanNodeTest {
                 Collections.emptyMap(),
                 Collections.singletonList(
                         new LanceIndexSegmentInfo(UUID.randomUUID(), "vector_idx",
-                                Collections.singletonList(9), Collections.singletonList(1L), "L2")),
+                                Collections.singletonList(9), Collections.singletonList(1L),
+                                IndexType.VECTOR, "L2")),
                 Collections.emptyMap());
         LanceScanNode node = newSearchNode(metadata, vectorSearchRequest(5, 0));
 
@@ -297,14 +303,16 @@ public class LanceScanNodeTest {
     }
 
     @Test
-    public void testFragmentSearchRetainsTopKPlusOffsetCandidates() {
+    public void testSplitSearchRetainsTopKPlusOffsetCandidates() {
         TExternalSearchRequest logicalRequest = vectorSearchRequest(5, 2);
+        LanceScanNode node = LanceScanNode.forExternalSearch(
+                new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), null,
+                null, -1, logicalRequest, new SessionVariable());
 
-        TExternalSearchRequest fragmentRequest =
-                LanceScanNode.createFragmentSearchRequest(logicalRequest);
+        TExternalSearchRequest splitRequest = node.createSplitSearchRequest();
 
-        Assert.assertEquals(7, fragmentRequest.getSearchQuery().getVectorSearch().getTopK());
-        Assert.assertEquals(0, fragmentRequest.getSearchQuery().getVectorSearch().getOffset());
+        Assert.assertEquals(7, splitRequest.getSearchQuery().getVectorSearch().getTopK());
+        Assert.assertEquals(0, splitRequest.getSearchQuery().getVectorSearch().getOffset());
         Assert.assertEquals(5, logicalRequest.getSearchQuery().getVectorSearch().getTopK());
         Assert.assertEquals(2, logicalRequest.getSearchQuery().getVectorSearch().getOffset());
     }
@@ -332,7 +340,7 @@ public class LanceScanNodeTest {
             LanceTableMetadata metadata, TExternalSearchRequest request) {
         String vectorColumn = request.getSearchQuery().getVectorSearch().getColumn();
         int vectorFieldId = metadata.getLanceFieldId(vectorColumn).orElse(-1);
-        return LanceScanNode.forVectorSearch(
+        return LanceScanNode.forExternalSearch(
                 new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), null,
                 metadata, vectorFieldId, request, new SessionVariable());
     }

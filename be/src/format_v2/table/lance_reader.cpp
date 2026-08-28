@@ -93,6 +93,7 @@ Status LanceTableReader::init(TableReadOptions&& options) {
     DORIS_CHECK(_runtime_state != nullptr);
     DORIS_CHECK(_scanner_profile != nullptr);
     DORIS_CHECK(_scan_params != nullptr);
+    RETURN_IF_ERROR(_resolve_search_kind());
 
     _ctz = _runtime_state->timezone_obj();
     const auto& lance_scan_params = _scan_params->lance_scan_params;
@@ -148,16 +149,29 @@ Status LanceTableReader::init(TableReadOptions&& options) {
              ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "LanceIVFPartitionRankingTime",
                                         LANCE_READER_PROFILE, 1)},
     };
-    _vector_search = _scan_params->__isset.lance_scan_params &&
-                     lance_scan_params.__isset.external_search_request;
-    if (_vector_search) {
+    if (_search_kind != SearchKind::NORMAL) {
         RETURN_IF_ERROR(_validate_external_search_request());
         const auto& request = lance_scan_params.external_search_request;
-        const auto& vector = request.search_query.vector_search;
-        _scanner_profile->add_info_string("LanceTopK", std::to_string(vector.top_k));
-        _scanner_profile->add_info_string("LanceOffset", std::to_string(vector.offset));
-        _scanner_profile->add_info_string("LanceTopKPlusOffset",
-                                          std::to_string(vector.top_k + vector.offset));
+        int64_t top_k;
+        int64_t offset;
+        if (_search_kind == SearchKind::VECTOR) {
+            const auto& vector = request.search_query.vector_search;
+            top_k = vector.top_k;
+            offset = vector.offset;
+            _scanner_profile->add_info_string("LanceSearchType", "VECTOR");
+        } else {
+            DORIS_CHECK(_search_kind == SearchKind::FULL_TEXT);
+            const auto& full_text = request.search_query.full_text_search;
+            top_k = full_text.top_k;
+            offset = full_text.offset;
+            _scanner_profile->add_info_string("LanceSearchType", "FULL_TEXT");
+            _scanner_profile->add_info_string(
+                    "LanceFtsCoverageMode",
+                    full_text.coverage_mode == TFtsCoverageMode::STRICT ? "STRICT" : "INDEX_ONLY");
+        }
+        _scanner_profile->add_info_string("LanceTopK", std::to_string(top_k));
+        _scanner_profile->add_info_string("LanceOffset", std::to_string(offset));
+        _scanner_profile->add_info_string("LanceTopKPlusOffset", std::to_string(top_k + offset));
         _planned_index_segment_count =
                 ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LancePlannedIndexSegmentCount",
                                              TUnit::UNIT, LANCE_READER_PROFILE, 1);
@@ -185,9 +199,9 @@ Status LanceTableReader::init(TableReadOptions&& options) {
             return Status::InvalidArgument("Lance projected column '{}' has no type", column.name);
         }
         if (column.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
-            if (!_vector_search) {
+            if (_search_kind == SearchKind::NORMAL) {
                 return Status::NotSupported(
-                        "Lance global row id is currently supported only for vector search");
+                        "Lance global row id is currently supported only for external search");
             }
             if (_global_rowid_output_idx.has_value()) {
                 return Status::InvalidArgument("duplicate Lance global row id projected column: {}",
@@ -204,12 +218,19 @@ Status LanceTableReader::init(TableReadOptions&& options) {
         if (!_output_name_to_idx.emplace(column.name, idx).second) {
             return Status::InvalidArgument("duplicate Lance projected column: {}", column.name);
         }
-        if (_vector_search && column.name == LANCE_DISTANCE_COLUMN) {
+        if (_search_kind == SearchKind::VECTOR && column.name == LANCE_DISTANCE_COLUMN) {
             const auto distance_type = remove_nullable(column.type);
             if (distance_type->get_primitive_type() != TYPE_FLOAT) {
                 return Status::InvalidArgument(
                         "Lance vector search column '{}' must have Doris FLOAT type, but was {}",
                         LANCE_DISTANCE_COLUMN, column.type->get_name());
+            }
+        } else if (_search_kind == SearchKind::FULL_TEXT && column.name == LANCE_SCORE_COLUMN) {
+            const auto score_type = remove_nullable(column.type);
+            if (score_type->get_primitive_type() != TYPE_FLOAT) {
+                return Status::InvalidArgument(
+                        "Lance full-text search column '{}' must have Doris FLOAT type, but was {}",
+                        LANCE_SCORE_COLUMN, column.type->get_name());
             }
         }
     }
@@ -324,7 +345,9 @@ Status LanceTableReader::read_by_row_ids(const TFileRangeDesc& range,
     }
     SCOPED_TIMER(_row_id_fetch_total_time);
 
-    RETURN_IF_ERROR(_ensure_dataset_open(range));
+    // Phase-two row fetch does not execute FTS, so a reader created only for take_rows must not
+    // collect query-specific global statistics.
+    RETURN_IF_ERROR(_ensure_dataset_open(range, false));
     std::vector<const char*> columns;
     columns.reserve(_projected_columns.size() + 1);
     for (const auto& column : _projected_columns) {
@@ -399,8 +422,31 @@ Status LanceTableReader::close() {
     return TableReader::close();
 }
 
+Status LanceTableReader::_resolve_search_kind() {
+    DORIS_CHECK(_scan_params != nullptr);
+    _search_kind = SearchKind::NORMAL;
+    if (!_scan_params->__isset.lance_scan_params) {
+        return Status::OK();
+    }
+    const auto& lance_scan_params = _scan_params->lance_scan_params;
+    if (!lance_scan_params.__isset.external_search_request) {
+        return Status::OK();
+    }
+    const auto& request = lance_scan_params.external_search_request;
+    if (!request.__isset.search_query) {
+        return Status::InvalidArgument("external search request requires search_query");
+    }
+    const bool has_vector = request.search_query.__isset.vector_search;
+    const bool has_full_text = request.search_query.__isset.full_text_search;
+    if (has_vector == has_full_text) {
+        return Status::InvalidArgument("external search query must set exactly one search kind");
+    }
+    _search_kind = has_vector ? SearchKind::VECTOR : SearchKind::FULL_TEXT;
+    return Status::OK();
+}
+
 Status LanceTableReader::_validate_external_search_request() const {
-    // FE validates requests produced by vector_search(), but this reader consumes a deserialized
+    // FE validates requests produced by the search TVFs, but this reader consumes a deserialized
     // Thrift boundary. Recheck structural invariants and values used for allocation, pointer
     // arithmetic, C-string calls, and narrowing conversions before accessing them below.
     DORIS_CHECK(_scan_params != nullptr);
@@ -409,7 +455,7 @@ Status LanceTableReader::_validate_external_search_request() const {
     DORIS_CHECK(lance_scan_params.__isset.external_search_request);
     if (lance_scan_params.__isset.lance_substrait_filter) {
         return Status::InvalidArgument(
-                "Lance vector search cannot combine its pre-search filter with "
+                "Lance external search cannot combine its pre-search filter with "
                 "lance_substrait_filter");
     }
 
@@ -418,58 +464,87 @@ Status LanceTableReader::_validate_external_search_request() const {
         return Status::NotSupported("unsupported external search schema version: {}",
                                     request.schema_version);
     }
-    if (!request.__isset.search_query) {
-        return Status::InvalidArgument("external search request requires search_query");
-    }
-
-    const bool has_vector = request.search_query.__isset.vector_search;
-    const bool has_full_text = request.search_query.__isset.full_text_search;
-    if (has_vector == has_full_text) {
-        return Status::InvalidArgument("external search query must set exactly one search kind");
-    }
-    if (has_full_text) {
-        return Status::NotSupported("Lance Format V2 reader does not yet support full-text search");
-    }
-
-    const auto& vector = request.search_query.vector_search;
-    if (!vector.__isset.column || vector.column.empty() ||
-        vector.column.find('\0') != std::string::npos) {
-        return Status::InvalidArgument("Lance vector search requires a non-empty column");
-    }
-    if (!vector.__isset.query_vector) {
-        return Status::InvalidArgument("Lance vector search requires a query vector");
-    }
-    const auto& query_vector = vector.query_vector;
-    if (!query_vector.__isset.element_type || !query_vector.__isset.dimension ||
-        !query_vector.__isset.values) {
-        return Status::InvalidArgument(
-                "Lance query vector requires element_type, dimension, and values");
-    }
-    if (query_vector.dimension <= 0) {
-        return Status::InvalidArgument("Lance query vector dimension must be positive: {}",
-                                       query_vector.dimension);
-    }
-    const auto element_width = lance_vector_element_width(query_vector.element_type);
-    if (element_width == 0) {
-        return Status::NotSupported("unsupported Lance query vector element type: {}",
-                                    static_cast<int>(query_vector.element_type));
-    }
-    const auto dimension = static_cast<size_t>(query_vector.dimension);
-    if (dimension > std::numeric_limits<size_t>::max() / element_width ||
-        query_vector.values.size() != dimension * element_width) {
-        return Status::InvalidArgument(
-                "Lance query vector byte size {} does not match dimension {} and element width {}",
-                query_vector.values.size(), dimension, element_width);
-    }
-    if (!vector.__isset.top_k || vector.top_k <= 0) {
-        return Status::InvalidArgument("Lance vector search top_k must be positive");
-    }
-    if (!vector.__isset.offset || vector.offset < 0) {
-        return Status::InvalidArgument("Lance vector search offset must be non-negative");
-    }
+    DORIS_CHECK(request.__isset.search_query);
+    DORIS_CHECK(_search_kind != SearchKind::NORMAL);
     constexpr auto UINT32_MAX_VALUE = static_cast<int64_t>(std::numeric_limits<uint32_t>::max());
-    if (vector.offset > UINT32_MAX_VALUE || vector.top_k > UINT32_MAX_VALUE - vector.offset) {
-        return Status::InvalidArgument("Lance vector search top_k + offset exceeds uint32 range");
+    if (_search_kind == SearchKind::VECTOR) {
+        const auto& vector = request.search_query.vector_search;
+        if (!vector.__isset.column || vector.column.empty() ||
+            vector.column.find('\0') != std::string::npos) {
+            return Status::InvalidArgument("Lance vector search requires a non-empty column");
+        }
+        if (!vector.__isset.query_vector) {
+            return Status::InvalidArgument("Lance vector search requires a query vector");
+        }
+        const auto& query_vector = vector.query_vector;
+        if (!query_vector.__isset.element_type || !query_vector.__isset.dimension ||
+            !query_vector.__isset.values) {
+            return Status::InvalidArgument(
+                    "Lance query vector requires element_type, dimension, and values");
+        }
+        if (query_vector.dimension <= 0) {
+            return Status::InvalidArgument("Lance query vector dimension must be positive: {}",
+                                           query_vector.dimension);
+        }
+        const auto element_width = lance_vector_element_width(query_vector.element_type);
+        if (element_width == 0) {
+            return Status::NotSupported("unsupported Lance query vector element type: {}",
+                                        static_cast<int>(query_vector.element_type));
+        }
+        const auto dimension = static_cast<size_t>(query_vector.dimension);
+        if (dimension > std::numeric_limits<size_t>::max() / element_width ||
+            query_vector.values.size() != dimension * element_width) {
+            return Status::InvalidArgument(
+                    "Lance query vector byte size {} does not match dimension {} and element width "
+                    "{}",
+                    query_vector.values.size(), dimension, element_width);
+        }
+        if (!vector.__isset.top_k || vector.top_k <= 0) {
+            return Status::InvalidArgument("Lance vector search top_k must be positive");
+        }
+        if (!vector.__isset.offset || vector.offset < 0) {
+            return Status::InvalidArgument("Lance vector search offset must be non-negative");
+        }
+        if (vector.offset > UINT32_MAX_VALUE || vector.top_k > UINT32_MAX_VALUE - vector.offset) {
+            return Status::InvalidArgument(
+                    "Lance vector search top_k + offset exceeds uint32 range");
+        }
+    } else {
+        DORIS_CHECK(_search_kind == SearchKind::FULL_TEXT);
+        const auto& full_text = request.search_query.full_text_search;
+        if (!full_text.__isset.column || full_text.column.empty() ||
+            full_text.column.find('\0') != std::string::npos) {
+            return Status::InvalidArgument("Lance full-text search requires a non-empty column");
+        }
+        if (!full_text.__isset.query || full_text.query.empty() ||
+            full_text.query.find('\0') != std::string::npos) {
+            return Status::InvalidArgument("Lance full-text search requires a non-empty query");
+        }
+        if (!full_text.__isset.top_k || full_text.top_k <= 0) {
+            return Status::InvalidArgument("Lance full-text search top_k must be positive");
+        }
+        if (!full_text.__isset.offset || full_text.offset < 0) {
+            return Status::InvalidArgument("Lance full-text search offset must be non-negative");
+        }
+        if (full_text.offset > UINT32_MAX_VALUE ||
+            full_text.top_k > UINT32_MAX_VALUE - full_text.offset) {
+            return Status::InvalidArgument(
+                    "Lance full-text search top_k + offset exceeds uint32 range");
+        }
+        if (!full_text.__isset.coverage_mode ||
+            (full_text.coverage_mode != TFtsCoverageMode::STRICT &&
+             full_text.coverage_mode != TFtsCoverageMode::INDEX_ONLY)) {
+            return Status::InvalidArgument(
+                    "Lance full-text search requires STRICT or INDEX_ONLY coverage_mode");
+        }
+        if (full_text.__isset.global_statistics && full_text.global_statistics.empty()) {
+            return Status::InvalidArgument(
+                    "Lance full-text search global_statistics must not be empty when set");
+        }
+        if (request.__isset.vector_search_options) {
+            return Status::InvalidArgument(
+                    "Lance full-text search cannot set vector_search_options");
+        }
     }
 
     if (request.__isset.search_filter) {
@@ -487,7 +562,7 @@ Status LanceTableReader::_validate_external_search_request() const {
         }
     }
 
-    if (request.__isset.vector_search_options) {
+    if (_search_kind == SearchKind::VECTOR && request.__isset.vector_search_options) {
         const auto& options = request.vector_search_options;
         if (options.__isset.nprobes && options.nprobes <= 0) {
             return Status::InvalidArgument("Lance nprobes must be positive");
@@ -502,7 +577,8 @@ Status LanceTableReader::_validate_external_search_request() const {
     return Status::OK();
 }
 
-Status LanceTableReader::_ensure_dataset_open(const TFileRangeDesc& range) {
+Status LanceTableReader::_ensure_dataset_open(const TFileRangeDesc& range,
+                                              bool prepare_fts_context) {
     DatasetKey key;
     RETURN_IF_ERROR(_dataset_key(range, &key));
     if (_dataset == nullptr) {
@@ -511,6 +587,10 @@ Status LanceTableReader::_ensure_dataset_open(const TFileRangeDesc& range) {
     } else if (!_opened_dataset_key.has_value() || *_opened_dataset_key != key) {
         return Status::InvalidArgument(
                 "Lance reader cannot mix dataset snapshots or storage options");
+    }
+    if (_search_kind == SearchKind::FULL_TEXT && prepare_fts_context &&
+        _fts_query_context == nullptr) {
+        RETURN_IF_ERROR(_prepare_fts_query_context());
     }
     return Status::OK();
 }
@@ -535,6 +615,30 @@ Status LanceTableReader::_open_dataset(const DatasetKey& key) {
     return Status::OK();
 }
 
+Status LanceTableReader::_prepare_fts_query_context() {
+    DORIS_CHECK(_dataset != nullptr);
+    DORIS_CHECK(_fts_query_context == nullptr);
+    DORIS_CHECK(_scan_params != nullptr);
+    const auto& full_text =
+            _scan_params->lance_scan_params.external_search_request.search_query.full_text_search;
+    if (full_text.__isset.global_statistics) {
+        return Status::NotSupported(
+                "Lance FE-provided FTS global statistics require a lance-c consumer API");
+    }
+    const auto coverage_mode = full_text.coverage_mode == TFtsCoverageMode::STRICT
+                                       ? LANCE_FTS_COVERAGE_STRICT
+                                       : LANCE_FTS_COVERAGE_INDEX_ONLY;
+    // Keep statistics preparation at the reader/scanner lifetime today. A future FE-provided
+    // opaque statistics payload should enter through this boundary and create the same context,
+    // leaving segment-scoped scanner execution unchanged.
+    _fts_query_context = lance_dataset_prepare_fts_query(_dataset, full_text.column.c_str(),
+                                                         full_text.query.c_str(), 0, coverage_mode);
+    if (_fts_query_context == nullptr) {
+        return lance_error("prepare Lance FTS query context");
+    }
+    return Status::OK();
+}
+
 Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
     SCOPED_TIMER(_scanner_configure_time);
     std::vector<const char*> columns;
@@ -546,25 +650,26 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
         const auto& column = _projected_columns[idx];
         columns.emplace_back(column.name.c_str());
     }
-    if (_vector_search && columns.empty()) {
+    if (_search_kind != SearchKind::NORMAL && columns.empty()) {
         // Keep an explicit empty user projection from becoming `nullptr`, which means all dataset
-        // columns to lance-c. nearest() already returns this optional system column.
-        columns.emplace_back(LANCE_DISTANCE_COLUMN.data());
+        // columns to lance-c. Search execution already returns its generated result column.
+        columns.emplace_back(_search_kind == SearchKind::VECTOR ? LANCE_DISTANCE_COLUMN.data()
+                                                                : LANCE_SCORE_COLUMN.data());
     }
     columns.emplace_back(nullptr);
 
     const auto& lance_scan_params = _scan_params->lance_scan_params;
     std::string sql_filter;
     std::shared_ptr<const LanceRuntimeFilterSql> runtime_filter_sql;
-    if (_vector_search) {
+    if (_search_kind == SearchKind::NORMAL) {
+        runtime_filter_sql =
+                get_or_create_lance_runtime_filter_sql(_conjuncts, _runtime_filter_cache);
+    } else {
         const auto& request = lance_scan_params.external_search_request;
         if (request.__isset.search_filter &&
             request.search_filter.format == TSearchFilterFormat::SQL) {
             sql_filter = request.search_filter.payload;
         }
-    } else {
-        runtime_filter_sql =
-                get_or_create_lance_runtime_filter_sql(_conjuncts, _runtime_filter_cache);
     }
     LanceScanner* scanner =
             lance_scanner_new(_dataset, columns.size() == 1 ? nullptr : columns.data(),
@@ -606,79 +711,65 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
     }
 
     const auto& lance_params = range.table_format_params.lance_params;
-    if (lance_params.__isset.fragment_ids && !lance_params.fragment_ids.empty()) {
-        const auto& thrift_ids = lance_params.fragment_ids;
-        std::vector<uint64_t> fragment_ids;
-        fragment_ids.reserve(thrift_ids.size());
-        for (const auto fragment_id : thrift_ids) {
-            fragment_ids.emplace_back(static_cast<uint64_t>(fragment_id));
-        }
-        if (lance_scanner_set_fragment_ids(scanner, fragment_ids.data(), fragment_ids.size()) !=
-            0) {
-            return lance_error("set Lance scanner fragment ids");
-        }
-    }
-    if (lance_params.__isset.index_segment_uuids && !lance_params.index_segment_uuids.empty()) {
-        if (!_vector_search) {
-            return Status::InvalidArgument(
-                    "Lance index segments are only supported for vector search splits");
-        }
-        constexpr size_t UUID_SIZE = 16;
-        if (lance_params.index_segment_uuids.size() >
-            std::numeric_limits<size_t>::max() / UUID_SIZE) {
-            return Status::InvalidArgument("too many Lance index segment UUIDs");
-        }
-        std::vector<uint8_t> segment_uuids;
-        segment_uuids.reserve(lance_params.index_segment_uuids.size() * UUID_SIZE);
-        for (const auto& uuid : lance_params.index_segment_uuids) {
-            if (uuid.size() != UUID_SIZE) {
-                return Status::InvalidArgument(
-                        "Lance index segment UUID must contain 16 bytes, got {}", uuid.size());
-            }
-            segment_uuids.insert(segment_uuids.end(), uuid.begin(), uuid.end());
-        }
-        if (lance_scanner_set_index_segments(scanner, segment_uuids.data(),
-                                             lance_params.index_segment_uuids.size()) != 0) {
-            return lance_error("set Lance scanner index segments");
-        }
-    }
-    // Ordinary scans may carry a pushed-down LIMIT. The FE only sets it when all predicates are
-    // pushed into Lance, so the scanner can safely stop after `limit` rows. Vector search manages
-    // its own top_k limit in _configure_vector_search, so skip it here.
-    if (!_vector_search && lance_params.__isset.limit && lance_params.limit > 0) {
-        if (lance_scanner_set_limit(scanner, lance_params.limit) != 0) {
-            return lance_error("set Lance scanner limit");
-        }
-    }
-    if (_vector_search) {
-        // Distributed vector search always restricts each scanner to an explicit fragment set.
-        // Tell Lance that this fragment scan is the input to nearest() before installing the
-        // query. The same prefilter path also applies the TVF search filter, when present.
-        if (lance_scanner_set_prefilter(scanner, true) != 0) {
-            return lance_error("enable Lance vector prefilter");
-        }
-        RETURN_IF_ERROR(_configure_vector_search(scanner));
-        const int64_t fragment_count =
-                lance_params.__isset.fragment_ids
-                        ? static_cast<int64_t>(lance_params.fragment_ids.size())
-                        : 0;
-        if (lance_params.__isset.index_segment_uuids && !lance_params.index_segment_uuids.empty()) {
-            COUNTER_UPDATE(_planned_index_segment_count,
-                           static_cast<int64_t>(lance_params.index_segment_uuids.size()));
-            COUNTER_UPDATE(_planned_indexed_fragment_count, fragment_count);
-        } else {
-            COUNTER_UPDATE(_planned_flat_search_fragment_count, fragment_count);
-        }
+    switch (_search_kind) {
+    case SearchKind::NORMAL:
+        RETURN_IF_ERROR(_configure_normal_scan(scanner, lance_params));
+        break;
+    case SearchKind::VECTOR:
+        RETURN_IF_ERROR(_configure_vector_search(scanner, lance_params));
+        break;
+    case SearchKind::FULL_TEXT:
+        RETURN_IF_ERROR(_configure_full_text_search(scanner, lance_params));
+        break;
     }
     _scanner = scanner_guard.release();
     _scanner_batch_size = batch_size;
     return Status::OK();
 }
 
-Status LanceTableReader::_configure_vector_search(LanceScanner* scanner) const {
+Status LanceTableReader::_configure_normal_scan(LanceScanner* scanner,
+                                                const TLanceFileDesc& lance_params) const {
+    DORIS_CHECK(scanner != nullptr);
+    std::vector<uint64_t> fragment_ids;
+    RETURN_IF_ERROR(parse_fragment_ids(lance_params, &fragment_ids));
+    if (!fragment_ids.empty() &&
+        lance_scanner_set_fragment_ids(scanner, fragment_ids.data(), fragment_ids.size()) != 0) {
+        return lance_error("set Lance scanner fragment ids");
+    }
+    if (lance_params.__isset.index_segment_uuids && !lance_params.index_segment_uuids.empty()) {
+        return Status::InvalidArgument("normal Lance scan cannot contain index segment UUIDs");
+    }
+    // FE sets this only when every predicate has been pushed into Lance.
+    if (lance_params.__isset.limit && lance_params.limit > 0 &&
+        lance_scanner_set_limit(scanner, lance_params.limit) != 0) {
+        return lance_error("set Lance scanner limit");
+    }
+    return Status::OK();
+}
+
+Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
+                                                  const TLanceFileDesc& lance_params) const {
     DORIS_CHECK(scanner != nullptr);
     DORIS_CHECK(_scan_params != nullptr);
     DORIS_CHECK(_scan_params->__isset.lance_scan_params);
+    std::vector<uint64_t> fragment_ids;
+    RETURN_IF_ERROR(parse_fragment_ids(lance_params, &fragment_ids));
+    if (!fragment_ids.empty() &&
+        lance_scanner_set_fragment_ids(scanner, fragment_ids.data(), fragment_ids.size()) != 0) {
+        return lance_error("set Lance vector scanner fragment ids");
+    }
+    std::vector<uint8_t> segment_uuids;
+    size_t segment_count = 0;
+    RETURN_IF_ERROR(parse_index_segment_uuids(lance_params, &segment_uuids, &segment_count));
+    if (segment_count > 0 &&
+        lance_scanner_set_index_segments(scanner, segment_uuids.data(), segment_count) != 0) {
+        return lance_error("set Lance vector scanner index segments");
+    }
+    // Fragment-scoped nearest queries require prefiltering before installing the query. The same
+    // path applies the TVF search filter, when present.
+    if (lance_scanner_set_prefilter(scanner, true) != 0) {
+        return lance_error("enable Lance vector prefilter");
+    }
     const auto& lance_scan_params = _scan_params->lance_scan_params;
     DORIS_CHECK(lance_scan_params.__isset.external_search_request);
     const auto& request = lance_scan_params.external_search_request;
@@ -790,6 +881,46 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner) const {
     if (lance_scanner_set_limit(scanner, vector.top_k) != 0) {
         return lance_error("set Lance vector result limit");
     }
+    const auto fragment_count = static_cast<int64_t>(fragment_ids.size());
+    if (segment_count > 0) {
+        COUNTER_UPDATE(_planned_index_segment_count, static_cast<int64_t>(segment_count));
+        COUNTER_UPDATE(_planned_indexed_fragment_count, fragment_count);
+    } else {
+        COUNTER_UPDATE(_planned_flat_search_fragment_count, fragment_count);
+    }
+    return Status::OK();
+}
+
+Status LanceTableReader::_configure_full_text_search(LanceScanner* scanner,
+                                                     const TLanceFileDesc& lance_params) const {
+    DORIS_CHECK(scanner != nullptr);
+    DORIS_CHECK(_fts_query_context != nullptr);
+    DORIS_CHECK(_scan_params != nullptr);
+    // FTS fragment IDs describe the selected segment's coverage for planning and profiling. They
+    // are not installed as a generic fragment filter because lance-c rejects combining one with a
+    // prepared FTS context; the segment UUID is the execution boundary.
+    std::vector<uint64_t> fragment_ids;
+    RETURN_IF_ERROR(parse_fragment_ids(lance_params, &fragment_ids));
+    std::vector<uint8_t> segment_uuids;
+    size_t segment_count = 0;
+    RETURN_IF_ERROR(parse_index_segment_uuids(lance_params, &segment_uuids, &segment_count));
+    if (segment_count == 0) {
+        return Status::InvalidArgument(
+                "Lance full-text search split requires at least one FTS index segment UUID");
+    }
+    const auto& full_text =
+            _scan_params->lance_scan_params.external_search_request.search_query.full_text_search;
+    if (lance_scanner_set_fts_query_context(scanner, _fts_query_context) != 0) {
+        return lance_error("attach Lance FTS query context");
+    }
+    if (lance_scanner_set_fts_index_segments(scanner, segment_uuids.data(), segment_count) != 0) {
+        return lance_error("set Lance FTS scanner index segments");
+    }
+    if (lance_scanner_set_limit(scanner, full_text.top_k + full_text.offset) != 0) {
+        return lance_error("set Lance FTS scanner candidate limit");
+    }
+    COUNTER_UPDATE(_planned_index_segment_count, static_cast<int64_t>(segment_count));
+    COUNTER_UPDATE(_planned_indexed_fragment_count, static_cast<int64_t>(fragment_ids.size()));
     return Status::OK();
 }
 
@@ -878,6 +1009,10 @@ void LanceTableReader::_close_scanner() {
 }
 
 void LanceTableReader::_close_dataset() {
+    if (_fts_query_context != nullptr) {
+        lance_fts_query_context_close(_fts_query_context);
+        _fts_query_context = nullptr;
+    }
     if (_dataset != nullptr) {
         lance_dataset_close(_dataset);
         _dataset = nullptr;
@@ -972,9 +1107,10 @@ Status LanceTableReader::_fill_block_from_record_batch(
         }
         const auto output_it = _output_name_to_idx.find(field->name());
         if (output_it == _output_name_to_idx.end()) {
-            if (_vector_search && field->name() == LANCE_DISTANCE_COLUMN) {
-                // Lance currently auto-projects _distance for nearest queries. It is valid for
-                // Doris slot pruning to omit that optional result column.
+            if ((_search_kind == SearchKind::VECTOR && field->name() == LANCE_DISTANCE_COLUMN) ||
+                (_search_kind == SearchKind::FULL_TEXT && field->name() == LANCE_SCORE_COLUMN)) {
+                // Lance auto-projects the generated search result column. It is valid for Doris
+                // slot pruning to omit that optional result column.
                 continue;
             }
             return Status::InternalError("Lance returned unknown column '{}'", field->name());

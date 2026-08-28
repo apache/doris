@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -38,6 +39,7 @@ class Schema;
 namespace doris::format::lance {
 
 inline constexpr std::string_view LANCE_DISTANCE_COLUMN = "_distance";
+inline constexpr std::string_view LANCE_SCORE_COLUMN = "_score";
 inline constexpr std::string_view LANCE_ROW_ID_COLUMN = "_rowid";
 inline constexpr const char* LANCE_READER_PROFILE = "LanceReader";
 
@@ -54,6 +56,12 @@ struct LanceBatchDeleter {
 };
 
 size_t lance_vector_element_width(TVectorElementType::type type);
+
+// Validate and convert the fragment and index-segment identifiers carried by the FE into the
+// unsigned and packed representations expected by lance-c.
+Status parse_fragment_ids(const TLanceFileDesc& lance_params, std::vector<uint64_t>* fragment_ids);
+Status parse_index_segment_uuids(const TLanceFileDesc& lance_params,
+                                 std::vector<uint8_t>* segment_uuids, size_t* segment_count);
 
 // Convert every top-level field without discarding unsupported columns. Malformed schemas still
 // return an error and leave both output vectors unchanged. DataTypeNothing is the local sentinel

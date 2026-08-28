@@ -34,6 +34,7 @@
 
 struct LanceBatch;
 struct LanceDataset;
+struct LanceFtsQueryContext;
 struct LanceScanner;
 
 namespace doris {
@@ -79,11 +80,17 @@ private:
         bool operator==(const DatasetKey&) const = default;
     };
 
+    Status _resolve_search_kind();
     Status _validate_external_search_request() const;
-    Status _ensure_dataset_open(const TFileRangeDesc& range);
+    Status _ensure_dataset_open(const TFileRangeDesc& range, bool prepare_fts_context = true);
     Status _open_dataset(const DatasetKey& key);
+    Status _prepare_fts_query_context();
     Status _open_scanner(const TFileRangeDesc& range);
-    Status _configure_vector_search(LanceScanner* scanner) const;
+    Status _configure_normal_scan(LanceScanner* scanner, const TLanceFileDesc& lance_params) const;
+    Status _configure_vector_search(LanceScanner* scanner,
+                                    const TLanceFileDesc& lance_params) const;
+    Status _configure_full_text_search(LanceScanner* scanner,
+                                       const TLanceFileDesc& lance_params) const;
     // Keep lance-c's anonymous statistics typedef out of this header. _open_scanner installs the
     // strongly typed C callback adapter before forwarding the borrowed value here.
     static void _collect_scan_statistics(void* callback_ctx, const void* opaque_statistics);
@@ -120,7 +127,9 @@ private:
     RuntimeProfile::Counter* _index_comparisons = nullptr;
     std::unordered_map<std::string_view, RuntimeProfile::Counter*> _lance_count_metrics;
     std::unordered_map<std::string_view, RuntimeProfile::Counter*> _lance_time_metrics;
-    bool _vector_search = false;
+    LanceFtsQueryContext* _fts_query_context = nullptr;
+    enum class SearchKind { NORMAL, VECTOR, FULL_TEXT };
+    SearchKind _search_kind = SearchKind::NORMAL;
     bool _eof = false;
 };
 
