@@ -66,8 +66,8 @@ import java.util.UUID;
  */
 public class LanceScanNode extends FileQueryScanNode {
     // A metadata COUNT(*) whose result is at least this large is sharded across several
-    // whole-dataset carriers, because BE materializes one synthetic row per counted row and one
-    // carrier would serialize that O(rowCount) work on a single scanner. Matches IcebergScanNode.
+    // fragment groups, because BE materializes one synthetic row per counted row and one carrier
+    // would serialize that O(rowCount) work on a single scanner. Matches IcebergScanNode.
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
 
     private LanceExternalTable lanceTable;
@@ -221,32 +221,40 @@ public class LanceScanNode extends FileQueryScanNode {
         return createFragmentSplits(metadata, visibleFragments);
     }
 
-    // COUNT(*)/COUNT(1) with no filter is answered from Lance metadata: emit whole-dataset carriers
-    // holding the logical (post-deletion) row count so BE synthesizes that many rows instead of
-    // opening any fragment scanner. Each carrier is pinned to the planned MVCC version (not latest)
-    // so a fallback scan reads the same snapshot the count came from. BE materializes one row per
-    // counted row, so a large count is spread over parallelExecInstanceNum * numBackends carriers to
-    // keep the former fragment parallelism; a small count stays on one carrier.
+    // COUNT(*)/COUNT(1) with no filter is answered from Lance metadata. Each carrier contains a
+    // disjoint fragment group and its logical row count, so a BE that cannot use the metadata count
+    // falls back to an equivalent fixed-snapshot scan. Large counts use several carriers to retain
+    // parallelism; small counts use one.
     private List<Split> buildCountSplits(LanceTableMetadata metadata, int numBackends) {
         long rowCount = metadata.getRowCount();
         setPushDownCount(rowCount);
         int carrierCount = 1;
-        if (rowCount >= COUNT_WITH_PARALLEL_SPLITS) {
+        if (rowCount >= COUNT_WITH_PARALLEL_SPLITS && !metadata.getFragments().isEmpty()) {
             int parallelism = sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName())
                     * Math.max(numBackends, 1);
-            carrierCount = Math.max(1, parallelism);
+            carrierCount = Math.min(metadata.getFragments().size(), Math.max(1, parallelism));
         }
-        List<Split> splits = new ArrayList<>(carrierCount);
-        long assigned = 0;
+        List<List<LanceFragmentInfo>> fragmentGroups = new ArrayList<>(carrierCount);
         for (int i = 0; i < carrierCount; i++) {
-            // Give every carrier an even share and fold the remainder into the last one, so the
-            // per-carrier counts sum back to exactly rowCount.
-            long carriedRows = (rowCount - assigned) / (carrierCount - i);
-            assigned += carriedRows;
-            LanceSplit countSplit = LanceSplit.wholeDatasetCountAtVersion(
-                    metadata.getDatasetUri(), metadata.getVersion(), carriedRows);
-            countSplit.setTableLevelRowCount(carriedRows);
-            splits.add(countSplit);
+            fragmentGroups.add(new ArrayList<>());
+        }
+        List<LanceFragmentInfo> fragments = metadata.getFragments();
+        for (int i = 0; i < fragments.size(); i++) {
+            fragmentGroups.get(i % carrierCount).add(fragments.get(i));
+        }
+
+        List<Split> splits = new ArrayList<>(carrierCount);
+        for (List<LanceFragmentInfo> group : fragmentGroups) {
+            List<Long> fragmentIds = new ArrayList<>(group.size());
+            long logicalRows = 0;
+            long physicalRows = 0;
+            for (LanceFragmentInfo fragment : group) {
+                fragmentIds.add(fragment.getId());
+                logicalRows += fragment.getRowCount();
+                physicalRows += fragment.getPhysicalRows();
+            }
+            splits.add(LanceSplit.forCount(metadata.getDatasetUri(), metadata.getVersion(),
+                    fragmentIds, logicalRows, physicalRows));
         }
         return splits;
     }
@@ -417,7 +425,8 @@ public class LanceScanNode extends FileQueryScanNode {
         lanceParams.setDatasetUri(lanceSplit.getDatasetUri());
         lanceParams.setVersion(lanceSplit.getVersion());
         if (lanceSplit.hasFragmentIds()) {
-            if (!isExternalSearch() && (lanceSplit.getFragmentIds().size() != 1
+            if (!isExternalSearch() && lanceSplit.getTableLevelRowCount() < 0
+                    && (lanceSplit.getFragmentIds().size() != 1
                     || lanceSplit.hasIndexSegmentUuids())) {
                 throw new IllegalArgumentException(
                         "Ordinary Lance scan split must contain one fragment and no index segment");
