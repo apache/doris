@@ -36,6 +36,7 @@
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/data_type_timestamp_ns_serde.h"
 #include "core/types.h"
 #include "core/value/time_value.h"
 #include "core/value/timestamptz_value.h"
@@ -64,19 +65,42 @@ private:
         if (decimal_exponent >= 0) {
             const auto integer =
                     significand * common::exp10_i64(static_cast<uint32_t>(decimal_exponent));
-            return {static_cast<int64_t>(integer), 0, 0};
+            return {.integer = static_cast<int64_t>(integer), .fraction = 0, .scale = 0};
         }
 
         const auto scale = static_cast<uint32_t>(-decimal_exponent);
         if (scale >= 19) {
-            return {0, 0, 0};
+            return {.integer = 0, .fraction = 0, .scale = 0};
         }
         const auto scale_multiplier = common::exp10_i64(scale);
-        return {static_cast<int64_t>(significand / scale_multiplier),
-                static_cast<int64_t>(significand % scale_multiplier), scale};
+        return {.integer = static_cast<int64_t>(significand / scale_multiplier),
+                .fraction = static_cast<int64_t>(significand % scale_multiplier),
+                .scale = scale};
     }
 
 public:
+    template <typename T>
+    static bool from_integer(T int_value, TimeStampNsValue& result, CastParameters& params) {
+        if (params.is_strict) {
+            return from_integer<DatelikeParseMode::STRICT>(int_value, result, params);
+        }
+        return from_integer<DatelikeParseMode::NON_STRICT>(int_value, result, params);
+    }
+
+    template <DatelikeParseMode ParseMode, typename T>
+    static bool from_integer(T int_value, TimeStampNsValue& result, CastParameters& params) {
+        constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
+        DCHECK(IsStrict == params.is_strict);
+
+        DateV2Value<DateTimeV2ValueType> datetime;
+        if (!CastToDatetimeV2::from_integer<ParseMode>(int_value, datetime, params)) {
+            return false;
+        }
+        SET_PARAMS_RET_FALSE_IFN(result.from_datetime(datetime),
+                                 "timestamp_ns value is outside the signed epoch-nanosecond range");
+        return true;
+    }
+
     // Floating-point input has no fixed decimal scale. Use its shortest round-trippable decimal
     // representation so digits 7-9 are not polluted by binary floating-point subtraction and the
     // result preserves the existing string-formatting cast semantics.
@@ -213,66 +237,53 @@ template <CastModeType CastMode, typename FromDataType>
 class CastToImpl<CastMode, FromDataType, DataTypeTimeStampNs> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
+                        uint32_t result, size_t /*input_rows_count*/,
                         const NullMap::value_type* null_map = nullptr) const override {
-        const auto& col_from = assert_cast<const typename FromDataType::ColumnType&>(
-                *block.get_by_position(arguments[0]).column);
-        auto col_to = ColumnTimeStampNs::create(input_rows_count);
-        auto col_nullmap = ColumnUInt8::create(input_rows_count, 0);
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            if (null_map && null_map[i]) {
-                continue;
-            }
-
-            Status status = Status::OK();
-            TimeStampNsValue value;
-            CastParameters params {.status = Status::OK(),
-                                   .is_strict = CastMode == CastModeType::StrictMode};
-            bool parsed = false;
-            if constexpr (IsDataTypeDecimal<FromDataType>) {
-                parsed = CastToTimestampNs::from_decimal(col_from.get_intergral_part(i),
-                                                         col_from.get_fractional_part(i),
-                                                         col_from.get_scale(), value, params);
-            } else if constexpr (IsDataTypeInt<FromDataType>) {
-                DateV2Value<DateTimeV2ValueType> datetime;
-                parsed =
-                        CastToDatetimeV2::from_integer(col_from.get_element(i), datetime, params) &&
-                        value.from_datetime(datetime);
-                if (!parsed && params.status.ok()) {
-                    status = Status::InvalidArgument(
-                            "timestamp_ns value is outside the signed epoch-nanosecond range");
-                }
-            } else {
-                static_assert(IsDataTypeFloat<FromDataType>);
-                parsed = CastToTimestampNs::from_float(col_from.get_element(i), value, params);
-            }
-            if (!parsed && status.ok()) {
-                status = params.status.ok()
-                                 ? Status::InvalidArgument("Invalid numeric datetime value")
-                                 : params.status;
-            }
-
-            if (!status.ok()) {
-                if constexpr (CastMode == CastModeType::StrictMode) {
-                    status.prepend(
-                            fmt::format("Cannot cast row {} from {} to TIMESTAMP_NS: ", i,
-                                        block.get_by_position(arguments[0]).type->get_name()));
-                    return status;
-                }
-                col_nullmap->get_data()[i] = true;
-            } else {
-                col_to->get_data()[i] = value;
-            }
-        }
+        const auto* col_from = assert_cast<const typename FromDataType::ColumnType*>(
+                block.get_by_position(arguments[0]).column.get());
+        auto nested_to_type = remove_nullable(block.get_by_position(result).type);
+        auto concrete_serde =
+                std::dynamic_pointer_cast<DataTypeTimeStampNsSerDe>(nested_to_type->get_serde());
 
         if constexpr (CastMode == CastModeType::StrictMode) {
-            block.get_by_position(result).column = std::move(col_to);
+            MutableColumnPtr column_to = nested_to_type->create_column();
+            RETURN_IF_ERROR(from_number_strict(*concrete_serde, *col_from, *column_to));
+            block.get_by_position(result).column = std::move(column_to);
         } else {
-            block.get_by_position(result).column =
-                    ColumnNullable::create(std::move(col_to), std::move(col_nullmap));
+            auto nullable_col_to = create_empty_nullable_column(nested_to_type);
+            RETURN_IF_ERROR(from_number_non_strict(*concrete_serde, *col_from, *nullable_col_to));
+            block.get_by_position(result).column = std::move(nullable_col_to);
         }
         return Status::OK();
+    }
+
+private:
+    static Status from_number_strict(const DataTypeTimeStampNsSerDe& serde,
+                                     const typename FromDataType::ColumnType& column_from,
+                                     IColumn& column_to) {
+        if constexpr (IsDataTypeDecimal<FromDataType>) {
+            return serde.template from_decimal_strict_mode_batch<FromDataType>(column_from,
+                                                                               column_to);
+        } else if constexpr (IsDataTypeInt<FromDataType>) {
+            return serde.template from_int_strict_mode_batch<FromDataType>(column_from, column_to);
+        } else {
+            static_assert(IsDataTypeFloat<FromDataType>);
+            return serde.template from_float_strict_mode_batch<FromDataType>(column_from,
+                                                                             column_to);
+        }
+    }
+
+    static Status from_number_non_strict(const DataTypeTimeStampNsSerDe& serde,
+                                         const typename FromDataType::ColumnType& column_from,
+                                         ColumnNullable& column_to) {
+        if constexpr (IsDataTypeDecimal<FromDataType>) {
+            return serde.template from_decimal_batch<FromDataType>(column_from, column_to);
+        } else if constexpr (IsDataTypeInt<FromDataType>) {
+            return serde.template from_int_batch<FromDataType>(column_from, column_to);
+        } else {
+            static_assert(IsDataTypeFloat<FromDataType>);
+            return serde.template from_float_batch<FromDataType>(column_from, column_to);
+        }
     }
 };
 
