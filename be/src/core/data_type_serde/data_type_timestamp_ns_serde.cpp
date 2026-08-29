@@ -144,6 +144,141 @@ Status DataTypeTimeStampNsSerDe::from_string_strict_mode(StringRef& str, IColumn
     return Status::OK();
 }
 
+template <typename IntDataType>
+Status DataTypeTimeStampNsSerDe::from_int_batch(const typename IntDataType::ColumnType& int_col,
+                                                ColumnNullable& target_col) const {
+    auto& col_data = assert_cast<ColumnTimeStampNs&>(target_col.get_nested_column());
+    auto& col_nullmap = target_col.get_null_map_column();
+    col_data.resize(int_col.size());
+    col_nullmap.resize(int_col.size());
+
+    CastParameters params {.status = Status::OK(), .is_strict = false};
+    for (size_t i = 0; i < int_col.size(); ++i) {
+        TimeStampNsValue value;
+        if (CastToTimestampNs::from_integer<DatelikeParseMode::NON_STRICT>(
+                    int_col.get_element(i), value, params)) [[likely]] {
+            col_data.get_data()[i] = value;
+            col_nullmap.get_data()[i] = false;
+        } else {
+            col_data.get_data()[i] = TimeStampNsValue();
+            col_nullmap.get_data()[i] = true;
+        }
+    }
+    return Status::OK();
+}
+
+template <typename IntDataType>
+Status DataTypeTimeStampNsSerDe::from_int_strict_mode_batch(
+        const typename IntDataType::ColumnType& int_col, IColumn& target_col) const {
+    auto& col_data = assert_cast<ColumnTimeStampNs&>(target_col);
+    col_data.resize(int_col.size());
+
+    CastParameters params {.status = Status::OK(), .is_strict = true};
+    for (size_t i = 0; i < int_col.size(); ++i) {
+        TimeStampNsValue value;
+        CastToTimestampNs::from_integer<DatelikeParseMode::STRICT>(int_col.get_element(i), value,
+                                                                   params);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(
+                    fmt::format("parse {} to timestamp_ns failed: ", int_col.get_element(i)));
+            return params.status;
+        }
+        col_data.get_data()[i] = value;
+    }
+    return Status::OK();
+}
+
+template <typename FloatDataType>
+Status DataTypeTimeStampNsSerDe::from_float_batch(
+        const typename FloatDataType::ColumnType& float_col, ColumnNullable& target_col) const {
+    auto& col_data = assert_cast<ColumnTimeStampNs&>(target_col.get_nested_column());
+    auto& col_nullmap = target_col.get_null_map_column();
+    col_data.resize(float_col.size());
+    col_nullmap.resize(float_col.size());
+
+    CastParameters params {.status = Status::OK(), .is_strict = false};
+    for (size_t i = 0; i < float_col.size(); ++i) {
+        TimeStampNsValue value;
+        if (CastToTimestampNs::from_float<DatelikeParseMode::NON_STRICT>(
+                    float_col.get_data()[i], value, params)) [[likely]] {
+            col_data.get_data()[i] = value;
+            col_nullmap.get_data()[i] = false;
+        } else {
+            col_data.get_data()[i] = TimeStampNsValue();
+            col_nullmap.get_data()[i] = true;
+        }
+    }
+    return Status::OK();
+}
+
+template <typename FloatDataType>
+Status DataTypeTimeStampNsSerDe::from_float_strict_mode_batch(
+        const typename FloatDataType::ColumnType& float_col, IColumn& target_col) const {
+    auto& col_data = assert_cast<ColumnTimeStampNs&>(target_col);
+    col_data.resize(float_col.size());
+
+    CastParameters params {.status = Status::OK(), .is_strict = true};
+    for (size_t i = 0; i < float_col.size(); ++i) {
+        TimeStampNsValue value;
+        CastToTimestampNs::from_float<DatelikeParseMode::STRICT>(float_col.get_data()[i], value,
+                                                                 params);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(
+                    fmt::format("parse {} to timestamp_ns failed: ", float_col.get_data()[i]));
+            return params.status;
+        }
+        col_data.get_data()[i] = value;
+    }
+    return Status::OK();
+}
+
+template <typename DecimalDataType>
+Status DataTypeTimeStampNsSerDe::from_decimal_batch(
+        const typename DecimalDataType::ColumnType& decimal_col, ColumnNullable& target_col) const {
+    auto& col_data = assert_cast<ColumnTimeStampNs&>(target_col.get_nested_column());
+    auto& col_nullmap = target_col.get_null_map_column();
+    col_data.resize(decimal_col.size());
+    col_nullmap.resize(decimal_col.size());
+
+    CastParameters params {.status = Status::OK(), .is_strict = false};
+    for (size_t i = 0; i < decimal_col.size(); ++i) {
+        TimeStampNsValue value;
+        if (CastToTimestampNs::from_decimal<DatelikeParseMode::NON_STRICT>(
+                    decimal_col.get_intergral_part(i), decimal_col.get_fractional_part(i),
+                    decimal_col.get_scale(), value, params)) [[likely]] {
+            col_data.get_data()[i] = value;
+            col_nullmap.get_data()[i] = false;
+        } else {
+            col_data.get_data()[i] = TimeStampNsValue();
+            col_nullmap.get_data()[i] = true;
+        }
+    }
+    return Status::OK();
+}
+
+template <typename DecimalDataType>
+Status DataTypeTimeStampNsSerDe::from_decimal_strict_mode_batch(
+        const typename DecimalDataType::ColumnType& decimal_col, IColumn& target_col) const {
+    auto& col_data = assert_cast<ColumnTimeStampNs&>(target_col);
+    col_data.resize(decimal_col.size());
+
+    CastParameters params {.status = Status::OK(), .is_strict = true};
+    for (size_t i = 0; i < decimal_col.size(); ++i) {
+        TimeStampNsValue value;
+        CastToTimestampNs::from_decimal<DatelikeParseMode::STRICT>(
+                decimal_col.get_intergral_part(i), decimal_col.get_fractional_part(i),
+                decimal_col.get_scale(), value, params);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(fmt::format(
+                    "parse {}.{} to timestamp_ns failed: ", decimal_col.get_intergral_part(i),
+                    decimal_col.get_fractional_part(i)));
+            return params.status;
+        }
+        col_data.get_data()[i] = value;
+    }
+    return Status::OK();
+}
+
 Status DataTypeTimeStampNsSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                           int64_t end_idx, BufferWritable& bw,
                                                           FormatOptions& options) const {
@@ -317,5 +452,54 @@ Status DataTypeTimeStampNsSerDe::from_olap_string(const std::string& str, Field&
     field = Field::create_field<TYPE_TIMESTAMP_NS>(value);
     return Status::OK();
 }
+
+template Status DataTypeTimeStampNsSerDe::from_int_batch<DataTypeInt8>(
+        const DataTypeInt8::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_int_batch<DataTypeInt16>(
+        const DataTypeInt16::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_int_batch<DataTypeInt32>(
+        const DataTypeInt32::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_int_batch<DataTypeInt64>(
+        const DataTypeInt64::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_int_batch<DataTypeInt128>(
+        const DataTypeInt128::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_int_strict_mode_batch<DataTypeInt8>(
+        const DataTypeInt8::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_int_strict_mode_batch<DataTypeInt16>(
+        const DataTypeInt16::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_int_strict_mode_batch<DataTypeInt32>(
+        const DataTypeInt32::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_int_strict_mode_batch<DataTypeInt64>(
+        const DataTypeInt64::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_int_strict_mode_batch<DataTypeInt128>(
+        const DataTypeInt128::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_float_batch<DataTypeFloat32>(
+        const DataTypeFloat32::ColumnType& float_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_float_batch<DataTypeFloat64>(
+        const DataTypeFloat64::ColumnType& float_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_float_strict_mode_batch<DataTypeFloat32>(
+        const DataTypeFloat32::ColumnType& float_col, IColumn& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_float_strict_mode_batch<DataTypeFloat64>(
+        const DataTypeFloat64::ColumnType& float_col, IColumn& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_decimal_batch<DataTypeDecimal32>(
+        const DataTypeDecimal32::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_decimal_batch<DataTypeDecimal64>(
+        const DataTypeDecimal64::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_decimal_batch<DataTypeDecimalV2>(
+        const DataTypeDecimalV2::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_decimal_batch<DataTypeDecimal128>(
+        const DataTypeDecimal128::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_decimal_batch<DataTypeDecimal256>(
+        const DataTypeDecimal256::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_decimal_strict_mode_batch<DataTypeDecimal32>(
+        const DataTypeDecimal32::ColumnType& decimal_col, IColumn& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_decimal_strict_mode_batch<DataTypeDecimal64>(
+        const DataTypeDecimal64::ColumnType& decimal_col, IColumn& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_decimal_strict_mode_batch<DataTypeDecimalV2>(
+        const DataTypeDecimalV2::ColumnType& decimal_col, IColumn& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_decimal_strict_mode_batch<DataTypeDecimal128>(
+        const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col) const;
+template Status DataTypeTimeStampNsSerDe::from_decimal_strict_mode_batch<DataTypeDecimal256>(
+        const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
 
 } // namespace doris

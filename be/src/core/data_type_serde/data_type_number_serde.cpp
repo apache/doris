@@ -1164,7 +1164,7 @@ bool write_to_jsonb_from_number(auto& data, JsonbWriter& writer, int scale) {
     } else if constexpr (T == TYPE_DATETIMEV2) {
         return jsonb_writer_string(writer, CastToString::from_datetimev2(data, scale));
     } else if constexpr (T == TYPE_TIMESTAMP_NS) {
-        return jsonb_writer_string(writer, TimeStampNsValue(data).to_string());
+        return jsonb_writer_string(writer, CastToString::from_timestamp_ns(data));
     } else if constexpr (T == TYPE_TIMESTAMPTZ) {
         return jsonb_writer_string(writer, CastToString::from_timestamptz(data, scale));
     } else if constexpr (T == TYPE_IPV4) {
@@ -1849,8 +1849,7 @@ void value_to_string(const typename PrimitiveTypeTraits<T>::CppType value, Buffe
     } else if constexpr (T == TYPE_DATETIMEV2) {
         CastToString::push_datetimev2(value, scale, bw);
     } else if constexpr (T == TYPE_TIMESTAMP_NS) {
-        const auto string_value = TimeStampNsValue(value).to_string();
-        bw.write(string_value.data(), string_value.size());
+        CastToString::push_timestamp_ns(value, bw);
     } else if constexpr (T == TYPE_TIMESTAMPTZ) {
         CastToString::push_timestamptz(value, scale, bw, options);
     } else if constexpr (T == TYPE_TIMEV2) {
