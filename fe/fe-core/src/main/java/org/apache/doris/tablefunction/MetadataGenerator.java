@@ -1174,7 +1174,7 @@ public class MetadataGenerator {
                     LOG.debug("mv: {}", mv.toInfoString());
                 }
 
-                boolean isSync = MTMVPartitionUtil.isMTMVSyncForDisplay(mv);
+                boolean isSync = MTMVPartitionUtil.isMTMVSync(mv);
 
                 MTMVStatus mtmvStatus = mv.getStatus();
                 TRow trow = new TRow();

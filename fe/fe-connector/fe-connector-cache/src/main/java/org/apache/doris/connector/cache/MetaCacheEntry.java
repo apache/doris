@@ -151,10 +151,6 @@ public class MetaCacheEntry<K, V> {
         return name;
     }
 
-    public boolean isEffectiveEnabled() {
-        return effectiveEnabled;
-    }
-
     public V get(K key) {
         if (!isManualMissLoadEnabled()) {
             return loadingData.get(key);

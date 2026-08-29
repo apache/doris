@@ -79,7 +79,7 @@ public class HiveConnectorMetadataFileListStatsTest {
     @Test
     public void allPartitionsSummedWhenBelowSampleCap() {
         // 3 partitions (< sample cap): the whole table is listed, no scale-up. 100+200+300 = 600.
-        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("dt=p0", "dt=p1", "dt=p2"));
+        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("p0", "p1", "p2"));
         ToLongBiFunction<String, List<String>> sizes =
                 (loc, vals) -> loc.endsWith("p0") ? 100 : loc.endsWith("p1") ? 200 : 300;
         Assertions.assertEquals(600L, metadata(client).estimateDataSize(partitioned(), 30, sizes));
@@ -91,29 +91,13 @@ public class HiveConnectorMetadataFileListStatsTest {
         // size the result is deterministic regardless of which 2 are shuffled in: 2*100 * (4/2) = 400. This
         // pins the legacy scale-up (totalSize * totalPartitions / samplePartitions). MUTATION: dropping the
         // scale-up returns 200 -> red.
-        PartitionFakeHmsClient client = new PartitionFakeHmsClient(
-                Arrays.asList("dt=p0", "dt=p1", "dt=p2", "dt=p3"));
+        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("p0", "p1", "p2", "p3"));
         Assertions.assertEquals(400L, metadata(client).estimateDataSize(partitioned(), 2, (loc, vals) -> 100));
     }
 
     @Test
-    public void samplingLoadsOnlySelectedPartitionObjects() {
-        List<String> names = new ArrayList<>();
-        for (int i = 0; i < 100; i++) {
-            names.add("dt=p" + i);
-        }
-        PartitionFakeHmsClient client = new PartitionFakeHmsClient(names);
-
-        long size = metadata(client).estimateDataSize(partitioned(), 30, (loc, vals) -> 100);
-
-        Assertions.assertEquals(10_000L, size);
-        Assertions.assertEquals(30, client.getLastRequestedPartitionNames().size(),
-                "the estimator must sample names before requesting heavyweight partition objects");
-    }
-
-    @Test
     public void zeroTotalSizeReturnsMinusOne() {
-        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("dt=p0", "dt=p1"));
+        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("p0", "p1"));
         Assertions.assertEquals(-1L, metadata(client).estimateDataSize(partitioned(), 30, (loc, vals) -> 0));
     }
 
@@ -121,7 +105,7 @@ public class HiveConnectorMetadataFileListStatsTest {
     public void listingErrorDegradesToMinusOneNotThrow() {
         // A per-location listing failure aborts the estimate to -1 (legacy all-or-nothing best-effort), and
         // must NOT propagate as a query-killing exception. MUTATION: not catching -> the estimate throws -> red.
-        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("dt=p0"));
+        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("p0"));
         long size = Assertions.assertDoesNotThrow(() -> metadata(client).estimateDataSize(
                 partitioned(), 30, (loc, vals) -> {
                     throw new RuntimeException("boom");
@@ -132,8 +116,8 @@ public class HiveConnectorMetadataFileListStatsTest {
     @Test
     public void partitionWithoutLocationIsSkipped() {
         // A partition carrying no location contributes nothing but must not break the estimate.
-        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("dt=p0", "dt=p1"));
-        client.dropLocationFor("dt=p1");
+        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("p0", "p1"));
+        client.dropLocationFor("p1");
         Assertions.assertEquals(100L, metadata(client).estimateDataSize(
                 partitioned(), 30, (loc, vals) -> loc.endsWith("p0") ? 100 : 0));
     }
@@ -227,10 +211,9 @@ public class HiveConnectorMetadataFileListStatsTest {
      * {@code s3://wh/t/<name>}. {@code listPartitionNames} echoes the names; {@code getPartitions} builds an
      * {@link HmsPartitionInfo} per requested name. The rest fail loud.
      */
-    private static class PartitionFakeHmsClient implements HmsClient {
+    private static final class PartitionFakeHmsClient implements HmsClient {
         private final List<String> partitionNames;
         private final java.util.Set<String> withoutLocation = new java.util.HashSet<>();
-        private List<String> lastRequestedPartitionNames = Collections.emptyList();
 
         PartitionFakeHmsClient(List<String> partitionNames) {
             this.partitionNames = partitionNames;
@@ -240,10 +223,6 @@ public class HiveConnectorMetadataFileListStatsTest {
             withoutLocation.add(name);
         }
 
-        List<String> getLastRequestedPartitionNames() {
-            return lastRequestedPartitionNames;
-        }
-
         @Override
         public List<String> listPartitionNames(String dbName, String tableName, int maxParts) {
             return partitionNames;
@@ -251,13 +230,11 @@ public class HiveConnectorMetadataFileListStatsTest {
 
         @Override
         public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
-            lastRequestedPartitionNames = new ArrayList<>(partNames);
             List<HmsPartitionInfo> result = new ArrayList<>(partNames.size());
             for (String name : partNames) {
                 String location = withoutLocation.contains(name) ? null : "s3://wh/t/" + name;
                 result.add(new HmsPartitionInfo(
-                        Collections.singletonList(name.substring(name.indexOf('=') + 1)),
-                        location, null, null, null, Collections.emptyMap()));
+                        Collections.singletonList(name), location, null, null, null, Collections.emptyMap()));
             }
             return result;
         }

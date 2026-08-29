@@ -159,13 +159,13 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             if (oldConnector != null && oldConnector != newConnector) {
                 try {
                     oldConnector.close();
-                } catch (Exception e) {
+                } catch (IOException e) {
                     LOG.warn("Failed to close old connector during re-initialization "
                             + "for catalog {}", name, e);
-                } finally {
-                    if (oldContext != null && oldContext != connectorContext) {
-                        closeConnectorContextQuietly(oldContext);
-                    }
+                }
+                // ...and close the replaced context's cached engine FileSystem (never the live one).
+                if (oldContext != null && oldContext != connectorContext) {
+                    closeConnectorContextQuietly(oldContext);
                 }
             }
         }
@@ -204,22 +204,17 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         // This handles image deserialization of old resource-backed catalogs whose
         // properties never contained "type" (it was derived from the Resource object).
         String catalogType = getType();
+        // Build the context up front and stash it so the catalog can close its cached engine FileSystem on
+        // teardown (onClose / connector replacement). The connector — and any sibling it builds — shares this
+        // one context instance, so there is a single cached FS per catalog.
         DefaultConnectorContext context = new DefaultConnectorContext(name, id, this::getExecutionAuthenticator,
                 () -> catalogProperty.getStorageAdaptersMap(),
                 catalogProperty::getEffectiveRawStorageProperties);
-        try {
-            Connector created = ConnectorFactory.createStandaloneCatalogConnector(
-                    catalogType, catalogProperty.getProperties(), context);
-            if (created == null) {
-                closeConnectorContextQuietly(context);
-                return null;
-            }
-            connectorContext = context;
-            return created;
-        } catch (RuntimeException | Error e) {
-            closeConnectorContextQuietly(context);
-            throw e;
-        }
+        this.connectorContext = context;
+        // The standalone entry point, same as CatalogFactory uses: this is the second door onto a catalog (the
+        // lazy build after image deserialization), and both doors must agree on what may become a catalog.
+        return ConnectorFactory.createStandaloneCatalogConnector(
+                catalogType, catalogProperty.getProperties(), context);
     }
 
     @Override

@@ -27,7 +27,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
-import org.apache.doris.nereids.ExternalMetadataPreloadResult;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
@@ -432,16 +431,14 @@ public class StmtExecutorTest extends TestWithFeService {
     }
 
     @Test
-    public void testShouldDisableCloudVersionCacheOnRetryForE230() throws Exception {
+    public void testShouldDisableCloudVersionCacheOnRetryForE230() {
         String originalCloudUniqueId = Config.cloud_unique_id;
         String originalDeployMode = Config.deploy_mode;
-        int originalRetryTime = Config.max_query_retry_time;
         long originalPartitionTtl = connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs;
         long originalTableTtl = connectContext.getSessionVariable().cloudTableVersionCacheTtlMs;
         try {
             Config.cloud_unique_id = "test-cloud-id";
-            Config.max_query_retry_time = 1;
-            StmtExecutor executor = Mockito.spy(new StmtExecutor(connectContext, "select 1"));
+            StmtExecutor executor = new StmtExecutor(connectContext, "select 1");
 
             connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = 1000L;
             connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = 1000L;
@@ -469,41 +466,13 @@ public class StmtExecutorTest extends TestWithFeService {
             Assertions.assertTrue(executor.shouldDisableCloudVersionCacheOnRetry(
                     "errCode = 2, detailMessage = E-230 versions are already compacted"));
 
-            connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = 1000L;
-            connectContext.getStatementContext().setExternalMetadataPreloadResult(
-                    ExternalMetadataPreloadResult.executed(0, 0, 0L));
-            Object oldScope = connectContext.getStatementContext().getOrCreateConnectorStatementScope();
-            AtomicInteger attempts = new AtomicInteger();
-            Mockito.doAnswer(invocation -> {
-                if (attempts.getAndIncrement() == 0) {
-                    throw new org.apache.doris.common.UserException("E-230 versions are already compacted");
-                }
-                Assertions.assertFalse(connectContext.getStatementContext().getExternalMetadataPreloadResult()
-                        .isPresent());
-                Assertions.assertNotSame(oldScope,
-                        connectContext.getStatementContext().getOrCreateConnectorStatementScope());
-                new org.apache.doris.nereids.properties.SelectHintSetVar("SET_VAR",
-                        com.google.common.collect.ImmutableMap.of(
-                                "CLOUD_PARTITION_VERSION_CACHE_TTL_MS", java.util.Optional.of("1000"),
-                                SessionVariable.CLOUD_TABLE_VERSION_CACHE_TTL_MS, java.util.Optional.of("1000")))
-                        .setVarOnceInSql(connectContext.getStatementContext());
-                Assertions.assertEquals(0L, connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs);
-                Assertions.assertEquals(0L, connectContext.getSessionVariable().cloudTableVersionCacheTtlMs);
-                return null;
-            }).when(executor).execute(Mockito.any(TUniqueId.class));
-            executor.queryRetry(new TUniqueId());
-            Assertions.assertEquals(2, attempts.get());
-            Assertions.assertEquals(1000L, connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs);
-            Assertions.assertEquals(1000L, connectContext.getSessionVariable().cloudTableVersionCacheTtlMs);
-
             connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = 0L;
             connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = 0L;
-            Assertions.assertTrue(executor.shouldDisableCloudVersionCacheOnRetry(
+            Assertions.assertFalse(executor.shouldDisableCloudVersionCacheOnRetry(
                     "errCode = 2, detailMessage = E-230 versions are already compacted"));
         } finally {
             Config.cloud_unique_id = originalCloudUniqueId;
             Config.deploy_mode = originalDeployMode;
-            Config.max_query_retry_time = originalRetryTime;
             connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = originalPartitionTtl;
             connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = originalTableTtl;
         }

@@ -25,7 +25,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 
@@ -71,8 +70,6 @@ public class MTMVPartitionUtilTest {
         refreshContextStatic = Mockito.mockStatic(MTMVRefreshContext.class);
         refreshContextStatic.when(() -> MTMVRefreshContext.buildContext(Mockito.any(MTMV.class), Mockito.anyMap()))
                 .thenReturn(context);
-        refreshContextStatic.when(() -> MTMVRefreshContext.buildContextForDisplay(Mockito.any(MTMV.class)))
-                .thenReturn(context);
 
         Mockito.when(mtmv.getRelation()).thenReturn(relation);
 
@@ -80,16 +77,9 @@ public class MTMVPartitionUtilTest {
 
         Mockito.when(context.getPartitionMappings()).thenReturn(Maps.newHashMap());
 
-        Mockito.when(context.persistedPartitionSetsMatch(Mockito.anySet())).thenReturn(true);
-
-        Mockito.when(context.hasPersistedPartitionSet(
-                Mockito.anyString(), Mockito.any(MTMVRelatedTableIf.class), Mockito.anySet())).thenReturn(true);
-
         Mockito.when(context.getBaseVersions()).thenReturn(versions);
 
         Mockito.when(context.getBaseTableSnapshotCache()).thenReturn(Maps.newHashMap());
-
-        Mockito.when(context.getBaseTable(Mockito.any(BaseTableInfo.class))).thenReturn(baseOlapTable);
 
         Mockito.when(mtmv.getPartitions()).thenReturn(Lists.newArrayList(p1));
 
@@ -119,14 +109,8 @@ public class MTMVPartitionUtilTest {
         Mockito.when(baseOlapTable.getPartitionSnapshot(Mockito.anyString(), Mockito.any(MTMVRefreshContext.class), Mockito.any(Optional.class)))
                 .thenReturn(baseSnapshotIf);
 
-        Mockito.when(context.getPartitionSnapshots(Mockito.eq(baseOlapTable), Mockito.anySet(),
-                Mockito.any(Optional.class))).thenAnswer(invocation -> {
-                    Map<String, MTMVSnapshotIf> result = Maps.newHashMap();
-                    for (String partitionName : invocation.<Set<String>>getArgument(1)) {
-                        result.put(partitionName, baseSnapshotIf);
-                    }
-                    return result;
-                });
+        Mockito.when(context.getPartitionSnapshot(baseOlapTable, "name2"))
+                .thenReturn(baseSnapshotIf);
 
         Mockito.when(refreshSnapshot.equalsWithPct(Mockito.anyString(), Mockito.anyString(), Mockito.any(MTMVSnapshotIf.class),
                 Mockito.any(BaseTableInfo.class)))
@@ -159,12 +143,6 @@ public class MTMVPartitionUtilTest {
     }
 
     @Test
-    public void testIsMTMVSyncForDisplay() {
-        Assert.assertTrue(MTMVPartitionUtil.isMTMVSyncForDisplay(mtmv));
-        refreshContextStatic.verify(() -> MTMVRefreshContext.buildContextForDisplay(mtmv));
-    }
-
-    @Test
     public void testIsMTMVSyncNotSync() {
         Mockito.when(refreshSnapshot.equalsWithBaseTable(Mockito.anyString(), Mockito.any(BaseTableInfo.class), Mockito.any(MTMVSnapshotIf.class)))
                 .thenReturn(false);
@@ -181,8 +159,8 @@ public class MTMVPartitionUtilTest {
 
     @Test
     public void testIsSyncWithPartitionNotEqual() throws AnalysisException {
-        Mockito.when(context.hasPersistedPartitionSet(
-                Mockito.anyString(), Mockito.any(MTMVRelatedTableIf.class), Mockito.anySet())).thenReturn(false);
+        Mockito.when(refreshSnapshot.getPctSnapshots(Mockito.anyString(), Mockito.any(BaseTableInfo.class)))
+                .thenReturn(Sets.newHashSet("name2", "name3"));
         boolean isSyncWithPartition = MTMVPartitionUtil
                 .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"), baseOlapTable);
         Assert.assertFalse(isSyncWithPartition);
@@ -262,8 +240,6 @@ public class MTMVPartitionUtilTest {
                 MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl2", "db1", "table1")));
         Assert.assertFalse(
                 MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db1", "table2")));
-        Assert.assertTrue(MTMVPartitionUtil.isTableExcluded(excludedTriggerTables,
-                new BaseTableInfo(new TableNameInfo("ctl1", "db1", "table1"))));
     }
 
     @Test
@@ -306,40 +282,6 @@ public class MTMVPartitionUtilTest {
 
         assertFetchedPartitionNames(partitionMappings, Sets.newHashSet("p1", "p2", "p3"),
                 Sets.newHashSet("p1", "p2", "p3"));
-    }
-
-    @Test
-    public void testCachedBaseVersionsNeverUseCloudVersionRpcApis() throws AnalysisException {
-        String originalCloudUniqueId = Config.cloud_unique_id;
-        Config.cloud_unique_id = "test_cloud";
-        try {
-            Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.FOLLOW_BASE_TABLE);
-            Mockito.when(mtmvPartitionInfo.getPctTables()).thenReturn(Sets.newHashSet(baseOlapTable));
-            Mockito.when(baseTableInfo.isInternalTable()).thenReturn(true);
-            Mockito.when(baseOlapTable.getId()).thenReturn(10L);
-            Mockito.when(baseOlapTable.getCachedTableVersion()).thenReturn(11L);
-            Mockito.when(baseOlapTable.getPartitionOrAnalysisException("p1")).thenReturn(p1);
-            Mockito.when(p1.getName()).thenReturn("p1");
-            Mockito.when(p1.getCachedVisibleVersion()).thenReturn(12L);
-            Map<String, Map<MTMVRelatedTableIf, Set<String>>> mappings = Maps.newHashMap();
-            mappings.put("mv1", pctMapping("p1"));
-
-            try (MockedStatic<Partition> partitionStatic = Mockito.mockStatic(Partition.class);
-                    MockedStatic<OlapTable> olapTableStatic = Mockito.mockStatic(OlapTable.class)) {
-                MTMVBaseVersions cached = MTMVPartitionUtil.getCachedBaseVersions(
-                        mtmv, mappings, baseTables);
-
-                Assert.assertEquals(11L, cached.getTableVersions().get(10L).longValue());
-                Assert.assertEquals(12L,
-                        cached.getPartitionVersions(baseOlapTable).get("p1").longValue());
-                partitionStatic.verify(
-                        () -> Partition.getVisibleVersions(Mockito.anyList()), Mockito.never());
-                olapTableStatic.verify(
-                        () -> OlapTable.getVisibleVersionInBatch(Mockito.anyList()), Mockito.never());
-            }
-        } finally {
-            Config.cloud_unique_id = originalCloudUniqueId;
-        }
     }
 
     @Test

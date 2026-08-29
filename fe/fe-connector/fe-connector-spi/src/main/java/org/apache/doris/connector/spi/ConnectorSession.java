@@ -155,8 +155,4 @@ public interface ConnectorSession {
     default ConnectorStatementScope getStatementScope() {
         return ConnectorStatementScope.NONE;
     }
-
-    default ConnectorMetadataAccessObserver getMetadataAccessObserver() {
-        return ConnectorMetadataAccessObserver.NOOP;
-    }
 }

@@ -17,10 +17,6 @@
 
 package org.apache.doris.connector.hms;
 
-import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
-import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
-import org.apache.doris.connector.spi.ConnectorSession;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -28,40 +24,17 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
+/** Immutable logical input for one HMS partition-object request. */
 final class HmsPartitionRequest {
 
     private final String dbName;
     private final String tableName;
-    private final List<String> partitionNames;
     private final List<HmsPartitionIdentity.ParsedPartitionName> partitions;
-    private final ConnectorMetadataAccessSource source;
-    private final ConnectorMetadataAccessObserver metadataAccessObserver;
 
     private HmsPartitionRequest(Builder builder) {
         this.dbName = builder.dbName;
         this.tableName = builder.tableName;
-        this.partitions = builder.partitions == null
-                ? parsePartitions(builder.partitionNames)
-                : Collections.unmodifiableList(new ArrayList<>(builder.partitions));
-        List<String> names = new ArrayList<>(partitions.size());
-        for (HmsPartitionIdentity.ParsedPartitionName partition : partitions) {
-            names.add(partition.getName());
-        }
-        this.partitionNames = Collections.unmodifiableList(names);
-        this.source = builder.source;
-        this.metadataAccessObserver = builder.metadataAccessObserver;
-    }
-
-    static HmsPartitionRequest from(ConnectorSession session, ConnectorMetadataAccessSource source,
-            String dbName, String tableName, List<String> partitionNames) {
-        return builder()
-                .database(dbName)
-                .table(tableName)
-                .partitionNames(partitionNames)
-                .source(source)
-                .metadataAccessObserver(session == null
-                        ? ConnectorMetadataAccessObserver.NOOP : session.getMetadataAccessObserver())
-                .build();
+        this.partitions = parsePartitions(builder.partitionNames);
     }
 
     static Builder builder() {
@@ -76,29 +49,14 @@ final class HmsPartitionRequest {
         return tableName;
     }
 
-    List<String> getPartitionNames() {
-        return partitionNames;
-    }
-
     List<HmsPartitionIdentity.ParsedPartitionName> getPartitions() {
         return partitions;
-    }
-
-    ConnectorMetadataAccessSource getSource() {
-        return source;
-    }
-
-    ConnectorMetadataAccessObserver getMetadataAccessObserver() {
-        return metadataAccessObserver;
     }
 
     static final class Builder {
         private String dbName;
         private String tableName;
         private List<String> partitionNames;
-        private List<HmsPartitionIdentity.ParsedPartitionName> partitions;
-        private ConnectorMetadataAccessSource source = ConnectorMetadataAccessSource.UNKNOWN;
-        private ConnectorMetadataAccessObserver metadataAccessObserver = ConnectorMetadataAccessObserver.NOOP;
 
         private Builder() {
         }
@@ -118,29 +76,10 @@ final class HmsPartitionRequest {
             return this;
         }
 
-        Builder partitions(List<HmsPartitionIdentity.ParsedPartitionName> partitions) {
-            this.partitions = partitions;
-            return this;
-        }
-
-        Builder source(ConnectorMetadataAccessSource source) {
-            this.source = source;
-            return this;
-        }
-
-        Builder metadataAccessObserver(ConnectorMetadataAccessObserver metadataAccessObserver) {
-            this.metadataAccessObserver = metadataAccessObserver;
-            return this;
-        }
-
         HmsPartitionRequest build() {
             requireName(dbName, "database");
             requireName(tableName, "table");
-            if (partitions == null) {
-                Objects.requireNonNull(partitionNames, "partitionNames");
-            }
-            Objects.requireNonNull(source, "source");
-            Objects.requireNonNull(metadataAccessObserver, "metadataAccessObserver");
+            Objects.requireNonNull(partitionNames, "partitionNames");
             return new HmsPartitionRequest(this);
         }
 
@@ -155,19 +94,18 @@ final class HmsPartitionRequest {
         List<HmsPartitionIdentity.ParsedPartitionName> parsedPartitions = new ArrayList<>(names.size());
         Set<List<String>> identities = new HashSet<>();
         List<String> partitionKeys = null;
-        for (int i = 0; i < names.size(); i++) {
-            HmsPartitionIdentity.ParsedPartitionName parsed = HmsPartitionIdentity.parse(names.get(i));
+        for (String name : names) {
+            HmsPartitionIdentity.ParsedPartitionName parsed = HmsPartitionIdentity.parse(name);
             if (partitionKeys == null) {
                 partitionKeys = parsed.getKeys();
             } else if (!partitionKeys.equals(parsed.getKeys())) {
-                throw new IllegalArgumentException("inconsistent partition keys in request: " + parsed.getName());
+                throw new IllegalArgumentException("inconsistent partition keys in request: " + name);
             }
             if (!identities.add(parsed.getValues())) {
-                throw new IllegalArgumentException("duplicate partition identity in request: " + parsed.getName());
+                throw new IllegalArgumentException("duplicate partition identity in request: " + name);
             }
             parsedPartitions.add(parsed);
         }
         return Collections.unmodifiableList(parsedPartitions);
     }
-
 }

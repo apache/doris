@@ -72,32 +72,6 @@ public class ConnectContextTest {
 
     private CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
 
-    @Test
-    public void testRestoreThreadLocalContextClearsTaskContext() {
-        ConnectContext previousContext = new ConnectContext();
-        previousContext.setThreadLocalInfo();
-        ConnectContext taskContext = new ConnectContext();
-        taskContext.setExecutor(executor);
-        org.apache.doris.nereids.StatementContext taskStatementContext =
-                Mockito.mock(org.apache.doris.nereids.StatementContext.class);
-        taskContext.setStatementContext(taskStatementContext);
-        taskContext.setThreadLocalInfo();
-        AutoCloseConnectContext.restoreThreadLocalContext(previousContext);
-        Assert.assertSame(previousContext, ConnectContext.get());
-        Assert.assertNull(taskContext.getExecutor());
-        Mockito.verify(taskStatementContext).close();
-        ConnectContext failingContext = new ConnectContext();
-        org.apache.doris.nereids.StatementContext failingStatementContext =
-                Mockito.mock(org.apache.doris.nereids.StatementContext.class);
-        Mockito.doThrow(new RuntimeException("close failed")).when(failingStatementContext).close();
-        failingContext.setStatementContext(failingStatementContext);
-        failingContext.setThreadLocalInfo();
-        Assert.assertThrows(RuntimeException.class,
-                () -> AutoCloseConnectContext.restoreThreadLocalContext(previousContext));
-        Assert.assertSame(previousContext, ConnectContext.get());
-        ConnectContext.remove();
-    }
-
     @Before
     public void setUp() throws Exception {
         Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);

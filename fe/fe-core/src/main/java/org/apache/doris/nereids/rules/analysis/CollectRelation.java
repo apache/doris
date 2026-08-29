@@ -39,8 +39,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.properties.SelectHint;
-import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
@@ -50,7 +48,6 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -128,13 +125,6 @@ public class CollectRelation implements AnalysisRuleFactory {
     }
 
     private Plan collectFromAny(MatchingContext<Plan> ctx) {
-        if (ctx.root instanceof LogicalSelectHint) {
-            for (SelectHint hint : ((LogicalSelectHint<?>) ctx.root).getHints()) {
-                if (hint instanceof SelectHintUseMv) {
-                    ctx.statementContext.addMtmvPreloadHint((SelectHintUseMv) hint);
-                }
-            }
-        }
         for (Expression expression : ctx.root.getExpressions()) {
             expression.foreach(e -> {
                 if (e instanceof SubqueryExpr) {

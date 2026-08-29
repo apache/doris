@@ -30,13 +30,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
-import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorType;
-import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
@@ -52,8 +50,8 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenSchemaCacheValue;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
-import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
+import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
@@ -69,10 +67,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 
 /**
  * Tests for {@link PluginDrivenMvccExternalTable}, the generic MVCC/MTMV-capable plugin table.
@@ -183,37 +183,6 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
-    public void testDisplayContextLabelsFreshnessProbe() throws AnalysisException {
-        Fixture f = Fixture.partitioned();
-        flagPinLastModified(f);
-        MTMVRefreshContext context = Mockito.mock(MTMVRefreshContext.class);
-        Mockito.when(context.getMetadataAccessSource()).thenReturn(ConnectorMetadataAccessSource.DISPLAY);
-        Mockito.when(f.metadata.getTableFreshness(
-                Mockito.any(), Mockito.any(), Mockito.eq(ConnectorMetadataAccessSource.DISPLAY)))
-                .thenReturn(Optional.of(new ConnectorTableFreshness("t", 4242L)));
-
-        f.table.getTableSnapshot(context, Optional.empty());
-
-        Mockito.verify(f.metadata).getTableFreshness(
-                Mockito.any(), Mockito.any(), Mockito.eq(ConnectorMetadataAccessSource.DISPLAY));
-    }
-
-    @Test
-    public void testGetTableSnapshotConnectorFailureNormalizedToAnalysisException() {
-        Fixture f = Fixture.partitioned();
-        flagPinLastModified(f);
-        DorisConnectorException connectorFailure =
-                new DorisConnectorException("Invalid HMS partition result: missing=1");
-        Mockito.when(f.metadata.getTableFreshness(Mockito.any(), Mockito.any()))
-                .thenThrow(connectorFailure);
-        AnalysisException e = Assertions.assertThrows(AnalysisException.class,
-                () -> f.table.getTableSnapshot(Optional.empty()),
-                "a typed connector failure in the table freshness probe must surface as AnalysisException");
-        Assertions.assertSame(connectorFailure, e.getCause(),
-                "the original connector failure must be preserved as the cause");
-    }
-
-    @Test
     public void testGetPartitionSnapshotLastModifiedUsesOnDemandNotPin() throws AnalysisException {
         // A last-modified connector withholds per-partition modify time from listPartitions (names-only hot
         // path), so the pin carries the -1 UNKNOWN sentinel; getPartitionSnapshot must take the REAL time from
@@ -221,8 +190,8 @@ public class PluginDrivenMvccExternalTableTest {
         Fixture f = Fixture.with(Collections.singletonList(
                 cpi("dt=2024-01-01", ConnectorPartitionInfo.UNKNOWN)));
         flagPinLastModified(f);
-        Mockito.when(f.metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.anyList()))
-                .thenReturn(Collections.singletonMap("dt=2024-01-01", TS_2024_01_01));
+        Mockito.when(f.metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(),
+                Mockito.eq("dt=2024-01-01"))).thenReturn(OptionalLong.of(TS_2024_01_01));
 
         MTMVTimestampSnapshot ts = (MTMVTimestampSnapshot) f.table.getPartitionSnapshot(
                 "dt=2024-01-01", null, Optional.empty());
@@ -233,14 +202,35 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testGetPartitionSnapshotsUsesOneBulkFreshnessCall() throws AnalysisException {
+        Fixture f = Fixture.partitioned();
+        flagPinLastModified(f);
+        Set<String> names = new LinkedHashSet<>(Arrays.asList("dt=2024-01-01", "dt=2024-02-02"));
+        Map<String, Long> freshness = new HashMap<>();
+        freshness.put("dt=2024-01-01", TS_2024_01_01);
+        freshness.put("dt=2024-02-02", TS_2024_02_02);
+        Mockito.when(f.metadata.getPartitionsFreshnessMillis(
+                Mockito.any(), Mockito.any(), Mockito.anyList())).thenReturn(freshness);
+
+        Map<String, MTMVSnapshotIf> snapshots =
+                f.table.getPartitionSnapshots(names, null, Optional.empty());
+
+        Assertions.assertEquals(names, snapshots.keySet());
+        Mockito.verify(f.metadata).getPartitionsFreshnessMillis(
+                Mockito.any(), Mockito.any(), Mockito.eq(new ArrayList<>(names)));
+        Mockito.verify(f.metadata, Mockito.never())
+                .getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.anyString());
+    }
+
+    @Test
     public void testGetPartitionSnapshotLastModifiedMissingStillThrows() {
         // Existence is validated against the materialized partition set BEFORE the on-demand fetch, so even a
         // last-modified connector raises AnalysisException for an unknown partition (parity legacy
         // HiveDlaTable.getPartitionSnapshot -> checkPartitionExists).
         Fixture f = Fixture.partitioned();
         flagPinLastModified(f);
-        Mockito.when(f.metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.anyList()))
-                .thenReturn(Collections.singletonMap("dt=2024-01-01", TS_2024_01_01));
+        Mockito.when(f.metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(OptionalLong.of(TS_2024_01_01));
         Assertions.assertThrows(AnalysisException.class,
                 () -> f.table.getPartitionSnapshot("dt=1999-12-31", null, Optional.empty()),
                 "an unknown partition must throw even for a last-modified connector (existence checked first)");
@@ -255,52 +245,11 @@ public class PluginDrivenMvccExternalTableTest {
         Fixture f = Fixture.with(Collections.singletonList(
                 cpi("dt=2024-01-01", ConnectorPartitionInfo.UNKNOWN)));
         flagPinLastModified(f);
-        Mockito.when(f.metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.anyList()))
-                .thenReturn(Collections.emptyMap());
+        Mockito.when(f.metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(OptionalLong.empty());
         Assertions.assertThrows(AnalysisException.class,
                 () -> f.table.getPartitionSnapshot("dt=2024-01-01", null, Optional.empty()),
                 "a vanished partition (on-demand empty) must throw, not return a bogus 0 timestamp");
-    }
-
-    @Test
-    public void testGetPartitionSnapshotConnectorFailureNormalizedToAnalysisException() {
-        Fixture f = Fixture.with(Collections.singletonList(
-                cpi("dt=2024-01-01", ConnectorPartitionInfo.UNKNOWN)));
-        flagPinLastModified(f);
-        DorisConnectorException connectorFailure =
-                new DorisConnectorException("Invalid HMS partition result: missing=1");
-        Mockito.when(f.metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.anyList()))
-                .thenThrow(connectorFailure);
-        AnalysisException e = Assertions.assertThrows(AnalysisException.class,
-                () -> f.table.getPartitionSnapshot("dt=2024-01-01", null, Optional.empty()),
-                "a typed connector failure in the freshness probe must surface as AnalysisException");
-        Assertions.assertSame(connectorFailure, e.getCause(),
-                "the original connector failure must be preserved as the cause");
-    }
-
-    @Test
-    public void testFreshnessProgramErrorIsNotNormalized() {
-        Fixture f = Fixture.partitioned();
-        flagPinLastModified(f);
-        IllegalStateException programError = new IllegalStateException("program error");
-        Mockito.when(f.metadata.getTableFreshness(Mockito.any(), Mockito.any())).thenThrow(programError);
-
-        IllegalStateException actual = Assertions.assertThrows(
-                IllegalStateException.class, () -> f.table.getTableSnapshot(Optional.empty()));
-
-        Assertions.assertSame(programError, actual);
-    }
-
-    @Test
-    public void testMaterializeConnectorFailureUsesTheSameAnalysisBoundary() {
-        Fixture f = Fixture.partitioned();
-        DorisConnectorException connectorFailure = new DorisConnectorException("materialize failed");
-        Mockito.when(f.metadata.beginQuerySnapshot(f.session, f.handle)).thenThrow(connectorFailure);
-
-        AnalysisException actual = Assertions.assertThrows(
-                AnalysisException.class, () -> f.table.getTableSnapshot(Optional.empty()));
-
-        Assertions.assertSame(connectorFailure, actual.getCause());
     }
 
     // ==================== snapshot-id connectors (paimon/iceberg): NO extra freshness probe ====================
@@ -329,7 +278,7 @@ public class PluginDrivenMvccExternalTableTest {
         Assertions.assertEquals(TS_2024_01_01, ts.getSnapshotVersion());
         // MUTATION: probing unconditionally (no pin-flag gate) makes this verify red.
         Mockito.verify(f.metadata, Mockito.never())
-                .getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.anyList());
+                .getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.any());
     }
 
     // ==================== getNameToPartitionItems: render-from-name parity ====================
@@ -1143,8 +1092,7 @@ public class PluginDrivenMvccExternalTableTest {
         // getNewestUpdateVersionOrTime must return the connector's whole-table freshness millis instead.
         Fixture f = Fixture.partitioned();
         flagPinLastModified(f);
-        Mockito.when(f.metadata.getTableFreshness(
-                Mockito.any(), Mockito.any(), Mockito.eq(ConnectorMetadataAccessSource.UNKNOWN)))
+        Mockito.when(f.metadata.getTableFreshness(Mockito.any(), Mockito.any()))
                 .thenReturn(Optional.of(new ConnectorTableFreshness("dt=2024-02-02", TS_TABLE_FRESH)));
 
         // MUTATION: taking the max-over-partitions path (ignoring the pin flag) would return the partition max
@@ -1159,8 +1107,7 @@ public class PluginDrivenMvccExternalTableTest {
         // degrade to 0 (parity legacy getNewestUpdateVersionOrTime), NOT throw or leak a sentinel.
         Fixture f = Fixture.partitioned();
         flagPinLastModified(f);
-        Mockito.when(f.metadata.getTableFreshness(
-                Mockito.any(), Mockito.any(), Mockito.eq(ConnectorMetadataAccessSource.UNKNOWN)))
+        Mockito.when(f.metadata.getTableFreshness(Mockito.any(), Mockito.any()))
                 .thenReturn(Optional.empty());
         // MUTATION: mapping an empty freshness to anything but 0 (e.g. throwing, or leaking -1) makes this red.
         Assertions.assertEquals(0L, f.table.getNewestUpdateVersionOrTime(),
@@ -1176,8 +1123,7 @@ public class PluginDrivenMvccExternalTableTest {
         Assertions.assertEquals(TS_2024_02_02, f.table.getNewestUpdateVersionOrTime(),
                 "a snapshot-id connector must keep the max-partition-modify path");
         // MUTATION: dropping the pin-flag gate (probing unconditionally) makes this verify red.
-        Mockito.verify(f.metadata, Mockito.never()).getTableFreshness(
-                Mockito.any(), Mockito.any(), Mockito.eq(ConnectorMetadataAccessSource.UNKNOWN));
+        Mockito.verify(f.metadata, Mockito.never()).getTableFreshness(Mockito.any(), Mockito.any());
     }
 
     @Test
@@ -1545,10 +1491,8 @@ public class PluginDrivenMvccExternalTableTest {
             // last-modified tests below re-stub these to a present value.
             Mockito.when(metadata.getTableFreshness(Mockito.any(), Mockito.any()))
                     .thenReturn(Optional.empty());
-            Mockito.when(metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.anyString()))
+            Mockito.when(metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.any()))
                     .thenReturn(OptionalLong.empty());
-            Mockito.when(metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.anyList()))
-                    .thenReturn(Collections.emptyMap());
 
             // Single partition column "dt" (DATE by default; VARCHAR variant exercises the genuine-null
             // string-key path) — the LATEST schema.

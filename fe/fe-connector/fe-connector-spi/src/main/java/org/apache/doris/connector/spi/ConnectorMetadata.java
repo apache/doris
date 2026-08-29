@@ -26,7 +26,6 @@ import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -118,11 +117,6 @@ public interface ConnectorMetadata extends
         return Optional.empty();
     }
 
-    default Optional<ConnectorTableFreshness> getTableFreshness(ConnectorSession session,
-            ConnectorTableHandle handle, ConnectorMetadataAccessSource source) {
-        return getTableFreshness(session, handle);
-    }
-
     /**
      * Per-partition last-modified millis for a last-modified connector, wrapped by the generic model in an
      * {@code MTMVTimestampSnapshot}. Fetched on the MTMV refresh path only — a last-modified connector's
@@ -141,26 +135,21 @@ public interface ConnectorMetadata extends
         return OptionalLong.empty();
     }
 
-    default OptionalLong getPartitionFreshnessMillis(ConnectorSession session, ConnectorTableHandle handle,
-            String partitionName, ConnectorMetadataAccessSource source) {
-        return getPartitionFreshnessMillis(session, handle, partitionName);
-    }
-
-    default Map<String, Long> getPartitionFreshnessMillis(
+    /**
+     * Bulk form of {@link #getPartitionFreshnessMillis(ConnectorSession, ConnectorTableHandle, String)}.
+     * Connectors with a native bulk metadata API should override this method. The default preserves
+     * compatibility and the existing behavior for connectors that only support single-partition lookup.
+     */
+    default Map<String, Long> getPartitionsFreshnessMillis(
             ConnectorSession session, ConnectorTableHandle handle, List<String> partitionNames) {
-        Map<String, Long> result = new LinkedHashMap<>();
+        Map<String, Long> freshness = new java.util.LinkedHashMap<>();
         for (String partitionName : partitionNames) {
-            OptionalLong freshness = getPartitionFreshnessMillis(session, handle, partitionName);
-            if (freshness.isPresent()) {
-                result.put(partitionName, freshness.getAsLong());
+            OptionalLong value = getPartitionFreshnessMillis(session, handle, partitionName);
+            if (value.isPresent()) {
+                freshness.put(partitionName, value.getAsLong());
             }
         }
-        return result;
-    }
-
-    default Map<String, Long> getPartitionFreshnessMillis(ConnectorSession session, ConnectorTableHandle handle,
-            List<String> partitionNames, ConnectorMetadataAccessSource source) {
-        return getPartitionFreshnessMillis(session, handle, partitionNames);
+        return freshness;
     }
 
     /**

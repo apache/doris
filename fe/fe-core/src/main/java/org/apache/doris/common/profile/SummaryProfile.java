@@ -21,7 +21,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.connector.spi.ConnectorMetadataAccessEvent;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -54,8 +53,6 @@ import java.util.stream.Collectors;
  * It contains the summary information of a query.
  */
 public class SummaryProfile {
-    private static final String HMS_GET_PARTITIONS_OPERATION = "hms.get_partitions_by_names";
-
     // Summary
     public static final String SUMMARY_PROFILE_NAME = "Summary";
     public static final String PROFILE_ID = "Profile ID";
@@ -99,7 +96,6 @@ public class SummaryProfile {
     public static final String GET_PARTITIONS_TIME = "Get Partitions Time";
     public static final String GET_PARTITION_FILES_TIME = "Get Partition Files Time";
     public static final String EXTERNAL_TABLE_GET_FILE_SCAN_TASKS_TIME = "External Table Get File Scan Tasks Time";
-    public static final String CONNECTOR_METADATA_ACCESS_PROFILE = "Connector Metadata Access";
     public static final String CREATE_SCAN_RANGE_TIME = "Create Scan Range Time";
     public static final String SINK_SET_PARTITION_VALUES_TIME = "Sink Set Partition Values Time";
     public static final String PLAN_TIME = "Plan Time";
@@ -458,8 +454,6 @@ public class SummaryProfile {
     // some process based on the file scan tasks, such as creating scan range.
     @SerializedName(value = "externalTableGetFileScanTasksTime")
     private long externalTableGetFileScanTasksTime = 0;
-    private transient RuntimeProfile connectorMetadataAccessProfile;
-    private transient Map<String, MetadataAccessProfileCounters> connectorMetadataAccessCounters = new HashMap<>();
     @SerializedName(value = "externalTvfInitTime")
     private long externalTvfInitTime = 0;
     @SerializedName(value = "nereidsPartitiionPruneTime")
@@ -1356,93 +1350,12 @@ public class SummaryProfile {
         addExternalCatalogMetaTimeInternal(ms);
     }
 
-    public synchronized void recordConnectorMetadataAccess(
-            String catalogName, ConnectorMetadataAccessEvent event) {
-        String key = catalogName + '\0' + event.getOperation() + '\0' + event.getSource();
-        MetadataAccessProfileCounters counters = connectorMetadataAccessCounters.get(key);
-        if (counters == null) {
-            counters = createMetadataAccessProfileCounters(catalogName, event);
-            connectorMetadataAccessCounters.put(key, counters);
-        }
-        counters.record(event);
-        if (HMS_GET_PARTITIONS_OPERATION.equals(event.getOperation())) {
-            addExternalCatalogMetaTimeInternal(event.getLogicalElapsedMillis());
-            externalTableGetPartitionsTime += event.getLogicalElapsedMillis();
-        }
-    }
-
-    private MetadataAccessProfileCounters createMetadataAccessProfileCounters(
-            String catalogName, ConnectorMetadataAccessEvent event) {
-        if (connectorMetadataAccessProfile == null) {
-            connectorMetadataAccessProfile = new RuntimeProfile(CONNECTOR_METADATA_ACCESS_PROFILE);
-            executionSummaryProfile.addChild(connectorMetadataAccessProfile, true);
-        }
-        RuntimeProfile operationProfile = new RuntimeProfile(
-                catalogName + ": " + event.getOperation() + " [" + event.getSource() + "]");
-        connectorMetadataAccessProfile.addChild(operationProfile, true);
-        return new MetadataAccessProfileCounters(operationProfile);
-    }
-
     public synchronized void addExternalCatalogMetaTime(long ms) {
         addExternalCatalogMetaTimeInternal(ms);
     }
 
     private void addExternalCatalogMetaTimeInternal(long ms) {
         this.externalCatalogMetaTime += ms;
-    }
-
-    private static final class MetadataAccessProfileCounters {
-        private final Counter logicalElapsedTime;
-        private final Counter rpcElapsedTime;
-        private final Counter maxRpcElapsedTime;
-        private final Counter logicalRequests;
-        private final Counter failedRequests;
-        private final Counter requestedItems;
-        private final Counter rpcAttempts;
-        private final Counter rpcItems;
-        private final Counter fallbacks;
-        private final Counter largestBatchSize;
-        private final Counter smallestBatchSize;
-
-        private MetadataAccessProfileCounters(RuntimeProfile profile) {
-            logicalElapsedTime = profile.addCounter(
-                    "LogicalElapsedTime", TUnit.TIME_MS, RuntimeProfile.ROOT_COUNTER);
-            rpcElapsedTime = profile.addCounter("RpcElapsedTime", TUnit.TIME_MS, RuntimeProfile.ROOT_COUNTER);
-            maxRpcElapsedTime = profile.addCounter("MaxRpcElapsedTime", TUnit.TIME_MS, RuntimeProfile.ROOT_COUNTER);
-            logicalRequests = profile.addCounter("LogicalRequests", TUnit.UNIT, RuntimeProfile.ROOT_COUNTER);
-            failedRequests = profile.addCounter("FailedRequests", TUnit.UNIT, RuntimeProfile.ROOT_COUNTER);
-            requestedItems = profile.addCounter("RequestedItems", TUnit.UNIT, RuntimeProfile.ROOT_COUNTER);
-            rpcAttempts = profile.addCounter("RpcAttempts", TUnit.UNIT, RuntimeProfile.ROOT_COUNTER);
-            rpcItems = profile.addCounter("RpcItems", TUnit.UNIT, RuntimeProfile.ROOT_COUNTER);
-            fallbacks = profile.addCounter("Fallbacks", TUnit.UNIT, RuntimeProfile.ROOT_COUNTER);
-            largestBatchSize = profile.addCounter("LargestBatchSize", TUnit.UNIT, RuntimeProfile.ROOT_COUNTER);
-            smallestBatchSize = profile.addCounter("SmallestBatchSize", TUnit.UNIT, RuntimeProfile.ROOT_COUNTER);
-        }
-
-        private void record(ConnectorMetadataAccessEvent event) {
-            increment(logicalElapsedTime, event.getLogicalElapsedMillis());
-            increment(rpcElapsedTime, event.getRpcElapsedMillis());
-            maxRpcElapsedTime.setValue(Math.max(
-                    maxRpcElapsedTime.getValue(), event.getMaxRpcElapsedMillis()));
-            increment(logicalRequests, 1L);
-            if (!event.isSuccess()) {
-                increment(failedRequests, 1L);
-            }
-            increment(requestedItems, event.getRequestedItems());
-            increment(rpcAttempts, event.getRpcCount());
-            increment(rpcItems, event.getRpcItems());
-            increment(fallbacks, event.getFallbackCount());
-            largestBatchSize.setValue(Math.max(largestBatchSize.getValue(), event.getLargestBatchSize()));
-            if (event.getSmallestBatchSize() > 0
-                    && (smallestBatchSize.getValue() == 0
-                    || event.getSmallestBatchSize() < smallestBatchSize.getValue())) {
-                smallestBatchSize.setValue(event.getSmallestBatchSize());
-            }
-        }
-
-        private static void increment(Counter counter, long delta) {
-            counter.setValue(counter.getValue() + delta);
-        }
     }
 
     public void addExternalTvfInitTime(long ms) {

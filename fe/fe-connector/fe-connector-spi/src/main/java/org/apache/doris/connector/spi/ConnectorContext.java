@@ -177,8 +177,4 @@ public interface ConnectorContext {
     default ConnectorStorageContext getStorageContext() {
         return ConnectorStorageContext.NOOP;
     }
-
-    default ConnectorMetadataAccessObserver getMetadataAccessObserver() {
-        return ConnectorMetadataAccessObserver.NOOP;
-    }
 }

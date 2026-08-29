@@ -20,9 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.qe.ConnectContext;
@@ -39,7 +37,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -68,35 +65,19 @@ public class MTMVRewriteUtil {
         }
         Set<String> mtmvNeedComparePartitions = null;
         MTMVRefreshContext refreshContext = null;
+        boolean partitionSnapshotsPreloaded = false;
         // check gracePeriod
         long gracePeriodMills = mtmv.getGracePeriod();
-        Set<String> partitionsToCompare = allPartitions.stream()
-                .filter(partition -> requiresPartitionComparison(
-                        partition, currentTimeMills, gracePeriodMills, forceConsistent))
-                .map(Partition::getName)
-                .collect(Collectors.toSet());
         for (Partition partition : allPartitions) {
-            if (!partitionsToCompare.contains(partition.getName())) {
+            if (gracePeriodMills > 0 && currentTimeMills <= (partition.getVisibleVersionTime()
+                    + gracePeriodMills) && !forceConsistent) {
                 res.add(partition);
                 continue;
             }
             if (refreshContext == null) {
                 try {
-                    Map<List<String>, Set<String>> effectiveQueryUsedPartitions = queryUsedPartitions != null
-                            ? queryUsedPartitions : Maps.newHashMap();
-                    if (Config.isCloudMode()) {
-                        Optional<MTMVRefreshContext> preloaded = ctx.getStatementContext()
-                                .getPreloadedMtmvRefreshContext(mtmv);
-                        if (!preloaded.isPresent()) {
-                            LOG.warn("Cloud MTMV refresh context was not preloaded before planner locks: {}",
-                                    mtmv.getName());
-                            return res;
-                        }
-                        refreshContext = preloaded.get()
-                                .rebuildFromCachedVersions(effectiveQueryUsedPartitions);
-                    } else {
-                        refreshContext = MTMVRefreshContext.buildContext(mtmv, effectiveQueryUsedPartitions);
-                    }
+                    refreshContext = MTMVRefreshContext.buildContext(mtmv,
+                            queryUsedPartitions != null ? queryUsedPartitions : Maps.newHashMap());
                 } catch (AnalysisException e) {
                     LOG.warn("buildContext failed", e);
                     // After failure, one should quickly return to avoid repeated failures
@@ -105,19 +86,8 @@ public class MTMVRewriteUtil {
             }
             if (mtmvNeedComparePartitions == null) {
                 try {
-                    mtmvNeedComparePartitions = Sets.newLinkedHashSet(
-                            getMtmvPartitionsByRelatedPartitions(mtmv, refreshContext, queryUsedPartitions));
-                    mtmvNeedComparePartitions.retainAll(partitionsToCompare);
-                    MTMVRefreshContext currentRefreshContext = refreshContext;
-                    mtmvNeedComparePartitions.removeIf(
-                            partitionName -> !currentRefreshContext.persistedPartitionSetsMatch(partitionName));
-                    if (mtmvNeedComparePartitions.isEmpty()) {
-                        return res;
-                    }
-                    Set<TableNameInfo> excludeTables = forceConsistent
-                            ? ImmutableSet.of() : mtmv.getQueryRewriteConsistencyRelaxedTables();
-                    refreshContext.preloadSnapshots(mtmvNeedComparePartitions,
-                            mtmvRelation.getBaseTablesOneLevelAndFromView(), excludeTables);
+                    mtmvNeedComparePartitions = getMtmvPartitionsByRelatedPartitions(mtmv, refreshContext,
+                            queryUsedPartitions);
                 } catch (AnalysisException e) {
                     LOG.warn(e);
                     return res;
@@ -126,6 +96,24 @@ public class MTMVRewriteUtil {
             // if the partition which query not used, should not compare partition version
             if (!mtmvNeedComparePartitions.contains(partition.getName())) {
                 continue;
+            }
+            if (!partitionSnapshotsPreloaded) {
+                Set<String> partitionsToPreload = Sets.newHashSet();
+                for (Partition candidate : allPartitions) {
+                    boolean withinGracePeriod = gracePeriodMills > 0
+                            && currentTimeMills <= candidate.getVisibleVersionTime() + gracePeriodMills
+                            && !forceConsistent;
+                    if (!withinGracePeriod && mtmvNeedComparePartitions.contains(candidate.getName())) {
+                        partitionsToPreload.add(candidate.getName());
+                    }
+                }
+                try {
+                    refreshContext.preloadComparablePartitionSnapshots(partitionsToPreload);
+                } catch (AnalysisException e) {
+                    LOG.warn("preload partition snapshots failed", e);
+                    return res;
+                }
+                partitionSnapshotsPreloaded = true;
             }
             try {
                 if (MTMVPartitionUtil.isMTMVPartitionSync(refreshContext, partition.getName(),
@@ -139,21 +127,6 @@ public class MTMVRewriteUtil {
             }
         }
         return res;
-    }
-
-    public static boolean requiresRefreshContext(MTMV mtmv, long currentTimeMills, boolean forceConsistent) {
-        if (mtmv.getRelation() == null || !mtmv.canBeCandidate()) {
-            return false;
-        }
-        long gracePeriodMills = mtmv.getGracePeriod();
-        return mtmv.getPartitions().stream().anyMatch(partition -> requiresPartitionComparison(
-                partition, currentTimeMills, gracePeriodMills, forceConsistent));
-    }
-
-    private static boolean requiresPartitionComparison(Partition partition, long currentTimeMills,
-            long gracePeriodMills, boolean forceConsistent) {
-        return forceConsistent || gracePeriodMills <= 0
-                || currentTimeMills > partition.getVisibleVersionTime() + gracePeriodMills;
     }
 
     /**

@@ -18,10 +18,8 @@
 package org.apache.doris.connector;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.connector.spi.ConnectorDelegatedCredential;
-import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.datasource.DelegatedCredential;
@@ -63,7 +61,6 @@ public final class ConnectorSessionBuilder {
     // Explicit per-statement scope override for tests without a live ConnectContext; when set it wins over
     // the ConnectContext capture in build().
     private ConnectorStatementScope statementScope;
-    private ConnectorMetadataAccessObserver metadataAccessObserver;
 
     private ConnectorSessionBuilder() {}
 
@@ -157,11 +154,6 @@ public final class ConnectorSessionBuilder {
         return this;
     }
 
-    public ConnectorSessionBuilder withMetadataAccessObserver(ConnectorMetadataAccessObserver observer) {
-        this.metadataAccessObserver = observer;
-        return this;
-    }
-
     /** Builds an immutable {@link ConnectorSession} instance. */
     public ConnectorSession build() {
         String sid = null;
@@ -183,20 +175,7 @@ public final class ConnectorSessionBuilder {
         }
         return new ConnectorSessionImpl(queryId, user, timeZone, locale,
                 catalogId, catalogName, catalogProperties, sessionProperties, sid, cred,
-                captureStatementScope(), captureMetadataAccessObserver());
-    }
-
-    private ConnectorMetadataAccessObserver captureMetadataAccessObserver() {
-        if (metadataAccessObserver != null) {
-            return metadataAccessObserver;
-        }
-        ConnectContext ctx = connectContext != null ? connectContext : ConnectContext.get();
-        if (ctx == null || !ctx.getSessionVariable().enableProfile()) {
-            return ConnectorMetadataAccessObserver.NOOP;
-        }
-        SummaryProfile profile = SummaryProfile.getSummaryProfile(ctx);
-        return profile == null ? ConnectorMetadataAccessObserver.NOOP
-                : event -> profile.recordConnectorMetadataAccess(catalogName, event);
+                captureStatementScope());
     }
 
     /**

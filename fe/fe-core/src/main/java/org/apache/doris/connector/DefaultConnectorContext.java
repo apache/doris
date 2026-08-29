@@ -29,7 +29,6 @@ import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorHttpSecurityHook;
-import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.datasource.CatalogIf;
@@ -91,7 +90,6 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
 
     private final String catalogName;
     private final long catalogId;
-    private final ConnectorMetadataAccessMetrics metadataAccessMetrics;
     private final Map<String, String> environment;
     private final Supplier<ExecutionAuthenticator> authSupplier;
     // Lazily supplies the catalog's static storage-properties map for storage-URI normalization
@@ -140,7 +138,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         Map<String, String> rawSnapshot = Collections.unmodifiableMap(
                 new HashMap<>(Objects.requireNonNull(rawStorageProperties, "rawStorageProperties")));
         return new DefaultConnectorContext(catalogName, catalogId, () -> NOOP_AUTH,
-                Collections::emptyMap, () -> new HashMap<>(rawSnapshot), false);
+                Collections::emptyMap, () -> new HashMap<>(rawSnapshot));
     }
 
     public DefaultConnectorContext(String catalogName, long catalogId,
@@ -158,13 +156,6 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
             Supplier<ExecutionAuthenticator> authSupplier,
             Supplier<Map<StorageTypeId, StorageAdapter>> storagePropertiesSupplier,
             Supplier<Map<String, String>> rawStoragePropsSupplier) {
-        this(catalogName, catalogId, authSupplier, storagePropertiesSupplier, rawStoragePropsSupplier, true);
-    }
-
-    private DefaultConnectorContext(String catalogName, long catalogId,
-            Supplier<ExecutionAuthenticator> authSupplier,
-            Supplier<Map<StorageTypeId, StorageAdapter>> storagePropertiesSupplier,
-            Supplier<Map<String, String>> rawStoragePropsSupplier, boolean collectMetadataAccessMetrics) {
         this.catalogName = Objects.requireNonNull(catalogName, "catalogName");
         this.catalogId = catalogId;
         this.authSupplier = Objects.requireNonNull(authSupplier, "authSupplier");
@@ -173,8 +164,6 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         this.rawStoragePropsSupplier =
                 Objects.requireNonNull(rawStoragePropsSupplier, "rawStoragePropsSupplier");
         this.environment = buildEnvironment();
-        this.metadataAccessMetrics = collectMetadataAccessMetrics
-                ? new ConnectorMetadataAccessMetrics(catalogName, catalogId) : null;
     }
 
     @Override
@@ -221,12 +210,6 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     @Override
     public ConnectorStorageContext getStorageContext() {
         return this;
-    }
-
-    @Override
-    public ConnectorMetadataAccessObserver getMetadataAccessObserver() {
-        return metadataAccessMetrics == null
-                ? ConnectorMetadataAccessObserver.NOOP : metadataAccessMetrics::record;
     }
 
     @Override
@@ -415,9 +398,6 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
             closed = true;
             fs = catalogFileSystem;
             catalogFileSystem = null;
-        }
-        if (metadataAccessMetrics != null) {
-            metadataAccessMetrics.close();
         }
         if (fs != null) {
             fs.close();

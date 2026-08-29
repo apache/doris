@@ -22,6 +22,8 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 
+import com.google.common.collect.Maps;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -37,12 +39,11 @@ public class MTMVRelatedPartitionDescInitGenerator implements MTMVRelatedPartiti
                       Map<List<String>, Set<String>> queryUsedPartitionMap) throws AnalysisException {
         Set<MTMVRelatedTableIf> relatedTables = mvPartitionInfo.getPctTables();
         // the key is related table, the value is partition items of the related table
-        Map<MTMVRelatedTableIf, Map<String, PartitionItem>> items = lastResult.getItems();
+        Map<MTMVRelatedTableIf, Map<String, PartitionItem>> items = Maps.newHashMap();
         for (MTMVRelatedTableIf relatedTable : relatedTables) {
-            if (!items.containsKey(relatedTable)) {
-                items.put(relatedTable,
-                        relatedTable.getAndCopyPartitionItems(MvccUtil.getSnapshotFromContext(relatedTable)));
-            }
+            items.put(relatedTable,
+                    relatedTable.getAndCopyPartitionItems(MvccUtil.getSnapshotFromContext(relatedTable)));
         }
+        lastResult.setItems(items);
     }
 }

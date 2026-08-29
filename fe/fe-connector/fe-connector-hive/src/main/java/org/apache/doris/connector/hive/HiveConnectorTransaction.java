@@ -32,7 +32,6 @@ import org.apache.doris.connector.hms.HmsTypeMapping;
 import org.apache.doris.connector.hms.event.HmsEventParser;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorContext;
-import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -697,7 +696,6 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
             }
 
             List<HmsPartitionInfo> hmsPartitions = hmsClient.getPartitions(
-                    session, ConnectorMetadataAccessSource.WRITE,
                     nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(), partitionNames);
             // Mirror HiveUtil.convertToNamePartitionMap's Collectors.toMap: fail loud on a duplicate
             // key (two HMS partitions with identical values, or a repeated requested partition name)

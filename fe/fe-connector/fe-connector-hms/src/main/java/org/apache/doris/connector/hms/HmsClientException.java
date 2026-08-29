@@ -17,12 +17,10 @@
 
 package org.apache.doris.connector.hms;
 
-import org.apache.doris.connector.spi.DorisConnectorException;
-
 /**
  * Exception thrown when an HMS client operation fails.
  */
-public class HmsClientException extends DorisConnectorException {
+public class HmsClientException extends RuntimeException {
 
     public HmsClientException(String message) {
         super(message);

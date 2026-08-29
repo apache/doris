@@ -21,7 +21,6 @@ import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
 import org.apache.doris.connector.hms.HmsConfHelper;
-import org.apache.doris.connector.hms.HmsTypeMapping;
 import org.apache.doris.connector.hms.ThriftHmsClient;
 import org.apache.doris.connector.metastore.spi.AbstractHmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
@@ -229,8 +228,7 @@ public class HudiConnector implements Connector {
         } else {
             authAction = context::executeAuthenticated;
         }
-        return wrapWithCache(new ThriftHmsClient(config, authAction,
-                HmsTypeMapping.Options.DEFAULT, context.getMetadataAccessObserver()));
+        return wrapWithCache(new ThriftHmsClient(config, authAction));
     }
 
     HmsClientConfig buildHmsClientConfig() {
@@ -253,8 +251,7 @@ public class HudiConnector implements Connector {
      * assert the cache decoration.
      */
     HmsClient wrapWithCache(HmsClient raw) {
-        return new CachingHmsClient(
-                raw, properties, props.getHmsClientPoolSize(), context.getMetadataAccessObserver());
+        return new CachingHmsClient(raw, properties);
     }
 
     /**

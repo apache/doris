@@ -157,7 +157,7 @@ public class ConnectorMetadataSurfaceTest {
                 }
                 sb.append(params[i].getTypeName());
             }
-            rendered.add(sb.append("):").append(m.getReturnType().getTypeName()).toString());
+            rendered.add(sb.append(')').toString());
         }
         return rendered;
     }

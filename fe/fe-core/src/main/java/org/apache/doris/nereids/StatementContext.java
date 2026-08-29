@@ -39,13 +39,11 @@ import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -195,7 +193,6 @@ public class StatementContext implements Closeable {
     private final List<Expression> joinFilters = new ArrayList<>();
 
     private final List<Hint> hints = new ArrayList<>();
-    private final Set<SelectHintUseMv> mtmvPreloadHints = new LinkedHashSet<>();
     private boolean hintForcePreAggOn = false;
 
     // the columns in Plan.getExpressions(), such as columns in join condition or
@@ -310,9 +307,6 @@ public class StatementContext implements Closeable {
 
     // Record mtmv and valid partitions map because this is time-consuming behavior
     private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
-    private final Map<BaseTableInfo, MTMVRefreshContext> preloadedMtmvRefreshContexts = new HashMap<>();
-    private long mtmvRewriteEpochMillis;
-    private boolean cloudVersionCacheDisabled;
 
     /// for dictionary sink.
     private List<Backend> usedBackendsDistributing; // report used backends after done distribute planning.
@@ -900,19 +894,6 @@ public class StatementContext implements Closeable {
         return ImmutableList.copyOf(hints);
     }
 
-    public void addMtmvPreloadHint(SelectHintUseMv hint) {
-        mtmvPreloadHints.add(hint);
-    }
-
-    public List<SelectHintUseMv> getMtmvPreloadHints() {
-        return ImmutableList.copyOf(mtmvPreloadHints);
-    }
-
-    public void resetMtmvPreloadHints() {
-        mtmvPreloadHints.clear();
-        hints.removeIf(UseMvHint.class::isInstance);
-    }
-
     public List<Expression> getJoinFilters() {
         return joinFilters;
     }
@@ -1136,20 +1117,9 @@ public class StatementContext implements Closeable {
         latestSnapshots.clear();
         latestSnapshotFences.clear();
         resolvedSnapshotScanParams.clear();
-        mvCanRewritePartitionsMap.clear();
-        preloadedMtmvRefreshContexts.clear();
-        mtmvRewriteEpochMillis = 0L;
         // PREPARE keeps preload candidates, but completion belongs to one analysis pass and must
         // not suppress preloading after the next EXECUTE resets its snapshot generation.
         externalMetadataPreloadResult = null;
-    }
-
-    public boolean isCloudVersionCacheDisabled() {
-        return cloudVersionCacheDisabled;
-    }
-
-    public void setCloudVersionCacheDisabled(boolean disabled) {
-        cloudVersionCacheDisabled = disabled;
     }
 
     /**
@@ -1496,21 +1466,6 @@ public class StatementContext implements Closeable {
 
     public Map<BaseTableInfo, Collection<Partition>> getMvCanRewritePartitionsMap() {
         return mvCanRewritePartitionsMap;
-    }
-
-    public Optional<MTMVRefreshContext> getPreloadedMtmvRefreshContext(MTMV mtmv) {
-        return Optional.ofNullable(preloadedMtmvRefreshContexts.get(new BaseTableInfo(mtmv)));
-    }
-
-    public void putPreloadedMtmvRefreshContext(MTMV mtmv, MTMVRefreshContext context) {
-        preloadedMtmvRefreshContexts.put(new BaseTableInfo(mtmv), context);
-    }
-
-    public long getMtmvRewriteEpochMillis() {
-        if (mtmvRewriteEpochMillis == 0L) {
-            mtmvRewriteEpochMillis = System.currentTimeMillis();
-        }
-        return mtmvRewriteEpochMillis;
     }
 
     public void setPrepareStage(boolean isPrepare) {

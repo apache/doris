@@ -38,8 +38,6 @@ import org.apache.doris.qe.SessionVariable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
-
 /**
  * eliminate logical select hint and set them to cascade context
  */
@@ -113,11 +111,11 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
         }
     }
 
-    static UseMvHint createMvHint(SelectHintUseMv selectHint, List<Hint> hints) {
+    private void extractMv(SelectHintUseMv selectHint, StatementContext statementContext) {
         boolean isAllMv = selectHint.getTables().isEmpty();
         UseMvHint useMvHint = new UseMvHint(selectHint.getHintName(), selectHint.getTables(),
-                selectHint.isUseMv(), isAllMv, hints);
-        for (Hint hint : hints) {
+                selectHint.isUseMv(), isAllMv, statementContext.getHints());
+        for (Hint hint : statementContext.getHints()) {
             if (hint.getHintName().equals(selectHint.getHintName())) {
                 hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
                 hint.setErrorMessage("only one " + selectHint.getHintName() + " hint is allowed");
@@ -125,11 +123,7 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                 useMvHint.setErrorMessage("only one " + selectHint.getHintName() + " hint is allowed");
             }
         }
-        return useMvHint;
-    }
-
-    private void extractMv(SelectHintUseMv selectHint, StatementContext statementContext) {
-        statementContext.addHint(createMvHint(selectHint, statementContext.getHints()));
+        statementContext.addHint(useMvHint);
     }
 
 }

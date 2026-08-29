@@ -428,7 +428,6 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start collect and lock table");
         }
-        statementContext.resetMtmvPreloadHints();
         keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newTableCollector(true, true).collect());
         // Read the preload result produced by the collect-phase rule before taking internal table locks.
         ExternalMetadataPreloadResult preloadResult = statementContext.getExternalMetadataPreloadResult()

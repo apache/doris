@@ -25,8 +25,6 @@ import org.apache.doris.job.base.Job;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.offset.Offset;
-import org.apache.doris.qe.AutoCloseConnectContext;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 
@@ -97,7 +95,6 @@ public abstract class AbstractStreamingTask {
 
     public void execute() throws JobException {
         while (retryCount <= MAX_RETRY) {
-            ConnectContext previousContext = ConnectContext.get();
             try {
                 before();
                 run();
@@ -118,12 +115,11 @@ public abstract class AbstractStreamingTask {
                 log.warn("execute streaming task error, job id is {}, task id is {}, retrying {}/{}: {}",
                         jobId, taskId, retryCount, MAX_RETRY, e.getMessage());
             } finally {
-                try {
-                    if (!TaskStatus.CANCELED.equals(status)) {
-                        closeOrReleaseResources();
-                    }
-                } finally {
-                    AutoCloseConnectContext.restoreThreadLocalContext(previousContext);
+                // The cancel logic will call the closeOrReleased Resources method by itself.
+                // If it is also called here,
+                // it may result in the inability to obtain relevant information when canceling the task
+                if (!TaskStatus.CANCELED.equals(status)) {
+                    closeOrReleaseResources();
                 }
             }
         }

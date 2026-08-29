@@ -188,6 +188,24 @@ public class HiveConnectorMetadataFreshnessTest {
                 "a vanished partition must yield empty (fe-core throws 'can not find partition')");
     }
 
+    @Test
+    public void testBulkPartitionFreshnessUsesOneHmsObjectRequest() {
+        FakeHmsClient client = new FakeHmsClient()
+                .partition("year=2024/month=01", 300L)
+                .partition("year=2024/month=02", 400L);
+        List<String> names = Arrays.asList("year=2024/month=01", "year=2024/month=02");
+
+        Map<String, Long> freshness = metadata(client)
+                .getPartitionsFreshnessMillis(null, partitionedHandle(), names);
+
+        Map<String, Long> expected = new LinkedHashMap<>();
+        expected.put("year=2024/month=01", 300_000L);
+        expected.put("year=2024/month=02", 400_000L);
+        Assertions.assertEquals(expected, freshness);
+        Assertions.assertEquals(1, client.getPartitionsCalls);
+        Assertions.assertEquals(names, client.lastRequestedPartitionNames);
+    }
+
     // ==================== query-begin pin: flags last-modified freshness ====================
 
     @Test
@@ -216,6 +234,8 @@ public class HiveConnectorMetadataFreshnessTest {
         private final List<String> paramlessPartitions = new ArrayList<>();
         private boolean listPartitionNamesCalled;
         private boolean getPartitionsCalled;
+        private int getPartitionsCalls;
+        private List<String> lastRequestedPartitionNames;
 
         FakeHmsClient partition(String name, long ddlSeconds) {
             partitionDdlSeconds.put(name, ddlSeconds);
@@ -250,6 +270,8 @@ public class HiveConnectorMetadataFreshnessTest {
         @Override
         public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
             getPartitionsCalled = true;
+            getPartitionsCalls++;
+            lastRequestedPartitionNames = new ArrayList<>(partNames);
             List<HmsPartitionInfo> result = new ArrayList<>();
             for (String name : partNames) {
                 if (partitionDdlSeconds.containsKey(name) || paramlessPartitions.contains(name)) {

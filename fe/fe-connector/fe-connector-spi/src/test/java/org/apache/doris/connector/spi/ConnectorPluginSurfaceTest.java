@@ -18,7 +18,6 @@
 package org.apache.doris.connector.spi;
 
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
@@ -30,18 +29,28 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
 import java.util.TreeSet;
 
 /**
  * Freezes the CONNECTOR plugin API surface, so that changing it cannot happen without also deciding the
  * version consequence.
+ *
+ * <p><b>Why this exists.</b> Every method here has a default body or is implemented by eight shipped connectors, so the compiler forces nothing on a plugin author and nothing fails when a method quietly appears, disappears, or changes shape. The plugin API version in
+ * {@code <connector.plugin.api.version>} is the contract that says which FE a given plugin may load into,
+ * and the rule attached to it is blunt: <em>any</em> change to the surface below — adding a type or a method
+ * just as much as removing or re-signing one — is a MAJOR change. No unit test can prove somebody actually
+ * bumped the property (a test sees only the current state, never the delta), so this is a speed bump, not a
+ * gate: it makes the change visible in review, in the same commit, with the reason spelled out in the
+ * failure message.
+ *
+ * <p><b>Regenerating.</b> Run this test, copy the "actual" block out of the failure message into
+ * {@code src/test/resources/connector-plugin-surface.txt}, and bump the major of {@code connector.plugin.api.version} in
+ * {@code fe/fe-connector/pom.xml} in the SAME commit.
  *
  * <p>{@code Plugin} / {@code PluginFactory} / {@code PluginContext} from fe-extension-spi are frozen here
  * too, and identically in the other three families' baselines. They are loaded parent-first for every family
@@ -64,6 +73,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
+        // Write binding gained execution-capability methods in this surface revision. A plugin built against
+        // major 5 must be refused rather than run against a contract it did not compile against.
         Assertions.assertEquals("6.0", version.getProperty("api.version"));
     }
 
@@ -72,11 +83,6 @@ public class ConnectorPluginSurfaceTest {
             ConnectorProvider.class,
             ConnectorContext.class,
             Connector.class,
-            ConnectorSession.class,
-            ConnectorMetadataAccessObserver.class,
-            ConnectorMetadataAccessEvent.class,
-            ConnectorMetadataAccessEvent.Builder.class,
-            ConnectorMetadataAccessSource.class,
             ConnectorColumnHandle.class,
             ConnectorTableSchema.class,
             ConnectorScanPlanProvider.class,
@@ -100,66 +106,22 @@ public class ConnectorPluginSurfaceTest {
                 "The CONNECTOR plugin API surface changed.\n"
                         + "  gone from the baseline (removed, renamed, or re-signed): " + missing + "\n"
                         + "  new since the baseline: " + added + "\n"
-                        + "If the current API version has been published, the same commit that refreshes "
-                        + "src/test/resources" + BASELINE_RESOURCE + " must increment the major of "
-                        + "<connector.plugin.api.version> in fe/fe-connector/pom.xml (and zero its minor). "
-                        + "Otherwise, establish in review that this surface is still unreleased.\n"
+                        + "THIS IS A MAJOR CHANGE - the same commit that refreshes src/test/resources"
+                        + BASELINE_RESOURCE + " must increment the major of <connector.plugin.api.version>"
+                        + " in fe/fe-connector/pom.xml (and zero its minor).\n"
                         + "Full actual surface:\n" + String.join("\n", actual));
     }
 
-    @Test
-    public void metadataAccessEventsRejectInvalidDimensionsAndMeasurements() {
-        Assertions.assertThrows(IllegalArgumentException.class, () -> validMetadataEvent()
-                .operation("HMS get partitions").build());
-        Assertions.assertThrows(IllegalArgumentException.class, () -> validMetadataEvent()
-                .source("QUERY_123").build());
-        Assertions.assertThrows(IllegalArgumentException.class, () -> validMetadataEvent()
-                .rpcCount(-1).build());
-        Assertions.assertThrows(IllegalArgumentException.class, () -> validMetadataEvent()
-                .largestBatchSize(1).smallestBatchSize(2).build());
-    }
-
-    @Test
-    public void sourceAwareFreshnessPreservesExistingBulkOverride() {
-        Assertions.assertTrue(Arrays.stream(ConnectorMetadata.class.getMethods())
-                .filter(method -> Arrays.asList(method.getParameterTypes())
-                        .contains(ConnectorMetadataAccessSource.class))
-                .allMatch(Method::isDefault), "source-aware freshness overloads must remain default methods");
-        ConnectorMetadata metadata = new ConnectorMetadata() {
-            @Override
-            public Map<String, Long> getPartitionFreshnessMillis(
-                    ConnectorSession session, ConnectorTableHandle handle, List<String> partitionNames) {
-                return Map.of("p=1", 1L);
-            }
-        };
-        Assertions.assertEquals(Map.of("p=1", 1L), metadata.getPartitionFreshnessMillis(
-                null, null, Arrays.asList("p=1"), ConnectorMetadataAccessSource.DISPLAY));
-    }
-
-    private static ConnectorMetadataAccessEvent.Builder validMetadataEvent() {
-        return ConnectorMetadataAccessEvent.builder()
-                .operation("hms.get_partitions_by_names")
-                .source(ConnectorMetadataAccessSource.QUERY.name())
-                .success(true);
-    }
-
+    /**
+     * One line per method reachable on a frozen type, keyed by that type rather than by the interface that
+     * happens to declare it: what matters is what a plugin can call on the type it was handed, so moving a
+     * default method up or down a super-interface chain is not by itself a surface change.
+     */
     private static TreeSet<String> renderSurface() {
         TreeSet<String> rendered = new TreeSet<>();
         for (Class<?> frozen : FROZEN_TYPES) {
-            if (frozen.isEnum()) {
-                for (Object value : frozen.getEnumConstants()) {
-                    rendered.add(frozen.getName() + "#" + ((Enum<?>) value).name());
-                }
-            }
-            for (Field field : frozen.getFields()) {
-                if (!field.isSynthetic() && !field.isEnumConstant()
-                        && field.getDeclaringClass().getName().startsWith("org.apache.doris.")) {
-                    rendered.add(frozen.getName() + "#" + field.getName()
-                            + ":" + field.getType().getTypeName());
-                }
-            }
             for (Method m : frozen.getMethods()) {
-                if (m.isSynthetic() || !m.getDeclaringClass().getName().startsWith("org.apache.doris.")) {
+                if (m.isSynthetic() || m.getDeclaringClass() == Object.class) {
                     continue;
                 }
                 StringBuilder sb = new StringBuilder(frozen.getName()).append('#')

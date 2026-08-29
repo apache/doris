@@ -20,14 +20,11 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
-import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.nereids.rules.analysis.PreloadExternalMetadata;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.ConnectContext;
@@ -363,34 +360,21 @@ public class StatementContextTest {
     @Test
     public void testResetMvccSnapshotsClearsPreloadCompletionButKeepsCandidates() {
         StatementContext statementContext = new StatementContext();
+        // Keep this test on the connector-neutral table seam available across FE branches.
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(table.getId()).thenReturn(42L);
         Mockito.when(table.supportsExternalMetadataPreload()).thenReturn(true);
         statementContext.registerExternalTableForPreload(table, Optional.empty(), Optional.empty());
         statementContext.setExternalMetadataPreloadResult(
                 ExternalMetadataPreloadResult.executed(1, 1, 1L));
-        MTMV mtmv = Mockito.mock(MTMV.class);
-        DatabaseIf<TableIf> database = mockDatabase();
-        CatalogIf catalog = Mockito.mock(CatalogIf.class);
-        Mockito.when(mtmv.getDatabase()).thenReturn(database);
-        Mockito.when(mtmv.getId()).thenReturn(43L);
-        Mockito.when(mtmv.getName()).thenReturn("mv");
-        Mockito.when(database.getCatalog()).thenReturn(catalog);
-        Mockito.when(database.getId()).thenReturn(44L);
-        Mockito.when(database.getFullName()).thenReturn("db");
-        Mockito.when(catalog.getId()).thenReturn(45L);
-        Mockito.when(catalog.getName()).thenReturn("ctl");
-        MTMVRefreshContext refreshContext = Mockito.mock(MTMVRefreshContext.class);
-        statementContext.putPreloadedMtmvRefreshContext(mtmv, refreshContext);
-        statementContext.getMvCanRewritePartitionsMap().put(new BaseTableInfo(mtmv), Collections.emptyList());
+
         statementContext.resetMvccSnapshots();
+
         org.junit.jupiter.api.Assertions.assertFalse(
                 statementContext.getExternalMetadataPreloadResult().isPresent());
         org.junit.jupiter.api.Assertions.assertEquals(1,
                 statementContext.getExternalTablePreloadCandidateCount());
-        org.junit.jupiter.api.Assertions.assertFalse(
-                statementContext.getPreloadedMtmvRefreshContext(mtmv).isPresent());
-        org.junit.jupiter.api.Assertions.assertTrue(statementContext.getMvCanRewritePartitionsMap().isEmpty());
+
         statementContext.setExternalMetadataPreloadResult(
                 ExternalMetadataPreloadResult.executed(1, 1, 1L));
         statementContext.resetMvccSnapshots();

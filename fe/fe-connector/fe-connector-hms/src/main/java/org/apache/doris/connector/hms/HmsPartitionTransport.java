@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.connector.spi;
+package org.apache.doris.connector.hms;
 
+import java.util.List;
+
+/** Leaf transport contract: one invocation performs one getPartitionsByNames RPC. */
 @FunctionalInterface
-public interface ConnectorMetadataAccessObserver {
-
-    ConnectorMetadataAccessObserver NOOP = event -> { };
-
-    void record(ConnectorMetadataAccessEvent event);
+interface HmsPartitionTransport {
+    List<HmsPartitionInfo> getPartitionsByNames(
+            String dbName, String tableName, List<String> partitionNames) throws Exception;
 }

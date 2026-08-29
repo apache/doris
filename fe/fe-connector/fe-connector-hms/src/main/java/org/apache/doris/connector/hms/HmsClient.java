@@ -17,14 +17,10 @@
 
 package org.apache.doris.connector.hms;
 
-import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
-import org.apache.doris.connector.spi.ConnectorSession;
-
 import java.io.Closeable;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.function.Function;
 
 /**
@@ -162,17 +158,11 @@ public interface HmsClient extends Closeable {
      * @param dbName    database name
      * @param tableName table name
      * @param partNames partition name strings
-     * @return list of partition info
+     * @return exactly one partition per requested name, in request order
      * @throws HmsClientException if the operation fails
      */
     List<HmsPartitionInfo> getPartitions(String dbName, String tableName,
             List<String> partNames);
-
-    default List<HmsPartitionInfo> getPartitions(ConnectorSession session, ConnectorMetadataAccessSource source,
-            String dbName, String tableName, List<String> partNames) {
-        Objects.requireNonNull(source, "source");
-        return getPartitions(dbName, tableName, partNames);
-    }
 
     /**
      * Get a single partition by its values.

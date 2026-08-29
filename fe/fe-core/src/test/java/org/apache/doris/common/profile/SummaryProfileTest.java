@@ -18,16 +18,10 @@
 package org.apache.doris.common.profile;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.connector.spi.ConnectorMetadataAccessEvent;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 
 public class SummaryProfileTest {
 
@@ -136,98 +130,5 @@ public class SummaryProfileTest {
         Assertions.assertEquals("11ms", executionSummary.getInfoString(
                 SummaryProfile.EXTERNAL_TABLE_GET_FILE_SCAN_TASKS_TIME));
         Assertions.assertEquals(28, profile.getExternalCatalogMetaTimeMs());
-    }
-
-    @Test
-    public void testConnectorMetadataAccessProfile() {
-        SummaryProfile profile = new SummaryProfile();
-        profile.recordConnectorMetadataAccess("hive_catalog", metadataEvent(7, 6, 4, 2, 5, 0, 3, 2, true));
-        profile.recordConnectorMetadataAccess("hive_catalog", metadataEvent(5, 3, 2, 3, 6, 1, 4, 1, false));
-
-        profile.update(ImmutableMap.of());
-
-        Assertions.assertEquals("12ms", profile.getExecutionSummary().getInfoString(
-                SummaryProfile.GET_PARTITIONS_TIME));
-        Assertions.assertEquals(12, profile.getExternalCatalogMetaTimeMs());
-        RuntimeProfile group = profile.getExecutionSummary().getChildMap().get(
-                SummaryProfile.CONNECTOR_METADATA_ACCESS_PROFILE);
-        RuntimeProfile operation = group.getChildMap().get(
-                "hive_catalog: hms.get_partitions_by_names [QUERY]");
-        Assertions.assertEquals(12, operation.getCounterMap().get("LogicalElapsedTime").getValue());
-        Assertions.assertEquals(9, operation.getCounterMap().get("RpcElapsedTime").getValue());
-        Assertions.assertEquals(4, operation.getCounterMap().get("MaxRpcElapsedTime").getValue());
-        Assertions.assertEquals(2, operation.getCounterMap().get("LogicalRequests").getValue());
-        Assertions.assertEquals(1, operation.getCounterMap().get("FailedRequests").getValue());
-        Assertions.assertEquals(11, operation.getCounterMap().get("RequestedItems").getValue());
-        Assertions.assertEquals(5, operation.getCounterMap().get("RpcAttempts").getValue());
-        Assertions.assertEquals(11, operation.getCounterMap().get("RpcItems").getValue());
-        Assertions.assertEquals(1, operation.getCounterMap().get("Fallbacks").getValue());
-        Assertions.assertEquals(4, operation.getCounterMap().get("LargestBatchSize").getValue());
-        Assertions.assertEquals(1, operation.getCounterMap().get("SmallestBatchSize").getValue());
-    }
-
-    @Test
-    public void testConnectorMetadataWaitDoesNotInflateLegacyTotal() {
-        SummaryProfile profile = new SummaryProfile();
-        profile.recordConnectorMetadataAccess(
-                "hive_catalog", metadataEvent(100, 20, 20, 1, 5, 0, 5, 5, true));
-        profile.recordConnectorMetadataAccess("hive_catalog", ConnectorMetadataAccessEvent.builder()
-                .operation("hms.partition_inflight_wait")
-                .source("QUERY")
-                .requestedItems(5)
-                .logicalElapsedMillis(40)
-                .success(true)
-                .build());
-
-        profile.update(ImmutableMap.of());
-
-        Assertions.assertEquals("100ms", profile.getExecutionSummary().getInfoString(
-                SummaryProfile.GET_PARTITIONS_TIME));
-        Assertions.assertEquals(100, profile.getExternalCatalogMetaTimeMs());
-        RuntimeProfile group = profile.getExecutionSummary().getChildMap().get(
-                SummaryProfile.CONNECTOR_METADATA_ACCESS_PROFILE);
-        RuntimeProfile waitOperation = group.getChildMap().get(
-                "hive_catalog: hms.partition_inflight_wait [QUERY]");
-        Assertions.assertEquals(40,
-                waitOperation.getCounterMap().get("LogicalElapsedTime").getValue());
-    }
-
-    @Test
-    public void testConnectorMetadataAccessProfileSerialization() throws Exception {
-        SummaryProfile profile = new SummaryProfile();
-        profile.recordConnectorMetadataAccess(
-                "hive_catalog", metadataEvent(7, 5, 3, 2, 5, 0, 3, 2, true));
-
-        ByteArrayOutputStream outputBytes = new ByteArrayOutputStream();
-        profile.write(new DataOutputStream(outputBytes));
-        SummaryProfile restored = SummaryProfile.read(
-                new DataInputStream(new ByteArrayInputStream(outputBytes.toByteArray())));
-
-        RuntimeProfile group = restored.getExecutionSummary().getChildMap().get(
-                SummaryProfile.CONNECTOR_METADATA_ACCESS_PROFILE);
-        RuntimeProfile operation = group.getChildMap().get(
-                "hive_catalog: hms.get_partitions_by_names [QUERY]");
-        Assertions.assertEquals(7, operation.getCounterMap().get("LogicalElapsedTime").getValue());
-        Assertions.assertEquals(5, operation.getCounterMap().get("RpcElapsedTime").getValue());
-        Assertions.assertEquals(3, operation.getCounterMap().get("MaxRpcElapsedTime").getValue());
-    }
-
-    private static ConnectorMetadataAccessEvent metadataEvent(long logicalElapsedMillis,
-            long rpcElapsedMillis, long maxRpcElapsedMillis, int rpcCount, int requestedItems,
-            int fallbackCount, int largestBatchSize, int smallestBatchSize, boolean success) {
-        return ConnectorMetadataAccessEvent.builder()
-                .operation("hms.get_partitions_by_names")
-                .source("QUERY")
-                .logicalElapsedMillis(logicalElapsedMillis)
-                .rpcElapsedMillis(rpcElapsedMillis)
-                .maxRpcElapsedMillis(maxRpcElapsedMillis)
-                .rpcCount(rpcCount)
-                .rpcItems(requestedItems)
-                .requestedItems(requestedItems)
-                .fallbackCount(fallbackCount)
-                .largestBatchSize(largestBatchSize)
-                .smallestBatchSize(smallestBatchSize)
-                .success(success)
-                .build();
     }
 }

@@ -165,22 +165,6 @@ public class ConnectorStatementScopeTest {
     }
 
     @Test
-    public void closeAllDrainsValuesBeforeRethrowingError() {
-        ConnectorStatementScopeImpl scope = new ConnectorStatementScopeImpl();
-        CatalogStatementTransaction transaction = Mockito.mock(CatalogStatementTransaction.class);
-        AssertionError failure = new AssertionError("transaction cleanup failed");
-        Mockito.doThrow(failure).when(transaction).finalizeAtStatementEnd();
-        AtomicInteger closes = new AtomicInteger();
-        scope.computeIfAbsent("txn", () -> transaction);
-        scope.computeIfAbsent("metadata", () -> (AutoCloseable) closes::incrementAndGet);
-
-        Assertions.assertSame(failure, Assertions.assertThrows(AssertionError.class, scope::closeAll));
-        Assertions.assertEquals(1, closes.get());
-        scope.closeAll();
-        Assertions.assertEquals(1, closes.get());
-    }
-
-    @Test
     public void resetClosesTheDroppedScopeBeforeStartingFresh() {
         // A prepared EXECUTE / retry reuses one StatementContext and calls resetConnectorStatementScope() at the
         // start of each execution/attempt. Reset must CLOSE the outgoing scope's closeable values (else the prior

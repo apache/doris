@@ -18,9 +18,6 @@
 package org.apache.doris.connector.hms;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
-import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
-import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
-import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorType;
 
 import org.apache.commons.pool2.BasePooledObjectFactory;
@@ -35,6 +32,7 @@ import org.apache.hadoop.hive.common.ValidTxnWriteIdList;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaHookLoader;
+import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.LockComponentBuilder;
 import org.apache.hadoop.hive.metastore.LockRequestBuilder;
@@ -93,7 +91,7 @@ import java.util.stream.Collectors;
  * <p>Authentication is handled by an injectable {@link AuthAction}
  * functional interface, replacing fe-core's ExecutionAuthenticator.</p>
  */
-public class ThriftHmsClient implements HmsClient, HmsPartitionBatchExecutor.Transport {
+public class ThriftHmsClient implements HmsClient {
 
     private static final Logger LOG = LogManager.getLogger(ThriftHmsClient.class);
 
@@ -107,7 +105,8 @@ public class ThriftHmsClient implements HmsClient, HmsPartitionBatchExecutor.Tra
     private final AuthAction authAction;
     private final MetaStoreClientProvider clientProvider;
     private final HmsTypeMapping.Options typeMappingOptions;
-    private final HmsPartitionBatchExecutor.Access partitionAccess;
+    private final int partitionBatchSize;
+    private final long partitionBatchFallbackTimeoutMillis;
     private volatile boolean closed;
 
     /**
@@ -118,7 +117,7 @@ public class ThriftHmsClient implements HmsClient, HmsPartitionBatchExecutor.Tra
      */
     public ThriftHmsClient(HmsClientConfig config, AuthAction authAction) {
         this(config, authAction, new DefaultMetaStoreClientProvider(),
-                HmsTypeMapping.Options.DEFAULT, ConnectorMetadataAccessObserver.NOOP);
+                HmsTypeMapping.Options.DEFAULT);
     }
 
     /**
@@ -131,12 +130,7 @@ public class ThriftHmsClient implements HmsClient, HmsPartitionBatchExecutor.Tra
     public ThriftHmsClient(HmsClientConfig config, AuthAction authAction,
             HmsTypeMapping.Options typeMappingOptions) {
         this(config, authAction, new DefaultMetaStoreClientProvider(),
-                typeMappingOptions, ConnectorMetadataAccessObserver.NOOP);
-    }
-
-    public ThriftHmsClient(HmsClientConfig config, AuthAction authAction,
-            HmsTypeMapping.Options typeMappingOptions, ConnectorMetadataAccessObserver observer) {
-        this(config, authAction, new DefaultMetaStoreClientProvider(), typeMappingOptions, observer);
+                typeMappingOptions);
     }
 
     /**
@@ -145,24 +139,13 @@ public class ThriftHmsClient implements HmsClient, HmsPartitionBatchExecutor.Tra
     ThriftHmsClient(HmsClientConfig config, AuthAction authAction,
             MetaStoreClientProvider clientProvider,
             HmsTypeMapping.Options typeMappingOptions) {
-        this(config, authAction, clientProvider, typeMappingOptions, ConnectorMetadataAccessObserver.NOOP);
-    }
-
-    ThriftHmsClient(HmsClientConfig config, AuthAction authAction,
-            MetaStoreClientProvider clientProvider,
-            HmsTypeMapping.Options typeMappingOptions,
-            ConnectorMetadataAccessObserver observer) {
         this.hiveConf = HmsConfHelper.createHiveConfWithResources(
                 config.getConfResources(), config.getProperties());
         this.authAction = authAction != null ? authAction : Callable::call;
         this.clientProvider = clientProvider;
         this.typeMappingOptions = typeMappingOptions;
-        HmsPartitionBatchExecutor executor = HmsPartitionBatchExecutor.builder()
-                .maxBatchSize(config.getPartitionBatchSize())
-                .fallbackTimeoutMillis(config.getPartitionBatchFallbackTimeoutMillis())
-                .transport(this)
-                .build();
-        this.partitionAccess = new HmsPartitionBatchExecutor.Access(executor, observer);
+        this.partitionBatchSize = config.getPartitionBatchSize();
+        this.partitionBatchFallbackTimeoutMillis = config.getPartitionBatchFallbackTimeoutMillis();
         if (config.getPoolSize() > 0) {
             this.clientPool = new GenericObjectPool<>(
                     new HmsClientFactory(), createPoolConfig(config.getPoolSize()));
@@ -261,34 +244,41 @@ public class ThriftHmsClient implements HmsClient, HmsPartitionBatchExecutor.Tra
     @Override
     public List<HmsPartitionInfo> getPartitions(String dbName,
             String tableName, List<String> partNames) {
-        return getPartitions(null, ConnectorMetadataAccessSource.UNKNOWN, dbName, tableName, partNames);
+        HmsPartitionRequest request = HmsPartitionRequest.builder()
+                .database(dbName)
+                .table(tableName)
+                .partitionNames(partNames)
+                .build();
+        if (clientPool != null) {
+            return newPartitionBatchExecutor(this::getPartitionsByNames).execute(request);
+        }
+        try (UnpooledPartitionTransport transport = new UnpooledPartitionTransport()) {
+            return newPartitionBatchExecutor(transport).execute(request);
+        }
     }
 
-    @Override
-    public List<HmsPartitionInfo> getPartitions(ConnectorSession session, ConnectorMetadataAccessSource source,
+    private HmsPartitionBatchExecutor newPartitionBatchExecutor(HmsPartitionTransport transport) {
+        return HmsPartitionBatchExecutor.builder()
+                .maxBatchSize(partitionBatchSize)
+                .fallbackTimeoutMillis(partitionBatchFallbackTimeoutMillis)
+                .transport(transport)
+                .build();
+    }
+
+    private List<HmsPartitionInfo> getPartitionsByNames(
             String dbName, String tableName, List<String> partNames) {
-        return partitionAccess.load(HmsPartitionRequest.from(session, source, dbName, tableName, partNames));
+        return executePartitionCall(client -> loadPartitionsByNames(client, dbName, tableName, partNames));
     }
 
-    @Override
-    public List<HmsPartitionInfo> getPartitionsByNames(String dbName, String tableName, List<String> partNames,
-            HmsPartitionBatchExecutor.RemoteCallTracker remoteCallTracker) {
-        return execute(client -> {
-            List<Partition> partitions;
-            if (clientProvider.supportsPartitionWireCallTracking()) {
-                partitions = HmsRemoteCallTracking.withTracker(remoteCallTracker, partNames.size(),
-                        () -> client.getPartitionsByNames(dbName, tableName, partNames));
-            } else {
-                partitions = remoteCallTracker.call(partNames.size(),
-                        () -> client.getPartitionsByNames(dbName, tableName, partNames));
-            }
-            if (partitions == null) {
-                return null;
-            }
-            return partitions.stream()
-                    .map(partition -> partition == null ? null : convertPartition(partition))
-                    .collect(Collectors.toList());
-        });
+    private List<HmsPartitionInfo> loadPartitionsByNames(IMetaStoreClient client,
+            String dbName, String tableName, List<String> partNames) throws Exception {
+        List<Partition> partitions = client.getPartitionsByNames(dbName, tableName, partNames);
+        if (partitions == null) {
+            return null;
+        }
+        return partitions.stream()
+                .map(partition -> partition == null ? null : convertPartition(partition))
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -721,14 +711,7 @@ public class ThriftHmsClient implements HmsClient, HmsPartitionBatchExecutor.Tra
         }
         try (PooledHmsClient pooled = borrowClient()) {
             try {
-                return doAs(() -> {
-                    try {
-                        return action.call(pooled.client);
-                    } catch (Exception e) {
-                        throw new HmsPartitionBatchExecutor.RemoteCallException(
-                                "Remote HMS operation failed: " + e.getMessage(), e);
-                    }
-                });
+                return doAs(() -> action.call(pooled.client));
             } catch (Exception e) {
                 pooled.taint(e);
                 throw e;
@@ -738,6 +721,39 @@ public class ThriftHmsClient implements HmsClient, HmsPartitionBatchExecutor.Tra
         } catch (Exception e) {
             throw new HmsClientException("HMS operation failed: "
                     + e.getMessage(), e);
+        }
+    }
+
+    /** Executes one physical partition RPC while keeping pool/setup failures non-degradable. */
+    private <T> T executePartitionCall(HmsAction<T> action) {
+        if (closed) {
+            throw new HmsClientException("HMS client is closed");
+        }
+        try (PooledHmsClient pooled = borrowClient()) {
+            return executePartitionCall(pooled, action);
+        } catch (HmsClientException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new HmsClientException("HMS partition operation failed: " + e.getMessage(), e);
+        }
+    }
+
+    private <T> T executePartitionCall(PooledHmsClient pooled, HmsAction<T> action) {
+        try {
+            return doAs(() -> {
+                try {
+                    return action.call(pooled.client);
+                } catch (Exception e) {
+                    throw new HmsPartitionBatchExecutor.RemoteCallException(
+                            "Remote HMS partition operation failed: " + e.getMessage(), e);
+                }
+            });
+        } catch (Exception e) {
+            pooled.taint(e);
+            if (e instanceof HmsClientException) {
+                throw (HmsClientException) e;
+            }
+            throw new HmsClientException("HMS partition operation failed: " + e.getMessage(), e);
         }
     }
 
@@ -845,7 +861,8 @@ public class ThriftHmsClient implements HmsClient, HmsPartitionBatchExecutor.Tra
 
     private PooledHmsClient createFreshClient() {
         try {
-            return doAs(() -> new PooledHmsClient(clientProvider.create(hiveConf)));
+            return doAs(() -> new PooledHmsClient(
+                    clientProvider.create(hiveConf)));
         } catch (Exception e) {
             throw new HmsClientException(withRootCause("Failed to create HMS client: "
                     + e.getMessage(), e), e);
@@ -863,6 +880,9 @@ public class ThriftHmsClient implements HmsClient, HmsPartitionBatchExecutor.Tra
      * with no hint of the SASL/GSS/transport root cause. This mirrors the legacy
      * {@code ThriftHMSCachedClient}/{@code HMSClientException}, which appended
      * {@code Util.getRootCauseMessage(cause)} in the same {@code className: message} form.
+     *
+     * <p>The guard avoids duplicating the reason when a fresh-client failure is re-wrapped by the
+     * pool's {@link #borrowClient()} (the inner message already carries the appended root cause).
      */
     static String withRootCause(String message, Throwable cause) {
         if (cause == null) {
@@ -921,7 +941,7 @@ public class ThriftHmsClient implements HmsClient, HmsPartitionBatchExecutor.Tra
             return !destroyed && throwable == null;
         }
 
-        synchronized void destroy() {
+        void destroy() {
             if (destroyed) {
                 return;
             }
@@ -950,6 +970,38 @@ public class ThriftHmsClient implements HmsClient, HmsPartitionBatchExecutor.Tra
             } catch (Exception e) {
                 destroy();
                 throw e;
+            }
+        }
+    }
+
+    /** Reuses one temporary client across successful chunks when catalog pooling is disabled. */
+    private final class UnpooledPartitionTransport implements HmsPartitionTransport, AutoCloseable {
+        private PooledHmsClient current;
+
+        @Override
+        public List<HmsPartitionInfo> getPartitionsByNames(
+                String dbName, String tableName, List<String> partitionNames) {
+            if (closed) {
+                throw new HmsClientException("HMS client is closed");
+            }
+            if (current == null) {
+                current = createFreshClient();
+            }
+            try {
+                return executePartitionCall(current,
+                        client -> loadPartitionsByNames(client, dbName, tableName, partitionNames));
+            } catch (RuntimeException e) {
+                current.destroy();
+                current = null;
+                throw e;
+            }
+        }
+
+        @Override
+        public void close() {
+            if (current != null) {
+                current.destroy();
+                current = null;
             }
         }
     }
@@ -1007,10 +1059,6 @@ public class ThriftHmsClient implements HmsClient, HmsPartitionBatchExecutor.Tra
      */
     interface MetaStoreClientProvider {
         IMetaStoreClient create(HiveConf hiveConf) throws MetaException;
-
-        default boolean supportsPartitionWireCallTracking() {
-            return false;
-        }
     }
 
     /** Default provider using RetryingMetaStoreClient over the standard HMS thrift client. */
@@ -1021,12 +1069,7 @@ public class ThriftHmsClient implements HmsClient, HmsPartitionBatchExecutor.Tra
                 throws MetaException {
             return RetryingMetaStoreClient.getProxy(
                     hiveConf, DUMMY_HOOK_LOADER,
-                    TrackingHiveMetaStoreClient.class.getName());
-        }
-
-        @Override
-        public boolean supportsPartitionWireCallTracking() {
-            return true;
+                    HiveMetaStoreClient.class.getName());
         }
     }
 }

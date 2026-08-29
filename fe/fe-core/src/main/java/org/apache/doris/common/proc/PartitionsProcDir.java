@@ -53,10 +53,8 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
-import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -478,43 +476,12 @@ public class PartitionsProcDir implements ProcDirInterface {
             }
             needLocked.sort(Comparator.comparing(TableIf::getId));
         }
-        MTMVRefreshContext mtmvRefreshContext = null;
-        boolean buildContextUnderLock = olapTable instanceof MTMV && Config.isNotCloudMode()
-                && needLocked.stream().noneMatch(MvccTable.class::isInstance);
-        if (olapTable instanceof MTMV && !buildContextUnderLock) {
-            try {
-                mtmvRefreshContext = MTMVRefreshContext.buildContextForDisplay((MTMV) olapTable);
-            } catch (AnalysisException e) {
-                mtmvPartitionSyncErrorMsg = e.getMessage();
-            }
-            if (mtmvRefreshContext != null) {
-                try {
-                    mtmvRefreshContext.preloadSnapshots();
-                } catch (AnalysisException e) {
-                    mtmvPartitionSyncErrorMsg = e.getMessage();
-                }
-            }
-        }
-
         MetaLockUtils.readLockTables(needLocked);
         try {
-            if (buildContextUnderLock) {
+            if (olapTable instanceof MTMV) {
                 try {
-                    mtmvRefreshContext = MTMVRefreshContext.buildContextForDisplay((MTMV) olapTable);
-                    mtmvRefreshContext.preloadSnapshots();
-                } catch (AnalysisException e) {
-                    mtmvPartitionSyncErrorMsg = e.getMessage();
-                }
-            } else if (mtmvRefreshContext != null && StringUtils.isEmpty(mtmvPartitionSyncErrorMsg)) {
-                try {
-                    mtmvRefreshContext.refreshLocalStateFromCachedVersions();
-                } catch (AnalysisException e) {
-                    mtmvPartitionSyncErrorMsg = e.getMessage();
-                }
-            }
-            if (mtmvRefreshContext != null && StringUtils.isEmpty(mtmvPartitionSyncErrorMsg)) {
-                try {
-                    partitionsUnSyncTables = MTMVPartitionUtil.getPartitionsUnSyncTables(mtmvRefreshContext);
+                    partitionsUnSyncTables = MTMVPartitionUtil
+                            .getPartitionsUnSyncTables((MTMV) olapTable);
                 } catch (AnalysisException e) {
                     mtmvPartitionSyncErrorMsg = e.getMessage();
                 }

@@ -17,35 +17,21 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.catalog.MTMV;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.mvcc.MvccTable;
-import org.apache.doris.mtmv.MTMVRefreshContext;
-import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.ExternalMetadataPreloadResult;
 import org.apache.doris.nereids.ExternalTablePreloadInfo;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.hint.Hint;
-import org.apache.doris.nereids.hint.UseMvHint;
-import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Preload external metadata after relation collection and before internal table locks are acquired.
@@ -60,9 +46,7 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
                     StatementContext statementContext = ctx.statementContext;
                     // Run preload at most once even if the collect pipeline re-enters the same statement context.
                     if (!statementContext.getExternalMetadataPreloadResult().isPresent()) {
-                        statementContext.setExternalMetadataPreloadResult(
-                                executePreload(statementContext,
-                                        createMtmvHints(statementContext.getMtmvPreloadHints())));
+                        statementContext.setExternalMetadataPreloadResult(executePreload(statementContext));
                     }
                     return ctx.root;
                 }).toRule(RuleType.PRELOAD_EXTERNAL_METADATA)
@@ -73,12 +57,7 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
      * Execute external metadata preload after relation collection and before internal table locks.
      */
     public ExternalMetadataPreloadResult executePreload(StatementContext statementContext) {
-        return executePreload(statementContext, statementContext.getHints());
-    }
-
-    private ExternalMetadataPreloadResult executePreload(StatementContext statementContext, List<Hint> hints) {
         long preloadStartTime = TimeUtils.getStartTimeMs();
-        preloadCloudMtmvRefreshContexts(statementContext, hints);
         Optional<String> skipReason = getSkipReason(statementContext);
         if (skipReason.isPresent()) {
             if (LOG.isDebugEnabled()) {
@@ -98,81 +77,6 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
                 statementContext.getExternalTablePreloadCandidateCount(),
                 preloadedTableCount,
                 TimeUtils.getElapsedTimeMs(preloadStartTime));
-    }
-
-    private void preloadCloudMtmvRefreshContexts(StatementContext statementContext, List<Hint> hints) {
-        if (Config.isNotCloudMode()) {
-            return;
-        }
-        ConnectContext connectContext = statementContext.getConnectContext();
-        Map<MTMV, Set<MTMVRelatedTableIf>> eligibleMtmvs = new LinkedHashMap<>();
-        Set<MTMVRelatedTableIf> pctTables = new LinkedHashSet<>();
-        for (MTMV mtmv : statementContext.getCandidateMTMVs()) {
-            if (!isSelectedByMtmvHints(hints, mtmv)
-                    || !requiresMtmvRefreshContext(statementContext, connectContext, mtmv)
-                    || statementContext.getPreloadedMtmvRefreshContext(mtmv).isPresent()) {
-                continue;
-            }
-            try {
-                Set<MTMVRelatedTableIf> candidatePctTables = mtmv.getMvPartitionInfo().getPctTables();
-                eligibleMtmvs.put(mtmv, candidatePctTables);
-                candidatePctTables.stream().filter(MvccTable.class::isInstance).forEach(pctTables::add);
-            } catch (Exception e) {
-                LOG.warn("Failed to resolve PCT tables for cloud MTMV {}", mtmv.getName(), e);
-            }
-        }
-        if (eligibleMtmvs.isEmpty()) {
-            return;
-        }
-        int snapshotLimit = connectContext.getSessionVariable().getMaterializedViewRewriteCloudPreloadSnapshotNum();
-        if (pctTables.size() > snapshotLimit) {
-            LOG.warn("Skip cloud MTMV rewrite preload because {} distinct PCT snapshots exceed limit {}",
-                    pctTables.size(), snapshotLimit);
-            return;
-        }
-        for (Map.Entry<MTMV, Set<MTMVRelatedTableIf>> entry : eligibleMtmvs.entrySet()) {
-            MTMV mtmv = entry.getKey();
-            try {
-                for (MTMVRelatedTableIf pctTable : entry.getValue()) {
-                    statementContext.loadSnapshots(pctTable, Optional.empty(), Optional.empty());
-                }
-                MTMVRefreshContext refreshContext = MTMVRefreshContext.buildCloudPreloadSeed(mtmv, entry.getValue());
-                statementContext.putPreloadedMtmvRefreshContext(mtmv, refreshContext);
-            } catch (Exception e) {
-                LOG.warn("Failed to preload cloud MTMV refresh context for {}", mtmv.getName(), e);
-            }
-        }
-    }
-
-    static List<Hint> createMtmvHints(List<SelectHintUseMv> selectHints) {
-        List<Hint> hints = new ArrayList<>();
-        for (SelectHintUseMv hint : selectHints) {
-            hints.add(EliminateLogicalSelectHint.createMvHint(hint, hints));
-        }
-        return hints;
-    }
-
-    private boolean isSelectedByMtmvHints(List<Hint> hints, MTMV mtmv) {
-        Optional<UseMvHint> use = findMtmvHint(hints, "USE_MV");
-        Optional<UseMvHint> noUse = findMtmvHint(hints, "NO_USE_MV");
-        List<String> qualifier = mtmv.getFullQualifiers();
-        return (!noUse.isPresent() || (!noUse.get().isAllMv()
-                && !noUse.get().getNoUseMvTableColumnMap().containsKey(qualifier)))
-                && (!use.isPresent() || use.get().getUseMvTableColumnMap().containsKey(qualifier));
-    }
-
-    private Optional<UseMvHint> findMtmvHint(List<Hint> hints, String name) {
-        return hints.stream().filter(hint -> !hint.isSyntaxError() && hint.getHintName().equalsIgnoreCase(name))
-                .map(UseMvHint.class::cast).findFirst();
-    }
-
-    private boolean requiresMtmvRefreshContext(
-            StatementContext statementContext, ConnectContext connectContext, MTMV mtmv) {
-        long rewriteEpochMillis = statementContext.getMtmvRewriteEpochMillis();
-        return statementContext.getPlannerHooks().stream()
-                .filter(InitMaterializationContextHook.class::isInstance)
-                .map(InitMaterializationContextHook.class::cast)
-                .anyMatch(hook -> hook.requiresMtmvRefreshContext(mtmv, connectContext, rewriteEpochMillis));
     }
 
     private Optional<String> getSkipReason(StatementContext statementContext) {

@@ -17,17 +17,12 @@
 
 package org.apache.doris.connector;
 
-import org.apache.doris.common.profile.RuntimeProfile;
-import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.connector.spi.ConnectorDelegatedCredential;
-import org.apache.doris.connector.spi.ConnectorMetadataAccessEvent;
-import org.apache.doris.connector.spi.ConnectorMetadataAccessObserver;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.StmtExecutor;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -35,7 +30,6 @@ import org.junit.jupiter.api.Test;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Tests for {@link ConnectorSessionImpl} and {@link ConnectorSessionBuilder}.
@@ -189,60 +183,6 @@ public class ConnectorSessionImplTest {
         Assertions.assertEquals("UTC", session.getTimeZone());
         Assertions.assertEquals("en_US", session.getLocale());
         Assertions.assertEquals("", session.getCatalogName());
-    }
-
-    @Test
-    public void explicitMetadataAccessObserverIsCarriedBySession() {
-        AtomicReference<ConnectorMetadataAccessEvent> recorded = new AtomicReference<>();
-        ConnectorMetadataAccessObserver observer = recorded::set;
-        ConnectorSession session = ConnectorSessionBuilder.create()
-                .withMetadataAccessObserver(observer)
-                .build();
-        ConnectorMetadataAccessEvent event = ConnectorMetadataAccessEvent.builder()
-                .operation("hms.get_partitions_by_names")
-                .source("QUERY")
-                .success(true)
-                .build();
-
-        session.getMetadataAccessObserver().record(event);
-
-        Assertions.assertSame(observer, session.getMetadataAccessObserver());
-        Assertions.assertSame(event, recorded.get());
-    }
-
-    @Test
-    public void metadataAccessObserverWritesOriginatingQueryProfile() {
-        ConnectContext context = new ConnectContext();
-        context.getSessionVariable().enableProfile = true;
-        StmtExecutor executor = new StmtExecutor(context, "");
-        context.setExecutor(executor);
-        ConnectorSession session = ConnectorSessionBuilder.from(context)
-                .withCatalogName("hive_catalog")
-                .build();
-        ConnectorMetadataAccessEvent event = ConnectorMetadataAccessEvent.builder()
-                .operation("hms.get_partitions_by_names")
-                .source("QUERY")
-                .requestedItems(10)
-                .rpcCount(2)
-                .rpcItems(10)
-                .largestBatchSize(5)
-                .smallestBatchSize(5)
-                .logicalElapsedMillis(7)
-                .rpcElapsedMillis(5)
-                .maxRpcElapsedMillis(3)
-                .success(true)
-                .build();
-
-        session.getMetadataAccessObserver().record(event);
-
-        RuntimeProfile group = executor.getSummaryProfile().getExecutionSummary().getChildMap().get(
-                SummaryProfile.CONNECTOR_METADATA_ACCESS_PROFILE);
-        RuntimeProfile operation = group.getChildMap().get(
-                "hive_catalog: hms.get_partitions_by_names [QUERY]");
-        Assertions.assertEquals(7, operation.getCounterMap().get("LogicalElapsedTime").getValue());
-        Assertions.assertEquals(5, operation.getCounterMap().get("RpcElapsedTime").getValue());
-        Assertions.assertEquals(3, operation.getCounterMap().get("MaxRpcElapsedTime").getValue());
-        Assertions.assertEquals(2, operation.getCounterMap().get("RpcAttempts").getValue());
     }
 
     // ──────────────── transaction binding (P4-T06a W-a / gap G1) ────────────────

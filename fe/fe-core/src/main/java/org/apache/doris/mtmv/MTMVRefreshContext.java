@@ -18,47 +18,28 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.connector.spi.ConnectorMetadataAccessSource;
-import org.apache.doris.datasource.mvcc.MvccSnapshot;
-import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 
 public class MTMVRefreshContext {
     private MTMV mtmv;
     private Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings;
     private MTMVBaseVersions baseVersions;
-    private Set<BaseTableInfo> baseTables;
-    private Set<MTMVRelatedTableIf> pctTables;
-    private MTMVPartitionInfo.MTMVPartitionType partitionType;
-    private Map<List<String>, Set<String>> queryUsedPartitions;
-    private Map<MTMVRelatedTableIf, Map<String, PartitionItem>> partitionItems;
-    private ConnectorMetadataAccessSource metadataAccessSource = ConnectorMetadataAccessSource.MTMV;
     // Within the same context, repeated fetches of the same table's snapshot must return consistent values.
     // Hence, the results are cached at this stage.
     // The value is loaded/cached on the first fetch
     private Map<BaseTableInfo, MTMVSnapshotIf> baseTableSnapshotCache = Maps.newHashMap();
-    private Map<MTMVRelatedTableIf, Map<String, MTMVSnapshotIf>> partitionSnapshotCache = Maps.newHashMap();
-    private Map<BaseTableInfo, TableIf> resolvedBaseTables = Maps.newHashMap();
-    private Map<BaseTableInfo, AnalysisException> baseTableResolutionFailures = Maps.newHashMap();
-    private Map<MTMVRelatedTableIf, BaseTableInfo> pctTableInfos = Maps.newHashMap();
+    private final Map<MTMVRelatedTableIf, Map<String, MTMVSnapshotIf>> partitionSnapshotCache = Maps.newHashMap();
 
     public MTMVRefreshContext(MTMV mtmv) {
         this.mtmv = mtmv;
@@ -80,293 +61,81 @@ public class MTMVRefreshContext {
         return baseVersions;
     }
 
-    public Set<BaseTableInfo> getBaseTables() {
-        return baseTables;
-    }
-
-    public Set<MTMVRelatedTableIf> getPctTables() {
-        return pctTables;
-    }
-
-    public MTMVPartitionInfo.MTMVPartitionType getPartitionType() {
-        return partitionType;
-    }
-
-    public ConnectorMetadataAccessSource getMetadataAccessSource() {
-        return metadataAccessSource;
-    }
-
     public Map<BaseTableInfo, MTMVSnapshotIf> getBaseTableSnapshotCache() {
         return baseTableSnapshotCache;
     }
 
-    public TableIf getBaseTable(BaseTableInfo baseTableInfo) throws AnalysisException {
-        AnalysisException previousFailure = baseTableResolutionFailures.get(baseTableInfo);
-        if (previousFailure != null) {
-            throw previousFailure;
-        }
-        TableIf table = resolvedBaseTables.get(baseTableInfo);
-        if (table != null) {
-            return table;
-        }
-        try {
-            table = MTMVUtil.getTable(baseTableInfo);
-            resolvedBaseTables.put(baseTableInfo, table);
-            return table;
-        } catch (AnalysisException e) {
-            baseTableResolutionFailures.put(baseTableInfo, e);
-            throw e;
-        }
-    }
-
-    public Map<String, MTMVSnapshotIf> getPartitionSnapshots(MTMVRelatedTableIf table,
-            Set<String> partitionNames, Optional<MvccSnapshot> snapshot) throws AnalysisException {
-        Map<String, MTMVSnapshotIf> cached = partitionSnapshotCache.computeIfAbsent(
-                table, ignored -> Maps.newHashMap());
-        Set<String> missing = Sets.difference(partitionNames, cached.keySet()).copyInto(Sets.newLinkedHashSet());
-        if (!missing.isEmpty()) {
-            Map<String, MTMVSnapshotIf> loaded = table.getPartitionSnapshots(
-                    new ArrayList<>(missing), this, snapshot);
-            if (!loaded.keySet().containsAll(missing)) {
-                Set<String> absent = Sets.difference(missing, loaded.keySet());
-                throw new AnalysisException("can not find partitions: " + absent);
-            }
-            cached.putAll(loaded);
-        }
-        Map<String, MTMVSnapshotIf> result = new LinkedHashMap<>();
-        for (String partitionName : partitionNames) {
-            result.put(partitionName, cached.get(partitionName));
-        }
-        return Collections.unmodifiableMap(result);
-    }
-
-    public MTMVSnapshotIf getCachedPartitionSnapshot(MTMVRelatedTableIf table, String partitionName) {
-        Map<String, MTMVSnapshotIf> cached = partitionSnapshotCache.get(table);
-        return cached == null ? null : cached.get(partitionName);
-    }
-
-    boolean hasPersistedPartitionSet(String mtmvPartitionName, MTMVRelatedTableIf table,
-            Set<String> currentPartitions) {
-        BaseTableInfo tableInfo = pctTableInfos.computeIfAbsent(table, BaseTableInfo::new);
-        return Objects.equals(currentPartitions,
-                mtmv.getRefreshSnapshot().getPctSnapshots(mtmvPartitionName, tableInfo));
-    }
-
-    boolean persistedPartitionSetsMatch(String mtmvPartitionName) {
-        if (partitionType == MTMVPartitionInfo.MTMVPartitionType.SELF_MANAGE) {
-            return true;
-        }
-        Map<MTMVRelatedTableIf, Set<String>> mapping = getByPartitionName(mtmvPartitionName);
-        if (mapping == null || mapping.isEmpty()) {
-            return false;
-        }
-        for (MTMVRelatedTableIf table : pctTables) {
-            if (table.needAutoRefresh() && !hasPersistedPartitionSet(
-                    mtmvPartitionName, table, mapping.getOrDefault(table, Collections.emptySet()))) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    boolean persistedPartitionSetsMatch(Set<String> mtmvPartitionNames) {
-        for (String mtmvPartitionName : mtmvPartitionNames) {
-            if (!persistedPartitionSetsMatch(mtmvPartitionName)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    public void preloadPartitionSnapshots() throws AnalysisException {
-        preloadPartitionSnapshots(partitionMappings.keySet());
-    }
-
+    /** Loads the union of mapped base partitions once per related table. */
     public void preloadPartitionSnapshots(Set<String> mtmvPartitionNames) throws AnalysisException {
+        preloadPartitionSnapshots(mtmvPartitionNames, false);
+    }
+
+    /** Loads only mappings whose persisted partition-name set still matches and needs version comparison. */
+    public void preloadComparablePartitionSnapshots(Set<String> mtmvPartitionNames) throws AnalysisException {
         preloadPartitionSnapshots(mtmvPartitionNames, true);
     }
 
-    private void preloadPartitionSnapshots(Set<String> mtmvPartitionNames,
-            boolean requirePersistedPartitionSet) throws AnalysisException {
-        Map<MTMVRelatedTableIf, Set<String>> namesByTable = Maps.newHashMap();
+    public MTMVSnapshotIf getPartitionSnapshot(MTMVRelatedTableIf table, String partitionName)
+            throws AnalysisException {
+        Map<String, MTMVSnapshotIf> snapshots = partitionSnapshotCache.get(table);
+        if (snapshots == null || !snapshots.containsKey(partitionName)) {
+            loadSnapshots(table, Collections.singleton(partitionName));
+            snapshots = partitionSnapshotCache.get(table);
+        }
+        return snapshots.get(partitionName);
+    }
+
+    private void preloadPartitionSnapshots(Set<String> mtmvPartitionNames, boolean comparableOnly)
+            throws AnalysisException {
+        Map<MTMVRelatedTableIf, Set<String>> namesByTable = new LinkedHashMap<>();
+        Map<MTMVRelatedTableIf, BaseTableInfo> tableInfos = comparableOnly
+                ? new LinkedHashMap<>() : Collections.emptyMap();
         for (String mtmvPartitionName : mtmvPartitionNames) {
-            Map<MTMVRelatedTableIf, Set<String>> mapping = getByPartitionName(mtmvPartitionName);
-            for (Map.Entry<MTMVRelatedTableIf, Set<String>> entry : mapping.entrySet()) {
-                if (entry.getKey().needAutoRefresh()
-                        && entry.getKey().supportsPartitionSnapshotBatchLoading()
-                        && (!requirePersistedPartitionSet
-                                || hasPersistedPartitionSet(mtmvPartitionName, entry.getKey(), entry.getValue()))) {
-                    namesByTable.computeIfAbsent(entry.getKey(), ignored -> Sets.newLinkedHashSet())
-                            .addAll(entry.getValue());
+            for (Map.Entry<MTMVRelatedTableIf, Set<String>> entry
+                    : getByPartitionName(mtmvPartitionName).entrySet()) {
+                if (!entry.getKey().needAutoRefresh()) {
+                    continue;
                 }
+                if (comparableOnly) {
+                    BaseTableInfo tableInfo = tableInfos.computeIfAbsent(entry.getKey(), BaseTableInfo::new);
+                    if (!Objects.equals(entry.getValue(), mtmv.getRefreshSnapshot()
+                            .getPctSnapshots(mtmvPartitionName, tableInfo))) {
+                        continue;
+                    }
+                }
+                namesByTable.computeIfAbsent(entry.getKey(), ignored -> new LinkedHashSet<>())
+                        .addAll(entry.getValue());
             }
         }
         for (Map.Entry<MTMVRelatedTableIf, Set<String>> entry : namesByTable.entrySet()) {
-            getPartitionSnapshots(entry.getKey(), entry.getValue(),
-                    MvccUtil.getSnapshotFromContext(entry.getKey()));
+            loadSnapshots(entry.getKey(), entry.getValue());
         }
     }
 
-    public void preloadTableSnapshots() throws AnalysisException {
-        preloadTableSnapshots(baseTables, Collections.emptySet());
-    }
-
-    public void preloadTableSnapshots(Set<BaseTableInfo> tables, Set<TableNameInfo> excludeTables)
-            throws AnalysisException {
-        for (BaseTableInfo baseTableInfo : tables) {
-            if (MTMVPartitionUtil.isTableExcluded(excludeTables, baseTableInfo)) {
-                continue;
-            }
-            TableIf table = getBaseTable(baseTableInfo);
-            if (!(table instanceof MTMVRelatedTableIf)) {
-                continue;
-            }
-            MTMVRelatedTableIf relatedTable = (MTMVRelatedTableIf) table;
-            if (!relatedTable.needAutoRefresh()) {
-                continue;
-            }
-            if (partitionType != MTMVPartitionInfo.MTMVPartitionType.SELF_MANAGE
-                    && pctTables.contains(relatedTable)) {
-                continue;
-            }
-            MTMVPartitionUtil.getTableSnapshotFromContext(relatedTable, this);
+    private void loadSnapshots(MTMVRelatedTableIf table, Set<String> partitionNames) throws AnalysisException {
+        Map<String, MTMVSnapshotIf> cached = partitionSnapshotCache.computeIfAbsent(
+                table, ignored -> new LinkedHashMap<>());
+        Set<String> missing = new LinkedHashSet<>(partitionNames);
+        missing.removeAll(cached.keySet());
+        if (missing.isEmpty()) {
+            return;
         }
-    }
-
-    public void preloadSnapshots() throws AnalysisException {
-        preloadPartitionSnapshots();
-        preloadTableSnapshots();
-    }
-
-    public void preloadSnapshots(Set<String> mtmvPartitionNames) throws AnalysisException {
-        preloadPartitionSnapshots(mtmvPartitionNames);
-        preloadTableSnapshots();
-    }
-
-    public void preloadSnapshots(Set<String> mtmvPartitionNames, Set<BaseTableInfo> tables,
-            Set<TableNameInfo> excludeTables) throws AnalysisException {
-        preloadPartitionSnapshots(mtmvPartitionNames);
-        preloadTableSnapshots(tables, excludeTables);
-    }
-
-    public void preloadSnapshotsForPersistence(Set<String> mtmvPartitionNames, Set<BaseTableInfo> tables)
-            throws AnalysisException {
-        preloadPartitionSnapshots(mtmvPartitionNames, false);
-        preloadTableSnapshots(tables, Collections.emptySet());
-    }
-
-    public void refreshLocalState() throws AnalysisException {
-        refreshLocalState(false);
-    }
-
-    public void refreshLocalStateFromCachedVersions() throws AnalysisException {
-        refreshLocalState(true);
-    }
-
-    public void refreshLocalStateFromCachedVersions(Map<List<String>, Set<String>> queryUsedPartitions)
-            throws AnalysisException {
-        this.queryUsedPartitions = Collections.unmodifiableMap(new LinkedHashMap<>(queryUsedPartitions));
-        refreshLocalState(true);
-    }
-
-    private void refreshLocalState(boolean cachedVersionsOnly) throws AnalysisException {
-        for (MTMVRelatedTableIf pctTable : pctTables) {
-            if (pctTable instanceof OlapTable) {
-                partitionItems.put(pctTable,
-                        pctTable.getAndCopyPartitionItems(MvccUtil.getSnapshotFromContext(pctTable)));
-            }
+        Map<String, MTMVSnapshotIf> loaded = table.getPartitionSnapshots(
+                missing, this, MvccUtil.getSnapshotFromContext(table));
+        if (loaded == null || loaded.containsKey(null) || loaded.containsValue(null)
+                || !missing.equals(loaded.keySet())) {
+            throw new AnalysisException("Invalid partition snapshot result for table " + table.getName()
+                    + ": requestedCount=" + missing.size() + ", returnedCount="
+                    + (loaded == null ? "null" : loaded.size()));
         }
-        partitionMappings = partitionItems.isEmpty()
-                ? mtmv.calculatePartitionMappings(queryUsedPartitions)
-                : mtmv.calculatePartitionMappings(queryUsedPartitions, partitionItems);
-        baseVersions = cachedVersionsOnly
-                ? MTMVPartitionUtil.getCachedBaseVersions(mtmv, partitionMappings, baseTables)
-                : MTMVPartitionUtil.getBaseVersions(mtmv, partitionMappings, baseTables);
-        baseTableSnapshotCache.keySet().removeIf(BaseTableInfo::isInternalTable);
-        partitionSnapshotCache.keySet().removeIf(OlapTable.class::isInstance);
-        resolvedBaseTables.keySet().removeIf(BaseTableInfo::isInternalTable);
-        baseTableResolutionFailures.keySet().removeIf(BaseTableInfo::isInternalTable);
+        cached.putAll(loaded);
     }
 
-    public static MTMVRefreshContext buildContext(MTMV mtmv) throws AnalysisException {
-        return buildContext(mtmv, Maps.newHashMap());
-    }
-
-    public static MTMVRefreshContext buildContextForDisplay(MTMV mtmv) throws AnalysisException {
-        MTMVRefreshContext context = buildContext(mtmv);
-        context.metadataAccessSource = ConnectorMetadataAccessSource.DISPLAY;
-        return context;
-    }
-
-    public static MTMVRefreshContext buildCloudPreloadSeed(
-            MTMV mtmv, Set<MTMVRelatedTableIf> resolvedPctTables) throws AnalysisException {
-        Set<BaseTableInfo> baseTables = getBaseTables(mtmv);
-        if (resolvedPctTables.stream()
-                .allMatch(table -> table instanceof MvccTable && !(table instanceof OlapTable))) {
-            MTMVPartitionUtil.getBaseVersions(mtmv, Collections.emptyMap(), baseTables);
-            return createCloudPreloadSeed(mtmv, baseTables, resolvedPctTables,
-                    mtmv.getMvPartitionInfo().getPartitionType());
-        }
-        MTMVRefreshContext context = buildContext(mtmv, Collections.emptyMap(), baseTables);
-        return createCloudPreloadSeed(mtmv, context.baseTables, context.pctTables, context.partitionType);
-    }
-
-    private static MTMVRefreshContext createCloudPreloadSeed(MTMV mtmv, Set<BaseTableInfo> baseTables,
-            Set<MTMVRelatedTableIf> pctTables, MTMVPartitionInfo.MTMVPartitionType partitionType) {
-        MTMVRefreshContext seed = new MTMVRefreshContext(mtmv);
-        seed.baseTables = Collections.unmodifiableSet(new LinkedHashSet<>(baseTables));
-        seed.pctTables = Collections.unmodifiableSet(new LinkedHashSet<>(pctTables));
-        seed.partitionType = partitionType;
-        seed.queryUsedPartitions = Collections.emptyMap();
-        seed.partitionItems = Collections.emptyMap();
-        seed.partitionMappings = Collections.emptyMap();
-        return seed;
-    }
-
-    public MTMVRefreshContext rebuildFromCachedVersions(
-            Map<List<String>, Set<String>> queryUsedPartitions) throws AnalysisException {
-        return buildContext(mtmv, queryUsedPartitions, baseTables, true);
-    }
-
-    public static MTMVRefreshContext buildContext(MTMV mtmv,
-            Map<List<String>, Set<String>> queryUsedPartitions) throws AnalysisException {
-        return buildContext(mtmv, queryUsedPartitions, getBaseTables(mtmv));
-    }
-
-    private static Set<BaseTableInfo> getBaseTables(MTMV mtmv) {
-        MTMVRelation relation = mtmv.getRelation();
-        return relation == null || relation.getBaseTablesOneLevelAndFromView() == null
-                ? Collections.emptySet() : relation.getBaseTablesOneLevelAndFromView();
-    }
-
-    public static MTMVRefreshContext buildContext(MTMV mtmv, Set<BaseTableInfo> baseTables)
+    public static MTMVRefreshContext buildContext(MTMV mtmv, Map<List<String>, Set<String>> queryUsedPartitions)
             throws AnalysisException {
-        return buildContext(mtmv, Maps.newHashMap(), baseTables);
-    }
-
-    public static MTMVRefreshContext buildContext(MTMV mtmv,
-            Map<List<String>, Set<String>> queryUsedPartitions, Set<BaseTableInfo> baseTables)
-            throws AnalysisException {
-        return buildContext(mtmv, queryUsedPartitions, baseTables, false);
-    }
-
-    private static MTMVRefreshContext buildContext(MTMV mtmv,
-            Map<List<String>, Set<String>> queryUsedPartitions, Set<BaseTableInfo> baseTables,
-            boolean cachedVersionsOnly) throws AnalysisException {
         MTMVRefreshContext context = new MTMVRefreshContext(mtmv);
-        context.baseTables = Collections.unmodifiableSet(new LinkedHashSet<>(baseTables));
-        context.pctTables = Collections.unmodifiableSet(new LinkedHashSet<>(
-                mtmv.getMvPartitionInfo().getPctTables()));
-        context.partitionType = mtmv.getMvPartitionInfo().getPartitionType();
-        context.queryUsedPartitions = Collections.unmodifiableMap(new LinkedHashMap<>(queryUsedPartitions));
-        context.partitionItems = Maps.newHashMap();
-        for (MTMVRelatedTableIf pctTable : context.pctTables) {
-            if (!(pctTable instanceof OlapTable)) {
-                context.partitionItems.put(pctTable,
-                        pctTable.getAndCopyPartitionItems(MvccUtil.getSnapshotFromContext(pctTable)));
-            }
-        }
-        context.refreshLocalState(cachedVersionsOnly);
+        context.partitionMappings = mtmv.calculatePartitionMappings(queryUsedPartitions);
+        context.baseVersions = MTMVPartitionUtil.getBaseVersions(mtmv, context.partitionMappings);
         return context;
     }
 
