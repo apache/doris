@@ -25,7 +25,10 @@ import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.PlannerHook;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.exploration.mv.InitConsistentMaterializationContextHook;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -96,8 +99,9 @@ public class AddInitMaterializationHookTest extends TestWithFeService {
         Mockito.doReturn(ImmutableSet.of(candidate)).when(relationManager).getCandidateMTMVs(Mockito.any());
         Deencapsulation.setField(mtmvService, "relationManager", relationManager);
 
-        String sql = "INSERT INTO " + TARGET_TABLE + " SELECT * FROM " + SOURCE_TABLE;
-        CascadesContext cascadesContext = createCascadesContext(sql);
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext,
+                ((InsertIntoTableCommand) new NereidsParser().parseSingle(
+                        "INSERT INTO " + TARGET_TABLE + " SELECT * FROM " + SOURCE_TABLE)).getLogicalQuery());
         cascadesContext.newTableCollector(true).collect();
 
         Set<PlannerHook> plannerHooks = cascadesContext.getStatementContext().getPlannerHooks();

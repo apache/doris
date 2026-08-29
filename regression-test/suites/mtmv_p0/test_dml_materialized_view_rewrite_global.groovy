@@ -62,9 +62,9 @@ suite("test_dml_materialized_view_rewrite_global", "p0,mtmv,nonConcurrent") {
             sql "set enable_materialized_view_rewrite=true"
             sql "refresh materialized view dml_rewrite_global_target_mv complete"
         }
+        waitingMTMVTaskFinishedByMvName("dml_rewrite_global_target_mv", dbName)
     })
 
-    waitingMTMVTaskFinishedByMvName("dml_rewrite_global_target_mv", dbName)
     order_qt_target_data "select k1, total from dml_rewrite_global_target_mv order by k1"
 
     String restoredDmlRewrite = sql_return_maparray(
