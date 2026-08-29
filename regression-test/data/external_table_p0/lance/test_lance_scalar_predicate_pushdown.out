@@ -124,6 +124,11 @@
 
 -- !select_utf8_like_explicit_escape --
 
+-- !select_utf8_like_nul_residual --
+2
+4
+10
+
 -- !select_utf8_regexp_residual --
 7
 8

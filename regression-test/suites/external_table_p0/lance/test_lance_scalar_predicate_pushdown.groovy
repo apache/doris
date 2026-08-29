@@ -262,6 +262,11 @@ suite("test_lance_scalar_predicate_pushdown", "p0,external") {
         verifyResidual(explicitEscapeQuery, "like")
         quickTest("select_utf8_like_explicit_escape", explicitEscapeQuery)
 
+        String nulLikeQuery =
+                """ SELECT row_id FROM predicate_pushdown WHERE utf8_value LIKE 'm\\0_' ORDER BY row_id; """
+        verifyResidual(nulLikeQuery, "like")
+        quickTest("select_utf8_like_nul_residual", nulLikeQuery)
+
         String regexpQuery =
                 """ SELECT row_id FROM predicate_pushdown WHERE utf8_value REGEXP '^ten-' ORDER BY row_id; """
         verifyResidual(regexpQuery, "regexp")

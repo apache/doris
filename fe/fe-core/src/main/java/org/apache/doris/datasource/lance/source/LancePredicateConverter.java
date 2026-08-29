@@ -34,6 +34,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.thrift.TFunctionBinaryType;
 
 import io.substrait.expression.Expression;
 import io.substrait.expression.ExpressionCreator;
@@ -276,7 +277,9 @@ public class LancePredicateConverter {
     }
 
     private Optional<Expression> convertStringFunction(FunctionCallExpr function) {
-        if (function.getFnName() == null || function.getChildren().size() != 2) {
+        if (function.getFnName() == null || function.getFn() == null
+                || function.getFn().getBinaryType() != TFunctionBinaryType.BUILTIN
+                || function.getChildren().size() != 2) {
             return Optional.empty();
         }
         String functionName = function.getFnName().getFunction().toLowerCase(Locale.ROOT);
@@ -306,7 +309,8 @@ public class LancePredicateConverter {
         String patternValue = literal.getStringValue();
         // Doris uses backslash as LIKE's default escape character, while the Substrait function
         // has no escape argument. Keep escaped LIKE patterns in Doris rather than changing meaning.
-        if (rejectEscapedPattern && patternValue.indexOf('\\') >= 0) {
+        if (patternValue.indexOf('\0') >= 0
+                || (rejectEscapedPattern && patternValue.indexOf('\\') >= 0)) {
             return Optional.empty();
         }
         return Optional.of(stringFunction(function, fieldReference(field),

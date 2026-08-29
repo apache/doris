@@ -23,6 +23,7 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.IsNullPredicate;
@@ -30,9 +31,11 @@ import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.lance.source.LancePredicateConverter;
+import org.apache.doris.thrift.TFunctionBinaryType;
 
 import io.substrait.proto.ExtendedExpression;
 import org.apache.arrow.vector.types.DateUnit;
@@ -220,12 +223,12 @@ public class LancePredicateConverterTest {
     public void testStringPredicates() {
         Expr legacyLike = new LikePredicate(LikePredicate.Operator.LIKE,
                 new SlotRef(null, "label"), new StringLiteral("ready%"));
-        Expr like = new FunctionCallExpr("like",
-                Arrays.asList(new SlotRef(null, "label"), new StringLiteral("%ead_")));
-        Expr startsWith = new FunctionCallExpr("starts_with",
-                Arrays.asList(new SlotRef(null, "label"), new StringLiteral("ready")));
-        Expr endsWith = new FunctionCallExpr("ends_with",
-                Arrays.asList(new SlotRef(null, "large_label"), new StringLiteral("done")));
+        Expr like = stringFunction(
+                "like", new SlotRef(null, "label"), new StringLiteral("%ead_"));
+        Expr startsWith = stringFunction(
+                "starts_with", new SlotRef(null, "label"), new StringLiteral("ready"));
+        Expr endsWith = stringFunction(
+                "ends_with", new SlotRef(null, "large_label"), new StringLiteral("done"));
 
         LancePredicateConverter.ConversionResult result =
                 converter.convert(Arrays.asList(legacyLike, like, startsWith, endsWith));
@@ -245,16 +248,32 @@ public class LancePredicateConverterTest {
                 new SlotRef(null, "label"), new StringLiteral("ready.*"));
         Expr escapedLike = new LikePredicate(LikePredicate.Operator.LIKE,
                 new SlotRef(null, "label"), new StringLiteral("ready\\%"));
-        Expr explicitEscape = new FunctionCallExpr("like", Arrays.asList(
-                new SlotRef(null, "label"), new StringLiteral("ready!%"),
-                new StringLiteral("!")));
-        Expr nonLiteralPattern = new FunctionCallExpr("starts_with",
-                Arrays.asList(new SlotRef(null, "label"), new SlotRef(null, "event-type")));
-        Expr nonStringInput = new FunctionCallExpr("ends_with",
-                Arrays.asList(new SlotRef(null, "row_id"), new StringLiteral("1")));
+        Expr explicitEscape = stringFunction("like",
+                new SlotRef(null, "label"), new StringLiteral("ready!%"), new StringLiteral("!"));
+        Expr nonLiteralPattern = stringFunction(
+                "starts_with", new SlotRef(null, "label"), new SlotRef(null, "event-type"));
+        Expr nonStringInput = stringFunction(
+                "ends_with", new SlotRef(null, "row_id"), new StringLiteral("1"));
 
         LancePredicateConverter.ConversionResult result = converter.convert(
                 Arrays.asList(regexp, escapedLike, explicitEscape, nonLiteralPattern, nonStringInput));
+
+        Assertions.assertEquals(0, result.getSubstraitFilter().length);
+        Assertions.assertTrue(result.getPushedConjuncts().isEmpty());
+    }
+
+    @Test
+    public void testResolvedUdfAndNulStringPredicatesRemainResidual() {
+        FunctionCallExpr udf = stringFunction(
+                "starts_with", new SlotRef(null, "label"), new StringLiteral("ready"));
+        udf.getFn().setBinaryType(TFunctionBinaryType.JAVA_UDF);
+        Expr legacyNulLike = new LikePredicate(LikePredicate.Operator.LIKE,
+                new SlotRef(null, "label"), new StringLiteral("m\0_"));
+        Expr functionNulLike = stringFunction(
+                "like", new SlotRef(null, "label"), new StringLiteral("m\0_"));
+
+        LancePredicateConverter.ConversionResult result =
+                converter.convert(Arrays.asList(udf, legacyNulLike, functionNulLike));
 
         Assertions.assertEquals(0, result.getSubstraitFilter().length);
         Assertions.assertTrue(result.getPushedConjuncts().isEmpty());
@@ -535,6 +554,13 @@ public class LancePredicateConverterTest {
                 Assertions.fail("Unexpected integer bit width: " + bitWidth);
         }
         Assertions.assertEquals(1, result.getPushedConjuncts().size());
+    }
+
+    private FunctionCallExpr stringFunction(String name, Expr... arguments) {
+        FunctionCallExpr function = new FunctionCallExpr(name, Arrays.asList(arguments));
+        function.setFn(new ScalarFunction(new FunctionName(name),
+                Collections.nCopies(arguments.length, Type.VARCHAR), Type.BOOLEAN, false, true));
+        return function;
     }
 
     private void assertNullSafeEqualityComposition(Expr predicate) {
