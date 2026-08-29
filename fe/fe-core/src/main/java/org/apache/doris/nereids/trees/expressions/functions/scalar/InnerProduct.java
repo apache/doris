@@ -18,13 +18,17 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -39,7 +43,10 @@ public class InnerProduct extends ScalarFunction implements ExplicitlyCastableSi
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(FloatType.INSTANCE)
-                    .args(ArrayType.of(FloatType.INSTANCE), ArrayType.of(FloatType.INSTANCE))
+                    .args(ArrayType.of(FloatType.INSTANCE), ArrayType.of(FloatType.INSTANCE)),
+            FunctionSignature.ret(FloatType.INSTANCE)
+                    .args(MapType.of(new AnyDataType(0), FloatType.INSTANCE),
+                            MapType.of(new AnyDataType(0), FloatType.INSTANCE))
     );
 
     /**
@@ -52,6 +59,20 @@ public class InnerProduct extends ScalarFunction implements ExplicitlyCastableSi
     /** constructor for withChildren and reuse signature */
     private InnerProduct(ScalarFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        for (int i = 0; i < arity(); ++i) {
+            DataType argumentType = getArgument(i).getDataType();
+            if (argumentType.isMapType()) {
+                DataType keyType = ((MapType) argumentType).getKeyType();
+                if (!keyType.isIntegralType() && !keyType.isStringLikeType()) {
+                    throw new AnalysisException("inner_product only supports integer or string map keys,"
+                            + " but got " + keyType.toSql() + " in expression " + toSql());
+                }
+            }
+        }
     }
 
     /**
