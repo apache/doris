@@ -37,7 +37,6 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -48,7 +47,6 @@ import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * FEOpExecutor is used to send request to specific FE
@@ -142,6 +140,34 @@ public class FEOpExecutor {
             if (!ok) {
                 throw exception;
             }
+
+            // Try to rediscover the leader in case of master failover.
+            // When the master FE changes (e.g., due to failover), the observer's cached
+            // feAddr may be stale. Rediscover the current leader and retry with the new address.
+            TNetworkAddress newAddr = null;
+            try {
+                String masterHost = ctx.getEnv().getMasterHost();
+                int masterRpcPort = ctx.getEnv().getMasterRpcPort();
+                if (masterHost != null && !masterHost.isEmpty() && masterRpcPort != 0) {
+                    newAddr = new TNetworkAddress(masterHost, masterRpcPort);
+                }
+            } catch (Exception ex) {
+                LOG.warn("Failed to rediscover master FE address", ex);
+            }
+
+            if (newAddr != null && !newAddr.equals(feAddr)) {
+                LOG.warn("Master FE changed from {} to {}, retrying forward with new master", feAddr, newAddr);
+                feAddr = newAddr;
+                try {
+                    client = ClientPool.frontendPool.borrowObject(feAddr, thriftTimeoutMs);
+                    TMasterOpResult result = client.forward(params);
+                    isReturnToPool = true;
+                    return result;
+                } catch (Exception ex) {
+                    throw exception;
+                }
+            }
+
             if (shouldNotRetry || e.getType() == TTransportException.TIMED_OUT) {
                 throw exception;
             } else {
@@ -264,13 +290,6 @@ public class FEOpExecutor {
         } else {
             return null;
         }
-    }
-
-    public Set<Long> getAuditStatisticsBackendIds() {
-        if (result == null || !result.isSetAuditStatisticsBackendIds()) {
-            return Collections.emptySet();
-        }
-        return ImmutableSet.copyOf(result.getAuditStatisticsBackendIds());
     }
 
     public String getProxyStatus() {
