@@ -295,13 +295,13 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         int eraseNum = 0;
         StopWatch watch = StopWatch.createStarted();
         try {
-            // 1. collect expired database IDs under read lock
-            List<Long> expiredIds = new ArrayList<>();
+            // 1. collect expired database IDs and recycle times under read lock
+            Map<Long, Long> expiredIdToRecycleTime = new HashMap<>();
             readLock();
             try {
                 for (Map.Entry<Long, RecycleDatabaseInfo> entry : idToDatabase.entrySet()) {
                     if (isExpire(entry.getKey(), currentTimeMs)) {
-                        expiredIds.add(entry.getKey());
+                        expiredIdToRecycleTime.put(entry.getKey(), idToRecycleTime.get(entry.getKey()));
                     }
                 }
             } finally {
@@ -309,13 +309,22 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
 
             // 2. erase each expired database one at a time
-            for (Long dbId : expiredIds) {
+            for (Map.Entry<Long, Long> expiredEntry : expiredIdToRecycleTime.entrySet()) {
+                Long dbId = expiredEntry.getKey();
+                Long capturedRecycleTime = expiredEntry.getValue();
                 writeLock();
                 try {
-                    RecycleDatabaseInfo dbInfo = idToDatabase.remove(dbId);
+                    RecycleDatabaseInfo dbInfo = idToDatabase.get(dbId);
                     if (dbInfo == null) {
                         continue;
                     }
+                    // Re-validate that the recycle time hasn't changed and the entry is still expired
+                    Long currentRecycleTime = idToRecycleTime.get(dbId);
+                    if (currentRecycleTime == null || !currentRecycleTime.equals(capturedRecycleTime)
+                            || !isExpire(dbId, currentTimeMs)) {
+                        continue;
+                    }
+                    idToDatabase.remove(dbId);
                     Database db = dbInfo.getDb();
                     idToRecycleTime.remove(dbId);
 
@@ -457,13 +466,13 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         int eraseNum = 0;
         StopWatch watch = StopWatch.createStarted();
         try {
-            // 1. collect expired table IDs under read lock
-            List<Long> expiredIds = new ArrayList<>();
+            // 1. collect expired table IDs and recycle times under read lock
+            Map<Long, Long> expiredIdToRecycleTime = new HashMap<>();
             readLock();
             try {
                 for (Map.Entry<Long, RecycleTableInfo> entry : idToTable.entrySet()) {
                     if (isExpire(entry.getKey(), currentTimeMs)) {
-                        expiredIds.add(entry.getKey());
+                        expiredIdToRecycleTime.put(entry.getKey(), idToRecycleTime.get(entry.getKey()));
                     }
                 }
             } finally {
@@ -471,11 +480,19 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
 
             // 2. erase each expired table one at a time
-            for (Long tableId : expiredIds) {
+            for (Map.Entry<Long, Long> expiredEntry : expiredIdToRecycleTime.entrySet()) {
+                Long tableId = expiredEntry.getKey();
+                Long capturedRecycleTime = expiredEntry.getValue();
                 writeLock();
                 try {
                     RecycleTableInfo tableInfo = idToTable.get(tableId);
                     if (tableInfo == null) {
+                        continue;
+                    }
+                    // Re-validate that the recycle time hasn't changed and the entry is still expired
+                    Long currentRecycleTime = idToRecycleTime.get(tableId);
+                    if (currentRecycleTime == null || !currentRecycleTime.equals(capturedRecycleTime)
+                            || !isExpire(tableId, currentTimeMs)) {
                         continue;
                     }
                     Table table = tableInfo.getTable();
@@ -602,13 +619,13 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         int eraseNum = 0;
         StopWatch watch = StopWatch.createStarted();
         try {
-            // 1. collect expired partition IDs under read lock
-            List<Long> expiredIds = new ArrayList<>();
+            // 1. collect expired partition IDs and recycle times under read lock
+            Map<Long, Long> expiredIdToRecycleTime = new HashMap<>();
             readLock();
             try {
                 for (Map.Entry<Long, RecyclePartitionInfo> entry : idToPartition.entrySet()) {
                     if (isExpire(entry.getKey(), currentTimeMs)) {
-                        expiredIds.add(entry.getKey());
+                        expiredIdToRecycleTime.put(entry.getKey(), idToRecycleTime.get(entry.getKey()));
                     }
                 }
             } finally {
@@ -616,15 +633,24 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
 
             // 2. erase each expired partition one at a time (microbatch)
-            for (Long partitionId : expiredIds) {
+            for (Map.Entry<Long, Long> expiredEntry : expiredIdToRecycleTime.entrySet()) {
+                Long partitionId = expiredEntry.getKey();
+                Long capturedRecycleTime = expiredEntry.getValue();
                 writeLock();
                 try {
-                    RecyclePartitionInfo partitionInfo = idToPartition.remove(partitionId);
+                    RecyclePartitionInfo partitionInfo = idToPartition.get(partitionId);
                     if (partitionInfo == null) {
+                        continue;
+                    }
+                    // Re-validate that the recycle time hasn't changed and the entry is still expired
+                    Long currentRecycleTime = idToRecycleTime.get(partitionId);
+                    if (currentRecycleTime == null || !currentRecycleTime.equals(capturedRecycleTime)
+                            || !isExpire(partitionId, currentTimeMs)) {
                         continue;
                     }
                     Partition partition = partitionInfo.getPartition();
                     Env.getCurrentEnv().onErasePartition(partition);
+                    idToPartition.remove(partitionId);
                     idToRecycleTime.remove(partitionId);
 
                     dbTblIdPartitionNameToIds.computeIfPresent(
