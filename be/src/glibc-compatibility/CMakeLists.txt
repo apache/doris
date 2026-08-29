@@ -49,6 +49,15 @@ if (GLIBC_COMPATIBILITY)
         list(APPEND glibc_compatibility_sources musl/getentropy.c)
     endif()
 
+    set(lance_compatibility_sources
+        musl/execvpe.c
+        musl/posix_spawn_file_actions.c
+        musl/posix_spawnp.c
+        musl/preadv.c
+        musl/splice.c
+    )
+    list(REMOVE_ITEM glibc_compatibility_sources ${lance_compatibility_sources})
+
     # Need to omit frame pointers to match the performance of glibc
     set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fomit-frame-pointer")
 
@@ -65,9 +74,16 @@ if (GLIBC_COMPATIBILITY)
     # before ASAN shadow memory is initialized, causing SIGSEGV. Skip custom memcpy in
     # this case and fall back to glibc's memcpy.
     if (ARCH_ARM AND (CMAKE_BUILD_TYPE STREQUAL "ASAN_UT" OR CMAKE_BUILD_TYPE STREQUAL "ASAN"))
-        add_library(glibc-compatibility-explicit OBJECT musl/getrandom.c)
+        add_library(glibc-compatibility-explicit OBJECT
+            musl/getrandom.c
+            ${lance_compatibility_sources}
+        )
     else()
-        add_library(glibc-compatibility-explicit OBJECT musl/getrandom.c ${MEMCPY_SOURCE})
+        add_library(glibc-compatibility-explicit OBJECT
+            musl/getrandom.c
+            ${MEMCPY_SOURCE}
+            ${lance_compatibility_sources}
+        )
     endif()
     target_compile_options(glibc-compatibility-explicit PRIVATE -fPIC)
     add_library(glibc-compatibility STATIC ${glibc_compatibility_sources})
