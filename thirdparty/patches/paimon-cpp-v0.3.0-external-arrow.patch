@@ -1,0 +1,132 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -46,7 +46,9 @@
+
+ string(TOUPPER "${CMAKE_BUILD_TYPE}" UPPERCASE_BUILD_TYPE)
+
+-set(CMAKE_CXX_STANDARD 17)
++if(NOT DEFINED CMAKE_CXX_STANDARD)
++    set(CMAKE_CXX_STANDARD 17)
++endif()
+ set(CMAKE_CXX_STANDARD_REQUIRED ON)
+ set(CMAKE_CXX_EXTENSIONS OFF)
+ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+--- a/cmake_modules/ThirdpartyToolchain.cmake
++++ b/cmake_modules/ThirdpartyToolchain.cmake
+@@ -36,6 +36,16 @@
+
+ set(EP_COMMON_TOOLCHAIN "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
+                         "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
++
++option(PAIMON_USE_EXTERNAL_ARROW "Reuse external Arrow/Parquet instead of building arrow_ep" OFF)
++set(PAIMON_EXTERNAL_ARROW_INCLUDE_DIR "" CACHE PATH
++    "Include directory for external Arrow/Parquet headers")
++set(PAIMON_EXTERNAL_ARROW_LIB "" CACHE FILEPATH "Path to external libarrow.a")
++set(PAIMON_EXTERNAL_ARROW_DATASET_LIB "" CACHE FILEPATH "Path to external libarrow_dataset.a")
++set(PAIMON_EXTERNAL_ARROW_ACERO_LIB "" CACHE FILEPATH "Path to external libarrow_acero.a")
++set(PAIMON_EXTERNAL_PARQUET_LIB "" CACHE FILEPATH "Path to external libparquet.a")
++set(PAIMON_EXTERNAL_ARROW_BUNDLED_DEPS_LIB "" CACHE FILEPATH
++    "Path to external libarrow_bundled_dependencies.a")
+
+ macro(set_urls URLS)
+     set(${URLS} ${ARGN})
+@@ -1528,8 +1538,91 @@
+ endmacro()
+
+ macro(build_arrow)
+-    message(STATUS "Building Arrow from source")
++    if(PAIMON_USE_EXTERNAL_ARROW)
++        set(ARROW_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/doris_external_arrow_include")
++        file(MAKE_DIRECTORY "${ARROW_INCLUDE_DIR}")
++        if(NOT EXISTS "${ARROW_INCLUDE_DIR}/arrow")
++            execute_process(COMMAND "${CMAKE_COMMAND}" -E create_symlink
++                            "${PAIMON_EXTERNAL_ARROW_INCLUDE_DIR}/arrow"
++                            "${ARROW_INCLUDE_DIR}/arrow")
++        endif()
++        if(EXISTS "${PAIMON_EXTERNAL_ARROW_INCLUDE_DIR}/parquet"
++           AND NOT EXISTS "${ARROW_INCLUDE_DIR}/parquet")
++            execute_process(COMMAND "${CMAKE_COMMAND}" -E create_symlink
++                            "${PAIMON_EXTERNAL_ARROW_INCLUDE_DIR}/parquet"
++                            "${ARROW_INCLUDE_DIR}/parquet")
++        endif()
++
++        if(NOT PAIMON_EXTERNAL_ARROW_INCLUDE_DIR)
++            message(FATAL_ERROR
++                    "PAIMON_EXTERNAL_ARROW_INCLUDE_DIR must be set when PAIMON_USE_EXTERNAL_ARROW=ON"
++            )
++        endif()
++        if(NOT EXISTS "${PAIMON_EXTERNAL_ARROW_INCLUDE_DIR}")
++            message(FATAL_ERROR
++                    "PAIMON_EXTERNAL_ARROW_INCLUDE_DIR not found: ${PAIMON_EXTERNAL_ARROW_INCLUDE_DIR}"
++            )
++        endif()
++
++        foreach(_paimon_external_lib
++                IN ITEMS PAIMON_EXTERNAL_ARROW_LIB
++                         PAIMON_EXTERNAL_ARROW_DATASET_LIB
++                         PAIMON_EXTERNAL_ARROW_ACERO_LIB
++                         PAIMON_EXTERNAL_PARQUET_LIB
++                         PAIMON_EXTERNAL_ARROW_BUNDLED_DEPS_LIB)
++            if(NOT ${_paimon_external_lib})
++                message(FATAL_ERROR
++                        "${_paimon_external_lib} must be set when PAIMON_USE_EXTERNAL_ARROW=ON")
++            endif()
++            if(NOT EXISTS "${${_paimon_external_lib}}")
++                message(FATAL_ERROR
++                        "${_paimon_external_lib} not found: ${${_paimon_external_lib}}")
++            endif()
++        endforeach()
++
++        add_library(arrow STATIC IMPORTED)
++        set_target_properties(arrow
++                              PROPERTIES IMPORTED_LOCATION "${PAIMON_EXTERNAL_ARROW_LIB}"
++                                         INTERFACE_INCLUDE_DIRECTORIES
++                                         "${ARROW_INCLUDE_DIR}")
++
++        add_library(arrow_dataset STATIC IMPORTED)
++        set_target_properties(arrow_dataset
++                              PROPERTIES IMPORTED_LOCATION
++                                         "${PAIMON_EXTERNAL_ARROW_DATASET_LIB}"
++                                         INTERFACE_INCLUDE_DIRECTORIES
++                                         "${ARROW_INCLUDE_DIR}")
++
++        add_library(arrow_acero STATIC IMPORTED)
++        set_target_properties(arrow_acero
++                              PROPERTIES IMPORTED_LOCATION
++                                         "${PAIMON_EXTERNAL_ARROW_ACERO_LIB}"
++                                         INTERFACE_INCLUDE_DIRECTORIES
++                                         "${ARROW_INCLUDE_DIR}")
++
++        add_library(parquet STATIC IMPORTED)
++        set_target_properties(parquet
++                              PROPERTIES IMPORTED_LOCATION "${PAIMON_EXTERNAL_PARQUET_LIB}"
++                                         INTERFACE_INCLUDE_DIRECTORIES "${ARROW_INCLUDE_DIR}")
++
++        add_library(arrow_bundled_dependencies STATIC IMPORTED)
++        set_target_properties(arrow_bundled_dependencies
++                              PROPERTIES IMPORTED_LOCATION
++                                         "${PAIMON_EXTERNAL_ARROW_BUNDLED_DEPS_LIB}"
++                                         INTERFACE_INCLUDE_DIRECTORIES
++                                         "${ARROW_INCLUDE_DIR}")
++
++        target_link_libraries(arrow_acero INTERFACE arrow)
++        target_link_libraries(arrow_dataset INTERFACE arrow_acero)
++        target_link_libraries(arrow
++                              INTERFACE zstd snappy lz4 zlib
++                                        arrow_bundled_dependencies)
++        target_link_libraries(parquet
++                              INTERFACE zstd snappy lz4 zlib
++                                        arrow_bundled_dependencies arrow_dataset)
++    else()
++        message(STATUS "Building Arrow from source")
++
+     get_target_property(ARROW_SNAPPY_INCLUDE_DIR snappy INTERFACE_INCLUDE_DIRECTORIES)
+     get_filename_component(ARROW_SNAPPY_ROOT "${ARROW_SNAPPY_INCLUDE_DIR}" DIRECTORY)
+
+@@ -1697,6 +1790,7 @@
+                                     zlib
+                                     arrow_bundled_dependencies
+                                     arrow_dataset)
++    endif()
+
+ endmacro(build_arrow)

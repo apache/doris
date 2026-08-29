@@ -733,8 +733,8 @@ fi
 if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
     cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
-        if patch -p1 -N --batch --dry-run <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch" >/dev/null 2>&1; then
-            patch -p1 -N --batch <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch"
+        if patch -p1 -N --batch --dry-run <"${TP_PATCH_DIR}/paimon-cpp-v0.3.0-external-arrow.patch" >/dev/null 2>&1; then
+            patch -p1 -N --batch <"${TP_PATCH_DIR}/paimon-cpp-v0.3.0-external-arrow.patch"
         else
             echo "Skip paimon-cpp patch: already applied or not applicable for current source"
         fi

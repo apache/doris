@@ -568,10 +568,10 @@ PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # paimon-cpp
-PAIMON_CPP_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/paimon-cpp-0a4f4e2.tar.gz"
-PAIMON_CPP_NAME="paimon-cpp-0a4f4e2.tar.gz"
-PAIMON_CPP_SOURCE="doris-thirdparty-paimon-cpp-0a4f4e2"
-PAIMON_CPP_MD5SUM="b8599a0421dbf1ec05e2f1a481d64e87"
+PAIMON_CPP_DOWNLOAD="https://github.com/apache/paimon-cpp/archive/refs/tags/v0.3.0.tar.gz"
+PAIMON_CPP_NAME="paimon-cpp-0.3.0.tar.gz"
+PAIMON_CPP_SOURCE="paimon-cpp-0.3.0"
+PAIMON_CPP_MD5SUM="313f4f9fee7ccc92428c83dc50cab9f6"
 
 # lance-c
 LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.2.tar.gz"
