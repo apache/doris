@@ -54,7 +54,8 @@ suite("test_dml_materialized_view_rewrite_global", "p0,mtmv,nonConcurrent") {
     """
 
     setGlobalVarTemporary([enable_dml_materialized_view_rewrite: false], {
-        connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
+        connect(context.config.jdbcUser, context.config.jdbcPassword,
+                context.config.buildUrlWithDb(context.config.jdbcUrl, dbName)) {
             def sessionValue = sql_return_maparray(
                     "show variables like 'enable_dml_materialized_view_rewrite'")[0].Value.toString()
             assertEquals("false", sessionValue.toLowerCase())
