@@ -430,6 +430,11 @@ struct TMasterOpRequest {
     1005: optional string delegated_credential_token
     1006: optional i64 delegated_credential_expires_at_millis
     1007: optional string delegated_credential_session_id
+
+    // if set to true, this request is a lightweight probe asking whether the receiving
+    // FE is the master. Used by a sender to re-discover the real master after a
+    // NOT_MASTER rejection. No statement is executed.
+    36: optional bool isMasterProbe
 }
 
 struct TColumnDefinition {
@@ -461,6 +466,13 @@ struct TMasterOpResult {
     9: optional TTxnLoadInfo txnLoadInfo;
     10: optional i64 groupCommitLoadBeId;
     11: optional i64 affectedRows;
+    // Set when the receiving FE is not the master, so the sender can refresh its stale
+    // masterInfo and retry against the real master instead of failing with
+    // "Master FE is not ready".
+    12: optional bool notMaster;
+    // The master address known by the rejecting FE (may be stale or even point to the
+    // rejecting FE itself; the sender must validate it before use).
+    13: optional Types.TNetworkAddress masterAddress;
 }
 
 // Certificate-based authentication info forwarded from BE to FE

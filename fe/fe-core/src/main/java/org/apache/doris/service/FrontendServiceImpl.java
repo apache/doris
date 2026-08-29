@@ -66,6 +66,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
@@ -1154,6 +1155,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
         validateForwardRequester(params);
+        // If this node is not the master any more (e.g. after a master failover while the
+        // sender's journal replay is still lagging), reject the forwarded statement before
+        // executing it. Otherwise the statement would run deep into StmtExecutor and fail
+        // with "Master FE is not ready", which the sender cannot recover from.
+        if (!params.isSetIsMasterProbe() || !params.isIsMasterProbe()) {
+            if (!Env.getCurrentEnv().isMaster()) {
+                return buildNotMasterResult();
+            }
+        }
         TMasterOpResult shortcut = handleForwardShortcut(params);
         if (shortcut != null) {
             return shortcut;
@@ -1170,6 +1180,35 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
+    /**
+     * Build a NOT_MASTER rejection for a forwarded statement. The statement is NOT executed,
+     * so the sender may safely retry it (even non-idempotent statements) against the real
+     * master discovered via the hint below or by its own discovery.
+     */
+    private TMasterOpResult buildNotMasterResult() {
+        TMasterOpResult result = new TMasterOpResult();
+        // No journal-sync target for a rejection; the sender must skip its journal wait.
+        result.setMaxJournalId(0L);
+        result.setPacket(new byte[0]);
+        result.setNotMaster(true);
+        result.setStatus(QueryState.MysqlStateType.ERR.name());
+        result.setStatusCode(ErrorCode.ERR_UNKNOWN_ERROR.getCode());
+        result.setErrMessage(NOT_MASTER_REJECT_MSG.replace("{}", Env.getCurrentEnv().getSelfNode().getHost()));
+        // Hint the sender with the master this node knows about, if any. This is best-effort:
+        // the hint may be stale or even point to this node itself, so the sender must
+        // validate it (not equal to the failed target / itself) before use.
+        if (Env.getCurrentEnv().isReady() && !Strings.isNullOrEmpty(Env.getCurrentEnv().getMasterHost())) {
+            result.setMasterAddress(new TNetworkAddress(Env.getCurrentEnv().getMasterHost(),
+                    Env.getCurrentEnv().getMasterRpcPort()));
+        }
+        LOG.warn("reject forwarded statement because current node is not master. known master: {}",
+                result.getMasterAddress());
+        return result;
+    }
+
+    private static final String NOT_MASTER_REJECT_MSG =
+            "Current FE({}) is not the master any more, please retry against the current master.";
+
     private void validateForwardRequester(TMasterOpRequest params) throws TException {
         Frontend fe = Env.getCurrentEnv().checkFeExist(params.getClientNodeHost(), params.getClientNodePort());
         if (fe != null) {
@@ -1180,6 +1219,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private TMasterOpResult handleForwardShortcut(TMasterOpRequest params) throws TException {
+        if (params.isSetIsMasterProbe() && params.isIsMasterProbe()) {
+            return handleMasterProbe();
+        }
         if (params.isSyncJournalOnly()) {
             return createForwardResultWithJournalSync();
         }
@@ -1201,6 +1243,29 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TMasterOpResult result = new TMasterOpResult();
         result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
         result.setPacket("".getBytes());
+        return result;
+    }
+
+    /**
+     * Lightweight probe: answer whether this node is the master, without executing anything.
+     * Used by a sender re-discovering the real master after a NOT_MASTER rejection.
+     */
+    private TMasterOpResult handleMasterProbe() {
+        TMasterOpResult result = new TMasterOpResult();
+        result.setMaxJournalId(0L);
+        result.setPacket(new byte[0]);
+        if (Env.getCurrentEnv().isMaster()) {
+            result.setNotMaster(false);
+            // confirm self as master: hint points to this node
+            result.setMasterAddress(new TNetworkAddress(Env.getCurrentEnv().getSelfNode().getHost(),
+                    Config.rpc_port));
+        } else {
+            result.setNotMaster(true);
+            if (Env.getCurrentEnv().isReady() && !Strings.isNullOrEmpty(Env.getCurrentEnv().getMasterHost())) {
+                result.setMasterAddress(new TNetworkAddress(Env.getCurrentEnv().getMasterHost(),
+                        Env.getCurrentEnv().getMasterRpcPort()));
+            }
+        }
         return result;
     }
 
