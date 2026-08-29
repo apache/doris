@@ -56,6 +56,11 @@ suite("test_timestamp_ns_mv") {
         group by dt
         order by dt nulls first
     """
+    mv_rewrite_success("""
+        select dt, count(*)
+        from timestamp_ns_mv_probe
+        group by dt
+    """, "timestamp_ns_sync_mv")
 
     sql "drop table if exists timestamp_ns_aggregate_mv_base"
     sql """
