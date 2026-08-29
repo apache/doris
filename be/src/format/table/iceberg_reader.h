@@ -154,13 +154,7 @@ protected:
     // V1 readers may evaluate lazy predicates before decoding non-predicate complex columns.
     // Validate their projected missing required fields while the physical schema mapping is intact.
     Status _validate_projected_missing_required_fields() const;
-    Status _validate_required_table_columns(Block* block) const;
     Status _apply_iceberg_row_filters(Block* block);
-    Status _filter_deferred_required_column_predicates(Block* block) const;
-    void _prepare_physical_reader_predicates(
-            const TupleDescriptor* tuple_descriptor, const VExprContextSPtrs& conjuncts,
-            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
     const schema::external::TStructField* _current_schema_root() const;
     const schema::external::TField* _find_current_schema_field(const std::string& name) const;
     static bool _find_schema_field_path_in_field(
@@ -248,11 +242,6 @@ protected:
 
     // Predicates touching a projected required Iceberg field must stay above the physical reader
     // until equality deletes have removed logically invisible rows and requiredness is validated.
-    std::unordered_set<int> _required_validation_slot_ids;
-    VExprContextSPtrs _physical_reader_conjuncts;
-    VExprContextSPtrs _physical_reader_not_single_slot_filter_conjuncts;
-    std::unordered_map<int, VExprContextSPtrs> _physical_reader_slot_id_to_filter_conjuncts;
-    std::unique_ptr<AndBlockColumnPredicate> _deferred_required_column_predicates;
 
     std::shared_ptr<RowLineageColumns> _row_lineage_columns;
 };

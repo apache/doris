@@ -86,12 +86,6 @@ protected:
     }
 
     Status materialize_virtual_columns(Block* table_block) override;
-    // True when COUNT(*) keeps this mapping only to carry the surviving row count, so the file
-    // values behind it are never decoded.
-    bool _is_count_star_placeholder_column(const format::ColumnMapping& mapping) const;
-    static Status _validate_required_mapping_column(
-            const format::ColumnMapping& mapping, const ColumnPtr& column,
-            const NullMap* nullable_parent_null_map = nullptr);
 
     Status customize_file_scan_request(format::FileScanRequest* file_request) override;
 

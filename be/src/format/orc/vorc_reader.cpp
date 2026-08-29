@@ -1566,12 +1566,16 @@ Status OrcReader::_fill_missing_columns(
             // PT1 => dest primitive type
             ColumnPtr result_column_ptr;
             RETURN_IF_ERROR(ctx->execute(block, result_column_ptr));
+            // Row-id fetch appends several batches into one Block, so this column must end up
+            // holding the rows it already carries plus the rows this batch produced. Sizing by
+            // `rows` alone truncates the accumulated column; `block->rows()` cannot be used either
+            // because the first column of _src_block_ptr may not be filled by the reader.
+            const size_t filled_rows =
+                    block->get_by_position((*_col_name_to_block_idx)[kv.first]).column->size();
             if (result_column_ptr->use_count() == 1) {
-                // call resize because the first column of _src_block_ptr may not be filled by reader,
-                // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
-                // has only one row.
+                // call resize because the column created by `ctx->execute()` has only one row.
                 auto mutable_column = IColumn::mutate(std::move(result_column_ptr));
-                mutable_column->resize(rows);
+                mutable_column->resize(filled_rows + rows);
                 result_column_ptr = std::move(mutable_column);
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();

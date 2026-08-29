@@ -144,38 +144,6 @@ public:
 
     Status apply_iceberg_row_filters(Block* block) { return _apply_iceberg_row_filters(block); }
 
-    void set_deferred_required_column_predicate(const std::shared_ptr<ColumnPredicate>& predicate) {
-        _deferred_required_column_predicates = AndBlockColumnPredicate::create_unique();
-        _deferred_required_column_predicates->add_column_predicate(
-                SingleColumnBlockPredicate::create_unique(predicate));
-    }
-
-    void prepare_physical_reader_predicates(
-            const TupleDescriptor* tuple_descriptor, const VExprContextSPtrs& conjuncts,
-            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
-        _prepare_physical_reader_predicates(tuple_descriptor, conjuncts,
-                                            not_single_slot_filter_conjuncts,
-                                            slot_id_to_filter_conjuncts);
-    }
-
-    bool is_required_validation_slot(int slot_id) const {
-        return _required_validation_slot_ids.contains(slot_id);
-    }
-
-    const VExprContextSPtrs& physical_reader_conjuncts() const {
-        return _physical_reader_conjuncts;
-    }
-
-    const VExprContextSPtrs& physical_reader_not_single_slot_filter_conjuncts() const {
-        return _physical_reader_not_single_slot_filter_conjuncts;
-    }
-
-    const std::unordered_map<int, VExprContextSPtrs>& physical_reader_slot_id_to_filter_conjuncts()
-            const {
-        return _physical_reader_slot_id_to_filter_conjuncts;
-    }
-
     Status register_missing_equality_delete_column(int32_t field_id, const std::string& name,
                                                    const DataTypePtr& type) {
         return _register_missing_equality_delete_column(field_id, name, type);
@@ -1322,42 +1290,6 @@ TEST_F(IcebergReaderTest, rejects_missing_required_top_level_field_with_v1_reade
     EXPECT_NE(status.to_string().find("has no initial default"), std::string::npos);
 }
 
-TEST_F(IcebergReaderTest, rejects_visible_null_for_required_v1_field) {
-    RuntimeProfile profile("test_profile");
-    RuntimeState runtime_state {TQueryGlobals()};
-    TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
-    scan_params.__set_current_schema_id(100);
-    const auto field = iceberg_int_field("required_value", 8, false);
-    schema::external::TFieldPtr field_ptr;
-    field_ptr.__set_field_ptr(field);
-    schema::external::TStructField root;
-    root.__set_fields({field_ptr});
-    schema::external::TSchema schema;
-    schema.__set_schema_id(100);
-    schema.__set_root_field(root);
-    scan_params.__set_history_schema_info({schema});
-    TFileRangeDesc scan_range;
-    IcebergMaterializationTestReader reader(&profile, &runtime_state, scan_params, scan_range);
-
-    auto type = make_nullable(std::make_shared<DataTypeInt32>());
-    reader.set_projected_table_field(8, "required_value", type);
-    std::unordered_map<std::string, uint32_t> positions {{"required_value", 0}};
-    reader.set_column_name_to_block_index(&positions);
-    auto values = ColumnInt32::create();
-    values->insert_default();
-    Block block;
-    block.insert({ColumnNullable::create(std::move(values), ColumnUInt8::create(1, 1)), type,
-                  "required_value"});
-    reader.set_deferred_required_column_predicate(create_comparison_predicate<PredicateType::GT>(
-            0, "required_value", type, Field::create_field<TYPE_INT>(0), false));
-
-    const auto status = reader.apply_iceberg_row_filters(&block);
-    ASSERT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("required_value"), std::string::npos);
-    EXPECT_EQ(block.rows(), 1);
-}
-
 TEST_F(IcebergReaderTest, validates_required_fields_after_equality_deletes_with_v1_reader) {
     RuntimeProfile profile("test_profile");
     RuntimeState runtime_state {TQueryGlobals()};
@@ -1409,65 +1341,6 @@ TEST_F(IcebergReaderTest, validates_required_fields_after_equality_deletes_with_
     EXPECT_EQ(
             assert_cast<const ColumnInt32&>(surviving_required.get_nested_column()).get_element(0),
             10);
-}
-
-TEST_F(IcebergReaderTest, defers_required_field_predicates_from_v1_physical_reader) {
-    RuntimeProfile profile("test_profile");
-    RuntimeState runtime_state {TQueryGlobals()};
-    TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
-    scan_params.__set_current_schema_id(100);
-    const auto required_field = iceberg_int_field("required_value", 8, false);
-    const auto optional_field = iceberg_int_field("optional_value", 9, true);
-    schema::external::TFieldPtr required_ptr;
-    required_ptr.__set_field_ptr(required_field);
-    schema::external::TFieldPtr optional_ptr;
-    optional_ptr.__set_field_ptr(optional_field);
-    schema::external::TStructField root;
-    root.__set_fields({required_ptr, optional_ptr});
-    schema::external::TSchema schema;
-    schema.__set_schema_id(100);
-    schema.__set_root_field(root);
-    scan_params.__set_history_schema_info({schema});
-    TFileRangeDesc scan_range;
-    auto file_reader = std::make_unique<CapturingMissingColumnReader>();
-    file_reader->set_push_down_agg_type(TPushAggOp::type::COUNT);
-    auto* file_reader_ptr = file_reader.get();
-    IcebergMaterializationTestReader reader(std::move(file_reader), &profile, &runtime_state,
-                                            scan_params, scan_range);
-    reader.set_push_down_agg_type(TPushAggOp::type::COUNT);
-
-    DescriptorTbl* desc_tbl;
-    ObjectPool obj_pool;
-    TDescriptorTable t_desc_table;
-    const auto* tuple_descriptor =
-            create_required_validation_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table);
-    auto required_conjunct =
-            VExprContext::create_shared(VSlotRef::create_shared(tuple_descriptor->slots()[0]));
-    auto optional_conjunct =
-            VExprContext::create_shared(VSlotRef::create_shared(tuple_descriptor->slots()[1]));
-    VExprContextSPtrs conjuncts {required_conjunct, optional_conjunct};
-    VExprContextSPtrs not_single_slot_conjuncts {required_conjunct, optional_conjunct};
-    std::unordered_map<int, VExprContextSPtrs> slot_conjuncts {{0, {required_conjunct}},
-                                                               {1, {optional_conjunct}}};
-
-    reader.prepare_physical_reader_predicates(tuple_descriptor, conjuncts,
-                                              &not_single_slot_conjuncts, &slot_conjuncts);
-
-    EXPECT_TRUE(reader.is_required_validation_slot(0));
-    EXPECT_FALSE(reader.is_required_validation_slot(1));
-    ASSERT_EQ(reader.physical_reader_conjuncts().size(), 1);
-    EXPECT_EQ(
-            assert_cast<const VSlotRef&>(*reader.physical_reader_conjuncts()[0]->root()).slot_id(),
-            1);
-    ASSERT_EQ(reader.physical_reader_not_single_slot_filter_conjuncts().size(), 1);
-    EXPECT_EQ(assert_cast<const VSlotRef&>(
-                      *reader.physical_reader_not_single_slot_filter_conjuncts()[0]->root())
-                      .slot_id(),
-              1);
-    EXPECT_FALSE(reader.physical_reader_slot_id_to_filter_conjuncts().contains(0));
-    EXPECT_TRUE(reader.physical_reader_slot_id_to_filter_conjuncts().contains(1));
-    EXPECT_EQ(file_reader_ptr->push_down_agg_type(), TPushAggOp::type::NONE);
 }
 
 TEST_F(IcebergReaderTest, materializes_missing_equality_key_from_split_schema_using_block_rows) {
@@ -1621,7 +1494,6 @@ TEST_F(IcebergReaderTest, generated_position_delete_file_is_mixed_encoded) {
     EXPECT_TRUE(has_dictionary_encoding);
 }
 
-// Test reading real Iceberg Parquet file using IcebergTableReader
 TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
     // Read only: name, profile.address.coordinates.lat, profile.address.coordinates.lng, profile.contact.email
     // Setup table descriptor for test columns with new schema:

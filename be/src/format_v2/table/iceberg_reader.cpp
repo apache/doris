@@ -66,18 +66,6 @@ namespace doris::format::iceberg {
 static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
 static constexpr int32_t ROW_LINEAGE_ROW_ID_FIELD_ID = 2147483540;
 
-static bool requires_required_field_validation(const format::ColumnMapping& mapping) {
-    if (mapping.reject_null_value) {
-        return true;
-    }
-    for (const auto& child : mapping.child_mappings) {
-        if (requires_required_field_validation(child)) {
-            return true;
-        }
-    }
-    return false;
-}
-
 template <typename T>
 static std::string join_values_for_debug(const std::vector<T>& values) {
     std::ostringstream out;
@@ -999,91 +987,6 @@ std::string IcebergTableReader::debug_string() const {
     return out.str();
 }
 
-Status IcebergTableReader::_validate_required_mapping_column(
-        const format::ColumnMapping& mapping, const ColumnPtr& column,
-        const NullMap* nullable_parent_null_map) {
-    DORIS_CHECK(column.get() != nullptr);
-    DORIS_CHECK(mapping.table_type != nullptr);
-    const auto full_column = column->convert_to_full_column_if_const();
-    const IColumn* nested_column = full_column.get();
-    const NullMap* own_null_map = nullptr;
-    if (const auto* nullable = check_and_get_column<ColumnNullable>(*nested_column)) {
-        own_null_map = &nullable->get_null_map_data();
-        nested_column = &nullable->get_nested_column();
-        if (mapping.reject_null_value && nullable->has_null()) {
-            DORIS_CHECK(nullable_parent_null_map == nullptr ||
-                        nullable_parent_null_map->size() == own_null_map->size());
-            for (size_t row = 0; row < own_null_map->size(); ++row) {
-                if ((*own_null_map)[row] != 0 && (nullable_parent_null_map == nullptr ||
-                                                  (*nullable_parent_null_map)[row] == 0)) {
-                    return Status::InvalidArgument("Required Iceberg field '{}' contains NULL",
-                                                   mapping.table_column_name);
-                }
-            }
-        }
-    }
-    if (mapping.child_mappings.empty()) {
-        return Status::OK();
-    }
-
-    NullMap combined_parent_null_map;
-    const NullMap* descendant_parent_null_map = nullable_parent_null_map;
-    if (own_null_map != nullptr) {
-        descendant_parent_null_map = own_null_map;
-        if (nullable_parent_null_map != nullptr) {
-            DORIS_CHECK(nullable_parent_null_map->size() == own_null_map->size());
-            combined_parent_null_map.resize(own_null_map->size());
-            for (size_t row = 0; row < own_null_map->size(); ++row) {
-                combined_parent_null_map[row] =
-                        (*own_null_map)[row] || (*nullable_parent_null_map)[row];
-            }
-            descendant_parent_null_map = &combined_parent_null_map;
-        }
-    }
-
-    const auto table_type = remove_nullable(mapping.table_type);
-    switch (table_type->get_primitive_type()) {
-    case TYPE_STRUCT: {
-        const auto& struct_type = assert_cast<const DataTypeStruct&>(*table_type);
-        const auto& struct_column = assert_cast<const ColumnStruct&>(*nested_column);
-        DORIS_CHECK(mapping.child_mappings.size() == struct_column.tuple_size());
-        const auto table_ordered_children =
-                _child_mappings_in_table_type_order(mapping, struct_type);
-        for (size_t child = 0; child < table_ordered_children.size(); ++child) {
-            RETURN_IF_ERROR(_validate_required_mapping_column(*table_ordered_children[child],
-                                                              struct_column.get_column_ptr(child),
-                                                              descendant_parent_null_map));
-        }
-        return Status::OK();
-    }
-    case TYPE_ARRAY: {
-        DORIS_CHECK(mapping.child_mappings.size() == 1);
-        const auto& array_column = assert_cast<const ColumnArray&>(*nested_column);
-        NullMap element_parent_null_map;
-        const NullMap* element_parent = _project_collection_parent_null_map(
-                own_null_map, nullable_parent_null_map, full_column->size(),
-                array_column.get_offsets(), array_column.get_data().size(),
-                &element_parent_null_map);
-        return _validate_required_mapping_column(mapping.child_mappings.front(),
-                                                 array_column.get_data_ptr(), element_parent);
-    }
-    case TYPE_MAP: {
-        DORIS_CHECK(mapping.child_mappings.size() == 2);
-        const auto& map_column = assert_cast<const ColumnMap&>(*nested_column);
-        NullMap entry_parent_null_map;
-        const NullMap* entry_parent = _project_collection_parent_null_map(
-                own_null_map, nullable_parent_null_map, full_column->size(),
-                map_column.get_offsets(), map_column.get_keys().size(), &entry_parent_null_map);
-        RETURN_IF_ERROR(_validate_required_mapping_column(mapping.child_mappings[0],
-                                                          map_column.get_keys_ptr(), entry_parent));
-        return _validate_required_mapping_column(mapping.child_mappings[1],
-                                                 map_column.get_values_ptr(), entry_parent);
-    }
-    default:
-        return Status::OK();
-    }
-}
-
 Status IcebergTableReader::materialize_virtual_columns(Block* table_block) {
     const auto& mappings = _data_reader.column_mapper->mappings();
     for (size_t column_idx = 0; column_idx < mappings.size(); ++column_idx) {
@@ -1103,30 +1006,7 @@ Status IcebergTableReader::materialize_virtual_columns(Block* table_block) {
             break;
         }
     }
-    for (size_t column_idx = 0; column_idx < mappings.size(); ++column_idx) {
-        const auto& mapping = mappings[column_idx];
-        if (!requires_required_field_validation(mapping)) {
-            continue;
-        }
-        // COUNT(*) retains its projected columns only to carry the surviving row count; their file
-        // values are never decoded, so the block holds placeholders. Validating a placeholder
-        // reports a required-field violation the data does not have.
-        if (_is_count_star_placeholder_column(mapping)) {
-            continue;
-        }
-        RETURN_IF_ERROR(_validate_required_mapping_column(
-                mapping, table_block->get_by_position(column_idx).column));
-    }
     return Status::OK();
-}
-
-bool IcebergTableReader::_is_count_star_placeholder_column(
-        const format::ColumnMapping& mapping) const {
-    if (_file_scan_request == nullptr || !mapping.file_local_id.has_value()) {
-        return false;
-    }
-    return _file_scan_request->is_count_star_placeholder(
-            format::LocalColumnId(*mapping.file_local_id));
 }
 
 Status IcebergTableReader::customize_file_scan_request(format::FileScanRequest* file_request) {
@@ -1143,11 +1023,7 @@ bool IcebergTableReader::_supports_aggregate_pushdown(TPushAggOp::type agg_type)
     if (!TableReader::_supports_aggregate_pushdown(agg_type)) {
         return false;
     }
-    if (!_equality_delete_filters.empty()) {
-        return false;
-    }
-    return std::ranges::none_of(_data_reader.column_mapper->mappings(),
-                                requires_required_field_validation);
+    return _equality_delete_filters.empty();
 }
 
 Status IcebergTableReader::_parse_deletion_vector_file(const TTableFormatFileDesc& t_desc,

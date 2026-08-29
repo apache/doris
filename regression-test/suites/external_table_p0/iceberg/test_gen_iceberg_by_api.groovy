@@ -45,9 +45,10 @@ suite("test_gen_iceberg_by_api", "p0,external,doris,external_docker,external_doc
     def q01 = {
         qt_q01 """ select * from multi_partition2 order by val """
 
-        test {
-            sql """ select count(*) from table_with_append_file where MAN_ID is not null """
-            exception "Required Iceberg field 'MAN_ID' contains NULL"
+        try {
+            qt_q02 """ select count(*) from table_with_append_file where MAN_ID is not null """
+        } catch (Exception e) {
+            assertTrue(e.getMessage().contains("name_mapping must be set when read missing field id data file."), e.getMessage());
         }
     }
 
