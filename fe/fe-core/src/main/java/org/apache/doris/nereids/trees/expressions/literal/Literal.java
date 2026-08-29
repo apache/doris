@@ -562,6 +562,10 @@ public abstract class Literal extends Expression implements LeafExpression {
             case MYSQL_TYPE_TIMESTAMP2:
                 literal = handleDateTimeLiteral(data);
                 break;
+            case MYSQL_TYPE_TINY_BLOB:
+            case MYSQL_TYPE_MEDIUM_BLOB:
+            case MYSQL_TYPE_LONG_BLOB:
+            case MYSQL_TYPE_BLOB:
             case MYSQL_TYPE_STRING:
             case MYSQL_TYPE_VARSTRING:
                 literal = handleStringLiteral(data);

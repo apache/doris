@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.catalog.MysqlColType;
+import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -36,6 +38,8 @@ import org.apache.doris.proto.Types.PValues;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -55,6 +59,28 @@ class LiteralTest {
         Assertions.assertTrue(Literal.of(null) instanceof NullLiteral);
         Assertions.assertTrue(Literal.of(1) instanceof IntegerLiteral);
         Assertions.assertTrue(Literal.of(false) instanceof BooleanLiteral);
+    }
+
+    @Test
+    public void testMysqlBlobParameter() {
+        String value = "Doris 数据";
+        for (MysqlColType mysqlType : Arrays.asList(
+                MysqlColType.MYSQL_TYPE_TINY_BLOB,
+                MysqlColType.MYSQL_TYPE_MEDIUM_BLOB,
+                MysqlColType.MYSQL_TYPE_LONG_BLOB,
+                MysqlColType.MYSQL_TYPE_BLOB)) {
+            MysqlSerializer serializer = MysqlSerializer.newInstance();
+            serializer.writeLenEncodedString(value);
+            serializer.writeInt1(0x7f);
+            ByteBuffer data = serializer.toByteBuffer().order(ByteOrder.LITTLE_ENDIAN);
+
+            Literal literal = Literal.getLiteralByMysqlType(mysqlType, false, data);
+
+            Assertions.assertTrue(literal instanceof StringLiteral, mysqlType.name());
+            Assertions.assertEquals(value, literal.getStringValue(), mysqlType.name());
+            Assertions.assertEquals(1, data.remaining(), mysqlType.name());
+            Assertions.assertEquals(0x7f, Byte.toUnsignedInt(data.get()), mysqlType.name());
+        }
     }
 
     @Test
