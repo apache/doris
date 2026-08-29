@@ -1139,9 +1139,14 @@ TEST_F(ColumnZoneMapTest, TimeStampNsWriteReadFilter) {
             TimeStampNsValue(0),
             TimeStampNsValue(std::numeric_limits<int64_t>::max()),
     };
+    writer->add_nulls(2);
+    ASSERT_TRUE(writer->flush().ok());
     writer->add_values(values, 2);
     ASSERT_TRUE(writer->flush().ok());
     writer->add_values(values + 2, 2);
+    writer->add_nulls(1);
+    ASSERT_TRUE(writer->flush().ok());
+    writer->add_nulls(2);
     ASSERT_TRUE(writer->flush().ok());
 
     const std::string file_path = kTestDir + "/timestamp_ns_zonemap";
@@ -1157,26 +1162,46 @@ TEST_F(ColumnZoneMapTest, TimeStampNsWriteReadFilter) {
                         .ok());
     EXPECT_EQ(segment_zone_map.min_value.get<TYPE_TIMESTAMP_NS>(), values[0]);
     EXPECT_EQ(segment_zone_map.max_value.get<TYPE_TIMESTAMP_NS>(), values[3]);
+    EXPECT_TRUE(segment_zone_map.has_null);
+    EXPECT_TRUE(segment_zone_map.has_not_null);
 
     io::FileReaderSPtr file_reader;
     ASSERT_TRUE(_fs->open_file(file_path, &file_reader).ok());
     ZoneMapIndexReader zone_map_reader(file_reader, index_meta.zone_map_index().page_zone_maps());
     ASSERT_TRUE(zone_map_reader.load(true, false).ok());
-    ASSERT_EQ(zone_map_reader.num_pages(), 2);
+    ASSERT_EQ(zone_map_reader.num_pages(), 4);
+
+    ZoneMap leading_null_page_zone_map;
+    ASSERT_TRUE(ZoneMap::from_proto(zone_map_reader.page_zone_maps()[0], data_type,
+                                    leading_null_page_zone_map)
+                        .ok());
+    EXPECT_TRUE(leading_null_page_zone_map.has_null);
+    EXPECT_FALSE(leading_null_page_zone_map.has_not_null);
 
     ZoneMap negative_page_zone_map;
-    ASSERT_TRUE(ZoneMap::from_proto(zone_map_reader.page_zone_maps()[0], data_type,
+    ASSERT_TRUE(ZoneMap::from_proto(zone_map_reader.page_zone_maps()[1], data_type,
                                     negative_page_zone_map)
                         .ok());
     EXPECT_EQ(negative_page_zone_map.min_value.get<TYPE_TIMESTAMP_NS>(), values[0]);
     EXPECT_EQ(negative_page_zone_map.max_value.get<TYPE_TIMESTAMP_NS>(), values[1]);
+    EXPECT_FALSE(negative_page_zone_map.has_null);
+    EXPECT_TRUE(negative_page_zone_map.has_not_null);
 
     ZoneMap nonnegative_page_zone_map;
-    ASSERT_TRUE(ZoneMap::from_proto(zone_map_reader.page_zone_maps()[1], data_type,
+    ASSERT_TRUE(ZoneMap::from_proto(zone_map_reader.page_zone_maps()[2], data_type,
                                     nonnegative_page_zone_map)
                         .ok());
     EXPECT_EQ(nonnegative_page_zone_map.min_value.get<TYPE_TIMESTAMP_NS>(), values[2]);
     EXPECT_EQ(nonnegative_page_zone_map.max_value.get<TYPE_TIMESTAMP_NS>(), values[3]);
+    EXPECT_TRUE(nonnegative_page_zone_map.has_null);
+    EXPECT_TRUE(nonnegative_page_zone_map.has_not_null);
+
+    ZoneMap trailing_null_page_zone_map;
+    ASSERT_TRUE(ZoneMap::from_proto(zone_map_reader.page_zone_maps()[3], data_type,
+                                    trailing_null_page_zone_map)
+                        .ok());
+    EXPECT_TRUE(trailing_null_page_zone_map.has_null);
+    EXPECT_FALSE(trailing_null_page_zone_map.has_not_null);
 
     const auto epoch = Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(0));
     ComparisonPredicateBase<TYPE_TIMESTAMP_NS, PredicateType::EQ> epoch_predicate(0, "", epoch);

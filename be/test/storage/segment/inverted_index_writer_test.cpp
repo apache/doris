@@ -360,6 +360,31 @@ public:
         }
     }
 
+    void check_bkd_null_bitmap(const std::string& index_prefix, const TabletIndex* index_meta,
+                               const std::vector<int>& null_doc_ids) {
+        OlapReaderStatistics stats;
+        RuntimeState runtime_state;
+        auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), index_prefix,
+                                                        InvertedIndexStorageFormatPB::V2);
+        ASSERT_TRUE(reader->init().ok());
+        auto bkd_reader = BkdIndexReader::create_shared(index_meta, reader);
+        ASSERT_NE(bkd_reader, nullptr);
+
+        auto context = std::make_shared<IndexQueryContext>();
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+        InvertedIndexQueryCacheHandle cache_handle;
+        ASSERT_TRUE(bkd_reader->read_null_bitmap(context, &cache_handle, nullptr).ok());
+
+        const auto null_bitmap = cache_handle.get_bitmap();
+        ASSERT_NE(null_bitmap, nullptr);
+        EXPECT_EQ(null_bitmap->cardinality(), null_doc_ids.size());
+        for (const auto doc_id : null_doc_ids) {
+            EXPECT_TRUE(null_bitmap->contains(doc_id))
+                    << "Document " << doc_id << " should be NULL";
+        }
+    }
+
     void SetUp() override {
         auto st = io::global_local_filesystem()->delete_directory(kTestDir);
         ASSERT_TRUE(st.ok()) << st;
@@ -956,7 +981,7 @@ TEST_F(InvertedIndexWriterTest, TimeStampNsWriteReadFilter) {
     field.set_name("dt");
     field.set_unique_id(0);
     field.set_type(FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS);
-    field.set_is_nullable(false);
+    field.set_is_nullable(true);
 
     TabletIndexPB index_meta_pb;
     index_meta_pb.set_index_type(IndexType::INVERTED);
@@ -983,14 +1008,20 @@ TEST_F(InvertedIndexWriterTest, TimeStampNsWriteReadFilter) {
                     .ok());
     const std::vector<int64_t> values = {std::numeric_limits<int64_t>::min(), -1, 0, 1,
                                          std::numeric_limits<int64_t>::max()};
-    ASSERT_TRUE(column_writer->add_values("dt", values.data(), values.size()).ok());
+    ASSERT_TRUE(column_writer->add_nulls(2).ok());
+    ASSERT_TRUE(column_writer->add_values("dt", values.data(), 2).ok());
+    ASSERT_TRUE(column_writer->add_nulls(1).ok());
+    ASSERT_TRUE(column_writer->add_values("dt", values.data() + 2, 3).ok());
+    ASSERT_TRUE(column_writer->add_nulls(2).ok());
     ASSERT_TRUE(column_writer->finish().ok());
     ASSERT_TRUE(index_file_writer->begin_close().ok());
     ASSERT_TRUE(index_file_writer->finish_close().ok());
 
-    const std::vector<int> doc_ids = {0, 1, 2, 3, 4};
+    const std::vector<int> doc_ids = {2, 3, 5, 6, 7};
+    const std::vector<int> null_doc_ids = {0, 1, 4, 8, 9};
     check_bkd_index<TYPE_TIMESTAMP_NS>(index_path_prefix, &index_meta, "dt", values, doc_ids,
                                        int64_t {0});
+    check_bkd_null_bitmap(index_path_prefix, &index_meta, null_doc_ids);
 }
 
 // Test case for Unicode string values with enable_correct_term_write=true

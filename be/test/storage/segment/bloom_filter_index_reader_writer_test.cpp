@@ -491,6 +491,33 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_timestamp_ns_write_read_filter) {
     EXPECT_TRUE(st.ok());
 }
 
+TEST_F(BloomFilterIndexReaderWriterTest, test_timestamp_ns_all_null_page) {
+    const std::string file_name = "bloom_filter_timestamp_ns_all_null";
+    const std::string file_path = dname + "/" + file_name;
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(io::global_local_filesystem()->create_file(file_path, &file_writer).ok());
+
+    BloomFilterOptions options;
+    std::unique_ptr<BloomFilterIndexWriter> writer;
+    ASSERT_TRUE(BloomFilterIndexWriter::create(options, FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS,
+                                               &writer)
+                        .ok());
+    writer->add_nulls(1024);
+    ASSERT_TRUE(writer->flush().ok());
+
+    ColumnIndexMetaPB meta;
+    ASSERT_TRUE(writer->finish(file_writer.get(), &meta).ok());
+    ASSERT_TRUE(file_writer->close().ok());
+
+    BloomFilterIndexReader* reader = nullptr;
+    std::unique_ptr<BloomFilterIndexIterator> iter;
+    get_bloom_filter_reader_iter(file_name, meta, &reader, &iter);
+    std::unique_ptr<BloomFilter> bloom_filter;
+    ASSERT_TRUE(iter->read_bloom_filter(0, &bloom_filter).ok());
+    EXPECT_TRUE(bloom_filter->test_bytes(nullptr, 1));
+    delete reader;
+}
+
 TEST_F(BloomFilterIndexReaderWriterTest, test_timestamptz) {
     size_t num = 1024 * 3;
     auto base_dt = make_timestamptz(2025, 11, 14, 14, 37, 30, 999998);
