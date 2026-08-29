@@ -48,7 +48,7 @@ suite("test_timestamp_ns_index") {
         distributed by hash(id) buckets 1
         properties(
             "replication_num" = "1",
-            "bloom_filter_columns" = "dt"
+            "inverted_index_storage_format" = "V3"
         )
     """
     sql """
@@ -56,7 +56,15 @@ suite("test_timestamp_ns_index") {
         (1, '1677-09-21 00:12:43.145224192'),
         (2, '1970-01-01 00:00:00.000000000'),
         (3, '1970-01-01 00:00:00.000000001'),
-        (4, '2262-04-11 23:47:16.854775807')
+        (4, '2262-04-11 23:47:16.854775807'),
+        (5, null)
+    """
+    sql """
+        insert into timestamp_ns_index
+        select number + 100,
+               microseconds_add(cast('2024-01-01 00:00:00.000000001' as timestamp_ns),
+                                cast(number as int))
+        from numbers("number" = "4096")
     """
 
     order_qt_eq "select id, dt from timestamp_ns_index where dt = '1970-01-01 00:00:00.000000001' order by id"
@@ -71,13 +79,66 @@ suite("test_timestamp_ns_index") {
         where dt in ('1677-09-21 00:12:43.145224192', '2262-04-11 23:47:16.854775807')
         order by id
     """
+    order_qt_v3_inverted_index_null_result """
+        select id from timestamp_ns_index where dt is null order by id
+    """
+
+    def v3InvertedIndexToken = "timestamp_ns_v3_inverted_index_" + UUID.randomUUID().toString()
+    sql """
+        select /* ${v3InvertedIndexToken} */ id from timestamp_ns_index
+        where dt = '2024-01-01 00:00:00.002048001'
+    """
+    assertProfileCounterPositive(v3InvertedIndexToken, "RowsInvertedIndexFiltered")
+
+    def v3InvertedNullToken = "timestamp_ns_v3_inverted_null_" + UUID.randomUUID().toString()
+    sql """
+        select /* ${v3InvertedNullToken} */ id from timestamp_ns_index where dt is null
+    """
+    assertProfileCounterPositive(v3InvertedNullToken, "RowsInvertedIndexFiltered")
+
+    sql "drop table if exists timestamp_ns_explicit_bloom_index"
+    sql """
+        create table timestamp_ns_explicit_bloom_index (
+            id bigint not null,
+            dt timestamp_ns,
+            index idx_dt_bloom(dt) using bloomfilter
+                properties("bloom_filter_fpp" = "0.01")
+        )
+        duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties(
+            "replication_num" = "1",
+            "disable_auto_compaction" = "true"
+        )
+    """
+    sql """
+        insert into timestamp_ns_explicit_bloom_index
+        select number,
+               if(number % 1024 = 100,
+                  null,
+                  microseconds_add(cast('1970-01-01 00:00:00.000000001' as timestamp_ns),
+                                   cast(number * 2 as int)))
+        from numbers("number" = "4096")
+    """
+    order_qt_explicit_bloom_filter_null_result """
+        select id from timestamp_ns_explicit_bloom_index where dt is null order by id
+    """
+
+    def explicitBloomFilterToken =
+            "timestamp_ns_explicit_bloom_filter_" + UUID.randomUUID().toString()
+    sql """
+        select /* ${explicitBloomFilterToken} */ count(*)
+        from timestamp_ns_explicit_bloom_index
+        where dt = '1970-01-01 00:00:00.000001001'
+    """
+    assertProfileCounterPositive(explicitBloomFilterToken, "RowsBloomFilterFiltered")
 
     sql "drop table if exists timestamp_ns_pruning_index"
     sql """
         create table timestamp_ns_pruning_index (
             dt_key timestamp_ns not null,
             id bigint not null,
-            dt_inverted timestamp_ns not null,
+            dt_inverted timestamp_ns,
             dt_bloom timestamp_ns not null,
             dt_zonemap timestamp_ns not null,
             index idx_dt_inverted(dt_inverted) using inverted
@@ -96,8 +157,10 @@ suite("test_timestamp_ns_index") {
         select microseconds_add(cast('1970-01-01 00:00:00.000000001' as timestamp_ns),
                                 cast(number as int)),
                number,
-               microseconds_add(cast('1970-01-01 00:00:00.000000001' as timestamp_ns),
-                                cast(number as int)),
+               if(number % 1024 = 100,
+                  null,
+                  microseconds_add(cast('1970-01-01 00:00:00.000000001' as timestamp_ns),
+                                   cast(number as int))),
                microseconds_add(cast('1970-01-01 00:00:00.000000001' as timestamp_ns),
                                 cast(number * 2 as int)),
                microseconds_add(cast('1970-01-01 00:00:00.000000001' as timestamp_ns),
@@ -120,6 +183,9 @@ suite("test_timestamp_ns_index") {
         where dt_inverted >= '1970-01-01 00:00:00.002047001'
           and dt_inverted <= '1970-01-01 00:00:00.002049001'
         order by id
+    """
+    order_qt_snii_inverted_index_null_result """
+        select id from timestamp_ns_pruning_index where dt_inverted is null order by id
     """
     order_qt_bloom_filter_result """
         select count(*) from timestamp_ns_pruning_index
@@ -144,6 +210,13 @@ suite("test_timestamp_ns_index") {
     """
     assertProfileCounterPositive(invertedIndexToken, "RowsInvertedIndexFiltered")
 
+    def sniiInvertedNullToken = "timestamp_ns_snii_inverted_null_" + UUID.randomUUID().toString()
+    sql """
+        select /* ${sniiInvertedNullToken} */ id from timestamp_ns_pruning_index
+        where dt_inverted is null
+    """
+    assertProfileCounterPositive(sniiInvertedNullToken, "RowsInvertedIndexFiltered")
+
     def bloomFilterToken = "timestamp_ns_bloom_filter_" + UUID.randomUUID().toString()
     sql """
         select /* ${bloomFilterToken} */ count(*) from timestamp_ns_pruning_index
@@ -157,6 +230,41 @@ suite("test_timestamp_ns_index") {
         where dt_zonemap = '1970-01-01 00:00:01.000000001'
     """
     assertProfileCounterPositive(zoneMapToken, "RowsStatsFiltered")
+
+    sql "drop table if exists timestamp_ns_invalid_ngram_index"
+    test {
+        sql """
+            create table timestamp_ns_invalid_ngram_index (
+                id int,
+                dt timestamp_ns,
+                index idx_dt_ngram(dt) using ngram_bf
+                    properties("gram_size" = "2", "bf_size" = "512")
+            )
+            duplicate key(id)
+            distributed by hash(id) buckets 1
+            properties("replication_num" = "1")
+        """
+        exception "is not supported in ngram_bf index"
+    }
+
+    sql "drop table if exists timestamp_ns_invalid_ann_index"
+    test {
+        sql """
+            create table timestamp_ns_invalid_ann_index (
+                id int,
+                dt timestamp_ns not null,
+                index idx_dt_ann(dt) using ann properties(
+                    "index_type" = "hnsw",
+                    "metric_type" = "l2_distance",
+                    "dim" = "1"
+                )
+            )
+            duplicate key(id)
+            distributed by hash(id) buckets 1
+            properties("replication_num" = "1")
+        """
+        exception "ANN index column must be array type"
+    }
 
     sql "set enable_profile = false"
 }
