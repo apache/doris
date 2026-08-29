@@ -30,7 +30,6 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/data_type_serde/data_type_serde.h"
-#include "core/data_type_serde/data_type_timestamp_ns_serde.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/null_predicate.h"
@@ -361,12 +360,9 @@ bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
     case FieldType::OLAP_FIELD_TYPE_DATETIME:
     case FieldType::OLAP_FIELD_TYPE_DATEV2:
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS:
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
         return valid_datetime(value_str, column.frac());
-    case FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS: {
-        TimeStampNsValue value;
-        return parse_timestamp_ns(StringRef(value_str), &value).ok();
-    }
     case FieldType::OLAP_FIELD_TYPE_BOOL:
         return valid_bool(value_str);
     case FieldType::OLAP_FIELD_TYPE_IPV4:
