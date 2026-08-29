@@ -709,6 +709,7 @@ public class BinlogManager {
         } finally {
             lock.writeLock().unlock();
         }
+        binlogConfigCache.remove(dbId);
     }
 
     public void removeTable(long dbId, long tableId) {
@@ -721,6 +722,7 @@ public class BinlogManager {
         } finally {
             lock.writeLock().unlock();
         }
+        binlogConfigCache.remove(tableId);
     }
 
     private static void writeTBinlogToStream(DataOutputStream dos, TBinlog binlog) throws TException, IOException {
