@@ -29,14 +29,15 @@
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/column_predicate.h"
+#include "storage/row_cursor.h"
 #include "storage/rowid_conversion.h"
 #include "storage/schema.h"
 
 namespace doris {
 
-class RowCursor;
 class DeleteBitmap;
 class DeleteHandler;
+struct SeqMapCandidateScanWorkLimit;
 class TabletSchema;
 
 struct RowsetReaderContext {
@@ -66,6 +67,7 @@ struct RowsetReaderContext {
     const std::vector<RowCursor>* lower_bound_keys = nullptr;
     const std::vector<bool>* is_lower_keys_included = nullptr;
     const std::vector<RowCursor>* upper_bound_keys = nullptr;
+    PointKeySetSPtr point_keys;
     const std::vector<bool>* is_upper_keys_included = nullptr;
     const DeleteHandler* delete_handler = nullptr;
     OlapReaderStatistics* stats = nullptr;
@@ -79,6 +81,10 @@ struct RowsetReaderContext {
     size_t preferred_block_size_bytes = 8388608UL;
 
     bool is_unique = false;
+    // A candidate scan evaluates value predicates on physical rows only to collect a
+    // conservative key superset. It never returns final query rows.
+    bool is_seq_map_candidate_scan = false;
+    SeqMapCandidateScanWorkLimit* seq_map_candidate_work_limit = nullptr;
     //record row num merged in generic iterator
     uint64_t* merged_rows = nullptr;
     // for unique key merge on write

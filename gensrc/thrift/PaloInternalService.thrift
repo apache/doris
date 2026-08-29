@@ -519,6 +519,10 @@ struct TQueryOptions {
   // Fall back to RE2 when Hyperscan cannot compile a regular expression.
   231: optional bool enable_hyperscan_fallback = true;
   232: optional bool enable_runtime_filter_bucket_prune = true;
+  // Enable two-phase candidate-key pruning for UNIQUE MOR tables with sequence mapping.
+  233: optional bool enable_seq_map_candidate_key_scan = false;
+  // Maximum candidate keys retained per tablet before falling back to a normal MOR scan.
+  234: optional i64 seq_map_candidate_key_max_count = 100000;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

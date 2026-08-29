@@ -549,6 +549,11 @@ Status SegmentIterator::_lazy_init(Block* block) {
     if (_segment->_tablet_schema->sort_type() != SortType::ZORDER &&
         _segment->_tablet_schema->cluster_key_uids().empty()) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
+        RETURN_IF_ERROR(_get_row_ranges_by_point_keys());
+    }
+    if (_opts.is_seq_map_candidate_scan) {
+        _opts.stats->seq_map_candidate_full_scan_rows +=
+                cast_set<int64_t>(_row_bitmap.cardinality());
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
     RETURN_IF_ERROR(_vec_init_lazy_materialization());
@@ -745,16 +750,58 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
     return Status::OK();
 }
 
+Status SegmentIterator::_get_row_ranges_by_point_keys() {
+    if (_row_bitmap.isEmpty() || !_opts.point_keys || _opts.point_keys->keys.empty()) {
+        return Status::OK();
+    }
+    SCOPED_RAW_TIMER(&_opts.stats->seq_map_point_range_build_ns);
+
+    const auto& point_keys = _opts.point_keys->keys;
+    StorageReadOptions::KeyRange seek_range(&point_keys.front(), true, &point_keys.front(), true);
+    RETURN_IF_ERROR(_prepare_seek(seek_range));
+
+    RowRanges result_ranges;
+    for (size_t i = 0; i < point_keys.size(); ++i) {
+        if ((i & 255) == 0 && _opts.runtime_state != nullptr) {
+            RETURN_IF_CANCELLED(_opts.runtime_state);
+        }
+
+        rowid_t upper_rowid = num_rows();
+        RETURN_IF_ERROR(_lookup_ordinal(point_keys[i], false, num_rows(), &upper_rowid));
+
+        rowid_t lower_rowid = 0;
+        if (upper_rowid > 0) {
+            RETURN_IF_ERROR(_lookup_ordinal(point_keys[i], true, upper_rowid, &lower_rowid));
+        }
+        if (lower_rowid < upper_rowid) {
+            // PointKeySet is sorted by full key, so the resulting row-id ranges are monotonic.
+            // RowRanges::add() only needs to inspect/merge the tail instead of rebuilding the
+            // accumulated union for every point.
+            result_ranges.add(RowRange(lower_rowid, upper_rowid));
+        }
+    }
+
+    const size_t pre_size = _row_bitmap.cardinality();
+    _row_bitmap &= RowRanges::ranges_to_roaring(result_ranges);
+    _opts.stats->rows_key_range_filtered += (pre_size - _row_bitmap.cardinality());
+    return Status::OK();
+}
+
 // Set up environment for the following seek.
 Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_range) {
     // TabletReader builds every bound from the same TabletSchema and scan-key width. The seek
     // block and iterators are initialized once and reused by all ranges, so their schemas must be
     // identical.
-    auto check_same_key_schema = [](const ReadSchema& lhs, const ReadSchema& rhs) {
-        DORIS_CHECK_EQ(lhs.num_read_columns(), rhs.num_read_columns());
-        for (size_t ordinal = 0; ordinal < lhs.num_read_columns(); ++ordinal) {
-            DORIS_CHECK(*lhs.column(ordinal) == *rhs.column(ordinal));
+    auto has_same_key_schema = [](const ReadSchema& lhs, const ReadSchema& rhs) {
+        if (lhs.num_read_columns() != rhs.num_read_columns()) {
+            return false;
         }
+        for (size_t ordinal = 0; ordinal < lhs.num_read_columns(); ++ordinal) {
+            if (!(*lhs.column(ordinal) == *rhs.column(ordinal))) {
+                return false;
+            }
+        }
+        return true;
     };
 
     const auto* lower_schema =
@@ -762,16 +809,17 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
     const auto* upper_schema =
             key_range.upper_key != nullptr ? key_range.upper_key->schema() : nullptr;
     if (lower_schema != nullptr && upper_schema != nullptr) {
-        check_same_key_schema(*lower_schema, *upper_schema);
+        DORIS_CHECK(has_same_key_schema(*lower_schema, *upper_schema));
     }
     const auto* key_schema = lower_schema != nullptr ? lower_schema : upper_schema;
     if (key_schema == nullptr) {
         return Status::OK();
     }
-    if (!_seek_schema) {
+    if (!_seek_schema || !has_same_key_schema(*_seek_schema, *key_schema)) {
         _seek_schema = std::make_unique<ReadSchema>(*key_schema);
-    } else {
-        check_same_key_schema(*_seek_schema, *key_schema);
+        _seek_block.clear();
+        _seek_column_iterators.clear();
+        _owned_seek_column_iterators.clear();
     }
     // todo(wb) need refactor here, when using pk to search, _seek_block is useless
     if (_seek_block.empty()) {
@@ -2714,6 +2762,42 @@ Status SegmentIterator::_read_lazy_pruned_columns(Block* block) {
 Status SegmentIterator::next_batch(Block* block) {
     // Replace virtual columns with ColumnNothing at the begining of each next_batch call.
     _init_virtual_columns(block);
+    auto* candidate_work_limit = _opts.seq_map_candidate_work_limit;
+    if (candidate_work_limit != nullptr) {
+        if (candidate_work_limit->exceeded ||
+            candidate_work_limit->remaining_segment_read_calls == 0 ||
+            candidate_work_limit->remaining_rows <= 0 ||
+            candidate_work_limit->remaining_bytes <= 0) {
+            candidate_work_limit->exceeded = true;
+            return Status::Error<END_OF_FILE>("");
+        }
+        --candidate_work_limit->remaining_segment_read_calls;
+    }
+    const int64_t candidate_rows_before =
+            candidate_work_limit != nullptr ? _opts.stats->raw_rows_read : 0;
+    const int64_t candidate_bytes_before =
+            candidate_work_limit != nullptr ? _opts.stats->seq_map_candidate_work_bytes() : 0;
+    Defer account_candidate_work {[&] {
+        if (candidate_work_limit == nullptr) {
+            return;
+        }
+        const int64_t rows =
+                std::max<int64_t>(0, _opts.stats->raw_rows_read - candidate_rows_before);
+        const int64_t bytes = std::max<int64_t>(
+                0, _opts.stats->seq_map_candidate_work_bytes() - candidate_bytes_before);
+        if (rows > candidate_work_limit->remaining_rows) {
+            candidate_work_limit->remaining_rows = 0;
+            candidate_work_limit->exceeded = true;
+        } else {
+            candidate_work_limit->remaining_rows -= rows;
+        }
+        if (bytes > candidate_work_limit->remaining_bytes) {
+            candidate_work_limit->remaining_bytes = 0;
+            candidate_work_limit->exceeded = true;
+        } else {
+            candidate_work_limit->remaining_bytes -= bytes;
+        }
+    }};
     auto status = [&]() {
         RETURN_IF_CATCH_EXCEPTION({
             // Adaptive batch size: predict how many rows this batch should read.

@@ -146,6 +146,7 @@ private:
     phmap::flat_hash_map<const Block*, std::vector<std::pair<int, int>>> _temp_ref_map;
 
     bool _eof = false;
+    bool _seq_map_candidate_pruned = false;
 
     Status (BlockReader::*_next_block_func)(Block* block, bool* eof) = nullptr;
 

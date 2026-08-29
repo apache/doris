@@ -294,6 +294,42 @@ Status OlapScanLocalState::_init_profile() {
             ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexAnalyzerTime", 1);
     _inverted_index_lookup_timer =
             ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexLookupTimer", 1);
+    _seq_map_candidate_driver_groups_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateDriverGroups", TUnit::UNIT);
+    _seq_map_candidate_driver_predicates_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateDriverPredicates", TUnit::UNIT);
+    _seq_map_candidate_rows_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateRows", TUnit::UNIT);
+    _seq_map_candidate_scan_rows_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateScanRows", TUnit::UNIT);
+    _seq_map_candidate_scan_bytes_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateScanBytes", TUnit::BYTES);
+    _seq_map_candidate_full_scan_rows_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateFullScanRows", TUnit::UNIT);
+    _seq_map_candidate_index_filtered_rows_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateIndexFilteredRows", TUnit::UNIT);
+    _seq_map_candidate_bloom_filter_filtered_rows_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateBloomFilterFilteredRows", TUnit::UNIT);
+    _seq_map_candidate_index_downgrades_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateIndexDowngrades", TUnit::UNIT);
+    _seq_map_candidate_index_lookup_timer =
+            ADD_TIMER(_segment_profile, "SeqMapCandidateIndexLookupTime");
+    _seq_map_candidate_cache_local_bytes_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateCacheLocalBytes", TUnit::BYTES);
+    _seq_map_candidate_cache_remote_bytes_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateCacheRemoteBytes", TUnit::BYTES);
+    _seq_map_candidate_keys_before_intersect_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateKeysBeforeIntersect", TUnit::UNIT);
+    _seq_map_candidate_keys_after_intersect_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateKeysAfterIntersect", TUnit::UNIT);
+    _seq_map_candidate_key_bytes_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateKeyBytes", TUnit::BYTES);
+    _seq_map_candidate_build_timer = ADD_TIMER(_segment_profile, "SeqMapCandidateBuildTime");
+    _seq_map_point_range_build_timer = ADD_TIMER(_segment_profile, "SeqMapPointRangeBuildTime");
+    _seq_map_candidate_fallbacks_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidateFallbacks", TUnit::UNIT);
+    _seq_map_candidate_pruned_scanners_counter =
+            ADD_COUNTER(_segment_profile, "SeqMapCandidatePrunedScanners", TUnit::UNIT);
 
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTime");
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
@@ -631,6 +667,16 @@ bool OlapScanLocalState::_is_binlog_merge_scan() const {
     }
     auto scan_type = _scan_ranges[0]->binlog_scan_type;
     return scan_type == TBinlogScanType::MIN_DELTA || scan_type == TBinlogScanType::DETAIL;
+}
+
+std::shared_ptr<SeqMapCandidateKeyBudget> OlapScanLocalState::_get_seq_map_candidate_key_budget(
+        int64_t tablet_id, size_t max_candidate_keys) {
+    std::lock_guard lock(_seq_map_candidate_key_budgets_mutex);
+    auto [it, inserted] = _seq_map_candidate_key_budgets.try_emplace(tablet_id);
+    if (inserted) {
+        it->second = std::make_shared<SeqMapCandidateKeyBudget>(max_candidate_keys);
+    }
+    return it->second;
 }
 
 Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
@@ -1247,6 +1293,10 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
             }
             DCHECK(_slot_id_to_predicates.count(iter->first) > 0);
             const auto& value_range = iter->second;
+            if (std::visit([](const auto& range) { return range.is_whole_value_range(); },
+                           value_range)) {
+                break;
+            }
 
             std::optional<int> key_to_erase;
             bool is_fixed_value_range = false;

@@ -130,6 +130,11 @@ public:
         bool read_row_binlog = false;
         bool direct_mode = false;
         bool aggregation = false;
+        // Internal first phase for sequence-mapping candidate-key collection.
+        bool is_seq_map_candidate_scan = false;
+        SeqMapCandidateScanWorkLimit* seq_map_candidate_work_limit = nullptr;
+        // Set when the candidate phase proves the tablet cannot contain a matching key.
+        bool seq_map_candidate_pruned = false;
         // for compaction, schema_change, check_sum: we don't use page cache
         // for query, when the BE config disable_storage_page_cache is false, we use page cache
         bool use_page_cache = false;
@@ -137,6 +142,7 @@ public:
 
         std::vector<OlapTuple> start_key;
         std::vector<OlapTuple> end_key;
+        PointKeySetSPtr point_keys;
         bool start_key_include = false;
         bool end_key_include = false;
 

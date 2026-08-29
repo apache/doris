@@ -19,8 +19,10 @@
 
 #include <stdint.h>
 
+#include <mutex>
 #include <shared_mutex>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "cloud/cloud_tablet.h"
@@ -35,6 +37,7 @@
 
 namespace doris {
 class OlapScanner;
+class SeqMapCandidateKeyBudget;
 class QueryCacheRuntime;
 struct QueryCacheInstanceDecision;
 } // namespace doris
@@ -139,6 +142,8 @@ private:
 
     bool _is_tablet_pruned_by_runtime_filter(int64_t partition_id, int32_t bucket_seq,
                                              int32_t bucket_num) const;
+    std::shared_ptr<SeqMapCandidateKeyBudget> _get_seq_map_candidate_key_budget(
+            int64_t tablet_id, size_t max_candidate_keys);
 
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
     bool _has_rf_bucket_prune_metadata = false;
@@ -152,6 +157,9 @@ private:
     std::atomic_bool _sync_tablet = false;
     std::vector<std::unique_ptr<doris::OlapScanRange>> _cond_ranges;
     OlapScanKeys _scan_keys;
+    std::mutex _seq_map_candidate_key_budgets_mutex;
+    std::unordered_map<int64_t, std::shared_ptr<SeqMapCandidateKeyBudget>>
+            _seq_map_candidate_key_budgets;
     // If column id in this set, indicate that we need to read data after index filtering
     std::set<int32_t> _output_column_ids;
 
@@ -267,6 +275,25 @@ private:
     RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_analyzer_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_lookup_timer = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_driver_groups_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_driver_predicates_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_rows_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_scan_rows_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_scan_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_full_scan_rows_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_index_filtered_rows_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_bloom_filter_filtered_rows_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_index_downgrades_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_index_lookup_timer = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_cache_local_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_cache_remote_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_keys_before_intersect_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_keys_after_intersect_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_key_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_build_timer = nullptr;
+    RuntimeProfile::Counter* _seq_map_point_range_build_timer = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_fallbacks_counter = nullptr;
+    RuntimeProfile::Counter* _seq_map_candidate_pruned_scanners_counter = nullptr;
 
     RuntimeProfile::Counter* _ann_topn_filter_counter = nullptr;
     // topn_search_costs = index_load_costs + engine_search_costs + pre_process_costs + post_process_costs

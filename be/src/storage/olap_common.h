@@ -20,6 +20,7 @@
 #include <gen_cpp/Types_types.h>
 #include <netinet/in.h>
 
+#include <algorithm>
 #include <atomic>
 #include <charconv>
 #include <cstdint>
@@ -288,6 +289,26 @@ struct OlapReaderStatistics {
     int64_t in_zonemap_point_check_count = 0;
     int64_t in_zonemap_range_only_count = 0;
     int64_t rows_bf_filtered = 0;
+    // Sequence-mapping two-phase candidate-key pruning.
+    int64_t seq_map_candidate_driver_groups = 0;
+    int64_t seq_map_candidate_driver_predicates = 0;
+    int64_t seq_map_candidate_rows = 0;
+    int64_t seq_map_candidate_scan_rows = 0;
+    int64_t seq_map_candidate_scan_bytes = 0;
+    int64_t seq_map_candidate_full_scan_rows = 0;
+    int64_t seq_map_candidate_index_filtered_rows = 0;
+    int64_t seq_map_candidate_bloom_filter_filtered_rows = 0;
+    int64_t seq_map_candidate_index_downgrades = 0;
+    int64_t seq_map_candidate_index_lookup_ns = 0;
+    int64_t seq_map_candidate_cache_local_bytes = 0;
+    int64_t seq_map_candidate_cache_remote_bytes = 0;
+    int64_t seq_map_candidate_keys_before_intersect = 0;
+    int64_t seq_map_candidate_keys_after_intersect = 0;
+    int64_t seq_map_candidate_key_bytes = 0;
+    int64_t seq_map_candidate_build_ns = 0;
+    int64_t seq_map_point_range_build_ns = 0;
+    int64_t seq_map_candidate_fallbacks = 0;
+    int64_t seq_map_candidate_pruned_scanners = 0;
     int64_t segment_dict_filtered = 0;
     // Including the number of rows filtered out according to the Delete information in the Tablet,
     // and the number of rows filtered for marked deleted rows under the unique key model.
@@ -374,6 +395,17 @@ struct OlapReaderStatistics {
     int64_t total_segment_number = 0;
 
     io::FileCacheStatistics file_cache_stats;
+
+    [[nodiscard]] int64_t seq_map_candidate_work_bytes() const {
+        const int64_t logical_scan_bytes =
+                uncompressed_bytes_read + file_cache_stats.inverted_index_read_bytes;
+        const int64_t physical_file_bytes = file_cache_stats.bytes_read_from_local +
+                                            file_cache_stats.bytes_read_from_remote +
+                                            file_cache_stats.bytes_read_from_peer;
+        // PageIO contributes to both totals, so use the larger view instead of charging it twice.
+        return std::max(logical_scan_bytes, physical_file_bytes);
+    }
+
     int64_t load_segments_timer = 0;
 
     int64_t collect_iterator_merge_next_timer = 0;

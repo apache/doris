@@ -42,6 +42,14 @@ class ColumnPredicate;
 
 struct IteratorRowRef;
 
+struct SeqMapCandidateScanWorkLimit {
+    size_t remaining_segment_read_calls = 0;
+    size_t remaining_read_calls = 0;
+    int64_t remaining_rows = 0;
+    int64_t remaining_bytes = 0;
+    bool exceeded = false;
+};
+
 class StorageReadOptions {
 public:
     struct KeyRange {
@@ -87,6 +95,9 @@ public:
     // reader's key ranges, empty if not existed.
     // used by short key index to filter row blocks
     std::vector<KeyRange> key_ranges;
+    // Sorted exact keys produced by sequence-mapping candidate pruning. Shared by all rowsets and
+    // segments so the key payload and schema are retained only once per tablet scanner.
+    PointKeySetSPtr point_keys;
 
     // For unique-key merge-on-write, the effect is similar to delete_conditions
     // that filters out rows that are deleted in realtime.
@@ -118,6 +129,8 @@ public:
 
     TabletSchemaSPtr tablet_schema = nullptr;
     bool enable_unique_key_merge_on_write = false;
+    bool is_seq_map_candidate_scan = false;
+    SeqMapCandidateScanWorkLimit* seq_map_candidate_work_limit = nullptr;
     bool record_rowids = false;
     std::vector<int> topn_filter_source_node_ids;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
