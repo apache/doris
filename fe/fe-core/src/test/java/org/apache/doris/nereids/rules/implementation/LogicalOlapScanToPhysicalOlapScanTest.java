@@ -26,8 +26,8 @@ import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DistributionMapping;
+import org.apache.doris.nereids.properties.DistributionSpecStorageAny;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -145,7 +145,7 @@ class LogicalOlapScanToPhysicalOlapScanTest {
     }
 
     @Test
-    void randomDistributionWithPersistedMappingFailsClosed() {
+    void randomDistributionWithUnusableMappingFallsBackToRegularPlanning() {
         OlapTable table = Mockito.mock(OlapTable.class);
         Mockito.when(table.getDefaultDistributionInfo()).thenReturn(new RandomDistributionInfo(4));
         LogicalOlapScan scan = Mockito.mock(LogicalOlapScan.class);
@@ -154,7 +154,7 @@ class LogicalOlapScanToPhysicalOlapScanTest {
 
         ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
         Mockito.when(constraintManager.getDistributionMappingConstraintsForPlanning(table))
-                .thenThrow(new AnalysisException("incompatible mapping"));
+                .thenReturn(ImmutableList.of());
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
         SessionVariable sessionVariable = Mockito.mock(SessionVariable.class);
@@ -168,10 +168,8 @@ class LogicalOlapScanToPhysicalOlapScanTest {
             mockedContext.when(ConnectContext::get).thenReturn(connectContext);
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
 
-            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                    () -> LogicalOlapScanToPhysicalOlapScan.convertDistribution(scan));
-
-            Assertions.assertEquals("incompatible mapping", exception.getMessage());
+            Assertions.assertSame(DistributionSpecStorageAny.INSTANCE,
+                    LogicalOlapScanToPhysicalOlapScan.convertDistribution(scan));
             Mockito.verify(constraintManager).getDistributionMappingConstraintsForPlanning(table);
         }
     }

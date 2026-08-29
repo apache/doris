@@ -340,7 +340,7 @@ class RequestPropertyDeriverTest {
         GroupExpression groupExpression = new GroupExpression(aggregate);
         new Group(null, groupExpression, null);
         PhysicalProperties parentProperties = PhysicalProperties.createHash(
-                Lists.newArrayList(outputD1.getExprId(), outputK2.getExprId()),
+                Lists.newArrayList(outputD1.getExprId(), outputK2.getExprId(), distinctCount.getExprId()),
                 ShuffleType.COLOCATE_MAPPING_REQUIRE);
         PhysicalProperties mappingRequest = PhysicalProperties.createHash(
                 Lists.newArrayList(d1.getExprId(), k2.getExprId()),
@@ -363,9 +363,13 @@ class RequestPropertyDeriverTest {
         PhysicalProperties partiallyMappableParent = PhysicalProperties.createHash(
                 Lists.newArrayList(outputD1.getExprId(), distinctCount.getExprId()),
                 ShuffleType.COLOCATE_MAPPING_REQUIRE);
+        PhysicalProperties partialMappingRequest = PhysicalProperties.createHash(
+                Lists.newArrayList(d1.getExprId()), ShuffleType.COLOCATE_MAPPING_REQUIRE);
         List<List<PhysicalProperties>> partiallyMappableRequests = new RequestPropertyDeriver(
                 testConnectContext, partiallyMappableParent).getRequestChildrenPropertyList(groupExpression);
-        Assertions.assertEquals(ImmutableList.of(ImmutableList.of(originalRequest)), partiallyMappableRequests);
+        Assertions.assertEquals(ImmutableList.of(
+                ImmutableList.of(partialMappingRequest), ImmutableList.of(originalRequest)),
+                partiallyMappableRequests);
 
         PhysicalHashAggregate<GroupPlan> expressionGroupByAggregate = new PhysicalHashAggregate<>(
                 Lists.newArrayList(new EqualTo(d1, k2), k2),

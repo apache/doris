@@ -42,6 +42,7 @@ import org.apache.doris.system.Frontend;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.util.concurrent.RateLimiter;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -69,6 +70,8 @@ import java.util.stream.Collectors;
 public class ConstraintManager implements Writable, GsonPostProcessable {
 
     private static final Logger LOG = LogManager.getLogger(ConstraintManager.class);
+    private static final RateLimiter DISTRIBUTION_MAPPING_FALLBACK_LOG_LIMITER =
+            RateLimiter.create(1.0 / 60.0);
 
     @SerializedName("cm")
     private final ConcurrentHashMap<String, Map<String, Constraint>> constraintsMap
@@ -366,7 +369,7 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         }
     }
 
-    /** Return mappings that are safe to consume for planning in the current FE cluster. */
+    /** Return mappings that are safe to consume, or no mappings when the optional optimization is unavailable. */
     public ImmutableList<DistributionMappingConstraint> getDistributionMappingConstraintsForPlanning(
             OlapTable table) {
         ImmutableList<DistributionMappingConstraint> constraints = getDistributionMappingConstraints(table);
@@ -382,8 +385,20 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         } finally {
             readUnlock();
         }
-        validateDistributionMappingFeatureCompatibility();
-        validateDistributionMappingConstraints(table, constraints);
+        List<String> incompatibleFrontends = getIncompatibleFrontendsForDistributionMapping();
+        if (!incompatibleFrontends.isEmpty()) {
+            logDistributionMappingFallback(table, "frontend versions are mixed or unknown; current version: "
+                    + getCurrentFrontendVersion() + ", incompatible frontends: " + incompatibleFrontends);
+            return ImmutableList.of();
+        }
+        DistributionMappingConstraint incompatibleConstraint =
+                findIncompatibleDistributionMappingConstraint(table, constraints);
+        if (incompatibleConstraint != null) {
+            logDistributionMappingFallback(table, "constraint " + incompatibleConstraint.getName()
+                    + " is incompatible with current schema version " + table.getBaseSchemaVersion()
+                    + "; drop and recreate it to re-enable the optimization");
+            return ImmutableList.of();
+        }
         return constraints;
     }
 
@@ -394,13 +409,31 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
 
     private void validateDistributionMappingConstraints(OlapTable table,
             List<DistributionMappingConstraint> constraints) {
+        DistributionMappingConstraint incompatibleConstraint =
+                findIncompatibleDistributionMappingConstraint(table, constraints);
+        if (incompatibleConstraint != null) {
+            throw new AnalysisException(String.format(
+                    "Distribution mapping constraint %s on table %s is incompatible with the current schema. "
+                            + "Drop and recreate the constraint.",
+                    incompatibleConstraint.getName(), table.getName()));
+        }
+    }
+
+    private DistributionMappingConstraint findIncompatibleDistributionMappingConstraint(
+            OlapTable table, List<DistributionMappingConstraint> constraints) {
         for (DistributionMappingConstraint constraint : constraints) {
             if (!constraint.isCompatibleWith(table)) {
-                throw new AnalysisException(String.format(
-                        "Distribution mapping constraint %s on table %s is incompatible with the current schema. "
-                                + "Drop and recreate the constraint.",
-                        constraint.getName(), table.getName()));
+                return constraint;
             }
+        }
+        return null;
+    }
+
+    private void logDistributionMappingFallback(OlapTable table, String reason) {
+        if (DISTRIBUTION_MAPPING_FALLBACK_LOG_LIMITER.tryAcquire()) {
+            LOG.warn("Ignore distribution mapping constraints on table {} (id={}) during query planning and "
+                            + "fall back to regular planning: {}",
+                    table.getName(), table.getId(), reason);
         }
     }
 
@@ -1202,9 +1235,23 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         }
     }
 
-    /** Reject mapping use until every registered FE reports this exact build. */
+    /** Reject ADD and restore until every registered FE reports this exact build. */
     public void validateDistributionMappingFeatureCompatibility() {
-        String currentVersion = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
+        String currentVersion = getCurrentFrontendVersion();
+        List<String> incompatibleFrontends = getIncompatibleFrontendsForDistributionMapping();
+        if (!incompatibleFrontends.isEmpty()) {
+            throw new AnalysisException("Distribution mapping constraints cannot be added or restored while"
+                    + " frontend versions are mixed or unknown. Current version: " + currentVersion
+                    + ", incompatible frontends: " + incompatibleFrontends);
+        }
+    }
+
+    private String getCurrentFrontendVersion() {
+        return Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
+    }
+
+    private List<String> getIncompatibleFrontendsForDistributionMapping() {
+        String currentVersion = getCurrentFrontendVersion();
         List<String> incompatibleFrontends = new ArrayList<>();
         for (Frontend frontend : Env.getCurrentEnv().getFrontends(null)) {
             String frontendVersion = frontend.getVersion();
@@ -1213,11 +1260,7 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
             }
         }
         Collections.sort(incompatibleFrontends);
-        if (!incompatibleFrontends.isEmpty()) {
-            throw new AnalysisException("Distribution mapping constraints cannot be used while frontend versions"
-                    + " are mixed or unknown. Current version: " + currentVersion
-                    + ", incompatible frontends: " + incompatibleFrontends);
-        }
+        return incompatibleFrontends;
     }
 
     @SuppressWarnings("deprecation")

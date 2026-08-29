@@ -205,6 +205,9 @@ public class ChildrenPropertiesRegulatorTest {
         PhysicalProperties required = PhysicalProperties.createHash(
                 ImmutableList.of(d1.getExprId(), k2.getExprId()),
                 ShuffleType.COLOCATE_MAPPING_REQUIRE);
+        PhysicalProperties incompleteRequired = PhysicalProperties.createHash(
+                ImmutableList.of(d1.getExprId()),
+                ShuffleType.COLOCATE_MAPPING_REQUIRE);
         DistributionSpecHash naturalWithMapping = new DistributionSpecHash(
                 ImmutableList.of(k1.getExprId(), k2.getExprId()), ShuffleType.NATURAL,
                 1L, 2L, Sets.newHashSet(3L),
@@ -216,6 +219,8 @@ public class ChildrenPropertiesRegulatorTest {
 
         Assertions.assertFalse(adjustAggregateProperties(
                 parent, new PhysicalProperties(naturalWithMapping), required).isEmpty());
+        Assertions.assertTrue(adjustAggregateProperties(
+                parent, new PhysicalProperties(naturalWithMapping), incompleteRequired).isEmpty());
         Assertions.assertTrue(adjustAggregateProperties(
                 parent, new PhysicalProperties(naturalWithoutMapping), required).isEmpty());
     }

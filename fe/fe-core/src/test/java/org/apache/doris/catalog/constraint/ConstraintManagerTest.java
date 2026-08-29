@@ -18,6 +18,7 @@
 package org.apache.doris.catalog.constraint;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
@@ -27,6 +28,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Version;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.system.Frontend;
@@ -312,8 +314,65 @@ class ConstraintManagerTest {
                     mgr::validateDistributionMappingFeatureCompatibility);
             Assertions.assertTrue(exception.getMessage().contains("old-fe(old-version)"));
             Assertions.assertTrue(exception.getMessage().contains("unknown-fe(null)"));
-            Assertions.assertTrue(exception.getMessage().contains("cannot be used"));
+            Assertions.assertTrue(exception.getMessage().contains("cannot be added or restored"));
         }
+    }
+
+    @Test
+    void distributionMappingPlanningFallsBackForMixedOrUnknownFrontendVersions() {
+        TableAttributes tableAttributes = new TableAttributes();
+        OlapTable table = mockInternalMappingTable(tableAttributes);
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("d1"), List.of("k1")).bindTo(table);
+        tableAttributes.getDistributionMappingConstraints().put(mapping.getName(), mapping);
+
+        Env env = Mockito.mock(Env.class);
+        Frontend currentFrontend = Mockito.mock(Frontend.class);
+        Frontend oldFrontend = Mockito.mock(Frontend.class);
+        Frontend unknownFrontend = Mockito.mock(Frontend.class);
+        Mockito.when(currentFrontend.getVersion())
+                .thenReturn(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
+        Mockito.when(oldFrontend.getNodeName()).thenReturn("old-fe");
+        Mockito.when(oldFrontend.getVersion()).thenReturn("old-version");
+        Mockito.when(unknownFrontend.getNodeName()).thenReturn("unknown-fe");
+        Mockito.when(env.getFrontends(null))
+                .thenReturn(List.of(oldFrontend), List.of(unknownFrontend), List.of(currentFrontend));
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertTrue(mgr.getDistributionMappingConstraintsForPlanning(table).isEmpty());
+            Assertions.assertTrue(mgr.getDistributionMappingConstraintsForPlanning(table).isEmpty());
+            Assertions.assertEquals(List.of(mapping),
+                    mgr.getDistributionMappingConstraintsForPlanning(table));
+        }
+    }
+
+    @Test
+    void distributionMappingPlanningFallsBackForIncompatibleSchema() {
+        TableAttributes tableAttributes = new TableAttributes();
+        OlapTable table = mockInternalMappingTable(tableAttributes);
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("d1"), List.of("k1")).bindTo(table);
+        DistributionMappingConstraint validMapping = new DistributionMappingConstraint(
+                "valid_mapping", "valid_mapping_id", List.of("k1"), List.of("k1")).bindTo(table);
+        tableAttributes.getDistributionMappingConstraints().put(mapping.getName(), mapping);
+        tableAttributes.getDistributionMappingConstraints().put(validMapping.getName(), validMapping);
+
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getFrontends(null)).thenReturn(List.of());
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertEquals(List.of(mapping, validMapping),
+                    mgr.getDistributionMappingConstraintsForPlanning(table));
+
+            Column replacement = new Column("d1", Type.INT);
+            replacement.setUniqueId(11);
+            Mockito.when(table.getColumn("d1")).thenReturn(replacement);
+            Assertions.assertTrue(mgr.getDistributionMappingConstraintsForPlanning(table).isEmpty());
+        }
+        Assertions.assertThrows(AnalysisException.class,
+                () -> mgr.validateDistributionMappingConstraints(table));
     }
 
     // ==================== Type-specific getters ====================
@@ -828,5 +887,32 @@ class ConstraintManagerTest {
             String fkCol, String pkCol) {
         return new ForeignKeyConstraint(name,
                 ImmutableList.of(fkCol), refTable, ImmutableList.of(pkCol));
+    }
+
+    private static OlapTable mockInternalMappingTable(TableAttributes tableAttributes) {
+        Column determinant = new Column("d1", Type.INT);
+        determinant.setUniqueId(10);
+        Column distribution = new Column("k1", Type.INT);
+        distribution.setUniqueId(20);
+        HashDistributionInfo distributionInfo = Mockito.mock(HashDistributionInfo.class);
+        Mockito.when(distributionInfo.getDistributionColumns()).thenReturn(List.of(distribution));
+
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(database.getFullName()).thenReturn("db");
+
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getId()).thenReturn(1L);
+        Mockito.when(table.getName()).thenReturn("t1");
+        Mockito.when(table.getCatalogId()).thenReturn(InternalCatalog.INTERNAL_CATALOG_ID);
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(table.getTableAttributes()).thenReturn(tableAttributes);
+        Mockito.when(table.getBaseSchemaVersion()).thenReturn(7);
+        Mockito.when(table.getColumn("d1")).thenReturn(determinant);
+        Mockito.when(table.getColumn("k1")).thenReturn(distribution);
+        Mockito.when(table.getDefaultDistributionInfo()).thenReturn(distributionInfo);
+        return table;
     }
 }

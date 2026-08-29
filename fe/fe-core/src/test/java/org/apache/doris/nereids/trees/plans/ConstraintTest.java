@@ -28,7 +28,6 @@ import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
@@ -203,7 +202,7 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
     }
 
     @Test
-    void distributionMappingFailsClosedAfterOldFrontendSchemaReplay() throws Exception {
+    void distributionMappingFallsBackAfterOldFrontendSchemaReplay() throws Exception {
         createTable("create table mapping_schema_binding (k1 int, k2 int) "
                 + "duplicate key(k1) distributed by hash(k1) buckets 4 "
                 + "properties(\"replication_num\"=\"1\", \"light_schema_change\"=\"true\")");
@@ -224,9 +223,8 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
                     table.getDatabase().getId(), table.getId(), "k2", "renamed_k2", schemaVersions));
 
             Assertions.assertNotNull(table.getColumn("renamed_k2"));
-            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                    () -> getConstraintMgr().getDistributionMappingConstraintsForPlanning(table));
-            Assertions.assertTrue(exception.getMessage().contains("Drop and recreate the constraint"));
+            Assertions.assertTrue(
+                    getConstraintMgr().getDistributionMappingConstraintsForPlanning(table).isEmpty());
         } finally {
             executeSql("drop table if exists mapping_schema_binding force");
         }

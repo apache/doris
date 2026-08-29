@@ -551,7 +551,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             } else if (output instanceof SlotReference) {
                 childExprId = output.getExprId();
             } else {
-                return;
+                continue;
             }
             if (!groupByExprIds.contains(childExprId)) {
                 return;
