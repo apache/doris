@@ -51,5 +51,9 @@
     "search":"查询",
     "executionFailed": "执行失败",
     "loading":"加载中",
-    "Download": "下载"
+    "Download": "下载",
+    "history": "历史查询",
+    "noHistory": "暂无历史查询",
+    "clearHistoryConfirm": "确认清空全部历史？",
+    "cachedResult": "缓存结果"
 }

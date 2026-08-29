@@ -26,6 +26,7 @@ import {
     Progress,
     Popover,
     Pagination,
+    Tag,
 } from 'antd';
 import {TabPaneType} from '../adhoc.data';
 import { useLocation } from 'react-router-dom'
