@@ -57,7 +57,7 @@ public class CloudTabletInvertedIndex extends TabletInvertedIndex {
         long stamp = writeLock();
         try {
             replicaMetaMap.remove(tabletId);
-            tabletMetaMap.remove(tabletId);
+            tabletMetaStore.remove(tabletId);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("delete tablet: {}", tabletId);
             }
@@ -70,7 +70,7 @@ public class CloudTabletInvertedIndex extends TabletInvertedIndex {
     public void addReplica(long tabletId, Replica replica) {
         long stamp = writeLock();
         try {
-            Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
+            Preconditions.checkState(tabletMetaStore.containsKey(tabletId),
                     "tablet " + tabletId + " not exists, replica " + replica.getId());
             replicaMetaMap.put(tabletId, replica);
             if (LOG.isDebugEnabled()) {
@@ -85,7 +85,7 @@ public class CloudTabletInvertedIndex extends TabletInvertedIndex {
     public void deleteReplica(long tabletId, long backendId) {
         long stamp = writeLock();
         try {
-            Preconditions.checkState(tabletMetaMap.containsKey(tabletId), "tablet " + tabletId + " not exists");
+            Preconditions.checkState(tabletMetaStore.containsKey(tabletId), "tablet " + tabletId + " not exists");
             if (replicaMetaMap.containsKey(tabletId)) {
                 Replica replica = replicaMetaMap.remove(tabletId);
                 if (LOG.isDebugEnabled()) {
@@ -105,7 +105,7 @@ public class CloudTabletInvertedIndex extends TabletInvertedIndex {
     public Replica getReplica(long tabletId, long backendId) {
         long stamp = readLock();
         try {
-            Preconditions.checkState(tabletMetaMap.containsKey(tabletId), "tablet " + tabletId + " not exists");
+            Preconditions.checkState(tabletMetaStore.containsKey(tabletId), "tablet " + tabletId + " not exists");
             return replicaMetaMap.get(tabletId);
         } finally {
             readUnlock(stamp);
