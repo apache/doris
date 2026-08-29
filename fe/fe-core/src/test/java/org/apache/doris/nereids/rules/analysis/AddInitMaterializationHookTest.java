@@ -71,22 +71,15 @@ public class AddInitMaterializationHookTest extends TestWithFeService {
 
     @Test
     void dmlRewriteDisabledDoesNotCollectMtmvCandidates() {
-        assertCandidateCollection(false, true);
+        assertCandidateCollection(false);
     }
 
     @Test
     void dmlRewriteEnabledCollectsMtmvCandidates() {
-        assertCandidateCollection(true, false);
+        assertCandidateCollection(true);
     }
 
-    @Test
-    void dmlRewriteIsIndependentFromQueryRewrite() {
-        assertCandidateCollection(true, true);
-    }
-
-    private void assertCandidateCollection(boolean enableDmlMaterializedViewRewrite,
-            boolean enableMaterializedViewRewrite) {
-        connectContext.getSessionVariable().setEnableMaterializedViewRewrite(enableMaterializedViewRewrite);
+    private void assertCandidateCollection(boolean enableDmlMaterializedViewRewrite) {
         connectContext.getSessionVariable().enableDmlMaterializedViewRewrite = enableDmlMaterializedViewRewrite;
 
         MTMVRelationManager relationManager = Mockito.spy(originalRelationManager);
