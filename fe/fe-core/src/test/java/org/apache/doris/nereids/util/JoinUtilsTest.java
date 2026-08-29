@@ -270,11 +270,11 @@ public class JoinUtilsTest {
                     new EqualTo(leftD1, rightD1), new EqualTo(leftD2, rightD2))));
 
             NaturalDistributionMappingSpec leftWithHiddenK1 =
-                    NaturalDistributionMappingSpec.fromHashSpec(left).get().project(ImmutableMap.of(
+                    naturalMappingSpec(left).project(ImmutableMap.of(
                             new ExprId(2), new ExprId(2),
                             new ExprId(5), new ExprId(5))).get();
             NaturalDistributionMappingSpec rightWithHiddenK1 =
-                    NaturalDistributionMappingSpec.fromHashSpec(right).get().project(ImmutableMap.of(
+                    naturalMappingSpec(right).project(ImmutableMap.of(
                             new ExprId(4), new ExprId(4),
                             new ExprId(6), new ExprId(6))).get();
             Assertions.assertTrue(JoinUtils.couldColocateJoinByMapping(
@@ -283,6 +283,13 @@ public class JoinUtilsTest {
                     leftWithHiddenK1, rightWithHiddenK1,
                     ImmutableList.of(new EqualTo(leftD1, rightD1))));
         }
+    }
+
+    private NaturalDistributionMappingSpec naturalMappingSpec(DistributionSpecHash hashSpec) {
+        return new NaturalDistributionMappingSpec(
+                hashSpec.getTableId(), hashSpec.getSelectedIndexId(), hashSpec.getPartitionIds(),
+                hashSpec.getOrderedShuffledColumns().size(), hashSpec.getExprIdToEquivalenceSet(),
+                hashSpec.getDistributionMappings());
     }
 
     private SlotReference slot(int exprId) {

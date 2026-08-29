@@ -343,7 +343,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     @Override
     public PhysicalProperties visitPhysicalGenerate(PhysicalGenerate<? extends Plan> generate, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
-        return childrenOutputProperties.get(0);
+        return withoutNaturalDistributionMapping(childrenOutputProperties.get(0));
     }
 
     @Override
@@ -370,14 +370,14 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 DistributionSpecHash mockedRightHashSpec = mockAnotherSideSpecFromConjuncts(
                         hashJoin, (DistributionSpecHash) leftDistributionSpec);
                 if (SessionVariable.canUseNereidsDistributePlanner()) {
-                    return computeShuffleJoinOutputProperties(hashJoin,
-                            (DistributionSpecHash) leftDistributionSpec, mockedRightHashSpec);
+                    return withoutNaturalDistributionMapping(computeShuffleJoinOutputProperties(hashJoin,
+                            (DistributionSpecHash) leftDistributionSpec, mockedRightHashSpec));
                 } else {
-                    return legacyComputeShuffleJoinOutputProperties(hashJoin,
-                            (DistributionSpecHash) leftDistributionSpec, mockedRightHashSpec);
+                    return withoutNaturalDistributionMapping(legacyComputeShuffleJoinOutputProperties(hashJoin,
+                            (DistributionSpecHash) leftDistributionSpec, mockedRightHashSpec));
                 }
             } else {
-                return new PhysicalProperties(leftDistributionSpec);
+                return withoutNaturalDistributionMapping(new PhysicalProperties(leftDistributionSpec));
             }
         }
 
@@ -421,7 +421,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 2);
         PhysicalProperties leftOutputProperty = childrenOutputProperties.get(0);
-        return new PhysicalProperties(leftOutputProperty.getDistributionSpec());
+        return withoutNaturalDistributionMapping(
+                new PhysicalProperties(leftOutputProperty.getDistributionSpec()));
     }
 
     /**
@@ -530,7 +531,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         DistributionSpec childDistSpec = childrenOutputProperties.get(0).getDistributionSpec();
 
         if (partitionTopN.getPhase().isTwoPhaseLocal() || partitionTopN.getPhase().isOnePhaseGlobal()) {
-            return new PhysicalProperties(childDistSpec);
+            return withoutNaturalDistributionMapping(new PhysicalProperties(childDistSpec));
         } else {
             Preconditions.checkState(partitionTopN.getPhase().isTwoPhaseGlobal(),
                     "partition topn phase is not two phase global");
@@ -544,7 +545,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             // the full [partitionKeys, orderKeys] -- the same order this node declared before that pruning split.
             // Keeping it full stays in lockstep with the parent window's required order (RequestPropertyDeriver),
             // so OrderSpec.satisfy passes and no redundant sort enforcer is inserted above this PartitionTopN.
-            return new PhysicalProperties(childDistSpec, new OrderSpec(partitionTopN.getOutputOrderKeys()));
+            return withoutNaturalDistributionMapping(
+                    new PhysicalProperties(childDistSpec, new OrderSpec(partitionTopN.getOutputOrderKeys())));
         }
     }
 
@@ -716,7 +718,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     @Override
     public PhysicalProperties visitPhysicalWindow(PhysicalWindow<? extends Plan> window, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
-        return childrenOutputProperties.get(0);
+        return withoutNaturalDistributionMapping(childrenOutputProperties.get(0));
     }
 
     private PhysicalProperties computeShuffleJoinOutputProperties(

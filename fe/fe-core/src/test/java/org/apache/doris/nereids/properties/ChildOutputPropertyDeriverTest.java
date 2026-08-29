@@ -26,6 +26,7 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
@@ -45,18 +46,23 @@ import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
+import org.apache.doris.nereids.trees.plans.PartitionTopnPhase;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.SortPhase;
+import org.apache.doris.nereids.trees.plans.WindowFuncType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -605,14 +611,17 @@ class ChildOutputPropertyDeriverTest {
         Map<ExprId, Integer> leftMap = Maps.newHashMap();
         leftMap.put(new ExprId(0), 0);
         leftMap.put(new ExprId(1), 0);
-        PhysicalProperties left = new PhysicalProperties(new DistributionSpecHash(
+        DistributionSpecHash leftHash = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(0)),
                 ShuffleType.NATURAL,
                 0,
+                -1L,
                 Sets.newHashSet(0L),
                 ImmutableList.of(Sets.newHashSet(new ExprId(0), new ExprId(1))),
-                leftMap
-        ));
+                leftMap,
+                ImmutableList.of(new DistributionMapping(
+                        "mapping", ImmutableList.of(new ExprId(1)), ImmutableList.of(0))));
+        PhysicalProperties left = naturalProperties(leftHash);
 
         PhysicalProperties right = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
                 new OrderSpec(Lists.newArrayList(
@@ -628,6 +637,7 @@ class ChildOutputPropertyDeriverTest {
         Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
         // check merged
         Assertions.assertEquals(3, actual.getExprIdToEquivalenceSet().size());
+        assertMappingLocalityCleared(result);
     }
 
     @Test
@@ -687,11 +697,13 @@ class ChildOutputPropertyDeriverTest {
                 Lists.newArrayList(new ExprId(0)),
                 ShuffleType.NATURAL,
                 0,
+                -1L,
                 Sets.newHashSet(0L),
                 ImmutableList.of(Sets.newHashSet(new ExprId(0), new ExprId(1))),
-                leftMap
-        );
-        PhysicalProperties left = new PhysicalProperties(leftHash);
+                leftMap,
+                ImmutableList.of(new DistributionMapping(
+                        "mapping", ImmutableList.of(new ExprId(1)), ImmutableList.of(0))));
+        PhysicalProperties left = naturalProperties(leftHash);
         PhysicalProperties right = PhysicalProperties.REPLICATED;
         List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList(left, right);
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(childrenOutputProperties);
@@ -700,7 +712,50 @@ class ChildOutputPropertyDeriverTest {
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertInstanceOf(DistributionSpecHash.class, result.getDistributionSpec());
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
-        Assertions.assertEquals(leftHash, actual);
+        Assertions.assertEquals(leftHash.withoutDistributionMappings(), actual);
+        assertMappingLocalityCleared(result);
+    }
+
+    @Test
+    void testRuntimePlacementBarriersDropMappingLocality() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        DistributionSpecHash childHash = new DistributionSpecHash(
+                ImmutableList.of(k1.getExprId()), ShuffleType.NATURAL,
+                1L, 2L, ImmutableSet.of(3L),
+                ImmutableList.of(new DistributionMapping(
+                        "mapping", ImmutableList.of(d1.getExprId()), ImmutableList.of(0))));
+        PhysicalProperties childProperties = naturalProperties(childHash);
+
+        PhysicalGenerate<GroupPlan> generate = new PhysicalGenerate<>(
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), logicalProperties, groupPlan);
+        assertMappingLocalityCleared(deriveOutputProperties(generate, childProperties));
+
+        PhysicalWindow<GroupPlan> window = new PhysicalWindow<>(
+                Mockito.mock(WindowFrameGroup.class), null, ImmutableList.of(), false,
+                logicalProperties, groupPlan);
+        assertMappingLocalityCleared(deriveOutputProperties(window, childProperties));
+
+        for (PartitionTopnPhase phase : PartitionTopnPhase.values()) {
+            PhysicalPartitionTopN<GroupPlan> partitionTopN = new PhysicalPartitionTopN<>(
+                    WindowFuncType.ROW_NUMBER, ImmutableList.of(k1), ImmutableList.of(),
+                    false, 1, phase, logicalProperties, groupPlan);
+            assertMappingLocalityCleared(deriveOutputProperties(partitionTopN, childProperties));
+        }
+    }
+
+    @Test
+    void testPhysicalPropertiesDoesNotInferNaturalMappingProof() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        DistributionSpecHash hashSpec = new DistributionSpecHash(
+                ImmutableList.of(k1.getExprId()), ShuffleType.NATURAL,
+                1L, 2L, ImmutableSet.of(3L),
+                ImmutableList.of(new DistributionMapping(
+                        "mapping", ImmutableList.of(d1.getExprId()), ImmutableList.of(0))));
+
+        Assertions.assertFalse(new PhysicalProperties(hashSpec)
+                .getNaturalDistributionMappingSpec().isPresent());
     }
 
     @Test
@@ -807,7 +862,7 @@ class ChildOutputPropertyDeriverTest {
                 false,
                 groupPlan);
 
-        PhysicalProperties orderedChild = new PhysicalProperties(
+        PhysicalProperties orderedChild = naturalProperties(
                 naturalHashWithMapping(k1, k2, d1),
                 new OrderSpec(ImmutableList.of(new OrderKey(d1, true, false))));
         PhysicalProperties output = deriveAggregateProperties(aggregate, orderedChild);
@@ -832,7 +887,7 @@ class ChildOutputPropertyDeriverTest {
         SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
         SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
         SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
-        PhysicalProperties orderedChild = new PhysicalProperties(
+        PhysicalProperties orderedChild = naturalProperties(
                 naturalHashWithMapping(k1, k2, d1),
                 new OrderSpec(ImmutableList.of(new OrderKey(d1, true, false))));
         PhysicalHashAggregate<GroupPlan> repeatAggregate = new PhysicalHashAggregate<>(
@@ -1020,7 +1075,7 @@ class ChildOutputPropertyDeriverTest {
 
     private PhysicalProperties deriveAggregateProperties(
             PhysicalHashAggregate<GroupPlan> aggregate, DistributionSpecHash childHash) {
-        return deriveAggregateProperties(aggregate, new PhysicalProperties(childHash));
+        return deriveAggregateProperties(aggregate, naturalProperties(childHash));
     }
 
     private PhysicalProperties deriveAggregateProperties(
@@ -1294,7 +1349,7 @@ class ChildOutputPropertyDeriverTest {
                 1L, 2L, ImmutableSet.of(3L),
                 ImmutableList.of(new DistributionMapping(
                         "mapping_1", ImmutableList.of(determinant.getExprId()), ImmutableList.of(0))));
-        PhysicalProperties childProperties = new PhysicalProperties(childHash);
+        PhysicalProperties childProperties = naturalProperties(childHash);
 
         Alias widened = new Alias(new Cast(determinant, new VarcharType(32)), "widened_d1");
         PhysicalProperties widenedProperties = ChildOutputPropertyDeriver.computeProjectOutputProperties(
@@ -1311,6 +1366,34 @@ class ChildOutputPropertyDeriverTest {
                 ImmutableList.of(narrowed), childProperties);
         Assertions.assertEquals(DistributionSpecStorageAny.INSTANCE, narrowedProperties.getDistributionSpec());
         Assertions.assertFalse(narrowedProperties.getNaturalDistributionMappingSpec().isPresent());
+    }
+
+    private PhysicalProperties naturalProperties(DistributionSpecHash hashSpec) {
+        return naturalProperties(hashSpec, new OrderSpec());
+    }
+
+    private PhysicalProperties naturalProperties(DistributionSpecHash hashSpec, OrderSpec orderSpec) {
+        NaturalDistributionMappingSpec mappingSpec = new NaturalDistributionMappingSpec(
+                hashSpec.getTableId(), hashSpec.getSelectedIndexId(), hashSpec.getPartitionIds(),
+                hashSpec.getOrderedShuffledColumns().size(), hashSpec.getExprIdToEquivalenceSet(),
+                hashSpec.getDistributionMappings());
+        return new PhysicalProperties(hashSpec, orderSpec, Optional.of(mappingSpec));
+    }
+
+    private PhysicalProperties deriveOutputProperties(
+            AbstractPhysicalPlan plan, PhysicalProperties... childProperties) {
+        GroupExpression groupExpression = new GroupExpression(plan);
+        new Group(null, groupExpression, null);
+        return new ChildOutputPropertyDeriver(ImmutableList.copyOf(childProperties))
+                .getOutputProperties(null, groupExpression);
+    }
+
+    private void assertMappingLocalityCleared(PhysicalProperties properties) {
+        Assertions.assertFalse(properties.getNaturalDistributionMappingSpec().isPresent());
+        if (properties.getDistributionSpec() instanceof DistributionSpecHash) {
+            Assertions.assertTrue(((DistributionSpecHash) properties.getDistributionSpec())
+                    .getDistributionMappings().isEmpty());
+        }
     }
 
     @Test

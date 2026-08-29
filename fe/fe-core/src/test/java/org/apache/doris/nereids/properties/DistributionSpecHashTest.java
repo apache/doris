@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public class DistributionSpecHashTest {
@@ -403,14 +404,20 @@ public class DistributionSpecHashTest {
                 ImmutableList.of(
                         new DistributionMapping("mapping_1", ImmutableList.of(d1), ImmutableList.of(0)),
                         new DistributionMapping("mapping_2", ImmutableList.of(d2), ImmutableList.of(1))));
+        NaturalDistributionMappingSpec mappingSpec = new NaturalDistributionMappingSpec(
+                natural.getTableId(), natural.getSelectedIndexId(), natural.getPartitionIds(),
+                natural.getOrderedShuffledColumns().size(), natural.getExprIdToEquivalenceSet(),
+                natural.getDistributionMappings());
+        PhysicalProperties naturalProperties = new PhysicalProperties(
+                natural, new OrderSpec(), Optional.of(mappingSpec));
 
-        Assertions.assertTrue(new PhysicalProperties(natural).satisfy(
+        Assertions.assertTrue(naturalProperties.satisfy(
                 new PhysicalProperties(new DistributionSpecHash(
                         ImmutableList.of(d1, k2), ShuffleType.COLOCATE_MAPPING_REQUIRE))));
-        Assertions.assertTrue(new PhysicalProperties(natural).satisfy(
+        Assertions.assertTrue(naturalProperties.satisfy(
                 new PhysicalProperties(new DistributionSpecHash(
                         ImmutableList.of(d1, d2), ShuffleType.COLOCATE_MAPPING_REQUIRE))));
-        Assertions.assertFalse(new PhysicalProperties(natural).satisfy(
+        Assertions.assertFalse(naturalProperties.satisfy(
                 new PhysicalProperties(new DistributionSpecHash(
                         ImmutableList.of(d1), ShuffleType.COLOCATE_MAPPING_REQUIRE))));
         Assertions.assertFalse(natural.satisfy(new DistributionSpecHash(

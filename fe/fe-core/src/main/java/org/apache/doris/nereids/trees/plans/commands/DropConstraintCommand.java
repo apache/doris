@@ -125,9 +125,11 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
             }
             analyzedTable.writeLock();
             try {
+                OlapTable table = (OlapTable) analyzedTable;
+                table.checkNormalStateForAlter();
                 logItem = Env.getCurrentEnv().getConstraintManager()
                         .dropDistributionMappingConstraint(
-                                tableNameInfo, (OlapTable) analyzedTable, name);
+                                tableNameInfo, table, name);
             } finally {
                 analyzedTable.writeUnlock();
             }

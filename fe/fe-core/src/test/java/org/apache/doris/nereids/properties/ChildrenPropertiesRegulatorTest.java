@@ -218,9 +218,9 @@ public class ChildrenPropertiesRegulatorTest {
                 1L, 2L, Sets.newHashSet(3L), ImmutableList.of());
 
         Assertions.assertFalse(adjustAggregateProperties(
-                parent, new PhysicalProperties(naturalWithMapping), required).isEmpty());
+                parent, naturalProperties(naturalWithMapping), required).isEmpty());
         Assertions.assertTrue(adjustAggregateProperties(
-                parent, new PhysicalProperties(naturalWithMapping), incompleteRequired).isEmpty());
+                parent, naturalProperties(naturalWithMapping), incompleteRequired).isEmpty());
         Assertions.assertTrue(adjustAggregateProperties(
                 parent, new PhysicalProperties(naturalWithoutMapping), required).isEmpty());
     }
@@ -297,11 +297,19 @@ public class ChildrenPropertiesRegulatorTest {
         ChildrenPropertiesRegulator regulator = new ChildrenPropertiesRegulator(
                 parent,
                 ImmutableList.of(Mockito.mock(GroupExpression.class), Mockito.mock(GroupExpression.class)),
-                ImmutableList.of(new PhysicalProperties(leftOutput), new PhysicalProperties(rightOutput)),
+                ImmutableList.of(naturalProperties(leftOutput), naturalProperties(rightOutput)),
                 ImmutableList.of(new PhysicalProperties(leftRequired), new PhysicalProperties(rightRequired)),
                 mockedJobContext);
 
         Assertions.assertTrue(regulator.adjustChildrenProperties().isEmpty());
+    }
+
+    private PhysicalProperties naturalProperties(DistributionSpecHash hashSpec) {
+        NaturalDistributionMappingSpec mappingSpec = new NaturalDistributionMappingSpec(
+                hashSpec.getTableId(), hashSpec.getSelectedIndexId(), hashSpec.getPartitionIds(),
+                hashSpec.getOrderedShuffledColumns().size(), hashSpec.getExprIdToEquivalenceSet(),
+                hashSpec.getDistributionMappings());
+        return new PhysicalProperties(hashSpec, new OrderSpec(), Optional.of(mappingSpec));
     }
 
     private void testMustShuffleFilter(Class<? extends Plan> childClazz) {

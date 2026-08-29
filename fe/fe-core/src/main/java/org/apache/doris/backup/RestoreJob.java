@@ -1074,6 +1074,13 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             if (env.getConstraintManager().getDistributionMappingConstraints(restoredTable).isEmpty()) {
                 continue;
             }
+            if (isAtomicRestore) {
+                status = new Status(ErrCode.COMMON_ERROR,
+                        "Cannot atomically restore table " + tableName
+                                + " because its backup contains distribution mapping constraints. "
+                                + "Use a non-atomic restore or create a backup without those constraints.");
+                return false;
+            }
             try {
                 if (!featureCompatibilityValidated) {
                     env.getConstraintManager().validateDistributionMappingFeatureCompatibility();

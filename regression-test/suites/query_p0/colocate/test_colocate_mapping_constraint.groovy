@@ -797,6 +797,106 @@ suite("test_colocate_mapping_constraint") {
         notContains "COLOCATE"
     }
 
+    // Runtime placement barriers must not expose storage bucket locality to an outer mapping join.
+    def generateBarrierSql = """
+        SELECT /*+ SET_VAR(disable_join_reorder=true, enable_local_shuffle_planner=true,
+                           parallel_pipeline_task_num=4) */
+               l.d1, l.k2, l.e, r.k1
+        FROM (
+            SELECT d1, k2, e
+            FROM test_colocate_mapping_constraint_left
+            LATERAL VIEW explode_numbers(2) generated AS e
+        ) l
+        JOIN test_colocate_mapping_constraint_right r
+          ON l.d1 = r.d1 AND l.k2 = r.k2
+        ORDER BY l.d1, l.k2, l.e
+    """
+    explain {
+        sql generateBarrierSql
+        notContains "COLOCATE"
+    }
+    order_qt_generate_barrier_result generateBarrierSql
+
+    def windowBarrierSql = """
+        SELECT /*+ SET_VAR(disable_join_reorder=true, enable_local_shuffle_planner=true,
+                           parallel_pipeline_task_num=4) */
+               l.d1, l.k2, l.rn, r.k1
+        FROM (
+            SELECT d1, k2,
+                   ROW_NUMBER() OVER (PARTITION BY k1, k2 ORDER BY extra_col) AS rn
+            FROM test_colocate_mapping_constraint_left
+        ) l
+        JOIN test_colocate_mapping_constraint_right r
+          ON l.d1 = r.d1 AND l.k2 = r.k2
+        ORDER BY l.d1, l.k2
+    """
+    explain {
+        sql windowBarrierSql
+        notContains "COLOCATE"
+    }
+    order_qt_window_barrier_result windowBarrierSql
+
+    def partitionTopNBarrierSql = """
+        SELECT /*+ SET_VAR(disable_join_reorder=true, enable_local_shuffle_planner=true,
+                           parallel_pipeline_task_num=4) */
+               l.d1, l.k2, l.rn, r.k1
+        FROM (
+            SELECT d1, k2,
+                   ROW_NUMBER() OVER (PARTITION BY k1, k2 ORDER BY extra_col) AS rn
+            FROM test_colocate_mapping_constraint_left
+        ) l
+        JOIN test_colocate_mapping_constraint_right r
+          ON l.d1 = r.d1 AND l.k2 = r.k2
+        WHERE l.rn <= 1
+        ORDER BY l.d1, l.k2
+    """
+    explain {
+        sql partitionTopNBarrierSql
+        notContains "COLOCATE"
+    }
+    order_qt_partition_topn_barrier_result partitionTopNBarrierSql
+
+    def nestedLoopBarrierSql = """
+        SELECT /*+ SET_VAR(disable_join_reorder=true, enable_local_shuffle_planner=true,
+                           parallel_pipeline_task_num=4) */
+               l.d1, l.k2, r.k1
+        FROM (
+            SELECT mapped.d1, mapped.k2
+            FROM test_colocate_mapping_constraint_left mapped
+            CROSS JOIN test_colocate_mapping_constraint_right other
+            WHERE other.k1 = 1
+        ) l
+        JOIN test_colocate_mapping_constraint_right r
+          ON l.d1 = r.d1 AND l.k2 = r.k2
+        ORDER BY l.d1, l.k2
+    """
+    explain {
+        sql nestedLoopBarrierSql
+        notContains "COLOCATE"
+    }
+    order_qt_nested_loop_barrier_result nestedLoopBarrierSql
+
+    def broadcastBarrierSql = """
+        SELECT /*+ SET_VAR(disable_join_reorder=true, enable_local_shuffle_planner=true,
+                           enable_broadcast_join_force_passthrough=true,
+                           parallel_pipeline_task_num=4) */
+               l.d1, l.k2, r.k1
+        FROM (
+            SELECT mapped.d1, mapped.k2
+            FROM test_colocate_mapping_constraint_left mapped
+            JOIN [broadcast] test_colocate_mapping_constraint_right broadcast_side
+              ON mapped.extra_col = broadcast_side.extra_col
+        ) l
+        JOIN test_colocate_mapping_constraint_right r
+          ON l.d1 = r.d1 AND l.k2 = r.k2
+        ORDER BY l.d1, l.k2
+    """
+    explain {
+        sql broadcastBarrierSql
+        notContains "COLOCATE"
+    }
+    order_qt_broadcast_barrier_result broadcastBarrierSql
+
     order_qt_colocate_mapping_result """
         SELECT l.k1, l.k2, l.d1, l.d2, l.extra_col,
                r.k1, r.k2, r.d1, r.d2, r.extra_col

@@ -59,21 +59,6 @@ public class NaturalDistributionMappingSpec {
         this.distributionMappings = ImmutableList.copyOf(distributionMappings);
     }
 
-    /** Build the locality proof carried by a natural hash distribution. */
-    public static Optional<NaturalDistributionMappingSpec> fromHashSpec(DistributionSpecHash hashSpec) {
-        if (hashSpec.getShuffleType() != DistributionSpecHash.ShuffleType.NATURAL
-                || hashSpec.getDistributionMappings().isEmpty()) {
-            return Optional.empty();
-        }
-        return Optional.of(new NaturalDistributionMappingSpec(
-                hashSpec.getTableId(),
-                hashSpec.getSelectedIndexId(),
-                hashSpec.getPartitionIds(),
-                hashSpec.getOrderedShuffledColumns().size(),
-                hashSpec.getExprIdToEquivalenceSet(),
-                hashSpec.getDistributionMappings()));
-    }
-
     public long getTableId() {
         return tableId;
     }

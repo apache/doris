@@ -69,7 +69,7 @@ public class PhysicalProperties {
     }
 
     public PhysicalProperties(DistributionSpec distributionSpec) {
-        this(distributionSpec, new OrderSpec(), naturalMappingSpecFrom(distributionSpec));
+        this(distributionSpec, new OrderSpec(), Optional.empty());
     }
 
     public PhysicalProperties(OrderSpec orderSpec) {
@@ -77,7 +77,7 @@ public class PhysicalProperties {
     }
 
     public PhysicalProperties(DistributionSpec distributionSpec, OrderSpec orderSpec) {
-        this(distributionSpec, orderSpec, naturalMappingSpecFrom(distributionSpec));
+        this(distributionSpec, orderSpec, Optional.empty());
     }
 
     /** Constructor with mapping-based natural bucket locality. */
@@ -86,13 +86,6 @@ public class PhysicalProperties {
         this.distributionSpec = distributionSpec;
         this.orderSpec = orderSpec;
         this.naturalDistributionMappingSpec = naturalDistributionMappingSpec;
-    }
-
-    private static Optional<NaturalDistributionMappingSpec> naturalMappingSpecFrom(
-            DistributionSpec distributionSpec) {
-        return distributionSpec instanceof DistributionSpecHash
-                ? NaturalDistributionMappingSpec.fromHashSpec((DistributionSpecHash) distributionSpec)
-                : Optional.empty();
     }
 
     /**

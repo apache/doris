@@ -304,6 +304,31 @@ public class RestoreJobTest {
     }
 
     @Test
+    public void testAtomicRestoreRejectsDistributionMappingBeforeStaging() {
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("k1"), List.of("k1"));
+        expectedRestoreTbl.getTableAttributes().getDistributionMappingConstraints()
+                .put(mapping.getName(), mapping);
+        ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
+        Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+        Mockito.when(constraintManager.getDistributionMappingConstraints(expectedRestoreTbl))
+                .thenReturn(ImmutableList.of(mapping));
+        Deencapsulation.setField(job, "backupMeta", backupMeta);
+        Deencapsulation.setField(job, "isAtomicRestore", true);
+
+        boolean valid = Deencapsulation.invoke(job, "validateDistributionMappingConstraintsForRestore");
+
+        Assert.assertFalse(valid);
+        Assert.assertTrue(job.getStatus().getErrMsg().contains(
+                "Cannot atomically restore table " + expectedRestoreTbl.getName()));
+        Assert.assertFalse(expectedRestoreTbl.isInAtomicRestore());
+        Mockito.verify(constraintManager, Mockito.never())
+                .validateDistributionMappingFeatureCompatibility();
+        Mockito.verify(constraintManager, Mockito.never())
+                .validateDistributionMappingConstraints(expectedRestoreTbl);
+    }
+
+    @Test
     public void testRestoreMappingRejectsIncompatibleSchema() {
         DistributionMappingConstraint mapping = new DistributionMappingConstraint(
                 "mapping", "mapping_id", List.of("k1"), List.of("k1"));

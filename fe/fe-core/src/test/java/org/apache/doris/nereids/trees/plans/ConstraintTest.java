@@ -202,6 +202,47 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
     }
 
     @Test
+    void distributionMappingDropRejectedDuringAtomicRestore() throws Exception {
+        createTable("create table mapping_atomic_restore (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 4 "
+                + "properties(\"replication_num\"=\"1\")");
+        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
+                .getDbOrDdlException("test").getTableOrDdlException("mapping_atomic_restore");
+        try {
+            addConstraint("alter table mapping_atomic_restore add constraint mapping "
+                    + "colocate mapping mapping_id (k2) determines distribution key (k1) not enforced");
+            table.writeLock();
+            try {
+                table.setInAtomicRestore();
+            } finally {
+                table.writeUnlock();
+            }
+
+            Exception exception = Assertions.assertThrows(Exception.class,
+                    () -> dropConstraint("alter table mapping_atomic_restore drop constraint mapping"));
+            Assertions.assertTrue(exception.getMessage().contains("atomic restore state"));
+            Assertions.assertEquals(1, getConstraintMgr().getDistributionMappingConstraints(table).size());
+
+            table.writeLock();
+            try {
+                table.clearInAtomicRestore();
+            } finally {
+                table.writeUnlock();
+            }
+            dropConstraint("alter table mapping_atomic_restore drop constraint mapping");
+            Assertions.assertTrue(getConstraintMgr().getDistributionMappingConstraints(table).isEmpty());
+        } finally {
+            table.writeLock();
+            try {
+                table.clearInAtomicRestore();
+            } finally {
+                table.writeUnlock();
+            }
+            executeSql("drop table if exists mapping_atomic_restore force");
+        }
+    }
+
+    @Test
     void distributionMappingFallsBackAfterOldFrontendSchemaReplay() throws Exception {
         createTable("create table mapping_schema_binding (k1 int, k2 int) "
                 + "duplicate key(k1) distributed by hash(k1) buckets 4 "
