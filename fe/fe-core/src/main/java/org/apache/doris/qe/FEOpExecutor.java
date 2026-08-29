@@ -163,6 +163,41 @@ public class FEOpExecutor {
         }
     }
 
+    /**
+     * Whether this executor should redirect to the real master when the target FE
+     * rejects the request with NOT_MASTER. Only master-directed executors enable this;
+     * generic FE-to-FE calls (config propagation, cross-FE query kill) target a
+     * specific FE on purpose and must NOT be redirected.
+     */
+    protected boolean supportNotMasterRedirect() {
+        return false;
+    }
+
+    /**
+     * Send the request to the given address, ignoring NOT_MASTER semantics. Used for
+     * the single redirect retry against a re-discovered master.
+     */
+    protected TMasterOpResult forwardTo(TMasterOpRequest params, TNetworkAddress target) throws Exception {
+        FrontendService.Client client;
+        try {
+            client = ClientPool.frontendPool.borrowObject(target, thriftTimeoutMs);
+        } catch (Exception e) {
+            throw new Exception("Failed to get client for " + target + ".", e);
+        }
+        boolean isReturnToPool = false;
+        try {
+            TMasterOpResult result = client.forward(params);
+            isReturnToPool = true;
+            return result;
+        } finally {
+            if (isReturnToPool) {
+                ClientPool.frontendPool.returnObject(target, client);
+            } else {
+                ClientPool.frontendPool.invalidateObject(target, client);
+            }
+        }
+    }
+
     protected TMasterOpRequest buildStmtForwardParams() throws AnalysisException {
         TMasterOpRequest params = new TMasterOpRequest();
         // node ident
