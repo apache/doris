@@ -69,7 +69,11 @@ public class PushDownFilterThroughAggregation extends OneRewriteRuleFactory {
                 // 2. if the conjunct contains unique function, it should not be pushed down;
                 //    e.g. 'select a, sum(a) from t group by a having a + random() >  10'
                 //    not equals 'select a, sum(a) from t where a + random() > 10 group by a'
-                if (!conjunct.containsVolatileExpression()
+                // 3. a NoneMovableFunction (e.g. assert_true) must not be pushed below the
+                //    aggregation either: the aggregation changes which rows are evaluated
+                //    (grouped output vs input rows), so assert_true would run on a different
+                //    domain and its error behavior would change.
+                if (!conjunct.containsNoneMovableOrVolatile()
                         && !conjunctSlots.isEmpty() && canPushDownSlots.containsAll(conjunctSlots)) {
                     pushDownPredicates.add(conjunct);
                 } else {

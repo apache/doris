@@ -108,6 +108,22 @@ class PushDownAggThroughJoinOnPkFkTest extends TestWithFeService implements Memo
     }
 
     @Test
+    void testDoNotPushDownAggWithNoneMovableFunction() {
+        // A NoneMovableFunction (assert_true) inside the aggregate must not be pushed below the
+        // join: the original join removes unmatched foreign rows (e.g. NULL fk) before the
+        // aggregate runs, so the pushed-down aggregate would evaluate the assertion on rows the
+        // join removes, turning a successful query into an error. the agg stays above the join.
+        String sql = "select foreign_not_null.id2, count(assert_true(foreign_not_null.id2 > 0, 'msg')) "
+                + "from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2 "
+                + "group by foreign_not_null.id2, pri.id1";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalAggregate(logicalProject(logicalJoin())))
+                .printlnTree();
+    }
+
+    @Test
     void testGroupByFk() {
         String sql = "select pri.id1 from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2\n"
                 + "group by foreign_not_null.id2, pri.id1";

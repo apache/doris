@@ -101,29 +101,36 @@ public class PushProjectIntoUnion extends OneRewriteRuleFactory {
             return false;
         }
         for (List<NamedExpression> constExprs : union.getConstantExprsList()) {
-            Set<Slot> uniqueFunctionSlots = Sets.newHashSet();
+            Set<Slot> sensitiveSlots = Sets.newHashSet();
             for (int i = 0; i < constExprs.size(); i++) {
                 NamedExpression ne = constExprs.get(i);
-                if (ne.containsVolatileExpression()) {
-                    uniqueFunctionSlots.add(union.getOutput().get(i));
+                if (ne.containsNoneMovableOrVolatile()) {
+                    sensitiveSlots.add(union.getOutput().get(i));
                 }
             }
-            if (uniqueFunctionSlots.isEmpty()) {
+            if (sensitiveSlots.isEmpty()) {
                 continue;
             }
             Set<Slot> counterSet = Sets.newHashSet();
-            // for a union slot which contains unique function, if it exists in project multiple times,
-            // then don't push project into union,  otherwise the unique function will be copy multiple times.
+            // a NoneMovableFunction (e.g. assert_true) or volatile const slot referenced by the
+            // project multiple times must not be pushed into the union: the push-down would copy
+            // the expression and evaluate it multiple times.
             // e.g. `select a as b, a as c from (select random() as a union all select 2 as a)`
-            // if push down the project, then random() will be evaluated twice:  `random() as b, random() as c`
+            // if push down the project, then random() will be evaluated twice: `random() as b, random() as c`
             for (NamedExpression ne : project.getProjects()) {
                 if (ne.anyMatch(expr -> expr instanceof Slot
-                        && uniqueFunctionSlots.contains(expr) && !counterSet.add((Slot) expr))) {
+                        && sensitiveSlots.contains(expr) && !counterSet.add((Slot) expr))) {
+                    return false;
+                }
+            }
+            // a sensitive const slot that the project does not reference at all would be dropped
+            // by the push-down, turning a required assertion/error into plain rows. reject.
+            for (Slot slot : sensitiveSlots) {
+                if (!counterSet.contains(slot)) {
                     return false;
                 }
             }
         }
-
         return true;
     }
 }

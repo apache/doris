@@ -784,7 +784,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (context.aggFuncAndGroupKeyAllEmpty() || context.hasVolatileFunctions()) {
             return filter;
         }
-        if (filter.getConjuncts().stream().anyMatch(Expression::containsVolatileExpression)) {
+        if (filter.getConjuncts().stream().anyMatch(Expression::containsNoneMovableOrVolatile)) {
             return genAggregate(filter, context);
         }
         if (filter.child() instanceof LogicalRelation) {

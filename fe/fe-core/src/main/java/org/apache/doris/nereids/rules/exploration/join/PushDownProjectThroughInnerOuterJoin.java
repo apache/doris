@@ -61,6 +61,12 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
                                 || j.left().child().getJoinType().isInnerJoin()
                                 || j.left().child().getJoinType().isAsofOuterJoin()
                                 || j.left().child().getJoinType().isAsofInnerJoin())
+                        // a project computing a NoneMovableFunction (e.g. assert_true) or a
+                        // volatile expression must not be pushed below the join: the join
+                        // prunes unmatched rows before the project in the original plan, so the
+                        // pushed-down project would evaluate the expression on a superset of
+                        // rows, turning returned rows into errors (or changing results).
+                        .whenNot(j -> j.left().containsNoneMovableOrVolatile())
                         // Just pushdown project with non-column expr like (t.id + 1)
                         .whenNot(j -> j.left().isAllSlots())
                         .whenNot(j -> j.left().child().hasDistributeHint())
@@ -77,6 +83,10 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
                                 || j.right().child().getJoinType().isInnerJoin()
                                 || j.right().child().getJoinType().isAsofOuterJoin()
                                 || j.right().child().getJoinType().isAsofInnerJoin())
+                        // same as the left variant: reject pushing a project computing a
+                        // NoneMovableFunction (assert_true) or a volatile expression below the
+                        // join, where it would be evaluated on a superset of rows
+                        .whenNot(j -> j.right().containsNoneMovableOrVolatile())
                         // Just pushdown project with non-column expr like (t.id + 1)
                         .whenNot(j -> j.right().isAllSlots())
                         .whenNot(j -> j.right().child().hasDistributeHint())

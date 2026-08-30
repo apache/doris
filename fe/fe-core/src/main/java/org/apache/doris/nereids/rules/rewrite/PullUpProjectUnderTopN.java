@@ -48,7 +48,10 @@ public class PullUpProjectUnderTopN extends OneRewriteRuleFactory {
         return logicalTopN(
                 logicalProject(logicalJoin().when(j -> j.getJoinType().isLeftRightOuterOrCrossJoin()
                     || j.getJoinType().isAsofOuterJoin()))
-                    .whenNot(p -> p.isAllSlots()))
+                    // a project computing a NoneMovableFunction (e.g. assert_true) or a volatile
+                    // expression must not be pulled above the top-N: rows pruned by the top-N
+                    // would stop evaluating the expression, changing its error behavior or results.
+                    .whenNot(p -> p.isAllSlots() || p.containsNoneMovableOrVolatile()))
                 .then(topN -> {
                     LogicalProject<LogicalJoin<Plan, Plan>> project = topN.child();
                     Set<Slot> outputSet = project.child().getOutputSet();

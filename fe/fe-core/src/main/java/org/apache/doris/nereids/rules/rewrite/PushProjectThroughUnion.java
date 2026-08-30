@@ -63,6 +63,20 @@ public class PushProjectThroughUnion extends OneRewriteRuleFactory {
         if (projects.size() != logicalSetOperation.getOutput().size()) {
             return false;
         }
+        if (logicalSetOperation instanceof LogicalUnion) {
+            for (List<NamedExpression> row : ((LogicalUnion) logicalSetOperation).getConstantExprsList()) {
+                for (NamedExpression ne : row) {
+                    // a constant row holding a NoneMovableFunction (e.g. assert_true) or a
+                    // volatile expression must not be pushed through the union: substitution
+                    // copies the expression into every constant row (and regular child), and
+                    // constant folding can eliminate it, suppressing a required error or
+                    // changing results. reject the push.
+                    if (ne.containsNoneMovableOrVolatile()) {
+                        return false;
+                    }
+                }
+            }
+        }
         boolean isAll = logicalSetOperation.getQualifier().equals(Qualifier.ALL);
         Set<ExprId> projectInputExprIds = Sets.newHashSetWithExpectedSize(projects.size());
         for (NamedExpression project : projects) {

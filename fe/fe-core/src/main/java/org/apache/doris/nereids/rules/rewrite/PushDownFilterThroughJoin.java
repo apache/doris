@@ -120,7 +120,13 @@ public class PushDownFilterThroughJoin extends OneRewriteRuleFactory {
             Set<Expression> rightPredicates = Sets.newLinkedHashSet();
             Set<Expression> remainingPredicates = Sets.newLinkedHashSet();
             for (Expression p : filterPredicates) {
-                if (p.containsVolatileExpression()) {
+                /*
+                 * a NoneMovableFunction (e.g. assert_true) or a volatile expression must not
+                 * be pushed through the join: pushing it to a child changes which rows it is
+                 * evaluated on (the child sees a superset of the join output), which changes
+                 * its error behavior or results. keep such predicates above the join.
+                 */
+                if (p.containsNoneMovableOrVolatile()) {
                     remainingPredicates.add(p);
                     continue;
                 }
@@ -162,7 +168,10 @@ public class PushDownFilterThroughJoin extends OneRewriteRuleFactory {
         if (!(predicate instanceof EqualTo)) {
             return false;
         }
-        if (predicate.containsVolatileExpression()) {
+        // same as the pushdown above: a NoneMovableFunction or volatile expression must not
+        // be turned into a join condition either, because the join condition is evaluated on
+        // a different (superset) row set than the original filter
+        if (predicate.containsNoneMovableOrVolatile()) {
             return false;
         }
 

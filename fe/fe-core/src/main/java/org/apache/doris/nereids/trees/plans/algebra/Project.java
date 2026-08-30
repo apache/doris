@@ -154,4 +154,14 @@ public interface Project extends ProjectMergeable {
         }
         return false;
     }
+
+    /** containsNoneMovableOrVolatile */
+    default boolean containsNoneMovableOrVolatile() {
+        for (NamedExpression expression : getProjects()) {
+            if (expression.containsNoneMovableOrVolatile()) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

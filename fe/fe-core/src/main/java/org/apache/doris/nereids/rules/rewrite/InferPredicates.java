@@ -54,6 +54,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * infer additional predicates for `LogicalFilter` and `LogicalJoin`.
@@ -144,9 +145,16 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         filter = visitChildren(this, filter, context);
         Set<Expression> inferredPredicates = pullUpPredicates(filter);
         inferredPredicates.removeAll(pullUpAllPredicates(filter.child()));
-        if (inferredPredicates.isEmpty()) {
+        // NoneMovableFunction (e.g. assert_true) and volatile conjuncts are not pulled up by
+        // PullUpPredicates; keep them so the filter (and its error/side-effect behavior) is
+        // preserved at its original position.
+        Set<Expression> noneMovableConjuncts = filter.getConjuncts().stream()
+                .filter(Expression::containsNoneMovableOrVolatile)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (inferredPredicates.isEmpty() && noneMovableConjuncts.isEmpty()) {
             return filter.child();
         }
+        inferredPredicates.addAll(noneMovableConjuncts);
         if (inferredPredicates.equals(filter.getConjuncts())) {
             return filter;
         } else {
@@ -218,12 +226,12 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         Set<Expression> predicates = new LinkedHashSet<>();
         Set<Slot> planOutputs = plan.getOutputSet();
         for (Expression expr : expressions) {
-            if (expr.containsVolatileExpression()) {
-                // Volatile expressions (e.g. rand(), uuid()) must not be cloned into
-                // subtrees that did not already evaluate them. Otherwise, callers that perform
-                // slot substitution (e.g. SetOp visitors below) would introduce a fresh
-                // per-row evaluation of the volatile expression on a sibling branch, changing
-                // query semantics (see EXCEPT/INTERSECT regression cases).
+            if (expr.containsNoneMovableOrVolatile()) {
+                // Volatile expressions (e.g. rand(), uuid()) and NoneMovableFunctions (e.g.
+                // assert_true) must not be cloned into subtrees that did not already evaluate
+                // them. Otherwise, callers that perform slot substitution (e.g. SetOp visitors
+                // below) would introduce a fresh per-row evaluation of the expression on a
+                // sibling branch, changing query semantics or error behavior.
                 continue;
             }
             Set<Slot> slots = expr.getInputSlots();
@@ -250,9 +258,10 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         Set<Expression> predicates = new LinkedHashSet<>();
         Set<Slot> planOutputs = plan.getOutputSet();
         for (Expression expr : expressions) {
-            if (expr.containsVolatileExpression()) {
-                // See inferNewPredicate for rationale: never clone volatile
-                // predicates into a subtree that did not already evaluate them.
+            if (expr.containsNoneMovableOrVolatile()) {
+                // See inferNewPredicate for rationale: never clone volatile or
+                // NoneMovableFunction predicates into a subtree that did not already evaluate
+                // them.
                 continue;
             }
             Set<Slot> slots = expr.getInputSlots();

@@ -24,7 +24,9 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -35,6 +37,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -136,5 +139,28 @@ class PushFilterInsideJoinTest implements MemoPatternMatchSupported {
                 .matches(
                         logicalJoin().when(join -> join.getHashJoinConjuncts().get(0).equals(eq))
                                 .when(join -> join.getOtherJoinConjuncts().isEmpty()));
+    }
+
+    @Test
+    void testNoneMovableConjunctStaysInFilter() {
+        // assert_true(a > b) must stay in the filter instead of being merged into the join
+        // conditions: the join condition is evaluated per joined row, changing assert_true's
+        // error behavior. the other deterministic conjunct is still pushed into the join.
+        Expression assertTrueExpr = new AssertTrue(
+                new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1)), new StringLiteral("msg"));
+        Expression pushable = new GreaterThan(scan1.getOutput().get(0), scan2.getOutput().get(0));
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .joinEmptyOn(scan2, JoinType.CROSS_JOIN)
+                .filter(ImmutableSet.of(assertTrueExpr, pushable))
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new PushFilterInsideJoin())
+                .matchesFromRoot(
+                        logicalFilter(
+                                logicalJoin()
+                                        .when(join -> join.getOtherJoinConjuncts()
+                                                .equals(ImmutableList.of(pushable)))
+                        ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(assertTrueExpr)))
+                );
     }
 }

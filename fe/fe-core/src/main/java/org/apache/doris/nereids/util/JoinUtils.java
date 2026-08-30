@@ -20,6 +20,9 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
@@ -34,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
@@ -477,5 +481,67 @@ public class JoinUtils {
         // other conjuncts should use join output slot
         return AdjustNullable.doVisitLogicalJoin(
                 join, equalConjunctsSlotMap, false, false);
+    }
+
+    /**
+     * whether any hash or other conjunct of the join contains a NoneMovableFunction (e.g.
+     * assert_true) or a volatile expression. such conjuncts must not be moved onto a different
+     * join edge by join reorder rules: they would be evaluated on a different (superset or
+     * pruned) row set, which changes their error behavior or results.
+     */
+    public static boolean hasSensitiveConjunct(LogicalJoin<?, ?> join) {
+        for (Expression conjunct : join.getHashJoinConjuncts()) {
+            if (conjunct.containsNoneMovableOrVolatile()) {
+                return true;
+            }
+        }
+        for (Expression conjunct : join.getOtherJoinConjuncts()) {
+            if (conjunct.containsNoneMovableOrVolatile()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * whether any logical expression of the group (walking child groups recursively) contains
+     * a NoneMovableFunction (e.g. assert_true) or a volatile expression.
+     */
+    public static boolean groupContainsSensitiveExpression(GroupPlan groupPlan) {
+        return groupContainsSensitiveExpression(groupPlan, new HashSet<>());
+    }
+
+    private static boolean groupContainsSensitiveExpression(GroupPlan groupPlan, Set<GroupId> visitedGroups) {
+        Group group = groupPlan.getGroup();
+        if (!visitedGroups.add(group.getGroupId())) {
+            return false;
+        }
+        for (GroupExpression groupExpression : group.getLogicalExpressions()) {
+            if (planContainsSensitiveExpression(groupExpression.getPlan(), visitedGroups)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean planContainsSensitiveExpression(Plan plan, Set<GroupId> visitedGroups) {
+        if (plan.getExpressions().stream().anyMatch(Expression::containsNoneMovableOrVolatile)) {
+            return true;
+        }
+        for (Plan child : plan.children()) {
+            if (child instanceof GroupPlan) {
+                // Memo.init replaces ordinary children with GroupPlans: a column-pruned child
+                // like Project(B.x) -> Filter(assert_true(B.y > 0)) becomes a harmless Project
+                // group expression whose child is GroupPlan(filterGroup). descend into the
+                // child group to find the sensitive expression, guarding against memo DAG
+                // cycles with a visited group-id set.
+                if (groupContainsSensitiveExpression((GroupPlan) child, visitedGroups)) {
+                    return true;
+                }
+            } else if (planContainsSensitiveExpression(child, visitedGroups)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

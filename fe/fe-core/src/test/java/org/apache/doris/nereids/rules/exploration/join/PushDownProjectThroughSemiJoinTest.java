@@ -20,9 +20,12 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -33,6 +36,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -164,5 +168,29 @@ class PushDownProjectThroughSemiJoinTest implements MemoPatternMatchSupported {
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyExploration(PushDownProjectThroughSemiJoin.INSTANCE.buildRules())
                 .nonMatch(logicalJoin(logicalJoin(logicalProject(), group()), group()));
+    }
+
+    @Test
+    public void testRejectedWhenProjectContainsNoneMovableFunction() {
+        /*
+         * TopJoin(Project(A.k, assert_true(A.k > 0) AS ok, A LEFT SEMI JOIN B), C): the
+         * push-down would copy the project into A, so the assertion would run on rows the
+         * semi join removes (A rows with no B match), turning returned rows into errors.
+         * the push-down must be rejected.
+         */
+        List<NamedExpression> projectExprs = ImmutableList.of(
+                new Alias(new AssertTrue(
+                        new GreaterThan(scan1.getOutput().get(0), Literal.of(0)), new StringLiteral("msg")), "alias"),
+                scan1.getOutput().get(1)
+        );
+        // complex projection contain ti.id, which isn't in Join Condition
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(1, 1))
+                .projectExprs(projectExprs)
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(1, 1))
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyExploration(PushDownProjectThroughSemiJoin.INSTANCE.buildRules())
+                .checkMemo(memo -> Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size()));
     }
 }

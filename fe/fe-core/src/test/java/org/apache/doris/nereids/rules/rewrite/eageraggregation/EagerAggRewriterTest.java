@@ -612,6 +612,30 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
         }
     }
 
+    @Test
+    void testNoneMovableFunctionFilterBlocksPushDownThroughFilter() {
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            String sql = "select count(t1.name), t2.id2"
+                    + " from t1 join t2 on t1.id1 = t2.id2"
+                    + " where assert_true(t1.id1 > 0, 'msg')"
+                    + " group by t2.id2";
+            Plan plan = PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .getPlan();
+            // the filter is treated as a boundary: the eager aggregate is generated on top of
+            // it, so no aggregate is pushed below the filter into the join.
+            LogicalFilter<?> filter = findFirstPlan(plan, LogicalFilter.class);
+            Assertions.assertNotNull(filter, plan.treeString());
+            Assertions.assertFalse(containsPlan(filter.child(), LogicalAggregate.class), plan.treeString());
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
     // =========================================================================
     // NullToNonNullFunction safety guard tests:
     // Agg functions wrapping expressions that convert NULL to non-NULL values

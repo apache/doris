@@ -18,6 +18,12 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -29,6 +35,8 @@ import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 class InnerJoinRightAssociateProjectTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -60,4 +68,39 @@ class InnerJoinRightAssociateProjectTest implements MemoPatternMatchSupported {
                 );
     }
 
+    @Test
+    void testRejectedWhenSensitiveConjunct() {
+        /*
+         * the RightAssociate reorder must be rejected when a conjunct contains a
+         * NoneMovableFunction (assert_true): the reorder would move the conjunct referencing B
+         * from (A join B) join C's evaluation to A join (B join C), where rows pruned by the
+         * new inner join no longer reach it and its required error is suppressed. the plan
+         * keeps the original order.
+         */
+        List<Expression> bottomHashConjunct = ImmutableList.of(
+                new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0)));
+        List<Expression> bottomOtherConjunct = ImmutableList.of(new AssertTrue(
+                new GreaterThan(scan2.getOutput().get(0), new IntegerLiteral(0)), new StringLiteral("msg")));
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN, bottomHashConjunct, bottomOtherConjunct)
+                .project(ImmutableList.of(0, 1, 2))
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(2, 0))
+                .projectAll()
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyExploration(InnerJoinRightAssociateProject.INSTANCE.build())
+                // the transposed shape A join (B join C) must not appear
+                .nonMatch(
+                        logicalProject(
+                                innerLogicalJoin(
+                                        logicalProject(group()),
+                                        logicalProject(innerLogicalJoin(
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")),
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
+                                        ))
+                                )
+                        )
+                );
+    }
 }

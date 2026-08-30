@@ -74,11 +74,14 @@ public class PushDownJoinOtherCondition extends OneRewriteRuleFactory {
                     Set<Expression> rightConjuncts = Sets.newHashSet();
 
                     for (Expression otherConjunct : otherJoinConjuncts) {
-                        // Keep volatile ON predicates in otherJoinConjuncts. Pushing them into a
-                        // child changes their evaluation granularity from per joined row to per
-                        // input row. Repeated volatile occurrences are materialized later by
-                        // AddProjectForVolatileExpression.
-                        if (otherConjunct.containsVolatileExpression()) {
+                        /*
+                         * keep volatile and NoneMovableFunction ON predicates in
+                         * otherJoinConjuncts. pushing them into a child changes their
+                         * evaluation granularity from per joined row to per input row, which
+                         * changes their error behavior or results. repeated volatile
+                         * occurrences are materialized later by AddProjectForVolatileExpression.
+                         */
+                        if (otherConjunct.containsNoneMovableOrVolatile()) {
                             remainingOther.add(otherConjunct);
                         } else if (PUSH_DOWN_LEFT_VALID_TYPE.contains(join.getJoinType())
                                 && allCoveredBy(otherConjunct, join.left().getOutputSet())) {

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -51,6 +52,12 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
                 .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
                 .whenNot(topJoin -> topJoin.isLeadingJoin() || topJoin.left().child().isLeadingJoin())
                 .when(join -> join.left().getProjects().stream().allMatch(expr -> expr instanceof Slot))
+                // same as the plain variant: reject when either the top semi join or the bottom
+                // join owns a NoneMovableFunction (assert_true) or volatile expression.
+                .whenNot(topJoin -> topJoin.getExpressions().stream()
+                        .anyMatch(Expression::containsNoneMovableOrVolatile)
+                        || topJoin.left().child().getExpressions().stream()
+                        .anyMatch(Expression::containsNoneMovableOrVolatile))
                 .then(topSemiJoin -> {
                     LogicalProject<LogicalJoin<Plan, Plan>> project = topSemiJoin.left();
                     LogicalJoin<Plan, Plan> bottomJoin = project.child();
