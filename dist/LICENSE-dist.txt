@@ -1346,6 +1346,8 @@ Eclipse Public License - v2.0 -- licenses/LICENSE-EPL-2.0.txt
     * Jakarta WebSocket - Server API:
         - jakarta.websocket:jakarta.websocket-api:1.1.2 (https://projects.eclipse.org/projects/ee4j.websocket)
     ### The following components use multiple licenses and we choose EPLv2
+    * elkjs:
+        - npm:elkjs:0.12.0 (https://github.com/kieler/elkjs)
     * javax.inject:1 as OSGi bundle:
         - org.glassfish.hk2.external:jakarta.inject:2.6.1 (https://github.com/eclipse-ee4j/glassfish-hk2/external/jakarta.inject)
     * Jakarta Servlet:

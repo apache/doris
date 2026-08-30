@@ -67,6 +67,32 @@ public class BaseController {
         checkWithCookie(request, response, true);
     }
 
+    /**
+     * Authenticate browser-facing UI APIs with the existing opaque session cookie.
+     * Basic Authorization is deliberately not accepted on this boundary.
+     */
+    public SessionValue requireCookieSession(HttpServletRequest request, HttpServletResponse response) {
+        if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
+            throw new UnauthorizedException("Cookie authentication is required");
+        }
+
+        List<String> sessionIds = getCookieValues(request, PALO_SESSION_ID, response);
+        SessionValue sessionValue = HttpAuthManager.getInstance().getSessionValue(sessionIds);
+        if (sessionValue == null) {
+            throw new UnauthorizedException("Cookie is invalid");
+        }
+
+        if (Config.isCloudMode() && !sessionValue.currentUser.isRootUser()
+                && ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus()
+                == Cloud.InstanceInfoPB.Status.OVERDUE) {
+            throw new UnauthorizedException("The warehouse is overdue!");
+        }
+
+        updateCookieAge(request, PALO_SESSION_ID, PALO_SESSION_EXPIRED_TIME, response);
+        setConnectContext(request, sessionValue);
+        return sessionValue;
+    }
+
     public ActionAuthorizationInfo checkWithCookie(HttpServletRequest request,
             HttpServletResponse response, boolean checkAuth) {
         // First we check if the request has Authorization header.
@@ -120,6 +146,7 @@ public class BaseController {
         cookie.setMaxAge(PALO_SESSION_EXPIRED_TIME);
         cookie.setPath("/");
         cookie.setHttpOnly(true);
+        cookie.setAttribute("SameSite", "Lax");
         response.addCookie(cookie);
         if (LOG.isDebugEnabled()) {
             LOG.debug("add session cookie: {} {}", PALO_SESSION_ID, key);
@@ -155,6 +182,16 @@ public class BaseController {
 
         updateCookieAge(request, PALO_SESSION_ID, PALO_SESSION_EXPIRED_TIME, response);
 
+        setConnectContext(request, sessionValue);
+        ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
+        authInfo.fullUserName = sessionValue.currentUser.getQualifiedUser();
+        authInfo.remoteIp = request.getRemoteHost();
+        authInfo.password = sessionValue.password;
+        authInfo.userIdentity = sessionValue.currentUser;
+        return authInfo;
+    }
+
+    private void setConnectContext(HttpServletRequest request, SessionValue sessionValue) {
         ConnectContext ctx = new ConnectContext();
         ctx.setRemoteIP(request.getRemoteHost());
         ctx.setCurrentUserIdentity(sessionValue.currentUser);
@@ -164,12 +201,6 @@ public class BaseController {
             LOG.debug("check cookie success for user: {}, thread: {}",
                     sessionValue.currentUser, Thread.currentThread().getId());
         }
-        ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
-        authInfo.fullUserName = sessionValue.currentUser.getQualifiedUser();
-        authInfo.remoteIp = request.getRemoteHost();
-        authInfo.password = sessionValue.password;
-        authInfo.userIdentity = sessionValue.currentUser;
-        return authInfo;
     }
 
     public List<String> getCookieValues(HttpServletRequest request, String cookieName, HttpServletResponse response) {
@@ -193,6 +224,7 @@ public class BaseController {
                 cookie.setMaxAge(age);
                 cookie.setPath("/");
                 cookie.setHttpOnly(true);
+                cookie.setAttribute("SameSite", "Lax");
                 if (Config.enable_https) {
                     cookie.setSecure(true);
                 } else {
