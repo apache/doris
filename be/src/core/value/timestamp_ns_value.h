@@ -20,7 +20,6 @@
 #include <compare>
 #include <cstdint>
 #include <functional>
-#include <limits>
 #include <string>
 #include <type_traits>
 
@@ -112,11 +111,6 @@ public:
         return time_part_to_nanosecond() / NANOS_PER_MICROSECOND;
     }
 
-    template <typename RHS>
-    int64_t time_part_diff_in_ms(const RHS& rhs) const {
-        return time_part_to_microsecond() - rhs.time_part_to_microsecond();
-    }
-
     // This intentionally compares integral civil seconds and ignores fractional seconds. It is
     // the contract used by sequence_match's second-based pattern conditions.
     template <typename RHS>
@@ -137,22 +131,6 @@ public:
         }
         return (daynr() - rhs.daynr()) * HOUR_PER_DAY * SECOND_PER_HOUR * MS_PER_SECOND +
                time_part_diff_in_ms(rhs);
-    }
-
-    template <typename RHS>
-    int32_t date_diff_in_days(const RHS& rhs) const {
-        return static_cast<int32_t>(daynr() - rhs.daynr());
-    }
-
-    int32_t date_diff_in_days_round_to_zero_by_time(const auto& rhs) const {
-        int32_t days = date_diff_in_days(rhs);
-        const int64_t time_diff = time_part_diff_in_ms(rhs);
-        if (days > 0 && time_diff < 0) {
-            --days;
-        } else if (days < 0 && time_diff > 0) {
-            ++days;
-        }
-        return days;
     }
 
     const char* day_name_with_locale(const char* const* day_names) const {
@@ -208,23 +186,12 @@ public:
 
     auto operator<=>(const TimeStampNsValue&) const = default;
 
-    TimeStampNsValue& operator+=(int64_t seconds) {
-        int64_t delta = 0;
-        DORIS_CHECK(!__builtin_mul_overflow(seconds, NANOS_PER_SECOND, &delta));
-        DORIS_CHECK(!__builtin_add_overflow(_epoch_nanos, delta, &_epoch_nanos));
-        return *this;
-    }
-
-    TimeStampNsValue& operator-=(int64_t seconds) {
-        DORIS_CHECK_NE(seconds, std::numeric_limits<int64_t>::min());
-        return *this += -seconds;
-    }
-
-    uint32_t hash(int seed) const {
-        return HashUtil::hash(&_epoch_nanos, sizeof(_epoch_nanos), seed);
-    }
-
 private:
+    template <typename RHS>
+    int64_t time_part_diff_in_ms(const RHS& rhs) const {
+        return time_part_to_microsecond() - rhs.time_part_to_microsecond();
+    }
+
     int64_t epoch_days() const {
         int64_t days = _epoch_nanos / NANOS_PER_DAY;
         if (_epoch_nanos % NANOS_PER_DAY < 0) {

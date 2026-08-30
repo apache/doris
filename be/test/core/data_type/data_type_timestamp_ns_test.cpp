@@ -24,6 +24,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "core/assert_cast.h"
@@ -44,6 +45,30 @@
 #include "util/timezone_utils.h"
 
 namespace doris {
+namespace {
+
+TimeStampNsValue timestamp_ns_from_string(std::string_view input) {
+    TimeStampNsValue value;
+    const auto status = parse_timestamp_ns(StringRef(input.data(), input.size()), &value);
+    EXPECT_TRUE(status.ok()) << input << ": " << status.to_string();
+    return value;
+}
+
+template <TimeUnit Unit>
+void expect_interval_add(std::string_view input, std::string_view expected) {
+    auto value = timestamp_ns_from_string(input);
+    ASSERT_TRUE(value.date_add_interval<Unit>(TimeInterval(Unit, 1, false)));
+    EXPECT_EQ(value.to_string(), expected);
+}
+
+template <TimeUnit Unit>
+void expect_datetime_trunc(std::string_view expected) {
+    auto value = timestamp_ns_from_string("2024-05-17 12:34:56.123456789");
+    ASSERT_TRUE(value.datetime_trunc<Unit>());
+    EXPECT_EQ(value.to_string(), expected);
+}
+
+} // namespace
 
 TEST(DataTypeTimeStampNsTest, TypeFamilyClassifiersKeepTimestampNsIndependent) {
     EXPECT_FALSE(is_date_type(TYPE_TIMESTAMP_NS));
@@ -64,6 +89,8 @@ TEST(DataTypeTimeStampNsTest, Int64EpochRangeAndOrdering) {
     const TimeStampNsValue minimum(std::numeric_limits<int64_t>::min());
     const TimeStampNsValue maximum(std::numeric_limits<int64_t>::max());
 
+    EXPECT_EQ(TimeStampNsValue().to_date_int_val(), 0);
+    EXPECT_EQ(epoch.to_date_int_val(), epoch.epoch_nanos());
     EXPECT_EQ(epoch.to_string(), "1970-01-01 00:00:00.000000000");
     EXPECT_EQ(before_epoch.to_string(), "1969-12-31 23:59:59.999999999");
     EXPECT_EQ(minimum.to_string(), "1677-09-21 00:12:43.145224192");
@@ -141,6 +168,12 @@ TEST(DataTypeTimeStampNsTest, EpochDerivedAndCivilAccessorsAgreeAtBoundaries) {
                   value.time_part_to_nanosecond() / TimeStampNsValue::NANOS_PER_MICROSECOND);
         EXPECT_EQ(value.weekday(), calc_weekday(expected_daynr, false));
         EXPECT_EQ(value.day_of_week(), (value.weekday() + 1) % 7 + 1);
+        EXPECT_EQ(value.year_of_week(), civil_date.year_of_week());
+        EXPECT_EQ(value.day_of_year(), civil_date.day_of_year());
+        for (uint8_t mode = 0; mode < 8; ++mode) {
+            EXPECT_EQ(value.week(mode), civil_date.week(mode));
+            EXPECT_EQ(value.year_week(mode), civil_date.year_week(mode));
+        }
         EXPECT_EQ(civil_date.year(), test_case.year);
         EXPECT_EQ(civil_date.month(), test_case.month);
         EXPECT_EQ(civil_date.day(), test_case.day);
@@ -154,6 +187,48 @@ TEST(DataTypeTimeStampNsTest, EpochDerivedAndCivilAccessorsAgreeAtBoundaries) {
 
     EXPECT_EQ(TimeStampNsValue(-1).datetime_diff_in_seconds(TimeStampNsValue(0)), -1);
     EXPECT_EQ(TimeStampNsValue(0).datetime_diff_in_seconds(TimeStampNsValue(-1)), 1);
+}
+
+TEST(DataTypeTimeStampNsTest, DifferenceHelpersHandleNanosecondsAndMixedDateTimeV2) {
+    const TimeStampNsValue positive(1001);
+    const TimeStampNsValue negative(-1001);
+    EXPECT_EQ(positive.datetime_diff_in_microseconds(negative), 2);
+    EXPECT_EQ(negative.datetime_diff_in_microseconds(positive), -2);
+
+    const TimeStampNsValue minimum(std::numeric_limits<int64_t>::min());
+    const TimeStampNsValue maximum(std::numeric_limits<int64_t>::max());
+    const auto expected_extreme_diff =
+            static_cast<int64_t>((static_cast<__int128>(std::numeric_limits<int64_t>::max()) -
+                                  std::numeric_limits<int64_t>::min()) /
+                                 TimeStampNsValue::NANOS_PER_MICROSECOND);
+    EXPECT_EQ(maximum.datetime_diff_in_microseconds(minimum), expected_extreme_diff);
+
+    DateV2Value<DateTimeV2ValueType> datetimev2;
+    datetimev2.unchecked_set_time(1970, 1, 1, 0, 0, 0, 1);
+    const TimeStampNsValue timestamp_ns(2500);
+    EXPECT_EQ(timestamp_ns.datetime_diff_in_seconds(datetimev2), 0);
+    EXPECT_EQ(timestamp_ns.datetime_diff_in_microseconds(datetimev2), 1);
+}
+
+TEST(DataTypeTimeStampNsTest, CalendarNamesAndConservativeFormatting) {
+    const auto value = timestamp_ns_from_string("2024-02-29 12:34:56.123456789");
+    const char* const day_names[] = {"Monday", "Tuesday",  "Wednesday", "Thursday",
+                                     "Friday", "Saturday", "Sunday"};
+    const char* const month_names[] = {"",        "January",  "February", "March",  "April",
+                                       "May",     "June",     "July",     "August", "September",
+                                       "October", "November", "December"};
+    EXPECT_STREQ(value.day_name_with_locale(day_names), "Thursday");
+    EXPECT_STREQ(value.month_name_with_locale(month_names), "February");
+
+    constexpr std::string_view format = "%Y-%m-%d %H:%i:%s.%n";
+    char formatted[40] = {};
+    ASSERT_TRUE(value.to_format_string_conservative(format.data(), format.size(), formatted,
+                                                    sizeof(formatted)));
+    EXPECT_STREQ(formatted, "2024-02-29 12:34:56.123456789");
+
+    char insufficient_buffer[4] = {};
+    EXPECT_FALSE(value.to_format_string_conservative(
+            format.data(), format.size(), insufficient_buffer, sizeof(insufficient_buffer)));
 }
 
 TEST(DataTypeTimeStampNsTest, ParseAtFixedNanosecondPrecision) {
@@ -275,6 +350,48 @@ TEST(DataTypeTimeStampNsTest, CivilRoundTripPreservesSubMicrosecondDigits) {
     EXPECT_EQ(round_trip.to_date_int_val(), civil.to_date_int_val());
 }
 
+TEST(DataTypeTimeStampNsTest, FromDateTimeRejectsOutOfRangeWithoutChangingValue) {
+    DateV2Value<DateTimeV2ValueType> before_minimum;
+    before_minimum.unchecked_set_time(1677, 9, 21, 0, 0, 0, 0);
+
+    TimeStampNsValue value(42);
+    EXPECT_FALSE(value.from_datetime(before_minimum));
+    EXPECT_EQ(value.epoch_nanos(), 42);
+}
+
+TEST(DataTypeTimeStampNsTest, IntervalAdditionSupportsEveryRegisteredUnit) {
+    constexpr std::string_view input = "2024-01-15 12:30:40.123456789";
+    expect_interval_add<TimeUnit::MICROSECOND>(input, "2024-01-15 12:30:40.123457789");
+    expect_interval_add<TimeUnit::MILLISECOND>(input, "2024-01-15 12:30:40.124456789");
+    expect_interval_add<TimeUnit::SECOND>(input, "2024-01-15 12:30:41.123456789");
+    expect_interval_add<TimeUnit::MINUTE>(input, "2024-01-15 12:31:40.123456789");
+    expect_interval_add<TimeUnit::HOUR>(input, "2024-01-15 13:30:40.123456789");
+    expect_interval_add<TimeUnit::DAY>(input, "2024-01-16 12:30:40.123456789");
+    expect_interval_add<TimeUnit::WEEK>(input, "2024-01-22 12:30:40.123456789");
+    expect_interval_add<TimeUnit::MONTH>(input, "2024-02-15 12:30:40.123456789");
+    expect_interval_add<TimeUnit::QUARTER>(input, "2024-04-15 12:30:40.123456789");
+    expect_interval_add<TimeUnit::YEAR>(input, "2025-01-15 12:30:40.123456789");
+}
+
+TEST(DataTypeTimeStampNsTest, DateTimeTruncSupportsEveryRegisteredUnitAndChecksRange) {
+    expect_datetime_trunc<TimeUnit::SECOND>("2024-05-17 12:34:56.000000000");
+    expect_datetime_trunc<TimeUnit::MINUTE>("2024-05-17 12:34:00.000000000");
+    expect_datetime_trunc<TimeUnit::HOUR>("2024-05-17 12:00:00.000000000");
+    expect_datetime_trunc<TimeUnit::DAY>("2024-05-17 00:00:00.000000000");
+    expect_datetime_trunc<TimeUnit::WEEK>("2024-05-13 00:00:00.000000000");
+    expect_datetime_trunc<TimeUnit::MONTH>("2024-05-01 00:00:00.000000000");
+    expect_datetime_trunc<TimeUnit::QUARTER>("2024-04-01 00:00:00.000000000");
+    expect_datetime_trunc<TimeUnit::YEAR>("2024-01-01 00:00:00.000000000");
+
+    TimeStampNsValue minimum(std::numeric_limits<int64_t>::min());
+    EXPECT_FALSE(minimum.datetime_trunc<TimeUnit::DAY>());
+    EXPECT_EQ(minimum.epoch_nanos(), std::numeric_limits<int64_t>::min());
+
+    auto unchanged = timestamp_ns_from_string("2024-05-17 12:34:56.123456789");
+    EXPECT_FALSE(unchanged.datetime_trunc<TimeUnit::MICROSECOND>());
+    EXPECT_EQ(unchanged.to_string(), "2024-05-17 12:34:56.123456789");
+}
+
 TEST(DataTypeTimeStampNsTest, CheckedIntervalAdditionRejectsEpochOverflow) {
     const TimeStampNsValue minimum(std::numeric_limits<int64_t>::min());
     const TimeStampNsValue maximum(std::numeric_limits<int64_t>::max());
@@ -386,7 +503,7 @@ TEST(DataTypeTimeStampNsTest, DataTypeLiteralField) {
     EXPECT_EQ(field_with_type.scale, 9);
 }
 
-TEST(DataTypeTimeStampNsTest, FormattingAndHash) {
+TEST(DataTypeTimeStampNsTest, FormattingAndStdHash) {
     TimeStampNsValue value;
     ASSERT_TRUE(parse_timestamp_ns(StringRef("2024-02-29 12:34:56.123456789"), &value).ok());
 
@@ -397,7 +514,11 @@ TEST(DataTypeTimeStampNsTest, FormattingAndHash) {
     EXPECT_STREQ(text, "2024-02-29 12:34:56.123456789");
     EXPECT_EQ(end, text + std::strlen(text) + 1);
 
-    EXPECT_EQ(value.hash(17), value.hash(17));
+    char buffer[40] = {};
+    const int32_t length = value.to_buffer(buffer);
+    EXPECT_EQ(length, 29);
+    EXPECT_EQ(std::string_view(buffer, length), "2024-02-29 12:34:56.123456789");
+
     EXPECT_EQ(std::hash<TimeStampNsValue> {}(value), std::hash<int64_t> {}(value.epoch_nanos()));
 }
 
