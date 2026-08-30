@@ -1279,9 +1279,18 @@ Status SegmentIterator::_apply_index_expr() {
     // are therefore evaluated without the candidate; the top-level
     // single-predicate consumption stays exact within the candidate.
     auto evaluate_without_candidate_for_compound = [&](const VExprContextSPtr& expr_ctx) {
+        const auto& root = expr_ctx->root();
+        DORIS_CHECK(root != nullptr);
+        const VExpr* effective_root = root.get();
+        if (root->is_virtual_slot_ref()) {
+            const auto& virtual_expr =
+                    assert_cast<const VirtualSlotRef*>(root.get())->get_virtual_column_expr();
+            DORIS_CHECK(virtual_expr != nullptr);
+            effective_root = virtual_expr.get();
+        }
         const bool suppress = _index_query_context != nullptr &&
                               _index_query_context->candidate_rows != nullptr &&
-                              expr_ctx->root()->node_type() == TExprNodeType::COMPOUND_PRED;
+                              effective_root->node_type() == TExprNodeType::COMPOUND_PRED;
         const roaring::Roaring* saved = suppress ? _index_query_context->candidate_rows : nullptr;
         if (suppress) {
             _index_query_context->candidate_rows = nullptr;
