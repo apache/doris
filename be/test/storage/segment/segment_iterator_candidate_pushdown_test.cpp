@@ -27,6 +27,7 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "common/config.h"
@@ -40,7 +41,9 @@
 #include "storage/index/index_iterator.h"
 #include "storage/index/index_query_context.h"
 #include "storage/olap_common.h"
+#include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
+#include "storage/segment/column_reader.h"
 #include "storage/tablet/tablet_schema.h"
 
 #if defined(__clang__)
@@ -86,16 +89,23 @@ public:
         _captured_candidate = _iter->_index_query_context != nullptr
                                       ? _iter->_index_query_context->candidate_rows
                                       : nullptr;
+        if (_captured_candidate != nullptr) {
+            _captured_candidate_copy = *_captured_candidate;
+        }
         return Status::OK();
     }
 
     bool captured() const { return _captured; }
     const roaring::Roaring* captured_candidate() const { return _captured_candidate; }
+    const std::optional<roaring::Roaring>& captured_candidate_copy() const {
+        return _captured_candidate_copy;
+    }
 
 private:
     SegmentIterator* _iter;
     bool _captured = false;
     const roaring::Roaring* _captured_candidate = nullptr;
+    std::optional<roaring::Roaring> _captured_candidate_copy;
 };
 
 // Produces a deterministic inverted-index result while modeling the contract
@@ -183,6 +193,26 @@ public:
     Status read_from_index(const IndexParam&) override { return Status::OK(); }
     Status read_null_bitmap(InvertedIndexQueryCacheHandle*) override { return Status::OK(); }
     Result<bool> has_null() override { return false; }
+};
+
+class RangePruningColumnIterator : public ColumnIterator {
+public:
+    explicit RangePruningColumnIterator(RowRanges row_ranges)
+            : _row_ranges(std::move(row_ranges)) {}
+
+    Status seek_to_ordinal(ordinal_t ord) override { return Status::OK(); }
+    ordinal_t get_current_ordinal() const override { return 0; }
+
+    Status get_row_ranges_by_zone_map(
+            const AndBlockColumnPredicate* col_predicates,
+            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+            RowRanges* row_ranges) override {
+        *row_ranges = _row_ranges;
+        return Status::OK();
+    }
+
+private:
+    RowRanges _row_ranges;
 };
 
 TabletSchemaSPtr make_tablet_schema() {
@@ -296,6 +326,17 @@ protected:
         _iter->_col_predicates.emplace_back(std::make_shared<ShrinkingPredicate>(0, result));
     }
 
+    void add_range_pruning_condition(rowid_t from, rowid_t to) {
+        _iter->_column_iterators[0] =
+                std::make_unique<RangePruningColumnIterator>(RowRanges::create_single(from, to));
+        auto result = std::make_shared<roaring::Roaring>();
+        auto predicate = std::make_shared<ShrinkingPredicate>(0, std::move(result));
+        auto block_predicate = AndBlockColumnPredicate::create_shared();
+        block_predicate->add_column_predicate(
+                SingleColumnBlockPredicate::create_unique(std::move(predicate)));
+        _iter->_opts.col_id_to_predicates.emplace(0, std::move(block_predicate));
+    }
+
     double _saved_ratio = 0;
     std::shared_ptr<Segment> _segment;
     std::shared_ptr<TabletSchema> _tablet_schema;
@@ -332,6 +373,53 @@ TEST_F(SegmentIteratorCandidatePushdownTest, refreshes_after_index_conjuncts_shr
 
     ASSERT_TRUE(_expr->captured());
     EXPECT_EQ(_expr->captured_candidate(), &_iter->_row_bitmap);
+    EXPECT_EQ(_iter->_index_query_context->candidate_rows, nullptr);
+}
+
+TEST_F(SegmentIteratorCandidatePushdownTest, external_row_ranges_engage_candidate_before_expr) {
+    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    _iter->_row_bitmap.addRange(0, 100); // full segment: no engage without the split
+    _iter->_opts.row_ranges = RowRanges::create_single(0, 5);
+
+    ASSERT_TRUE(_iter->_get_row_ranges_by_column_conditions().ok());
+
+    ASSERT_TRUE(_expr->captured());
+    ASSERT_TRUE(_expr->captured_candidate_copy().has_value());
+    EXPECT_EQ(_expr->captured_candidate_copy()->cardinality(), 5);
+    EXPECT_TRUE(_expr->captured_candidate_copy()->contains(0));
+    EXPECT_FALSE(_expr->captured_candidate_copy()->contains(5));
+    EXPECT_EQ(_iter->_index_query_context->candidate_rows, nullptr);
+}
+
+TEST_F(SegmentIteratorCandidatePushdownTest, delete_bitmap_engages_candidate_before_expr) {
+    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    _iter->_row_bitmap.addRange(0, 100); // full segment: no engage without deletes
+    auto deleted_rows = std::make_shared<roaring::Roaring>();
+    deleted_rows->addRange(5, 100);
+    _iter->_opts.delete_bitmap.emplace(_iter->segment_id(), std::move(deleted_rows));
+
+    ASSERT_TRUE(_iter->_get_row_ranges_by_column_conditions().ok());
+
+    ASSERT_TRUE(_expr->captured());
+    ASSERT_TRUE(_expr->captured_candidate_copy().has_value());
+    EXPECT_EQ(_expr->captured_candidate_copy()->cardinality(), 5);
+    EXPECT_TRUE(_expr->captured_candidate_copy()->contains(4));
+    EXPECT_FALSE(_expr->captured_candidate_copy()->contains(5));
+    EXPECT_EQ(_iter->_index_query_context->candidate_rows, nullptr);
+}
+
+TEST_F(SegmentIteratorCandidatePushdownTest, condition_ranges_engage_candidate_before_expr) {
+    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    _iter->_row_bitmap.addRange(0, 100); // full segment: no engage without range pruning
+    add_range_pruning_condition(0, 5);
+
+    ASSERT_TRUE(_iter->_get_row_ranges_by_column_conditions().ok());
+
+    ASSERT_TRUE(_expr->captured());
+    ASSERT_TRUE(_expr->captured_candidate_copy().has_value());
+    EXPECT_EQ(_expr->captured_candidate_copy()->cardinality(), 5);
+    EXPECT_TRUE(_expr->captured_candidate_copy()->contains(0));
+    EXPECT_FALSE(_expr->captured_candidate_copy()->contains(5));
     EXPECT_EQ(_iter->_index_query_context->candidate_rows, nullptr);
 }
 
