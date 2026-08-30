@@ -32,8 +32,10 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "core/data_type/data_type_number.h"
+#include "exprs/vcompound_pred.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/virtual_slot_ref.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_iterator.h"
 #include "storage/index/index_query_context.h"
@@ -94,6 +96,55 @@ private:
     SegmentIterator* _iter;
     bool _captured = false;
     const roaring::Roaring* _captured_candidate = nullptr;
+};
+
+// Produces a deterministic inverted-index result while modeling the contract
+// of a candidate-consuming leaf: only its TRUE bitmap is candidate-restricted;
+// its NULL bitmap remains segment-wide so compound SQL three-valued logic can
+// distinguish FALSE from UNKNOWN.
+class CandidateRestrictedBitmapExpr : public VExpr {
+public:
+    CandidateRestrictedBitmapExpr(SegmentIterator* iter, std::initializer_list<uint32_t> true_rows,
+                                  std::initializer_list<uint32_t> null_rows)
+            : _iter(iter) {
+        _data_type = make_nullable(std::make_shared<DataTypeUInt8>());
+        for (uint32_t row : true_rows) {
+            _true_rows.add(row);
+        }
+        for (uint32_t row : null_rows) {
+            _null_rows.add(row);
+        }
+    }
+
+    const std::string& expr_name() const override {
+        static const std::string kName = "CandidateRestrictedBitmapExpr";
+        return kName;
+    }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::NotSupported("bitmap-only test expression");
+    }
+
+    Status evaluate_inverted_index(VExprContext* context, uint32_t) override {
+        _evaluated = true;
+        auto data = std::make_shared<roaring::Roaring>(_true_rows);
+        if (_iter->_index_query_context->candidate_rows != nullptr) {
+            *data &= *_iter->_index_query_context->candidate_rows;
+        }
+        context->get_index_context()->set_index_result_for_expr(
+                this, InvertedIndexResultBitmap(std::move(data),
+                                                std::make_shared<roaring::Roaring>(_null_rows)));
+        return Status::OK();
+    }
+
+    bool evaluated() const { return _evaluated; }
+
+private:
+    SegmentIterator* _iter;
+    roaring::Roaring _true_rows;
+    roaring::Roaring _null_rows;
+    bool _evaluated = false;
 };
 
 // An indexed predicate stub that shrinks the row bitmap to a fixed set,
@@ -164,6 +215,44 @@ VExprContextSPtr make_capturing_ctx(const std::shared_ptr<CapturingExpr>& expr) 
     auto index_ctx = std::make_shared<IndexExecContext>(index_iters, storage_types, status_map,
                                                         nullptr, nullptr, column_iter_opts);
     ctx->set_index_context(index_ctx);
+    return ctx;
+}
+
+TExprNode make_compound_node(TExprOpcode::type opcode, int num_children) {
+    TExprNode node;
+    node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+    node.__set_node_type(TExprNodeType::COMPOUND_PRED);
+    node.__set_opcode(opcode);
+    node.__set_num_children(num_children);
+    node.__set_is_nullable(true);
+    return node;
+}
+
+VExprContextSPtr make_virtual_slot_ctx(const VExprSPtr& virtual_expr) {
+    TExprNode node;
+    node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+    node.__set_node_type(TExprNodeType::VIRTUAL_SLOT_REF);
+    node.__set_num_children(0);
+    node.__set_is_nullable(true);
+    node.__set_label("virtual_compound");
+    TSlotRef slot_ref;
+    slot_ref.__set_slot_id(-1);
+    slot_ref.__set_tuple_id(-1);
+    node.__set_slot_ref(slot_ref);
+
+    auto root = VirtualSlotRef::create_shared(node);
+    root->set_virtual_column_expr(virtual_expr);
+    static const std::string kColumnName = "virtual_compound";
+    root->set_column_name(&kColumnName);
+    root->set_column_data_type(make_nullable(std::make_shared<DataTypeUInt8>()));
+
+    auto ctx = std::make_shared<VExprContext>(root);
+    std::vector<std::unique_ptr<IndexIterator>> index_iters;
+    std::vector<IndexFieldNameAndTypePair> storage_types;
+    std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
+    ColumnIteratorOptions column_iter_opts;
+    ctx->set_index_context(std::make_shared<IndexExecContext>(
+            index_iters, storage_types, status_map, nullptr, nullptr, column_iter_opts));
     return ctx;
 }
 
@@ -278,6 +367,36 @@ TEST_F(SegmentIteratorCandidatePushdownTest, compound_root_evaluates_without_can
             << "the virtual-column projection loop must suppress the candidate "
                "for compound roots too";
     EXPECT_EQ(_iter->_index_query_context->candidate_rows, nullptr);
+}
+
+TEST_F(SegmentIteratorCandidatePushdownTest,
+       virtual_slot_wrapped_compound_preserves_three_valued_logic) {
+    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    _iter->_row_bitmap.add(0); // 1% of 100 rows: candidate engages
+
+    // At row 0, A is NULL and B is FALSE, so SQL requires
+    // NOT(A AND B) = NOT(FALSE) = TRUE. A also has a TRUE row outside the
+    // candidate so a candidate-restricted evaluation makes its TRUE bitmap
+    // empty and exposes VCompoundPred's invalid early exit.
+    auto nullable_a = std::make_shared<CandidateRestrictedBitmapExpr>(
+            _iter.get(), std::initializer_list<uint32_t> {50}, std::initializer_list<uint32_t> {0});
+    auto false_b = std::make_shared<CandidateRestrictedBitmapExpr>(
+            _iter.get(), std::initializer_list<uint32_t> {}, std::initializer_list<uint32_t> {});
+    auto and_expr = VCompoundPred::create_shared(make_compound_node(TExprOpcode::COMPOUND_AND, 2));
+    and_expr->add_child(nullable_a);
+    and_expr->add_child(false_b);
+    auto not_expr = VCompoundPred::create_shared(make_compound_node(TExprOpcode::COMPOUND_NOT, 1));
+    not_expr->add_child(and_expr);
+    auto ctx = make_virtual_slot_ctx(not_expr);
+    _iter->_common_expr_ctxs_push_down = {ctx};
+
+    ASSERT_TRUE(_iter->_get_row_ranges_by_column_conditions().ok());
+
+    const auto* result = ctx->get_index_context()->get_index_result_for_expr(not_expr.get());
+    ASSERT_NE(result, nullptr);
+    EXPECT_TRUE(false_b->evaluated()) << "AND must evaluate FALSE B after nullable A";
+    EXPECT_TRUE(result->get_data_bitmap()->contains(0))
+            << "NOT(NULL AND FALSE) must preserve candidate row 0";
 }
 
 // A non-finite configured ratio must never engage the pushdown (the multiply

@@ -74,9 +74,9 @@ private:
 
     DISI* _lead1 = nullptr;
     DISI* _lead2 = nullptr;
-    // Norm source for scoring: always a real postings iterator, never the
-    // pushed-down candidate bitmap (whose norm is a meaningless constant).
-    DISI* _norm_source = nullptr;
+    // Norm source for scoring: only an exact term iterator owns per-document
+    // norms. Candidate and multi-term union iterators remain approximations.
+    TermPositionsIterator* _norm_source = nullptr;
     std::vector<DISI*> _others;
     std::vector<DISI> _iterators;
 

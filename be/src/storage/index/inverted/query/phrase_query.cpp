@@ -74,8 +74,8 @@ void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
         _others.emplace_back(&_iterators[i]);
     }
     for (auto& iter : _iterators) {
-        if (!std::holds_alternative<RoaringDocIdIterPtr>(iter)) {
-            _norm_source = &iter;
+        if (const auto* term_iter = std::get_if<TermPositionsIterPtr>(&iter)) {
+            _norm_source = term_iter->get();
             break;
         }
     }
@@ -188,7 +188,7 @@ void PhraseQuery::search_by_skiplist(roaring::Roaring& roaring) {
                 continue;
             }
             roaring.add(doc);
-            int32_t norm = visit_node(*_norm_source, Norm {});
+            int32_t norm = _norm_source->norm();
             float score = _phrase_similarity->score(phrase_freq, static_cast<int64_t>(norm));
 
             _context->collection_similarity->collect(doc, score);
