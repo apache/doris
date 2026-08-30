@@ -370,6 +370,10 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         if (constraints.isEmpty()) {
             return constraints;
         }
+        if (table.isBeingSynced()) {
+            logDistributionMappingFallback(table, "table is being synchronized by CCR");
+            return ImmutableList.of();
+        }
         TableNameInfo tableNameInfo = TableNameInfoUtils.fromCatalogDb(
                 table.getDatabase().getCatalog(), table.getDatabase(), table);
         readLock();
@@ -1205,6 +1209,10 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         }
         if (table.isTemporary()) {
             throw new AnalysisException("Distribution mapping constraint does not support temporary tables");
+        }
+        if (table.isBeingSynced()) {
+            throw new AnalysisException(
+                    "Distribution mapping constraint does not support tables being synchronized by CCR");
         }
         validateColumnsExist(table, constraint.getDeterminantColumnNames(), toKey(tableNameInfo));
         validateColumnsExist(table, constraint.getDistributionColumnNames(), toKey(tableNameInfo));

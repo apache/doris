@@ -598,6 +598,8 @@ public class TableProperty implements GsonPostProcessable {
         properties.remove(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
         storagePolicy = "";
         properties.remove(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
+        properties.remove(DISTRIBUTION_MAPPING_CONSTRAINTS_PROPERTY);
+        distributionMappingConstraints = ImmutableMap.of();
         properties.remove(DynamicPartitionProperty.STORAGE_POLICY);
         dynamicPartitionProperty.clearStoragePolicy();
     }

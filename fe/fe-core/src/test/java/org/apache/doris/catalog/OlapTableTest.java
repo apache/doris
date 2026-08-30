@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.cloud.common.util.CloudPropertyAnalyzer;
 import org.apache.doris.cloud.proto.Cloud;
@@ -167,6 +168,23 @@ public class OlapTableTest {
         Assert.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().isExist());
         Assert.assertFalse(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
         Assert.assertEquals((short) 3, olapTable.getDefaultReplicaAllocation().getTotalReplicaNum());
+    }
+
+    @Test
+    public void testBeingSyncedPropertiesRemoveDistributionMappings() {
+        TableProperty tableProperty = new TableProperty(Maps.newHashMap());
+        tableProperty.addDistributionMappingConstraint(new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("d1"), List.of("k1")));
+        OlapTable olapTable = new OlapTable();
+        olapTable.setTableProperty(tableProperty);
+        olapTable.setPartitionInfo(Mockito.mock(PartitionInfo.class));
+
+        olapTable.setBeingSyncedProperties();
+
+        Assert.assertTrue(olapTable.isBeingSynced());
+        Assert.assertTrue(tableProperty.getDistributionMappingConstraints().isEmpty());
+        Assert.assertFalse(tableProperty.getProperties().containsKey(
+                TableProperty.DISTRIBUTION_MAPPING_CONSTRAINTS_PROPERTY));
     }
 
     @Test

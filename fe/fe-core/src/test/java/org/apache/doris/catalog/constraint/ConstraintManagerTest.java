@@ -230,6 +230,21 @@ class ConstraintManagerTest {
     }
 
     @Test
+    void addDistributionMappingRejectsBeingSyncedTable() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.isWriteLockHeldByCurrentThread()).thenReturn(true);
+        Mockito.when(table.getCatalogId()).thenReturn(InternalCatalog.INTERNAL_CATALOG_ID);
+        Mockito.when(table.isBeingSynced()).thenReturn(true);
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("d1"), List.of("k1"));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> mgr.addDistributionMappingConstraint(T1, table, mapping));
+
+        Assertions.assertTrue(exception.getMessage().contains("being synchronized by CCR"));
+    }
+
+    @Test
     void distributionMappingBindingUsesStableColumnIdsAcrossSchemaVersions() {
         OlapTable table = Mockito.mock(OlapTable.class);
         Column determinant = new Column("d1", Type.INT);
@@ -345,6 +360,19 @@ class ConstraintManagerTest {
             Assertions.assertEquals(List.of(mapping),
                     mgr.getDistributionMappingConstraintsForPlanning(table));
         }
+    }
+
+    @Test
+    void distributionMappingPlanningFallsBackForBeingSyncedTable() {
+        TableProperty tableProperty = new TableProperty(new HashMap<>());
+        OlapTable table = mockInternalMappingTable(tableProperty);
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping", "mapping_id", List.of("d1"), List.of("k1")).bindTo(table);
+        tableProperty.addDistributionMappingConstraint(mapping);
+        Mockito.when(table.isBeingSynced()).thenReturn(true);
+
+        Assertions.assertEquals(List.of(mapping), mgr.getDistributionMappingConstraints(table));
+        Assertions.assertTrue(mgr.getDistributionMappingConstraintsForPlanning(table).isEmpty());
     }
 
     @Test

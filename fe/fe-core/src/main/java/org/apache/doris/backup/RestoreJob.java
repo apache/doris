@@ -642,6 +642,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     continue;
                 }
 
+                if (!env.getConstraintManager().getDistributionMappingConstraints(olapTbl).isEmpty()) {
+                    status = new Status(ErrCode.COMMON_ERROR,
+                            "Cannot restore into existing table " + olapTbl.getName()
+                                    + " because it has distribution mapping constraints. "
+                                    + "Drop those constraints before using non-atomic restore.");
+                    return;
+                }
+
                 olapTbl.setState(OlapTableState.RESTORE);
                 // set restore status for partitions
                 BackupOlapTableInfo tblInfo = jobInfo.backupOlapTableObjects.get(tableName);
