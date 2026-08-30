@@ -799,6 +799,12 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MOR_VALUE_PREDICATE_PUSHDOWN_TABLES
             = "enable_mor_value_predicate_pushdown_tables";
 
+    public static final String ENABLE_SEQ_MAP_CANDIDATE_KEY_SCAN =
+            "enable_seq_map_candidate_key_scan";
+
+    public static final String SEQ_MAP_CANDIDATE_KEY_MAX_COUNT =
+            "seq_map_candidate_key_max_count";
+
     public static final String READ_MOR_AS_DUP_TABLES = "read_mor_as_dup_tables";
 
     // When set use fix replica = true, the fixed replica maybe bad, try to use the health one if
@@ -2386,6 +2392,21 @@ public class SessionVariable implements Serializable, Writable {
             + "arated list of MOR tables to enable value predicate pushdown. "
             + "Format: db1.tbl1,db2.tbl2 or * for all MOR tables.")
     public String enableMorValuePredicatePushdownTables = "";
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_SEQ_MAP_CANDIDATE_KEY_SCAN,
+            needForward = true,
+            description = "Enable two-phase candidate-key pruning for UNIQUE MOR tables "
+                    + "with sequence mapping")
+    public boolean enableSeqMapCandidateKeyScan = false;
+
+    @VarAttrDef.VarAttr(
+            name = SEQ_MAP_CANDIDATE_KEY_MAX_COUNT,
+            needForward = true,
+            checker = "checkSeqMapCandidateKeyMaxCount",
+            description = "Maximum sequence-mapping candidate keys retained across all scanners "
+                    + "for a tablet; exceeding the limit falls back to the normal MOR scan")
+    public long seqMapCandidateKeyMaxCount = 100000;
 
     // Comma-separated list of MOR tables to read as DUP (skip merge, skip delete sign filter).
     @VarAttrDef.VarAttr(name = READ_MOR_AS_DUP_TABLES, needForward = true,
@@ -5494,6 +5515,8 @@ public class SessionVariable implements Serializable, Writable {
         // Fragment reports are decoded by FE, whose limit can be lower than a rolling-upgrade BE's.
         tResult.setCoordinatorThriftMaxMessageSize(Config.thrift_max_message_size);
         tResult.setSupportsExternalFileReportAck(true);
+        tResult.setEnableSeqMapCandidateKeyScan(enableSeqMapCandidateKeyScan);
+        tResult.setSeqMapCandidateKeyMaxCount(seqMapCandidateKeyMaxCount);
         tResult.setMemLimit(maxExecMemByte);
         tResult.setMaxScanMemRatio(maxScanMemRatio);
         tResult.setEnableAdaptiveScan(enableAdaptiveScan);
@@ -6296,6 +6319,19 @@ public class SessionVariable implements Serializable, Writable {
             }
         } catch (NumberFormatException e) {
             throw new InvalidParameterException(AGG_PHASE + " must be a valid number between 0 and 4");
+        }
+    }
+
+    public void checkSeqMapCandidateKeyMaxCount(String maxCountStr) {
+        try {
+            long maxCount = Long.parseLong(maxCountStr);
+            if (maxCount <= 0) {
+                throw new InvalidParameterException(
+                        SEQ_MAP_CANDIDATE_KEY_MAX_COUNT + " should be greater than 0");
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(
+                    SEQ_MAP_CANDIDATE_KEY_MAX_COUNT + " must be a valid number greater than 0");
         }
     }
 

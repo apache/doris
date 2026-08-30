@@ -389,6 +389,12 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
         // col_id_to_predicates is keyed by read-schema ordinal.
         int32_t column_id = entry.first;
         const TabletColumn& col = *schema->column(column_id);
+        // Candidate scans need a baseline after key pruning but before value-driver pruning.
+        // Keep value predicates for the iterator-level index pass so every key-relevant segment
+        // contributes to seq_map_candidate_full_scan_rows.
+        if (read_options.is_seq_map_candidate_scan && !col.is_key()) {
+            continue;
+        }
         std::shared_ptr<ColumnReader> reader;
         // __DORIS_COMMIT_TSO_COL__ on a single-version segment stores a 0 placeholder on disk
         // (replaced with the rowset's real commit_tso at read time). Its on-disk zonemap [0,0]

@@ -26,6 +26,12 @@
 
 #include <algorithm>
 #include <atomic>
+#include <bit>
+#include <cstdint>
+#include <iterator>
+#include <limits>
+#include <map>
+#include <new>
 #include <ostream>
 #include <set>
 
@@ -51,12 +57,14 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "storage/binlog.h"
 #include "storage/id_manager.h"
 #include "storage/index/inverted/inverted_index_profile.h"
 #include "storage/index/inverted/similarity/collection_statistics.h"
 #include "storage/iterator/block_reader.h"
+#include "storage/itoken_extractor.h"
 #include "storage/olap_common.h"
 #include "storage/olap_tuple.h"
 #include "storage/olap_utils.h"
@@ -67,12 +75,40 @@
 #ifndef NDEBUG
 #include "util/debug_points.h"
 #endif
+#include "util/defer_op.h"
 #include "util/json/path_in_data.h"
 
 namespace doris {
 #include "common/compile_check_avoid_begin.h"
 
 using ReadSource = TabletReadSource;
+
+static constexpr size_t MAX_SEQ_MAP_CANDIDATE_KEY_BYTES = 32 * 1024 * 1024;
+static constexpr size_t MAX_SEQ_MAP_CANDIDATE_WORKSPACE_BYTES = 8 * 1024 * 1024;
+static constexpr size_t MAX_SEQ_MAP_CANDIDATE_RESERVATION_BYTES =
+        MAX_SEQ_MAP_CANDIDATE_KEY_BYTES + MAX_SEQ_MAP_CANDIDATE_WORKSPACE_BYTES;
+static constexpr size_t MIN_SEQ_MAP_CANDIDATE_WORKSPACE_BYTES = 1 * 1024 * 1024;
+static constexpr size_t MIN_SEQ_MAP_CANDIDATE_RESERVATION_HEADROOM_BYTES = 1 * 1024 * 1024;
+static constexpr size_t MAX_SEQ_MAP_CANDIDATE_DRIVER_GROUPS = 4;
+static constexpr size_t MAX_SEQ_MAP_CANDIDATE_INIT_PROBES = 16;
+static constexpr size_t MAX_SEQ_MAP_CANDIDATE_READ_CALLS = 16;
+static constexpr size_t MAX_SEQ_MAP_CANDIDATE_SEGMENT_READ_CALLS = 64;
+static constexpr size_t ESTIMATED_POINT_RANGE_BYTES_PER_KEY_PER_SEGMENT = 32;
+
+bool SeqMapCandidateKeyBudget::try_consume(size_t candidate_key_count) {
+    size_t remaining = _remaining.load(std::memory_order_relaxed);
+    while (candidate_key_count <= remaining) {
+        if (_remaining.compare_exchange_weak(remaining, remaining - candidate_key_count,
+                                             std::memory_order_relaxed)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void SeqMapCandidateKeyBudget::release(size_t candidate_key_count) {
+    _remaining.fetch_add(candidate_key_count, std::memory_order_relaxed);
+}
 
 OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& params)
         : Scanner(params.state, parent, params.limit, params.profile),
@@ -85,6 +121,7 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .version = {0, params.version},
                                  .start_key {},
                                  .end_key {},
+                                 .point_keys {},
                                  .predicates {},
                                  .delete_predicates {},
                                  .target_cast_type_for_variants {},
@@ -114,6 +151,8 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
     _vector_search_params = params.state->get_vector_search_params();
 }
 
+OlapScanner::~OlapScanner() = default;
+
 static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
     return stats.num_local_io_total != 0 || stats.num_remote_io_total != 0 ||
            stats.num_peer_io_total != 0 || stats.local_io_timer != 0 ||
@@ -142,6 +181,805 @@ static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
            stats.inverted_index_request_bytes != 0 || stats.inverted_index_read_bytes != 0 ||
            stats.inverted_index_range_read_count != 0 ||
            stats.inverted_index_serial_read_rounds != 0;
+}
+
+std::vector<RowSetSplits> OlapScanner::_clone_rowset_splits() const {
+    std::vector<RowSetSplits> cloned;
+    cloned.reserve(_tablet_reader_params.rs_splits.size());
+    for (const auto& split : _tablet_reader_params.rs_splits) {
+        RowSetSplits copy(split.rs_reader->clone());
+        copy.segment_offsets = split.segment_offsets;
+        copy.segment_row_ranges = split.segment_row_ranges;
+        cloned.emplace_back(std::move(copy));
+    }
+    return cloned;
+}
+
+std::string OlapScanner::_encode_candidate_key(const OlapTuple& key) {
+    std::string encoded;
+    for (size_t i = 0; i < key.size(); ++i) {
+        const auto& field = key.get_field(i);
+        const auto type = static_cast<int32_t>(field.get_type());
+        encoded.append(reinterpret_cast<const char*>(&type), sizeof(type));
+        if (field.is_null()) {
+            continue;
+        }
+        const auto value = field.as_string_view();
+        const auto size = static_cast<uint64_t>(value.size());
+        encoded.append(reinterpret_cast<const char*>(&size), sizeof(size));
+        encoded.append(value);
+    }
+    return encoded;
+}
+
+OlapScanner::CandidateMemoryBudget OlapScanner::_split_candidate_memory_budget(
+        size_t reservation_bytes) {
+    if (reservation_bytes <= MIN_SEQ_MAP_CANDIDATE_WORKSPACE_BYTES) {
+        return {};
+    }
+    const size_t workspace_bytes =
+            std::clamp(reservation_bytes / 5, MIN_SEQ_MAP_CANDIDATE_WORKSPACE_BYTES,
+                       MAX_SEQ_MAP_CANDIDATE_WORKSPACE_BYTES);
+    const size_t key_bytes =
+            std::min(MAX_SEQ_MAP_CANDIDATE_KEY_BYTES, reservation_bytes - workspace_bytes);
+    return {
+            .reservation_bytes = key_bytes + workspace_bytes,
+            .key_bytes = key_bytes,
+            .workspace_bytes = workspace_bytes,
+    };
+}
+
+OlapScanner::CandidateMemoryBudget OlapScanner::_candidate_memory_budget() const {
+    const auto tracker = _state->query_mem_tracker();
+    if (tracker->limit() < 0) {
+        return _split_candidate_memory_budget(MAX_SEQ_MAP_CANDIDATE_RESERVATION_BYTES);
+    }
+    if (tracker->consumption() >= tracker->limit()) {
+        return {};
+    }
+    const auto remaining = static_cast<size_t>(tracker->limit() - tracker->consumption());
+    return _split_candidate_memory_budget(
+            std::min(MAX_SEQ_MAP_CANDIDATE_RESERVATION_BYTES, remaining / 8));
+}
+
+size_t OlapScanner::_estimate_candidate_key_bytes(const std::string& encoded_key,
+                                                  size_t key_column_count) {
+    // encoded_key contains the complete variable-length payload. Count it once for the map key
+    // and once as a conservative proxy for payload owned by string-like Fields.
+    const size_t fixed_bytes = sizeof(CandidateKeyMap::value_type) + 4 * sizeof(void*) +
+                               sizeof(RowCursor) + key_column_count * sizeof(Field);
+    if (encoded_key.size() > (std::numeric_limits<size_t>::max() - fixed_bytes) / 2) {
+        return std::numeric_limits<size_t>::max();
+    }
+    return fixed_bytes + 2 * encoded_key.size();
+}
+
+OlapScanner::CandidateKeyInsertResult OlapScanner::_try_add_seq_map_candidate_key(
+        std::string encoded_key, OlapTuple&& key, size_t key_column_count,
+        size_t max_candidate_bytes, size_t reservation_headroom_bytes,
+        CandidateKeyMap* candidate_keys, size_t* candidate_bytes) {
+    DCHECK(candidate_keys != nullptr);
+    DCHECK(candidate_bytes != nullptr);
+    if (candidate_keys->contains(encoded_key)) {
+        return CandidateKeyInsertResult::OK;
+    }
+
+    const size_t key_bytes = _estimate_candidate_key_bytes(encoded_key, key_column_count);
+    if (*candidate_bytes > max_candidate_bytes ||
+        key_bytes > max_candidate_bytes - *candidate_bytes) {
+        return CandidateKeyInsertResult::KEY_BYTES_LIMIT;
+    }
+    if (key_bytes > reservation_headroom_bytes) {
+        return CandidateKeyInsertResult::RESERVATION_LIMIT;
+    }
+    candidate_keys->emplace(std::move(encoded_key), std::move(key));
+    *candidate_bytes += key_bytes;
+    return CandidateKeyInsertResult::OK;
+}
+
+size_t OlapScanner::_estimate_candidate_map_bytes(const CandidateKeyMap& candidate_keys) const {
+    size_t bytes = 0;
+    const size_t key_column_count = _tablet_reader_params.tablet_schema->num_key_columns();
+    for (const auto& entry : candidate_keys) {
+        const size_t key_bytes = _estimate_candidate_key_bytes(entry.first, key_column_count);
+        if (key_bytes > std::numeric_limits<size_t>::max() - bytes) {
+            return std::numeric_limits<size_t>::max();
+        }
+        bytes += key_bytes;
+    }
+    return bytes;
+}
+
+static size_t saturating_add_size(size_t lhs, size_t rhs) {
+    return rhs > std::numeric_limits<size_t>::max() - lhs ? std::numeric_limits<size_t>::max()
+                                                          : lhs + rhs;
+}
+
+static size_t saturating_multiply_size(size_t lhs, size_t rhs) {
+    return lhs != 0 && rhs > std::numeric_limits<size_t>::max() / lhs
+                   ? std::numeric_limits<size_t>::max()
+                   : lhs * rhs;
+}
+
+size_t OlapScanner::_estimate_point_range_bytes(size_t candidate_key_count, size_t segment_count) {
+    return saturating_multiply_size(saturating_multiply_size(candidate_key_count, segment_count),
+                                    ESTIMATED_POINT_RANGE_BYTES_PER_KEY_PER_SEGMENT);
+}
+
+bool OlapScanner::CandidateScanCostLimit::exceeded(int64_t previous_candidate_scan_rows,
+                                                   int64_t current_candidate_scan_rows,
+                                                   size_t candidate_key_count) const {
+    if (!enabled || full_scan_rows <= 0 || point_probe_cost_per_key == 0 ||
+        previous_candidate_scan_rows < 0 || current_candidate_scan_rows < 0) {
+        return false;
+    }
+    if (previous_candidate_scan_rows >= full_scan_rows ||
+        current_candidate_scan_rows >= full_scan_rows - previous_candidate_scan_rows) {
+        return true;
+    }
+
+    // Compare against the remaining row budget without multiplying candidate count by the
+    // weighted lower/upper short-key probe cost.
+    const auto remaining_rows = static_cast<uint64_t>(
+            full_scan_rows - previous_candidate_scan_rows - current_candidate_scan_rows);
+    return candidate_key_count > (remaining_rows - 1) / point_probe_cost_per_key;
+}
+
+void OlapScanner::_add_seq_map_candidate_cost(uint64_t row_count, size_t segment_count,
+                                              CandidateScanCostLimit* cost_limit) {
+    DCHECK(cost_limit != nullptr);
+    cost_limit->segment_count = saturating_add_size(cost_limit->segment_count, segment_count);
+    if (cost_limit->full_scan_rows != std::numeric_limits<int64_t>::max()) {
+        if (row_count > static_cast<uint64_t>(std::numeric_limits<int64_t>::max() -
+                                              cost_limit->full_scan_rows)) {
+            cost_limit->full_scan_rows = std::numeric_limits<int64_t>::max();
+        } else {
+            cost_limit->full_scan_rows += static_cast<int64_t>(row_count);
+        }
+    }
+
+    // MOR point lookup uses the short-key path. Each lower/upper ordinal lookup can binary-search
+    // up to the rowset row count, which is a conservative upper bound for every segment.
+    const size_t binary_search_steps =
+            std::max<size_t>(1, std::bit_width(std::max<uint64_t>(1, row_count)));
+    const size_t rowset_probe_cost = saturating_multiply_size(
+            saturating_multiply_size(2, segment_count), binary_search_steps);
+    cost_limit->point_probe_cost_per_key =
+            saturating_add_size(cost_limit->point_probe_cost_per_key, rowset_probe_cost);
+}
+
+void OlapScanner::_merge_seq_map_candidate_stats(const OlapReaderStatistics& candidate_stats,
+                                                 OlapReaderStatistics* total_stats) {
+    DCHECK(total_stats != nullptr);
+    total_stats->seq_map_candidate_scan_rows += candidate_stats.raw_rows_read;
+    total_stats->seq_map_candidate_scan_bytes += candidate_stats.seq_map_candidate_work_bytes();
+    total_stats->seq_map_candidate_index_filtered_rows +=
+            candidate_stats.rows_inverted_index_filtered;
+    total_stats->seq_map_candidate_bloom_filter_filtered_rows += candidate_stats.rows_bf_filtered;
+    total_stats->seq_map_candidate_index_downgrades +=
+            candidate_stats.inverted_index_downgrade_count;
+    total_stats->seq_map_candidate_index_lookup_ns += candidate_stats.inverted_index_lookup_timer;
+    total_stats->seq_map_candidate_cache_local_bytes +=
+            candidate_stats.file_cache_stats.bytes_read_from_local;
+    total_stats->seq_map_candidate_cache_remote_bytes +=
+            candidate_stats.file_cache_stats.bytes_read_from_remote;
+    total_stats->file_cache_stats.merge_from(candidate_stats.file_cache_stats);
+
+    total_stats->io_ns += candidate_stats.io_ns;
+    total_stats->compressed_bytes_read += candidate_stats.compressed_bytes_read;
+    total_stats->decompress_ns += candidate_stats.decompress_ns;
+    total_stats->uncompressed_bytes_read += candidate_stats.uncompressed_bytes_read;
+    total_stats->bytes_read += candidate_stats.bytes_read;
+    total_stats->raw_rows_read += candidate_stats.raw_rows_read;
+}
+
+Status OlapScanner::_collect_seq_map_candidate_keys(
+        const std::vector<std::shared_ptr<ColumnPredicate>>& driver_predicates,
+        const std::vector<std::shared_ptr<ColumnPredicate>>& key_predicates,
+        int64_t previous_candidate_scan_rows, bool price_point_lookups, int64_t max_candidate_keys,
+        size_t max_candidate_bytes, size_t candidate_workspace_bytes,
+        const CandidateScanCostLimit& cost_limit, SeqMapCandidateScanWorkLimit* work_limit,
+        CandidateKeyMap* candidate_keys, size_t* candidate_bytes, int64_t* full_scan_rows,
+        size_t* segment_count, bool* limit_exceeded, bool* bytes_exceeded,
+        bool* reservation_exceeded, bool* cost_exceeded, bool* work_exceeded) {
+    DCHECK(work_limit != nullptr);
+    DCHECK(candidate_keys != nullptr);
+    DCHECK(candidate_bytes != nullptr);
+    DCHECK(full_scan_rows != nullptr);
+    DCHECK(segment_count != nullptr);
+    DCHECK(limit_exceeded != nullptr);
+    DCHECK(bytes_exceeded != nullptr);
+    DCHECK(reservation_exceeded != nullptr);
+    DCHECK(cost_exceeded != nullptr);
+    DCHECK(work_exceeded != nullptr);
+    *candidate_bytes = 0;
+    *full_scan_rows = 0;
+    *segment_count = 0;
+    *limit_exceeded = false;
+    *bytes_exceeded = false;
+    *reservation_exceeded = false;
+    *cost_exceeded = false;
+    *work_exceeded = false;
+    candidate_keys->clear();
+
+    auto candidate_params = _tablet_reader_params;
+    candidate_params.rs_splits = _clone_rowset_splits();
+    candidate_params.predicates.clear();
+    candidate_params.all_access_paths.clear();
+    candidate_params.predicate_access_paths.clear();
+    candidate_params.output_columns.clear();
+    candidate_params.extra_columns.clear();
+    candidate_params.common_expr_ctxs_push_down.clear();
+    candidate_params.topn_filter_source_node_ids.clear();
+    candidate_params.key_group_cluster_key_idxes.clear();
+    candidate_params.virtual_column_exprs.clear();
+    candidate_params.score_runtime.reset();
+    candidate_params.collection_statistics.reset();
+    candidate_params.ann_topn_runtime.reset();
+    candidate_params.direct_mode = true;
+    candidate_params.aggregation = false;
+    candidate_params.is_seq_map_candidate_scan = true;
+    candidate_params.seq_map_candidate_work_limit = work_limit;
+    candidate_params.seq_map_candidate_pruned = false;
+    candidate_params.push_down_agg_type_opt = TPushAggOp::NONE;
+    candidate_params.read_orderby_key = false;
+    candidate_params.read_orderby_key_reverse = false;
+    candidate_params.read_orderby_key_num_prefix_columns = 0;
+    candidate_params.read_orderby_key_limit = 0;
+    candidate_params.condition_cache_digest = 0;
+    candidate_params.general_read_limit = -1;
+    candidate_params.read_row_binlog = false;
+    candidate_params.binlog_scan_type = TBinlogScanType::NONE;
+
+    std::vector<TabletColumnPtr> candidate_columns;
+    candidate_columns.reserve(_tablet_reader_params.tablet_schema->num_key_columns() +
+                              driver_predicates.size());
+    for (uint32_t cid = 0; cid < _tablet_reader_params.tablet_schema->num_key_columns(); ++cid) {
+        candidate_columns.push_back(_tablet_reader_params.tablet_schema->columns()[cid]);
+    }
+    auto add_predicate = [&](const std::shared_ptr<ColumnPredicate>& predicate) {
+        const auto* source_column =
+                _tablet_reader_params.read_schema->column(predicate->column_id());
+        const auto candidate_it =
+                std::ranges::find_if(candidate_columns, [source_column](const auto& column) {
+                    return column->unique_id() == source_column->unique_id();
+                });
+        size_t candidate_ordinal = std::distance(candidate_columns.begin(), candidate_it);
+        if (candidate_it == candidate_columns.end()) {
+            candidate_columns.emplace_back(std::make_shared<TabletColumn>(*source_column));
+        }
+        candidate_params.predicates.emplace_back(
+                predicate->clone(cast_set<uint32_t>(candidate_ordinal)));
+    };
+    for (const auto& predicate : key_predicates) {
+        add_predicate(predicate);
+    }
+    for (const auto& predicate : driver_predicates) {
+        add_predicate(predicate);
+    }
+    candidate_params.read_schema = std::make_shared<ReadSchema>(candidate_columns);
+    if (candidate_params.read_schema->num_key_columns() !=
+        candidate_params.tablet_schema->num_key_columns()) {
+        return Status::InternalError(
+                "candidate read schema does not contain the complete primary key");
+    }
+    for (const auto& predicate : candidate_params.predicates) {
+        if (predicate->column_id() >= candidate_params.read_schema->num_read_columns()) {
+            return Status::InternalError("candidate predicate ordinal {} is out of range {}",
+                                         predicate->column_id(),
+                                         candidate_params.read_schema->num_read_columns());
+        }
+    }
+
+    auto work_budget_exhausted = [&]() {
+        return work_limit->exceeded || work_limit->remaining_read_calls == 0 ||
+               work_limit->remaining_rows <= 0 || work_limit->remaining_bytes <= 0;
+    };
+    if (work_budget_exhausted()) {
+        *work_exceeded = true;
+        return Status::OK();
+    }
+
+    BlockReader candidate_reader;
+    const auto init_probe_count = std::max<size_t>(1, cost_limit.segment_count);
+    const auto init_probe_count_i64 = cast_set<int64_t>(init_probe_count);
+    candidate_reader.set_batch_size(std::max<int64_t>(
+            1, std::min<int64_t>(_state->batch_size(),
+                                 work_limit->remaining_rows / init_probe_count_i64)));
+    candidate_reader.set_preferred_block_size_bytes(std::max<size_t>(
+            1, std::min(candidate_workspace_bytes,
+                        cast_set<size_t>(work_limit->remaining_bytes) / init_probe_count)));
+    auto publish_candidate_stats = [&]() {
+        auto* candidate_stats = candidate_reader.mutable_stats();
+        _merge_seq_map_candidate_stats(*candidate_stats, _tablet_reader->mutable_stats());
+        candidate_stats->rows_inverted_index_filtered = 0;
+        candidate_stats->rows_bf_filtered = 0;
+        candidate_stats->inverted_index_downgrade_count = 0;
+        candidate_stats->inverted_index_lookup_timer = 0;
+        candidate_stats->file_cache_stats = {};
+        candidate_stats->io_ns = 0;
+        candidate_stats->compressed_bytes_read = 0;
+        candidate_stats->decompress_ns = 0;
+        candidate_stats->uncompressed_bytes_read = 0;
+        candidate_stats->bytes_read = 0;
+        candidate_stats->raw_rows_read = 0;
+        update_realtime_counters();
+    };
+    Defer account_candidate_stats {[&]() {
+        *full_scan_rows = candidate_reader.stats().seq_map_candidate_full_scan_rows;
+        *segment_count = cast_set<size_t>(candidate_reader.stats().total_segment_number);
+        publish_candidate_stats();
+    }};
+    --work_limit->remaining_read_calls;
+    RETURN_IF_ERROR(candidate_reader.init(candidate_params));
+
+    Block block = candidate_params.read_schema->create_read_block();
+    const size_t key_column_count = candidate_params.tablet_schema->num_key_columns();
+    int64_t candidate_scan_rows = 0;
+    auto account_candidate_scan_rows = [&]() {
+        candidate_scan_rows += candidate_reader.stats().raw_rows_read;
+    };
+    account_candidate_scan_rows();
+    if (work_limit->exceeded) {
+        *work_exceeded = true;
+        return Status::OK();
+    }
+    publish_candidate_stats();
+
+    bool eof = false;
+    while (!eof) {
+        if (work_budget_exhausted()) {
+            *work_exceeded = true;
+            break;
+        }
+        --work_limit->remaining_read_calls;
+        RETURN_IF_ERROR(candidate_reader.next_block_with_aggregation(&block, &eof));
+        _tablet_reader->mutable_stats()->seq_map_candidate_rows += block.rows();
+        account_candidate_scan_rows();
+        if (work_limit->exceeded) {
+            *work_exceeded = true;
+            break;
+        }
+        publish_candidate_stats();
+        for (size_t row = 0; row < block.rows(); ++row) {
+            OlapTuple key;
+            for (size_t col = 0; col < key_column_count; ++col) {
+                Field field;
+                block.get_by_position(col).column->get(row, field);
+                key.add_field(std::move(field));
+            }
+            auto encoded_key = _encode_candidate_key(key);
+            const int64_t reserved_bytes = thread_context()->thread_mem_tracker_mgr->reserved_mem();
+            const size_t reservation_headroom =
+                    reserved_bytes > cast_set<int64_t>(
+                                             MIN_SEQ_MAP_CANDIDATE_RESERVATION_HEADROOM_BYTES)
+                            ? cast_set<size_t>(reserved_bytes -
+                                               MIN_SEQ_MAP_CANDIDATE_RESERVATION_HEADROOM_BYTES)
+                            : 0;
+            const auto insert_result = _try_add_seq_map_candidate_key(
+                    std::move(encoded_key), std::move(key), key_column_count, max_candidate_bytes,
+                    reservation_headroom, candidate_keys, candidate_bytes);
+            if (insert_result == CandidateKeyInsertResult::KEY_BYTES_LIMIT) {
+                *bytes_exceeded = true;
+                break;
+            }
+            if (insert_result == CandidateKeyInsertResult::RESERVATION_LIMIT) {
+                *reservation_exceeded = true;
+                break;
+            }
+            if (candidate_keys->size() > static_cast<size_t>(max_candidate_keys)) {
+                *limit_exceeded = true;
+                break;
+            }
+        }
+        block.clear_column_data();
+        if (*limit_exceeded || *bytes_exceeded || *reservation_exceeded || *work_exceeded) {
+            break;
+        }
+        const size_t candidate_key_count = price_point_lookups ? candidate_keys->size() : 0;
+        if (cost_limit.exceeded(previous_candidate_scan_rows, candidate_scan_rows,
+                                candidate_key_count)) {
+            *cost_exceeded = true;
+            break;
+        }
+    }
+    return Status::OK();
+}
+
+Status OlapScanner::_materialize_seq_map_point_keys(CandidateKeyMap* candidate_keys,
+                                                    size_t retained_bytes,
+                                                    PointKeySetSPtr* point_keys) {
+    DCHECK(candidate_keys != nullptr);
+    DCHECK(point_keys != nullptr);
+
+    const auto key_schema =
+            RowCursor::create_shared_schema(_tablet_reader_params.tablet_schema,
+                                            _tablet_reader_params.tablet_schema->num_key_columns());
+    auto mutable_point_keys = std::make_shared<PointKeySet>(key_schema);
+    mutable_point_keys->keys.reserve(candidate_keys->size());
+    for (auto& entry : *candidate_keys) {
+        RowCursor point_key;
+        RETURN_IF_ERROR(point_key.init(key_schema, std::move(entry.second).release_fields()));
+        mutable_point_keys->keys.emplace_back(std::move(point_key));
+    }
+    std::sort(mutable_point_keys->keys.begin(), mutable_point_keys->keys.end(),
+              [](const RowCursor& lhs, const RowCursor& rhs) {
+                  return compare_row_key(lhs, rhs) < 0;
+              });
+    mutable_point_keys->retained_bytes = retained_bytes;
+    *point_keys = std::move(mutable_point_keys);
+    return Status::OK();
+}
+
+bool OlapScanner::_is_candidate_memory_failure(const Status& status) {
+    return status.is<ErrorCode::MEM_LIMIT_EXCEEDED>() || status.is<ErrorCode::MEM_ALLOC_FAILED>() ||
+           status.is<ErrorCode::QUERY_MEMORY_EXCEEDED>() ||
+           status.is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>() ||
+           status.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>();
+}
+
+void OlapScanner::_record_seq_map_candidate_fallback_reason(RuntimeProfile* profile,
+                                                            const std::string& fallback_reason) {
+    DCHECK(profile != nullptr);
+    DCHECK(!fallback_reason.empty());
+    profile->add_info_string("SeqMapCandidateFallbackReason." + fallback_reason, fallback_reason);
+}
+
+bool OlapScanner::_has_usable_ngram_bf_pattern(std::string_view pattern, size_t gram_size) {
+    NgramTokenExtractor extractor(gram_size);
+    size_t position = 0;
+    std::string token;
+    return extractor.next_in_string_like(pattern.data(), pattern.size(), &position, token);
+}
+
+Status OlapScanner::_build_seq_map_candidate_keys(
+        const std::vector<std::shared_ptr<ColumnPredicate>>& key_predicates,
+        const std::map<uint32_t, std::vector<std::shared_ptr<ColumnPredicate>>>& group_drivers,
+        int64_t max_candidate_keys, const CandidateMemoryBudget& memory_budget,
+        CandidateScanCostLimit cost_limit, ReservedMemoryToken* point_range_reservation) {
+    DCHECK(point_range_reservation != nullptr);
+    DCHECK_EQ(point_range_reservation->bytes(), 0);
+    auto& params = _tablet_reader_params;
+    auto* stats = _tablet_reader->mutable_stats();
+
+    // Reserve key retention and reader workspace before either candidate map starts allocating.
+    auto* mem_tracker_mgr = thread_context()->thread_mem_tracker_mgr.get();
+    auto inherited_reservation = mem_tracker_mgr->take_reserved_memory();
+    Defer restore_inherited_reservation {
+            [&] { mem_tracker_mgr->adopt_reserved_memory(std::move(inherited_reservation)); }};
+    auto reserve_status =
+            mem_tracker_mgr->try_reserve(cast_set<int64_t>(memory_budget.reservation_bytes));
+    if (!reserve_status.ok()) {
+        ++stats->seq_map_candidate_fallbacks;
+        _seq_map_candidate_fallback_reason = "candidate_key_memory_reservation";
+        return Status::OK();
+    }
+    DEFER_RELEASE_RESERVED();
+
+    CandidateKeyMap final_keys;
+    size_t final_key_bytes = 0;
+    size_t candidate_segment_count = 0;
+    SeqMapCandidateScanWorkLimit work_limit {
+            .remaining_segment_read_calls = MAX_SEQ_MAP_CANDIDATE_SEGMENT_READ_CALLS,
+            .remaining_read_calls = MAX_SEQ_MAP_CANDIDATE_READ_CALLS,
+            .remaining_rows = std::max<int64_t>(1, config::doris_scanner_row_num),
+            .remaining_bytes = std::max<int64_t>(1, config::doris_scanner_row_bytes),
+    };
+    // The first candidate reader measures the original key-range cardinality. Until that exact
+    // baseline is available, only the hard synchronous-work limits guard the prepass.
+    cost_limit.enabled = false;
+    bool first_group = true;
+    for (const auto& [seq_col, predicates] : group_drivers) {
+        CandidateKeyMap group_keys;
+        size_t group_key_bytes = 0;
+        int64_t group_full_scan_rows = 0;
+        size_t group_segment_count = 0;
+        bool limit_exceeded = false;
+        bool bytes_exceeded = false;
+        bool reservation_exceeded = false;
+        bool cost_exceeded = false;
+        bool work_exceeded = false;
+        const size_t remaining_candidate_bytes = memory_budget.key_bytes - final_key_bytes;
+        auto collect_status = _collect_seq_map_candidate_keys(
+                predicates, key_predicates, stats->seq_map_candidate_scan_rows,
+                group_drivers.size() == 1, max_candidate_keys, remaining_candidate_bytes,
+                memory_budget.workspace_bytes, cost_limit, &work_limit, &group_keys,
+                &group_key_bytes, &group_full_scan_rows, &group_segment_count, &limit_exceeded,
+                &bytes_exceeded, &reservation_exceeded, &cost_exceeded, &work_exceeded);
+        RETURN_IF_ERROR(collect_status);
+        stats->seq_map_candidate_key_bytes =
+                std::max(stats->seq_map_candidate_key_bytes,
+                         cast_set<int64_t>(final_key_bytes + group_key_bytes));
+        if (work_exceeded) {
+            ++stats->seq_map_candidate_fallbacks;
+            _seq_map_candidate_fallback_reason = "candidate_work_limit";
+            return Status::OK();
+        }
+        if (limit_exceeded) {
+            ++stats->seq_map_candidate_fallbacks;
+            _seq_map_candidate_fallback_reason = "candidate_key_limit";
+            return Status::OK();
+        }
+        if (bytes_exceeded) {
+            ++stats->seq_map_candidate_fallbacks;
+            _seq_map_candidate_fallback_reason = "candidate_key_bytes_limit";
+            return Status::OK();
+        }
+        if (reservation_exceeded) {
+            ++stats->seq_map_candidate_fallbacks;
+            _seq_map_candidate_fallback_reason = "candidate_memory_exhausted";
+            return Status::OK();
+        }
+        if (cost_exceeded) {
+            ++stats->seq_map_candidate_fallbacks;
+            _seq_map_candidate_fallback_reason = "candidate_cost_limit";
+            return Status::OK();
+        }
+
+        if (first_group) {
+            cost_limit.full_scan_rows = group_full_scan_rows;
+            cost_limit.segment_count = group_segment_count;
+            cost_limit.enabled =
+                    cost_limit.point_probe_cost_per_key > 0 && cost_limit.full_scan_rows > 0;
+            candidate_segment_count = group_segment_count;
+            stats->seq_map_candidate_full_scan_rows = group_full_scan_rows;
+        }
+        stats->seq_map_candidate_keys_before_intersect += group_keys.size();
+        if (first_group) {
+            final_keys = std::move(group_keys);
+            final_key_bytes = group_key_bytes;
+            first_group = false;
+        } else {
+            for (auto it = final_keys.begin(); it != final_keys.end();) {
+                if (!group_keys.contains(it->first)) {
+                    it = final_keys.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            final_key_bytes = _estimate_candidate_map_bytes(final_keys);
+        }
+        if (final_keys.empty()) {
+            params.seq_map_candidate_pruned = true;
+            ++stats->seq_map_candidate_pruned_scanners;
+            stats->seq_map_candidate_keys_after_intersect = 0;
+            return Status::OK();
+        }
+        if (cost_limit.exceeded(0, stats->seq_map_candidate_scan_rows, 0)) {
+            ++stats->seq_map_candidate_fallbacks;
+            _seq_map_candidate_fallback_reason = "candidate_cost_limit";
+            return Status::OK();
+        }
+    }
+
+    // Use the post-intersection key count for multiple groups.
+    if (cost_limit.exceeded(0, stats->seq_map_candidate_scan_rows, final_keys.size())) {
+        ++stats->seq_map_candidate_fallbacks;
+        _seq_map_candidate_fallback_reason = "candidate_cost_limit";
+        return Status::OK();
+    }
+    const size_t retained_key_count = final_keys.size();
+    if (_seq_map_candidate_key_budget != nullptr &&
+        !_seq_map_candidate_key_budget->try_consume(retained_key_count)) {
+        ++stats->seq_map_candidate_fallbacks;
+        _seq_map_candidate_fallback_reason = "candidate_key_limit";
+        return Status::OK();
+    }
+    bool retain_shared_candidate_budget = false;
+    Defer release_shared_candidate_budget {[&] {
+        if (_seq_map_candidate_key_budget != nullptr && !retain_shared_candidate_budget) {
+            _seq_map_candidate_key_budget->release(retained_key_count);
+        }
+    }};
+
+    stats->seq_map_candidate_keys_after_intersect = final_keys.size();
+    stats->seq_map_candidate_key_bytes = cast_set<int64_t>(final_key_bytes);
+    const size_t point_range_bytes =
+            _estimate_point_range_bytes(final_keys.size(), candidate_segment_count);
+    const int64_t reserved_bytes = mem_tracker_mgr->reserved_mem();
+    if (reserved_bytes <= cast_set<int64_t>(MIN_SEQ_MAP_CANDIDATE_RESERVATION_HEADROOM_BYTES) ||
+        point_range_bytes >
+                cast_set<size_t>(
+                        reserved_bytes -
+                        cast_set<int64_t>(MIN_SEQ_MAP_CANDIDATE_RESERVATION_HEADROOM_BYTES))) {
+        ++stats->seq_map_candidate_fallbacks;
+        _seq_map_candidate_fallback_reason = "point_range_memory_limit";
+        return Status::OK();
+    }
+    PointKeySetSPtr point_keys;
+    RETURN_IF_ERROR(_materialize_seq_map_point_keys(&final_keys, final_key_bytes, &point_keys));
+    final_keys.clear();
+    mem_tracker_mgr->shrink_reserved();
+    auto point_range_reserve_status =
+            mem_tracker_mgr->try_reserve(cast_set<int64_t>(point_range_bytes));
+    if (!point_range_reserve_status.ok()) {
+        ++stats->seq_map_candidate_fallbacks;
+        _seq_map_candidate_fallback_reason = "point_range_memory_limit";
+        return Status::OK();
+    }
+    params.point_keys = std::move(point_keys);
+    *point_range_reservation = mem_tracker_mgr->take_reserved_memory();
+    // Keep the shared count charged for the local-state lifetime so total point-key work across
+    // sibling scanners remains bounded regardless of scanner open/close order.
+    retain_shared_candidate_budget = true;
+    return Status::OK();
+}
+
+Status OlapScanner::_prepare_seq_map_candidate_keys(ReservedMemoryToken* point_range_reservation) {
+    DCHECK(point_range_reservation != nullptr);
+    const auto& query_options = _state->query_options();
+    auto& params = _tablet_reader_params;
+    auto& schema = params.tablet_schema;
+    if (!query_options.enable_seq_map_candidate_key_scan || schema == nullptr ||
+        !schema->has_seq_map() || schema->keys_type() != KeysType::UNIQUE_KEYS ||
+        params.tablet->enable_unique_key_merge_on_write() || params.direct_mode) {
+        return Status::OK();
+    }
+
+    auto* stats = _tablet_reader->mutable_stats();
+    SCOPED_RAW_TIMER(&stats->seq_map_candidate_build_ns);
+    for (const auto& split : params.rs_splits) {
+        if (split.segment_offsets != std::pair<int64_t, int64_t> {0, 0} ||
+            !split.segment_row_ranges.empty()) {
+            ++stats->seq_map_candidate_fallbacks;
+            _seq_map_candidate_fallback_reason = "partial_scanner_split";
+            return Status::OK();
+        }
+    }
+    const int64_t max_candidate_keys = query_options.seq_map_candidate_key_max_count;
+    if (max_candidate_keys <= 0) {
+        ++stats->seq_map_candidate_fallbacks;
+        _seq_map_candidate_fallback_reason = "invalid_candidate_limit";
+        return Status::OK();
+    }
+    _seq_map_candidate_key_budget =
+            static_cast<OlapScanLocalState*>(_local_state)
+                    ->_get_seq_map_candidate_key_budget(params.tablet->tablet_id(),
+                                                        cast_set<size_t>(max_candidate_keys));
+    const auto memory_budget = _candidate_memory_budget();
+    if (memory_budget.key_bytes == 0) {
+        ++stats->seq_map_candidate_fallbacks;
+        _seq_map_candidate_fallback_reason = "candidate_key_bytes_limit";
+        return Status::OK();
+    }
+    std::vector<std::shared_ptr<ColumnPredicate>> key_predicates;
+    std::map<uint32_t, std::vector<std::shared_ptr<ColumnPredicate>>> group_drivers;
+    bool has_disabled_inverted_driver = false;
+    std::unordered_map<int32_t, uint32_t> value_uid_to_seq_idx;
+    for (const auto& [seq_idx, value_indices] : schema->seq_col_idx_to_value_cols_idx()) {
+        for (const auto value_idx : value_indices) {
+            value_uid_to_seq_idx.emplace(schema->column(value_idx).unique_id(), seq_idx);
+        }
+    }
+    for (const auto& predicate : params.predicates) {
+        const auto cid = predicate->column_id();
+        DORIS_CHECK_LT(cid, params.read_schema->num_read_columns());
+        const auto& column = *params.read_schema->column(cid);
+        if (column.is_key()) {
+            // Key predicates constrain the candidate reader, but do not identify a value group.
+            key_predicates.push_back(predicate);
+            continue;
+        }
+        const auto seq_it = value_uid_to_seq_idx.find(column.unique_id());
+        if (seq_it == value_uid_to_seq_idx.end()) {
+            continue;
+        }
+        const auto type = predicate->type();
+        if (type == PredicateType::LIKE) {
+            const auto* ngram_index = schema->get_ngram_bf_index(column.unique_id());
+            if (predicate->opposite() || !config::enable_query_like_bloom_filter ||
+                ngram_index == nullptr ||
+                !_has_usable_ngram_bf_pattern(predicate->get_search_str(),
+                                              ngram_index->get_gram_size())) {
+                continue;
+            }
+            group_drivers[seq_it->second].push_back(predicate);
+            ++stats->seq_map_candidate_driver_predicates;
+            continue;
+        }
+        const bool positive_driver = type == PredicateType::EQ || type == PredicateType::IN_LIST;
+        if (!positive_driver || schema->inverted_indexs(column).empty()) {
+            continue;
+        }
+        if (!query_options.enable_inverted_index_query) {
+            has_disabled_inverted_driver = true;
+            continue;
+        }
+        group_drivers[seq_it->second].push_back(predicate);
+        ++stats->seq_map_candidate_driver_predicates;
+    }
+
+    if (group_drivers.empty()) {
+        ++stats->seq_map_candidate_fallbacks;
+        _seq_map_candidate_fallback_reason = has_disabled_inverted_driver
+                                                     ? "inverted_index_query_disabled"
+                                                     : "no_indexed_positive_driver";
+        return Status::OK();
+    }
+    if (group_drivers.size() > MAX_SEQ_MAP_CANDIDATE_DRIVER_GROUPS) {
+        ++stats->seq_map_candidate_fallbacks;
+        _seq_map_candidate_fallback_reason = "candidate_work_limit";
+        return Status::OK();
+    }
+    if (_limit > 0 || _shared_scan_limit != nullptr) {
+        ++stats->seq_map_candidate_fallbacks;
+        _seq_map_candidate_fallback_reason = "scan_limit_present";
+        return Status::OK();
+    }
+    stats->seq_map_candidate_driver_groups = group_drivers.size();
+    // Full-key ranges are already selective. Prefix ranges such as advertiser_id = ?
+    // still leave enough rows for a value-column candidate scan to be useful.
+    const auto range_uses_full_key =
+            [key_column_count = schema->num_key_columns()](const std::vector<OlapTuple>& keys) {
+                return std::ranges::any_of(keys, [key_column_count](const OlapTuple& key) {
+                    return key.size() >= key_column_count;
+                });
+            };
+    if (range_uses_full_key(params.start_key) || range_uses_full_key(params.end_key)) {
+        ++stats->seq_map_candidate_fallbacks;
+        _seq_map_candidate_fallback_reason = "key_range_present";
+        return Status::OK();
+    }
+    size_t priced_key_prefix = schema->num_key_columns();
+    for (const auto& keys : {&params.start_key, &params.end_key}) {
+        for (const auto& key : *keys) {
+            priced_key_prefix = std::min(priced_key_prefix, key.size());
+        }
+    }
+    if (!key_predicates.empty() &&
+        (params.start_key.empty() || params.end_key.empty() ||
+         std::ranges::any_of(key_predicates, [&](const auto& predicate) {
+             const auto* column = params.read_schema->column(predicate->column_id());
+             const int32_t tablet_cid = schema->field_index(column->unique_id());
+             return tablet_cid < 0 || cast_set<size_t>(tablet_cid) >= priced_key_prefix;
+         }))) {
+        ++stats->seq_map_candidate_fallbacks;
+        _seq_map_candidate_fallback_reason = "unpriced_key_predicate";
+        return Status::OK();
+    }
+
+    CandidateScanCostLimit cost_limit;
+    for (const auto& split : params.rs_splits) {
+        const auto& rowset = split.rs_reader->rowset();
+        _add_seq_map_candidate_cost(rowset->num_rows(), cast_set<size_t>(rowset->num_segments()),
+                                    &cost_limit);
+    }
+    if (cost_limit.segment_count == 0 ||
+        saturating_multiply_size(cost_limit.segment_count, group_drivers.size()) >
+                MAX_SEQ_MAP_CANDIDATE_INIT_PROBES) {
+        ++stats->seq_map_candidate_fallbacks;
+        _seq_map_candidate_fallback_reason = "candidate_work_limit";
+        return Status::OK();
+    }
+    Status build_status;
+    try {
+        ++enable_thread_catch_bad_alloc;
+        Defer restore_bad_alloc_catch {[&] { --enable_thread_catch_bad_alloc; }};
+        build_status =
+                _build_seq_map_candidate_keys(key_predicates, group_drivers, max_candidate_keys,
+                                              memory_budget, cost_limit, point_range_reservation);
+    } catch (const Exception& exception) {
+        build_status = exception.code() == ErrorCode::MEM_ALLOC_FAILED
+                               ? Status::MemoryLimitExceeded(exception.to_string())
+                               : exception.to_status();
+    } catch (const std::bad_alloc& exception) {
+        build_status = Status::MemoryLimitExceeded("candidate-key scan allocation failed: {}",
+                                                   exception.what());
+    }
+
+    if (build_status.ok()) {
+        return Status::OK();
+    }
+    if (build_status.is<ErrorCode::CANCELLED>()) {
+        return build_status;
+    }
+    ++stats->seq_map_candidate_fallbacks;
+    _seq_map_candidate_fallback_reason = _is_candidate_memory_failure(build_status)
+                                                 ? "candidate_memory_exhausted"
+                                                 : "candidate_scan_error";
+    LOG(WARNING) << "fallback sequence-mapping candidate scan for tablet "
+                 << params.tablet->tablet_id() << ": " << build_status;
+    return Status::OK();
 }
 
 io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, ReaderType reader_type,
@@ -297,7 +1135,26 @@ Status OlapScanner::_open_impl(RuntimeState* state) {
     RETURN_IF_ERROR(Scanner::_open_impl(state));
     SCOPED_TIMER(_local_state->cast<OlapScanLocalState>()._reader_init_timer);
 
-    auto res = _tablet_reader->init(_tablet_reader_params);
+    _point_range_reservation = std::make_unique<ReservedMemoryToken>();
+    RETURN_IF_ERROR(_prepare_seq_map_candidate_keys(_point_range_reservation.get()));
+    if (_state->enable_profile() && !_seq_map_candidate_fallback_reason.empty()) {
+        _record_seq_map_candidate_fallback_reason(_profile, _seq_map_candidate_fallback_reason);
+    }
+
+    Status res;
+    if (_point_range_reservation->bytes() > 0) {
+        auto* mem_tracker_mgr = thread_context()->thread_mem_tracker_mgr.get();
+        const int64_t point_range_reservation_bytes = _point_range_reservation->bytes();
+        Defer retain_point_range_reservation {[&] {
+            *_point_range_reservation =
+                    mem_tracker_mgr->take_reserved_memory(point_range_reservation_bytes);
+        }};
+        mem_tracker_mgr->adopt_reserved_memory(std::move(*_point_range_reservation));
+        res = _tablet_reader->init(_tablet_reader_params);
+    } else {
+        _point_range_reservation.reset();
+        res = _tablet_reader->init(_tablet_reader_params);
+    }
     if (!res.ok()) {
         // init() also runs the eager first-row read that evaluates pushed-down expressions,
         // so res may be a data/expression error rather than a storage failure. Keep its own
@@ -662,6 +1519,7 @@ bool OlapScanner::is_pruned_by_runtime_filter() const {
 void OlapScanner::release_unopened_resources() {
     DORIS_CHECK(!_is_open);
 
+    _point_range_reservation.reset();
     _tablet_reader.reset();
     _tablet_reader_params = TabletReader::ReaderParams {};
     _common_expr_ctxs_push_down.clear();
@@ -695,7 +1553,26 @@ Status OlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
     // Read one block from block reader
     // ATTN: Here we need to let the _get_block_impl method guarantee the semantics of the interface,
     // that is, eof can be set to true only when the returned block is empty.
-    RETURN_IF_ERROR(_tablet_reader->next_block_with_aggregation(block, eof));
+    Status read_status;
+    if (_point_range_reservation && _point_range_reservation->bytes() > 0) {
+        auto* mem_tracker_mgr = thread_context()->thread_mem_tracker_mgr.get();
+        const int64_t point_range_reservation_bytes = _point_range_reservation->bytes();
+        bool release_point_range_reservation = false;
+        Defer retain_point_range_reservation {[&] {
+            auto reservation = mem_tracker_mgr->take_reserved_memory(point_range_reservation_bytes);
+            if (release_point_range_reservation) {
+                _point_range_reservation.reset();
+            } else {
+                *_point_range_reservation = std::move(reservation);
+            }
+        }};
+        mem_tracker_mgr->adopt_reserved_memory(std::move(*_point_range_reservation));
+        read_status = _tablet_reader->next_block_with_aggregation(block, eof);
+        release_point_range_reservation = read_status.ok() && block->rows() == 0 && *eof;
+    } else {
+        read_status = _tablet_reader->next_block_with_aggregation(block, eof);
+    }
+    RETURN_IF_ERROR(read_status);
     if (block->rows() > 0) {
         _tablet_reader_params.tablet->read_block_count.fetch_add(1, std::memory_order_relaxed);
         *eof = false;
@@ -710,6 +1587,7 @@ Status OlapScanner::close(RuntimeState* state) {
     if (!_try_close()) {
         return Status::OK();
     }
+    _point_range_reservation.reset();
     RETURN_IF_ERROR(Scanner::close(state));
     return Status::OK();
 }
@@ -884,6 +1762,42 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_inverted_index_analyzer_timer,
                    stats.inverted_index_analyzer_timer);
     COUNTER_UPDATE(local_state->_inverted_index_lookup_timer, stats.inverted_index_lookup_timer);
+    COUNTER_UPDATE(local_state->_seq_map_candidate_driver_groups_counter,
+                   stats.seq_map_candidate_driver_groups);
+    COUNTER_UPDATE(local_state->_seq_map_candidate_driver_predicates_counter,
+                   stats.seq_map_candidate_driver_predicates);
+    COUNTER_UPDATE(local_state->_seq_map_candidate_rows_counter, stats.seq_map_candidate_rows);
+    COUNTER_UPDATE(local_state->_seq_map_candidate_scan_rows_counter,
+                   stats.seq_map_candidate_scan_rows);
+    COUNTER_UPDATE(local_state->_seq_map_candidate_scan_bytes_counter,
+                   stats.seq_map_candidate_scan_bytes);
+    COUNTER_UPDATE(local_state->_seq_map_candidate_full_scan_rows_counter,
+                   stats.seq_map_candidate_full_scan_rows);
+    COUNTER_UPDATE(local_state->_seq_map_candidate_index_filtered_rows_counter,
+                   stats.seq_map_candidate_index_filtered_rows);
+    COUNTER_UPDATE(local_state->_seq_map_candidate_bloom_filter_filtered_rows_counter,
+                   stats.seq_map_candidate_bloom_filter_filtered_rows);
+    COUNTER_UPDATE(local_state->_seq_map_candidate_index_downgrades_counter,
+                   stats.seq_map_candidate_index_downgrades);
+    COUNTER_UPDATE(local_state->_seq_map_candidate_index_lookup_timer,
+                   stats.seq_map_candidate_index_lookup_ns);
+    COUNTER_UPDATE(local_state->_seq_map_candidate_cache_local_bytes_counter,
+                   stats.seq_map_candidate_cache_local_bytes);
+    COUNTER_UPDATE(local_state->_seq_map_candidate_cache_remote_bytes_counter,
+                   stats.seq_map_candidate_cache_remote_bytes);
+    COUNTER_UPDATE(local_state->_seq_map_candidate_keys_before_intersect_counter,
+                   stats.seq_map_candidate_keys_before_intersect);
+    COUNTER_UPDATE(local_state->_seq_map_candidate_keys_after_intersect_counter,
+                   stats.seq_map_candidate_keys_after_intersect);
+    COUNTER_UPDATE(local_state->_seq_map_candidate_key_bytes_counter,
+                   stats.seq_map_candidate_key_bytes);
+    COUNTER_UPDATE(local_state->_seq_map_candidate_build_timer, stats.seq_map_candidate_build_ns);
+    COUNTER_UPDATE(local_state->_seq_map_point_range_build_timer,
+                   stats.seq_map_point_range_build_ns);
+    COUNTER_UPDATE(local_state->_seq_map_candidate_fallbacks_counter,
+                   stats.seq_map_candidate_fallbacks);
+    COUNTER_UPDATE(local_state->_seq_map_candidate_pruned_scanners_counter,
+                   stats.seq_map_candidate_pruned_scanners);
     local_state->_snii_prx_profile_counters.update(stats);
     local_state->_snii_phrase_profile_counters.update(stats);
     COUNTER_UPDATE(local_state->_variant_scan_sparse_column_timer,

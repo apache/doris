@@ -122,6 +122,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                                                   _read_context->is_upper_keys_included->at(i));
         }
     }
+    _read_options.point_keys = _read_context->point_keys;
 
     const auto& read_schema = _read_context->read_schema;
     std::set<ColumnId> delete_columns;
@@ -131,9 +132,11 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                 &_read_options.del_predicates_for_zone_map);
         _read_options.delete_condition_predicates->get_all_column_ids(delete_columns);
     }
-    // Disable condition cache if you have delete condition.
-    _read_context->condition_cache_digest =
-            delete_columns.empty() ? _read_context->condition_cache_digest : 0;
+    // Point keys are derived from visible rowsets and can grow when a new rowset becomes visible,
+    // so an entry built after point-key pruning is unsafe to reuse on an older segment.
+    _read_context->condition_cache_digest = (delete_columns.empty() && !_read_context->point_keys)
+                                                    ? _read_context->condition_cache_digest
+                                                    : 0;
     // create segment iterators
     VLOG_NOTICE << "read columns size: " << read_schema->num_read_columns();
     _read_options.extra_columns = _read_context->extra_columns;
@@ -171,10 +174,13 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
     }
 
-    if (_should_push_down_value_predicates()) {
-        // sequence mapping currently only support merge on read, so can not push down value predicates
+    if (_read_context->is_seq_map_candidate_scan || _should_push_down_value_predicates()) {
+        // A sequence-mapping candidate scan intentionally evaluates value predicates on
+        // physical rows. The resulting rows are used only to build a conservative key set;
+        // final query rows still go through the normal merge-on-read path and residual filter.
         if (_read_context->value_predicates != nullptr &&
-            !read_context->tablet_schema->has_seq_map()) {
+            (_read_context->is_seq_map_candidate_scan ||
+             !read_context->tablet_schema->has_seq_map())) {
             _read_options.column_predicates.insert(_read_options.column_predicates.end(),
                                                    _read_context->value_predicates->begin(),
                                                    _read_context->value_predicates->end());
@@ -192,6 +198,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.tablet_schema = _read_context->tablet_schema;
     _read_options.enable_unique_key_merge_on_write =
             _read_context->enable_unique_key_merge_on_write;
+    _read_options.is_seq_map_candidate_scan = _read_context->is_seq_map_candidate_scan;
+    _read_options.seq_map_candidate_work_limit = _read_context->seq_map_candidate_work_limit;
     _read_options.record_rowids = _read_context->record_rowids;
     _read_options.topn_filter_source_node_ids = _read_context->topn_filter_source_node_ids;
     _read_options.read_orderby_key_reverse = _read_context->read_orderby_key_reverse;
