@@ -5953,6 +5953,86 @@ TEST_F(BlockFileCacheTest, test_check_disk_reource_limit_3) {
     }
 }
 
+TEST_F(BlockFileCacheTest, test_check_disk_resource_limit_hysteresis) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    const auto origin_enter = config::file_cache_enter_disk_resource_limit_mode_percent;
+    const auto origin_exit = config::file_cache_exit_disk_resource_limit_mode_percent;
+    auto* sp = SyncPoint::get_instance();
+    Defer defer {[&] {
+        config::file_cache_enter_disk_resource_limit_mode_percent = origin_enter;
+        config::file_cache_exit_disk_resource_limit_mode_percent = origin_exit;
+        sp->disable_processing();
+        sp->clear_call_back("BlockFileCache::disk_used_percentage:1");
+        if (fs::exists(cache_base_path)) {
+            fs::remove_all(cache_base_path);
+        }
+    }};
+
+    config::file_cache_enter_disk_resource_limit_mode_percent = 85;
+    config::file_cache_exit_disk_resource_limit_mode_percent = 80;
+
+    io::FileCacheSettings settings;
+    settings.capacity = 100_mb;
+    settings.storage = "disk";
+    io::BlockFileCache cache(cache_base_path, settings);
+
+    std::pair<int, int> disk_usage {90, 70};
+    sp->set_call_back("BlockFileCache::disk_used_percentage:1", [&](auto&& values) {
+        *try_any_cast<std::pair<int, int>*>(values.back()) = disk_usage;
+    });
+    sp->enable_processing();
+
+    cache.check_disk_resource_limit();
+    EXPECT_TRUE(cache._disk_resource_limit_mode);
+    EXPECT_EQ(cache._disk_limit_mode_metrics->get_value(), cache._disk_resource_limit_mode);
+
+    cache._disk_resource_limit_mode = false;
+    disk_usage = {70, 90};
+    cache.check_disk_resource_limit();
+    EXPECT_TRUE(cache._disk_resource_limit_mode);
+    EXPECT_EQ(cache._disk_limit_mode_metrics->get_value(), cache._disk_resource_limit_mode);
+
+    ASSERT_GT(cache._capacity, cache._cur_cache_size);
+    disk_usage = {82, 70};
+    cache.check_disk_resource_limit();
+    EXPECT_TRUE(cache._disk_resource_limit_mode);
+    EXPECT_EQ(cache._disk_limit_mode_metrics->get_value(), cache._disk_resource_limit_mode);
+
+    disk_usage = {70, 70};
+    cache.check_disk_resource_limit();
+    EXPECT_FALSE(cache._disk_resource_limit_mode);
+    EXPECT_EQ(cache._disk_limit_mode_metrics->get_value(), cache._disk_resource_limit_mode);
+}
+
+TEST_F(BlockFileCacheTest, test_check_disk_resource_limit_statfs_failure_preserves_state) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    Defer cleanup {[&] {
+        if (fs::exists(cache_base_path)) {
+            fs::remove_all(cache_base_path);
+        }
+    }};
+
+    io::FileCacheSettings settings;
+    settings.capacity = 100_mb;
+    settings.storage = "disk";
+    io::BlockFileCache cache(cache_base_path, settings);
+    cache._disk_resource_limit_mode = true;
+    cache._disk_limit_mode_metrics->set_value(1);
+    cache._cache_base_path = "/non/existent/path/OOXXOO";
+
+    cache.check_disk_resource_limit();
+
+    EXPECT_TRUE(cache._disk_resource_limit_mode);
+    EXPECT_EQ(cache._disk_limit_mode_metrics->get_value(), 1);
+}
+
 TEST_F(BlockFileCacheTest, test_align_size) {
     const size_t total_size = 10_mb + 10086;
     {
@@ -6424,9 +6504,13 @@ TEST_F(BlockFileCacheTest, reset_capacity) {
         assert_range(1, segments[0], io::FileBlock::Range(offset, offset + 4),
                      io::FileBlock::State::DOWNLOADED);
     }
+    cache._disk_resource_limit_mode = false;
+    cache._disk_limit_mode_metrics->set_value(0);
     std::cout << cache.reset_capacity(30) << std::endl;
 
     EXPECT_EQ(cache._cur_cache_size, 30);
+    EXPECT_FALSE(cache._disk_resource_limit_mode);
+    EXPECT_EQ(cache._disk_limit_mode_metrics->get_value(), 0);
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }

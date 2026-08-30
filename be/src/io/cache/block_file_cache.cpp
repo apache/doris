@@ -2194,8 +2194,6 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
             queue_released = remove_blocks(_ttl_queue);
             ss << " ttl_queue released " << queue_released;
 
-            _disk_resource_limit_mode = true;
-            _disk_limit_mode_metrics->set_value(1);
             ss << " total_space_released=" << space_released;
         }
         old_capacity = _capacity;
@@ -2215,11 +2213,6 @@ void BlockFileCache::check_disk_resource_limit() {
         return;
     }
 
-    bool previous_mode = _disk_resource_limit_mode;
-    if (_capacity > _cur_cache_size) {
-        _disk_resource_limit_mode = false;
-        _disk_limit_mode_metrics->set_value(0);
-    }
     std::pair<int, int> percent;
     int ret = disk_used_percentage(_cache_base_path, &percent);
     if (ret != 0) {
@@ -2244,17 +2237,20 @@ void BlockFileCache::check_disk_resource_limit() {
         config::file_cache_enter_disk_resource_limit_mode_percent = 88;
         config::file_cache_exit_disk_resource_limit_mode_percent = 80;
     }
+    bool previous_mode = _disk_resource_limit_mode;
     bool is_space_insufficient = is_insufficient(space_percentage);
     bool is_inode_insufficient = is_insufficient(inode_percentage);
+    // Enter when either resource reaches the enter threshold, but exit only after both
+    // resources fall below the exit threshold. Values in [exit, enter) preserve the previous
+    // mode through _disk_resource_limit_mode.
     if (is_space_insufficient || is_inode_insufficient) {
         _disk_resource_limit_mode = true;
-        _disk_limit_mode_metrics->set_value(1);
     } else if (_disk_resource_limit_mode &&
                (space_percentage < config::file_cache_exit_disk_resource_limit_mode_percent) &&
                (inode_percentage < config::file_cache_exit_disk_resource_limit_mode_percent)) {
         _disk_resource_limit_mode = false;
-        _disk_limit_mode_metrics->set_value(0);
     }
+    _disk_limit_mode_metrics->set_value(_disk_resource_limit_mode);
     if (previous_mode != _disk_resource_limit_mode) {
         // add log for disk resource limit mode switching
         if (_disk_resource_limit_mode) {
