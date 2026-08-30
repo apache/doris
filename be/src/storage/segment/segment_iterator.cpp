@@ -553,20 +553,6 @@ Status SegmentIterator::_lazy_init(Block* block) {
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
     RETURN_IF_ERROR(_vec_init_lazy_materialization());
-    // Remove rows that have been marked deleted
-    if (_opts.delete_bitmap.count(segment_id()) > 0 &&
-        _opts.delete_bitmap.at(segment_id()) != nullptr) {
-        size_t pre_size = _row_bitmap.cardinality();
-        _row_bitmap -= *(_opts.delete_bitmap.at(segment_id()));
-        _opts.stats->rows_del_by_bitmap += (pre_size - _row_bitmap.cardinality());
-        VLOG_DEBUG << "read on segment: " << segment_id() << ", delete bitmap cardinality: "
-                   << _opts.delete_bitmap.at(segment_id())->cardinality() << ", "
-                   << _opts.stats->rows_del_by_bitmap << " rows deleted by bitmap";
-    }
-
-    if (!_opts.row_ranges.is_empty()) {
-        _row_bitmap &= RowRanges::ranges_to_roaring(_opts.row_ranges);
-    }
 
     _prepare_score_column_materialization();
 
@@ -819,6 +805,38 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         return Status::OK();
     }
 
+    // Apply stable scan restrictions before evaluating inverted-index expressions so
+    // selective restrictions can also serve as phrase-query candidates. The candidate
+    // pointer keeps referring to _row_bitmap as later predicates shrink it.
+    auto delete_bitmap_it = _opts.delete_bitmap.find(segment_id());
+    if (delete_bitmap_it != _opts.delete_bitmap.end() && delete_bitmap_it->second != nullptr) {
+        size_t pre_size = _row_bitmap.cardinality();
+        _row_bitmap -= *delete_bitmap_it->second;
+        _opts.stats->rows_del_by_bitmap += (pre_size - _row_bitmap.cardinality());
+        VLOG_DEBUG << "read on segment: " << segment_id()
+                   << ", delete bitmap cardinality: " << delete_bitmap_it->second->cardinality()
+                   << ", " << _opts.stats->rows_del_by_bitmap << " rows deleted by bitmap";
+    }
+
+    if (!_opts.row_ranges.is_empty()) {
+        _row_bitmap &= RowRanges::ranges_to_roaring(_opts.row_ranges);
+    }
+
+    if (!_row_bitmap.isEmpty() &&
+        (!_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
+         _opts.delete_condition_predicates->num_of_column_predicate() > 0 ||
+         !_common_expr_ctxs_push_down.empty())) {
+        RowRanges condition_row_ranges = RowRanges::create_single(_segment->num_rows());
+        RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
+        size_t pre_size = _row_bitmap.cardinality();
+        _row_bitmap &= RowRanges::ranges_to_roaring(condition_row_ranges);
+        _opts.stats->rows_conditions_filtered += (pre_size - _row_bitmap.cardinality());
+    }
+
+    if (_row_bitmap.isEmpty()) {
+        return Status::OK();
+    }
+
     {
         if (_opts.runtime_state &&
             _opts.runtime_state->query_options().enable_inverted_index_query &&
@@ -907,17 +925,6 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                     _common_expr_ctxs_push_down.size(), _col_predicates.size());
         }
     })
-
-    if (!_row_bitmap.isEmpty() &&
-        (!_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
-         _opts.delete_condition_predicates->num_of_column_predicate() > 0 ||
-         !_common_expr_ctxs_push_down.empty())) {
-        RowRanges condition_row_ranges = RowRanges::create_single(_segment->num_rows());
-        RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
-        size_t pre_size = _row_bitmap.cardinality();
-        _row_bitmap &= RowRanges::ranges_to_roaring(condition_row_ranges);
-        _opts.stats->rows_conditions_filtered += (pre_size - _row_bitmap.cardinality());
-    }
 
     DBUG_EXECUTE_IF("bloom_filter_must_filter_data", {
         if (_opts.stats->rows_bf_filtered == 0) {
@@ -1382,7 +1389,7 @@ bool SegmentIterator::_count_on_index_fastpath_safe() const {
     facts.has_virtual_column_exprs = !_virtual_column_exprs.empty();
     facts.has_delete_predicates = _opts.delete_condition_predicates != nullptr &&
                                   _opts.delete_condition_predicates->num_of_column_predicate() > 0;
-    // Mirror of the _lazy_init delete-bitmap subtraction: the fast path is only
+    // Mirror of the pre-index delete-bitmap subtraction: the fast path is only
     // sound when there is nothing to subtract for THIS segment.
     const auto delete_bitmap_it = _opts.delete_bitmap.find(segment_id());
     facts.segment_delete_bitmap_empty = delete_bitmap_it == _opts.delete_bitmap.end() ||
