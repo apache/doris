@@ -47,6 +47,11 @@ public final class LanceTypeConverter {
 
     /** 将 Lance 暴露的 Arrow 字段递归转换为 Doris 类型。 */
     public static Type toDorisType(Field field) {
+        return toDorisType(field, true);
+    }
+
+    /** 转换 Arrow 字段，并仅允许顶层字段使用 Doris NULL 类型。 */
+    private static Type toDorisType(Field field, boolean allowNull) {
         // TODO(lance): Dataset.getSchema() currently erases the Dictionary marker, while
         // Dataset.getLanceSchema() fails to convert a schema containing Dictionary in the
         // Lance 9.1.0-beta.3 Java SDK. Reject physical Dictionary columns after that SDK
@@ -63,7 +68,7 @@ public final class LanceTypeConverter {
         ArrowType arrowType = field.getType();
         switch (arrowType.getTypeID()) {
             case Null:
-                return Type.NULL;
+                return allowNull ? Type.NULL : Type.UNSUPPORTED;
             case Bool:
                 return Type.BOOLEAN;
             case Int:
@@ -109,7 +114,7 @@ public final class LanceTypeConverter {
             case LargeList:
             case FixedSizeList:
                 requireChildren(field, 1);
-                Type itemType = toDorisType(field.getChildren().get(0));
+                Type itemType = toDorisType(field.getChildren().get(0), false);
                 return itemType.isSupported() ? new ArrayType(itemType) : Type.UNSUPPORTED;
             case Map:
                 requireChildren(field, 1);
@@ -117,15 +122,15 @@ public final class LanceTypeConverter {
                 requireChildren(entries, 2);
                 Field key = entries.getChildren().get(0);
                 Field value = entries.getChildren().get(1);
-                Type keyType = toDorisType(key);
-                Type valueType = toDorisType(value);
+                Type keyType = toDorisType(key, false);
+                Type valueType = toDorisType(value, false);
                 return keyType.isSupported() && valueType.isSupported()
                         ? new MapType(keyType, valueType, key.isNullable(), value.isNullable())
                         : Type.UNSUPPORTED;
             case Struct:
                 List<StructField> fields = new ArrayList<>();
                 for (Field child : field.getChildren()) {
-                    Type childType = toDorisType(child);
+                    Type childType = toDorisType(child, false);
                     if (!childType.isSupported()) {
                         return Type.UNSUPPORTED;
                     }
