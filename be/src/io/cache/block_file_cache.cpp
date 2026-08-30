@@ -226,6 +226,10 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_ttl_cache_evict_size");
     _total_evict_size_metrics = std::make_shared<bvar::Adder<size_t>>(
             _cache_base_path.c_str(), "file_cache_total_evict_size");
+    _evict_not_downloaded_size_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_evict_not_downloaded_size");
+    _evict_not_downloaded_num_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_evict_not_downloaded_num");
     _total_read_size_metrics = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                                      "file_cache_total_read_size");
     _total_hit_size_metrics = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
@@ -1836,15 +1840,15 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
                                           cell->file_block->get_hash_value(),
                                           cell->file_block->offset(), cell->size());
     }
-    *_queue_evict_size_metrics[file_cache_type_index(file_block->cache_type())]
-            << file_block->range().size();
-    *_total_evict_size_metrics << file_block->range().size();
-
     VLOG_DEBUG << "Removing file block from cache. hash: " << hash.to_string()
                << ", offset: " << offset << ", size: " << file_block->range().size()
                << ", type: " << cache_type_to_string(type);
 
-    if (file_block->state_unlock(block_lock) == FileBlock::State::DOWNLOADED) {
+    const auto state = file_block->state_unlock(block_lock);
+    if (state == FileBlock::State::DOWNLOADED) {
+        *_queue_evict_size_metrics[file_cache_type_index(file_block->cache_type())]
+                << file_block->range().size();
+        *_total_evict_size_metrics << file_block->range().size();
         FileCacheKey key;
         key.hash = hash;
         key.offset = offset;
@@ -1883,9 +1887,12 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
                 }
             }
         }
-    } else if (file_block->state_unlock(block_lock) == FileBlock::State::DOWNLOADING) {
+    } else if (state == FileBlock::State::DOWNLOADING) {
         file_block->set_deleting();
         return;
+    } else {
+        *_evict_not_downloaded_size_metrics << file_block->range().size();
+        *_evict_not_downloaded_num_metrics << 1;
     }
     _cur_cache_size -= file_block->range().size();
     if (FileCacheType::TTL == type) {
@@ -2774,6 +2781,8 @@ std::map<std::string, double> BlockFileCache::get_stats() {
     stats["total_read_size"] = (double)_total_read_size_metrics->get_value();
     stats["total_hit_size"] = (double)_total_hit_size_metrics->get_value();
     stats["total_removed_size"] = (double)_total_evict_size_metrics->get_value();
+    stats["evict_not_downloaded_size"] = (double)_evict_not_downloaded_size_metrics->get_value();
+    stats["evict_not_downloaded_num"] = (double)_evict_not_downloaded_num_metrics->get_value();
 
     return stats;
 }
@@ -2827,6 +2836,8 @@ std::map<std::string, double> BlockFileCache::get_stats_unsafe() {
     stats["total_read_size"] = (double)_total_read_size_metrics->get_value();
     stats["total_hit_size"] = (double)_total_hit_size_metrics->get_value();
     stats["total_removed_size"] = (double)_total_evict_size_metrics->get_value();
+    stats["evict_not_downloaded_size"] = (double)_evict_not_downloaded_size_metrics->get_value();
+    stats["evict_not_downloaded_num"] = (double)_evict_not_downloaded_num_metrics->get_value();
 
     return stats;
 }
