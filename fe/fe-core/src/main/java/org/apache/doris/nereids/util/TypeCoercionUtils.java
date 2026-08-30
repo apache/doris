@@ -65,7 +65,6 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
-import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
@@ -675,7 +674,7 @@ public class TypeCoercionUtils {
                 if (timeStampTzType.getScale() < 0 || timeStampTzType.getScale() == TimeStampTzType.MAX_SCALE) {
                     timeStampTzType = TimeStampTzType.forTypeFromString(value);
                 }
-                ret = TimestampTzLiteral.fromSessionTimeZone(timeStampTzType, value);
+                ret = new StringLiteral(value).checkedCastTo(timeStampTzType);
             } else if ((dataType.isDateV2Type() || dataType.isDateType()) && DateTimeChecker.isValidDateTime(value)) {
                 Result<DateLiteral, AnalysisException> parseResult = DateV2Literal.parseDateLiteral(value, true);
                 if (parseResult.isOk()) {
