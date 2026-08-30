@@ -1020,6 +1020,26 @@ TEST(LanceTableReaderSchemaTest, RejectsMalformedKnownExtensionStorage) {
     }
 }
 
+// 验证嵌套 Null 类型保留顶层列，但不会进入当前不支持的复杂类型读取路径。
+TEST(LanceTableReaderSchemaTest, MarksNestedNullTypesAsUnsupported) {
+    const auto arrow_schema = arrow::schema({
+            arrow::field("null_list", arrow::list(arrow::field("item", arrow::null()))),
+            arrow::field("null_struct",
+                         arrow::struct_({arrow::field("value", arrow::null())})),
+    });
+
+    std::vector<std::string> column_names;
+    std::vector<DataTypePtr> column_types;
+    ASSERT_TRUE(convert_arrow_schema_to_doris(arrow_schema, &column_names, &column_types).ok());
+
+    EXPECT_EQ((std::vector<std::string> {"null_list", "null_struct"}), column_names);
+    ASSERT_EQ(2, column_types.size());
+    for (const auto& column_type : column_types) {
+        ASSERT_NE(nullptr, column_type);
+        EXPECT_EQ(INVALID_TYPE, column_type->get_primitive_type());
+    }
+}
+
 // 验证新增类型从 Arrow 批次写入 Doris 列时的值、空值和精度。
 TEST(LanceTableReaderTypeTest, ReadsAdditionalArrowAndLanceTypes) {
     const auto json_extension_metadata =

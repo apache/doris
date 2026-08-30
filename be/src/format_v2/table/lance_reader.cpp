@@ -343,9 +343,9 @@ int arrow_time_precision(arrow::TimeUnit::type unit) {
     return 6;
 }
 
-// 将单个 Arrow 字段映射为 Doris 数据类型，并保留已知扩展类型的逻辑语义。
+// 将 Arrow 字段映射为 Doris 类型，并仅允许顶层字段使用 Doris NULL 类型。
 Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
-                                 DataTypePtr* doris_type) {
+                                 DataTypePtr* doris_type, bool allow_null) {
     const auto nullable_primitive = [&](PrimitiveType type, int precision = 0, int scale = 0,
                                         int len = -1) {
         *doris_type =
@@ -374,7 +374,11 @@ Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
 
     switch (arrow_type->id()) {
     case arrow::Type::NA:
-        return nullable_primitive(TYPE_NULL);
+        return allow_null
+                       ? nullable_primitive(TYPE_NULL)
+                       : Status::NotSupported(
+                                 "nested Arrow null type is unsupported for Lance field '{}'",
+                                 field->name());
     case arrow::Type::BOOL:
         return nullable_primitive(TYPE_BOOLEAN);
     case arrow::Type::INT8:
@@ -442,7 +446,7 @@ Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
     case arrow::Type::FIXED_SIZE_LIST: {
         const auto list = std::static_pointer_cast<arrow::BaseListType>(arrow_type);
         DataTypePtr value_type;
-        RETURN_IF_ERROR(arrow_field_to_doris_type(list->value_field(), &value_type));
+        RETURN_IF_ERROR(arrow_field_to_doris_type(list->value_field(), &value_type, false));
         *doris_type = make_nullable(std::make_shared<DataTypeArray>(value_type));
         return Status::OK();
     }
@@ -450,8 +454,8 @@ Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
         const auto map = std::static_pointer_cast<arrow::MapType>(arrow_type);
         DataTypePtr key_type;
         DataTypePtr item_type;
-        RETURN_IF_ERROR(arrow_field_to_doris_type(map->key_field(), &key_type));
-        RETURN_IF_ERROR(arrow_field_to_doris_type(map->item_field(), &item_type));
+        RETURN_IF_ERROR(arrow_field_to_doris_type(map->key_field(), &key_type, false));
+        RETURN_IF_ERROR(arrow_field_to_doris_type(map->item_field(), &item_type, false));
         *doris_type = make_nullable(std::make_shared<DataTypeMap>(key_type, item_type));
         return Status::OK();
     }
@@ -463,7 +467,7 @@ Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
         field_names.reserve(struct_type->num_fields());
         for (const auto& child : struct_type->fields()) {
             DataTypePtr field_type;
-            RETURN_IF_ERROR(arrow_field_to_doris_type(child, &field_type));
+            RETURN_IF_ERROR(arrow_field_to_doris_type(child, &field_type, false));
             field_types.emplace_back(std::move(field_type));
             field_names.emplace_back(child->name());
         }
@@ -495,7 +499,7 @@ Status convert_arrow_schema_to_doris(const std::shared_ptr<arrow::Schema>& arrow
             return Status::InvalidArgument("duplicate Lance schema column: {}", field->name());
         }
         DataTypePtr doris_type;
-        const auto type_status = arrow_field_to_doris_type(field, &doris_type);
+        const auto type_status = arrow_field_to_doris_type(field, &doris_type, true);
         if (type_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) {
             parsed_types.emplace_back(std::make_shared<DataTypeNothing>());
         } else {

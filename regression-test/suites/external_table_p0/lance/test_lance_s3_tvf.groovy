@@ -45,9 +45,7 @@ suite("test_lance_s3_tvf", "p0,external") {
         sql """SET enable_file_scanner_v2 = true"""
         sql """SET time_zone = '+08:00'"""
 
-        // all_types deliberately contains both supported and unsupported Arrow
-        // types. S3 TVF should expose the same schema as the Lance Catalog and
-        // allow a query to project only supported columns.
+        // S3 TVF should expose the same schema and values as the Lance Catalog.
         order_qt_desc """DESC FUNCTION ${lanceTvf}"""
 
         // FE pins one Lance version and creates one split per fragment. These
@@ -80,10 +78,19 @@ suite("test_lance_s3_tvf", "p0,external") {
             WHERE row_id = 1
         """
 
-        test {
-            sql """SELECT null_col FROM ${lanceTvf}"""
-            exception "is unsupported for Nereids"
-        }
+        qt_additional_types """
+            SELECT
+                null_col IS NULL AS null_is_null,
+                duration_s_col,
+                duration_ms_col,
+                duration_us_col,
+                duration_ns_col,
+                hex(blob_col) AS blob_col,
+                CAST(json_col AS STRING) AS json_col,
+                bfloat16_vector_col
+            FROM ${lanceTvf}
+            WHERE row_id = 1
+        """
     } finally {
         sql """SET enable_file_scanner_v2 = ${originalScannerV2}"""
         sql """SET time_zone = '${originalTimeZone}'"""

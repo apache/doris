@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
 
@@ -187,9 +188,11 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     @Override
     public Optional<MaterializeSource> visitPhysicalTVFRelation(
             PhysicalTVFRelation tvfRelation, ProbeContext context) {
-        // The first Lance implementation fetches top-level columns by row ID. Keep nested
-        // sub-column projections in the search phase until take_rows supports access paths.
-        if (isVectorSearch(tvfRelation) && context.slot.hasSubColPath()) {
+        // Lance row-ID fetch cannot materialize nested paths or Blob v2 payloads. Blob v2 is
+        // exposed as VARBINARY, so keep all VARBINARY slots in the scanner phase as well.
+        if (isVectorSearch(tvfRelation)
+                && (context.slot.hasSubColPath()
+                        || context.slot.getDataType() instanceof VarBinaryType)) {
             return Optional.empty();
         }
         if (checkTVFRelationTableSupportedType(tvfRelation) && tvfRelation.getOutput().contains(context.slot)
