@@ -63,14 +63,33 @@ public class InnerProduct extends ScalarFunction implements ExplicitlyCastableSi
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        for (int i = 0; i < arity(); ++i) {
-            DataType argumentType = getArgument(i).getDataType();
+        checkMapKeyTypes(true);
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkMapKeyTypes(false);
+    }
+
+    private void checkMapKeyTypes(boolean allowNullKeyType) {
+        DataType firstKeyType = null;
+        for (Expression argument : getArguments()) {
+            DataType argumentType = argument.getDataType();
             if (argumentType.isMapType()) {
                 DataType keyType = ((MapType) argumentType).getKeyType();
+                if (allowNullKeyType && keyType.isNullType()) {
+                    continue;
+                }
                 if (!keyType.isIntegralType() && !keyType.isStringLikeType()) {
                     throw new AnalysisException("inner_product only supports integer or string map keys,"
                             + " but got " + keyType.toSql() + " in expression " + toSql());
                 }
+                if (firstKeyType != null && firstKeyType.isIntegralType() != keyType.isIntegralType()) {
+                    throw new AnalysisException("inner_product requires map keys from the same type family,"
+                            + " but got " + firstKeyType.toSql() + " and " + keyType.toSql()
+                            + " in expression " + toSql());
+                }
+                firstKeyType = keyType;
             }
         }
     }

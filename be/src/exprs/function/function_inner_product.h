@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <parallel_hashmap/phmap.h>
-
 #include "core/assert_cast.h"
 #include "core/column/column_const.h"
 #include "core/column/column_map.h"
@@ -27,6 +25,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/string_ref.h"
 #include "exec/common/hash_table/hash.h"
+#include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "exec/common/util.hpp"
 #include "exprs/function/array/function_array_distance.h"
 
@@ -216,7 +215,7 @@ private:
                                   right_values.data()};
 
         // Build the hash table from the smaller map row to minimize temporary memory.
-        phmap::flat_hash_map<Key, float, typename KeyTraits::Hash> values_by_key;
+        doris::flat_hash_map<Key, float, typename KeyTraits::Hash> values_by_key;
         for (size_t row = 0; row < input_rows_count; ++row) {
             const MapRange left_range = _get_map_range(left, left_is_const, row);
             const MapRange right_range = _get_map_range(right, right_is_const, row);

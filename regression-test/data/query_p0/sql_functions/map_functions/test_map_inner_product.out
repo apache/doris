@@ -10,6 +10,9 @@
 -- !map_inner_product_null_key --
 38.0
 
+-- !map_inner_product_inferred_null_key --
+6.0
+
 -- !map_inner_product_disjoint --
 0.0
 

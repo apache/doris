@@ -55,6 +55,12 @@ suite("test_map_inner_product", "p0") {
             map(1, 10.0, cast(null as int), 4.0))
     """
 
+    qt_map_inner_product_inferred_null_key """
+        select inner_product(
+            map(null, cast(2 as float)),
+            map(cast(null as int), cast(3 as float)))
+    """
+
     qt_map_inner_product_disjoint """
         select inner_product(map(1, 2.0), map(2, 3.0))
     """
@@ -88,5 +94,31 @@ suite("test_map_inner_product", "p0") {
                 map(cast('2024-01-01' as date), cast(2 as float)))
         """
         exception "inner_product only supports integer or string map keys"
+    }
+
+    test {
+        sql """
+            select inner_product(
+                map(null, cast(1 as float)),
+                map(null, cast(2 as float)))
+        """
+        exception "inner_product only supports integer or string map keys"
+    }
+
+    def originalTypeCoercionBehavior = sql """
+        show global variables like 'enable_new_type_coercion_behavior'
+    """
+    try {
+        sql "set global enable_new_type_coercion_behavior = false"
+        test {
+            sql """
+                select inner_product(
+                    map(1, cast(2 as float)),
+                    map('1', cast(3 as float)))
+            """
+            exception "inner_product requires map keys from the same type family"
+        }
+    } finally {
+        sql "set global enable_new_type_coercion_behavior = ${originalTypeCoercionBehavior[0][1]}"
     }
 }
