@@ -2237,7 +2237,7 @@ void BlockFileCache::check_disk_resource_limit() {
         config::file_cache_enter_disk_resource_limit_mode_percent = 88;
         config::file_cache_exit_disk_resource_limit_mode_percent = 80;
     }
-    bool previous_mode = _disk_resource_limit_mode;
+    bool previous_mode = _disk_resource_limit_mode.load();
     bool is_space_insufficient = is_insufficient(space_percentage);
     bool is_inode_insufficient = is_insufficient(inode_percentage);
     // Enter when either resource reaches the enter threshold, but exit only after both
@@ -2250,8 +2250,8 @@ void BlockFileCache::check_disk_resource_limit() {
                (inode_percentage < config::file_cache_exit_disk_resource_limit_mode_percent)) {
         _disk_resource_limit_mode = false;
     }
-    _disk_limit_mode_metrics->set_value(_disk_resource_limit_mode);
-    if (previous_mode != _disk_resource_limit_mode) {
+    _disk_limit_mode_metrics->set_value(_disk_resource_limit_mode.load());
+    if (previous_mode != _disk_resource_limit_mode.load()) {
         // add log for disk resource limit mode switching
         if (_disk_resource_limit_mode) {
             LOG(WARNING) << "Entering disk resource limit mode: file_cache=" << get_base_path()
@@ -2308,7 +2308,7 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
         config::file_cache_enter_need_evict_cache_in_advance_percent = 78;
         config::file_cache_exit_need_evict_cache_in_advance_percent = 75;
     }
-    bool previous_mode = _need_evict_cache_in_advance;
+    bool previous_mode = _need_evict_cache_in_advance.load();
     bool is_space_insufficient = is_insufficient(space_percentage);
     bool is_inode_insufficient = is_insufficient(inode_percentage);
     bool is_size_insufficient = is_insufficient(size_percentage);
@@ -2322,7 +2322,7 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
         _need_evict_cache_in_advance = false;
         _need_evict_cache_in_advance_metrics->set_value(0);
     }
-    if (previous_mode != _need_evict_cache_in_advance) {
+    if (previous_mode != _need_evict_cache_in_advance.load()) {
         // add log for evict cache in advance mode switching
         if (_need_evict_cache_in_advance) {
             LOG(WARNING) << "Entering evict cache in advance mode: "
@@ -2760,8 +2760,8 @@ std::map<std::string, double> BlockFileCache::get_stats() {
             (double)_lru_recorder_shadow_queue_element_count_metrics[FileCacheType::DISPOSABLE]
                     ->get_value();
 
-    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
-    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
+    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance.load();
+    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode.load();
 
     stats["total_removed_counts"] = (double)_num_removed_blocks->get_value();
     stats["total_hit_counts"] = (double)_num_hit_blocks->get_value();
@@ -2813,8 +2813,8 @@ std::map<std::string, double> BlockFileCache::get_stats_unsafe() {
             (double)_lru_recorder_shadow_queue_element_count_metrics[FileCacheType::DISPOSABLE]
                     ->get_value();
 
-    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
-    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
+    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance.load();
+    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode.load();
 
     stats["total_removed_counts"] = (double)_num_removed_blocks->get_value();
     stats["total_hit_counts"] = (double)_num_hit_blocks->get_value();
