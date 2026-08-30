@@ -73,6 +73,7 @@
 #include "util/network_util.h"
 #include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
+#include "util/time.h"
 
 namespace doris::cloud {
 using namespace ErrorCode;
@@ -494,33 +495,54 @@ struct RpcRateLimitCtx {
     int64_t table_id {-1}; // For table-level backpressure, passed from caller
 };
 
-// Apply rate limiting before RPC (both host-level and table-level)
-void apply_rate_limit(MetaServiceRPC rpc, const RpcRateLimitCtx& ctx) {
-    // Table-level rate limit (for load-related RPCs only)
-    if (ctx.backpressure_handler && ctx.table_id > 0) {
-        LoadRelatedRpc load_rpc = to_load_related_rpc(rpc);
-        if (load_rpc != LoadRelatedRpc::COUNT) {
-            auto wait_until = ctx.backpressure_handler->before_rpc(load_rpc, ctx.table_id);
-            auto now = std::chrono::steady_clock::now();
-            if (wait_until > now) {
-                auto wait_us =
-                        std::chrono::duration_cast<std::chrono::microseconds>(wait_until - now)
-                                .count();
-                if (wait_us > 0) {
-                    if (auto* recorder = get_throttle_wait_recorder(load_rpc);
-                        recorder != nullptr) {
-                        *recorder << wait_us;
-                    }
-                    bthread_usleep(wait_us);
-                }
-            }
-        }
+void apply_table_level_rate_limit(MetaServiceRPC rpc, const RpcRateLimitCtx& ctx) {
+    if (ctx.backpressure_handler == nullptr || ctx.table_id <= 0) {
+        return;
     }
 
-    // Host-level rate limit
-    if (ctx.host_limiters) {
-        ctx.host_limiters->limit(rpc);
+    const auto load_rpc = to_load_related_rpc(rpc);
+    if (load_rpc == LoadRelatedRpc::COUNT) {
+        return;
     }
+
+    const auto decision = ctx.backpressure_handler->before_rpc(load_rpc, ctx.table_id);
+    const auto now = std::chrono::steady_clock::now();
+    if (decision.wait_until <= now) {
+        return;
+    }
+
+    const auto wait_us =
+            std::chrono::duration_cast<std::chrono::microseconds>(decision.wait_until - now)
+                    .count();
+    if (wait_us <= 0) {
+        return;
+    }
+
+    auto* recorder = get_throttle_wait_recorder(load_rpc);
+    DCHECK(recorder);
+    *recorder << wait_us;
+    if (ctx.backpressure_handler->should_log_throttle(load_rpc, MonotonicMicros())) {
+        const double current_qps =
+                ctx.backpressure_handler->get_current_qps(load_rpc, ctx.table_id);
+        LOG(INFO) << "[ms-throttle] table-level rate limiter triggered for MS RPC request"
+                  << ", rpc=" << load_related_rpc_name(load_rpc) << ", table_id=" << ctx.table_id
+                  << ", wait_us=" << wait_us << ", current_qps=" << current_qps
+                  << ", qps_limit=" << decision.qps_limit;
+    }
+
+    if (decision.dry_run) {
+        return;
+    }
+    bthread_usleep(wait_us);
+}
+
+// Apply rate limiting before RPC (both host-level and table-level)
+void apply_rate_limit(MetaServiceRPC rpc, const RpcRateLimitCtx& ctx) {
+    apply_table_level_rate_limit(rpc, ctx);
+    if (ctx.host_limiters == nullptr) {
+        return;
+    }
+    ctx.host_limiters->limit(rpc);
 }
 
 // Record RPC QPS statistics after RPC (for table-level tracking)
