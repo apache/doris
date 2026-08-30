@@ -63,23 +63,20 @@ public class JournalObservable {
         }
     }
 
-    // return min pos which is bigger than value
+    // Return the number of elements whose targetJournalVersion <= value.
+    // This is the standard upper_bound pattern: returns the index of the first element > value.
     public static int upperBound(Object[] array, int size, Long value) {
         int left = 0;
-        int right = size - 1;
+        int right = size;
         while (left < right) {
             int middle = left + ((right - left) >> 1);
-            if (value >= ((JournalObserver) array[middle]).getTargetJournalVersion()) {
+            if (((JournalObserver) array[middle]).getTargetJournalVersion() <= value) {
                 left = middle + 1;
             } else {
-                right = middle - 1;
+                right = middle;
             }
         }
-        if (right == -1) {
-            return 0;
-        }
-        Long rightValue = ((JournalObserver) array[right]).getTargetJournalVersion();
-        return value >= rightValue ? right + 1  : right;
+        return left;
     }
 
     public void notifyObservers(Long journalId) {
