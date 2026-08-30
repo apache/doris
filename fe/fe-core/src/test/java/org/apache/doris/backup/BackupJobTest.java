@@ -370,17 +370,17 @@ public class BackupJobTest {
     }
 
     @Test
-    @SuppressWarnings("deprecation")
     public void testBackupCopyPreservesDistributionMappingConstraint() {
         DistributionMappingConstraint mapping = new DistributionMappingConstraint(
                 "mapping", "mapping_id", List.of("d1"), List.of("k1"));
-        table2.getTableAttributes().getDistributionMappingConstraints()
-                .put(mapping.getName(), mapping);
+        TableProperty tableProperty = new TableProperty(Maps.newHashMap());
+        tableProperty.addDistributionMappingConstraint(mapping);
+        table2.setTableProperty(tableProperty);
 
         OlapTable copied = table2.selectiveCopy(null, IndexExtState.VISIBLE, true);
 
         Assert.assertNotNull(copied);
-        Assert.assertEquals(mapping, copied.getTableAttributes()
+        Assert.assertEquals(mapping, copied.getTableProperty()
                 .getDistributionMappingConstraints().get(mapping.getName()));
     }
 

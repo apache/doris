@@ -42,6 +42,7 @@ import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
@@ -577,13 +578,9 @@ public class SchemaChangeJobV2Test {
         DistributionMappingConstraint mapping = new DistributionMappingConstraint(
                 "distribution_mapping", "distribution_mapping",
                 List.of("v"), List.of("k1"));
-        olapTable.writeLock();
-        try {
-            masterEnv.getConstraintManager().replayDistributionMappingConstraint(
-                    olapTable, mapping, null);
-        } finally {
-            olapTable.writeUnlock();
-        }
+        TableProperty tableProperty = new TableProperty(Maps.newHashMap());
+        tableProperty.addDistributionMappingConstraint(mapping);
+        olapTable.setTableProperty(tableProperty);
 
         DdlException exception = Assert.assertThrows(
                 DdlException.class,
@@ -619,13 +616,9 @@ public class SchemaChangeJobV2Test {
         OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1).get();
         DistributionMappingConstraint mapping = new DistributionMappingConstraint(
                 "distribution_mapping", "distribution_mapping", List.of("v"), List.of("k1"));
-        olapTable.writeLock();
-        try {
-            masterEnv.getConstraintManager().replayDistributionMappingConstraint(
-                    olapTable, mapping, null);
-        } finally {
-            olapTable.writeUnlock();
-        }
+        TableProperty tableProperty = new TableProperty(Maps.newHashMap());
+        tableProperty.addDistributionMappingConstraint(mapping);
+        olapTable.setTableProperty(tableProperty);
 
         long rollupIndexId = 1000L;
         String rollupIndexName = "mapping_rollup";

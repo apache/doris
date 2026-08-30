@@ -19,7 +19,7 @@ package org.apache.doris.catalog.constraint;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.TableAttributes;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -36,67 +36,78 @@ import java.util.Map;
 class DistributionMappingConstraintPersistTest {
 
     @Test
-    void tableAttributesRoundTripAndRemainReadableByLegacyCode() {
-        DistributionMappingConstraint mapping = newBoundMapping();
-        TableAttributes attributes = new TableAttributes();
-        attributes.getDistributionMappingConstraints().put(mapping.getName(), mapping);
+    void tablePropertyRoundTripPreservesMappingsInStableOrder() {
+        DistributionMappingConstraint second = newBoundMapping("mapping_b", "mapping_b_id");
+        DistributionMappingConstraint first = newBoundMapping("mapping_a", "mapping_a_id");
+        TableProperty tableProperty = new TableProperty(new HashMap<>());
+        tableProperty.addDistributionMappingConstraint(second);
+        tableProperty.addDistributionMappingConstraint(first);
 
-        String json = GsonUtils.GSON.toJson(attributes);
-        TableAttributes restored = GsonUtils.GSON.fromJson(json, TableAttributes.class);
-        DistributionMappingConstraint restoredMapping =
-                restored.getDistributionMappingConstraints().get(mapping.getName());
-        Assertions.assertEquals(mapping, restoredMapping);
-        Assertions.assertEquals(mapping.getBaseSchemaVersion(), restoredMapping.getBaseSchemaVersion());
-        Assertions.assertEquals(
-                mapping.getDeterminantColumnUniqueIds(), restoredMapping.getDeterminantColumnUniqueIds());
-        Assertions.assertEquals(
-                mapping.getDistributionColumnUniqueIds(), restoredMapping.getDistributionColumnUniqueIds());
-        Assertions.assertEquals(
-                mapping.getDeterminantColumnTypeSignatures(), restoredMapping.getDeterminantColumnTypeSignatures());
-        Assertions.assertEquals(
-                mapping.getDistributionColumnTypeSignatures(), restoredMapping.getDistributionColumnTypeSignatures());
+        String snapshot = tableProperty.getProperties()
+                .get(TableProperty.DISTRIBUTION_MAPPING_CONSTRAINTS_PROPERTY);
+        Assertions.assertTrue(snapshot.indexOf("mapping_a") < snapshot.indexOf("mapping_b"));
 
-        LegacyTableAttributes legacy = GsonUtils.GSON.fromJson(json, LegacyTableAttributes.class);
-        Assertions.assertTrue(legacy.constraints.isEmpty());
-        Assertions.assertFalse(json.contains("\"clazz\":\"DistributionMappingConstraint\""));
-
-        TableAttributes restoredFromLegacy = GsonUtils.GSON.fromJson(
-                "{\"constraints\":{},\"visibleVersion\":1,\"visibleVersionTime\":1}",
-                TableAttributes.class);
-        Assertions.assertTrue(restoredFromLegacy.getDistributionMappingConstraints().isEmpty());
+        String json = GsonUtils.GSON.toJson(tableProperty);
+        Assertions.assertFalse(json.contains("\"distributionMappingConstraints\""));
+        TableProperty restored = GsonUtils.GSON.fromJson(json, TableProperty.class);
+        DistributionMappingConstraint restoredMapping = restored.getDistributionMappingConstraints().get("mapping_a");
+        Assertions.assertEquals(List.of(first, second), restored.getDistributionMappingConstraints().entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(Map.Entry::getValue)
+                .toList());
+        Assertions.assertEquals(first, restoredMapping);
+        Assertions.assertEquals(first.getBaseSchemaVersion(), restoredMapping.getBaseSchemaVersion());
+        Assertions.assertEquals(
+                first.getDeterminantColumnUniqueIds(), restoredMapping.getDeterminantColumnUniqueIds());
+        Assertions.assertEquals(
+                first.getDistributionColumnUniqueIds(), restoredMapping.getDistributionColumnUniqueIds());
+        Assertions.assertEquals(
+                first.getDeterminantColumnTypeSignatures(), restoredMapping.getDeterminantColumnTypeSignatures());
+        Assertions.assertEquals(
+                first.getDistributionColumnTypeSignatures(), restoredMapping.getDistributionColumnTypeSignatures());
     }
 
     @Test
-    void tablePropertyJournalRoundTripAndRemainReadableByLegacyCode() throws Exception {
-        DistributionMappingConstraint mapping = newBoundMapping();
-        ModifyTablePropertyOperationLog addLog =
-                ModifyTablePropertyOperationLog.addDistributionMappingConstraint(
-                        1L, 2L, "table", mapping);
-        ModifyTablePropertyOperationLog restoredAddLog = GsonUtils.GSON.fromJson(
-                addLog.toJson(), ModifyTablePropertyOperationLog.class);
+    void oldFrontendReplayAndCheckpointPreserveAddAndDropSnapshots() {
+        DistributionMappingConstraint mapping = newBoundMapping("mapping", "mapping_id");
+        TableProperty currentProperty = new TableProperty(new HashMap<>());
+        currentProperty.addDistributionMappingConstraint(mapping);
+        ModifyTablePropertyOperationLog addLog = new ModifyTablePropertyOperationLog(
+                1L, 2L, "table", currentProperty.getDistributionMappingConstraintProperties());
 
-        Assertions.assertEquals(mapping, restoredAddLog.getDistributionMappingConstraint());
-        Assertions.assertNull(restoredAddLog.getDroppedDistributionMappingConstraint());
-        Assertions.assertTrue(restoredAddLog.getProperties().isEmpty());
-
-        ModifyTablePropertyOperationLog dropLog =
-                ModifyTablePropertyOperationLog.dropDistributionMappingConstraint(
-                        1L, 2L, "table", mapping.getName());
-        ModifyTablePropertyOperationLog restoredDropLog = GsonUtils.GSON.fromJson(
-                dropLog.toJson(), ModifyTablePropertyOperationLog.class);
-        Assertions.assertNull(restoredDropLog.getDistributionMappingConstraint());
-        Assertions.assertEquals(mapping.getName(),
-                restoredDropLog.getDroppedDistributionMappingConstraint());
-
-        LegacyModifyTablePropertyOperationLog legacy = GsonUtils.GSON.fromJson(
+        LegacyModifyTablePropertyOperationLog legacyAddLog = GsonUtils.GSON.fromJson(
                 addLog.toJson(), LegacyModifyTablePropertyOperationLog.class);
-        Assertions.assertEquals(1L, legacy.dbId);
-        Assertions.assertEquals(2L, legacy.tableId);
-        Assertions.assertEquals("table", legacy.tableName);
-        Assertions.assertTrue(legacy.properties.isEmpty());
+        Assertions.assertEquals(1L, legacyAddLog.dbId);
+        Assertions.assertEquals(2L, legacyAddLog.tableId);
+        Assertions.assertEquals("table", legacyAddLog.tableName);
+        Assertions.assertTrue(legacyAddLog.properties.containsKey(
+                TableProperty.DISTRIBUTION_MAPPING_CONSTRAINTS_PROPERTY));
+
+        LegacyTableProperty legacyTableProperty = new LegacyTableProperty();
+        legacyTableProperty.properties.putAll(legacyAddLog.properties);
+        legacyTableProperty.properties.put("in_memory", "false");
+        TableProperty restoredAfterOldCheckpoint = GsonUtils.GSON.fromJson(
+                GsonUtils.GSON.toJson(legacyTableProperty), TableProperty.class);
+        Assertions.assertEquals(mapping,
+                restoredAfterOldCheckpoint.getDistributionMappingConstraints().get(mapping.getName()));
+
+        currentProperty.removeDistributionMappingConstraint(mapping.getName());
+        ModifyTablePropertyOperationLog dropLog = new ModifyTablePropertyOperationLog(
+                1L, 2L, "table", currentProperty.getDistributionMappingConstraintProperties());
+        LegacyModifyTablePropertyOperationLog legacyDropLog = GsonUtils.GSON.fromJson(
+                dropLog.toJson(), LegacyModifyTablePropertyOperationLog.class);
+        Assertions.assertEquals("[]", legacyDropLog.properties.get(
+                TableProperty.DISTRIBUTION_MAPPING_CONSTRAINTS_PROPERTY));
+
+        legacyTableProperty.properties.putAll(legacyDropLog.properties);
+        TableProperty restoredAfterOldDropCheckpoint = GsonUtils.GSON.fromJson(
+                GsonUtils.GSON.toJson(legacyTableProperty), TableProperty.class);
+        Assertions.assertTrue(restoredAfterOldDropCheckpoint.getDistributionMappingConstraints().isEmpty());
+        Assertions.assertEquals("[]", restoredAfterOldDropCheckpoint.getProperties().get(
+                TableProperty.DISTRIBUTION_MAPPING_CONSTRAINTS_PROPERTY));
     }
 
-    private DistributionMappingConstraint newBoundMapping() {
+    private DistributionMappingConstraint newBoundMapping(String name, String mappingId) {
         OlapTable table = Mockito.mock(OlapTable.class);
         Column determinant = new Column("d1", Type.INT);
         Column distribution = new Column("k1", Type.BIGINT);
@@ -106,12 +117,12 @@ class DistributionMappingConstraintPersistTest {
         Mockito.when(table.getColumn("d1")).thenReturn(determinant);
         Mockito.when(table.getColumn("k1")).thenReturn(distribution);
         return new DistributionMappingConstraint(
-                "mapping", "mapping_id", List.of("d1"), List.of("k1")).bindTo(table);
+                name, mappingId, List.of("d1"), List.of("k1")).bindTo(table);
     }
 
-    private static class LegacyTableAttributes {
-        @SerializedName("constraints")
-        private Map<String, Object> constraints = new HashMap<>();
+    private static class LegacyTableProperty {
+        @SerializedName("properties")
+        private Map<String, String> properties = new HashMap<>();
     }
 
     private static class LegacyModifyTablePropertyOperationLog {

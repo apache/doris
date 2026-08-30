@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundary;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameUnitsType;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AggMode;
@@ -326,11 +327,10 @@ class RequestPropertyDeriverTest {
         Alias outputD1 = new Alias(d1, "output_d1");
         Alias outputK2 = new Alias(k2, "output_k2");
         AggregateParam aggregateParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
-        Alias distinctCount = new Alias(
-                new AggregateExpression(new MultiDistinctCount(extra), aggregateParam), "distinct_count");
+        Alias sum = new Alias(new AggregateExpression(new Sum(extra), aggregateParam), "sum_value");
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 Lists.newArrayList(d1, k2),
-                Lists.newArrayList(outputD1, outputK2, distinctCount),
+                Lists.newArrayList(outputD1, outputK2, sum),
                 Optional.of(Lists.newArrayList(d1, k2)),
                 aggregateParam,
                 true,
@@ -340,7 +340,7 @@ class RequestPropertyDeriverTest {
         GroupExpression groupExpression = new GroupExpression(aggregate);
         new Group(null, groupExpression, null);
         PhysicalProperties parentProperties = PhysicalProperties.createHash(
-                Lists.newArrayList(outputD1.getExprId(), outputK2.getExprId(), distinctCount.getExprId()),
+                Lists.newArrayList(outputD1.getExprId(), outputK2.getExprId(), sum.getExprId()),
                 ShuffleType.COLOCATE_MAPPING_REQUIRE);
         PhysicalProperties mappingRequest = PhysicalProperties.createHash(
                 Lists.newArrayList(d1.getExprId(), k2.getExprId()),
@@ -361,7 +361,7 @@ class RequestPropertyDeriverTest {
 
         testConnectContext.getSessionVariable().enableColocateMappingConstraint = true;
         PhysicalProperties partiallyMappableParent = PhysicalProperties.createHash(
-                Lists.newArrayList(outputD1.getExprId(), distinctCount.getExprId()),
+                Lists.newArrayList(outputD1.getExprId(), sum.getExprId()),
                 ShuffleType.COLOCATE_MAPPING_REQUIRE);
         PhysicalProperties partialMappingRequest = PhysicalProperties.createHash(
                 Lists.newArrayList(d1.getExprId()), ShuffleType.COLOCATE_MAPPING_REQUIRE);
@@ -373,7 +373,7 @@ class RequestPropertyDeriverTest {
 
         PhysicalHashAggregate<GroupPlan> expressionGroupByAggregate = new PhysicalHashAggregate<>(
                 Lists.newArrayList(new EqualTo(d1, k2), k2),
-                Lists.newArrayList(outputD1, outputK2, distinctCount),
+                Lists.newArrayList(outputD1, outputK2, sum),
                 Optional.of(Lists.newArrayList(d1, k2)),
                 aggregateParam,
                 true,
@@ -389,17 +389,95 @@ class RequestPropertyDeriverTest {
     }
 
     @Test
+    void testDistinctAndDeduplicateAggregatesDoNotPropagateColocateMappingRequest() {
+        ConnectContext testConnectContext = MemoTestUtils.createConnectContext();
+        testConnectContext.getSessionVariable().enableColocateMappingConstraint = true;
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference extra = new SlotReference("extra", IntegerType.INSTANCE);
+        Alias outputD1 = new Alias(d1, "output_d1");
+        Alias outputK2 = new Alias(k2, "output_k2");
+        AggregateParam aggregateParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
+        Alias distinctCount = new Alias(
+                new AggregateExpression(new MultiDistinctCount(extra), aggregateParam), "distinct_count");
+        Alias distinctSum = new Alias(
+                new AggregateExpression(new Sum(true, extra), aggregateParam), "distinct_sum");
+        Alias sum = new Alias(new AggregateExpression(new Sum(extra), aggregateParam), "sum_value");
+        PhysicalProperties parentProperties = PhysicalProperties.createHash(
+                Lists.newArrayList(outputD1.getExprId(), outputK2.getExprId()),
+                ShuffleType.COLOCATE_MAPPING_REQUIRE);
+        PhysicalProperties originalRequest = PhysicalProperties.createHash(
+                Lists.newArrayList(d1.getExprId(), k2.getExprId()), ShuffleType.REQUIRE);
+
+        PhysicalHashAggregate<GroupPlan> distinctAggregate = new PhysicalHashAggregate<>(
+                Lists.newArrayList(d1, k2),
+                Lists.newArrayList(outputD1, outputK2, distinctCount),
+                Optional.of(Lists.newArrayList(d1, k2)),
+                aggregateParam,
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+
+        PhysicalHashAggregate<GroupPlan> mixedDistinctAggregate = new PhysicalHashAggregate<>(
+                Lists.newArrayList(d1, k2),
+                Lists.newArrayList(outputD1, outputK2, sum, distinctSum),
+                Optional.of(Lists.newArrayList(d1, k2)),
+                aggregateParam,
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+
+        AggregateParam distinctPhaseParam = new AggregateParam(
+                AggPhase.DISTINCT_GLOBAL, AggMode.BUFFER_TO_RESULT);
+        Alias distinctPhaseSum = new Alias(
+                new AggregateExpression(new Sum(extra), distinctPhaseParam), "distinct_phase_sum");
+        PhysicalHashAggregate<GroupPlan> distinctPhaseAggregate = new PhysicalHashAggregate<>(
+                Lists.newArrayList(d1, k2),
+                Lists.newArrayList(outputD1, outputK2, distinctPhaseSum),
+                Optional.of(Lists.newArrayList(d1, k2)),
+                distinctPhaseParam,
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+
+        PhysicalHashAggregate<GroupPlan> deduplicateAggregate = new PhysicalHashAggregate<>(
+                Lists.newArrayList(d1, k2),
+                Lists.newArrayList(outputD1, outputK2),
+                Optional.of(Lists.newArrayList(d1, k2)),
+                aggregateParam,
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+
+        for (PhysicalHashAggregate<GroupPlan> barrier
+                : ImmutableList.of(distinctAggregate, mixedDistinctAggregate,
+                        distinctPhaseAggregate, deduplicateAggregate)) {
+            GroupExpression groupExpression = new GroupExpression(barrier);
+            new Group(null, groupExpression, null);
+            Assertions.assertEquals(ImmutableList.of(ImmutableList.of(originalRequest)),
+                    new RequestPropertyDeriver(testConnectContext, parentProperties)
+                            .getRequestChildrenPropertyList(groupExpression));
+        }
+    }
+
+    @Test
     void testAggregateRemapsColocateMappingRequestThroughWideningVarcharCast() {
         ConnectContext testConnectContext = MemoTestUtils.createConnectContext();
         testConnectContext.getSessionVariable().enableColocateMappingConstraint = true;
         SlotReference determinant = new SlotReference("determinant", new VarcharType(8));
+        SlotReference value = new SlotReference("value", IntegerType.INSTANCE);
         Alias widenedOutput =
                 new Alias(new Cast(determinant, new VarcharType(32)), "widened_determinant");
         AggregateParam aggregateParam =
                 new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
+        Alias sum = new Alias(new AggregateExpression(new Sum(value), aggregateParam), "sum_value");
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 Lists.newArrayList(determinant),
-                Lists.newArrayList(widenedOutput),
+                Lists.newArrayList(widenedOutput, sum),
                 Optional.of(Lists.newArrayList(determinant)),
                 aggregateParam,
                 true,

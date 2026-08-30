@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Version;
@@ -167,10 +168,11 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                 checkConstraintNotExistence(
                         boundConstraint.getName(), boundConstraint, centralizedConstraints);
             }
-            mappings.put(boundConstraint.getName(), boundConstraint);
-            ModifyTablePropertyOperationLog log =
-                    ModifyTablePropertyOperationLog.addDistributionMappingConstraint(
-                            table.getDatabase().getId(), table.getId(), table.getName(), boundConstraint);
+            TableProperty tableProperty = getOrCreateTableProperty(table);
+            tableProperty.addDistributionMappingConstraint(boundConstraint);
+            ModifyTablePropertyOperationLog log = new ModifyTablePropertyOperationLog(
+                    table.getDatabase().getId(), table.getId(), table.getName(),
+                    tableProperty.getDistributionMappingConstraintProperties());
             LOG.info("Added distribution mapping constraint {} on table {}",
                     boundConstraint.getName(), toKey(tableNameInfo));
             return Env.getCurrentEnv().getEditLog()
@@ -243,14 +245,16 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         try {
             Map<String, DistributionMappingConstraint> mappings =
                     getDistributionMappingConstraintsMap(table);
-            DistributionMappingConstraint constraint = mappings.remove(constraintName);
+            DistributionMappingConstraint constraint = mappings.get(constraintName);
             if (constraint == null) {
                 throw new AnalysisException(String.format(
                         "Unknown constraint %s on table %s.", constraintName, tableNameInfo));
             }
-            ModifyTablePropertyOperationLog log =
-                    ModifyTablePropertyOperationLog.dropDistributionMappingConstraint(
-                            table.getDatabase().getId(), table.getId(), table.getName(), constraintName);
+            TableProperty tableProperty = getOrCreateTableProperty(table);
+            tableProperty.removeDistributionMappingConstraint(constraintName);
+            ModifyTablePropertyOperationLog log = new ModifyTablePropertyOperationLog(
+                    table.getDatabase().getId(), table.getId(), table.getName(),
+                    tableProperty.getDistributionMappingConstraintProperties());
             LOG.info("Dropped distribution mapping constraint {} from table {}",
                     constraintName, toKey(tableNameInfo));
             return Env.getCurrentEnv().getEditLog()
@@ -260,29 +264,19 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         }
     }
 
-    /** Replay a table-local mapping mutation from the backward-readable table-property envelope. */
-    public void replayDistributionMappingConstraint(OlapTable table,
-            DistributionMappingConstraint addedConstraint, String droppedConstraintName) {
+    /** Replay a complete table-local mapping snapshot from the legacy table-property envelope. */
+    public void replayDistributionMappingConstraints(OlapTable table, Map<String, String> properties) {
         Preconditions.checkState(table.isWriteLockHeldByCurrentThread(),
                 "table write lock is required when replaying a distribution mapping constraint");
-        Preconditions.checkState((addedConstraint == null) != (droppedConstraintName == null),
-                "exactly one distribution mapping mutation must be present");
+        Preconditions.checkState(properties.containsKey(TableProperty.DISTRIBUTION_MAPPING_CONSTRAINTS_PROPERTY),
+                "distribution mapping constraint snapshot is required");
         writeLock();
         try {
-            Map<String, DistributionMappingConstraint> mappings =
-                    getDistributionMappingConstraintsMap(table);
-            if (addedConstraint != null) {
-                checkConstraintNotExistence(addedConstraint.getName(), addedConstraint, mappings);
-                mappings.put(addedConstraint.getName(), addedConstraint);
-                LOG.info("Replayed adding distribution mapping constraint {} on table {}",
-                        addedConstraint.getName(), table.getName());
-            } else if (mappings.remove(droppedConstraintName) == null) {
-                LOG.warn("Distribution mapping constraint {} not found on table {} during replay, skipping",
-                        droppedConstraintName, table.getName());
-            } else {
-                LOG.info("Replayed dropping distribution mapping constraint {} from table {}",
-                        droppedConstraintName, table.getName());
-            }
+            TableProperty tableProperty = getOrCreateTableProperty(table);
+            tableProperty.modifyTableProperties(properties);
+            tableProperty.buildProperty(OperationType.OP_MODIFY_TABLE_PROPERTIES);
+            LOG.info("Replayed {} distribution mapping constraints on table {}",
+                    tableProperty.getDistributionMappingConstraints().size(), table.getName());
         } finally {
             writeUnlock();
         }
@@ -1263,13 +1257,23 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         return incompatibleFrontends;
     }
 
-    @SuppressWarnings("deprecation")
     private Map<String, DistributionMappingConstraint> getDistributionMappingConstraintsMap(TableIf table) {
         if (!(table instanceof OlapTable)
                 || ((OlapTable) table).getCatalogId() != InternalCatalog.INTERNAL_CATALOG_ID) {
             return Collections.emptyMap();
         }
-        return ((OlapTable) table).getTableAttributes().getDistributionMappingConstraints();
+        TableProperty tableProperty = ((OlapTable) table).getTableProperty();
+        return tableProperty == null
+                ? Collections.emptyMap() : tableProperty.getDistributionMappingConstraints();
+    }
+
+    private TableProperty getOrCreateTableProperty(OlapTable table) {
+        TableProperty tableProperty = table.getTableProperty();
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+            table.setTableProperty(tableProperty);
+        }
+        return tableProperty;
     }
 
     private boolean containsIgnoreCase(Collection<String> columnNames, String columnName) {

@@ -23,7 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.RandomDistributionInfo;
-import org.apache.doris.catalog.TableAttributes;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
@@ -31,6 +31,7 @@ import org.apache.doris.common.Version;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.collect.ImmutableList;
@@ -48,6 +49,7 @@ import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -147,18 +149,18 @@ class ConstraintManagerTest {
 
         table.writeLock();
         try {
-            mgr.replayDistributionMappingConstraint(table, mapping, null);
+            mgr.replayDistributionMappingConstraints(table, mappingProperties(mapping));
         } finally {
             table.writeUnlock();
         }
 
         Assertions.assertTrue(mgr.getConstraints(T1).isEmpty());
-        Assertions.assertSame(mapping, mgr.getConstraint(T1, table, mapping.getName()));
+        Assertions.assertEquals(mapping, mgr.getConstraint(T1, table, mapping.getName()));
         Assertions.assertEquals(List.of(mapping), mgr.getDistributionMappingConstraints(table));
 
         table.writeLock();
         try {
-            mgr.replayDistributionMappingConstraint(table, null, mapping.getName());
+            mgr.replayDistributionMappingConstraints(table, mappingProperties());
         } finally {
             table.writeUnlock();
         }
@@ -175,7 +177,7 @@ class ConstraintManagerTest {
 
         table.writeLock();
         try {
-            mgr.replayDistributionMappingConstraint(table, mapping, null);
+            mgr.replayDistributionMappingConstraints(table, mappingProperties(mapping));
         } finally {
             table.writeUnlock();
         }
@@ -197,22 +199,20 @@ class ConstraintManagerTest {
 
     @Test
     void distributionMappingsAreInternalOnlyAndReturnedInStableOrder() {
-        TableAttributes tableAttributes = new TableAttributes();
         DistributionMappingConstraint second = new DistributionMappingConstraint(
                 "BB", "mapping_b", List.of("d1"), List.of("k1"));
         DistributionMappingConstraint first = new DistributionMappingConstraint(
                 "Aa", "mapping_a", List.of("d1"), List.of("k1"));
-        tableAttributes.getDistributionMappingConstraints().put(second.getName(), second);
-        tableAttributes.getDistributionMappingConstraints().put(first.getName(), first);
+        TableProperty tableProperty = tablePropertyWithMappings(second, first);
 
         OlapTable internalTable = Mockito.mock(OlapTable.class);
         Mockito.when(internalTable.getCatalogId()).thenReturn(InternalCatalog.INTERNAL_CATALOG_ID);
-        Mockito.when(internalTable.getTableAttributes()).thenReturn(tableAttributes);
+        Mockito.when(internalTable.getTableProperty()).thenReturn(tableProperty);
         Assertions.assertEquals(List.of(first, second), mgr.getDistributionMappingConstraints(internalTable));
 
         OlapTable externalTable = Mockito.mock(OlapTable.class);
         Mockito.when(externalTable.getCatalogId()).thenReturn(1L);
-        Mockito.when(externalTable.getTableAttributes()).thenReturn(tableAttributes);
+        Mockito.when(externalTable.getTableProperty()).thenReturn(tableProperty);
         Assertions.assertTrue(mgr.getDistributionMappingConstraints(externalTable).isEmpty());
     }
 
@@ -320,11 +320,11 @@ class ConstraintManagerTest {
 
     @Test
     void distributionMappingPlanningFallsBackForMixedOrUnknownFrontendVersions() {
-        TableAttributes tableAttributes = new TableAttributes();
-        OlapTable table = mockInternalMappingTable(tableAttributes);
+        TableProperty tableProperty = new TableProperty(new HashMap<>());
+        OlapTable table = mockInternalMappingTable(tableProperty);
         DistributionMappingConstraint mapping = new DistributionMappingConstraint(
                 "mapping", "mapping_id", List.of("d1"), List.of("k1")).bindTo(table);
-        tableAttributes.getDistributionMappingConstraints().put(mapping.getName(), mapping);
+        tableProperty.addDistributionMappingConstraint(mapping);
 
         Env env = Mockito.mock(Env.class);
         Frontend currentFrontend = Mockito.mock(Frontend.class);
@@ -349,14 +349,14 @@ class ConstraintManagerTest {
 
     @Test
     void distributionMappingPlanningFallsBackForIncompatibleSchema() {
-        TableAttributes tableAttributes = new TableAttributes();
-        OlapTable table = mockInternalMappingTable(tableAttributes);
+        TableProperty tableProperty = new TableProperty(new HashMap<>());
+        OlapTable table = mockInternalMappingTable(tableProperty);
         DistributionMappingConstraint mapping = new DistributionMappingConstraint(
                 "mapping", "mapping_id", List.of("d1"), List.of("k1")).bindTo(table);
         DistributionMappingConstraint validMapping = new DistributionMappingConstraint(
                 "valid_mapping", "valid_mapping_id", List.of("k1"), List.of("k1")).bindTo(table);
-        tableAttributes.getDistributionMappingConstraints().put(mapping.getName(), mapping);
-        tableAttributes.getDistributionMappingConstraints().put(validMapping.getName(), validMapping);
+        tableProperty.addDistributionMappingConstraint(mapping);
+        tableProperty.addDistributionMappingConstraint(validMapping);
 
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getFrontends(null)).thenReturn(List.of());
@@ -889,7 +889,20 @@ class ConstraintManagerTest {
                 ImmutableList.of(fkCol), refTable, ImmutableList.of(pkCol));
     }
 
-    private static OlapTable mockInternalMappingTable(TableAttributes tableAttributes) {
+    private static Map<String, String> mappingProperties(DistributionMappingConstraint... mappings) {
+        return ImmutableMap.of(TableProperty.DISTRIBUTION_MAPPING_CONSTRAINTS_PROPERTY,
+                GsonUtils.GSON.toJson(mappings));
+    }
+
+    private static TableProperty tablePropertyWithMappings(DistributionMappingConstraint... mappings) {
+        TableProperty tableProperty = new TableProperty(new HashMap<>());
+        for (DistributionMappingConstraint mapping : mappings) {
+            tableProperty.addDistributionMappingConstraint(mapping);
+        }
+        return tableProperty;
+    }
+
+    private static OlapTable mockInternalMappingTable(TableProperty tableProperty) {
         Column determinant = new Column("d1", Type.INT);
         determinant.setUniqueId(10);
         Column distribution = new Column("k1", Type.INT);
@@ -908,7 +921,7 @@ class ConstraintManagerTest {
         Mockito.when(table.getName()).thenReturn("t1");
         Mockito.when(table.getCatalogId()).thenReturn(InternalCatalog.INTERNAL_CATALOG_ID);
         Mockito.when(table.getDatabase()).thenReturn(database);
-        Mockito.when(table.getTableAttributes()).thenReturn(tableAttributes);
+        Mockito.when(table.getTableProperty()).thenReturn(tableProperty);
         Mockito.when(table.getBaseSchemaVersion()).thenReturn(7);
         Mockito.when(table.getColumn("d1")).thenReturn(determinant);
         Mockito.when(table.getColumn("k1")).thenReturn(distribution);

@@ -251,6 +251,10 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                         && isShuffleCompatible(childOutputProperty.getDistributionSpec())) {
                     return PhysicalProperties.ANY;
                 }
+                if (agg.isDistinctOrDeduplicate()) {
+                    return withoutNaturalDistributionMapping(childOutputProperty)
+                            .withOrderSpec(new OrderSpec());
+                }
                 if (childOutputProperty.getNaturalDistributionMappingSpec().isPresent()) {
                     return computeAggregateOutputProperties(agg, childOutputProperty)
                             .withOrderSpec(new OrderSpec());

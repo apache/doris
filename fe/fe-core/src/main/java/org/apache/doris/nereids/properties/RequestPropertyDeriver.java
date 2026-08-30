@@ -520,6 +520,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         if (connectContext == null
                 || !connectContext.getSessionVariable().isEnableColocateMappingConstraint()
                 || agg.hasSourceRepeat()
+                || agg.isDistinctOrDeduplicate()
                 || !(parentDistribution instanceof DistributionSpecHash)
                 || ((DistributionSpecHash) parentDistribution).getShuffleType()
                         != ShuffleType.COLOCATE_MAPPING_REQUIRE) {

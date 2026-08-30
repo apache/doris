@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AggMode;
@@ -822,10 +823,11 @@ class ChildOutputPropertyDeriverTest {
         Alias outputK1 = new Alias(k1, "output_k1");
         Alias outputK2 = new Alias(k2, "output_k2");
         Alias outputD1 = new Alias(d1, "output_d1");
+        AggregateParam aggregateParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 ImmutableList.of(k1, k2, d1),
-                ImmutableList.of(outputK1, outputK2, outputD1),
-                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                ImmutableList.of(outputK1, outputK2, outputD1, sumOutput(d1, aggregateParam)),
+                aggregateParam,
                 true,
                 logicalProperties,
                 false,
@@ -853,10 +855,11 @@ class ChildOutputPropertyDeriverTest {
         SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
         Alias outputK2 = new Alias(k2, "output_k2");
         Alias outputD1 = new Alias(d1, "output_d1");
+        AggregateParam aggregateParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 ImmutableList.of(d1, k2),
-                ImmutableList.of(outputK2, outputD1),
-                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                ImmutableList.of(outputK2, outputD1, sumOutput(d1, aggregateParam)),
+                aggregateParam,
                 true,
                 logicalProperties,
                 false,
@@ -890,10 +893,11 @@ class ChildOutputPropertyDeriverTest {
         PhysicalProperties orderedChild = naturalProperties(
                 naturalHashWithMapping(k1, k2, d1),
                 new OrderSpec(ImmutableList.of(new OrderKey(d1, true, false))));
+        AggregateParam aggregateParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
         PhysicalHashAggregate<GroupPlan> repeatAggregate = new PhysicalHashAggregate<>(
                 ImmutableList.of(k1, k2, d1),
-                ImmutableList.of(k1, k2, d1),
-                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                ImmutableList.of(k1, k2, d1, sumOutput(d1, aggregateParam)),
+                aggregateParam,
                 true,
                 logicalProperties,
                 true,
@@ -901,9 +905,8 @@ class ChildOutputPropertyDeriverTest {
         PhysicalHashAggregate<GroupPlan> incompleteGroupByAggregate =
                 new PhysicalHashAggregate<>(
                         ImmutableList.of(d1),
-                        ImmutableList.of(d1),
-                        new AggregateParam(
-                                AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                        ImmutableList.of(d1, sumOutput(d1, aggregateParam)),
+                        aggregateParam,
                         true,
                         logicalProperties,
                         false,
@@ -927,18 +930,19 @@ class ChildOutputPropertyDeriverTest {
         SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
         SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
         SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        AggregateParam aggregateParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
         PhysicalHashAggregate<GroupPlan> missingDistributionKey = new PhysicalHashAggregate<>(
                 ImmutableList.of(k1, d1),
-                ImmutableList.of(k1, d1),
-                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                ImmutableList.of(k1, d1, sumOutput(d1, aggregateParam)),
+                aggregateParam,
                 true,
                 logicalProperties,
                 false,
                 groupPlan);
         PhysicalHashAggregate<GroupPlan> missingDeterminant = new PhysicalHashAggregate<>(
                 ImmutableList.of(k1, k2, d1),
-                ImmutableList.of(k1, k2),
-                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                ImmutableList.of(k1, k2, sumOutput(d1, aggregateParam)),
+                aggregateParam,
                 true,
                 logicalProperties,
                 false,
@@ -958,10 +962,11 @@ class ChildOutputPropertyDeriverTest {
         SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
         SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
         SlotReference d2 = new SlotReference("d2", IntegerType.INSTANCE);
+        AggregateParam aggregateParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 ImmutableList.of(d1, k2),
-                ImmutableList.of(d1, k2),
-                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                ImmutableList.of(d1, k2, sumOutput(d1, aggregateParam)),
+                aggregateParam,
                 true,
                 logicalProperties,
                 false,
@@ -977,7 +982,7 @@ class ChildOutputPropertyDeriverTest {
     }
 
     @Test
-    void testDistinctAggregatePropagatesMappingFromNaturalChild() {
+    void testDistinctAggregateDropsMappingFromNaturalChild() {
         SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
         SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
         SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
@@ -1002,13 +1007,54 @@ class ChildOutputPropertyDeriverTest {
 
                 PhysicalProperties output = deriveAggregateProperties(distinctAggregate, childHash);
 
-                Assertions.assertTrue(output.getNaturalDistributionMappingSpec().isPresent(), phase.toString());
-                Assertions.assertFalse(output.getNaturalDistributionMappingSpec()
-                        .get().getDistributionMappings().isEmpty(), phase.toString());
+                assertMappingLocalityCleared(output);
             }
+
+            AggregateParam distinctPhaseParam = new AggregateParam(
+                    AggPhase.DISTINCT_GLOBAL, AggMode.BUFFER_TO_RESULT);
+            PhysicalHashAggregate<GroupPlan> distinctPhaseAggregate = new PhysicalHashAggregate<>(
+                    ImmutableList.of(d1, k2),
+                    ImmutableList.of(k2, d1, sumOutput(extra, distinctPhaseParam)),
+                    distinctPhaseParam,
+                    true,
+                    logicalProperties,
+                    false,
+                    groupPlan);
+            assertMappingLocalityCleared(deriveAggregateProperties(distinctPhaseAggregate, childHash));
+
+            AggregateParam aggregateParam = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT);
+            Alias distinctSum = new Alias(
+                    new AggregateExpression(new Sum(true, extra), aggregateParam), "distinct_sum");
+            PhysicalHashAggregate<GroupPlan> mixedDistinctAggregate = new PhysicalHashAggregate<>(
+                    ImmutableList.of(d1, k2),
+                    ImmutableList.of(k2, d1, sumOutput(extra, aggregateParam), distinctSum),
+                    aggregateParam,
+                    true,
+                    logicalProperties,
+                    false,
+                    groupPlan);
+            assertMappingLocalityCleared(deriveAggregateProperties(mixedDistinctAggregate, childHash));
         } finally {
             connectContext.getSessionVariable().enableBucketedHashAgg = originalEnableBucketedHashAgg;
         }
+    }
+
+    @Test
+    void testPureDeduplicateAggregateDropsMappingFromNaturalChild() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        PhysicalHashAggregate<GroupPlan> deduplicate = new PhysicalHashAggregate<>(
+                ImmutableList.of(d1, k2),
+                ImmutableList.of(d1, k2),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+
+        assertMappingLocalityCleared(deriveAggregateProperties(
+                deduplicate, naturalHashWithMapping(k1, k2, d1)));
     }
 
     @Test
@@ -1046,10 +1092,11 @@ class ChildOutputPropertyDeriverTest {
         SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
         SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
         DistributionSpecHash childHash = naturalHashWithMapping(k1, k2, d1);
+        AggregateParam aggregateParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
         PhysicalHashAggregate<GroupPlan> repeatAggregate = new PhysicalHashAggregate<>(
                 ImmutableList.of(k1, k2, d1),
-                ImmutableList.of(k1, k2, d1),
-                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                ImmutableList.of(k1, k2, d1, sumOutput(d1, aggregateParam)),
+                aggregateParam,
                 true,
                 logicalProperties,
                 true,
@@ -1066,6 +1113,10 @@ class ChildOutputPropertyDeriverTest {
                 1L, 2L, ImmutableSet.of(3L),
                 ImmutableList.of(new DistributionMapping(
                         "mapping_1", ImmutableList.of(d1.getExprId()), ImmutableList.of(0))));
+    }
+
+    private Alias sumOutput(SlotReference input, AggregateParam aggregateParam) {
+        return new Alias(new AggregateExpression(new Sum(input), aggregateParam, input), "sum_value");
     }
 
     private DistributionSpecHash deriveAggregateHash(

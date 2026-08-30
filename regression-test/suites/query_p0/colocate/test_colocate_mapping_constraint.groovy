@@ -621,18 +621,26 @@ suite("test_colocate_mapping_constraint") {
                   ON l.d1 = r.d1 AND l.d2 = r.d2 AND l.k2 = r.k2 """
         notContains "COLOCATE"
     }
-    // Distinct Aggregate can preserve locality when the selected physical path does not redistribute data.
+    // DISTINCT phases can repartition by deduplication keys, so they must not expose storage bucket locality.
+    def distinctAggregateBarrierSql = """
+        SELECT /*+ SET_VAR(disable_join_reorder=true, enable_local_shuffle_planner=true,
+                           ignore_storage_data_distribution=true, parallel_pipeline_task_num=4) */
+               l.k2, l.d1, l.distinct_extra, r.k1, r.k2, r.d1
+        FROM (
+            SELECT k2, d1, COUNT(DISTINCT extra_col) AS distinct_extra
+            FROM test_colocate_mapping_constraint_left
+            GROUP BY k2, d1
+        ) l
+        JOIN test_colocate_mapping_constraint_right r
+          ON l.d1 = r.d1 AND l.k2 = r.k2
+        ORDER BY l.k2, l.d1, r.k1
+    """
     explain {
-        sql """ SELECT *
-                FROM (
-                    SELECT k1, k2, d1, COUNT(DISTINCT extra_col) AS distinct_extra
-                    FROM test_colocate_mapping_constraint_left
-                    GROUP BY k1, k2, d1
-                ) l
-                JOIN test_colocate_mapping_constraint_right r
-                  ON l.d1 = r.d1 AND l.k2 = r.k2 """
-        contains "COLOCATE"
+        sql distinctAggregateBarrierSql
+        notContains "COLOCATE"
     }
+    order_qt_distinct_aggregate_mapping_barrier distinctAggregateBarrierSql
+
     explain {
         sql """ SELECT *
                 FROM (
@@ -646,22 +654,49 @@ suite("test_colocate_mapping_constraint") {
                     GROUP BY k2, d1
                 ) r
                   ON l.d1 = r.d1 AND l.k2 = r.k2 """
-        contains "COLOCATE"
-    }
-    explain {
-        sql """ SELECT *
-                FROM (
-                    SELECT d1, MAX(k2) AS k2, COUNT(DISTINCT extra_col) AS distinct_extra
-                    FROM test_colocate_mapping_constraint_left
-                    GROUP BY d1
-                ) l
-                JOIN test_colocate_mapping_constraint_right r
-                  ON l.d1 = r.d1 AND l.k2 = r.k2 """
         notContains "COLOCATE"
     }
+
+    def pureDeduplicateBarrierSql = """
+        SELECT /*+ SET_VAR(disable_join_reorder=true, enable_local_shuffle_planner=true,
+                           ignore_storage_data_distribution=true, parallel_pipeline_task_num=4) */
+               l.k2, l.d1, r.k1, r.k2, r.d1
+        FROM (
+            SELECT DISTINCT k2, d1
+            FROM test_colocate_mapping_constraint_left
+        ) l
+        JOIN test_colocate_mapping_constraint_right r
+          ON l.d1 = r.d1 AND l.k2 = r.k2
+        ORDER BY l.k2, l.d1, r.k1
+    """
+    explain {
+        sql pureDeduplicateBarrierSql
+        notContains "COLOCATE"
+    }
+    order_qt_pure_deduplicate_mapping_barrier pureDeduplicateBarrierSql
+    def mixedDistinctAggregateBarrierSql = """
+        SELECT /*+ SET_VAR(disable_join_reorder=true, enable_local_shuffle_planner=true,
+                           ignore_storage_data_distribution=true, parallel_pipeline_task_num=4) */
+               l.d1, l.k2, l.sum_extra, l.distinct_extra, r.k1, r.k2, r.d1
+        FROM (
+            SELECT d1, MAX(k2) AS k2, SUM(extra_col) AS sum_extra,
+                   COUNT(DISTINCT extra_col) AS distinct_extra
+            FROM test_colocate_mapping_constraint_left
+            GROUP BY d1
+        ) l
+        JOIN test_colocate_mapping_constraint_right r
+          ON l.d1 = r.d1 AND l.k2 = r.k2
+        ORDER BY l.d1, l.k2, r.k1
+    """
+    explain {
+        sql mixedDistinctAggregateBarrierSql
+        notContains "COLOCATE"
+    }
+    order_qt_mixed_distinct_aggregate_mapping_barrier mixedDistinctAggregateBarrierSql
     // Mapping determinants can cover distribution keys that are absent from Group By.
     explain {
-        sql """ SELECT *
+        sql """ SELECT /*+ SET_VAR(disable_join_reorder=true, enable_local_shuffle_planner=true,
+                                    ignore_storage_data_distribution=true, parallel_pipeline_task_num=4) */ *
                 FROM (
                     SELECT k2, d1, SUM(extra_col) AS sum_extra
                     FROM test_colocate_mapping_constraint_left
@@ -923,7 +958,9 @@ suite("test_colocate_mapping_constraint") {
     """
 
     order_qt_hidden_distribution_key_aggregate_result """
-        SELECT l.aggregate_k2, l.aggregate_d1, l.sum_extra,
+        SELECT /*+ SET_VAR(disable_join_reorder=true, enable_local_shuffle_planner=true,
+                           ignore_storage_data_distribution=true, parallel_pipeline_task_num=4) */
+               l.aggregate_k2, l.aggregate_d1, l.sum_extra,
                r.k1, r.k2, r.d1
         FROM (
             SELECT k2 AS aggregate_k2,

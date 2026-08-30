@@ -24,6 +24,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -219,10 +220,13 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         DistributionMappingConstraint mapping = new DistributionMappingConstraint(
                 "mapping_replay", "mapping_replay", List.of("k2"), List.of("k1"));
         ConstraintManager manager = Env.getCurrentEnv().getConstraintManager();
+        TableProperty mappingProperty = new TableProperty(Maps.newHashMap());
+        mappingProperty.addDistributionMappingConstraint(mapping);
 
         JournalEntity addJournal = new JournalEntity();
-        addJournal.setData(ModifyTablePropertyOperationLog.addDistributionMappingConstraint(
-                table.getDatabase().getId(), table.getId(), table.getName(), mapping));
+        addJournal.setData(new ModifyTablePropertyOperationLog(
+                table.getDatabase().getId(), table.getId(), table.getName(),
+                mappingProperty.getDistributionMappingConstraintProperties()));
         addJournal.setOpCode(OperationType.OP_MODIFY_TABLE_PROPERTIES);
         EditLog.loadJournal(Env.getCurrentEnv(), 0L, addJournal);
 
@@ -231,8 +235,10 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
                 manager.getConstraint(tableNameInfo, table, mapping.getName()));
 
         JournalEntity dropJournal = new JournalEntity();
-        dropJournal.setData(ModifyTablePropertyOperationLog.dropDistributionMappingConstraint(
-                table.getDatabase().getId(), table.getId(), table.getName(), mapping.getName()));
+        mappingProperty.removeDistributionMappingConstraint(mapping.getName());
+        dropJournal.setData(new ModifyTablePropertyOperationLog(
+                table.getDatabase().getId(), table.getId(), table.getName(),
+                mappingProperty.getDistributionMappingConstraintProperties()));
         dropJournal.setOpCode(OperationType.OP_MODIFY_TABLE_PROPERTIES);
         EditLog.loadJournal(Env.getCurrentEnv(), 0L, dropJournal);
 
@@ -246,9 +252,10 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         Mockito.when(env.getBinlogManager()).thenReturn(binlogManager);
         DistributionMappingConstraint mapping = new DistributionMappingConstraint(
                 "mapping", "mapping_id", List.of("k2"), List.of("k1"));
-        ModifyTablePropertyOperationLog mappingLog =
-                ModifyTablePropertyOperationLog.addDistributionMappingConstraint(
-                        1L, 2L, "table", mapping);
+        TableProperty mappingProperty = new TableProperty(Maps.newHashMap());
+        mappingProperty.addDistributionMappingConstraint(mapping);
+        ModifyTablePropertyOperationLog mappingLog = new ModifyTablePropertyOperationLog(
+                1L, 2L, "table", mappingProperty.getDistributionMappingConstraintProperties());
         JournalEntity mappingJournal = new JournalEntity();
         mappingJournal.setData(mappingLog);
         mappingJournal.setOpCode(OperationType.OP_MODIFY_TABLE_PROPERTIES);

@@ -33,6 +33,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
@@ -282,8 +283,9 @@ public class RestoreJobTest {
     public void testRestoreMappingRejectsMixedFrontendVersionsWhenTargetExists() {
         DistributionMappingConstraint mapping = new DistributionMappingConstraint(
                 "mapping", "mapping_id", List.of("k1"), List.of("k1"));
-        expectedRestoreTbl.getTableAttributes().getDistributionMappingConstraints()
-                .put(mapping.getName(), mapping);
+        TableProperty tableProperty = new TableProperty(Maps.newHashMap());
+        tableProperty.addDistributionMappingConstraint(mapping);
+        expectedRestoreTbl.setTableProperty(tableProperty);
         Assert.assertTrue(db.registerTable(expectedRestoreTbl));
         ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
         Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
@@ -307,8 +309,9 @@ public class RestoreJobTest {
     public void testAtomicRestoreRejectsDistributionMappingBeforeStaging() {
         DistributionMappingConstraint mapping = new DistributionMappingConstraint(
                 "mapping", "mapping_id", List.of("k1"), List.of("k1"));
-        expectedRestoreTbl.getTableAttributes().getDistributionMappingConstraints()
-                .put(mapping.getName(), mapping);
+        TableProperty tableProperty = new TableProperty(Maps.newHashMap());
+        tableProperty.addDistributionMappingConstraint(mapping);
+        expectedRestoreTbl.setTableProperty(tableProperty);
         ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
         Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
         Mockito.when(constraintManager.getDistributionMappingConstraints(expectedRestoreTbl))
@@ -332,8 +335,9 @@ public class RestoreJobTest {
     public void testRestoreMappingRejectsIncompatibleSchema() {
         DistributionMappingConstraint mapping = new DistributionMappingConstraint(
                 "mapping", "mapping_id", List.of("k1"), List.of("k1"));
-        expectedRestoreTbl.getTableAttributes().getDistributionMappingConstraints()
-                .put(mapping.getName(), mapping);
+        TableProperty tableProperty = new TableProperty(Maps.newHashMap());
+        tableProperty.addDistributionMappingConstraint(mapping);
+        expectedRestoreTbl.setTableProperty(tableProperty);
         Assert.assertTrue(db.registerTable(expectedRestoreTbl));
         ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
         Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);

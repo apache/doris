@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
@@ -189,6 +190,26 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     public boolean hasSourceRepeat() {
         return hasSourceRepeat;
+    }
+
+    /** Whether this node is part of DISTINCT processing or only removes duplicate grouping keys. */
+    public boolean isDistinctOrDeduplicate() {
+        if (getAggPhase() == AggPhase.DISTINCT_LOCAL || getAggPhase() == AggPhase.DISTINCT_GLOBAL) {
+            return true;
+        }
+        boolean hasAggregateExpression = false;
+        for (NamedExpression outputExpression : outputExpressions) {
+            List<AggregateExpression> aggregateExpressions = outputExpression.collectToList(
+                    AggregateExpression.class::isInstance);
+            hasAggregateExpression |= !aggregateExpressions.isEmpty();
+            for (AggregateExpression aggregateExpression : aggregateExpressions) {
+                AggregateFunction function = aggregateExpression.getFunction();
+                if (function.isDistinct() || function instanceof MultiDistinction) {
+                    return true;
+                }
+            }
+        }
+        return !hasAggregateExpression;
     }
 
     @Override

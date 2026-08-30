@@ -18,11 +18,13 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DataSortInfo;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.OlapFile.EncryptionAlgorithmPB;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TEncryptionAlgorithm;
@@ -34,14 +36,18 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.JsonParseException;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -59,9 +65,14 @@ public class TableProperty implements GsonPostProcessable {
             "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
     private static final String DEFAULT_REPLICATION_ALLOCATION =
             "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION;
+    public static final String DISTRIBUTION_MAPPING_CONSTRAINTS_PROPERTY =
+            "__distribution_mapping_constraints";
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;
+
+    // Derived from DISTRIBUTION_MAPPING_CONSTRAINTS_PROPERTY. The property is the persistent source of truth.
+    private Map<String, DistributionMappingConstraint> distributionMappingConstraints = ImmutableMap.of();
 
     // the follower variables are built from "properties"
     private DynamicPartitionProperty dynamicPartitionProperty =
@@ -166,6 +177,7 @@ public class TableProperty implements GsonPostProcessable {
                 buildReplicaAllocation();
                 break;
             case OperationType.OP_MODIFY_TABLE_PROPERTIES:
+                buildDistributionMappingConstraints();
                 buildInMemory();
                 buildMinLoadReplicaNum();
                 buildStorageMedium();
@@ -724,6 +736,74 @@ public class TableProperty implements GsonPostProcessable {
         return properties;
     }
 
+    public Map<String, DistributionMappingConstraint> getDistributionMappingConstraints() {
+        return distributionMappingConstraints;
+    }
+
+    public void addDistributionMappingConstraint(DistributionMappingConstraint constraint) {
+        Map<String, DistributionMappingConstraint> updated = new HashMap<>(distributionMappingConstraints);
+        updated.put(constraint.getName(), constraint);
+        updateDistributionMappingConstraints(updated);
+    }
+
+    public DistributionMappingConstraint removeDistributionMappingConstraint(String constraintName) {
+        Map<String, DistributionMappingConstraint> updated = new HashMap<>(distributionMappingConstraints);
+        DistributionMappingConstraint removed = updated.remove(constraintName);
+        if (removed != null) {
+            updateDistributionMappingConstraints(updated);
+        }
+        return removed;
+    }
+
+    public Map<String, String> getDistributionMappingConstraintProperties() {
+        return ImmutableMap.of(DISTRIBUTION_MAPPING_CONSTRAINTS_PROPERTY,
+                properties.get(DISTRIBUTION_MAPPING_CONSTRAINTS_PROPERTY));
+    }
+
+    private void updateDistributionMappingConstraints(
+            Map<String, DistributionMappingConstraint> updatedConstraints) {
+        List<DistributionMappingConstraint> sortedConstraints = new ArrayList<>(updatedConstraints.values());
+        sortedConstraints.sort(Comparator.comparing(DistributionMappingConstraint::getName));
+        properties.put(DISTRIBUTION_MAPPING_CONSTRAINTS_PROPERTY, GsonUtils.GSON.toJson(sortedConstraints));
+        distributionMappingConstraints = ImmutableMap.copyOf(updatedConstraints);
+    }
+
+    private void buildDistributionMappingConstraints() {
+        try {
+            distributionMappingConstraints = deserializeDistributionMappingConstraints();
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to deserialize distribution mapping constraints", e);
+        }
+    }
+
+    private Map<String, DistributionMappingConstraint> deserializeDistributionMappingConstraints()
+            throws IOException {
+        String serializedConstraints = properties.get(DISTRIBUTION_MAPPING_CONSTRAINTS_PROPERTY);
+        if (serializedConstraints == null) {
+            return ImmutableMap.of();
+        }
+        DistributionMappingConstraint[] constraints;
+        try {
+            constraints = GsonUtils.GSON.fromJson(serializedConstraints, DistributionMappingConstraint[].class);
+        } catch (JsonParseException e) {
+            throw new IOException("Invalid distribution mapping constraints property", e);
+        }
+        if (constraints == null) {
+            throw new IOException("Distribution mapping constraints property must be a JSON array");
+        }
+        Map<String, DistributionMappingConstraint> constraintsByName = new HashMap<>();
+        for (DistributionMappingConstraint constraint : constraints) {
+            if (constraint == null || constraint.getName() == null) {
+                throw new IOException("Distribution mapping constraints property contains an invalid constraint");
+            }
+            if (constraintsByName.put(constraint.getName(), constraint) != null) {
+                throw new IOException("Distribution mapping constraints property contains duplicate constraint name: "
+                        + constraint.getName());
+            }
+        }
+        return ImmutableMap.copyOf(constraintsByName);
+    }
+
     public DynamicPartitionProperty getDynamicPartitionProperty() {
         return dynamicPartitionProperty;
     }
@@ -950,6 +1030,7 @@ public class TableProperty implements GsonPostProcessable {
     }
 
     public void gsonPostProcess() throws IOException {
+        distributionMappingConstraints = deserializeDistributionMappingConstraints();
         executeBuildDynamicProperty();
         buildInMemory();
         buildMinLoadReplicaNum();

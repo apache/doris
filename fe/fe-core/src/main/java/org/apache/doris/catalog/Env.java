@@ -6410,9 +6410,8 @@ public class Env {
         OlapTable table = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         table.writeLock();
         try {
-            constraintManager.replayDistributionMappingConstraint(
-                    table, info.getDistributionMappingConstraint(),
-                    info.getDroppedDistributionMappingConstraint());
+            constraintManager.replayDistributionMappingConstraints(
+                    table, info.getProperties());
         } finally {
             table.writeUnlock();
         }
