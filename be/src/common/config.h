@@ -1372,6 +1372,11 @@ DECLARE_Bool(enable_inverted_index_cache_check_timestamp);
 DECLARE_mBool(enable_inverted_index_correct_term_write);
 DECLARE_Int32(inverted_index_fd_number_limit_percent); // 50%
 DECLARE_Int32(inverted_index_query_cache_shards);
+// When the candidate row bitmap of a segment scan is smaller than
+// num_rows * this ratio, it is pushed down into inverted index queries so
+// doc-list intersection and verification run only over the candidates
+// (see IndexQueryContext::candidate_rows). <= 0 disables the pushdown.
+DECLARE_mDouble(inverted_index_candidate_pushdown_ratio);
 
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);

@@ -53,6 +53,15 @@ void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
         init_ordered_sloppy_phrase_matcher(query_info, is_similarity);
     }
 
+    // Two-phase evaluation with a pushed-down candidate set: the candidate
+    // bitmap joins the leapfrog intersection (restricting doc-list walking and
+    // position verification to candidates) but never a matcher's postings, so
+    // phrase semantics stay with the real term iterators.
+    if (_context->candidate_rows != nullptr) {
+        _iterators.emplace_back(std::make_shared<RoaringDocIdIterator>(_context->candidate_rows));
+        _context->candidate_rows_consumed = true;
+    }
+
     std::sort(_iterators.begin(), _iterators.end(), [](const DISI& a, const DISI& b) {
         int64_t freq1 = visit_node(a, DocFreq {});
         int64_t freq2 = visit_node(b, DocFreq {});
@@ -63,6 +72,12 @@ void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
     _lead2 = &_iterators.at(1);
     for (int32_t i = 2; i < _iterators.size(); i++) {
         _others.emplace_back(&_iterators[i]);
+    }
+    for (auto& iter : _iterators) {
+        if (const auto* term_iter = std::get_if<TermPositionsIterPtr>(&iter)) {
+            _norm_source = term_iter->get();
+            break;
+        }
     }
 
     init_similarities(query_info.field_name, is_similarity);
@@ -160,6 +175,11 @@ void PhraseQuery::search(roaring::Roaring& roaring) {
 }
 
 void PhraseQuery::search_by_skiplist(roaring::Roaring& roaring) {
+    if (_phrase_similarity) {
+        // _norm_source is fixed once in add(); validate it before the loop so
+        // the per-document path below stays free of release-mode checks.
+        DORIS_CHECK(_norm_source != nullptr);
+    }
     int32_t doc = 0;
     while ((doc = do_next(visit_node(*_lead1, NextDoc {}))) != INT32_MAX) {
         if (_phrase_similarity) {
@@ -168,7 +188,7 @@ void PhraseQuery::search_by_skiplist(roaring::Roaring& roaring) {
                 continue;
             }
             roaring.add(doc);
-            int32_t norm = visit_node(*_lead1, Norm {});
+            int32_t norm = _norm_source->norm();
             float score = _phrase_similarity->score(phrase_freq, static_cast<int64_t>(norm));
 
             _context->collection_similarity->collect(doc, score);

@@ -25,6 +25,7 @@
 #include <lz4/lz4hc.h>
 
 #include <cerrno> // IWYU pragma: keep
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <fstream> // IWYU pragma: keep
@@ -1319,6 +1320,9 @@ DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
 DEFINE_mBool(enable_inverted_index_correct_term_write, "true");
 DEFINE_Int32(inverted_index_fd_number_limit_percent, "20"); // 20%
 DEFINE_Int32(inverted_index_query_cache_shards, "256");
+DEFINE_mDouble(inverted_index_candidate_pushdown_ratio, "0.3");
+DEFINE_Validator(inverted_index_candidate_pushdown_ratio,
+                 [](const double v) -> bool { return std::isfinite(v) && v <= 1.0; });
 
 // inverted index match bitmap cache size
 DEFINE_String(inverted_index_query_cache_limit, "10%");

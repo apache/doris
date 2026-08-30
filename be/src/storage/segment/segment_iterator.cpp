@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cassert>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -552,20 +553,6 @@ Status SegmentIterator::_lazy_init(Block* block) {
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
     RETURN_IF_ERROR(_vec_init_lazy_materialization());
-    // Remove rows that have been marked deleted
-    if (_opts.delete_bitmap.count(segment_id()) > 0 &&
-        _opts.delete_bitmap.at(segment_id()) != nullptr) {
-        size_t pre_size = _row_bitmap.cardinality();
-        _row_bitmap -= *(_opts.delete_bitmap.at(segment_id()));
-        _opts.stats->rows_del_by_bitmap += (pre_size - _row_bitmap.cardinality());
-        VLOG_DEBUG << "read on segment: " << segment_id() << ", delete bitmap cardinality: "
-                   << _opts.delete_bitmap.at(segment_id())->cardinality() << ", "
-                   << _opts.stats->rows_del_by_bitmap << " rows deleted by bitmap";
-    }
-
-    if (!_opts.row_ranges.is_empty()) {
-        _row_bitmap &= RowRanges::ranges_to_roaring(_opts.row_ranges);
-    }
 
     _prepare_score_column_materialization();
 
@@ -818,6 +805,38 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         return Status::OK();
     }
 
+    // Apply stable scan restrictions before evaluating inverted-index expressions so
+    // selective restrictions can also serve as phrase-query candidates. The candidate
+    // pointer keeps referring to _row_bitmap as later predicates shrink it.
+    auto delete_bitmap_it = _opts.delete_bitmap.find(segment_id());
+    if (delete_bitmap_it != _opts.delete_bitmap.end() && delete_bitmap_it->second != nullptr) {
+        size_t pre_size = _row_bitmap.cardinality();
+        _row_bitmap -= *delete_bitmap_it->second;
+        _opts.stats->rows_del_by_bitmap += (pre_size - _row_bitmap.cardinality());
+        VLOG_DEBUG << "read on segment: " << segment_id()
+                   << ", delete bitmap cardinality: " << delete_bitmap_it->second->cardinality()
+                   << ", " << _opts.stats->rows_del_by_bitmap << " rows deleted by bitmap";
+    }
+
+    if (!_opts.row_ranges.is_empty()) {
+        _row_bitmap &= RowRanges::ranges_to_roaring(_opts.row_ranges);
+    }
+
+    if (!_row_bitmap.isEmpty() &&
+        (!_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
+         _opts.delete_condition_predicates->num_of_column_predicate() > 0 ||
+         !_common_expr_ctxs_push_down.empty())) {
+        RowRanges condition_row_ranges = RowRanges::create_single(_segment->num_rows());
+        RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
+        size_t pre_size = _row_bitmap.cardinality();
+        _row_bitmap &= RowRanges::ranges_to_roaring(condition_row_ranges);
+        _opts.stats->rows_conditions_filtered += (pre_size - _row_bitmap.cardinality());
+    }
+
+    if (_row_bitmap.isEmpty()) {
+        return Status::OK();
+    }
+
     {
         if (_opts.runtime_state &&
             _opts.runtime_state->query_options().enable_inverted_index_query &&
@@ -834,12 +853,28 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
             if (_index_query_context != nullptr) {
                 _index_query_context->count_on_index_fastpath = _count_on_index_fastpath_safe();
                 _index_query_context->count_on_index_fastpath_hit = false;
+                // Candidate-pushdown handshake: while index conditions are
+                // evaluated, expose the current candidate bitmap so index
+                // queries can restrict themselves to it (two-phase
+                // evaluation). _row_bitmap only shrinks during the applies
+                // below, so restricting to its current state stays correct
+                // for every later conjunct.
+                _refresh_candidate_pushdown();
             }
-            DEFER({ _capture_count_fastpath_hit(); });
+            DEFER({
+                _capture_count_fastpath_hit();
+                if (_index_query_context != nullptr) {
+                    _index_query_context->candidate_rows = nullptr;
+                }
+            });
             // Only apply column-level inverted index if we have iterators
             if (has_index_in_iterators()) {
                 RETURN_IF_ERROR(_apply_inverted_index());
             }
+            // The column predicates above may have shrunk the bitmap across
+            // the engage threshold; refresh the handshake at this conjunct
+            // boundary so the expression conjuncts below still benefit.
+            _refresh_candidate_pushdown();
             // Always apply expr-level index (e.g., search expressions) if we have common_expr_pushdown
             // This allows search expressions with variant subcolumns to be evaluated even when
             // the segment doesn't have all subcolumns
@@ -890,17 +925,6 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                     _common_expr_ctxs_push_down.size(), _col_predicates.size());
         }
     })
-
-    if (!_row_bitmap.isEmpty() &&
-        (!_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
-         _opts.delete_condition_predicates->num_of_column_predicate() > 0 ||
-         !_common_expr_ctxs_push_down.empty())) {
-        RowRanges condition_row_ranges = RowRanges::create_single(_segment->num_rows());
-        RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
-        size_t pre_size = _row_bitmap.cardinality();
-        _row_bitmap &= RowRanges::ranges_to_roaring(condition_row_ranges);
-        _opts.stats->rows_conditions_filtered += (pre_size - _row_bitmap.cardinality());
-    }
 
     DBUG_EXECUTE_IF("bloom_filter_must_filter_data", {
         if (_opts.stats->rows_bf_filtered == 0) {
@@ -1231,14 +1255,62 @@ bool SegmentIterator::_check_apply_by_inverted_index(std::shared_ptr<ColumnPredi
 }
 
 // TODO: optimization when all expr can not evaluate by inverted/ann index,
+void SegmentIterator::_refresh_candidate_pushdown() {
+    if (_index_query_context == nullptr || _index_query_context->candidate_rows != nullptr) {
+        return;
+    }
+    // Guard the domain before the multiply: a non-finite or out-of-range
+    // configured ratio must never reach the floating-to-integer conversion
+    // (undefined behavior), even if a runtime config update transiently
+    // publishes a value the validator rejects.
+    double candidate_ratio = config::inverted_index_candidate_pushdown_ratio;
+    if (!std::isfinite(candidate_ratio) || candidate_ratio <= 0 || candidate_ratio > 1) {
+        return;
+    }
+    if (_row_bitmap.cardinality() <
+        static_cast<uint64_t>(static_cast<double>(num_rows()) * candidate_ratio)) {
+        _index_query_context->candidate_rows = &_row_bitmap;
+    }
+}
+
 Status SegmentIterator::_apply_index_expr() {
     bool enable_ann_index_result_cache =
             !_opts.runtime_state ||
             !_opts.runtime_state->query_options().__isset.enable_ann_index_result_cache ||
             _opts.runtime_state->query_options().enable_ann_index_result_cache;
 
+    // Three-valued compound shortcuts (VCompoundPred) treat an empty TRUE
+    // bitmap as a whole-segment fact; a candidate-restricted TRUE bitmap can
+    // spuriously trigger them and mis-type candidate rows (NOT(A AND B) with
+    // nullable A: FALSE becomes NULL and the row is dropped). Compound roots
+    // are therefore evaluated without the candidate; the top-level
+    // single-predicate consumption stays exact within the candidate.
+    auto evaluate_without_candidate_for_compound = [&](const VExprContextSPtr& expr_ctx) {
+        const auto& root = expr_ctx->root();
+        DORIS_CHECK(root != nullptr);
+        const VExpr* effective_root = root.get();
+        if (root->is_virtual_slot_ref()) {
+            const auto& virtual_expr =
+                    assert_cast<const VirtualSlotRef*>(root.get())->get_virtual_column_expr();
+            DORIS_CHECK(virtual_expr != nullptr);
+            effective_root = virtual_expr.get();
+        }
+        const bool suppress = _index_query_context != nullptr &&
+                              _index_query_context->candidate_rows != nullptr &&
+                              effective_root->node_type() == TExprNodeType::COMPOUND_PRED;
+        const roaring::Roaring* saved = suppress ? _index_query_context->candidate_rows : nullptr;
+        if (suppress) {
+            _index_query_context->candidate_rows = nullptr;
+        }
+        Status st = expr_ctx->evaluate_inverted_index(num_rows());
+        if (suppress) {
+            _index_query_context->candidate_rows = saved;
+        }
+        return st;
+    };
+
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
-        if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
+        if (Status st = evaluate_without_candidate_for_compound(expr_ctx); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                 continue;
             } else {
@@ -1258,7 +1330,7 @@ Status SegmentIterator::_apply_index_expr() {
         if (expr_ctx->get_index_context() == nullptr) {
             continue;
         }
-        if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
+        if (Status st = evaluate_without_candidate_for_compound(expr_ctx); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                 continue;
             } else {
@@ -1317,7 +1389,7 @@ bool SegmentIterator::_count_on_index_fastpath_safe() const {
     facts.has_virtual_column_exprs = !_virtual_column_exprs.empty();
     facts.has_delete_predicates = _opts.delete_condition_predicates != nullptr &&
                                   _opts.delete_condition_predicates->num_of_column_predicate() > 0;
-    // Mirror of the _lazy_init delete-bitmap subtraction: the fast path is only
+    // Mirror of the pre-index delete-bitmap subtraction: the fast path is only
     // sound when there is nothing to subtract for THIS segment.
     const auto delete_bitmap_it = _opts.delete_bitmap.find(segment_id());
     facts.segment_delete_bitmap_empty = delete_bitmap_it == _opts.delete_bitmap.end() ||
