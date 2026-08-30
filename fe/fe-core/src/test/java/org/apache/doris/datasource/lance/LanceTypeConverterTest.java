@@ -114,6 +114,23 @@ public class LanceTypeConverterTest {
         }
     }
 
+    /** 验证嵌套 Null 不会被声明为当前读取链路无法安全处理的复杂类型。 */
+    @Test
+    public void testNestedNullIsUnsupported() {
+        Field nullItem = Field.nullable("item", ArrowType.Null.INSTANCE);
+        Field nullList = new Field(
+                "null_list",
+                FieldType.nullable(ArrowType.List.INSTANCE),
+                Collections.singletonList(nullItem));
+        Field nullStruct = new Field(
+                "null_struct",
+                FieldType.nullable(ArrowType.Struct.INSTANCE),
+                Collections.singletonList(Field.nullable("value", ArrowType.Null.INSTANCE)));
+
+        Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(nullList));
+        Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(nullStruct));
+    }
+
     /** 验证已知扩展类型按其逻辑语义映射，且非法物理布局不会被接受。 */
     @Test
     public void testKnownExtensionMappingsAndStorageValidation() {

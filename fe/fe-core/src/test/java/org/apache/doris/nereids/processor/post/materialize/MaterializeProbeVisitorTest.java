@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
 import org.apache.doris.thrift.TAccessPathType;
@@ -45,6 +46,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.BitSet;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -68,6 +70,38 @@ class MaterializeProbeVisitorTest {
 
         Assertions.assertFalse(visitor.visitPhysicalTVFRelation(
                 relation, new MaterializeProbeVisitor.ProbeContext(nestedSlot)).isPresent());
+    }
+
+    /** Verifies vector_search keeps binary columns out of row-id fetches. */
+    @Test
+    void testVectorSearchKeepsVarbinaryColumnInSearchPhase() {
+        MaterializeProbeVisitor visitor = new MaterializeProbeVisitor();
+        PhysicalTVFRelation relation = mockVectorSearchRelation();
+        SlotReference varbinarySlot = Mockito.mock(SlotReference.class);
+        Mockito.when(varbinarySlot.getDataType()).thenReturn(VarBinaryType.INSTANCE);
+        Mockito.when(varbinarySlot.getOriginalColumn()).thenReturn(
+                Optional.of(Mockito.mock(Column.class)));
+        Mockito.when(relation.getOutput()).thenReturn(Collections.singletonList(varbinarySlot));
+        Mockito.when(relation.getOperativeSlots()).thenReturn(Collections.emptyList());
+
+        Assertions.assertFalse(visitor.visitPhysicalTVFRelation(
+                relation, new MaterializeProbeVisitor.ProbeContext(varbinarySlot)).isPresent());
+    }
+
+    /** Verifies vector_search can lazily fetch regular scalar columns. */
+    @Test
+    void testVectorSearchAllowsScalarColumnLazyMaterialization() {
+        MaterializeProbeVisitor visitor = new MaterializeProbeVisitor();
+        PhysicalTVFRelation relation = mockVectorSearchRelation();
+        SlotReference scalarSlot = Mockito.mock(SlotReference.class);
+        Mockito.when(scalarSlot.getDataType()).thenReturn(IntegerType.INSTANCE);
+        Mockito.when(scalarSlot.getOriginalColumn()).thenReturn(
+                Optional.of(Mockito.mock(Column.class)));
+        Mockito.when(relation.getOutput()).thenReturn(Collections.singletonList(scalarSlot));
+        Mockito.when(relation.getOperativeSlots()).thenReturn(Collections.emptyList());
+
+        Assertions.assertTrue(visitor.visitPhysicalTVFRelation(
+                relation, new MaterializeProbeVisitor.ProbeContext(scalarSlot)).isPresent());
     }
 
     @Test
