@@ -955,9 +955,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                     && entry.getValue() < cachedPartitionWithLatestOffsets.get(entry.getKey())) {
                 // "entry.getValue()" is the offset to be consumed.
                 // "cachedPartitionWithLatestOffsets.get(entry.getKey())" is the "next" offset of this partition.
-                // (because librdkafa's query_watermark_offsets() will return the next offset.
+                // (because Kafka's ListOffsets API will return the next offset.
                 //  For example, there 4 msg in partition with offset 0,1,2,3,
-                //  query_watermark_offsets() will return 4.)
+                //  ListOffsets will return 4.)
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("has more data to consume. offsets to be consumed: {}, "
                                     + "latest offsets: {}, task {}, job {}",

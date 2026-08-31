@@ -17,9 +17,11 @@
 
 #include "load/routine_load/data_consumer.h"
 
+#include <absl/strings/match.h>
 #include <absl/strings/str_split.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
+#include <librdkafka/rdkafka.h>
 #include <librdkafka/rdkafkacpp.h>
 
 // AWS Kinesis SDK includes
@@ -475,6 +477,89 @@ Status KafkaDataConsumer::get_offsets_for_times(const std::vector<PIntegerPair>&
     return Status::OK();
 }
 
+Status KafkaDataConsumer::_get_offsets_for_partitions(
+        const std::vector<std::pair<int32_t, int64_t>>& partition_offset_specs,
+        std::vector<PIntegerPair>* offsets, int timeout) {
+    DCHECK(!partition_offset_specs.empty());
+    rd_kafka_topic_partition_list_t* topic_partitions =
+            rd_kafka_topic_partition_list_new(static_cast<int>(partition_offset_specs.size()));
+    Defer delete_topic_partitions {
+            [topic_partitions]() { rd_kafka_topic_partition_list_destroy(topic_partitions); }};
+    for (const auto& [partition_id, offset_spec] : partition_offset_specs) {
+        rd_kafka_topic_partition_t* topic_partition =
+                rd_kafka_topic_partition_list_add(topic_partitions, _topic.c_str(), partition_id);
+        topic_partition->offset = offset_spec;
+    }
+
+    rd_kafka_t* kafka_handle = _k_consumer->c_ptr();
+    rd_kafka_AdminOptions_t* options =
+            rd_kafka_AdminOptions_new(kafka_handle, RD_KAFKA_ADMIN_OP_LISTOFFSETS);
+    Defer delete_options {[options]() { rd_kafka_AdminOptions_destroy(options); }};
+
+    char errstr[512];
+    rd_kafka_resp_err_t err =
+            rd_kafka_AdminOptions_set_request_timeout(options, timeout, errstr, sizeof(errstr));
+    if (UNLIKELY(err != RD_KAFKA_RESP_ERR_NO_ERROR)) {
+        return Status::InternalError("failed to set timeout for getting kafka offsets: {}", errstr);
+    }
+
+    auto isolation_level = RD_KAFKA_ISOLATION_LEVEL_READ_UNCOMMITTED;
+    auto isolation_level_property = _custom_properties.find("isolation.level");
+    if (isolation_level_property != _custom_properties.end() &&
+        absl::EqualsIgnoreCase(isolation_level_property->second, "read_committed")) {
+        isolation_level = RD_KAFKA_ISOLATION_LEVEL_READ_COMMITTED;
+    }
+    rd_kafka_error_t* isolation_level_error =
+            rd_kafka_AdminOptions_set_isolation_level(options, isolation_level);
+    if (UNLIKELY(isolation_level_error != nullptr)) {
+        std::string error_message = rd_kafka_error_string(isolation_level_error);
+        rd_kafka_error_destroy(isolation_level_error);
+        return Status::InternalError("failed to set isolation level for getting kafka offsets: {}",
+                                     error_message);
+    }
+
+    rd_kafka_queue_t* queue = rd_kafka_queue_new(kafka_handle);
+    Defer delete_queue {[queue]() { rd_kafka_queue_destroy(queue); }};
+    rd_kafka_ListOffsets(kafka_handle, topic_partitions, options, queue);
+
+    rd_kafka_event_t* event = rd_kafka_queue_poll(queue, timeout);
+    if (UNLIKELY(event == nullptr)) {
+        return Status::InternalError("get kafka offsets for partitions timeout");
+    }
+    Defer delete_event {[event]() { rd_kafka_event_destroy(event); }};
+
+    if (UNLIKELY(rd_kafka_event_error(event) != RD_KAFKA_RESP_ERR_NO_ERROR)) {
+        return Status::InternalError("failed to get kafka offsets for partitions: {}",
+                                     rd_kafka_event_error_string(event));
+    }
+    const rd_kafka_ListOffsets_result_t* result = rd_kafka_event_ListOffsets_result(event);
+    if (UNLIKELY(result == nullptr)) {
+        return Status::InternalError(
+                "failed to get kafka offsets for partitions: invalid response");
+    }
+
+    size_t result_info_count = 0;
+    const rd_kafka_ListOffsetsResultInfo_t** result_infos =
+            rd_kafka_ListOffsets_result_infos(result, &result_info_count);
+    if (UNLIKELY(result_info_count != partition_offset_specs.size())) {
+        return Status::InternalError("failed to get kafka offsets for all partitions");
+    }
+    for (size_t i = 0; i < result_info_count; ++i) {
+        const rd_kafka_topic_partition_t* topic_partition =
+                rd_kafka_ListOffsetsResultInfo_topic_partition(result_infos[i]);
+        if (UNLIKELY(topic_partition->err != RD_KAFKA_RESP_ERR_NO_ERROR)) {
+            return Status::InternalError("failed to get kafka offset for partition {}: {}",
+                                         topic_partition->partition,
+                                         rd_kafka_err2str(topic_partition->err));
+        }
+        PIntegerPair pair;
+        pair.set_key(topic_partition->partition);
+        pair.set_val(topic_partition->offset);
+        offsets->push_back(std::move(pair));
+    }
+    return Status::OK();
+}
+
 // get latest offsets for given partitions
 Status KafkaDataConsumer::get_latest_offsets_for_partitions(
         const std::vector<int32_t>& partition_ids, std::vector<PIntegerPair>* offsets,
@@ -483,33 +568,12 @@ Status KafkaDataConsumer::get_latest_offsets_for_partitions(
         // sleep 61s
         std::this_thread::sleep_for(std::chrono::seconds(61));
     });
-    MonotonicStopWatch watch;
-    watch.start();
+    std::vector<std::pair<int32_t, int64_t>> partition_offset_specs;
+    partition_offset_specs.reserve(partition_ids.size());
     for (int32_t partition_id : partition_ids) {
-        int64_t low = 0;
-        int64_t high = 0;
-        auto timeout_ms = timeout - static_cast<int>(watch.elapsed_time() / 1000 / 1000);
-        if (UNLIKELY(timeout_ms <= 0)) {
-            return Status::InternalError("get kafka latest offsets for partitions timeout");
-        }
-
-        RdKafka::ErrorCode err =
-                _k_consumer->query_watermark_offsets(_topic, partition_id, &low, &high, timeout_ms);
-        if (UNLIKELY(err != RdKafka::ERR_NO_ERROR)) {
-            std::stringstream ss;
-            ss << "failed to get latest offset for partition: " << partition_id
-               << ", err: " << RdKafka::err2str(err);
-            LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str());
-        }
-
-        PIntegerPair pair;
-        pair.set_key(partition_id);
-        pair.set_val(high);
-        offsets->push_back(std::move(pair));
+        partition_offset_specs.emplace_back(partition_id, RD_KAFKA_OFFSET_SPEC_LATEST);
     }
-
-    return Status::OK();
+    return _get_offsets_for_partitions(partition_offset_specs, offsets, timeout);
 }
 
 Status KafkaDataConsumer::get_real_offsets_for_partitions(
@@ -519,8 +583,7 @@ Status KafkaDataConsumer::get_real_offsets_for_partitions(
         // sleep 61s
         std::this_thread::sleep_for(std::chrono::seconds(61));
     });
-    MonotonicStopWatch watch;
-    watch.start();
+    std::vector<std::pair<int32_t, int64_t>> partition_offset_specs;
     for (const auto& entry : offset_flags) {
         PIntegerPair pair;
         if (UNLIKELY(entry.val() >= 0)) {
@@ -530,35 +593,19 @@ Status KafkaDataConsumer::get_real_offsets_for_partitions(
             continue;
         }
 
-        int64_t low = 0;
-        int64_t high = 0;
-        auto timeout_ms = timeout - static_cast<int>(watch.elapsed_time() / 1000 / 1000);
-        if (UNLIKELY(timeout_ms <= 0)) {
-            return Status::InternalError("get kafka real offsets for partitions timeout");
-        }
-
-        RdKafka::ErrorCode err =
-                _k_consumer->query_watermark_offsets(_topic, entry.key(), &low, &high, timeout_ms);
-        if (UNLIKELY(err != RdKafka::ERR_NO_ERROR)) {
-            std::stringstream ss;
-            ss << "failed to get latest offset for partition: " << entry.key()
-               << ", err: " << RdKafka::err2str(err);
-            LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str());
-        }
-
-        pair.set_key(entry.key());
+        DCHECK(entry.val() == -1 || entry.val() == -2);
         if (entry.val() == -1) {
             // OFFSET_END_VAL = -1
-            pair.set_val(high);
+            partition_offset_specs.emplace_back(entry.key(), RD_KAFKA_OFFSET_SPEC_LATEST);
         } else if (entry.val() == -2) {
             // OFFSET_BEGINNING_VAL = -2
-            pair.set_val(low);
+            partition_offset_specs.emplace_back(entry.key(), RD_KAFKA_OFFSET_SPEC_EARLIEST);
         }
-        offsets->push_back(std::move(pair));
     }
-
-    return Status::OK();
+    if (partition_offset_specs.empty()) {
+        return Status::OK();
+    }
+    return _get_offsets_for_partitions(partition_offset_specs, offsets, timeout);
 }
 
 Status KafkaDataConsumer::cancel(std::shared_ptr<StreamLoadContext> ctx) {
