@@ -262,15 +262,19 @@ public class CachingHmsClient implements HmsClient {
                 missNames.add(miss.getName());
             }
             List<HmsPartitionInfo> loaded;
-            if (allowMissing) {
-                HmsPartitionBatchResult loadedResult = delegate.getExistingPartitionsWithStats(
-                        dbName, tableName, missNames);
+            try {
+                HmsPartitionBatchResult loadedResult = allowMissing
+                        ? delegate.getExistingPartitionsWithStats(dbName, tableName, missNames)
+                        : delegate.getPartitionsWithStats(dbName, tableName, missNames);
                 loaded = loadedResult.getPartitions();
                 physicalStats = loadedResult.getStats();
-            } else {
-                HmsPartitionBatchResult loadedResult = delegate.getPartitionsWithStats(dbName, tableName, missNames);
-                loaded = loadedResult.getPartitions();
-                physicalStats = loadedResult.getStats();
+            } catch (HmsClientException e) {
+                HmsPartitionBatchStats failedStats = e.getPartitionBatchStats();
+                if (failedStats != null) {
+                    e.withPartitionBatchStats(failedStats.forLogicalRequest(
+                            partNames.size(), System.nanoTime() - logicalStartNanos));
+                }
+                throw e;
             }
             if (loaded == null || (!allowMissing && loaded.size() != misses.size())) {
                 throw new HmsClientException("HMS partition delegate violated its exact-result contract");

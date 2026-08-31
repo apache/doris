@@ -18,6 +18,7 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.hms.HmsClient;
+import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionBatchResult;
 import org.apache.doris.connector.hms.HmsPartitionBatchStats;
@@ -190,12 +191,78 @@ public class HiveScanBatchModeTest {
         Assertions.assertEquals("Connector Metadata Access", profile.getGroupName());
         Assertions.assertTrue(profile.getScanLabel().contains("db.t"));
         Assertions.assertEquals("2", profile.getMetrics().get("LogicalRequests"));
+        Assertions.assertEquals("0", profile.getMetrics().get("FailedRequests"));
         Assertions.assertEquals("3", profile.getMetrics().get("RequestedItems"));
         Assertions.assertEquals("2", profile.getMetrics().get("RpcAttempts"));
         Assertions.assertEquals("3", profile.getMetrics().get("RpcItems"));
         Assertions.assertEquals("2", profile.getMetrics().get("LargestBatchSize"));
         Assertions.assertEquals("1", profile.getMetrics().get("SmallestBatchSize"));
         Assertions.assertTrue(provider.collectScanProfiles(session).isEmpty());
+    }
+
+    @Test
+    public void firstFailedPartitionRequestIsExposedForSynchronousAndBatchPlanning() {
+        assertFailedPartitionProfile(false, HmsPartitionBatchStats.builder()
+                .requestedItems(2)
+                .rpcAttempts(1)
+                .rpcItems(2)
+                .largestBatchSize(2)
+                .smallestBatchSize(2)
+                .build());
+        assertFailedPartitionProfile(true, HmsPartitionBatchStats.builder()
+                .requestedItems(2)
+                .rpcAttempts(1)
+                .rpcItems(2)
+                .largestBatchSize(2)
+                .smallestBatchSize(2)
+                .build());
+    }
+
+    @Test
+    public void exhaustedFallbackIsExposedForSynchronousAndBatchPlanning() {
+        HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
+                .requestedItems(2)
+                .rpcAttempts(2)
+                .rpcItems(3)
+                .largestBatchSize(2)
+                .smallestBatchSize(1)
+                .fallbackCount(1)
+                .build();
+        assertFailedPartitionProfile(false, stats);
+        assertFailedPartitionProfile(true, stats);
+    }
+
+    private static void assertFailedPartitionProfile(boolean batchPlanning, HmsPartitionBatchStats stats) {
+        List<String> names = Arrays.asList("year=2024/month=01", "year=2024/month=02");
+        HmsClientException partitionFailure = new HmsClientException("failed", stats);
+        HiveScanPlanProvider provider = provider(
+                new FakeHmsClient(names, null, partitionFailure), new CountingLister());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .build();
+        FakeSession session = new FakeSession();
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                handle, Collections.<ConnectorColumnHandle>emptyList()).build();
+
+        if (batchPlanning) {
+            Assertions.assertThrows(HmsClientException.class,
+                    () -> provider.planScanForPartitionBatch(session, request, names));
+        } else {
+            Assertions.assertThrows(HmsClientException.class,
+                    () -> provider.planScan(session, request));
+        }
+
+        ConnectorScanProfile profile = provider.collectScanProfiles(session).get(0);
+        Assertions.assertEquals("1", profile.getMetrics().get("LogicalRequests"));
+        Assertions.assertEquals("1", profile.getMetrics().get("FailedRequests"));
+        Assertions.assertEquals(String.valueOf(stats.getRequestedItems()),
+                profile.getMetrics().get("RequestedItems"));
+        Assertions.assertEquals(String.valueOf(stats.getRpcAttempts()),
+                profile.getMetrics().get("RpcAttempts"));
+        Assertions.assertEquals(String.valueOf(stats.getRpcItems()), profile.getMetrics().get("RpcItems"));
+        Assertions.assertEquals(String.valueOf(stats.getFallbackCount()), profile.getMetrics().get("Fallbacks"));
     }
 
     @Test
@@ -458,14 +525,21 @@ public class HiveScanBatchModeTest {
     private static final class FakeHmsClient implements HmsClient {
         private final List<String> listedPartitionNames;
         private final String absentPartitionName;
+        private final HmsClientException partitionFailure;
 
         FakeHmsClient() {
-            this(null, null);
+            this(null, null, null);
         }
 
         FakeHmsClient(List<String> listedPartitionNames, String absentPartitionName) {
+            this(listedPartitionNames, absentPartitionName, null);
+        }
+
+        FakeHmsClient(List<String> listedPartitionNames, String absentPartitionName,
+                HmsClientException partitionFailure) {
             this.listedPartitionNames = listedPartitionNames;
             this.absentPartitionName = absentPartitionName;
+            this.partitionFailure = partitionFailure;
         }
 
         @Override
@@ -481,6 +555,9 @@ public class HiveScanBatchModeTest {
         @Override
         public HmsPartitionBatchResult getPartitionsWithStats(
                 String dbName, String tableName, List<String> partNames) {
+            if (partitionFailure != null) {
+                throw partitionFailure;
+            }
             List<HmsPartitionInfo> partitions = getPartitions(dbName, tableName, partNames);
             HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
                     .requestedItems(partNames.size())
@@ -495,6 +572,9 @@ public class HiveScanBatchModeTest {
         @Override
         public HmsPartitionBatchResult getExistingPartitionsWithStats(
                 String dbName, String tableName, List<String> partNames) {
+            if (partitionFailure != null) {
+                throw partitionFailure;
+            }
             List<String> existingNames = new ArrayList<>();
             for (String partitionName : partNames) {
                 if (!partitionName.equals(absentPartitionName)) {

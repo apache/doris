@@ -18,6 +18,7 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.hms.HmsClient;
+import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsPartitionBatchResult;
 import org.apache.doris.connector.hms.HmsPartitionBatchStats;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
@@ -519,10 +520,17 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
 
     private List<HmsPartitionInfo> loadPartitionsWithProfile(
             String dbName, String tableName, List<String> partitionNames) {
-        HmsPartitionBatchResult result = hmsClient.getExistingPartitionsWithStats(
-                dbName, tableName, partitionNames);
-        partitionBatchProfile.record(dbName, tableName, result.getStats());
-        return result.getPartitions();
+        try {
+            HmsPartitionBatchResult result = hmsClient.getExistingPartitionsWithStats(
+                    dbName, tableName, partitionNames);
+            partitionBatchProfile.record(dbName, tableName, result.getStats());
+            return result.getPartitions();
+        } catch (HmsClientException e) {
+            if (e.getPartitionBatchStats() != null) {
+                partitionBatchProfile.recordFailure(dbName, tableName, e.getPartitionBatchStats());
+            }
+            throw e;
+        }
     }
 
     void recordPruningProfile(HiveTableHandle handle) {
@@ -758,6 +766,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     private static final class PartitionBatchProfile {
         private String tableLabel;
         private int logicalRequests;
+        private int failedRequests;
         private long requestedItems;
         private long rpcAttempts;
         private long rpcItems;
@@ -794,12 +803,18 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             maxRpcElapsedNanos = Math.max(maxRpcElapsedNanos, stats.getMaxRpcElapsedNanos());
         }
 
+        synchronized void recordFailure(String dbName, String tableName, HmsPartitionBatchStats stats) {
+            record(dbName, tableName, stats);
+            failedRequests++;
+        }
+
         synchronized List<ConnectorScanProfile> drain() {
             if (logicalRequests == 0) {
                 return Collections.emptyList();
             }
             Map<String, String> metrics = new LinkedHashMap<>();
             metrics.put("LogicalRequests", String.valueOf(logicalRequests));
+            metrics.put("FailedRequests", String.valueOf(failedRequests));
             metrics.put("RequestedItems", String.valueOf(requestedItems));
             metrics.put("RpcAttempts", String.valueOf(rpcAttempts));
             metrics.put("RpcItems", String.valueOf(rpcItems));
@@ -813,6 +828,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                     "Connector Metadata Access", "hms.get_partitions_by_names [QUERY] (" + tableLabel + ")",
                     metrics);
             logicalRequests = 0;
+            failedRequests = 0;
             requestedItems = 0;
             rpcAttempts = 0;
             rpcItems = 0;

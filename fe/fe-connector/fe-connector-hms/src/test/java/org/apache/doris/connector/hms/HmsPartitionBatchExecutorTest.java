@@ -115,6 +115,15 @@ public class HmsPartitionBatchExecutorTest {
         Assertions.assertEquals(Arrays.asList(2, 1), attempts);
         Assertions.assertTrue(failure.getMessage().contains("failedBatchSize=1"));
         Assertions.assertTrue(failure.getMessage().contains("attempts=2"));
+        HmsPartitionBatchStats stats = failure.getPartitionBatchStats();
+        Assertions.assertNotNull(stats);
+        Assertions.assertEquals(2, stats.getRequestedItems());
+        Assertions.assertEquals(2, stats.getRpcAttempts());
+        Assertions.assertEquals(3, stats.getRpcItems());
+        Assertions.assertEquals(2, stats.getLargestBatchSize());
+        Assertions.assertEquals(1, stats.getSmallestBatchSize());
+        Assertions.assertEquals(1, stats.getFallbackCount());
+        Assertions.assertTrue(stats.getLogicalElapsedNanos() >= stats.getRpcElapsedNanos());
     }
 
     @Test
@@ -125,8 +134,17 @@ public class HmsPartitionBatchExecutorTest {
             throw remoteFailure("connection refused");
         });
 
-        Assertions.assertThrows(HmsClientException.class, () -> executor.execute(request(names(8))));
+        HmsClientException failure = Assertions.assertThrows(
+                HmsClientException.class, () -> executor.execute(request(names(8))));
         Assertions.assertEquals(Collections.singletonList(8), attempts);
+        HmsPartitionBatchStats stats = failure.getPartitionBatchStats();
+        Assertions.assertNotNull(stats);
+        Assertions.assertEquals(8, stats.getRequestedItems());
+        Assertions.assertEquals(1, stats.getRpcAttempts());
+        Assertions.assertEquals(8, stats.getRpcItems());
+        Assertions.assertEquals(8, stats.getLargestBatchSize());
+        Assertions.assertEquals(8, stats.getSmallestBatchSize());
+        Assertions.assertEquals(0, stats.getFallbackCount());
     }
 
     @Test

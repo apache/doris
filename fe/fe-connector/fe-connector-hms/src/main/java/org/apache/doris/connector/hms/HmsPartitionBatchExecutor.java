@@ -105,6 +105,7 @@ final class HmsPartitionBatchExecutor {
             largestBatchSize = Math.max(largestBatchSize, batchSize);
             smallestBatchSize = Math.min(smallestBatchSize, batchSize);
             long rpcStartNanos = System.nanoTime();
+            HmsClientException terminalFailure = null;
             try {
                 List<HmsPartitionInfo> returned = transport.getPartitionsByNames(
                         request.getDbName(), request.getTableName(), batchNames);
@@ -112,33 +113,53 @@ final class HmsPartitionBatchExecutor {
                 offset += batchSize;
             } catch (RemoteCallException e) {
                 if (batchSize <= minBatchSize || !failureClassifier.isDegradable(e)) {
-                    throw finalBatchFailure(request, offset, batchSize, effectiveBatchSize,
+                    terminalFailure = finalBatchFailure(request, offset, batchSize, effectiveBatchSize,
                             attempts, fallbackCount, e);
+                } else {
+                    effectiveBatchSize = Math.max(minBatchSize, batchSize / 2);
+                    fallbackCount++;
                 }
-                effectiveBatchSize = Math.max(minBatchSize, batchSize / 2);
-                fallbackCount++;
+            } catch (HmsClientException e) {
+                terminalFailure = e;
             } catch (RuntimeException e) {
                 throw e;
             } catch (Exception e) {
-                throw new HmsClientException("Unexpected checked failure fetching HMS partitions", e);
+                terminalFailure = new HmsClientException(
+                        "Unexpected checked failure fetching HMS partitions", e);
             } finally {
                 long elapsedNanos = System.nanoTime() - rpcStartNanos;
                 rpcElapsedNanos += elapsedNanos;
                 maxRpcElapsedNanos = Math.max(maxRpcElapsedNanos, elapsedNanos);
             }
+            if (terminalFailure != null) {
+                throw terminalFailure.withPartitionBatchStats(buildStats(
+                        partitions.size(), attempts, rpcItems, largestBatchSize, smallestBatchSize,
+                        fallbackCount, System.nanoTime() - logicalStartNanos,
+                        rpcElapsedNanos, maxRpcElapsedNanos));
+            }
         }
-        HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
-                .requestedItems(partitions.size())
+        HmsPartitionBatchStats stats = buildStats(
+                partitions.size(), attempts, rpcItems, largestBatchSize, smallestBatchSize,
+                fallbackCount, System.nanoTime() - logicalStartNanos,
+                rpcElapsedNanos, maxRpcElapsedNanos);
+        return new HmsPartitionBatchResult(result, stats);
+    }
+
+    private static HmsPartitionBatchStats buildStats(
+            int requestedItems, int attempts, long rpcItems, int largestBatchSize,
+            int smallestBatchSize, int fallbackCount, long logicalElapsedNanos,
+            long rpcElapsedNanos, long maxRpcElapsedNanos) {
+        return HmsPartitionBatchStats.builder()
+                .requestedItems(requestedItems)
                 .rpcAttempts(attempts)
                 .rpcItems(rpcItems)
                 .largestBatchSize(largestBatchSize)
                 .smallestBatchSize(smallestBatchSize)
                 .fallbackCount(fallbackCount)
-                .logicalElapsedNanos(System.nanoTime() - logicalStartNanos)
+                .logicalElapsedNanos(logicalElapsedNanos)
                 .rpcElapsedNanos(rpcElapsedNanos)
                 .maxRpcElapsedNanos(maxRpcElapsedNanos)
                 .build();
-        return new HmsPartitionBatchResult(result, stats);
     }
 
     static List<HmsPartitionInfo> validateAndOrder(

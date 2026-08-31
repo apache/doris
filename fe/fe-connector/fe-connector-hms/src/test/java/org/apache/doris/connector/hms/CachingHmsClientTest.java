@@ -261,6 +261,28 @@ public class CachingHmsClientTest {
     }
 
     @Test
+    public void failedPartitionStatsKeepLogicalRequestAndPhysicalMissDimensions() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        cache.getPartitions("db", "t", Collections.singletonList("p=1"));
+        delegate.getPartitionsError = new HmsClientException("failed", HmsPartitionBatchStats.builder()
+                .requestedItems(1)
+                .rpcAttempts(1)
+                .rpcItems(1)
+                .largestBatchSize(1)
+                .smallestBatchSize(1)
+                .build());
+
+        HmsClientException failure = Assertions.assertThrows(HmsClientException.class,
+                () -> cache.getPartitionsWithStats("db", "t", Arrays.asList("p=1", "p=2")));
+
+        Assertions.assertSame(delegate.getPartitionsError, failure);
+        Assertions.assertEquals(2, failure.getPartitionBatchStats().getRequestedItems());
+        Assertions.assertEquals(1, failure.getPartitionBatchStats().getRpcAttempts());
+        Assertions.assertEquals(1, failure.getPartitionBatchStats().getRpcItems());
+    }
+
+    @Test
     public void getPartitionsRejectsMissingPartitionWithoutPartialCaching() {
         RecordingHmsClient delegate = new RecordingHmsClient();
         delegate.absentPartitionNames.add("p=9");
@@ -613,6 +635,7 @@ public class CachingHmsClientTest {
         int dropTableCalls;
         int closeCalls;
         RuntimeException getTableError;
+        HmsClientException getPartitionsError;
         // Partition names the fake has NO partition for (mirrors HMS omitting non-existent partitions).
         final Set<String> absentPartitionNames = new HashSet<>();
         // When set, every returned partition carries these exact values regardless of the requested name
@@ -664,6 +687,9 @@ public class CachingHmsClientTest {
         @Override
         public HmsPartitionBatchResult getPartitionsWithStats(
                 String dbName, String tableName, List<String> partNames) {
+            if (getPartitionsError != null) {
+                throw getPartitionsError;
+            }
             long startNanos = System.nanoTime();
             List<HmsPartitionInfo> partitions = getPartitions(dbName, tableName, partNames);
             HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
