@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MapType;
@@ -24,13 +25,15 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantField;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.httpv2.rest.response.SchemaTypeDesc;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
@@ -43,26 +46,26 @@ public class TableSchemaActionColumnInfoTest {
                 "nested decimal");
         Map<String, Object> columnInfo = TableSchemaAction.buildColumnInfo(column);
 
-        Assert.assertEquals("array_decimal", columnInfo.get("name"));
-        Assert.assertEquals("ARRAY", columnInfo.get("type"));
-        Assert.assertEquals("array<decimalv3(18,4)>", columnInfo.get("type_sql"));
-        Assert.assertEquals("Yes", columnInfo.get("is_nullable"));
-        Assert.assertEquals("No", columnInfo.get("is_key"));
-        Assert.assertEquals("nested decimal", columnInfo.get("comment"));
-        Assert.assertFalse(columnInfo.containsKey("precision"));
-        Assert.assertFalse(columnInfo.containsKey("scale"));
+        Assertions.assertEquals("array_decimal", columnInfo.get("name"));
+        Assertions.assertEquals("ARRAY", columnInfo.get("type"));
+        Assertions.assertEquals("array<decimalv3(18,4)>", columnInfo.get("type_sql"));
+        Assertions.assertEquals("Yes", columnInfo.get("is_nullable"));
+        Assertions.assertEquals("No", columnInfo.get("is_key"));
+        Assertions.assertEquals("nested decimal", columnInfo.get("comment"));
+        Assertions.assertFalse(columnInfo.containsKey("precision"));
+        Assertions.assertFalse(columnInfo.containsKey("scale"));
 
         SchemaTypeDesc typeDesc = (SchemaTypeDesc) columnInfo.get("type_desc");
-        Assert.assertEquals("ARRAY", typeDesc.getKind());
-        Assert.assertTrue(typeDesc.getContainsNull());
-        Assert.assertEquals("DECIMAL64", typeDesc.getElement().getKind());
-        Assert.assertEquals(Integer.valueOf(18), typeDesc.getElement().getPrecision());
-        Assert.assertEquals(Integer.valueOf(4), typeDesc.getElement().getScale());
+        Assertions.assertEquals("ARRAY", typeDesc.getKind());
+        Assertions.assertTrue(typeDesc.getContainsNull());
+        Assertions.assertEquals("DECIMAL64", typeDesc.getElement().getKind());
+        Assertions.assertEquals(Integer.valueOf(18), typeDesc.getElement().getPrecision());
+        Assertions.assertEquals(Integer.valueOf(4), typeDesc.getElement().getScale());
 
         JsonNode json = new ObjectMapper().valueToTree(columnInfo);
-        Assert.assertEquals("ARRAY", json.path("type").asText());
-        Assert.assertTrue(json.path("type_desc").path("contains_null").asBoolean());
-        Assert.assertEquals(4, json.path("type_desc").path("element").path("scale").asInt());
+        Assertions.assertEquals("ARRAY", json.path("type").asText());
+        assertBooleanField(json.path("type_desc"), "contains_null", true);
+        Assertions.assertEquals(4, json.path("type_desc").path("element").path("scale").asInt());
     }
 
     @Test
@@ -70,12 +73,67 @@ public class TableSchemaActionColumnInfoTest {
         Column column = new Column("amount", ScalarType.createDecimalV3Type(18, 4));
         Map<String, Object> columnInfo = TableSchemaAction.buildColumnInfo(column);
 
-        Assert.assertEquals("DECIMAL64", columnInfo.get("type"));
-        Assert.assertEquals("18", columnInfo.get("precision"));
-        Assert.assertEquals("4", columnInfo.get("scale"));
+        Assertions.assertEquals("DECIMAL64", columnInfo.get("type"));
+        Assertions.assertEquals("18", columnInfo.get("precision"));
+        Assertions.assertEquals("4", columnInfo.get("scale"));
         SchemaTypeDesc typeDesc = (SchemaTypeDesc) columnInfo.get("type_desc");
-        Assert.assertEquals(Integer.valueOf(18), typeDesc.getPrecision());
-        Assert.assertEquals(Integer.valueOf(4), typeDesc.getScale());
+        Assertions.assertEquals(Integer.valueOf(18), typeDesc.getPrecision());
+        Assertions.assertEquals(Integer.valueOf(4), typeDesc.getScale());
+    }
+
+    @Test
+    public void testVarbinaryColumnInfoContainsStructuredLength() {
+        Map<String, Object> columnInfo = TableSchemaAction.buildColumnInfo(
+                new Column("payload", ScalarType.createVarbinaryType(64)));
+
+        Assertions.assertEquals("VARBINARY", columnInfo.get("type"));
+        Assertions.assertEquals("varbinary(64)", columnInfo.get("type_sql"));
+
+        JsonNode json = new ObjectMapper().valueToTree(columnInfo);
+        Assertions.assertEquals("VARBINARY", json.path("type_desc").path("kind").asText());
+        Assertions.assertEquals("varbinary(64)", json.path("type_desc").path("sql").asText());
+        Assertions.assertEquals(64, json.path("type_desc").path("length").asInt());
+    }
+
+    @Test
+    public void testVariantAndAggStateColumnInfoContainsStructuredChildren() {
+        VariantType variantType = new VariantType(Lists.newArrayList(
+                new VariantField("event_id", Type.BIGINT, "event identifier")));
+        JsonNode variantJson = new ObjectMapper().valueToTree(TableSchemaAction.buildColumnInfo(
+                new Column("payload", variantType)));
+
+        JsonNode variantField = variantJson.path("type_desc").path("predefined_fields").path(0);
+        Assertions.assertEquals("event_id", variantField.path("pattern").asText());
+        Assertions.assertEquals("BIGINT", variantField.path("type").path("kind").asText());
+
+        AggStateType aggStateType = new AggStateType("sum", true,
+                Lists.newArrayList(Type.BIGINT), Lists.newArrayList(false));
+        JsonNode aggStateJson = new ObjectMapper().valueToTree(TableSchemaAction.buildColumnInfo(
+                new Column("sum_state", aggStateType)));
+
+        JsonNode typeDesc = aggStateJson.path("type_desc");
+        Assertions.assertEquals("sum", typeDesc.path("function_name").asText());
+        assertBooleanField(typeDesc, "result_is_nullable", true);
+        assertBooleanField(typeDesc.path("sub_types").path(0), "contains_null", false);
+        Assertions.assertEquals("BIGINT", typeDesc.path("sub_types").path(0).path("type").path("kind").asText());
+    }
+
+    @Test
+    public void testUnsupportedColumnInfoOmitsSql() {
+        Map<String, Object> columnInfo = TableSchemaAction.buildColumnInfo(
+                new Column("geometry", Type.UNSUPPORTED));
+
+        Assertions.assertEquals("UNSUPPORTED_TYPE", columnInfo.get("type"));
+        Assertions.assertFalse(columnInfo.containsKey("type_sql"));
+
+        SchemaTypeDesc typeDesc = (SchemaTypeDesc) columnInfo.get("type_desc");
+        Assertions.assertEquals("UNSUPPORTED_TYPE", typeDesc.getKind());
+        Assertions.assertNull(typeDesc.getSql());
+
+        JsonNode json = new ObjectMapper().valueToTree(columnInfo);
+        Assertions.assertFalse(json.has("type_sql"));
+        Assertions.assertEquals("UNSUPPORTED_TYPE", json.path("type_desc").path("kind").asText());
+        Assertions.assertFalse(json.path("type_desc").has("sql"));
     }
 
     @Test
@@ -83,22 +141,32 @@ public class TableSchemaActionColumnInfoTest {
         MapType mapType = new MapType(Type.STRING,
                 new ArrayType(ScalarType.createDecimalV3Type(9, 2)), false, true);
         StructType structType = new StructType(Lists.newArrayList(
-                new StructField("attributes", mapType, "", false),
+                new StructField("attributes", mapType, "map attributes", false),
                 new StructField("tags", new ArrayType(Type.STRING))));
         Map<String, Object> columnInfo = TableSchemaAction.buildColumnInfo(
                 new Column("detail", structType));
 
         SchemaTypeDesc structDesc = (SchemaTypeDesc) columnInfo.get("type_desc");
-        Assert.assertEquals("STRUCT", structDesc.getKind());
-        Assert.assertEquals(2, structDesc.getFields().size());
-        Assert.assertFalse(structDesc.getFields().get(0).isContainsNull());
+        Assertions.assertEquals("STRUCT", structDesc.getKind());
+        Assertions.assertEquals(2, structDesc.getFields().size());
+        Assertions.assertFalse(structDesc.getFields().get(0).isContainsNull());
+        Assertions.assertEquals("map attributes", structDesc.getFields().get(0).getComment());
+        Assertions.assertNull(structDesc.getFields().get(1).getComment());
 
         SchemaTypeDesc mapDesc = structDesc.getFields().get(0).getType();
-        Assert.assertEquals("MAP", mapDesc.getKind());
-        Assert.assertFalse(mapDesc.getKeyContainsNull());
-        Assert.assertTrue(mapDesc.getValueContainsNull());
-        Assert.assertEquals("STRING", mapDesc.getKey().getKind());
-        Assert.assertEquals("DECIMAL32", mapDesc.getValue().getElement().getKind());
-        Assert.assertEquals(Integer.valueOf(2), mapDesc.getValue().getElement().getScale());
+        Assertions.assertEquals("MAP", mapDesc.getKind());
+        Assertions.assertFalse(mapDesc.getKeyContainsNull());
+        Assertions.assertTrue(mapDesc.getValueContainsNull());
+        Assertions.assertEquals("STRING", mapDesc.getKey().getKind());
+        Assertions.assertEquals("DECIMAL32", mapDesc.getValue().getElement().getKind());
+        Assertions.assertEquals(Integer.valueOf(2), mapDesc.getValue().getElement().getScale());
+    }
+
+    private void assertBooleanField(JsonNode node, String fieldName, boolean expected) {
+        Assertions.assertTrue(node.has(fieldName), "Missing field: " + fieldName);
+        JsonNode value = node.get(fieldName);
+        Assertions.assertTrue(value.isBoolean(), "Field is not boolean: " + fieldName);
+        Assertions.assertEquals(expected, value.booleanValue(),
+                "Unexpected value for field: " + fieldName);
     }
 }

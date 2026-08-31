@@ -41,6 +41,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import jakarta.servlet.http.HttpServletRequest;
@@ -71,6 +72,7 @@ public class TableSchemaAction extends RestBaseController {
      * @param column the column to build info for
      * @return map containing column information
      */
+    @VisibleForTesting
     static Map<String, Object> buildColumnInfo(Column column) {
         Map<String, Object> columnInfo = new HashMap<>();
         Type colType = column.getOriginType();
@@ -84,8 +86,11 @@ public class TableSchemaAction extends RestBaseController {
 
         columnInfo.put("column_uid", String.valueOf(column.getUniqueId()));
         columnInfo.put("type", primitiveType.toString());
-        columnInfo.put("type_sql", colType.toSql());
-        columnInfo.put("type_desc", SchemaTypeDesc.fromType(colType));
+        SchemaTypeDesc typeDesc = SchemaTypeDesc.fromType(colType);
+        if (typeDesc.getSql() != null) {
+            columnInfo.put("type_sql", typeDesc.getSql());
+        }
+        columnInfo.put("type_desc", typeDesc);
         columnInfo.put("comment", column.getComment());
         columnInfo.put("name", column.getDisplayName());
 
