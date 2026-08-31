@@ -206,6 +206,20 @@ public class HiveConnectorMetadataFreshnessTest {
         Assertions.assertEquals(names, client.lastRequestedPartitionNames);
     }
 
+    @Test
+    public void testBulkPartitionFreshnessOmitsVanishedPartition() {
+        FakeHmsClient client = new FakeHmsClient()
+                .partition("year=2024/month=01", 300L);
+        List<String> names = Arrays.asList("year=2024/month=01", "year=2024/month=02");
+
+        Map<String, Long> freshness = metadata(client)
+                .getPartitionsFreshnessMillis(null, partitionedHandle(), names);
+
+        Assertions.assertEquals(Collections.singletonMap("year=2024/month=01", 300_000L), freshness);
+        Assertions.assertEquals(1, client.getPartitionsCalls);
+        Assertions.assertEquals(names, client.lastRequestedPartitionNames);
+    }
+
     // ==================== query-begin pin: flags last-modified freshness ====================
 
     @Test

@@ -17,8 +17,12 @@
 
 package org.apache.doris.connector.hms;
 
+import java.io.Serializable;
+
 /** Immutable execution statistics for one logical HMS partition-object request. */
-public final class HmsPartitionBatchStats {
+public final class HmsPartitionBatchStats implements Serializable {
+    private static final long serialVersionUID = 1L;
+
     private final int requestedItems;
     private final int rpcAttempts;
     private final long rpcItems;

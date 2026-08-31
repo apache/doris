@@ -177,6 +177,38 @@ public class HiveScanBatchModeTest {
         Assertions.assertTrue(provider.collectScanProfiles(session).isEmpty());
     }
 
+    @Test
+    public void predicatePruningStatsSurvivePartitionBatchPlanning() {
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
+        HmsPartitionBatchStats pruningStats = HmsPartitionBatchStats.builder()
+                .requestedItems(3)
+                .rpcAttempts(1)
+                .rpcItems(3)
+                .largestBatchSize(3)
+                .smallestBatchSize(3)
+                .build();
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .pruningBatchStats(pruningStats)
+                .build();
+        FakeSession session = new FakeSession();
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                handle, Collections.<ConnectorColumnHandle>emptyList()).build();
+
+        provider.planScanForPartitionBatch(session, request,
+                Collections.singletonList("year=2024/month=01"));
+
+        ConnectorScanProfile profile = provider.collectScanProfiles(session).get(0);
+        Assertions.assertEquals("2", profile.getMetrics().get("LogicalRequests"));
+        Assertions.assertEquals("4", profile.getMetrics().get("RequestedItems"));
+        Assertions.assertEquals("2", profile.getMetrics().get("RpcAttempts"));
+        Assertions.assertEquals("4", profile.getMetrics().get("RpcItems"));
+        Assertions.assertEquals("3", profile.getMetrics().get("LargestBatchSize"));
+        Assertions.assertEquals("1", profile.getMetrics().get("SmallestBatchSize"));
+    }
+
     // ===== object-store native read (FIX-hive-s3a: scheme normalization + canonical creds) =====
 
     @Test

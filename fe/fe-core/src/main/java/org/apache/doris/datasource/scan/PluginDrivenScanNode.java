@@ -515,18 +515,36 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (executionSummary == null || profiles == null || profiles.isEmpty()) {
             return;
         }
-        for (ConnectorScanProfile profile : profiles) {
-            RuntimeProfile group = executionSummary.getChildMap().get(profile.getGroupName());
-            if (group == null) {
-                group = new RuntimeProfile(profile.getGroupName());
-                executionSummary.addChild(group, true);
+        // Batch-mode scan nodes can publish from different metadata workers at the same time. Serialize the
+        // complete get-or-create/add sequence on the shared execution summary so two workers cannot replace one
+        // another's group. Duplicate labels are retained with a suffix (self-join / repeated scan), rather than
+        // relying on RuntimeProfile.addChild's replace-by-name behavior.
+        synchronized (executionSummary) {
+            for (ConnectorScanProfile profile : profiles) {
+                RuntimeProfile group = executionSummary.getChildMap().get(profile.getGroupName());
+                if (group == null) {
+                    group = new RuntimeProfile(profile.getGroupName());
+                    executionSummary.addChild(group, true);
+                }
+                String scanLabel = uniqueScanLabel(group, profile.getScanLabel());
+                RuntimeProfile scan = new RuntimeProfile(scanLabel);
+                for (Map.Entry<String, String> entry : profile.getMetrics().entrySet()) {
+                    scan.addInfoString(entry.getKey(), entry.getValue());
+                }
+                group.addChild(scan, true);
             }
-            RuntimeProfile scan = new RuntimeProfile(profile.getScanLabel());
-            for (Map.Entry<String, String> entry : profile.getMetrics().entrySet()) {
-                scan.addInfoString(entry.getKey(), entry.getValue());
-            }
-            group.addChild(scan, true);
         }
+    }
+
+    private static String uniqueScanLabel(RuntimeProfile group, String requestedLabel) {
+        if (!group.getChildMap().containsKey(requestedLabel)) {
+            return requestedLabel;
+        }
+        int suffix = 2;
+        while (group.getChildMap().containsKey(requestedLabel + " #" + suffix)) {
+            suffix++;
+        }
+        return requestedLabel + " #" + suffix;
     }
 
     @Override

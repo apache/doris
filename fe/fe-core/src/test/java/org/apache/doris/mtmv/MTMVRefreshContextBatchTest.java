@@ -21,6 +21,9 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.mtmv.MTMVRefreshContext.PreparedPartitionSnapshots;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -55,11 +58,11 @@ public class MTMVRefreshContextBatchTest {
                 .thenAnswer(invocation -> snapshots(invocation.getArgument(0)));
 
         MTMVRefreshContext context = MTMVRefreshContext.buildContext(mtmv, Collections.emptyMap());
-        context.preloadComparablePartitionSnapshots(mappings.keySet());
+        PreparedPartitionSnapshots prepared = context.prepareComparablePartitionSnapshots(mappings.keySet());
 
         Mockito.verify(table).getPartitionSnapshots(
                 Mockito.argThat(names -> names.size() == 160_000), Mockito.same(context), Mockito.any());
-        Assertions.assertNotNull(context.getPartitionSnapshot(table, "p159999"));
+        Assertions.assertNotNull(prepared.get(table, "p159999"));
         Mockito.verify(table, Mockito.times(1))
                 .getPartitionSnapshots(Mockito.anySet(), Mockito.same(context), Mockito.any());
     }
@@ -76,10 +79,12 @@ public class MTMVRefreshContextBatchTest {
                 .thenReturn(Collections.singleton("persisted"));
 
         MTMVRefreshContext context = MTMVRefreshContext.buildContext(mtmv, Collections.emptyMap());
-        context.preloadComparablePartitionSnapshots(Collections.singleton("mv"));
+        PreparedPartitionSnapshots prepared =
+                context.prepareComparablePartitionSnapshots(Collections.singleton("mv"));
 
         Mockito.verify(table, Mockito.never())
                 .getPartitionSnapshots(Mockito.anySet(), Mockito.same(context), Mockito.any());
+        Assertions.assertThrows(AnalysisException.class, () -> prepared.get(table, "current"));
     }
 
     @Test
@@ -95,7 +100,7 @@ public class MTMVRefreshContextBatchTest {
                 .thenAnswer(invocation -> snapshots(invocation.getArgument(0)));
 
         MTMVRefreshContext context = MTMVRefreshContext.buildContext(mtmv, Collections.emptyMap());
-        context.preloadPartitionSnapshots(mappings.keySet());
+        context.preparePartitionSnapshots(mappings.keySet());
 
         Mockito.verify(table).getPartitionSnapshots(
                 Mockito.argThat(names -> names.equals(new LinkedHashSet<>(Arrays.asList("p1", "p2")))),
@@ -105,14 +110,22 @@ public class MTMVRefreshContextBatchTest {
 
     @Test
     public void cachesOverlappingLoadsAndRequestsOnlyMissingSnapshots() throws AnalysisException {
-        MTMVRefreshContext context = new MTMVRefreshContext(Mockito.mock(MTMV.class));
+        MTMV mtmv = Mockito.mock(MTMV.class);
         MTMVRelatedTableIf table = Mockito.mock(MTMVRelatedTableIf.class);
+        MTMVRefreshSnapshot refreshSnapshot = Mockito.mock(MTMVRefreshSnapshot.class);
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> mappings = new LinkedHashMap<>();
+        mappings.put("mv1", Collections.singletonMap(table, Collections.singleton("p1")));
+        mappings.put("mv2", Collections.singletonMap(table, Collections.singleton("p2")));
+        configureContext(mtmv, table, refreshSnapshot, mappings);
+        MTMVRefreshContext context = MTMVRefreshContext.buildContext(mtmv, Collections.emptyMap());
         Mockito.when(table.getPartitionSnapshots(Mockito.anySet(), Mockito.same(context), Mockito.any()))
                 .thenAnswer(invocation -> snapshots(invocation.getArgument(0)));
 
-        context.getPartitionSnapshot(table, "p1");
-        context.getPartitionSnapshot(table, "p1");
-        context.getPartitionSnapshot(table, "p2");
+        PreparedPartitionSnapshots first = context.preparePartitionSnapshots(Collections.singleton("mv1"));
+        PreparedPartitionSnapshots second = context.preparePartitionSnapshots(mappings.keySet());
+        Assertions.assertNotNull(first.get(table, "p1"));
+        Assertions.assertNotNull(second.get(table, "p1"));
+        Assertions.assertNotNull(second.get(table, "p2"));
 
         Mockito.verify(table).getPartitionSnapshots(
                 Mockito.eq(Collections.singleton("p1")), Mockito.same(context), Mockito.any());
@@ -122,13 +135,42 @@ public class MTMVRefreshContextBatchTest {
 
     @Test
     public void rejectsIncompleteOrUnexpectedBulkResults() throws AnalysisException {
-        MTMVRefreshContext context = new MTMVRefreshContext(Mockito.mock(MTMV.class));
+        MTMV mtmv = Mockito.mock(MTMV.class);
         MTMVRelatedTableIf table = Mockito.mock(MTMVRelatedTableIf.class);
+        MTMVRefreshSnapshot refreshSnapshot = Mockito.mock(MTMVRefreshSnapshot.class);
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> mappings = Collections.singletonMap(
+                "mv", Collections.singletonMap(table, Collections.singleton("missing")));
+        configureContext(mtmv, table, refreshSnapshot, mappings);
+        MTMVRefreshContext context = MTMVRefreshContext.buildContext(mtmv, Collections.emptyMap());
         Mockito.when(table.getPartitionSnapshots(Mockito.anySet(), Mockito.same(context), Mockito.any()))
                 .thenReturn(Collections.singletonMap("unexpected", new MTMVTimestampSnapshot(1L)));
 
         Assertions.assertThrows(AnalysisException.class,
-                () -> context.getPartitionSnapshot(table, "missing"));
+                () -> context.preparePartitionSnapshots(Collections.singleton("mv")));
+    }
+
+    @Test
+    public void taskPinIsReusedForTheUnionAcrossExecutionGroups() throws AnalysisException {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        MTMVRelatedTableIf table = Mockito.mock(MTMVRelatedTableIf.class);
+        MTMVRefreshSnapshot refreshSnapshot = Mockito.mock(MTMVRefreshSnapshot.class);
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> mappings = new LinkedHashMap<>();
+        mappings.put("mv1", Collections.singletonMap(table, Collections.singleton("p1")));
+        mappings.put("mv2", Collections.singletonMap(table, Collections.singleton("p2")));
+        configureContext(mtmv, table, refreshSnapshot, mappings);
+        MvccSnapshot pin = Mockito.mock(MvccSnapshot.class);
+        MTMVRefreshContext context = MTMVRefreshContext.buildContext(mtmv, Collections.emptyMap(),
+                Collections.singletonMap(new MvccTableInfo(table), pin));
+        Mockito.when(table.getPartitionSnapshots(Mockito.anySet(), Mockito.same(context), Mockito.any()))
+                .thenAnswer(invocation -> snapshots(invocation.getArgument(0)));
+
+        PreparedPartitionSnapshots prepared = context.preparePartitionSnapshots(mappings.keySet());
+
+        Mockito.verify(table).getPartitionSnapshots(Mockito.eq(new LinkedHashSet<>(Arrays.asList("p1", "p2"))),
+                Mockito.same(context),
+                Mockito.eq(Optional.of(pin)));
+        Assertions.assertNotNull(prepared.get(table, "p1"));
+        Assertions.assertNotNull(prepared.get(table, "p2"));
     }
 
     @Test

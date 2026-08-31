@@ -66,7 +66,15 @@ final class HmsPartitionBatchExecutor {
         return executeWithStats(request).getPartitions();
     }
 
+    List<HmsPartitionInfo> executeExisting(HmsPartitionRequest request) {
+        return executeWithStats(request, true).getPartitions();
+    }
+
     HmsPartitionBatchResult executeWithStats(HmsPartitionRequest request) {
+        return executeWithStats(request, false);
+    }
+
+    private HmsPartitionBatchResult executeWithStats(HmsPartitionRequest request, boolean allowMissing) {
         long logicalStartNanos = System.nanoTime();
         List<HmsPartitionIdentity.ParsedPartitionName> partitions = request.getPartitions();
         if (partitions.isEmpty()) {
@@ -105,7 +113,7 @@ final class HmsPartitionBatchExecutor {
             try {
                 List<HmsPartitionInfo> returned = transport.getPartitionsByNames(
                         request.getDbName(), request.getTableName(), batchNames);
-                result.addAll(validateAndOrder(batch, returned));
+                result.addAll(validateAndOrder(batch, returned, allowMissing));
                 offset += batchSize;
             } catch (RemoteCallException e) {
                 if (batchSize <= minBatchSize || !failureClassifier.isDegradable(e)) {
@@ -158,6 +166,12 @@ final class HmsPartitionBatchExecutor {
     static List<HmsPartitionInfo> validateAndOrder(
             List<HmsPartitionIdentity.ParsedPartitionName> requested,
             List<HmsPartitionInfo> returned) {
+        return validateAndOrder(requested, returned, false);
+    }
+
+    private static List<HmsPartitionInfo> validateAndOrder(
+            List<HmsPartitionIdentity.ParsedPartitionName> requested,
+            List<HmsPartitionInfo> returned, boolean allowMissing) {
         int expectedValueCount = requested.get(0).getValues().size();
         Map<List<String>, Integer> expected = new HashMap<>();
         for (int i = 0; i < requested.size(); i++) {
@@ -189,7 +203,7 @@ final class HmsPartitionBatchExecutor {
             }
         }
         for (HmsPartitionIdentity.ParsedPartitionName partition : requested) {
-            if (!returnedCounts.containsKey(partition.getValues())) {
+            if (!allowMissing && !returnedCounts.containsKey(partition.getValues())) {
                 failure.missing(partition.getName());
             }
         }
@@ -204,7 +218,16 @@ final class HmsPartitionBatchExecutor {
         if (failure.hasMismatches()) {
             throw failure.build();
         }
-        return ordered;
+        if (!allowMissing) {
+            return ordered;
+        }
+        List<HmsPartitionInfo> existing = new ArrayList<>(returnedCounts.size());
+        for (HmsPartitionInfo partition : ordered) {
+            if (partition != null) {
+                existing.add(partition);
+            }
+        }
+        return existing;
     }
 
     private HmsClientException finalBatchFailure(HmsPartitionRequest request, int offset,

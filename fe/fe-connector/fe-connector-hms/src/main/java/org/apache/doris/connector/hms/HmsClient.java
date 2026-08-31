@@ -165,6 +165,16 @@ public interface HmsClient extends Closeable {
             List<String> partNames);
 
     /**
+     * Returns the requested partitions that still exist, in request order. Missing partitions are omitted;
+     * duplicate, unexpected and malformed remote results remain errors. This is used only by freshness probes
+     * where a partition may disappear after its name was pinned.
+     */
+    default List<HmsPartitionInfo> getExistingPartitions(String dbName, String tableName,
+            List<String> partNames) {
+        return getPartitions(dbName, tableName, partNames);
+    }
+
+    /**
      * Returns partition objects together with physical batching statistics. Implementations that do not expose
      * transport details retain the regular result and report a logical-only event.
      */

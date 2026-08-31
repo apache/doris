@@ -19,6 +19,8 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 
 import com.google.common.collect.Maps;
@@ -29,7 +31,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 public class MTMVRefreshContext {
     private MTMV mtmv;
@@ -40,9 +44,16 @@ public class MTMVRefreshContext {
     // The value is loaded/cached on the first fetch
     private Map<BaseTableInfo, MTMVSnapshotIf> baseTableSnapshotCache = Maps.newHashMap();
     private final Map<MTMVRelatedTableIf, Map<String, MTMVSnapshotIf>> partitionSnapshotCache = Maps.newHashMap();
+    private final Function<MTMVRelatedTableIf, Optional<MvccSnapshot>> snapshotResolver;
 
     public MTMVRefreshContext(MTMV mtmv) {
+        this(mtmv, MvccUtil::getSnapshotFromContext);
+    }
+
+    private MTMVRefreshContext(MTMV mtmv,
+            Function<MTMVRelatedTableIf, Optional<MvccSnapshot>> snapshotResolver) {
         this.mtmv = mtmv;
+        this.snapshotResolver = snapshotResolver;
     }
 
     public MTMV getMtmv() {
@@ -66,26 +77,19 @@ public class MTMVRefreshContext {
     }
 
     /** Loads the union of mapped base partitions once per related table. */
-    public void preloadPartitionSnapshots(Set<String> mtmvPartitionNames) throws AnalysisException {
-        preloadPartitionSnapshots(mtmvPartitionNames, false);
+    public PreparedPartitionSnapshots preparePartitionSnapshots(Set<String> mtmvPartitionNames)
+            throws AnalysisException {
+        return preparePartitionSnapshots(mtmvPartitionNames, false);
     }
 
     /** Loads only mappings whose persisted partition-name set still matches and needs version comparison. */
-    public void preloadComparablePartitionSnapshots(Set<String> mtmvPartitionNames) throws AnalysisException {
-        preloadPartitionSnapshots(mtmvPartitionNames, true);
-    }
-
-    public MTMVSnapshotIf getPartitionSnapshot(MTMVRelatedTableIf table, String partitionName)
+    public PreparedPartitionSnapshots prepareComparablePartitionSnapshots(Set<String> mtmvPartitionNames)
             throws AnalysisException {
-        Map<String, MTMVSnapshotIf> snapshots = partitionSnapshotCache.get(table);
-        if (snapshots == null || !snapshots.containsKey(partitionName)) {
-            loadSnapshots(table, Collections.singleton(partitionName));
-            snapshots = partitionSnapshotCache.get(table);
-        }
-        return snapshots.get(partitionName);
+        return preparePartitionSnapshots(mtmvPartitionNames, true);
     }
 
-    private void preloadPartitionSnapshots(Set<String> mtmvPartitionNames, boolean comparableOnly)
+    private PreparedPartitionSnapshots preparePartitionSnapshots(
+            Set<String> mtmvPartitionNames, boolean comparableOnly)
             throws AnalysisException {
         Map<MTMVRelatedTableIf, Set<String>> namesByTable = new LinkedHashMap<>();
         Map<MTMVRelatedTableIf, BaseTableInfo> tableInfos = comparableOnly
@@ -110,6 +114,7 @@ public class MTMVRefreshContext {
         for (Map.Entry<MTMVRelatedTableIf, Set<String>> entry : namesByTable.entrySet()) {
             loadSnapshots(entry.getKey(), entry.getValue());
         }
+        return new PreparedPartitionSnapshots(this);
     }
 
     private void loadSnapshots(MTMVRelatedTableIf table, Set<String> partitionNames) throws AnalysisException {
@@ -121,7 +126,7 @@ public class MTMVRefreshContext {
             return;
         }
         Map<String, MTMVSnapshotIf> loaded = table.getPartitionSnapshots(
-                missing, this, MvccUtil.getSnapshotFromContext(table));
+                missing, this, snapshotResolver.apply(table));
         if (loaded == null || loaded.containsKey(null) || loaded.containsValue(null)
                 || !missing.equals(loaded.keySet())) {
             throw new AnalysisException("Invalid partition snapshot result for table " + table.getName()
@@ -133,10 +138,41 @@ public class MTMVRefreshContext {
 
     public static MTMVRefreshContext buildContext(MTMV mtmv, Map<List<String>, Set<String>> queryUsedPartitions)
             throws AnalysisException {
-        MTMVRefreshContext context = new MTMVRefreshContext(mtmv);
+        return buildContext(mtmv, queryUsedPartitions, MvccUtil::getSnapshotFromContext);
+    }
+
+    public static MTMVRefreshContext buildContext(MTMV mtmv, Map<List<String>, Set<String>> queryUsedPartitions,
+            Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) throws AnalysisException {
+        Map<MvccTableInfo, MvccSnapshot> snapshotCopy = new LinkedHashMap<>(pinnedSnapshots);
+        return buildContext(mtmv, queryUsedPartitions,
+                table -> Optional.ofNullable(snapshotCopy.get(new MvccTableInfo(table))));
+    }
+
+    private static MTMVRefreshContext buildContext(MTMV mtmv,
+            Map<List<String>, Set<String>> queryUsedPartitions,
+            Function<MTMVRelatedTableIf, Optional<MvccSnapshot>> snapshotResolver) throws AnalysisException {
+        MTMVRefreshContext context = new MTMVRefreshContext(mtmv, snapshotResolver);
         context.partitionMappings = mtmv.calculatePartitionMappings(queryUsedPartitions);
         context.baseVersions = MTMVPartitionUtil.getBaseVersions(mtmv, context.partitionMappings);
         return context;
+    }
+
+    /** Read-only access to partition snapshots that have already been loaded as one bulk operation. */
+    public static final class PreparedPartitionSnapshots {
+        private final MTMVRefreshContext context;
+
+        private PreparedPartitionSnapshots(MTMVRefreshContext context) {
+            this.context = context;
+        }
+
+        public MTMVSnapshotIf get(MTMVRelatedTableIf table, String partitionName) throws AnalysisException {
+            Map<String, MTMVSnapshotIf> snapshots = context.partitionSnapshotCache.get(table);
+            if (snapshots == null || !snapshots.containsKey(partitionName)) {
+                throw new AnalysisException("Partition snapshot was not prepared: table=" + table.getName()
+                        + ", partition=" + partitionName);
+            }
+            return snapshots.get(partitionName);
+        }
     }
 
 }

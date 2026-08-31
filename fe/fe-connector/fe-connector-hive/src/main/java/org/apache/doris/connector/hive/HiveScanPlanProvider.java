@@ -139,6 +139,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         HiveTableHandle hiveHandle = (HiveTableHandle) request.getTableHandle();
         String dbName = hiveHandle.getDbName();
         String tableName = hiveHandle.getTableName();
+        recordPruningProfile(hiveHandle);
 
         List<PartitionScanInfo> partitions = resolvePartitions(hiveHandle);
         if (partitions.isEmpty()) {
@@ -246,6 +247,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         HiveTableHandle hiveHandle = (HiveTableHandle) request.getTableHandle();
         String dbName = hiveHandle.getDbName();
         String tableName = hiveHandle.getTableName();
+        recordPruningProfile(hiveHandle);
 
         // Resolve ONLY this batch's partitions (scoped to partitionBatch), NOT handle.getPrunedPartitions().
         List<HmsPartitionInfo> hmsPartitions = loadPartitionsWithProfile(dbName, tableName, partitionBatch);
@@ -500,6 +502,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         // Check for pruned partitions in handle (set by applyFilter)
         List<HmsPartitionInfo> prunedPartitions = handle.getPrunedPartitions();
         if (prunedPartitions != null) {
+            recordPruningProfile(handle);
             return convertPartitions(prunedPartitions, partKeyNames);
         }
 
@@ -519,6 +522,13 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         HmsPartitionBatchResult result = hmsClient.getPartitionsWithStats(dbName, tableName, partitionNames);
         partitionBatchProfile.record(dbName, tableName, result.getStats());
         return result.getPartitions();
+    }
+
+    private void recordPruningProfile(HiveTableHandle handle) {
+        if (handle.getPruningBatchStats() != null) {
+            partitionBatchProfile.recordOnce(
+                    handle.getDbName(), handle.getTableName(), handle.getPruningBatchStats());
+        }
     }
 
     private List<PartitionScanInfo> convertPartitions(
@@ -756,6 +766,14 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         private long logicalElapsedNanos;
         private long rpcElapsedNanos;
         private long maxRpcElapsedNanos;
+        private boolean initialRequestRecorded;
+
+        synchronized void recordOnce(String dbName, String tableName, HmsPartitionBatchStats stats) {
+            if (!initialRequestRecorded) {
+                record(dbName, tableName, stats);
+                initialRequestRecorded = true;
+            }
+        }
 
         synchronized void record(String dbName, String tableName, HmsPartitionBatchStats stats) {
             tableLabel = dbName + "." + tableName;
@@ -803,6 +821,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             logicalElapsedNanos = 0;
             rpcElapsedNanos = 0;
             maxRpcElapsedNanos = 0;
+            initialRequestRecorded = false;
             return Collections.singletonList(profile);
         }
 

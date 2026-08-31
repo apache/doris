@@ -27,6 +27,10 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * FIX-SCAN-METRICS — guards {@link PluginDrivenScanNode#writeScanProfilesInto}, the connector-agnostic
@@ -86,5 +90,62 @@ public class PluginDrivenScanNodeScanProfileTest {
         Assertions.assertEquals(2, group.getChildMap().size(), "one group, two scan children");
         Assertions.assertEquals("3", group.getChildMap().get("Table Scan (db.a)").getInfoString("data_files"));
         Assertions.assertEquals("5", group.getChildMap().get("Table Scan (db.b)").getInfoString("data_files"));
+    }
+
+    @Test
+    public void preservesRepeatedScansWithTheSameLabel() {
+        RuntimeProfile summary = new RuntimeProfile("Execution Summary");
+
+        PluginDrivenScanNode.writeScanProfilesInto(summary, Arrays.asList(
+                profile("Connector Metadata Access", "hms.get_partitions_by_names [QUERY] (db.t)",
+                        "RequestedItems", "10"),
+                profile("Connector Metadata Access", "hms.get_partitions_by_names [QUERY] (db.t)",
+                        "RequestedItems", "20")));
+
+        RuntimeProfile group = summary.getChildMap().get("Connector Metadata Access");
+        Assertions.assertEquals(2, group.getChildMap().size());
+        Assertions.assertEquals("10", group.getChildMap()
+                .get("hms.get_partitions_by_names [QUERY] (db.t)").getInfoString("RequestedItems"));
+        Assertions.assertEquals("20", group.getChildMap()
+                .get("hms.get_partitions_by_names [QUERY] (db.t) #2").getInfoString("RequestedItems"));
+    }
+
+    @Test
+    public void concurrentPublishersShareOneGroupWithoutLosingScans() throws Exception {
+        RuntimeProfile summary = new RuntimeProfile("Execution Summary");
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> first = executor.submit(() -> {
+                await(start);
+                PluginDrivenScanNode.writeScanProfilesInto(summary,
+                        Collections.singletonList(profile("Connector Metadata Access", "Scan A", "items", "1")));
+            });
+            Future<?> second = executor.submit(() -> {
+                await(start);
+                PluginDrivenScanNode.writeScanProfilesInto(summary,
+                        Collections.singletonList(profile("Connector Metadata Access", "Scan B", "items", "2")));
+            });
+            start.countDown();
+            first.get();
+            second.get();
+        } finally {
+            executor.shutdownNow();
+        }
+
+        RuntimeProfile group = summary.getChildMap().get("Connector Metadata Access");
+        Assertions.assertNotNull(group);
+        Assertions.assertEquals(2, group.getChildMap().size());
+        Assertions.assertNotNull(group.getChildMap().get("Scan A"));
+        Assertions.assertNotNull(group.getChildMap().get("Scan B"));
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(e);
+        }
     }
 }

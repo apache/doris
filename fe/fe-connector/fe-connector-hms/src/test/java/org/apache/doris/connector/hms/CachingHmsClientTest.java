@@ -278,6 +278,23 @@ public class CachingHmsClientTest {
     }
 
     @Test
+    public void getExistingPartitionsReturnsAndCachesOnlyPresentSubset() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        delegate.absentPartitionNames.add("p=2");
+        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+
+        List<HmsPartitionInfo> first = cache.getExistingPartitions(
+                "db", "t", Arrays.asList("p=1", "p=2", "p=3"));
+        Assertions.assertEquals(Arrays.asList("1", "3"), first.stream()
+                .map(partition -> partition.getValues().get(0)).collect(java.util.stream.Collectors.toList()));
+
+        List<HmsPartitionInfo> second = cache.getExistingPartitions("db", "t", Arrays.asList("p=1", "p=3"));
+        Assertions.assertEquals(2, second.size());
+        Assertions.assertEquals(1, delegate.getPartitionsCalls,
+                "present partitions from a partial freshness response must be cached");
+    }
+
+    @Test
     public void getPartitionsRejectsUnexpectedIdentityWithoutCachingIt() {
         RecordingHmsClient delegate = new RecordingHmsClient();
         delegate.forcedValues = Arrays.asList("EXOTIC");

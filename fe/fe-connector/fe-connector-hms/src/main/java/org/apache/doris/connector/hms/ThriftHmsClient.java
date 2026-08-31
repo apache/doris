@@ -248,19 +248,36 @@ public class ThriftHmsClient implements HmsClient {
     }
 
     @Override
+    public List<HmsPartitionInfo> getExistingPartitions(
+            String dbName, String tableName, List<String> partNames) {
+        HmsPartitionRequest request = partitionRequest(dbName, tableName, partNames);
+        if (clientPool != null) {
+            return newPartitionBatchExecutor(this::getPartitionsByNames).executeExisting(request);
+        }
+        try (UnpooledPartitionTransport transport = new UnpooledPartitionTransport()) {
+            return newPartitionBatchExecutor(transport).executeExisting(request);
+        }
+    }
+
+    @Override
     public HmsPartitionBatchResult getPartitionsWithStats(String dbName,
             String tableName, List<String> partNames) {
-        HmsPartitionRequest request = HmsPartitionRequest.builder()
-                .database(dbName)
-                .table(tableName)
-                .partitionNames(partNames)
-                .build();
+        HmsPartitionRequest request = partitionRequest(dbName, tableName, partNames);
         if (clientPool != null) {
             return newPartitionBatchExecutor(this::getPartitionsByNames).executeWithStats(request);
         }
         try (UnpooledPartitionTransport transport = new UnpooledPartitionTransport()) {
             return newPartitionBatchExecutor(transport).executeWithStats(request);
         }
+    }
+
+    private static HmsPartitionRequest partitionRequest(
+            String dbName, String tableName, List<String> partNames) {
+        return HmsPartitionRequest.builder()
+                .database(dbName)
+                .table(tableName)
+                .partitionNames(partNames)
+                .build();
     }
 
     private HmsPartitionBatchExecutor newPartitionBatchExecutor(HmsPartitionTransport transport) {

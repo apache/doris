@@ -189,6 +189,33 @@ public class HmsPartitionBatchExecutorTest {
     }
 
     @Test
+    public void existingPartitionModeOmitsOnlyMissingResults() {
+        HmsPartitionBatchExecutor executor = executor(10, (db, table, names) ->
+                Arrays.asList(info("c"), info("a")));
+
+        List<HmsPartitionInfo> existing = executor.executeExisting(
+                request(Arrays.asList("p=a", "p=b", "p=c")));
+
+        Assertions.assertEquals(Arrays.asList("a", "c"), existing.stream()
+                .map(partition -> partition.getValues().get(0)).collect(Collectors.toList()));
+    }
+
+    @Test
+    public void existingPartitionModeStillRejectsUnexpectedAndDuplicateResults() {
+        HmsPartitionBatchExecutor executor = executor(10, (db, table, names) ->
+                Arrays.asList(info("a"), info("a"), info("unexpected")));
+
+        HmsPartitionResultException failure = Assertions.assertThrows(
+                HmsPartitionResultException.class,
+                () -> executor.executeExisting(request(Arrays.asList("p=a", "p=missing"))));
+
+        Assertions.assertEquals(java.util.EnumSet.of(
+                        HmsPartitionResultException.MismatchType.DUPLICATE_RESULT,
+                        HmsPartitionResultException.MismatchType.UNEXPECTED_RESULT),
+                failure.getMismatchTypes());
+    }
+
+    @Test
     public void rejectsNullAndMalformedResults() {
         HmsPartitionBatchExecutor nullResponse = executor(10, (db, table, names) -> null);
         HmsPartitionResultException nullFailure = Assertions.assertThrows(

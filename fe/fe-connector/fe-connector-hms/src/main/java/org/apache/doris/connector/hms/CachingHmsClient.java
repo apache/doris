@@ -204,6 +204,17 @@ public class CachingHmsClient implements HmsClient {
     @Override
     public HmsPartitionBatchResult getPartitionsWithStats(
             String dbName, String tableName, List<String> partNames) {
+        return getPartitionsWithStats(dbName, tableName, partNames, false);
+    }
+
+    @Override
+    public List<HmsPartitionInfo> getExistingPartitions(
+            String dbName, String tableName, List<String> partNames) {
+        return getPartitionsWithStats(dbName, tableName, partNames, true).getPartitions();
+    }
+
+    private HmsPartitionBatchResult getPartitionsWithStats(
+            String dbName, String tableName, List<String> partNames, boolean allowMissing) {
         long logicalStartNanos = System.nanoTime();
         if (partNames == null || partNames.isEmpty()) {
             HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
@@ -244,17 +255,32 @@ public class CachingHmsClient implements HmsClient {
             for (HmsPartitionIdentity.ParsedPartitionName miss : misses) {
                 missNames.add(miss.getName());
             }
-            HmsPartitionBatchResult loadedResult = delegate.getPartitionsWithStats(dbName, tableName, missNames);
-            List<HmsPartitionInfo> loaded = loadedResult.getPartitions();
-            physicalStats = loadedResult.getStats();
-            if (loaded == null || loaded.size() != misses.size()) {
+            List<HmsPartitionInfo> loaded;
+            if (allowMissing) {
+                loaded = delegate.getExistingPartitions(dbName, tableName, missNames);
+            } else {
+                HmsPartitionBatchResult loadedResult = delegate.getPartitionsWithStats(dbName, tableName, missNames);
+                loaded = loadedResult.getPartitions();
+                physicalStats = loadedResult.getStats();
+            }
+            if (loaded == null || (!allowMissing && loaded.size() != misses.size())) {
                 throw new HmsClientException("HMS partition delegate violated its exact-result contract");
             }
-            for (int i = 0; i < loaded.size(); i++) {
-                HmsPartitionInfo info = loaded.get(i);
-                if (info == null || !misses.get(i).getValues().equals(info.getValues())) {
-                    throw new HmsClientException("HMS partition delegate violated request order at index " + i);
+            int missIndex = 0;
+            for (HmsPartitionInfo info : loaded) {
+                if (info == null) {
+                    throw new HmsClientException("HMS partition delegate returned a null partition");
                 }
+                while (allowMissing && missIndex < misses.size()
+                        && !misses.get(missIndex).getValues().equals(info.getValues())) {
+                    missIndex++;
+                }
+                if (missIndex >= misses.size()
+                        || !misses.get(missIndex).getValues().equals(info.getValues())) {
+                    throw new HmsClientException("HMS partition delegate violated request order at index "
+                            + missIndex);
+                }
+                missIndex++;
             }
             for (HmsPartitionInfo info : loaded) {
                 partitionsCache.putIfNotInvalidatedSince(
@@ -265,6 +291,9 @@ public class CachingHmsClient implements HmsClient {
         List<HmsPartitionInfo> result = new ArrayList<>(partNames.size());
         for (int i = 0; i < requestedValues.size(); i++) {
             List<String> values = requestedValues.get(i);
+            if (allowMissing && !resultByIdentity.containsKey(values)) {
+                continue;
+            }
             int index = i;
             result.add(Objects.requireNonNull(resultByIdentity.get(values),
                     () -> "validated HMS partition result is incomplete: "
