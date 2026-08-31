@@ -32,6 +32,9 @@ jobs:
   license-check:
     name: "License Check"
     runs-on: ubuntu-latest
+    concurrency:
+      group: license-check-${{ github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: true
     if: |
       (github.event_name == 'pull_request') ||
       (github.event_name == 'push' && github.ref == 'refs/heads/master')
