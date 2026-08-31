@@ -358,7 +358,7 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
 }
 
 template <PrimitiveType T>
-void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
+void ColumnVector<T>::insert_range_from_impl(const IColumn& src, size_t start, size_t length) {
     const ColumnVector& src_vec = assert_cast<const ColumnVector&>(src);
     //  size_t(start)  start > src_vec.data.size() || length > src_vec.data.size() should not be negative which cause overflow
     if (start + length > src_vec.data.size()) {
@@ -374,8 +374,8 @@ void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t
 }
 
 template <PrimitiveType T>
-void ColumnVector<T>::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-                                          const uint32_t* indices_end) {
+void ColumnVector<T>::insert_indices_from_impl(const IColumn& src, const uint32_t* indices_begin,
+                                               const uint32_t* indices_end) {
     auto origin_size = size();
     auto new_size = indices_end - indices_begin;
     data.resize(origin_size + new_size);

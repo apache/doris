@@ -130,13 +130,13 @@ public:
 
     void deserialize(StringRef* keys, size_t num_rows) override;
 
-    void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+    void insert_range_from_impl(const IColumn& src, size_t start, size_t length) override;
 
     void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
                                            size_t length) override;
 
-    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-                             const uint32_t* indices_end) override;
+    void insert_indices_from_impl(const IColumn& src, const uint32_t* indices_begin,
+                                  const uint32_t* indices_end) override;
     void insert_indices_from_not_has_null(const IColumn& src, const uint32_t* indices_begin,
                                           const uint32_t* indices_end);
 

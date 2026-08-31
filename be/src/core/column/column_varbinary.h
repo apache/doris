@@ -138,12 +138,12 @@ public:
         return pos + deserialize_impl(pos);
     }
 
-    void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+    void insert_range_from_impl(const IColumn& src, size_t start, size_t length) override;
 
     MutableColumnPtr clone_resized(size_t size) const override;
 
-    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-                             const uint32_t* indices_end) override;
+    void insert_indices_from_impl(const IColumn& src, const uint32_t* indices_begin,
+                                  const uint32_t* indices_end) override;
 
     size_t allocated_bytes() const override { return _data.allocated_bytes() + _arena.size(); }
 

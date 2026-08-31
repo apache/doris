@@ -590,7 +590,7 @@ bool ColumnArray::has_equal_offsets(const ColumnArray& other) const {
             0 == memcmp(offsets1.data(), offsets2.data(), sizeof(offsets1[0]) * offsets1.size()));
 }
 
-void ColumnArray::insert_range_from(const IColumn& src, size_t start, size_t length) {
+void ColumnArray::insert_range_from_impl(const IColumn& src, size_t start, size_t length) {
     if (length == 0) return;
 
     const ColumnArray& src_concrete = assert_cast<const ColumnArray&>(src);
@@ -970,8 +970,8 @@ size_t ColumnArray::filter(const Filter& filter) {
     }
 }
 
-void ColumnArray::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-                                      const uint32_t* indices_end) {
+void ColumnArray::insert_indices_from_impl(const IColumn& src, const uint32_t* indices_begin,
+                                           const uint32_t* indices_end) {
     for (const auto* x = indices_begin; x != indices_end; ++x) {
         ColumnArray::insert_from(src, *x);
     }

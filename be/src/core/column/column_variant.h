@@ -481,12 +481,12 @@ public:
     // Do nothing, call try_insert instead
     void insert(const Field& field) override { try_insert(field); }
 
-    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-                             const uint32_t* indices_end) override;
+    void insert_indices_from_impl(const IColumn& src, const uint32_t* indices_begin,
+                                  const uint32_t* indices_end) override;
 
     void insert_from(const IColumn& src, size_t n) override;
 
-    void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+    void insert_range_from_impl(const IColumn& src, size_t start, size_t length) override;
 
     void insert_default() override;
 

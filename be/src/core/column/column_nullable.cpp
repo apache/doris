@@ -364,14 +364,14 @@ void ColumnNullable::insert_range_from_ignore_overflow(const doris::IColumn& src
                                                           length);
 }
 
-void ColumnNullable::insert_range_from(const IColumn& src, size_t start, size_t length) {
+void ColumnNullable::insert_range_from_impl(const IColumn& src, size_t start, size_t length) {
     const auto& nullable_col = assert_cast<const ColumnNullable&>(src);
     get_null_map_column().insert_range_from(nullable_col.get_null_map_column(), start, length);
     get_nested_column().insert_range_from(*nullable_col._nested_column, start, length);
 }
 
-void ColumnNullable::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-                                         const uint32_t* indices_end) {
+void ColumnNullable::insert_indices_from_impl(const IColumn& src, const uint32_t* indices_begin,
+                                              const uint32_t* indices_end) {
     const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
     get_nested_column().insert_indices_from(src_concrete.get_nested_column(), indices_begin,
                                             indices_end);

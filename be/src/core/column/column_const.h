@@ -145,7 +145,7 @@ public:
 
     bool is_null_at(size_t) const override { return data->is_null_at(0); }
 
-    void insert_range_from(const IColumn& src, size_t /*start*/, size_t length) override {
+    void insert_range_from_impl(const IColumn& src, size_t /*start*/, size_t length) override {
         if (!is_column_const(src) || compare_at(0, 0, src, 0) != 0) {
             throw Exception(
                     ErrorCode::INTERNAL_ERROR,
@@ -163,8 +163,8 @@ public:
         s += length;
     }
 
-    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-                             const uint32_t* indices_end) override {
+    void insert_indices_from_impl(const IColumn& src, const uint32_t* indices_begin,
+                                  const uint32_t* indices_end) override {
         if (this->s != 0 /*not empty*/ &&
             (!is_column_const(src) || compare_at(0, 0, src, 0) != 0)) {
             throw Exception(

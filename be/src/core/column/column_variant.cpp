@@ -1212,7 +1212,7 @@ bool ColumnVariant::try_add_new_subcolumn(const PathInData& path) {
     return false;
 }
 
-void ColumnVariant::insert_range_from(const IColumn& src, size_t start, size_t length) {
+void ColumnVariant::insert_range_from_impl(const IColumn& src, size_t start, size_t length) {
     const auto& src_object = assert_cast<const ColumnVariant&>(src);
     ENABLE_CHECK_CONSISTENCY(&src_object);
     ENABLE_CHECK_CONSISTENCY(this);
@@ -2477,8 +2477,8 @@ DataTypePtr ColumnVariant::get_root_type() const {
     return subcolumns.get_root()->data.get_least_common_type();
 }
 
-void ColumnVariant::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
-                                        const uint32_t* indices_end) {
+void ColumnVariant::insert_indices_from_impl(const IColumn& src, const uint32_t* indices_begin,
+                                             const uint32_t* indices_end) {
     // optimize when src and this column are scalar variant, since try_insert is inefficiency
     const auto* src_v = check_and_get_column<ColumnVariant>(src);
 
@@ -2512,7 +2512,7 @@ void ColumnVariant::insert_indices_from(const IColumn& src, const uint32_t* indi
     finalize();
 }
 
-// void ColumnVariant::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+// void ColumnVariant::insert_indices_from_impl(const IColumn& src, const uint32_t* indices_begin,
 //                                        const uint32_t* indices_end) {
 //     for (const auto* x = indices_begin; x != indices_end; ++x) {
 //         ColumnVariant::insert_from(src, *x);
