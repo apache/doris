@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_cast") {
-    def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
+    def enableVariantV2 = true
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
 

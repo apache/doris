@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
 suite("test_variant_bloom_filter", "nonConcurrent") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
 
     def index_table = "test_variant_bloom_filter"
 
@@ -102,7 +102,7 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
     }
 
     sql """DROP TABLE IF EXISTS ${index_table}"""
-    int seed = Math.floor(Math.random() * 7) 
+    int seed = Math.floor(Math.random() * 7)
     def var_def = "variant"
     if (seed % 2 == 0) {
         var_def = "variant<'repo.id' : bigint, 'repo.name' : string, 'repo.url' : string, 'repo.description' : string, 'repo.created_at' : string>"

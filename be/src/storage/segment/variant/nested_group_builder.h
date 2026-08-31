@@ -29,7 +29,7 @@
 
 #include "common/status.h"
 #include "core/column/column.h"
-#include "core/column/column_variant.h"
+#include "core/data_type/data_type.h"
 #include "storage/segment/variant/nested_group_path.h"
 #include "util/json/path_in_data.h"
 
@@ -43,8 +43,13 @@ namespace doris::segment_v2 {
  * English comment: NestedGroup is a storage-layer structure used to persist array<object>
  * with shared offsets to preserve per-element field associations.
  *
- * This is intentionally independent from ColumnVariant's in-memory nested structures.
+ * This is intentionally independent from Variant's in-memory nested structures.
  */
+struct NestedGroupChildColumn {
+    ColumnPtr column;
+    DataTypePtr type;
+};
+
 struct NestedGroup {
     // Full array path for top-level group (e.g. "voltage.list"),
     // and relative path for nested groups within another NestedGroup (e.g. "cells").
@@ -54,7 +59,7 @@ struct NestedGroup {
     MutableColumnPtr offsets;
 
     // Scalar (or flattened object) children under this array path.
-    phmap::flat_hash_map<PathInData, ColumnVariant::Subcolumn, PathInData::Hash> children;
+    phmap::flat_hash_map<PathInData, NestedGroupChildColumn, PathInData::Hash> children;
     // Sparse row positions for each child subcolumn value in flattened element space.
     // When present for a child path, children[path] stores only non-missing values and
     // child_rowids[path][i] is the logical row index for children[path][i].
@@ -85,8 +90,7 @@ class NestedGroupBuilder {
 public:
     NestedGroupBuilder() = default;
 
-    // Build NestedGroups from a JSONB column. base_path is the path of this JSONB column
-    // in ColumnVariant (empty for root JSONB).
+    // Build NestedGroups from a JSONB column. base_path is the path of this JSONB column.
     Status build_from_jsonb(const ColumnPtr& jsonb_column, const PathInData& base_path,
                             NestedGroupsMap& nested_groups, size_t num_rows);
 

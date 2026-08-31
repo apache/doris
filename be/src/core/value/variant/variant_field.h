@@ -53,9 +53,7 @@ public:
     VariantField& operator=(const VariantField& other);
     VariantField& operator=(VariantField&& other) noexcept;
 
-    // Transitional V1 Field representation. V1 callers keep their existing map semantics while
-    // V2 owns one encoded row; once ColumnVariant is removed, this constructor and accessors can
-    // be deleted without changing the V2 representation.
+    // Transitional field-map representation kept only for Field API callers.
     VariantField(VariantMap legacy);
     bool is_legacy() const noexcept;
     VariantMap& legacy_map();

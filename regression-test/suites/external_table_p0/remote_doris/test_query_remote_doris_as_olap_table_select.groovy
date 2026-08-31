@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_query_remote_doris_as_olap_table_select", "p0,external") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     String remote_doris_host = context.config.otherConfigs.get("extArrowFlightSqlHost")
     String remote_doris_arrow_port = context.config.otherConfigs.get("extArrowFlightSqlPort")
     String remote_doris_http_port = context.config.otherConfigs.get("extArrowFlightHttpPort")
@@ -308,7 +308,7 @@ suite("test_query_remote_doris_as_olap_table_select", "p0,external") {
         (2,'2023-01-02','reason2'),
         (3,'2023-01-03','reason3');
     """
- 
+
     sql """
         CREATE TABLE `${db_name}`.`right_remote_table_partition` (
           log_time        DATE       NOT NULL,

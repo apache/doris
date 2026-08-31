@@ -31,7 +31,7 @@
  * - WILDCARD searches '*ith', 'sm*th', 'sm?th' should also match but returned empty
  */
 suite("test_search_variant_wildcard", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def tableName = "test_search_variant_wildcard"
 
     sql """ set enable_match_without_inverted_index = false """

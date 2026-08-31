@@ -206,11 +206,11 @@ static void fill_variant_column(Block& block, size_t rows) {
     // variant
     DataTypePtr variant_type = make_nullable(std::make_shared<DataTypeVariant>());
 
-    // variant column: use JSON strings + deserialize_column_from_json_vector to populate ColumnVariant
+    // variant column: use JSON strings + deserialize_column_from_json_vector to populate Variant V2
     {
         MutableColumnPtr col = variant_type->create_column();
         auto* nullable_col = assert_cast<ColumnNullable*>(col.get());
-        auto& nested = nullable_col->get_nested_column(); // ColumnVariant
+        auto& nested = nullable_col->get_nested_column(); // Variant V2
 
         // Prepare JSON strings with variable number of keys per row
         std::vector<std::string> json_rows;
@@ -240,15 +240,14 @@ static void fill_variant_column(Block& block, size_t rows) {
             slices.emplace_back(json_rows.back().data(), json_rows.back().size());
         }
 
-        // Use Variant SerDe to parse JSON into ColumnVariant
+        // Use Variant SerDe to parse JSON into the Variant column.
         auto variant_type_inner = std::make_shared<DataTypeVariant>();
         auto serde = variant_type_inner->get_serde();
-        auto* variant_serde = assert_cast<DataTypeVariantSerDe*>(serde.get());
 
         uint64_t num_deserialized = 0;
         DataTypeSerDe::FormatOptions options;
-        Status st = variant_serde->deserialize_column_from_json_vector(nested, slices,
-                                                                       &num_deserialized, options);
+        Status st = serde->deserialize_column_from_json_vector(nested, slices, &num_deserialized,
+                                                               options);
         ASSERT_TRUE(st.ok()) << st;
         ASSERT_EQ(rows, num_deserialized);
 
@@ -1153,12 +1152,11 @@ static Block create_all_types_test_block() {
 
         auto variant_type_inner = std::make_shared<DataTypeVariant>();
         auto serde = variant_type_inner->get_serde();
-        auto* variant_serde = assert_cast<DataTypeVariantSerDe*>(serde.get());
 
         uint64_t num_deserialized = 0;
         DataTypeSerDe::FormatOptions options;
-        Status st = variant_serde->deserialize_column_from_json_vector(nested, slices,
-                                                                       &num_deserialized, options);
+        Status st = serde->deserialize_column_from_json_vector(nested, slices, &num_deserialized,
+                                                               options);
         EXPECT_TRUE(st.ok()) << st;
         EXPECT_EQ(1U, num_deserialized);
 

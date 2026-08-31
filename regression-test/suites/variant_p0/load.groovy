@@ -16,8 +16,8 @@
 // under the License.
 
 suite("regression_test_variant", "p0"){
-    def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
-    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
+    def enableVariantV2 = true
+    def variantV2Function = "parse_to_variant"
     // ColumnVariantV2 intentionally does not support nested arrays yet.
 
     def load_json_data = {table_name, file_name ->

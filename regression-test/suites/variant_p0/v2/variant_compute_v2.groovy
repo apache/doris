@@ -16,8 +16,6 @@
 // under the License.
 
 suite("variant_compute_v2", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
-    assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     def variantV2Function = "parse_to_variant"
     sql "SET enable_nereids_planner = true"
     sql "SET enable_fallback_to_original_planner = false"
@@ -261,18 +259,22 @@ suite("variant_compute_v2", "p0,nonConcurrent") {
 
     qt_typed_scalar_is_not_a_document """
         SELECT CAST(${variantV2Function}('{"a":1}') AS STRING),
-               element_at(${variantV2Function}('{"a":1}'), 'a') IS NULL,
-               element_at(CAST(CAST(42 AS BIGINT) AS VARIANT), 0) IS NULL
+               CAST(element_at(${variantV2Function}('{"a":1}'), 'a') AS INT)
     """
+
+    test {
+        sql """SELECT element_at(CAST(CAST(42 AS BIGINT) AS VARIANT), 0)"""
+        exception "element_at only support array and map so far"
+    }
 
     order_qt_array_element """
         SELECT number,
-               CAST(element_at(v, 1) AS STRING),
-               CAST(element_at(v, -2) AS STRING),
-               CAST(element_at(v, -1) AS STRING),
-               element_at(v, 0) IS NULL,
-               element_at(v, 4) IS NULL,
-               element_at(v, CAST(NULL AS BIGINT)) IS NULL
+               CAST(element_at(CAST(v AS ARRAY<VARIANT>), 1) AS STRING),
+               CAST(element_at(CAST(v AS ARRAY<VARIANT>), -2) AS STRING),
+               CAST(element_at(CAST(v AS ARRAY<VARIANT>), -1) AS STRING),
+               element_at(CAST(v AS ARRAY<VARIANT>), 0) IS NULL,
+               element_at(CAST(v AS ARRAY<VARIANT>), 4) IS NULL,
+               element_at(CAST(v AS ARRAY<VARIANT>), CAST(NULL AS BIGINT)) IS NULL
         FROM (
             SELECT number, ${variantV2Function}(CONCAT('[', number, ',20,null]')) AS v
             FROM numbers("number" = "3")
@@ -281,8 +283,7 @@ suite("variant_compute_v2", "p0,nonConcurrent") {
     """
 
     qt_variant_selector_semantics """
-        SELECT CAST(element_at(${variantV2Function}('{"1":"object-key"}'), '1') AS STRING),
-               element_at(${variantV2Function}('{"1":"object-key"}'), 1) IS NULL
+        SELECT CAST(${variantV2Function}('{"1":"object-key"}')['1'] AS STRING)
     """
 
     qt_variant_type_dynamic """
@@ -655,7 +656,7 @@ suite("variant_compute_v2", "p0,nonConcurrent") {
                element IS NULL,
                CAST(element AS STRING),
                CAST(element['k'] AS STRING),
-               CAST(element[1] AS STRING)
+               CAST(CAST(element AS ARRAY<VARIANT>)[1] AS STRING)
         FROM (
             SELECT number AS id,
                    ${variantV2Function}(
@@ -798,5 +799,5 @@ suite("variant_compute_v2", "p0,nonConcurrent") {
     """
 
     sql "DROP TABLE IF EXISTS ${segmentScanTable}"
-    }
+
 }

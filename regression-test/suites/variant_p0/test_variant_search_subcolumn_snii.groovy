@@ -37,7 +37,7 @@
 // disabled test9) as additional SNII-specific coverage; that group has no counterpart in the V2
 // baseline to diff against, so it does not affect the byte-identical claim above.
 suite("test_variant_search_subcolumn_snii") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def table_name = "test_variant_search_subcolumn_snii"
     sql "set default_variant_doc_materialization_min_rows = 0"
 

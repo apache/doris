@@ -110,6 +110,11 @@ public class ElementAt extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        if (child(0).getDataType() instanceof VariantType && child(1) instanceof StringLikeLiteral
+                && ((StringLikeLiteral) child(1)).getStringValue().isEmpty()) {
+            throw new AnalysisException("Variant V2 object path key must not be empty: " + this.toSql());
+        }
+
         // Struct field access (the former struct_element) only accepts a constant int/string index,
         // since the selected field — and therefore the result type — must be known at analysis time.
         if (child(0).getDataType() instanceof StructType) {

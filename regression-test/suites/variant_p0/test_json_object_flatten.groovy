@@ -16,7 +16,7 @@
 // under the License.
 
 suite("regression_test_json_object_flatten", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     // 1) JSONB column: function takes JSONB directly.
     sql """DROP TABLE IF EXISTS json_object_flatten_jsonb_t"""
     sql """

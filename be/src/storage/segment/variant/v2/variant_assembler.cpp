@@ -615,7 +615,7 @@ DorisVector<MaterializedSlot> build_materialized_slots(const VariantAssemblerOpt
     for (size_t source_index = 0; source_index < options.materialized_paths.size();
          ++source_index) {
         const auto& source = options.materialized_paths[source_index];
-        // Legacy ColumnVariant segments may materialize a scalar/array root at the empty path.
+        // Older segments may materialize a scalar/array root at the empty path.
         // The ordered row merge retains it when it is the only value and drops it when descendants
         // from another physical stream form the visible object.
         DORIS_CHECK(source.type != nullptr);

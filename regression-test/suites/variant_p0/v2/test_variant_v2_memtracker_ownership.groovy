@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_variant_v2_memtracker_ownership", "nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
-        assertTrue(getFeConfig("enable_variant_v2").toBoolean())
 
         setBeConfigTemporary([
                 crash_in_memory_tracker_inaccurate: true,
@@ -73,5 +71,5 @@ suite("test_variant_v2_memtracker_ownership", "nonConcurrent") {
                 FROM test_variant_v2_memtracker_ownership
             """
         }
-    }
+
 }

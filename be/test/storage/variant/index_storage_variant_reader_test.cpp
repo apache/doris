@@ -25,10 +25,11 @@
 
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
-#include "exec/common/variant_util.h"
+#include "core/column/variant_v2/column_variant_v2.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "storage/variant/index_storage_variant_test_base.h"
+#include "util/variant/variant_test_utils.h"
 
 namespace doris::index_storage_test {
 namespace {
@@ -61,7 +62,8 @@ void expect_index_read(const IndexReadResult& result, int64_t expected_rows,
     EXPECT_EQ(result.rows_read, expected_rows);
     EXPECT_EQ(result.stats.rows_inverted_index_filtered, expected_filtered_rows);
     EXPECT_EQ(result.stats.inverted_index_downgrade_count, 0);
-    EXPECT_EQ(result.variant_v2_output_uids.contains(kVariantUid), use_variant_v2);
+    EXPECT_TRUE(use_variant_v2);
+    EXPECT_TRUE(result.variant_v2_output_uids.contains(kVariantUid));
     EXPECT_TRUE(has_accepted_binding(result, logical_path));
 }
 
@@ -79,14 +81,15 @@ void expect_variant_values(const IndexReadResult& result, int32_t unique_id,
 ColumnPtr make_nullable_doc_column(const std::vector<std::string>& jsons,
                                    const std::vector<uint8_t>& outer_nulls) {
     DORIS_CHECK_EQ(jsons.size(), outer_nulls.size());
-    auto values = ColumnVariant::create(/*max_subcolumns_count=*/2, /*enable_doc_mode=*/true);
-    auto json_column = ColumnString::create();
+    auto values = ColumnVariantV2::create();
+    JsonStringToVariantEncoder encoder({.throw_on_invalid_json = true});
     for (const auto& json : jsons) {
-        json_column->insert_data(json.data(), json.size());
+        encoder.add_json({json.data(), json.size()});
     }
-    ParseConfig config;
-    config.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
-    variant_util::parse_json_to_variant(*values, *json_column, config);
+    VariantBatchBuilder encoded = encoder.finish_batch();
+    for (size_t row = 0; row < jsons.size(); ++row) {
+        insert_encoded_field(*values, VariantField::from_ref(encoded.value_at(row)));
+    }
 
     auto null_map = ColumnUInt8::create();
     for (uint8_t value : outer_nulls) {

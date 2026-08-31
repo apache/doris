@@ -30,9 +30,11 @@
 #include "common/config.h"
 #include "core/block/block.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/field.h"
+#include "core/string_buffer.hpp"
 #include "storage/mow/mow_transform_test_base.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/transform/block_transform.h"
@@ -113,19 +115,22 @@ protected:
 
     // Inserts one root-scalar JSON object string into a block's variant column.
     static void insert_variant_json(Block& block, size_t variant_pos, std::string_view json) {
-        auto* variant = assert_cast<ColumnVariant*>(
+        auto* variant = assert_cast<ColumnVariantV2*>(
                 block.get_by_position(variant_pos).column->assert_mutable().get());
-        VariantUtil::insert_root_scalar_field(
-                *variant, Field::create_field<TYPE_STRING>(String(std::string(json))));
+        VariantUtil::insert_json_rows(*variant, {std::string(json)});
     }
 
     // Round-trips one finalized variant row back to canonical JSON (spaces stripped).
     static std::string variant_row_json(const Block& block, size_t variant_pos, size_t row) {
-        const auto* parsed =
-                assert_cast<const ColumnVariant*>(block.get_by_position(variant_pos).column.get());
+        const auto* parsed = assert_cast<const ColumnVariantV2*>(
+                block.get_by_position(variant_pos).column.get());
         DataTypeSerDe::FormatOptions options;
-        std::string json;
-        parsed->serialize_one_row_to_string(static_cast<int64_t>(row), &json, options);
+        DataTypeVariantV2SerDe serde;
+        ColumnString json_column;
+        BufferWritable buffer(json_column);
+        EXPECT_TRUE(serde.serialize_one_cell_to_json(*parsed, row, buffer, options).ok());
+        buffer.commit();
+        std::string json(json_column.get_data_at(0).to_string());
         std::erase(json, ' ');
         return json;
     }
@@ -218,8 +223,8 @@ TEST_F(VariantRowStoreTest, VariantParseDirectSingleRow) {
     ASSERT_TRUE(chain.apply(ctx, &block).ok());
     ASSERT_EQ(block.columns(), schema->num_columns());
     ASSERT_EQ(block.rows(), 1);
-    const auto* parsed = assert_cast<const ColumnVariant*>(block.get_by_position(1).column.get());
-    EXPECT_TRUE(parsed->is_finalized());
+    const auto* parsed = assert_cast<const ColumnVariantV2*>(block.get_by_position(1).column.get());
+    EXPECT_EQ(parsed->size(), 1);
     const std::string json = variant_row_json(block, 1, 0);
     EXPECT_NE(json.find(R"("a":1)"), std::string::npos) << json;
     EXPECT_NE(json.find(R"("b":"x")"), std::string::npos) << json;
@@ -248,14 +253,13 @@ TEST_F(VariantRowStoreTest, VariantParseDirectMultiRow) {
     ASSERT_TRUE(chain.apply(ctx, &block).ok());
     ASSERT_EQ(block.columns(), schema->num_columns());
     ASSERT_EQ(block.rows(), 2);
-    const auto* parsed = assert_cast<const ColumnVariant*>(block.get_by_position(1).column.get());
-    EXPECT_TRUE(parsed->is_finalized());
+    const auto* parsed = assert_cast<const ColumnVariantV2*>(block.get_by_position(1).column.get());
+    EXPECT_EQ(parsed->size(), 2);
     const std::string json0 = variant_row_json(block, 1, 0);
     const std::string json1 = variant_row_json(block, 1, 1);
     EXPECT_NE(json0.find(R"("a":1)"), std::string::npos) << json0;
     EXPECT_NE(json1.find(R"("a":2)"), std::string::npos) << json1;
-    // the variant serializes a JSON bool as an integer (true -> 1)
-    EXPECT_NE(json1.find(R"("c":1)"), std::string::npos) << json1;
+    EXPECT_NE(json1.find(R"("c":true)"), std::string::npos) << json1;
     // row 0 did not gain row 1's key
     EXPECT_EQ(json0.find(R"("c":)"), std::string::npos) << json0;
 }
@@ -336,8 +340,8 @@ TEST_F(VariantRowStoreTest, VariantParseAfterPartialUpdateFill) {
     // VariantParse ran on the widened block: the carried variant finalized and
     // round-trips to its inserted key/value (a parse on the narrow pre-fill block
     // could not have left a finalized variant in a 4-column block).
-    const auto* parsed = assert_cast<const ColumnVariant*>(block.get_by_position(1).column.get());
-    EXPECT_TRUE(parsed->is_finalized());
+    const auto* parsed = assert_cast<const ColumnVariantV2*>(block.get_by_position(1).column.get());
+    EXPECT_EQ(parsed->size(), 2);
     EXPECT_NE(variant_row_json(block, 1, 0).find(R"("p":7)"), std::string::npos);
     EXPECT_NE(variant_row_json(block, 1, 1).find(R"("p":8)"), std::string::npos);
     // vv was the omitted column for brand-new keys -> default 0 (the fill widened
@@ -498,7 +502,7 @@ TEST_F(VariantRowStoreTest, RowStoreSnapshotsVariantBeforeParse) {
     block.get_by_position(3).column->assert_mutable()->insert_default();
 
     ASSERT_TRUE(chain.apply(ctx, &block).ok());
-    EXPECT_NE(variant_row_json(block, 1, 0).find(R"("flag":1)"), std::string::npos);
+    EXPECT_NE(variant_row_json(block, 1, 0).find(R"("flag":true)"), std::string::npos);
     ASSERT_NE(ctx.derived_column.second, nullptr);
     ASSERT_TRUE(materialize_derived_columns(ctx.derived_column, &block).ok());
 

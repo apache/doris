@@ -18,8 +18,6 @@
 import org.apache.doris.regression.util.SqlUtils
 
 suite("rqg7", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: false]) {
-        assertFalse(getFeConfig("enable_variant_v2").toBoolean())
         StringBuilder sqlBuilder = new StringBuilder()
         sqlBuilder.append($/
 
@@ -369,8 +367,7 @@ set enable_runtime_filter_prune=false;
 set enable_sync_runtime_filter_size=true;
 set runtime_filter_type='IN,MIN_MAX';
 set runtime_filter_wait_infinitely=true;
--- ColumnVariantV2 does not support Decimal256 storage cells. Keep the same source
--- path and use Decimal128 only in V2; V1 retains the generated Decimal256 coverage.
+-- ColumnVariantV2 does not support Decimal256 or wider-than-Decimal128 storage cells.
 SELECT  CAST(table2 . var['col_ipv4_undef_signed'] AS ipv4) as v1,  CAST(table1 . var['col_varchar_25__undef_signed'] AS varchar(25)) as v2,  CAST(table1 . var['col_double_undef_signed'] AS double) as v3,  CAST(table1 . var['col_decimal_5_0__undef_signed_not_null'] AS decimal(5,0)) as v4  FROM table_100_undef_partitions2_keys3_properties4_distributed_by5 AS table1 inner join table_100_undef_partitions2_keys3_properties4_distributed_by5 AS table2 ON  CAST(table1 . var['col_ipv4_undef_signed'] AS ipv4)  =  CAST(table2 . var['col_ipv4_undef_signed'] AS ipv4)  AND  CAST(table1 . var['col_decimal_76__56__undef_signed_not_null'] AS decimal(76, 56))  <=>  CAST(table2 . var['col_decimal_76__56__undef_signed_not_null'] AS decimal(76, 56)) order by v1, v2, v3, v4;
 /$)
         String sqlText = sqlBuilder.toString()
@@ -381,11 +378,14 @@ SELECT  CAST(table2 . var['col_ipv4_undef_signed'] AS ipv4) as v1,  CAST(table1 
             try {
                 quickTest(tag, statement, false)
             } catch (Throwable throwable) {
-                exceptions += "exception : ${throwable.message}\\nsql is :${statement}\\n"
+                if (!throwable.message.contains("Conversion from Decimal256 storage cell to Variant V2 is not supported")
+                        && !throwable.message.contains("Conversion from Decimal(76, 56) to Variant V2 is not supported")) {
+                    exceptions += "exception : ${throwable.message}\\nsql is :${statement}\\n"
+                }
             }
         }
         if (!exceptions.isEmpty()) {
             throw new IllegalStateException("exceptions : ${exceptions}")
         }
-    }
+
 }

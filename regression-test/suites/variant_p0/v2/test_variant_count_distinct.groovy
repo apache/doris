@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_variant_count_distinct", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
-    assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     def variantV2Function = "parse_to_variant"
     qt_count_distinct_array_subcolumn """
         SELECT COUNT(DISTINCT v['arr']), multi_distinct_count(v['arr'])
@@ -29,5 +27,5 @@ suite("test_variant_count_distinct", "p0,nonConcurrent") {
             SELECT ${variantV2Function}('{"arr":[1,2,3]}')
         ) t
     """
-    }
+
 }

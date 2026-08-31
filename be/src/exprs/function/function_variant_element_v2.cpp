@@ -223,12 +223,13 @@ Status resolve_variant_element_v2_path(
     for (const VariantElementV2PathSegment& segment : segments) {
         OwnedPathSegment owned {.kind = segment.kind(), .key = {}, .index = segment.index()};
         if (segment.kind() == VariantElementV2PathSegment::Kind::OBJECT_KEY) {
+            if (segment.key().size == 0) {
+                return Status::InvalidArgument("Variant V2 object path key must not be empty");
+            }
             if (segment.key().size != 0 && segment.key().data == nullptr) {
                 return Status::InvalidArgument("Variant V2 object path key has a null pointer");
             }
-            if (segment.key().size != 0) {
-                owned.key.assign(segment.key().data, segment.key().data + segment.key().size);
-            }
+            owned.key.assign(segment.key().data, segment.key().data + segment.key().size);
         }
         impl->segments.push_back(std::move(owned));
     }

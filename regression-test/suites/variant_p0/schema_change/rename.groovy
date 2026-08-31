@@ -16,7 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_column_rename", "variant_type"){
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     sql "DROP TABLE IF EXISTS variant_renam"
     sql """
         CREATE TABLE IF NOT EXISTS variant_renam(

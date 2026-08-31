@@ -22,7 +22,7 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_outfile_csv_variant_type", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     // open nereids
     sql """ set enable_nereids_planner=true """
     sql """ set enable_fallback_to_original_planner=false """
@@ -70,7 +70,7 @@ suite("test_outfile_csv_variant_type", "p0") {
     }
 
 
-    // 1. test NULL variant 
+    // 1. test NULL variant
     try {
         def struct_field_define = "`a_info` VARIANT NULL"
         // create table to export data

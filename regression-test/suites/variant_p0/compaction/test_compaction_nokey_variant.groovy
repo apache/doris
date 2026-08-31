@@ -21,8 +21,8 @@
 // which incorrectly excluded subcolumns whose parent has unique_id=0.
 
 suite("test_compaction_nokey_variant") {
-    def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
-    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
+    def enableVariantV2 = true
+    def variantV2Function = "parse_to_variant"
     def tableName = "test_compaction_nokey_variant"
 
     sql "DROP TABLE IF EXISTS ${tableName}"

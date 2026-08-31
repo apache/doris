@@ -1281,11 +1281,10 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
     };
 
     const auto runtime_type = remove_nullable(slot->type());
-    const auto* variant_type = typeid_cast<const DataTypeVariant*>(runtime_type.get());
     const auto* variant_v2_type = typeid_cast<const DataTypeVariantV2*>(runtime_type.get());
 
     if (!slot->column_paths().empty()) {
-        DORIS_CHECK(variant_type != nullptr || variant_v2_type != nullptr);
+        DORIS_CHECK(variant_v2_type != nullptr);
         // here need create column readers to make sure column reader is created before seek_and_read_by_rowid
         // if segment cache miss, column reader will be created to make sure the variant column result not coredump
         RETURN_IF_ERROR(
@@ -1331,8 +1330,8 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         }
         TabletColumn column = schema.column(index);
         if (column.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
-            DORIS_CHECK(variant_type != nullptr || variant_v2_type != nullptr);
-            column.set_variant_is_v2(variant_v2_type != nullptr);
+            DORIS_CHECK(variant_v2_type != nullptr);
+            column.set_variant_is_v2(true);
         }
         if (iterator_hint == nullptr) {
             RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_options));
