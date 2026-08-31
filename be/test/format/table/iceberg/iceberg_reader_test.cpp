@@ -1718,6 +1718,39 @@ TEST_F(IcebergReaderTest, v1_position_delete_read_error_releases_cache_entry) {
     EXPECT_NE(status.to_string().find(delete_file.path), std::string::npos);
 }
 
+TEST_F(IcebergReaderTest, v1_rejects_equality_delete_file_with_empty_field_ids) {
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
+    TFileScanRangeParams scan_params;
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+
+    TFileRangeDesc scan_range;
+    scan_range.__set_fs_name("");
+    scan_range.__set_path("data.parquet");
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(0);
+
+    RuntimeProfile profile("test_profile");
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+
+    IcebergParquetReader iceberg_reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz,
+                                        &io_ctx, &runtime_state, cache.get());
+
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_content(IcebergReaderMixin<ParquetReader>::EQUALITY_DELETE);
+    delete_file.__set_path("empty-equality-delete.parquet");
+    delete_file.__set_field_ids({});
+
+    const auto status = iceberg_reader._equality_delete_base({delete_file});
+
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Iceberg equality delete file is missing field ids"),
+              std::string::npos);
+}
+
 TEST_F(IcebergReaderTest, v1_rejects_missing_required_field_without_initial_default) {
     schema::external::TField field;
     field.__set_name("required_added");

@@ -840,8 +840,9 @@ Status IcebergReaderMixin<BaseReader>::_merge_equality_delete_rows(
 template <typename BaseReader>
 Status IcebergReaderMixin<BaseReader>::_read_equality_delete_file(
         const TIcebergDeleteFileDesc& delete_file) {
-    if (!delete_file.__isset.field_ids) [[unlikely]] {
-        return Status::InternalError("missing delete field ids when reading equality delete file");
+    // Equality deletes require at least one key; a zero-column block would make every row equal.
+    if (!delete_file.__isset.field_ids || delete_file.field_ids.empty()) [[unlikely]] {
+        return Status::InternalError("Iceberg equality delete file is missing field ids");
     }
     TFileRangeDesc delete_desc;
     delete_desc.__set_fs_name(this->get_scan_range().fs_name);
