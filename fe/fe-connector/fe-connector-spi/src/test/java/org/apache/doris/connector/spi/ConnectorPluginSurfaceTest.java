@@ -82,10 +82,10 @@ public class ConnectorPluginSurfaceTest {
             version.load(in);
         }
         // Storage predicate pruning, provider-level DDL validation and ConnectorMetadata's
-        // listsPartitionsAtSnapshot - the method a connector answers "my partition listing is exact at
-        // the pinned snapshot" with - all changed the public surface in major 7. A plugin built against
-        // major 6 must be refused rather than run against a contract it did not compile against.
-        Assertions.assertEquals("7.0", version.getProperty("api.version"));
+        // listsPartitionsAtSnapshot changed the public surface in major 7.
+        // ConnectorSession gained the external-scan-reuse policy method in major 8. An older FE must reject
+        // plugins using additions it does not provide before linking incompatible bytecode.
+        Assertions.assertEquals("8.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
