@@ -132,7 +132,8 @@ public class DictGetMany extends ScalarFunction implements CustomSignature, Alwa
             DataType queryType = field.getDataType();
             DataType targetType = targetTypes.get(i);
 
-            if (dictionary.getLayout() == LayoutType.HASH_MAP) {
+            if (dictionary.getLayout() == LayoutType.HASH_MAP
+                    || dictionary.getLayout() == LayoutType.FLAT) {
                 Optional<DataType> castType = TypeCoercionUtils.implicitCast(queryType, targetType);
                 if (castType.isPresent() && !castType.get().equals(queryType)) {
                     queryType = castType.get();
