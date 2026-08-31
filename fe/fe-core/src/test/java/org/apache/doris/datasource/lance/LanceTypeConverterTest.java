@@ -103,7 +103,7 @@ public class LanceTypeConverterTest {
                 Field.nullable("uint64_col", new ArrowType.Int(64, false))));
     }
 
-    /** 验证 Arrow Null 和 Duration 可被发现为 Doris 类型。 */
+    /** Verifies Arrow Null and Duration mappings. */
     @Test
     public void testNullAndDurationMappings() {
         Assertions.assertEquals(Type.NULL, LanceTypeConverter.toDorisType(
@@ -114,7 +114,7 @@ public class LanceTypeConverterTest {
         }
     }
 
-    /** 验证嵌套 Null 不会被声明为当前读取链路无法安全处理的复杂类型。 */
+    /** Verifies nested Null fields remain unsupported. */
     @Test
     public void testNestedNullIsUnsupported() {
         Field nullItem = Field.nullable("item", ArrowType.Null.INSTANCE);
@@ -131,7 +131,7 @@ public class LanceTypeConverterTest {
         Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(nullStruct));
     }
 
-    /** 验证已知扩展类型按其逻辑语义映射，且非法物理布局不会被接受。 */
+    /** Verifies known extension mappings and storage validation. */
     @Test
     public void testKnownExtensionMappingsAndStorageValidation() {
         Assertions.assertEquals(Type.JSONB, LanceTypeConverter.toDorisType(
@@ -174,7 +174,7 @@ public class LanceTypeConverterTest {
                 extensionField("invalid_blob", ArrowType.Struct.INSTANCE, "lance.blob.v2")));
     }
 
-    /** 验证未知扩展类型和字典类型继续按不支持处理。 */
+    /** Verifies unknown extensions and dictionary fields remain unsupported. */
     @Test
     public void testUnknownExtensionAndDictionaryMarkersAreUnsupported() {
         Field extensionField = extensionField(
@@ -191,7 +191,7 @@ public class LanceTypeConverterTest {
         Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(dictionaryField));
     }
 
-    /** 构造带 Arrow 扩展名元数据的测试字段。 */
+    /** Creates a field with Arrow extension metadata. */
     private static Field extensionField(String name, ArrowType storageType, String extensionName) {
         return new Field(
                 name,

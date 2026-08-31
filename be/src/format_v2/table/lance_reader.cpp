@@ -77,7 +77,7 @@ enum class LanceExtensionKind {
     BLOB_V2,
 };
 
-// 提取扩展名，并在 Arrow 元数据与已注册扩展类型同时存在时校验两者一致。
+// Extracts and validates extension names from metadata and registered types.
 Status get_lance_extension(const std::shared_ptr<arrow::Field>& field,
                            LanceExtensionKind* extension_kind,
                            std::shared_ptr<arrow::DataType>* storage_type) {
@@ -180,7 +180,7 @@ Status get_lance_extension(const std::shared_ptr<arrow::Field>& field,
                                 *extension_name, field->name());
 }
 
-// 将 Lance 的小端 BFloat16 物理值无损扩展为 Arrow Float32。
+// Widens little-endian Lance BFloat16 values to Arrow Float32 without precision loss.
 Status convert_bfloat16_array(const std::shared_ptr<arrow::Array>& array,
                               std::shared_ptr<arrow::Array>* normalized) {
     DORIS_CHECK(array != nullptr);
@@ -222,7 +222,7 @@ Status convert_bfloat16_array(const std::shared_ptr<arrow::Array>& array,
     return Status::OK();
 }
 
-// 递归替换嵌套字段中的 BFloat16 子数组，同时保持父数组的偏移和空值位图不变。
+// Normalizes nested BFloat16 arrays while preserving offsets and null bitmaps.
 Status normalize_lance_arrow_array(const std::shared_ptr<arrow::Field>& field,
                                    const std::shared_ptr<arrow::Array>& array,
                                    std::shared_ptr<arrow::Array>* normalized) {
@@ -343,7 +343,7 @@ int arrow_time_precision(arrow::TimeUnit::type unit) {
     return 6;
 }
 
-// 将 Arrow 字段映射为 Doris 类型，并仅允许顶层字段使用 Doris NULL 类型。
+// Maps an Arrow field to a Doris type, allowing Doris NULL only at the top level.
 Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
                                  DataTypePtr* doris_type, bool allow_null) {
     const auto nullable_primitive = [&](PrimitiveType type, int precision = 0, int scale = 0,

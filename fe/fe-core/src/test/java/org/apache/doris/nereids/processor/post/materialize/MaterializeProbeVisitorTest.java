@@ -209,6 +209,7 @@ class MaterializeProbeVisitorTest {
         return scan;
     }
 
+    /** Creates a vector_search physical relation mock. */
     private PhysicalTVFRelation mockVectorSearchRelation() {
         PhysicalTVFRelation relation = Mockito.mock(PhysicalTVFRelation.class);
         VectorSearch function = Mockito.mock(VectorSearch.class);

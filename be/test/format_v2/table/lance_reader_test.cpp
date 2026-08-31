@@ -861,7 +861,7 @@ DataTypePtr nullable_type(PrimitiveType type, int precision = 0, int scale = 0) 
     return DataTypeFactory::instance().create_data_type(type, true, precision, scale);
 }
 
-// 构造一行有效值和一行 NULL 的 Arrow Duration 测试数组。
+// Creates an Arrow Duration array with one value and one null.
 std::shared_ptr<arrow::Array> make_duration_array(arrow::TimeUnit::type unit, int64_t value) {
     arrow::DurationBuilder builder(arrow::duration(unit), arrow::default_memory_pool());
     EXPECT_TRUE(builder.Append(value).ok());
@@ -871,7 +871,7 @@ std::shared_ptr<arrow::Array> make_duration_array(arrow::TimeUnit::type unit, in
     return array;
 }
 
-// 构造包含一个有效向量和一个 NULL 向量的 Lance BFloat16 测试数组。
+// Creates a Lance BFloat16 array with one vector and one null.
 std::shared_ptr<arrow::Array> make_bfloat16_vector_array() {
     auto values =
             std::make_shared<arrow::FixedSizeBinaryBuilder>(arrow::fixed_size_binary(2));
@@ -937,7 +937,7 @@ TEST(LanceTableReaderSchemaTest, FetchesSchemaWithoutFragmentIdsOrScanInitializa
               assert_cast<const DataTypeVarbinary&>(*binary_type).len());
 }
 
-// 验证新增 Arrow/Lance 类型映射，并确保未知扩展仍保留为不支持列。
+// Verifies the additional mappings and preserves unknown extensions as unsupported.
 TEST(LanceTableReaderSchemaTest, MapsAdditionalTypesAndPreservesUnknownExtensions) {
     const auto unknown_extension_metadata =
             arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"doris.test.extension"});
@@ -995,7 +995,7 @@ TEST(LanceTableReaderSchemaTest, MapsAdditionalTypesAndPreservesUnknownExtension
     EXPECT_EQ(TYPE_STRING, column_types[8]->get_primitive_type());
 }
 
-// 验证已知扩展使用错误物理布局时不会被误报为支持类型。
+// Verifies malformed storage for known extensions remains unsupported.
 TEST(LanceTableReaderSchemaTest, RejectsMalformedKnownExtensionStorage) {
     const auto json_extension_metadata =
             arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"arrow.json"});
@@ -1020,7 +1020,7 @@ TEST(LanceTableReaderSchemaTest, RejectsMalformedKnownExtensionStorage) {
     }
 }
 
-// 验证嵌套 Null 类型保留顶层列，但不会进入当前不支持的复杂类型读取路径。
+// Verifies nested Null fields remain unsupported.
 TEST(LanceTableReaderSchemaTest, MarksNestedNullTypesAsUnsupported) {
     const auto arrow_schema = arrow::schema({
             arrow::field("null_list", arrow::list(arrow::field("item", arrow::null()))),
@@ -1040,7 +1040,7 @@ TEST(LanceTableReaderSchemaTest, MarksNestedNullTypesAsUnsupported) {
     }
 }
 
-// 验证新增类型从 Arrow 批次写入 Doris 列时的值、空值和精度。
+// Verifies values, nullability, and precision when reading the additional types.
 TEST(LanceTableReaderTypeTest, ReadsAdditionalArrowAndLanceTypes) {
     const auto json_extension_metadata =
             arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"arrow.json"});
@@ -1136,7 +1136,7 @@ TEST(LanceTableReaderTypeTest, ReadsAdditionalArrowAndLanceTypes) {
     EXPECT_TRUE(reader.close().ok());
 }
 
-// 验证固定 Lance 数据集中的新增类型可通过完整扫描链路读取。
+// Verifies the additional types through the full scan path.
 TEST(LanceTableReaderTypeTest, ReadsAdditionalTypesFromCompatibilityFixture) {
     const std::filesystem::path dataset_uri =
             "./docker/thirdparties/docker-compose/iceberg/scripts/preinstalled_data/lance/"
