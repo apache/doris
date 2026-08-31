@@ -68,18 +68,12 @@ Result<FileReaderSPtr> S3FileReader::create(std::shared_ptr<const ObjClientHolde
                                             std::string bucket, std::string key, int64_t file_size,
                                             RuntimeProfile* profile) {
     if (file_size < 0) {
-        VLOG_DEBUG
-                << "S3FileReader: file_size not provided by FE, falling back to HeadObject: bucket="
-                << bucket << ", key=" << key;
         auto res = client->object_file_size(bucket, key);
         if (!res.has_value()) {
             return ResultError(std::move(res.error()));
         }
 
         file_size = res.value();
-    } else {
-        VLOG_DEBUG << "S3FileReader: file_size provided by FE: bucket=" << bucket << ", key=" << key
-                   << ", file_size=" << file_size;
     }
 
     return std::make_shared<S3FileReader>(std::move(client), std::move(bucket), std::move(key),
