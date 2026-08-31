@@ -49,14 +49,12 @@ if (GLIBC_COMPATIBILITY)
         list(APPEND glibc_compatibility_sources musl/getentropy.c)
     endif()
 
-    set(lance_compatibility_sources
-        musl/execvpe.c
-        musl/posix_spawn_file_actions.c
-        musl/posix_spawnp.c
-        musl/preadv.c
-        musl/splice.c
-    )
-    list(REMOVE_ITEM glibc_compatibility_sources ${lance_compatibility_sources})
+    # lance_c is linked after this archive and introduces these libc references
+    # too late for another archive scan. Keep the hidden version adapters in the
+    # explicit object target so the final -lc does not pull in the toolchain's
+    # monolithic glibc-compatibility object and conflict with Doris' definitions.
+    set(lance_compatibility_source lance_symbol_versions.c)
+    list(REMOVE_ITEM glibc_compatibility_sources ${lance_compatibility_source})
 
     # Need to omit frame pointers to match the performance of glibc
     set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fomit-frame-pointer")
@@ -76,13 +74,13 @@ if (GLIBC_COMPATIBILITY)
     if (ARCH_ARM AND (CMAKE_BUILD_TYPE STREQUAL "ASAN_UT" OR CMAKE_BUILD_TYPE STREQUAL "ASAN"))
         add_library(glibc-compatibility-explicit OBJECT
             musl/getrandom.c
-            ${lance_compatibility_sources}
+            ${lance_compatibility_source}
         )
     else()
         add_library(glibc-compatibility-explicit OBJECT
             musl/getrandom.c
             ${MEMCPY_SOURCE}
-            ${lance_compatibility_sources}
+            ${lance_compatibility_source}
         )
     endif()
     target_compile_options(glibc-compatibility-explicit PRIVATE -fPIC)
