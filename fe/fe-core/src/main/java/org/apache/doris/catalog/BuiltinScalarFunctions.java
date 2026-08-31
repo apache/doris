@@ -491,6 +491,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryTyp
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StIntersects;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StIsClosed;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinefromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinestringfromtext;
@@ -1073,6 +1074,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StTouches.class, "st_touches"),
             scalar(StLength.class, "st_length"),
             scalar(StGeometryType.class, "st_geometrytype"),
+            scalar(StIsClosed.class, "st_isclosed"),
             scalar(StNumGeometries.class, "st_numgeometries"),
             scalar(StGeometries.class, "st_geometries"),
             scalar(StNumPoints.class, "st_numpoints", "st_npoints"),

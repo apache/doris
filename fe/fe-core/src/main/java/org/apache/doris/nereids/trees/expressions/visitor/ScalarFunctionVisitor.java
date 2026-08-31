@@ -510,6 +510,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryTyp
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StIntersects;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StIsClosed;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinefromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinestringfromtext;
@@ -2396,6 +2397,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStGeometryType(StGeometryType stGeometryType, C context) {
         return visitScalarFunction(stGeometryType, context);
+    }
+
+    default R visitStIsClosed(StIsClosed stIsClosed, C context) {
+        return visitScalarFunction(stIsClosed, context);
     }
 
     default R visitStNumGeometries(StNumGeometries stNumGeometries, C context) {
