@@ -295,6 +295,22 @@ public class CachingHmsClientTest {
     }
 
     @Test
+    public void getExistingPartitionsRetainsPhysicalBatchStatsWhenNamesBecomeStale() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        delegate.absentPartitionNames.add("p=2");
+        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+
+        HmsPartitionBatchResult result = cache.getExistingPartitionsWithStats(
+                "db", "t", Arrays.asList("p=1", "p=2", "p=3"));
+
+        Assertions.assertEquals(Arrays.asList("1", "3"), result.getPartitions().stream()
+                .map(partition -> partition.getValues().get(0)).collect(java.util.stream.Collectors.toList()));
+        Assertions.assertEquals(3, result.getStats().getRequestedItems());
+        Assertions.assertEquals(1, result.getStats().getRpcAttempts());
+        Assertions.assertEquals(3, result.getStats().getRpcItems());
+    }
+
+    @Test
     public void getPartitionsRejectsUnexpectedIdentityWithoutCachingIt() {
         RecordingHmsClient delegate = new RecordingHmsClient();
         delegate.forcedValues = Arrays.asList("EXOTIC");
@@ -659,6 +675,12 @@ public class CachingHmsClientTest {
                     .logicalElapsedNanos(System.nanoTime() - startNanos)
                     .build();
             return new HmsPartitionBatchResult(partitions, stats);
+        }
+
+        @Override
+        public HmsPartitionBatchResult getExistingPartitionsWithStats(
+                String dbName, String tableName, List<String> partNames) {
+            return getPartitionsWithStats(dbName, tableName, partNames);
         }
 
         // "p=1" -> ["1"]; "k1=a/k2=b" -> ["a", "b"] (simple split; test names carry no escaped characters).

@@ -33,6 +33,8 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -56,11 +58,14 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -138,9 +143,21 @@ public class MTMVPartitionUtil {
      * @throws AnalysisException
      */
     public static Pair<List<String>, List<PartitionKeyDesc>> alignMvPartition(MTMV mtmv) throws AnalysisException {
+        return alignMvPartition(mtmv, MvccUtil::getSnapshotFromContext);
+    }
+
+    public static Pair<List<String>, List<PartitionKeyDesc>> alignMvPartition(MTMV mtmv,
+            Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) throws AnalysisException {
+        Map<MvccTableInfo, MvccSnapshot> snapshotCopy = new LinkedHashMap<>(pinnedSnapshots);
+        return alignMvPartition(mtmv,
+                table -> Optional.ofNullable(snapshotCopy.get(new MvccTableInfo(table))));
+    }
+
+    static Pair<List<String>, List<PartitionKeyDesc>> alignMvPartition(MTMV mtmv,
+            Function<MTMVRelatedTableIf, Optional<MvccSnapshot>> snapshotResolver) throws AnalysisException {
         Map<String, PartitionKeyDesc> mtmvPartitionDescs = mtmv.generateMvPartitionDescs();
         Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mtmv.getMvPartitionInfo(),
-                mtmv.getMvProperties(), mtmv.getPartitionColumns(), Maps.newHashMap()).keySet();
+                mtmv.getMvProperties(), mtmv.getPartitionColumns(), Maps.newHashMap(), snapshotResolver).keySet();
         List<String> partitionsToDrop = new ArrayList<>();
         List<PartitionKeyDesc> partitionsToAdd = new ArrayList<>();
         // drop partition of mtmv
@@ -202,8 +219,17 @@ public class MTMVPartitionUtil {
             MTMVPartitionInfo mvPartitionInfo,
             Map<String, String> mvProperties, List<Column> partitionColumns,
             Map<List<String>, Set<String>> queryUsedPartitions) throws AnalysisException {
+        return generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, partitionColumns,
+                queryUsedPartitions, MvccUtil::getSnapshotFromContext);
+    }
+
+    public static Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> generateRelatedPartitionDescs(
+            MTMVPartitionInfo mvPartitionInfo,
+            Map<String, String> mvProperties, List<Column> partitionColumns,
+            Map<List<String>, Set<String>> queryUsedPartitions,
+            Function<MTMVRelatedTableIf, Optional<MvccSnapshot>> snapshotResolver) throws AnalysisException {
         long start = System.currentTimeMillis();
-        RelatedPartitionDescResult result = new RelatedPartitionDescResult();
+        RelatedPartitionDescResult result = new RelatedPartitionDescResult(snapshotResolver);
         for (MTMVRelatedPartitionDescGeneratorService service : partitionDescGenerators) {
             service.apply(mvPartitionInfo, mvProperties, result, partitionColumns, queryUsedPartitions);
         }

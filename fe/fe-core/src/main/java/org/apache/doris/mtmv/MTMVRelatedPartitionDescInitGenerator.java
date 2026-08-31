@@ -20,7 +20,6 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.mvcc.MvccUtil;
 
 import com.google.common.collect.Maps;
 
@@ -42,7 +41,7 @@ public class MTMVRelatedPartitionDescInitGenerator implements MTMVRelatedPartiti
         Map<MTMVRelatedTableIf, Map<String, PartitionItem>> items = Maps.newHashMap();
         for (MTMVRelatedTableIf relatedTable : relatedTables) {
             items.put(relatedTable,
-                    relatedTable.getAndCopyPartitionItems(MvccUtil.getSnapshotFromContext(relatedTable)));
+                    relatedTable.getAndCopyPartitionItems(lastResult.resolveSnapshot(relatedTable)));
         }
         lastResult.setItems(items);
     }

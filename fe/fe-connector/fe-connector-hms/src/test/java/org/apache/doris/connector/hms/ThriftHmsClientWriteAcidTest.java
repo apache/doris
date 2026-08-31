@@ -266,6 +266,35 @@ public class ThriftHmsClientWriteAcidTest {
     }
 
     @Test
+    public void testUnpooledPartitionFallbackPreservesRemoteFailureWhenCloseFails() {
+        RecordingClient fake = new RecordingClient().answer("getPartitionsByNames", args -> {
+            @SuppressWarnings("unchecked")
+            List<String> names = (List<String>) args[2];
+            if (names.size() > 2) {
+                throw new shade.doris.hive.org.apache.thrift.TException(
+                        "Number of partitions scanned exceeds limit: "
+                                + "hive.metastore.limit.partition.request");
+            }
+            List<Partition> partitions = new ArrayList<>(names.size());
+            for (String name : names) {
+                Partition partition = new Partition();
+                partition.setValues(HmsPartitionIdentity.fromName(name));
+                partitions.add(partition);
+            }
+            return partitions;
+        }).failCloseTimes(1);
+        Map<String, String> properties = new HashMap<>();
+        properties.put(HmsClientConfig.PARTITION_BATCH_SIZE_KEY, "4");
+        AtomicInteger clientCreates = new AtomicInteger();
+        ThriftHmsClient client = newClient(fake, properties, clientCreates);
+
+        Assertions.assertEquals(4, client.getPartitions("db", "t", names("p", 4)).size());
+        Assertions.assertEquals(2, clientCreates.get(),
+                "the oversize failure must remain visible to adaptive fallback when cleanup also fails");
+        Assertions.assertEquals(2, fake.closeCalls);
+    }
+
+    @Test
     public void testUpdateTableStatisticsRebuildsParamsAndAlters() {
         RecordingClient fake = new RecordingClient();
         Table origin = new Table();
@@ -520,6 +549,7 @@ public class ThriftHmsClientWriteAcidTest {
         private final List<Object[]> argsList = new ArrayList<>();
         private final Map<String, Object> responses = new HashMap<>();
         private int closeCalls;
+        private int closeFailuresRemaining;
 
         RecordingClient stub(String method, Object value) {
             responses.put(method, value);
@@ -528,6 +558,11 @@ public class ThriftHmsClientWriteAcidTest {
 
         RecordingClient answer(String method, InvocationAnswer answer) {
             responses.put(method, answer);
+            return this;
+        }
+
+        RecordingClient failCloseTimes(int count) {
+            closeFailuresRemaining = count;
             return this;
         }
 
@@ -548,6 +583,10 @@ public class ThriftHmsClientWriteAcidTest {
             }
             if ("close".equals(name)) {
                 closeCalls++;
+                if (closeFailuresRemaining > 0) {
+                    closeFailuresRemaining--;
+                    throw new IllegalStateException("injected close failure");
+                }
                 return null;
             }
             methodNames.add(name);

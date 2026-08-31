@@ -67,7 +67,11 @@ final class HmsPartitionBatchExecutor {
     }
 
     List<HmsPartitionInfo> executeExisting(HmsPartitionRequest request) {
-        return executeWithStats(request, true).getPartitions();
+        return executeExistingWithStats(request).getPartitions();
+    }
+
+    HmsPartitionBatchResult executeExistingWithStats(HmsPartitionRequest request) {
+        return executeWithStats(request, true);
     }
 
     HmsPartitionBatchResult executeWithStats(HmsPartitionRequest request) {

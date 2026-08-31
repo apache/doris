@@ -166,8 +166,8 @@ public interface HmsClient extends Closeable {
 
     /**
      * Returns the requested partitions that still exist, in request order. Missing partitions are omitted;
-     * duplicate, unexpected and malformed remote results remain errors. This is used only by freshness probes
-     * where a partition may disappear after its name was pinned.
+     * duplicate, unexpected and malformed remote results remain errors. This is used when partition identities
+     * came from an earlier listing or snapshot and may disappear before their objects are loaded.
      */
     default List<HmsPartitionInfo> getExistingPartitions(String dbName, String tableName,
             List<String> partNames) {
@@ -182,6 +182,22 @@ public interface HmsClient extends Closeable {
             List<String> partNames) {
         long startNanos = System.nanoTime();
         List<HmsPartitionInfo> partitions = getPartitions(dbName, tableName, partNames);
+        HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
+                .requestedItems(partNames.size())
+                .logicalElapsedNanos(System.nanoTime() - startNanos)
+                .build();
+        return new HmsPartitionBatchResult(partitions, stats);
+    }
+
+    /**
+     * Returns the requested partitions that still exist together with physical batching statistics.
+     * Implementations that do not expose transport details retain the omission-tolerant result and report a
+     * logical-only event.
+     */
+    default HmsPartitionBatchResult getExistingPartitionsWithStats(String dbName, String tableName,
+            List<String> partNames) {
+        long startNanos = System.nanoTime();
+        List<HmsPartitionInfo> partitions = getExistingPartitions(dbName, tableName, partNames);
         HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
                 .requestedItems(partNames.size())
                 .logicalElapsedNanos(System.nanoTime() - startNanos)

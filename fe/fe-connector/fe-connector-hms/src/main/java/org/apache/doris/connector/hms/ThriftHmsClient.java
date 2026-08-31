@@ -250,12 +250,18 @@ public class ThriftHmsClient implements HmsClient {
     @Override
     public List<HmsPartitionInfo> getExistingPartitions(
             String dbName, String tableName, List<String> partNames) {
+        return getExistingPartitionsWithStats(dbName, tableName, partNames).getPartitions();
+    }
+
+    @Override
+    public HmsPartitionBatchResult getExistingPartitionsWithStats(
+            String dbName, String tableName, List<String> partNames) {
         HmsPartitionRequest request = partitionRequest(dbName, tableName, partNames);
         if (clientPool != null) {
-            return newPartitionBatchExecutor(this::getPartitionsByNames).executeExisting(request);
+            return newPartitionBatchExecutor(this::getPartitionsByNames).executeExistingWithStats(request);
         }
         try (UnpooledPartitionTransport transport = new UnpooledPartitionTransport()) {
-            return newPartitionBatchExecutor(transport).executeExisting(request);
+            return newPartitionBatchExecutor(transport).executeExistingWithStats(request);
         }
     }
 
@@ -1014,8 +1020,13 @@ public class ThriftHmsClient implements HmsClient {
                 return executePartitionCall(current,
                         client -> loadPartitionsByNames(client, dbName, tableName, partitionNames));
             } catch (RuntimeException e) {
-                current.destroy();
+                PooledHmsClient failed = current;
                 current = null;
+                try {
+                    failed.destroy();
+                } catch (RuntimeException cleanupFailure) {
+                    e.addSuppressed(cleanupFailure);
+                }
                 throw e;
             }
         }

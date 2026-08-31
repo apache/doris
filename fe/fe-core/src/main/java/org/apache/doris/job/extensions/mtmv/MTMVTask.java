@@ -227,7 +227,7 @@ public class MTMVTask extends AbstractTask {
                                     + " or including not supported transform functions.");
                         }
                     }
-                    syncPartitions = MTMVPartitionUtil.alignMvPartition(mtmv);
+                    syncPartitions = MTMVPartitionUtil.alignMvPartition(mtmv, snapshots);
                 }
             } finally {
                 MetaLockUtils.readUnlockTables(tableIfs);

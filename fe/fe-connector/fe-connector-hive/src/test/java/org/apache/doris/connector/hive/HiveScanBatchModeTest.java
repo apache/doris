@@ -148,6 +148,26 @@ public class HiveScanBatchModeTest {
     }
 
     @Test
+    public void fullScanOmitsPartitionDroppedAfterNameListing() {
+        CountingLister lister = new CountingLister();
+        List<String> listed = Arrays.asList("year=2024/month=01", "year=2024/month=02");
+        HiveScanPlanProvider provider = provider(
+                new FakeHmsClient(listed, "year=2024/month=01"), lister);
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .build();
+
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeSession(),
+                ConnectorScanRequest.builder(handle, Collections.<ConnectorColumnHandle>emptyList()).build());
+
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertNull(lister.callsPerLocation.get("year=2024/month=01"));
+        Assertions.assertEquals(1, (int) lister.callsPerLocation.get("year=2024/month=02"));
+    }
+
+    @Test
     public void partitionBatchStatsAreExposedAsOneScanProfile() {
         HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
@@ -436,6 +456,18 @@ public class HiveScanBatchModeTest {
      * the listed locations. The rest fail loud.
      */
     private static final class FakeHmsClient implements HmsClient {
+        private final List<String> listedPartitionNames;
+        private final String absentPartitionName;
+
+        FakeHmsClient() {
+            this(null, null);
+        }
+
+        FakeHmsClient(List<String> listedPartitionNames, String absentPartitionName) {
+            this.listedPartitionNames = listedPartitionNames;
+            this.absentPartitionName = absentPartitionName;
+        }
+
         @Override
         public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
             List<HmsPartitionInfo> result = new ArrayList<>();
@@ -461,8 +493,30 @@ public class HiveScanBatchModeTest {
         }
 
         @Override
+        public HmsPartitionBatchResult getExistingPartitionsWithStats(
+                String dbName, String tableName, List<String> partNames) {
+            List<String> existingNames = new ArrayList<>();
+            for (String partitionName : partNames) {
+                if (!partitionName.equals(absentPartitionName)) {
+                    existingNames.add(partitionName);
+                }
+            }
+            HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
+                    .requestedItems(partNames.size())
+                    .rpcAttempts(1)
+                    .rpcItems(partNames.size())
+                    .largestBatchSize(partNames.size())
+                    .smallestBatchSize(partNames.size())
+                    .build();
+            return new HmsPartitionBatchResult(getPartitions(dbName, tableName, existingNames), stats);
+        }
+
+        @Override
         public List<String> listPartitionNames(String dbName, String tableName, int maxParts) {
-            throw new UnsupportedOperationException();
+            if (listedPartitionNames == null) {
+                throw new UnsupportedOperationException();
+            }
+            return listedPartitionNames;
         }
 
         @Override

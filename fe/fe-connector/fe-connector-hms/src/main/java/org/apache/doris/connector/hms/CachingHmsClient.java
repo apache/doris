@@ -210,7 +210,13 @@ public class CachingHmsClient implements HmsClient {
     @Override
     public List<HmsPartitionInfo> getExistingPartitions(
             String dbName, String tableName, List<String> partNames) {
-        return getPartitionsWithStats(dbName, tableName, partNames, true).getPartitions();
+        return getExistingPartitionsWithStats(dbName, tableName, partNames).getPartitions();
+    }
+
+    @Override
+    public HmsPartitionBatchResult getExistingPartitionsWithStats(
+            String dbName, String tableName, List<String> partNames) {
+        return getPartitionsWithStats(dbName, tableName, partNames, true);
     }
 
     private HmsPartitionBatchResult getPartitionsWithStats(
@@ -257,7 +263,10 @@ public class CachingHmsClient implements HmsClient {
             }
             List<HmsPartitionInfo> loaded;
             if (allowMissing) {
-                loaded = delegate.getExistingPartitions(dbName, tableName, missNames);
+                HmsPartitionBatchResult loadedResult = delegate.getExistingPartitionsWithStats(
+                        dbName, tableName, missNames);
+                loaded = loadedResult.getPartitions();
+                physicalStats = loadedResult.getStats();
             } else {
                 HmsPartitionBatchResult loadedResult = delegate.getPartitionsWithStats(dbName, tableName, missNames);
                 loaded = loadedResult.getPartitions();

@@ -519,7 +519,8 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
 
     private List<HmsPartitionInfo> loadPartitionsWithProfile(
             String dbName, String tableName, List<String> partitionNames) {
-        HmsPartitionBatchResult result = hmsClient.getPartitionsWithStats(dbName, tableName, partitionNames);
+        HmsPartitionBatchResult result = hmsClient.getExistingPartitionsWithStats(
+                dbName, tableName, partitionNames);
         partitionBatchProfile.record(dbName, tableName, result.getStats());
         return result.getPartitions();
     }

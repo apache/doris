@@ -1104,7 +1104,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         if (partNames.isEmpty()) {
             return Collections.emptyList();
         }
-        List<HmsPartitionInfo> partitions = hmsClient.getPartitions(
+        List<HmsPartitionInfo> partitions = hmsClient.getExistingPartitions(
                 handle.getDbName(), handle.getTableName(), partNames);
         List<PartitionRef> refs = new ArrayList<>(partitions.size());
         for (HmsPartitionInfo partition : partitions) {
@@ -1184,7 +1184,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
 
         HmsPartitionBatchResult pruningResult = matchedPartNames.isEmpty()
-                ? null : hmsClient.getPartitionsWithStats(
+                ? null : hmsClient.getExistingPartitionsWithStats(
                         hiveHandle.getDbName(), hiveHandle.getTableName(), matchedPartNames);
         List<HmsPartitionInfo> prunedPartitions = pruningResult == null
                 ? Collections.emptyList() : pruningResult.getPartitions();

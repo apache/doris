@@ -36,6 +36,7 @@ import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.Function;
 
 /**
  * Utility to expand query-used partition filters to MV partition granularity
@@ -58,6 +59,15 @@ public class MTMVPartitionExpander {
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
             Map<String, PartitionItem> mvPartitionItems,
             Set<MTMVRelatedTableIf> pctTables) throws AnalysisException {
+        return expandToMvPartitionGranularity(queryUsedBaseTablePartitionMap, mvPartitionItems,
+                pctTables, MvccUtil::getSnapshotFromContext);
+    }
+
+    public static Map<List<String>, Set<String>> expandToMvPartitionGranularity(
+            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
+            Map<String, PartitionItem> mvPartitionItems,
+            Set<MTMVRelatedTableIf> pctTables,
+            Function<MTMVRelatedTableIf, Optional<MvccSnapshot>> snapshotResolver) throws AnalysisException {
         NavigableMap<PartitionKey, Range<PartitionKey>> mvRanges = new TreeMap<>();
         for (PartitionItem item : mvPartitionItems.values()) {
             Range<PartitionKey> range = ((RangePartitionItem) item).getItems();
@@ -72,7 +82,7 @@ public class MTMVPartitionExpander {
                 continue;
             }
 
-            Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(pctTable);
+            Optional<MvccSnapshot> snapshot = snapshotResolver.apply(pctTable);
             if (pctTable.getPartitionType(snapshot) != PartitionType.RANGE) {
                 expanded.put(qualifiers, queryUsedPartitions);
                 continue;

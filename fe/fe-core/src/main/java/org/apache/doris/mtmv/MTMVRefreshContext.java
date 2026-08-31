@@ -152,7 +152,7 @@ public class MTMVRefreshContext {
             Map<List<String>, Set<String>> queryUsedPartitions,
             Function<MTMVRelatedTableIf, Optional<MvccSnapshot>> snapshotResolver) throws AnalysisException {
         MTMVRefreshContext context = new MTMVRefreshContext(mtmv, snapshotResolver);
-        context.partitionMappings = mtmv.calculatePartitionMappings(queryUsedPartitions);
+        context.partitionMappings = mtmv.calculatePartitionMappings(queryUsedPartitions, snapshotResolver);
         context.baseVersions = MTMVPartitionUtil.getBaseVersions(mtmv, context.partitionMappings);
         return context;
     }
