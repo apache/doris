@@ -305,7 +305,7 @@ void QueryContext::set_memory_sufficient(bool sufficient) {
     }
 }
 
-void QueryContext::cancel(Status new_status, int fragment_id) {
+void QueryContext::cancel(Status new_status) {
     if (!_exec_status.update(new_status)) {
         return;
     }
@@ -343,7 +343,7 @@ void QueryContext::cancel(Status new_status, int fragment_id) {
     }
 
     set_ready_to_execute(new_status);
-    cancel_all_pipeline_context(new_status, fragment_id);
+    cancel_all_pipeline_context(new_status);
 }
 
 void QueryContext::set_load_error_url(std::string error_url) {
@@ -366,15 +366,12 @@ std::string QueryContext::get_first_error_msg() {
     return _first_error_msg;
 }
 
-void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragment_id) {
+void QueryContext::cancel_all_pipeline_context(const Status& reason) {
     std::vector<std::weak_ptr<PipelineFragmentContext>> ctx_to_cancel;
     {
         std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
-        for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
-            if (fragment_id == f_id) {
-                continue;
-            }
-            ctx_to_cancel.push_back(f_context);
+        for (auto& entry : _fragment_id_to_pipeline_ctx) {
+            ctx_to_cancel.push_back(entry.second);
         }
     }
     for (auto& f_context : ctx_to_cancel) {

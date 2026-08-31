@@ -136,11 +136,13 @@ public:
 
     [[nodiscard]] bool is_cancelled() const { return !_exec_status.ok(); }
 
-    void cancel_all_pipeline_context(const Status& reason, int fragment_id = -1);
+    void cancel_all_pipeline_context(const Status& reason);
     std::string print_all_pipeline_context();
     void set_pipeline_context(const int fragment_id,
                               std::shared_ptr<PipelineFragmentContext> pip_ctx);
-    void cancel(Status new_status, int fragment_id = -1);
+    // The sole entry point for query cancellation. Only the first error is accepted; it is then
+    // propagated to every PipelineFragmentContext for fragment-local cleanup.
+    void cancel(Status new_status);
 
     [[nodiscard]] Status exec_status() { return _exec_status.status(); }
 
