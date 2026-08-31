@@ -110,20 +110,37 @@ public class LancePropertiesTest {
     }
 
     /**
-     * OSS-HDFS is the one oss:// form whose qualified authority is required rather than incidental,
-     * so the bucket rewrite must not touch it.
+     * Doris reads an OSS-HDFS URL through its HDFS-compatible properties, which the Lance OSS
+     * provider cannot consume, so such a catalog could never be handed an endpoint or credentials.
+     * Refuse it outright rather than accept a warehouse that cannot open.
      */
     @Test
-    public void testOssHdfsWarehouseKeepsItsQualifiedAuthority() throws Exception {
-        String warehouse = "oss://bkt.cn-hangzhou.oss-dls.aliyuncs.com/lance";
+    public void testOssHdfsWarehouseIsRejected() {
         Map<String, String> properties = new HashMap<>();
         properties.put("type", "lance");
-        properties.put(LanceFileSystemMetastoreProperties.WAREHOUSE, warehouse);
+        properties.put(LanceFileSystemMetastoreProperties.WAREHOUSE,
+                "oss://bkt.cn-hangzhou.oss-dls.aliyuncs.com/lance");
 
-        AbstractLanceProperties lanceProperties =
-                (AbstractLanceProperties) MetastoreProperties.create(properties);
+        IllegalArgumentException thrown = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> MetastoreProperties.create(properties));
+        Assertions.assertTrue(thrown.getMessage().contains("OSS-HDFS is not supported"),
+                "unexpected message: " + thrown.getMessage());
+    }
 
-        Assertions.assertEquals(warehouse,
-                ((LanceFileSystemMetastoreProperties) lanceProperties).getWarehouse());
+    /**
+     * OSSHdfsProperties selects on the endpoint, so a clean-looking warehouse still routes there
+     * when the endpoint names OSS-HDFS. Checking only the warehouse authority would miss it.
+     */
+    @Test
+    public void testOssHdfsEndpointIsRejectedEvenWithAPlainWarehouse() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "lance");
+        properties.put(LanceFileSystemMetastoreProperties.WAREHOUSE, "oss://bkt/lance");
+        properties.put("oss.endpoint", "cn-hangzhou.oss-dls.aliyuncs.com");
+
+        IllegalArgumentException thrown = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> MetastoreProperties.create(properties));
+        Assertions.assertTrue(thrown.getMessage().contains("OSS-HDFS is not supported"),
+                "unexpected message: " + thrown.getMessage());
     }
 }

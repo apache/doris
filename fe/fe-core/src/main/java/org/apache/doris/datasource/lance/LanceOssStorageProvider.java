@@ -69,20 +69,9 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
             return result;
         }
         putIfNotEmpty(result, ENDPOINT, properties.getEndpoint());
-        putIfNotEmpty(result, ACCESS_KEY_ID, properties.getAccessKey());
-        putIfNotEmpty(result, SECRET_ACCESS_KEY, properties.getSecretKey());
         putIfNotEmpty(result, REGION, properties.getRegion());
-        putIfNotEmpty(result, SECURITY_TOKEN, properties.getSessionToken());
-
-        // Doris reads a blank key pair as a request for anonymous access. Lance forwards options it
-        // does not recognize straight to OpenDAL, whose OSS service only skips request signing when
-        // allow_anonymous is set; without it the open fails in credential loading instead of
-        // issuing the unsigned request Doris asked for. Decide from what was actually emitted above
-        // rather than re-testing the properties, so a credential this class considers present can
-        // never be paired with a claim that there is none.
-        if (!result.containsKey(ACCESS_KEY_ID) && !result.containsKey(SECRET_ACCESS_KEY)) {
-            result.put(ALLOW_ANONYMOUS, "true");
-        }
+        putAuth(result, properties.getAccessKey(), properties.getSecretKey(),
+                properties.getSessionToken());
 
         // Lance snapshots the host's OSS_*/AWS_*/ALIBABA_CLOUD_* environment into the same config
         // map before storage options are applied, so state both addressing styles explicitly the
@@ -111,6 +100,70 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
             }
         });
         return result;
+    }
+
+    /**
+     * Chooses which side's OSS authentication to keep once a namespace's options have been laid
+     * over the catalog's.
+     *
+     * <p>Authentication is one value, not a set of independent keys: a key pair, the token that
+     * belongs to that pair, and the flag saying there is no pair at all. The overlay that produced
+     * {@code merged} is key by key, so on its own it can pair one side's access key with the
+     * other's secret, or leave a token attached to a pair it was never issued for. OpenDAL does not
+     * second-guess any of that - {@code OssCore::sign} returns the request unsigned whenever
+     * {@code allow_anonymous} is set, whatever credentials sit beside it, and it signs with
+     * whatever token it finds next to a pair.
+     *
+     * <p>So the two sides are never mixed. A namespace that supplies any part of the authentication
+     * has just described this table and supplies all of it; otherwise the catalog's stands
+     * untouched. Every case the merge could previously get wrong - a half pair, a stale token, a
+     * vended blank, an explicit anonymous request - follows from that one rule.
+     *
+     * <p>This lives here rather than on {@link LanceStorageProvider} because OSS is the only
+     * provider whose options carry the coupling. The S3 adapter has a comparable overlay but
+     * predates this work, and a hook only one implementation honoured would read as an oversight.
+     */
+    static void reconcileAuth(Map<String, String> merged, Map<String, String> normalizedVended) {
+        boolean vendedSuppliesAuth = normalizedVended.containsKey(ACCESS_KEY_ID)
+                || normalizedVended.containsKey(SECRET_ACCESS_KEY)
+                || normalizedVended.containsKey(SECURITY_TOKEN)
+                || normalizedVended.containsKey(ALLOW_ANONYMOUS);
+        if (!vendedSuppliesAuth) {
+            return;
+        }
+        putAuth(merged, normalizedVended.get(ACCESS_KEY_ID),
+                normalizedVended.get(SECRET_ACCESS_KEY), normalizedVended.get(SECURITY_TOKEN));
+    }
+
+    /**
+     * Writes one authentication state into {@code options}, replacing whatever was there.
+     *
+     * <p>States the anonymous flag either way rather than only when true. Absence is not neutral:
+     * lance snapshots the host's {@code OSS_}/{@code AWS_} environment into the same config map
+     * before these options are applied, so an omitted key hands the decision to an exported
+     * {@code OSS_ALLOW_ANONYMOUS}.
+     *
+     * <p>Blank is not a credential, so a blank pair is anonymous rather than a signer built from
+     * empty strings, and a token is only carried when there is a pair for it to belong to.
+     */
+    private static void putAuth(Map<String, String> options, String keyId, String secret,
+            String token) {
+        options.remove(ACCESS_KEY_ID);
+        options.remove(SECRET_ACCESS_KEY);
+        options.remove(SECURITY_TOKEN);
+
+        boolean hasKeyId = StringUtils.isNotEmpty(keyId);
+        boolean hasSecret = StringUtils.isNotEmpty(secret);
+        if (hasKeyId != hasSecret) {
+            throw new IllegalArgumentException("Incomplete OSS credential: '"
+                    + (hasKeyId ? SECRET_ACCESS_KEY : ACCESS_KEY_ID) + "' is missing");
+        }
+        if (hasKeyId) {
+            options.put(ACCESS_KEY_ID, keyId);
+            options.put(SECRET_ACCESS_KEY, secret);
+            putIfNotEmpty(options, SECURITY_TOKEN, token);
+        }
+        options.put(ALLOW_ANONYMOUS, String.valueOf(!hasKeyId));
     }
 
     private static OSSProperties selectOss(List<StorageProperties> storageProperties) {
