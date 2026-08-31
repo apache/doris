@@ -31,6 +31,7 @@
 #include <boost/process.hpp>
 #include <chrono>
 #include <fstream>
+#include <rapidjson/document.h>
 #include <thread>
 
 #include "arrow/flight/client.h"
@@ -707,6 +708,7 @@ Status PythonServerManager::_broadcast_action_to_processes(const std::string& ac
     int success_count = 0;
     int fail_count = 0;
     bool has_active_process = false;
+    std::string failure_details;
 
     for (auto& [version, versioned_pool] : _snapshot_process_pools()) {
         std::lock_guard<std::mutex> lock(versioned_pool->mutex);
@@ -741,12 +743,39 @@ Status PythonServerManager::_broadcast_action_to_processes(const std::string& ac
                 }
 
                 auto result = (*result_stream)->Next();
-                if (result.ok() && *result) {
-                    success_count++;
-                } else {
+                if (!result.ok() || !*result || !(*result)->body) {
                     fail_count++;
+                    continue;
                 }
 
+                std::string result_body = (*result)->body->ToString();
+                rapidjson::Document result_json;
+                result_json.Parse(result_body.data(), result_body.size());
+                bool action_succeeded = false;
+                if (!result_json.HasParseError() && result_json.IsObject()) {
+                    auto success = result_json.FindMember("success");
+                    action_succeeded = success != result_json.MemberEnd() &&
+                                       success->value.IsBool() && success->value.GetBool();
+                }
+                if (!action_succeeded) {
+                    fail_count++;
+                    std::string error = "invalid action result";
+                    if (!result_json.HasParseError() && result_json.IsObject()) {
+                        auto error_member = result_json.FindMember("error");
+                        if (error_member != result_json.MemberEnd() &&
+                            error_member->value.IsString()) {
+                            error.assign(error_member->value.GetString(),
+                                         error_member->value.GetStringLength());
+                        }
+                    }
+                    if (!failure_details.empty()) {
+                        failure_details.append("; ");
+                    }
+                    failure_details.append(fmt::format("{}: {}", process->get_uri(), error));
+                    continue;
+                }
+
+                success_count++;
             } catch (...) {
                 fail_count++;
             }
@@ -761,8 +790,9 @@ Status PythonServerManager::_broadcast_action_to_processes(const std::string& ac
               << ", failed=" << fail_count;
 
     if (fail_count > 0) {
-        return Status::InternalError("{} failed for {}, success={}, failed={}", action_type,
-                                     log_name, success_count, fail_count);
+        return Status::InternalError("{} failed for {}, success={}, failed={}, errors=[{}]",
+                                     action_type, log_name, success_count, fail_count,
+                                     failure_details);
     }
 
     return Status::OK();
