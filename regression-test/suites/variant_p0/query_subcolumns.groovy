@@ -17,7 +17,7 @@
 
 suite("regression_test_query_subcolumns", "nonConcurrent"){
 
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def set_be_config = { key, value ->
         String backend_id;
         def backendId_to_backendIP = [:]

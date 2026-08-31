@@ -26,11 +26,13 @@
 #include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "testutil/index_storage_test_util.h"
+#include "util/variant/variant_test_utils.h"
 
 namespace doris::index_storage_test {
 namespace {
@@ -56,42 +58,46 @@ VariantColumnSpec array_text_variant_column() {
     return variant;
 }
 
-ColumnPtr single_array_variant_column(const std::vector<std::optional<std::string>>& elements,
-                                      bool array_is_null = false) {
-    auto values = ColumnString::create();
-    auto item_null_map = ColumnUInt8::create();
-    if (!array_is_null) {
-        for (const auto& element : elements) {
-            if (element.has_value()) {
-                values->insert_data(element->data(), element->size());
-                item_null_map->insert_value(0);
-            } else {
-                values->insert_default();
-                item_null_map->insert_value(1);
-            }
+std::string array_variant_json(const std::vector<std::optional<std::string>>& elements,
+                               bool array_is_null) {
+    if (array_is_null) {
+        return R"({"c_arr":null})";
+    }
+    std::string json = R"({"c_arr":[)";
+    for (size_t i = 0; i < elements.size(); ++i) {
+        if (i != 0) {
+            json.append(",");
+        }
+        if (elements[i].has_value()) {
+            json.append("\"");
+            json.append(*elements[i]);
+            json.append("\"");
+        } else {
+            json.append("null");
         }
     }
+    json.append("]}");
+    return json;
+}
 
-    auto nullable_items = ColumnNullable::create(std::move(values), std::move(item_null_map));
-    auto offsets = ColumnArray::ColumnOffsets::create();
-    offsets->insert_value(array_is_null ? 0 : elements.size());
-    auto array = ColumnArray::create(std::move(nullable_items), std::move(offsets));
-    auto array_null_map = ColumnUInt8::create();
-    array_null_map->insert_value(array_is_null ? 1 : 0);
-    auto nullable_array = ColumnNullable::create(std::move(array), std::move(array_null_map));
-
-    auto variant = ColumnVariant::create(10, false);
-    variant->insert_default();
-    auto array_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeArray>(
-            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>())));
-    CHECK(variant->add_sub_column(PathInData(std::string(kArrayPath), true),
-                                  std::move(nullable_array), array_type));
+ColumnPtr single_array_variant_column(const std::vector<std::optional<std::string>>& elements,
+                                      bool array_is_null = false) {
+    auto variant = ColumnVariantV2::create();
+    const std::string json = array_variant_json(elements, array_is_null);
+    JsonStringToVariantEncoder encoder({.throw_on_invalid_json = true});
+    encoder.add_json({json.data(), json.size()});
+    VariantBatchBuilder encoded = encoder.finish_batch();
+    insert_encoded_field(*variant, VariantField::from_ref(encoded.value_at(0)));
     return variant;
 }
 
 ColumnPtr single_null_variant_column() {
-    auto variant = ColumnVariant::create(10, false);
-    variant->insert_default();
+    auto variant = ColumnVariantV2::create();
+    JsonStringToVariantEncoder encoder({.throw_on_invalid_json = true});
+    constexpr std::string_view json = R"({"c_arr":null})";
+    encoder.add_json({json.data(), json.size()});
+    VariantBatchBuilder encoded = encoder.finish_batch();
+    insert_encoded_field(*variant, VariantField::from_ref(encoded.value_at(0)));
     auto null_map = ColumnUInt8::create();
     null_map->insert_value(1);
     return ColumnNullable::create(std::move(variant), std::move(null_map));

@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_insert_remote_doris_as_olap_table_select", "p0,external,doris,external_docker,external_docker_doris") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     String remote_doris_host = context.config.otherConfigs.get("extArrowFlightSqlHost")
     String remote_doris_arrow_port = context.config.otherConfigs.get("extArrowFlightSqlPort")
     String remote_doris_http_port = context.config.otherConfigs.get("extArrowFlightHttpPort")
@@ -309,7 +309,7 @@ suite("test_insert_remote_doris_as_olap_table_select", "p0,external,doris,extern
         (2,'2023-01-02','reason2'),
         (3,'2023-01-03','reason3');
     """
- 
+
     sql """
         CREATE TABLE `${db_name}`.`right_remote_table_partition` (
           log_time        DATE       NOT NULL,
@@ -447,7 +447,7 @@ suite("test_insert_remote_doris_as_olap_table_select", "p0,external,doris,extern
     """
 
     sql """
-        INSERT INTO `${catalog_name}`.`${db_name}`.`remote_table_unique_mor` 
+        INSERT INTO `${catalog_name}`.`${db_name}`.`remote_table_unique_mor`
         select * from `${catalog_name}`.`${db_name}`.`right_remote_table_unique`
     """
 
@@ -488,7 +488,7 @@ suite("test_insert_remote_doris_as_olap_table_select", "p0,external,doris,extern
             join `${catalog_name}`.`${db_name}`.`right_remote_table_aggregate` b on a.`log_type` = b.`log_type` group by b.`log_type` order by b.`log_type`
     """
 
-   
+
     sql """ DROP CATALOG IF EXISTS `${catalog_name}` """
 
     def catalog_name2 = "test_insert_remote_doris_arrow_flight_catalog_not_support"

@@ -584,7 +584,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
     SCOPED_TIMER(_build_table_timer);
     auto rows = (uint32_t)block.rows();
     // 1. Dispose the overflow of ColumnString
-    // 2. Finalize the ColumnVariant to speed up
+    // 2. Finalize the Variant column to speed up
     for (auto& data : block) {
         data.column = IColumn::mutate(std::move(data.column))->convert_column_if_overflow();
         if (p._need_finalize_variant_column) {

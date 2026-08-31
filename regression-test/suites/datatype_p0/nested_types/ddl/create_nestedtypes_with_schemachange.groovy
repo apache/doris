@@ -16,8 +16,8 @@
 // under the License.
 
 suite("create_nestedtypes_with_schemachange", "p0") {
-    def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
-    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
+    def enableVariantV2 = true
+    def variantV2Function = "parse_to_variant"
     def create_nested_table_and_schema_change = {testTablex, nested_type, column_name, error ->
         // create basic type
         sql "set default_variant_max_subcolumns_count = 0"

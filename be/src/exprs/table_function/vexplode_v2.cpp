@@ -30,13 +30,10 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
-#include "core/column/column_nothing.h"
 #include "core/column/column_struct.h"
-#include "core/column/column_variant.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/primitive_type.h"
@@ -77,32 +74,7 @@ Status VExplodeV2TableFunction::_process_init_variant(Block* block, int value_co
         return Status::OK();
     }
 
-    auto column = remove_nullable(materialized);
-    auto variant_column_ptr = IColumn::mutate(std::move(column));
-    auto& variant_column = assert_cast<ColumnVariant&>(*variant_column_ptr);
-    variant_column.finalize();
-    _multi_detail[children_column_idx].output_as_variant = true;
-    _multi_detail[children_column_idx].variant_enable_doc_mode = variant_column.enable_doc_mode();
-    if (!variant_column.is_null_root()) {
-        _array_columns[children_column_idx] = variant_column.get_root();
-        // We need to wrap the output nested column within a variant column.
-        // Otherwise the type is missmatched
-        const auto* array_type = check_and_get_data_type<DataTypeArray>(
-                remove_nullable(variant_column.get_root_type()).get());
-        if (array_type == nullptr) {
-            return Status::NotSupported("explode not support none array type {}",
-                                        variant_column.get_root_type()->get_name());
-        }
-        _multi_detail[children_column_idx].nested_type = array_type->get_nested_type();
-    } else {
-        // null root, use nothing type
-        auto array_column = ColumnNullable::create(ColumnArray::create(ColumnNothing::create(0)),
-                                                   ColumnUInt8::create(0));
-        array_column->insert_many_defaults(variant_column.size());
-        _array_columns[children_column_idx] = std::move(array_column);
-        _multi_detail[children_column_idx].nested_type = std::make_shared<DataTypeNothing>();
-    }
-    return Status::OK();
+    return Status::InvalidArgument("vexplode requires ColumnVariantV2, got {}", nested->get_name());
 }
 
 Status VExplodeV2TableFunction::process_init(Block* block, RuntimeState* state) {

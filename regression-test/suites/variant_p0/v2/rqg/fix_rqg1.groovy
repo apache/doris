@@ -17,8 +17,6 @@
 
 
 suite("variant_rqg_fix1", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
-    assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     def variantV2Function = "parse_to_variant"
     sql """ drop table if exists table_200_undef_partitions2_keys3_properties4_distributed_by5 """
     sql """
@@ -45,5 +43,5 @@ suite("variant_rqg_fix1", "p0,nonConcurrent") {
      sql """ insert into table_200_undef_partitions2_keys3_properties4_distributed_by5 values(20, ${variantV2Function}('{"k1" : 1, "k2" : "str", "k3" : 3, "k4" : "str2"}')) """
 
      qt_sql """ select count() from table_200_undef_partitions2_keys3_properties4_distributed_by5 where cast(var['k2'] as string) > 'bea' """
-    }
+
 }

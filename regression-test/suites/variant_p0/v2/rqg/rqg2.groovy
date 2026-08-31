@@ -18,8 +18,6 @@
 import org.apache.doris.regression.util.SqlUtils
 
 suite("rqg2", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
-        assertTrue(getFeConfig("enable_variant_v2").toBoolean())
         StringBuilder sqlBuilder = new StringBuilder()
         sqlBuilder.append($/
 CREATE TABLE IF NOT EXISTS table_500_undef_partitions2_keys3_properties4_distributed_by5 ( pk int, var VARIANT NULL ) engine=olap DUPLICATE KEY(pk) distributed by hash(pk) buckets 10 properties("replication_num" = "1");
@@ -79,5 +77,5 @@ SELECT  CAST(table1 . var['col_date_undef_signed'] AS date)  AS field1 FROM tabl
         if (!exceptions.isEmpty()) {
             throw new IllegalStateException("exceptions : ${exceptions}")
         }
-    }
+
 }

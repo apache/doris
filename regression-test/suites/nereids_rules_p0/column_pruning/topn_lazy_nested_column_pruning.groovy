@@ -16,7 +16,7 @@
 // under the License.
 
 suite("topn_lazy_nested_column_pruning") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     sql """ set topn_lazy_materialization_threshold=1024; """
     sql """ DROP TABLE IF EXISTS tlncp_tbl """
     sql """

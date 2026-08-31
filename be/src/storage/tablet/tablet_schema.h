@@ -323,10 +323,7 @@ private:
     PatternTypePB _pattern_type = PatternTypePB::MATCH_NAME_GLOB;
 
     VariantParams _variant;
-    // TODO: Remove this transient read-schema marker after legacy ColumnVariant destinations are
-    // deleted and Variant readers always produce ColumnVariantV2. It only selects the in-memory
-    // compute destination and must never be serialized into tablet or segment metadata.
-    bool _variant_is_v2 = false;
+    bool _variant_is_v2 = true;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);

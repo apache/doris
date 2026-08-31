@@ -165,7 +165,7 @@ TEST(CastVariantV2ToTest, IpScalarSourcesUseTypedIdentityWhitelist) {
               ipv6_source.get());
 }
 
-TEST(CastVariantV2ToTest, StringTypesAreStringScalarsAndAreNotParsed) {
+TEST(CastVariantV2ToTest, StringTypesParseJsonDocuments) {
     const std::array<DataTypePtr, 3> source_types {
             std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(16, TYPE_CHAR),
             std::make_shared<DataTypeString>(64, TYPE_VARCHAR)};
@@ -177,10 +177,12 @@ TEST(CastVariantV2ToTest, StringTypesAreStringScalarsAndAreNotParsed) {
         auto encoded = IColumn::mutate(cast.column);
         auto& variant = assert_cast<ColumnVariantV2&>(*encoded);
         variant.ensure_encoded();
-        ASSERT_EQ(variant.get_value_ref(0).basic_type(), VariantBasicType::SHORT_STRING)
+        ASSERT_EQ(variant.get_value_ref(0).basic_type(), VariantBasicType::OBJECT)
                 << source_type->get_name();
-        EXPECT_EQ(variant.get_value_ref(0).get_string(), StringRef(R"({"a":1})"))
+        VariantRef field;
+        ASSERT_TRUE(variant.get_value_ref(0).object_find(StringRef("a"), &field))
                 << source_type->get_name();
+        EXPECT_EQ(field.get_int(), 1) << source_type->get_name();
     }
 }
 

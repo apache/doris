@@ -16,13 +16,13 @@
 // under the License.
 
 suite("variant_different_max_subcolumns_count", "p0") {
-    
-    
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+
+
+    def variantV2Function = "parse_to_variant"
     def table_name = "variant_different_max_subcolumns_count"
     sql """ set default_variant_enable_doc_mode = false """
     sql "DROP TABLE IF EXISTS ${table_name}"
-    sql """ 
+    sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
             v variant<'a' : int, 'b' : string, properties("variant_max_subcolumns_count" = "0", "variant_enable_typed_paths_to_sparse" = "false")>,
@@ -68,7 +68,7 @@ suite("variant_different_max_subcolumns_count", "p0") {
 
     trigger_and_wait_compaction(table_name, "full", 1800)
     qt_sql "select v['a'], v['b'], v['c'], v2['a'], v2['b'], v2['c'], v3['a'], v3['b'], v3['c'], v4['a'], v4['b'], v4['c'], * from ${table_name} order by k"
-    
+
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (

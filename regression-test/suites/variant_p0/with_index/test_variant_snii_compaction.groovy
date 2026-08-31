@@ -16,7 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_snii_compaction", "p0, nonConcurrent"){
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def table_name = "var_snii_compaction"
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """

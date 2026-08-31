@@ -18,8 +18,6 @@
 import org.apache.doris.regression.util.SqlUtils
 
 suite("rqg6", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: false]) {
-        assertFalse(getFeConfig("enable_variant_v2").toBoolean())
         StringBuilder sqlBuilder = new StringBuilder()
         sqlBuilder.append($/
 -- MySQL dump 10.13  Distrib 8.0.41, for Linux (x86_64)
@@ -110,5 +108,5 @@ select bit_length( CAST(var['col_string_undef_signed'] AS string) )  col_alias25
         if (!exceptions.isEmpty()) {
             throw new IllegalStateException("exceptions : ${exceptions}")
         }
-    }
+
 }

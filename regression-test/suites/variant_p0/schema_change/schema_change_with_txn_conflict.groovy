@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_schema_change_txn_conflict", "nonConcurrent") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     if (!isCloudMode()) {
         return
     }

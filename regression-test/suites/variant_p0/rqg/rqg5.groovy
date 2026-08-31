@@ -18,8 +18,6 @@
 import org.apache.doris.regression.util.SqlUtils
 
 suite("rqg5", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: false]) {
-        assertFalse(getFeConfig("enable_variant_v2").toBoolean())
         StringBuilder sqlBuilder = new StringBuilder()
         sqlBuilder.append($/
 CREATE TABLE table_50_undef_partitions2_keys3_properties4_distributed_by53 ( pk int, var VARIANT NULL ) engine=olap DUPLICATE KEY(pk) distributed by hash(pk) buckets 10 properties("replication_num" = "1");
@@ -83,5 +81,5 @@ SELECT  T1.pk AS C1   FROM table_50_undef_partitions2_keys3_properties4_distribu
         if (!exceptions.isEmpty()) {
             throw new IllegalStateException("exceptions : ${exceptions}")
         }
-    }
+
 }

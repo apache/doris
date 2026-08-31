@@ -16,8 +16,6 @@
 // under the License.
 
 suite("regression_test_variant_types", "var_view,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
-    assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     def variantV2Function = "parse_to_variant"
     def table_name = "test_variant_types"
     def checkSupportedValues = {
@@ -125,5 +123,5 @@ suite("regression_test_variant_types", "var_view,nonConcurrent") {
     qt_sql """select * from ${table_name} order by id"""
 
     qt_sql_array_json "desc ${table_name}"
-    }
+
 }

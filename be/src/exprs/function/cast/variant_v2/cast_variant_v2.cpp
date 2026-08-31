@@ -21,6 +21,7 @@
 
 #include "common/exception.h"
 #include "core/assert_cast.h"
+#include "core/column/column_string.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/custom_allocator.h"
 #include "core/data_type/data_type_array.h"
@@ -122,6 +123,23 @@ Status execute_to_variant(const DataTypePtr& captured_from_type, FunctionContext
         } else if (primitive == TYPE_ARRAY) {
             RETURN_IF_ERROR(cast_array_to_variant(source_ptr, from_type, rows,
                                                   forced_nulls(null_map, rows), &output));
+        } else if (is_string_type(primitive)) {
+            const auto* strings = check_and_get_column<ColumnString>(source);
+            DORIS_CHECK(strings != nullptr);
+            DORIS_CHECK_EQ(strings->size(), rows);
+            JsonStringToVariantEncoder encoder(JsonToVariantOptions::current_config());
+            const StringRef null_json("null", 4);
+            for (size_t row = 0; row < rows; ++row) {
+                if (null_map != nullptr && null_map[row] != 0) {
+                    encoder.add_json(null_json);
+                    continue;
+                }
+                RETURN_IF_ERROR(encoder.try_add_json(strings->get_data_at(row)));
+            }
+            VariantBatchBuilder encoded_block = encoder.finish_batch();
+            auto values = ColumnVariantV2::create();
+            values->insert_encoded_batch(encoded_block);
+            output = std::move(values);
         } else if (is_supported_scalar_source(from_type)) {
             RETURN_IF_ERROR(cast_scalar_to_variant(source_ptr, from_type, rows,
                                                    forced_nulls(null_map, rows), &output));

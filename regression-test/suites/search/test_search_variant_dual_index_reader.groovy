@@ -34,7 +34,7 @@
  * After fix:  search() returns matching rows (correct FULLTEXT reader selected)
  */
 suite("test_search_variant_dual_index_reader", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def tableName = "test_variant_dual_index_reader"
 
     sql """ set enable_match_without_inverted_index = false """

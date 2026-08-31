@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_bm25_score", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     sql "DROP TABLE IF EXISTS test_bm25_score"
 
     sql """

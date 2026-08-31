@@ -67,7 +67,7 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
     @Override
     public void checkLegalityAfterRewrite() {
         for (Expression argument : getArguments()) {
-            Count.checkLegacyVariantArgument(argument, new Count(true, argument));
+            Count.checkDistinctArgument(argument, new Count(true, argument));
         }
     }
 

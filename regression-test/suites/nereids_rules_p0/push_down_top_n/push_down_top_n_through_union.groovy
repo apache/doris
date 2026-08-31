@@ -16,8 +16,8 @@
 // under the License.
 
 suite("push_down_top_n_through_union") {
-    def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
-    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
+    def enableVariantV2 = true
+    def variantV2Function = "parse_to_variant"
     sql "SET enable_nereids_planner=true"
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"

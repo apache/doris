@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_variant_modify_doc_materialization_min_rows", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def tableName = "test_variant_modify_doc_min_rows"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
