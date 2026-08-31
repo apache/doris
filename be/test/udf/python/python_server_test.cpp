@@ -18,6 +18,7 @@
 #include "udf/python/python_server.h"
 
 #include <arrow/api.h>
+#include <arrow/flight/server.h>
 #include <gtest/gtest.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -43,6 +44,37 @@ namespace doris {
 
 namespace fs = std::filesystem;
 namespace bp = boost::process;
+
+class ActionResultFlightServer final : public arrow::flight::FlightServerBase {
+public:
+    explicit ActionResultFlightServer(std::vector<std::string> results)
+            : _results(std::move(results)) {}
+
+    arrow::Status start() {
+        auto location = arrow::flight::Location::ForGrpcTcp("localhost", 0);
+        if (!location.ok()) {
+            return location.status();
+        }
+        return Init(arrow::flight::FlightServerOptions(*location));
+    }
+
+    ~ActionResultFlightServer() override { static_cast<void>(Shutdown()); }
+
+    arrow::Status DoAction(const arrow::flight::ServerCallContext&,
+                           const arrow::flight::Action&,
+                           std::unique_ptr<arrow::flight::ResultStream>* result) override {
+        std::vector<arrow::flight::Result> flight_results;
+        flight_results.reserve(_results.size());
+        for (const auto& body : _results) {
+            flight_results.emplace_back(arrow::Buffer::FromString(body));
+        }
+        *result = std::make_unique<arrow::flight::SimpleResultStream>(std::move(flight_results));
+        return arrow::Status::OK();
+    }
+
+private:
+    std::vector<std::string> _results;
+};
 
 class PythonServerTest : public ::testing::Test {
 protected:
@@ -668,6 +700,34 @@ TEST_F(PythonServerTest, BroadcastActionWithInvalidProcessUriReturnsError) {
     EXPECT_NE(status.to_string().find("clear_udaf_state_cache failed for function_id=12345"),
               std::string::npos);
     EXPECT_NE(status.to_string().find("success=0, failed=1"), std::string::npos);
+
+    mgr.shutdown();
+}
+
+TEST_F(PythonServerTest, BroadcastActionReportsFailedFlightResults) {
+    ActionResultFlightServer success_server({R"({"success": true})"});
+    ASSERT_TRUE(success_server.start().ok());
+    ActionResultFlightServer failed_server(
+            {R"({"success": false, "error": "cache clear failed"})"});
+    ASSERT_TRUE(failed_server.start().ok());
+
+    PythonServerManager mgr;
+    PythonVersion version("3.9.16", test_dir_, test_dir_ + "/bin/python3");
+    ProcessPtr success_process = create_sleep_process();
+    ASSERT_NE(success_process, nullptr);
+    ASSERT_TRUE(success_process->is_alive());
+    success_process->set_uri_for_test(success_server.location().ToString());
+    ProcessPtr failed_process = create_sleep_process();
+    ASSERT_NE(failed_process, nullptr);
+    ASSERT_TRUE(failed_process->is_alive());
+    failed_process->set_uri_for_test(failed_server.location().ToString());
+
+    mgr.set_process_pool_for_test(version, {success_process, failed_process});
+    auto status = mgr.clear_module_cache("/tmp/test_udf");
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("success=1, failed=1"), std::string::npos);
+    EXPECT_NE(status.to_string().find("cache clear failed"), std::string::npos);
 
     mgr.shutdown();
 }
