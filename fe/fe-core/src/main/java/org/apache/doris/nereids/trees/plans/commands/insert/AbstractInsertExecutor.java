@@ -268,7 +268,9 @@ public abstract class AbstractInsertExecutor {
             // Pre-execution work may register external resources, so it must share the transaction cleanup scope.
             beforeExec();
             executor.updateProfile(false);
-            execImpl(executor);
+            if (!emptyInsert) {
+                execImpl(executor);
+            }
             checkStrictModeAndFilterRatio();
             for (InsertExecutorListener listener : listeners) {
                 listener.beforeComplete(this, executor, jobId);
@@ -298,6 +300,14 @@ public abstract class AbstractInsertExecutor {
 
     public boolean isEmptyInsert() {
         return emptyInsert;
+    }
+
+    /**
+     * Return whether this insert needs its transaction lifecycle. A Table Stream offset update
+     * must be committed even when optimization proves that the target receives no rows.
+     */
+    public boolean requiresTransaction() {
+        return !emptyInsert || !streamUpdateInfos.isEmpty();
     }
 
     public void setStreamUpdateInfos(List<TableStreamUpdateInfo> streamUpdateInfos) {
