@@ -100,6 +100,7 @@ import java.util.stream.Stream;
 public class IcebergMetadataOps implements ExternalMetadataOps {
 
     private static final Logger LOG = LogManager.getLogger(IcebergMetadataOps.class);
+    private static final String PROP_LOCATION = "location";
     protected Catalog catalog;
     protected ExternalCatalog dorisCatalog;
     protected SupportsNamespaces nsCatalog;
@@ -250,13 +251,32 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
         if (!properties.isEmpty() && dorisCatalog instanceof IcebergExternalCatalog) {
             String icebergCatalogType = ((IcebergExternalCatalog) dorisCatalog).getIcebergCatalogType();
-            if (!IcebergExternalCatalog.ICEBERG_HMS.equals(icebergCatalogType)) {
-                throw new DdlException(
-                    "Not supported: create database with properties for iceberg catalog type: " + icebergCatalogType);
-            }
+            validateDatabaseProperties(icebergCatalogType, properties);
         }
         nsCatalog.createNamespace(getNamespace(dbName), properties);
         return false;
+    }
+
+    private boolean supportsDatabaseProperties(String catalogType) {
+        return IcebergExternalCatalog.ICEBERG_HMS.equals(catalogType)
+                || IcebergExternalCatalog.ICEBERG_JDBC.equals(catalogType)
+                || IcebergExternalCatalog.ICEBERG_GLUE.equals(catalogType);
+    }
+
+    private boolean supportsDatabaseLocation(String catalogType) {
+        return IcebergExternalCatalog.ICEBERG_HMS.equals(catalogType)
+                || IcebergExternalCatalog.ICEBERG_GLUE.equals(catalogType);
+    }
+
+    private void validateDatabaseProperties(String catalogType, Map<String, String> properties) throws DdlException {
+        if (!supportsDatabaseProperties(catalogType)) {
+            throw new DdlException(
+                    "Not supported: create database with properties for iceberg catalog type: " + catalogType);
+        }
+        if (properties.containsKey(PROP_LOCATION) && !supportsDatabaseLocation(catalogType)) {
+            throw new DdlException("Not supported: database property 'location' for iceberg catalog type: "
+                    + catalogType + " because it does not determine the default table location");
+        }
     }
 
     @Override
