@@ -165,6 +165,28 @@ private:
     std::promise<std::string>* _close_status;
 };
 
+class FragmentCancelLogSink final : public google::LogSink {
+public:
+    void send(google::LogSeverity /*severity*/, const char* /*full_filename*/,
+              const char* /*base_filename*/, int /*line*/, const google::LogMessageTime& /*time*/,
+              const char* message, std::size_t message_len) override {
+        std::string log(message, message_len);
+        if (log.find("PipelineFragmentContext::cancel") != std::string::npos) {
+            cancel_count.fetch_add(1, std::memory_order_relaxed);
+        }
+        if (log.find("PipelineFragmentContext is cancelled due to timeout") != std::string::npos) {
+            timeout_dump_count.fetch_add(1, std::memory_order_relaxed);
+        }
+        if (log.find("PipelineFragmentContext cancel instance") != std::string::npos) {
+            instance_cancel_count.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    std::atomic<int> cancel_count {0};
+    std::atomic<int> timeout_dump_count {0};
+    std::atomic<int> instance_cancel_count {0};
+};
+
 TEST_F(PipelineTaskTest, TEST_CONSTRUCTOR) {
     auto num_instances = 1;
     auto pip_id = 0;
@@ -816,6 +838,90 @@ TEST_F(PipelineTaskTest, TEST_SCHEDULER_CATCH_STD_EXCEPTION) {
               std::string::npos)
             << close_status_string;
     EXPECT_TRUE(_context->is_canceled());
+}
+
+TEST_F(PipelineTaskTest, TEST_FRAGMENT_CANCEL_AND_CLOSE_LIFECYCLE) {
+    _context->_runtime_state = std::move(_runtime_state);
+    _context->_fragment_level_profile = std::make_unique<RuntimeProfile>("Fragment");
+    _context->_total_tasks = 1;
+    TUniqueId fragment_instance_id;
+    fragment_instance_id.__set_hi(1);
+    fragment_instance_id.__set_lo(1);
+    _context->_fragment_instance_ids.push_back(fragment_instance_id);
+
+    auto* exec_env = ExecEnv::GetInstance();
+    bool need_clear_new_load_stream_mgr = exec_env->new_load_stream_mgr() == nullptr;
+    if (need_clear_new_load_stream_mgr) {
+        exec_env->set_new_load_stream_mgr(NewLoadStreamMgr::create_unique());
+    }
+    Defer clear_new_load_stream_mgr {[&]() {
+        if (need_clear_new_load_stream_mgr) {
+            exec_env->clear_new_load_stream_mgr();
+        }
+    }};
+
+    FragmentCancelLogSink log_sink;
+    google::AddLogSink(&log_sink);
+    Defer remove_log_sink {[&]() { google::RemoveLogSink(&log_sink); }};
+
+    Status timeout = Status::TimedOut("test timeout");
+    std::atomic<bool> start {false};
+    auto cancel = [&]() {
+        while (!start.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+        _context->cancel(timeout);
+    };
+    std::thread first(cancel);
+    std::thread second(cancel);
+    std::thread third(cancel);
+    start.store(true, std::memory_order_release);
+    first.join();
+    second.join();
+    third.join();
+    _context->cancel(Status::InternalError("later cancellation"));
+
+    EXPECT_EQ(log_sink.cancel_count.load(std::memory_order_relaxed), 1);
+    EXPECT_EQ(log_sink.timeout_dump_count.load(std::memory_order_relaxed), 1);
+    EXPECT_EQ(log_sink.instance_cancel_count.load(std::memory_order_relaxed), 1);
+    EXPECT_EQ(_context->_lifecycle_state.load(std::memory_order_acquire),
+              PipelineFragmentContext::LifecycleState::CANCELLING);
+
+    _context->_closed_tasks = 1;
+    _context->_need_notify_close = true;
+    {
+        std::lock_guard<std::mutex> lock(_context->_task_mutex);
+        EXPECT_FALSE(_context->_close_fragment_instance());
+        EXPECT_FALSE(_context->_close_fragment_instance());
+    }
+    EXPECT_EQ(_context->_lifecycle_state.load(std::memory_order_acquire),
+              PipelineFragmentContext::LifecycleState::CLOSED);
+
+    _context->_need_notify_close = false;
+    _context->cancel(Status::InternalError("cancel after close"));
+    EXPECT_EQ(log_sink.cancel_count.load(std::memory_order_relaxed), 1);
+}
+
+TEST_F(PipelineTaskTest, TEST_FRAGMENT_NORMAL_CLOSE_LIFECYCLE) {
+    _context->_runtime_state = std::move(_runtime_state);
+    _context->_fragment_level_profile = std::make_unique<RuntimeProfile>("Fragment");
+    _context->_need_notify_close = true;
+
+    EXPECT_EQ(_context->_lifecycle_state.load(std::memory_order_acquire),
+              PipelineFragmentContext::LifecycleState::CREATED);
+    {
+        std::lock_guard<std::mutex> lock(_context->_task_mutex);
+        EXPECT_FALSE(_context->_close_fragment_instance());
+        EXPECT_FALSE(_context->_close_fragment_instance());
+    }
+    EXPECT_EQ(_context->_lifecycle_state.load(std::memory_order_acquire),
+              PipelineFragmentContext::LifecycleState::CLOSED);
+
+    _context->_need_notify_close = false;
+    _context->cancel(Status::TimedOut("cancel after successful close"));
+    EXPECT_FALSE(_context->is_canceled());
+    EXPECT_EQ(_context->_lifecycle_state.load(std::memory_order_acquire),
+              PipelineFragmentContext::LifecycleState::CLOSED);
 }
 
 TEST_F(PipelineTaskTest, TEST_FINALIZED_TASK_REJECTS_HYBRID_SUBMIT) {

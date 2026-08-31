@@ -152,6 +152,21 @@ public:
     }
 
 private:
+    // Fragment termination lifecycle (monotonic, with no backward transitions):
+    //
+    //     CREATED -------- normal close --------> CLOSING -------- close done --------> CLOSED
+    //        |                                      ^
+    //        +-------- cancel --------> CANCELLING --+
+    //
+    // The CREATED -> CANCELLING transition elects the sole cancellation owner. A transition
+    // from CREATED or CANCELLING to CLOSING elects the sole close owner.
+    enum class LifecycleState : uint8_t {
+        CREATED,
+        CANCELLING,
+        CLOSING,
+        CLOSED,
+    };
+
     void _coordinator_callback(const ReportStatusRequest& req);
     void _append_external_file_commit_data(const ReportStatusRequest& req,
                                            TReportExecStatusParams* params) const;
@@ -207,6 +222,7 @@ private:
     Status _build_pipeline_tasks_for_instance(
             int instance_idx,
             const std::vector<std::shared_ptr<RuntimeProfile>>& pipeline_id_to_profile);
+    bool _try_start_close();
     // Close the fragment instance and return true if the caller should call
     // remove_pipeline_context() **after** releasing _task_mutex. This avoids
     // holding _task_mutex while acquiring _pipeline_map's shard lock, which
@@ -222,6 +238,8 @@ private:
 
     std::atomic_bool _prepared = false;
     bool _submitted = false;
+    // Cancellation is a terminal path that drains into close. Prepare and submit are orthogonal.
+    std::atomic<LifecycleState> _lifecycle_state {LifecycleState::CREATED};
 
     Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;
@@ -250,7 +268,6 @@ private:
     RuntimeProfile::Counter* _build_tasks_timer = nullptr;
 
     std::function<void(RuntimeState*, Status*)> _call_back;
-    std::atomic_bool _is_fragment_instance_closed = false;
 
     // 0 indicates reporting is in progress or not required
     std::atomic_bool _disable_period_report = true;
