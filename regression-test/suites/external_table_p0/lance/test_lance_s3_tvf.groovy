@@ -85,7 +85,8 @@ suite("test_lance_s3_tvf", "p0,external") {
                 duration_ms_col,
                 duration_us_col,
                 duration_ns_col,
-                hex(blob_col) AS blob_col,
+                blob_col.kind AS blob_kind,
+                blob_col.size AS blob_size,
                 CAST(json_col AS STRING) AS json_col,
                 bfloat16_vector_col
             FROM ${lanceTvf}

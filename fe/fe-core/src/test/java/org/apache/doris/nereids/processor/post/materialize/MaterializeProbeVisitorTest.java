@@ -72,9 +72,9 @@ class MaterializeProbeVisitorTest {
                 relation, new MaterializeProbeVisitor.ProbeContext(nestedSlot)).isPresent());
     }
 
-    /** Verifies vector_search keeps binary columns out of row-id fetches. */
+    /** Verifies vector_search can lazily fetch a plain VARBINARY column (no longer blanket-blocked). */
     @Test
-    void testVectorSearchKeepsVarbinaryColumnInSearchPhase() {
+    void testVectorSearchAllowsVarbinaryColumnLazyMaterialization() {
         MaterializeProbeVisitor visitor = new MaterializeProbeVisitor();
         PhysicalTVFRelation relation = mockVectorSearchRelation();
         SlotReference varbinarySlot = Mockito.mock(SlotReference.class);
@@ -84,7 +84,7 @@ class MaterializeProbeVisitorTest {
         Mockito.when(relation.getOutput()).thenReturn(Collections.singletonList(varbinarySlot));
         Mockito.when(relation.getOperativeSlots()).thenReturn(Collections.emptyList());
 
-        Assertions.assertFalse(visitor.visitPhysicalTVFRelation(
+        Assertions.assertTrue(visitor.visitPhysicalTVFRelation(
                 relation, new MaterializeProbeVisitor.ProbeContext(varbinarySlot)).isPresent());
     }
 

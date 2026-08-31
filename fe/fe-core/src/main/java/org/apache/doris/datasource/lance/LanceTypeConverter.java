@@ -161,9 +161,7 @@ public final class LanceTypeConverter {
                                 && ((ArrowType.FixedSizeBinary) storageType).getByteWidth() == 2
                         ? Type.FLOAT : Type.UNSUPPORTED;
             case LANCE_BLOB_V2_EXTENSION:
-                return isBlobV2Storage(field)
-                        ? ScalarType.createVarbinaryType(ScalarType.MAX_VARBINARY_LENGTH)
-                        : Type.UNSUPPORTED;
+                return isBlobV2Storage(field) ? blobV2DescriptorType() : Type.UNSUPPORTED;
             default:
                 return Type.UNSUPPORTED;
         }
@@ -185,6 +183,20 @@ public final class LanceTypeConverter {
         return children.size() == 2
                 || (isUnsignedIntegerField(children.get(2), "position", 64)
                         && isUnsignedIntegerField(children.get(3), "size", 64));
+    }
+
+    /**
+     * Maps Lance Blob v2 to the descriptor Struct that lance-c returns by default, exposing where a
+     * Blob lives without materializing its payload (a single value can reach gigabytes).
+     */
+    private static Type blobV2DescriptorType() {
+        ArrayList<StructField> fields = new ArrayList<>();
+        fields.add(new StructField("kind", Type.SMALLINT));
+        fields.add(new StructField("position", Type.LARGEINT));
+        fields.add(new StructField("size", Type.LARGEINT));
+        fields.add(new StructField("blob_id", Type.BIGINT));
+        fields.add(new StructField("blob_uri", Type.STRING));
+        return new StructType(fields);
     }
 
     /** Checks a field's name and Arrow type. */

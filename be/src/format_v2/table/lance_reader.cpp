@@ -144,13 +144,19 @@ Status get_lance_extension(const std::shared_ptr<arrow::Field>& field,
         return Status::OK();
     }
     if (*extension_name == LANCE_BLOB_V2_EXTENSION) {
+        // A materialized LARGE_BINARY payload means the scanner was forced into
+        // BlobHandling::AllBinary. Reject it: Doris only exposes the descriptor and never pulls
+        // the (potentially multi-gigabyte) Blob content into memory.
         if ((*storage_type)->id() == arrow::Type::LARGE_BINARY) {
-            *extension_kind = LanceExtensionKind::BLOB_V2;
-            return Status::OK();
+            return Status::NotSupported(
+                    "Lance Blob v2 field '{}' returned a materialized binary payload; expected a "
+                    "descriptor struct (keep the default BlobHandling::BlobsDescriptions)",
+                    field->name());
         }
         if ((*storage_type)->id() != arrow::Type::STRUCT) {
             return Status::NotSupported(
-                    "Lance Blob v2 extension for field '{}' requires STRUCT storage, got {}",
+                    "Lance Blob v2 extension for field '{}' requires descriptor STRUCT storage, "
+                    "got {}",
                     field->name(), (*storage_type)->ToString());
         }
         const auto& fields = (*storage_type)->fields();
@@ -158,19 +164,17 @@ Status get_lance_extension(const std::shared_ptr<arrow::Field>& field,
                                       std::string_view name, arrow::Type::type type) {
             return child->name() == name && child->type()->id() == type;
         };
-        const bool minimal_layout =
-                fields.size() == 2 &&
-                field_matches(fields[0], "data", arrow::Type::LARGE_BINARY) &&
-                field_matches(fields[1], "uri", arrow::Type::STRING);
-        const bool complete_layout =
-                fields.size() == 4 &&
-                field_matches(fields[0], "data", arrow::Type::LARGE_BINARY) &&
-                field_matches(fields[1], "uri", arrow::Type::STRING) &&
-                field_matches(fields[2], "position", arrow::Type::UINT64) &&
-                field_matches(fields[3], "size", arrow::Type::UINT64);
-        if (!minimal_layout && !complete_layout) {
+        // lance-c returns the Blob v2 descriptor as this fixed 5-field struct (Lance
+        // BLOB_V2_DESC_FIELDS): where a Blob lives and how large it is, never its bytes.
+        const bool descriptor_layout = fields.size() == 5 &&
+                                       field_matches(fields[0], "kind", arrow::Type::UINT8) &&
+                                       field_matches(fields[1], "position", arrow::Type::UINT64) &&
+                                       field_matches(fields[2], "size", arrow::Type::UINT64) &&
+                                       field_matches(fields[3], "blob_id", arrow::Type::UINT32) &&
+                                       field_matches(fields[4], "blob_uri", arrow::Type::STRING);
+        if (!descriptor_layout) {
             return Status::NotSupported(
-                    "Lance Blob v2 extension for field '{}' has invalid storage layout: {}",
+                    "Lance Blob v2 extension for field '{}' has unexpected descriptor layout: {}",
                     field->name(), (*storage_type)->ToString());
         }
         *extension_kind = LanceExtensionKind::BLOB_V2;
@@ -362,8 +366,10 @@ Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
     case LanceExtensionKind::BFLOAT16:
         return nullable_primitive(TYPE_FLOAT);
     case LanceExtensionKind::BLOB_V2:
-        return nullable_primitive(TYPE_VARBINARY, 0, 0,
-                                  std::numeric_limits<int32_t>::max());
+        // The storage type is the descriptor struct validated in get_lance_extension. Fall through
+        // to the generic struct mapping below so it becomes STRUCT<kind, position, size, blob_id,
+        // blob_uri>; the Blob payload is never read.
+        break;
     case LanceExtensionKind::NONE:
         break;
     }

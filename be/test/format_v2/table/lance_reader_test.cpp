@@ -56,6 +56,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "exec/common/endian.h"
 #include "exprs/vexpr.h"
@@ -951,10 +952,11 @@ TEST(LanceTableReaderSchemaTest, MapsAdditionalTypesAndPreservesUnknownExtension
             arrow::field("item", arrow::fixed_size_binary(2))->WithMetadata(
                     bfloat16_extension_metadata);
     const auto blob_type = arrow::struct_({
-            arrow::field("data", arrow::large_binary()),
-            arrow::field("uri", arrow::utf8()),
-            arrow::field("position", arrow::uint64()),
-            arrow::field("size", arrow::uint64()),
+            arrow::field("kind", arrow::uint8(), false),
+            arrow::field("position", arrow::uint64(), false),
+            arrow::field("size", arrow::uint64(), false),
+            arrow::field("blob_id", arrow::uint32(), false),
+            arrow::field("blob_uri", arrow::utf8(), false),
     });
     const auto arrow_schema = arrow::schema({
             arrow::field("row_id", arrow::int64()),
@@ -985,7 +987,17 @@ TEST(LanceTableReaderSchemaTest, MapsAdditionalTypesAndPreservesUnknownExtension
     EXPECT_TRUE(column_types[1]->is_null_literal());
     EXPECT_EQ(TYPE_BIGINT, column_types[2]->get_primitive_type());
     EXPECT_EQ(TYPE_JSONB, column_types[3]->get_primitive_type());
-    EXPECT_EQ(TYPE_VARBINARY, column_types[4]->get_primitive_type());
+    ASSERT_EQ(TYPE_STRUCT, column_types[4]->get_primitive_type());
+    const auto& blob_struct =
+            assert_cast<const DataTypeStruct&>(*remove_nullable(column_types[4]));
+    ASSERT_EQ(5, blob_struct.get_elements().size());
+    EXPECT_EQ((Strings {"kind", "position", "size", "blob_id", "blob_uri"}),
+              blob_struct.get_element_names());
+    EXPECT_EQ(TYPE_SMALLINT, blob_struct.get_element(0)->get_primitive_type());
+    EXPECT_EQ(TYPE_LARGEINT, blob_struct.get_element(1)->get_primitive_type());
+    EXPECT_EQ(TYPE_LARGEINT, blob_struct.get_element(2)->get_primitive_type());
+    EXPECT_EQ(TYPE_BIGINT, blob_struct.get_element(3)->get_primitive_type());
+    EXPECT_EQ(TYPE_STRING, blob_struct.get_element(4)->get_primitive_type());
     ASSERT_EQ(TYPE_ARRAY, column_types[5]->get_primitive_type());
     const auto& bfloat16_array =
             assert_cast<const DataTypeArray&>(*remove_nullable(column_types[5]));
@@ -1143,8 +1155,11 @@ TEST(LanceTableReaderTypeTest, ReadsAdditionalTypesFromCompatibilityFixture) {
             "all_types.lance";
     const auto bfloat16_array_type = make_nullable(
             std::make_shared<DataTypeArray>(nullable_type(TYPE_FLOAT)));
-    const auto blob_type = DataTypeFactory::instance().create_data_type(
-            TYPE_VARBINARY, true, 0, 0, std::numeric_limits<int32_t>::max());
+    const auto blob_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {nullable_type(TYPE_SMALLINT), nullable_type(TYPE_LARGEINT),
+                       nullable_type(TYPE_LARGEINT), nullable_type(TYPE_BIGINT),
+                       nullable_type(TYPE_STRING)},
+            Strings {"kind", "position", "size", "blob_id", "blob_uri"}));
     const Columns columns {
             projected_column("row_id", TYPE_BIGINT, false),
             projected_column("null_col", nullable_type(TYPE_NULL)),
@@ -1196,12 +1211,20 @@ TEST(LanceTableReaderTypeTest, ReadsAdditionalTypesFromCompatibilityFixture) {
                 EXPECT_EQ(expected_durations[duration_idx], values.get_data()[row]);
             }
 
+            // Blob v2 is exposed as its descriptor struct, never the payload bytes: the reader
+            // only ever sees where a Blob lives and how large it is. size is the byte length of
+            // the original "blob payload" content; the remaining descriptor fields depend on how
+            // the fixture stored the Blob and are asserted for presence here.
             const auto& blobs =
                     assert_cast<const ColumnNullable&>(*block.get_by_position(6).column);
-            const auto& blob_values =
-                    assert_cast<const ColumnVarbinary&>(blobs.get_nested_column());
+            const auto& blob_struct =
+                    assert_cast<const ColumnStruct&>(blobs.get_nested_column());
+            ASSERT_EQ(5, blob_struct.tuple_size());
             EXPECT_EQ(0, blobs.get_null_map_data()[row]);
-            EXPECT_EQ("blob payload", blob_values.get_data_at(row).to_string());
+            const auto& blob_sizes = assert_cast<const ColumnInt128&>(
+                    assert_cast<const ColumnNullable&>(blob_struct.get_column(2))
+                            .get_nested_column());
+            EXPECT_EQ(std::string("blob payload").size(), blob_sizes.get_data()[row]);
 
             const auto& json_values =
                     assert_cast<const ColumnNullable&>(*block.get_by_position(7).column);

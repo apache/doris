@@ -162,7 +162,8 @@ public class LanceTypeConverterTest {
                         Field.nullable("position", new ArrowType.Int(64, false)),
                         Field.nullable("size", new ArrowType.Int(64, false))));
         Assertions.assertEquals(
-                "varbinary(" + ScalarType.MAX_VARBINARY_LENGTH + ")",
+                "struct<kind:smallint,position:largeint,size:largeint,"
+                        + "blob_id:bigint,blob_uri:text>",
                 LanceTypeConverter.toDorisType(blobField).toSql());
 
         Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(
