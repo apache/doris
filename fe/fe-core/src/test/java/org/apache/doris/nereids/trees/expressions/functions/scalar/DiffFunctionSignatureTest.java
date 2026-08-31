@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeSignature;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -87,6 +88,52 @@ public class DiffFunctionSignatureTest {
             Assertions.assertInstanceOf(TimeStampTzType.class, signature.getArgType(1),
                     c.name + ": timestamptz arg1 should still bind to TimeStampTzType");
         }
+    }
+
+    /**
+     * Regression test for the review finding on this PR: {@code SearchSignature.doMatchTypes}
+     * summed the timezone preference across arguments, so a call pairing one zoned literal
+     * with one zone-less literal scored {@code +1 - 1 = 0} and tied the DATETIMEV2 signature.
+     * With TIMESTAMPTZ now listed last, that tie silently resolved to DATETIMEV2 - i.e. civil
+     * semantics - instead of preserving instant semantics. Concretely, under
+     * {@code time_zone='America/Los_Angeles'},
+     * {@code hours_diff('2021-03-14 03:30:00-07:00', '2021-03-14 01:30:00')} must still bind
+     * TIMESTAMPTZ so the DST spring-forward boundary is handled as one elapsed hour, not
+     * silently recomputed as two civil hours.
+     */
+    @Test
+    public void testMixedZonedAndZonelessLiteralsKeepTimeStampTz() {
+        FunctionSignature signature = new HoursDiff(
+                new VarcharLiteral("2021-03-14 03:30:00-07:00"),
+                new VarcharLiteral("2021-03-14 01:30:00")).getSignature();
+        Assertions.assertInstanceOf(TimeStampTzType.class, signature.getArgType(0),
+                "zoned literal + zone-less literal: arg0 should bind to TimeStampTzType");
+        Assertions.assertInstanceOf(TimeStampTzType.class, signature.getArgType(1),
+                "zoned literal + zone-less literal: arg1 should bind to TimeStampTzType");
+
+        // Order must not matter: zone-less first, zoned second must also keep TIMESTAMPTZ.
+        FunctionSignature reversed = new HoursDiff(
+                new VarcharLiteral("2021-03-14 01:30:00"),
+                new VarcharLiteral("2021-03-14 03:30:00-07:00")).getSignature();
+        Assertions.assertInstanceOf(TimeStampTzType.class, reversed.getArgType(0),
+                "zone-less literal + zoned literal: arg0 should bind to TimeStampTzType");
+        Assertions.assertInstanceOf(TimeStampTzType.class, reversed.getArgType(1),
+                "zone-less literal + zoned literal: arg1 should bind to TimeStampTzType");
+    }
+
+    /**
+     * Guards apache/doris#64127's intent: when every inspectable literal is zone-less, the
+     * call should still prefer DATETIMEV2 (civil semantics), not TIMESTAMPTZ.
+     */
+    @Test
+    public void testAllZonelessLiteralsUseDateTimeV2() {
+        FunctionSignature signature = new HoursDiff(
+                new VarcharLiteral("2021-03-14 03:30:00"),
+                new VarcharLiteral("2021-03-14 01:30:00")).getSignature();
+        Assertions.assertInstanceOf(DateTimeV2Type.class, signature.getArgType(0),
+                "all zone-less literals: arg0 should bind to DateTimeV2Type");
+        Assertions.assertInstanceOf(DateTimeV2Type.class, signature.getArgType(1),
+                "all zone-less literals: arg1 should bind to DateTimeV2Type");
     }
 
     private static final class NamedDiffConstructor {
