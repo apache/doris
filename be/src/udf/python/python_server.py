@@ -2701,22 +2701,21 @@ class FlightServer(flight.FlightServerBase):
         cleared = []
 
         with ModuleUDFLoader._module_cache_lock:
-            keys_to_remove = [
-                key for key in ModuleUDFLoader._module_cache
-                if key[0] == location
+            module_names_to_remove = [
+                module.__name__
+                for key, module in ModuleUDFLoader._module_cache.items()
+                if key == location
             ]
 
         # For each module, acquire its import lock before clearing.
         # This ensures no concurrent _get_or_import_module is in progress
-        # for this (location, module_name) pair.
-        for key in keys_to_remove:
-            _, module_name = key
+        # for this module.
+        for module_name in module_names_to_remove:
             import_lock = ModuleUDFLoader._get_import_lock(module_name)
 
             with import_lock:
                 with ModuleUDFLoader._module_cache_lock:
-                    if key in ModuleUDFLoader._module_cache:
-                        del ModuleUDFLoader._module_cache[key]
+                    ModuleUDFLoader._module_cache.pop(location, None)
 
                 modules_to_remove = [
                     name for name, mod in sys.modules.items()
