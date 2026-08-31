@@ -369,6 +369,14 @@ be/src/olap/skiplist.h : BSD-style license
 
 --------------------------------------------------------------------------------
 
+be/src/storage/index/inverted/analyzer/kuromoji/dict/darts.h : 2-Clause BSD license (darts-clone)
+
+  Copyright (c) 2008-2014 Susumu Yata. All rights reserved.
+  Vendored from https://github.com/s-yata/darts-clone
+  Full text: dist/licenses/LICENSE-darts-clone.txt
+
+--------------------------------------------------------------------------------
+
 be/src/util/murmur_hash3.h
 be/src/util/murmur_hash3.cpp
 

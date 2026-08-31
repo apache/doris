@@ -38,8 +38,12 @@
 namespace doris::segment_v2::inverted_index::kuromoji {
 
 static std::string real_dict_dir() {
+#ifdef KUROMOJI_SOURCE_DICT_DIR
+    return KUROMOJI_SOURCE_DICT_DIR;
+#else
     const char* home = std::getenv("DORIS_HOME");
     return std::string(home != nullptr ? home : ".") + "/be/dict/kuromoji";
+#endif
 }
 
 static bool real_dict_present() {

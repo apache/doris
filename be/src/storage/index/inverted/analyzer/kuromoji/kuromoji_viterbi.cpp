@@ -88,7 +88,8 @@ int64_t compute_penalty(const KuromojiDictionary& dict, std::string_view text, u
     bool all_kanji = true;
     for (uint32_t p = start; p < end;) {
         const DecodedCp d = decode_utf8(text, p);
-        if (dict.char_category(d.cp) != CAT_KANJI) {
+        const uint8_t cat = dict.char_category(d.cp);
+        if (cat != CAT_KANJI && cat != CAT_KANJINUMERIC) {
             all_kanji = false;
         }
         p += d.len;
