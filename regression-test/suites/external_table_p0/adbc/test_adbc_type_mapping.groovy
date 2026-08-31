@@ -227,7 +227,12 @@ suite("test_adbc_type_mapping", "p0,external") {
         // ---- floating point ----
 
         qt_desc_float """DESC ${catalogName}.${dbName}.t_float"""
-        qt_select_float """SELECT id, c_float, c_double FROM ${catalogName}.${dbName}.t_float ORDER BY id"""
+        // Render the double with the historical 16-digit baseline so DBL_MAX is not reparsed by the
+        // test client. The bit-for-bit comparison below still validates the DOUBLE value inside Doris.
+        qt_select_float """
+            SELECT id, c_float, format('{:.16g}', c_double) AS c_double
+            FROM ${catalogName}.${dbName}.t_float ORDER BY id
+        """
 
         // Compared INSIDE Doris rather than through sameAsSource, and not because ADBC needs the
         // help: the fixture's DBL_MAX cannot make the trip to the test client at all. Doris renders a
