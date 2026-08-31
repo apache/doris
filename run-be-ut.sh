@@ -50,6 +50,9 @@ export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 # shellcheck source=thirdparty/arrow-paimon-vars.sh
 . "${DORIS_HOME}/thirdparty/arrow-paimon-vars.sh"
 
+select_arrow_paimon_home_from_install "${DORIS_THIRDPARTY}/installed" "run-be-ut.sh" ||
+    exit 1
+
 prepare_build_image_arrow_paimon_prebuilt() {
     local selected_thirdparty_root
     local checkout_thirdparty_root

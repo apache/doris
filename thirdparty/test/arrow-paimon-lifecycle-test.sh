@@ -28,6 +28,39 @@ fail() {
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "${tmpdir}"' EXIT
 
+create_nonempty_fixture_file() {
+    local path="$1"
+    mkdir -p "$(dirname "${path}")"
+    printf '%s\n' fixture >"${path}"
+}
+
+create_static_archive_fixture() {
+    local path="$1"
+    local member="${tmpdir}/static-archive-member"
+    mkdir -p "$(dirname "${path}")"
+    printf '%s\n' fixture >"${member}"
+    ar rcs "${path}" "${member}"
+}
+
+create_sdk_header_fixtures() {
+    local install_dir="$1"
+    local header
+
+    for header in "${ARROW_REQUIRED_HEADERS[@]}" "${PAIMON_REQUIRED_HEADERS[@]}"; do
+        create_nonempty_fixture_file "${install_dir}/include/${header}"
+    done
+}
+
+create_library_fixtures() {
+    local install_dir="$1"
+    shift
+    local library
+
+    for library in "$@"; do
+        create_static_archive_fixture "${install_dir}/lib64/${library}"
+    done
+}
+
 create_fingerprint_fixture() {
     local destination="$1"
 
@@ -121,6 +154,40 @@ exercise_semantic_fingerprints() {
 
 # shellcheck source=../arrow-paimon-vars.sh
 . "${ROOT}/arrow-paimon-vars.sh"
+for entrypoint in "${ROOT}/../build.sh" "${ROOT}/../run-be-ut.sh"; do
+    grep -Fq 'select_arrow_paimon_home_from_install' "${entrypoint}" ||
+        fail "$(basename "${entrypoint}") does not enforce the selected Arrow/Paimon home"
+done
+grep -Fq 'set(CMAKE_INSTALL_LIBDIR "lib64"' "${ROOT}/paimon-cpp-cache.cmake" ||
+    fail "the Paimon cache does not enforce the lib64 install contract"
+
+exercise_home_selection() {
+    local install_dir="${tmpdir}/home-selection/installed"
+    local expected_home
+    expected_home="$(arrow_install_dir "${install_dir}")"
+
+    (
+        unset ARROW_HOME PAIMON_HOME
+        select_arrow_paimon_home_from_install "${install_dir}" "lifecycle test"
+        [[ "${ARROW_HOME}" == "${expected_home}" && "${PAIMON_HOME}" == "${expected_home}" ]]
+    ) || fail "default Arrow/Paimon homes were not selected together"
+
+    if (
+        export PAIMON_HOME="${install_dir}"
+        unset ARROW_HOME
+        select_arrow_paimon_home_from_install "${install_dir}" "lifecycle test"
+    ) >/dev/null 2>&1; then
+        fail "a split Arrow/Paimon home was accepted"
+    fi
+    if (
+        export ARROW_HOME="${install_dir}" PAIMON_HOME="${install_dir}"
+        select_arrow_paimon_home_from_install "${install_dir}" "lifecycle test"
+    ) >/dev/null 2>&1; then
+        fail "the legacy root Arrow/Paimon home was accepted by the current consumer"
+    fi
+}
+
+exercise_home_selection
 exercise_semantic_fingerprints
 
 harness="${tmpdir}/harness"
@@ -143,10 +210,11 @@ create_archive() {
     local source_name="$1"
     local archive_name="$2"
     local prefix="$3"
+    local file_count="${4:-3}"
     local index
 
     mkdir -p "${harness}/src/${source_name}"
-    for index in 1 2 3; do
+    for ((index = 1; index <= file_count; ++index)); do
         printf '%s\n' original >"${harness}/src/${source_name}/${prefix}-${index}.txt"
     done
     tar -czf "${harness}/src/${archive_name}" -C "${harness}/src" "${source_name}"
@@ -163,7 +231,7 @@ paimon_archive="paimon-cpp-0a4f4e2.tar.gz"
 
 create_archive "${arrow_source}" "${arrow_archive}" arrow
 create_archive "${arrow_17_source}" "${arrow_17_archive}" arrow17
-create_archive "${paimon_source}" "${paimon_archive}" paimon
+create_archive "${paimon_source}" "${paimon_archive}" paimon 4
 
 arrow_patches=(
     apache-arrow-24.0.0-paimon.patch
@@ -177,13 +245,18 @@ arrow_17_patches=(
 )
 paimon_patches=(
     paimon-cpp-buildutils-static-deps.patch
+    paimon-cpp-empty-row-groups.patch
     paimon-cpp-arrow-24-compatibility.patch
     paimon-cpp-arrow-24-compute.patch
 )
 
-for index in 0 1 2; do
+for index in "${!arrow_patches[@]}"; do
     create_patch "${harness}/patches/${arrow_patches[${index}]}" "arrow-$((index + 1)).txt"
+done
+for index in "${!arrow_17_patches[@]}"; do
     create_patch "${harness}/patches/${arrow_17_patches[${index}]}" "arrow17-$((index + 1)).txt"
+done
+for index in "${!paimon_patches[@]}"; do
     create_patch "${harness}/patches/${paimon_patches[${index}]}" "paimon-$((index + 1)).txt"
 done
 
@@ -226,7 +299,7 @@ exercise_interrupted_patch_set() {
     local applied
     local index
 
-    for applied in 1 2 3; do
+    for ((applied = 1; applied <= ${#patches[@]}; ++applied)); do
         rm -rf "${harness}/src/${source_name}"
         tar -xzf "${harness}/src/${archive_name}" -C "${harness}/src"
         for ((index = 0; index < applied; ++index)); do
@@ -239,7 +312,7 @@ exercise_interrupted_patch_set() {
         TP_DIR="${harness}" DORIS_HOME="${tmpdir}" \
             bash "${harness}/download-thirdparty.sh" "${package}" >/dev/null
 
-        for index in 1 2 3; do
+        for ((index = 1; index <= ${#patches[@]}; ++index)); do
             [[ "$(<"${harness}/src/${source_name}/${prefix}-${index}.txt")" == "patched" ]] ||
                 fail "${package} did not recover after interruption boundary ${applied}"
         done
@@ -275,9 +348,11 @@ exercise_legacy_source_isolation() {
     touch "${harness}/src/${paimon_source}/current-paimon-sentinel"
     TP_DIR="${harness}" DORIS_HOME="${tmpdir}" \
         bash "${harness}/download-thirdparty.sh" PAIMON_CPP_17 >/dev/null
-    [[ "$(<"${harness}/src/${paimon_17_source}/paimon-1.txt")" == "patched" ]] ||
-        fail "Paimon Arrow 17 static dependency patch was not applied"
-    for index in 2 3; do
+    for index in 1 2; do
+        [[ "$(<"${harness}/src/${paimon_17_source}/paimon-${index}.txt")" == "patched" ]] ||
+            fail "Paimon Arrow 17 common patch ${index} was not applied"
+    done
+    for index in 3 4; do
         [[ "$(<"${harness}/src/${paimon_17_source}/paimon-${index}.txt")" == "original" ]] ||
             fail "Paimon Arrow 17 received an Arrow 24-only patch"
     done
@@ -455,12 +530,10 @@ exercise_generic_recovery_dispatch
 # stale Arrow installation pass the shared prebuilt validation.
 prebuilt="${tmpdir}/prebuilt"
 selected_prebuilt="$(arrow_install_dir "${prebuilt}")"
-mkdir -p "${selected_prebuilt}/include/arrow/util" "${selected_prebuilt}/lib64"
+create_sdk_header_fixtures "${selected_prebuilt}"
 printf '#define ARROW_VERSION_STRING "%s"\n' "${ARROW_VERSION}" \
     >"${selected_prebuilt}/include/arrow/util/config.h"
-for library in "${ARROW_PAIMON_REQUIRED_LIBRARIES[@]}"; do
-    touch "${selected_prebuilt}/lib64/${library}"
-done
+create_library_fixtures "${selected_prebuilt}" "${ARROW_PAIMON_REQUIRED_LIBRARIES[@]}"
 
 prepare_arrow_paimon_download_packages "${ARROW_PAIMON_BUILD_PACKAGES[@]}"
 [[ "${ARROW_PAIMON_BUILD_PACKAGES[*]}" == "arrow paimon_cpp" ]] ||
@@ -512,12 +585,11 @@ fi
 
 # A shared prebuilt is complete only when the legacy root stack and the
 # versioned current stack are both present and independently valid.
-mkdir -p "${prebuilt}/include/arrow/util" "${prebuilt}/lib64"
+create_sdk_header_fixtures "${prebuilt}"
 printf '#define ARROW_VERSION_STRING "%s"\n' "${ARROW_17_VERSION}" \
     >"${prebuilt}/include/arrow/util/config.h"
-for library in "${ARROW_17_REQUIRED_LIBRARIES[@]}" "${PAIMON_REQUIRED_LIBRARIES[@]}"; do
-    touch "${prebuilt}/lib64/${library}"
-done
+create_library_fixtures "${prebuilt}" "${ARROW_17_REQUIRED_LIBRARIES[@]}" \
+    "${PAIMON_REQUIRED_LIBRARIES[@]}"
 publish_arrow_17_prebuilt_marker "${prebuilt}"
 publish_paimon_17_prebuilt_marker "${prebuilt}"
 shared_arrow_paimon_prebuilt_valid "${prebuilt}" ||
@@ -562,6 +634,42 @@ fi
 [[ -e "${missing_legacy_thirdparty}/installed/preserved-after-missing-legacy-download" ]] ||
     fail "BE UT replaced the build-image prebuilt before validating the legacy stack"
 
+exercise_rejected_prebuilt_artifact() {
+    local name="$1"
+    local relative_path="$2"
+    local mutation="$3"
+    local archive_root="${tmpdir}/${name}-archive-root"
+    local archive="${tmpdir}/${name}.tar.xz"
+    local thirdparty_root="${tmpdir}/${name}-thirdparty"
+
+    mkdir -p "${archive_root}/installed"
+    cp -a "${prebuilt}/." "${archive_root}/installed/"
+    if [[ "${mutation}" == "remove" ]]; then
+        rm "${archive_root}/installed/${relative_path}"
+    else
+        : >"${archive_root}/installed/${relative_path}"
+    fi
+    tar -C "${archive_root}" -cJf "${archive}" installed
+
+    mkdir -p "${thirdparty_root}/installed"
+    touch "${thirdparty_root}/installed/preserved-after-invalid-sdk-download"
+    if ensure_arrow_paimon_prebuilt_from_url "${thirdparty_root}" \
+        "file://${archive}" >/dev/null 2>&1; then
+        fail "BE UT accepted ${name}"
+    fi
+    [[ -e "${thirdparty_root}/installed/preserved-after-invalid-sdk-download" ]] ||
+        fail "BE UT replaced the build-image prebuilt with ${name}"
+}
+
+exercise_rejected_prebuilt_artifact missing-legacy-paimon-header \
+    include/paimon/defs.h remove
+exercise_rejected_prebuilt_artifact missing-current-paimon-header \
+    "${ARROW_INSTALL_SUBDIR}/include/paimon/defs.h" remove
+exercise_rejected_prebuilt_artifact missing-current-parquet-header \
+    "${ARROW_INSTALL_SUBDIR}/include/parquet/arrow/reader.h" remove
+exercise_rejected_prebuilt_artifact empty-legacy-paimon-library \
+    lib64/libpaimon.a empty
+
 invalid_archive_root="${tmpdir}/invalid-prebuilt-archive-root"
 invalid_archive="${tmpdir}/invalid-prebuilt.tar.xz"
 mkdir -p "${invalid_archive_root}/installed"
@@ -585,7 +693,7 @@ rm "${selected_prebuilt}/lib64/libarrow_compute.a"
 if arrow_paimon_prebuilt_valid "${prebuilt}" >/dev/null 2>&1; then
     fail "prebuilt validation accepted a missing Arrow Compute archive"
 fi
-touch "${selected_prebuilt}/lib64/libarrow_compute.a"
+create_static_archive_fixture "${selected_prebuilt}/lib64/libarrow_compute.a"
 
 printf '%s\n' stale-arrow >"${selected_prebuilt}/arrow-build-fingerprint.txt"
 if arrow_paimon_prebuilt_valid "${prebuilt}" >/dev/null 2>&1; then
@@ -688,6 +796,7 @@ mkdir -p \
     "${cleanup_prefix}/include/parquet" \
     "${cleanup_prefix}/include/paimon" \
     "${cleanup_prefix}/include/unrelated" \
+    "${cleanup_prefix}/lib/cmake/Paimon" \
     "${cleanup_prefix}/lib64/cmake/ArrowCompute" \
     "${cleanup_prefix}/lib64/cmake/Paimon" \
     "${cleanup_prefix}/lib64/pkgconfig" \
@@ -718,6 +827,7 @@ clean_paimon_artifacts_in "${cleanup_prefix}"
 [[ ! -e "${cleanup_prefix}/include/paimon" &&
     ! -e "${cleanup_prefix}/lib64/libpaimon.a" &&
     ! -e "${cleanup_prefix}/lib64/libfmt_paimon.a" &&
+    ! -e "${cleanup_prefix}/lib/cmake/Paimon" &&
     ! -e "${cleanup_prefix}/lib64/cmake/Paimon" ]] ||
     fail "Paimon cleanup left stale artifacts in the selected prefix"
 [[ -e "${cleanup_prefix}/lib64/libunrelated.a" &&

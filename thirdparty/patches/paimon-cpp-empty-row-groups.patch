@@ -1,0 +1,122 @@
+--- a/src/paimon/format/parquet/file_reader_wrapper.cpp
++++ b/src/paimon/format/parquet/file_reader_wrapper.cpp
+@@ -134,7 +134,10 @@
+             return Status::Invalid(fmt::format("row group index {} is out of bound {}",
+                                                row_group_index, all_row_group_ranges_.size()));
+         }
+-        row_group_ranges.push_back(all_row_group_ranges_[row_group_index]);
++        const auto& row_group_range = all_row_group_ranges_[row_group_index];
++        if (row_group_range.first != row_group_range.second) {
++            row_group_ranges.push_back(row_group_range);
++        }
+     }
+     return row_group_ranges;
+ }
+--- a/src/paimon/format/parquet/file_reader_wrapper_test.cpp
++++ b/src/paimon/format/parquet/file_reader_wrapper_test.cpp
+@@ -26,7 +26,9 @@
+ #include "arrow/c/abi.h"
+ #include "arrow/c/bridge.h"
+ #include "arrow/io/caching.h"
++#include "arrow/io/file.h"
+ #include "arrow/memory_pool.h"
++#include "arrow/util/config.h"
+ #include "gtest/gtest.h"
+ #include "paimon/common/utils/arrow/mem_utils.h"
+ #include "paimon/common/utils/arrow/status_utils.h"
+@@ -40,6 +42,7 @@
+ #include "paimon/record_batch.h"
+ #include "paimon/testing/utils/testharness.h"
+ #include "parquet/arrow/reader.h"
++#include "parquet/arrow/writer.h"
+ #include "parquet/properties.h"
+
+ namespace arrow {
+@@ -160,6 +163,43 @@
+         ASSERT_OK(out->Close());
+     }
+
++    void PrepareParquetFileWithRowGroups(const std::string& file_path,
++                                         const std::vector<int32_t>& row_group_sizes) {
++        auto schema_pair = PrepareArrowSchema();
++        const auto& arrow_schema = schema_pair.first;
++        const auto& struct_type = schema_pair.second;
++        int32_t total_rows = 0;
++        for (int32_t row_group_size : row_group_sizes) {
++            total_rows += row_group_size;
++        }
++        auto struct_array =
++            std::static_pointer_cast<arrow::StructArray>(PrepareArray(struct_type, total_rows));
++
++        auto sink_result = arrow::io::FileOutputStream::Open(file_path);
++        ASSERT_TRUE(sink_result.ok()) << sink_result.status().ToString();
++        auto sink = std::move(sink_result).ValueOrDie();
++        auto writer_result =
++            ::parquet::arrow::FileWriter::Open(*arrow_schema, arrow_pool_.get(), sink);
++        ASSERT_TRUE(writer_result.ok()) << writer_result.status().ToString();
++        auto writer = std::move(writer_result).ValueOrDie();
++        int64_t offset = 0;
++        for (int32_t row_group_size : row_group_sizes) {
++#if ARROW_VERSION_MAJOR >= 24
++            ASSERT_TRUE(writer->NewRowGroup().ok());
++#else
++            ASSERT_TRUE(writer->NewRowGroup(row_group_size).ok());
++#endif
++            for (int i = 0; i < struct_array->num_fields(); ++i) {
++                ASSERT_TRUE(
++                    writer->WriteColumnChunk(*struct_array->field(i)->Slice(offset, row_group_size))
++                        .ok());
++            }
++            offset += row_group_size;
++        }
++        ASSERT_TRUE(writer->Close().ok());
++        ASSERT_TRUE(sink->Close().ok());
++    }
++
+  private:
+     std::unique_ptr<paimon::test::UniqueTestDirectory> dir_;
+     std::shared_ptr<FileSystem> fs_;
+@@ -324,4 +364,43 @@
+               reader_wrapper->GetPreviousBatchFirstRowNumber());
+ }
+
++TEST_F(FileReaderWrapperTest, EmptyRowGroups) {
++    std::string file_path = PathUtil::JoinPath(dir_->Str(), "empty_row_groups.parquet");
++    PrepareParquetFileWithRowGroups(file_path, {0, 10, 0, 10, 0});
++    ASSERT_OK_AND_ASSIGN(auto reader_wrapper, PrepareReaderWrapper(file_path));
++    std::vector<std::pair<uint64_t, uint64_t>> expected_all_row_group_ranges = {
++        {0, 0}, {0, 10}, {10, 10}, {10, 20}, {20, 20}};
++    ASSERT_EQ(expected_all_row_group_ranges, reader_wrapper->GetAllRowGroupRanges());
++
++    ASSERT_OK_AND_ASSIGN(auto record_batch, reader_wrapper->Next());
++    ASSERT_EQ(10, record_batch->num_rows());
++    ASSERT_EQ(10, reader_wrapper->GetNextRowToRead());
++    ASSERT_OK_AND_ASSIGN(record_batch, reader_wrapper->Next());
++    ASSERT_EQ(10, record_batch->num_rows());
++    ASSERT_EQ(20, reader_wrapper->GetNextRowToRead());
++    ASSERT_OK_AND_ASSIGN(record_batch, reader_wrapper->Next());
++    ASSERT_FALSE(record_batch);
++
++    ASSERT_OK(reader_wrapper->PrepareForReading(/*row_group_indices=*/{0, 1, 2, 3, 4},
++                                                /*column_indices=*/{}));
++    ASSERT_OK_AND_ASSIGN(record_batch, reader_wrapper->Next());
++    ASSERT_EQ(10, record_batch->num_rows());
++    ASSERT_EQ(0, record_batch->num_columns());
++    ASSERT_OK(reader_wrapper->SeekToRow(10));
++    ASSERT_OK_AND_ASSIGN(record_batch, reader_wrapper->Next());
++    ASSERT_EQ(10, record_batch->num_rows());
++    ASSERT_EQ(10, reader_wrapper->GetPreviousBatchFirstRowNumber());
++}
++
++TEST_F(FileReaderWrapperTest, AllSelectedRowGroupsEmpty) {
++    std::string file_path = PathUtil::JoinPath(dir_->Str(), "all_empty_row_groups.parquet");
++    PrepareParquetFileWithRowGroups(file_path, {0, 0});
++    ASSERT_OK_AND_ASSIGN(auto reader_wrapper, PrepareReaderWrapper(file_path));
++    ASSERT_EQ(2, reader_wrapper->GetNumberOfRowGroups());
++    ASSERT_OK_AND_ASSIGN(auto record_batch, reader_wrapper->Next());
++    ASSERT_FALSE(record_batch);
++    ASSERT_EQ(0, reader_wrapper->GetNextRowToRead());
++    ASSERT_EQ(0, reader_wrapper->GetPreviousBatchFirstRowNumber());
++}
++
+ }  // namespace paimon::parquet::test

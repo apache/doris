@@ -22,6 +22,7 @@
 # Get the Doris thirdparty installation directory from environment
 set(DORIS_THIRDPARTY_DIR "$ENV{TP_INSTALL_DIR}" CACHE PATH "Doris thirdparty install directory")
 set(DORIS_ARROW_DIR "$ENV{PAIMON_ARROW_INSTALL_DIR}" CACHE PATH "Selected Doris Arrow install directory")
+set(CMAKE_INSTALL_LIBDIR "lib64" CACHE PATH "Install libraries under the Doris lib64 contract")
 
 if(NOT DORIS_THIRDPARTY_DIR)
     message(FATAL_ERROR "TP_INSTALL_DIR environment variable must be set")

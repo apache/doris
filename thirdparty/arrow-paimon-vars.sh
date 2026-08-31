@@ -146,6 +146,27 @@ arrow_install_dir() {
     printf '%s/%s\n' "$1" "${ARROW_INSTALL_SUBDIR}"
 }
 
+select_arrow_paimon_home_from_install() {
+    local install_dir="$1"
+    local caller="$2"
+    local default_home
+    local selected_arrow_home
+    local selected_paimon_home
+
+    default_home="$(arrow_install_dir "${install_dir}")"
+    selected_arrow_home="${ARROW_HOME:-${default_home}}"
+    selected_paimon_home="${PAIMON_HOME:-${selected_arrow_home}}"
+    if [[ "${selected_arrow_home}" != "${default_home}" ||
+        "${selected_paimon_home}" != "${default_home}" ]]; then
+        echo "${caller} only supports the Arrow/Paimon stack selected from DORIS_THIRDPARTY." >&2
+        echo "Expected ARROW_HOME=${default_home} and PAIMON_HOME=${default_home}." >&2
+        echo "Unset ARROW_HOME and PAIMON_HOME, or point DORIS_THIRDPARTY at the matching thirdparty tree." >&2
+        return 1
+    fi
+    export ARROW_HOME="${default_home}"
+    export PAIMON_HOME="${default_home}"
+}
+
 # Print stable path-and-content records for fingerprint inputs. Including the path
 # makes patch selection and ordering part of the contract, not only file contents.
 arrow_paimon_fingerprint_files() {
@@ -200,6 +221,7 @@ paimon_build_fingerprint() {
             arrow_paimon_fingerprint_files \
                 paimon-cpp-cache.cmake \
                 patches/paimon-cpp-buildutils-static-deps.patch \
+                patches/paimon-cpp-empty-row-groups.patch \
                 patches/paimon-cpp-arrow-24-compatibility.patch \
                 patches/paimon-cpp-arrow-24-compute.patch
         } | git hash-object --stdin
@@ -275,7 +297,8 @@ paimon_17_build_fingerprint() {
             printf 'PAIMON_CPP_17_MD5SUM=%s\n' "${PAIMON_CPP_17_MD5SUM}"
             arrow_paimon_fingerprint_files \
                 paimon-cpp-cache.cmake \
-                patches/paimon-cpp-buildutils-static-deps.patch
+                patches/paimon-cpp-buildutils-static-deps.patch \
+                patches/paimon-cpp-empty-row-groups.patch
         } | git hash-object --stdin
     )
 }
@@ -299,6 +322,17 @@ ARROW_REQUIRED_LIBRARIES=(
     libarrow_acero.a
     libarrow_bundled_dependencies.a
     libparquet.a
+)
+
+ARROW_REQUIRED_HEADERS=(
+    arrow/api.h
+    arrow/c/bridge.h
+    arrow/io/api.h
+    arrow/util/config.h
+    parquet/arrow/reader.h
+    parquet/arrow/writer.h
+    parquet/file_reader.h
+    parquet/properties.h
 )
 
 ARROW_17_REQUIRED_LIBRARIES=(
@@ -327,6 +361,27 @@ PAIMON_REQUIRED_LIBRARIES=(
     libfmt_paimon.a
     libtbb_paimon.a
 )
+
+PAIMON_REQUIRED_HEADERS=(
+    paimon/defs.h
+    paimon/factories/factory.h
+    paimon/fs/file_system.h
+    paimon/reader/batch_reader.h
+    paimon/status.h
+    paimon/table/source/split.h
+)
+
+static_archive_valid() {
+    local archive="$1"
+    local members
+
+    if [[ ! -s "${archive}" ]]; then
+        return 1
+    fi
+    if ! members="$(ar t "${archive}" 2>/dev/null)" || [[ -z "${members}" ]]; then
+        return 1
+    fi
+}
 
 # Remove only artifacts owned by the selected Arrow/Paimon stack before an
 # install. This matters for the legacy prefix: installing Arrow 17 over an
@@ -362,6 +417,7 @@ clean_paimon_artifacts_in() {
 
     rm -rf -- \
         "${install_dir}/include/paimon" \
+        "${install_dir}/lib/cmake/Paimon" \
         "${install_dir}/lib64/cmake/Paimon" \
         "${install_dir}/paimon-cpp"
 
@@ -387,12 +443,15 @@ arrow_artifacts_valid() {
     local install_dir
     install_dir="$(arrow_install_dir "$1")"
     local installed_arrow_version
+    local header
     local library
 
-    if [[ ! -f "${install_dir}/include/arrow/util/config.h" ]]; then
-        echo "Missing installed Arrow version header" >&2
-        return 1
-    fi
+    for header in "${ARROW_REQUIRED_HEADERS[@]}"; do
+        if [[ ! -s "${install_dir}/include/${header}" ]]; then
+            echo "Missing or empty Arrow header: ${header}" >&2
+            return 1
+        fi
+    done
     installed_arrow_version="$(
         awk '$1 == "#define" && $2 == "ARROW_VERSION_STRING" {
                gsub(/"/, "", $3); print $3; exit
@@ -404,8 +463,8 @@ arrow_artifacts_valid() {
     fi
 
     for library in "${ARROW_REQUIRED_LIBRARIES[@]}"; do
-        if [[ ! -f "${install_dir}/lib64/${library}" ]]; then
-            echo "Missing Arrow library: ${library}" >&2
+        if ! static_archive_valid "${install_dir}/lib64/${library}"; then
+            echo "Missing or invalid Arrow library: ${library}" >&2
             return 1
         fi
     done
@@ -415,12 +474,15 @@ arrow_artifacts_valid() {
 arrow_17_artifacts_valid() {
     local install_dir="$1"
     local installed_arrow_version
+    local header
     local library
 
-    if [[ ! -f "${install_dir}/include/arrow/util/config.h" ]]; then
-        echo "Missing installed Arrow 17 version header" >&2
-        return 1
-    fi
+    for header in "${ARROW_REQUIRED_HEADERS[@]}"; do
+        if [[ ! -s "${install_dir}/include/${header}" ]]; then
+            echo "Missing or empty Arrow 17 header: ${header}" >&2
+            return 1
+        fi
+    done
     installed_arrow_version="$(
         awk '$1 == "#define" && $2 == "ARROW_VERSION_STRING" {
                gsub(/"/, "", $3); print $3; exit
@@ -432,8 +494,8 @@ arrow_17_artifacts_valid() {
     fi
 
     for library in "${ARROW_17_REQUIRED_LIBRARIES[@]}"; do
-        if [[ ! -f "${install_dir}/lib64/${library}" ]]; then
-            echo "Missing Arrow 17 library: ${library}" >&2
+        if ! static_archive_valid "${install_dir}/lib64/${library}"; then
+            echo "Missing or invalid Arrow 17 library: ${library}" >&2
             return 1
         fi
     done
@@ -442,11 +504,18 @@ arrow_17_artifacts_valid() {
 
 paimon_artifacts_valid_in() {
     local install_dir="$1"
+    local header
     local library
 
+    for header in "${PAIMON_REQUIRED_HEADERS[@]}"; do
+        if [[ ! -s "${install_dir}/include/${header}" ]]; then
+            echo "Missing or empty Paimon header: ${header}" >&2
+            return 1
+        fi
+    done
     for library in "${PAIMON_REQUIRED_LIBRARIES[@]}"; do
-        if [[ ! -f "${install_dir}/lib64/${library}" ]]; then
-            echo "Missing Paimon library: ${library}" >&2
+        if ! static_archive_valid "${install_dir}/lib64/${library}"; then
+            echo "Missing or invalid Paimon library: ${library}" >&2
             return 1
         fi
     done

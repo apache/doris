@@ -458,18 +458,8 @@ if [[ "${BUILD_BE}" -eq 1 || "${BUILD_META_TOOL}" == "ON" ||
 fi
 
 if [[ "${NEED_ARROW_PAIMON_THIRDPARTY}" == "true" ]]; then
-    DEFAULT_ARROW_PAIMON_HOME="${DORIS_THIRDPARTY}/installed/${ARROW_INSTALL_SUBDIR}"
-    SELECTED_ARROW_HOME="${ARROW_HOME:-${DEFAULT_ARROW_PAIMON_HOME}}"
-    SELECTED_PAIMON_HOME="${PAIMON_HOME:-${SELECTED_ARROW_HOME}}"
-    if [[ "${SELECTED_ARROW_HOME}" != "${DEFAULT_ARROW_PAIMON_HOME}" ||
-        "${SELECTED_PAIMON_HOME}" != "${DEFAULT_ARROW_PAIMON_HOME}" ]]; then
-        echo "build.sh only supports the Arrow/Paimon stack selected from DORIS_THIRDPARTY." >&2
-        echo "Expected ARROW_HOME=${DEFAULT_ARROW_PAIMON_HOME} and PAIMON_HOME=${DEFAULT_ARROW_PAIMON_HOME}." >&2
-        echo "Unset ARROW_HOME and PAIMON_HOME, or point DORIS_THIRDPARTY at the matching thirdparty tree." >&2
+    select_arrow_paimon_home_from_install "${DORIS_THIRDPARTY}/installed" "build.sh" ||
         exit 1
-    fi
-    export ARROW_HOME="${DEFAULT_ARROW_PAIMON_HOME}"
-    export PAIMON_HOME="${DEFAULT_ARROW_PAIMON_HOME}"
 fi
 
 rebuild_thirdparty_libraries() {

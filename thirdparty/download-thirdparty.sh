@@ -804,6 +804,7 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP_17 " ]]; then
             "${PAIMON_CPP_17_ARCHIVE_SOURCE}"
         cd "${TP_SOURCE_DIR}/${PAIMON_CPP_17_SOURCE}"
         patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch"
+        patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-empty-row-groups.patch"
         touch "${PATCHED_MARK}"
         printf '%s\n' "${ARROW_PAIMON_17_BUILD_FINGERPRINT}" \
             >"${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
@@ -825,6 +826,7 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
         reset_arrow_paimon_source "${PAIMON_CPP_NAME}" "${PAIMON_CPP_SOURCE}"
         cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
         patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch"
+        patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-empty-row-groups.patch"
         patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-arrow-24-compatibility.patch"
         patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-arrow-24-compute.patch"
         touch "${PATCHED_MARK}"
