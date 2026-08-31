@@ -243,7 +243,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             Map<String, Long> nameToIds = dictionaryIds.get(dbName);
             for (Long id : dictIds) {
                 Dictionary dict = idToDictionary.remove(id);
-                if (id == null) {
+                if (dict == null) {
                     LOG.warn("Dictionary {} does not exist in dictionaryIds", id);
                     continue;
                 }
