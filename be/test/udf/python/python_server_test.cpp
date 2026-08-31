@@ -17,6 +17,7 @@
 
 #include "udf/python/python_server.h"
 
+#include <arrow/api.h>
 #include <gtest/gtest.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -26,11 +27,14 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
+#include "core/data_type/data_type_number.h"
 #include "udf/python/python_env.h"
 #include "udf/python/python_udf_client.h"
 #include "udf/python/python_udf_meta.h"
@@ -194,6 +198,86 @@ protected:
         std::string sleep_path = fs::exists("/bin/sleep") ? "/bin/sleep" : "/usr/bin/sleep";
         bp::child child(sleep_path, "60", bp::std_out > output_stream, bp::std_err > bp::null);
         return std::make_shared<PythonUDFProcess>(std::move(child), std::move(output_stream));
+    }
+
+    std::optional<std::string> find_python_udf_interpreter() {
+        std::vector<std::string> candidates;
+        if (const char* configured = std::getenv("DORIS_PYTHON_UDF_TEST_PYTHON")) {
+            candidates.emplace_back(configured);
+        }
+        if (const char* path_env = std::getenv("PATH")) {
+            std::stringstream paths(path_env);
+            std::string path;
+            while (std::getline(paths, path, ':')) {
+                fs::path python3 = fs::path(path) / "python3";
+                if (fs::exists(python3)) {
+                    candidates.emplace_back(python3.string());
+                }
+            }
+        }
+
+        for (const auto& candidate : candidates) {
+            if (!fs::exists(candidate)) {
+                continue;
+            }
+            bp::child check(candidate, "-c", "import pandas, pyarrow", bp::std_out > bp::null,
+                            bp::std_err > bp::null);
+            check.wait();
+            if (check.exit_code() == 0) {
+                return candidate;
+            }
+        }
+        return std::nullopt;
+    }
+
+    Status start_python_udf_server(const std::string& python, ProcessPtr* process) {
+        bp::ipstream output_stream;
+        try {
+            bp::child child(python, "-u", get_fight_server_path(), get_base_unix_socket_path(),
+                            bp::std_out > output_stream);
+            auto candidate = std::make_shared<PythonUDFProcess>(std::move(child),
+                                                                std::move(output_stream));
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            while (std::chrono::steady_clock::now() < deadline) {
+                if (fs::exists(candidate->get_socket_file_path())) {
+                    *process = std::move(candidate);
+                    return Status::OK();
+                }
+                if (!candidate->is_alive()) {
+                    return Status::InternalError("Python UDF server exited before becoming ready");
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            return Status::InternalError("Timed out waiting for Python UDF server at {}",
+                                         candidate->get_socket_file_path());
+        } catch (const std::exception& e) {
+            return Status::InternalError("Failed to start Python UDF server: {}", e.what());
+        }
+    }
+
+    Status evaluate_int_module_udf(const PythonUDFMeta& meta, const ProcessPtr& process,
+                                   int32_t input, int32_t* result) {
+        PythonUDFClientPtr client;
+        RETURN_IF_ERROR(PythonUDFClient::create(meta, process, &client));
+
+        arrow::Int32Builder builder;
+        RETURN_DORIS_STATUS_IF_ERROR(builder.Append(input));
+        std::shared_ptr<arrow::Array> input_array;
+        RETURN_DORIS_STATUS_IF_ERROR(builder.Finish(&input_array));
+        auto input_batch = arrow::RecordBatch::Make(
+                arrow::schema({arrow::field("arg0", arrow::int32(), false)}), 1, {input_array});
+
+        std::shared_ptr<arrow::RecordBatch> output_batch;
+        Status evaluate_status = client->evaluate(*input_batch, &output_batch);
+        static_cast<void>(client->close());
+        RETURN_IF_ERROR(evaluate_status);
+        if (!output_batch || output_batch->num_columns() != 1 || output_batch->num_rows() != 1 ||
+            output_batch->column(0)->type_id() != arrow::Type::INT32) {
+            return Status::InternalError("Unexpected Python UDF output batch");
+        }
+
+        *result = std::static_pointer_cast<arrow::Int32Array>(output_batch->column(0))->Value(0);
+        return Status::OK();
     }
 
     template <typename VersionedPoolPtr>
@@ -497,6 +581,75 @@ TEST_F(PythonServerTest, ClearModuleCacheWithoutProcessesIsNoOp) {
 
     auto status = mgr.clear_module_cache("/tmp/python_udf_cache");
     EXPECT_TRUE(status.ok()) << status.to_string();
+}
+
+TEST_F(PythonServerTest, ClearModuleCacheReloadsModuleOnNextUdfExecution) {
+    auto python = find_python_udf_interpreter();
+    if (!python) {
+        GTEST_SKIP() << "Python with pandas and pyarrow is required";
+    }
+
+    fs::path source_root = fs::current_path();
+    fs::path server_script;
+    while (!source_root.empty()) {
+        server_script = source_root / "be/src/udf/python/python_server.py";
+        if (fs::exists(server_script) || source_root == source_root.parent_path()) {
+            break;
+        }
+        source_root = source_root.parent_path();
+    }
+    ASSERT_TRUE(fs::exists(server_script)) << server_script;
+    setenv("DORIS_HOME", test_dir_.c_str(), 1);
+    fs::path plugin_dir = fs::path(test_dir_) / "plugins/python_udf";
+    fs::create_directories(plugin_dir);
+    fs::copy_file(server_script, plugin_dir / "python_server.py",
+                  fs::copy_options::overwrite_existing);
+
+    fs::path module_dir = fs::path(test_dir_) / "module_cache";
+    fs::create_directories(module_dir);
+    auto write_module = [&module_dir](int offset) {
+        std::ofstream module(module_dir / "cache_reload_udf.py", std::ios::trunc);
+        module << "def evaluate(value):\n"
+               << "    return value + " << offset << "\n";
+    };
+
+    write_module(1);
+    PythonVersion version("test-runtime", fs::path(*python).parent_path().parent_path().string(),
+                          *python);
+    PythonServerManager mgr;
+    ProcessPtr process;
+    Status fork_status = start_python_udf_server(*python, &process);
+    ASSERT_TRUE(fork_status.ok()) << fork_status.to_string();
+    ASSERT_NE(process, nullptr);
+    mgr.set_process_pool_for_test(version, {process});
+
+    PythonUDFMeta meta;
+    meta.id = 1;
+    meta.name = "cache_reload_udf";
+    meta.symbol = "cache_reload_udf.evaluate";
+    meta.location = module_dir.string();
+    meta.checksum = "test-checksum";
+    meta.runtime_version = version.full_version;
+    meta.input_types = {std::make_shared<DataTypeInt32>()};
+    meta.return_type = std::make_shared<DataTypeInt32>();
+    meta.type = PythonUDFLoadType::MODULE;
+    meta.client_type = PythonClientType::UDF;
+
+    int32_t result = 0;
+    Status evaluate_status = evaluate_int_module_udf(meta, process, 10, &result);
+    ASSERT_TRUE(evaluate_status.ok()) << evaluate_status.to_string();
+    ASSERT_EQ(result, 11);
+
+    // DROP clears the Python module before UserFunctionCache deletes its extracted directory.
+    ASSERT_TRUE(mgr.clear_module_cache(meta.location).ok());
+    fs::remove_all(module_dir);
+    fs::create_directories(module_dir);
+    write_module(100);
+
+    evaluate_status = evaluate_int_module_udf(meta, process, 10, &result);
+    ASSERT_TRUE(evaluate_status.ok()) << evaluate_status.to_string();
+    EXPECT_EQ(result, 110);
+    mgr.shutdown();
 }
 
 TEST_F(PythonServerTest, BroadcastActionWithInvalidProcessUriReturnsError) {
