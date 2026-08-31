@@ -310,6 +310,25 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return icebergMetadataOps;
     }
 
+    /** Retains the exact HMS Iceberg runtime while a direct catalog operation is in progress. */
+    public synchronized IcebergCatalogResourceTracker.LoadGuard beginIcebergCatalogOperation(
+            IcebergMetadataOps expectedOps) {
+        makeSureInitialized();
+        if (icebergMetadataOps != expectedOps) {
+            throw new IllegalStateException("Iceberg catalog runtime changed before the operation started");
+        }
+        return icebergResourceTracker.beginOperation();
+    }
+
+    /** Resolves a database only while the expected HMS Iceberg runtime is still current. */
+    public synchronized ExternalDatabase<? extends ExternalTable> getDbForIcebergCatalogOperation(
+            IcebergMetadataOps expectedOps, String dbName) {
+        if (icebergMetadataOps != expectedOps) {
+            throw new IllegalStateException("Iceberg catalog runtime changed before database resolution");
+        }
+        return getDbNullable(dbName);
+    }
+
     /** Retains the exact HMS Iceberg runtime while a table cache generation is being loaded or borrowed. */
     public synchronized IcebergTableLoadContext beginIcebergTableLoad() {
         makeSureInitialized();
@@ -389,7 +408,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
 
         public Table loadTable(String dbName, String tableName) throws Exception {
-            return authenticator.execute(() -> ops.loadTable(dbName, tableName));
+            return authenticator.execute(() -> ops.loadTableWithinCatalogGeneration(dbName, tableName));
         }
 
         public IcebergCatalogResourceTracker.ResourceLease promote() {
