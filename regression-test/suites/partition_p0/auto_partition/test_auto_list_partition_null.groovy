@@ -17,6 +17,26 @@
 
 suite("test_auto_list_partition_null") {
 
+    // MAXVALUE is not allowed in LIST partition values when creating a table,
+    // it can only be used in RANGE partition's VALUES LESS THAN (MAXVALUE).
+    test {
+        sql """
+            CREATE TABLE list_table_maxvalue_err (
+                id int null,
+                k largeint null
+            )
+            PARTITION BY LIST (`id`, `k`)
+            (
+                PARTITION p1 VALUES IN ((NULL, MAXVALUE))
+            )
+            DISTRIBUTED BY HASH(`k`) BUCKETS 16
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            );
+            """
+        exception "MAXVALUE is not allowed in LIST partition"
+    }
+
     sql "DROP TABLE IF EXISTS list_table_null"
 
     sql """
@@ -35,29 +55,38 @@ suite("test_auto_list_partition_null") {
     sql """ ALTER TABLE `list_table_null` ADD PARTITION `p1` VALUES IN ((NULL, "1")) ("version_info" = "1") DISTRIBUTED BY HASH(`k`) BUCKETS 16; """
     sql """ ALTER TABLE `list_table_null` ADD PARTITION `p2` VALUES IN (("1", NULL)) ("version_info" = "1") DISTRIBUTED BY HASH(`k`) BUCKETS 16; """
     sql """ ALTER TABLE `list_table_null` ADD PARTITION `p3` VALUES IN ((NULL, NULL)) ("version_info" = "1") DISTRIBUTED BY HASH(`k`) BUCKETS 16; """
-    sql """ ALTER TABLE `list_table_null` ADD PARTITION `p4` VALUES IN ((NULL, MAXVALUE)) ("version_info" = "1") DISTRIBUTED BY HASH(`k`) BUCKETS 16; """
-    sql """ ALTER TABLE `list_table_null` ADD PARTITION `p5` VALUES IN ((MAXVALUE, NULL)) ("version_info" = "1") DISTRIBUTED BY HASH(`k`) BUCKETS 16; """
-    sql """ ALTER TABLE `list_table_null` ADD PARTITION `p6` VALUES IN (("1", MAXVALUE)) ("version_info" = "1") DISTRIBUTED BY HASH(`k`) BUCKETS 16; """
-    sql """ ALTER TABLE `list_table_null` ADD PARTITION `p7` VALUES IN ((MAXVALUE, "1")) ("version_info" = "1") DISTRIBUTED BY HASH(`k`) BUCKETS 16; """
+    // MAXVALUE is not allowed in LIST partition values, it can only be used in RANGE
+    // partition's VALUES LESS THAN (MAXVALUE).
+    test {
+        sql """ ALTER TABLE `list_table_null` ADD PARTITION `p4` VALUES IN ((NULL, MAXVALUE)) ("version_info" = "1") DISTRIBUTED BY HASH(`k`) BUCKETS 16; """
+        exception "MAXVALUE is not allowed in LIST partition"
+    }
+    test {
+        sql """ ALTER TABLE `list_table_null` ADD PARTITION `p5` VALUES IN ((MAXVALUE, NULL)) ("version_info" = "1") DISTRIBUTED BY HASH(`k`) BUCKETS 16; """
+        exception "MAXVALUE is not allowed in LIST partition"
+    }
+    test {
+        sql """ ALTER TABLE `list_table_null` ADD PARTITION `p6` VALUES IN (("1", MAXVALUE)) ("version_info" = "1") DISTRIBUTED BY HASH(`k`) BUCKETS 16; """
+        exception "MAXVALUE is not allowed in LIST partition"
+    }
+    test {
+        sql """ ALTER TABLE `list_table_null` ADD PARTITION `p7` VALUES IN ((MAXVALUE, "1")) ("version_info" = "1") DISTRIBUTED BY HASH(`k`) BUCKETS 16; """
+        exception "MAXVALUE is not allowed in LIST partition"
+    }
 
     def res = sql "show create table list_table_null"
 
     assertTrue(res[0][1].contains("PARTITION p3 VALUES IN ((NULL, NULL))"))
     assertTrue(res[0][1].contains("PARTITION p1 VALUES IN ((NULL, \"1\"))"))
-    assertTrue(res[0][1].contains("PARTITION p4 VALUES IN ((NULL, MAXVALUE))"))
     assertTrue(res[0][1].contains("PARTITION p2 VALUES IN ((\"1\", NULL))"))
-    assertTrue(res[0][1].contains("PARTITION p6 VALUES IN ((\"1\", MAXVALUE))"))
-    assertTrue(res[0][1].contains("PARTITION p5 VALUES IN ((MAXVALUE, NULL))"))
-    assertTrue(res[0][1].contains("PARTITION p7 VALUES IN ((MAXVALUE, \"1\"))"))
 
-    // Insert into a table containing MAXVALUE list partitions should not fail.
+    // Insert into a table containing NULL list partitions should not fail.
     // (NULL, "1") -> p1, ("1", NULL) -> p2, (NULL, NULL) -> p3,
     // ("2", "2") matches no predefined partition and is auto-created since the table is AUTO.
     sql """ insert into list_table_null values (null, "1"), ("1", null), (null, null), ("2", "2") """
 
     order_qt_select_all """ select * from list_table_null order by id, k """
 
-    // Predicate on the partition columns must not crash partition pruning:
-    // partition keys containing MAXVALUE cannot be evaluated, they are kept conservatively.
+    // Predicate on the partition columns must not crash partition pruning.
     order_qt_select_with_predicate """ select * from list_table_null where id = 2 and k = 2 order by id, k """
 }

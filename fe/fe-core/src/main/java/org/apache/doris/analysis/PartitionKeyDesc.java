@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.DebugPointUtil;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -167,6 +168,23 @@ public class PartitionKeyDesc {
             for (PartitionValue upperVal : upperValues) {
                 if (upperVal.isMax()) {
                     throw new AnalysisException("Not support MAXVALUE in multi partition range values.");
+                }
+            }
+        }
+
+        // MAXVALUE is only meaningful as the open upper bound of a RANGE partition
+        // ('VALUES LESS THAN (MAXVALUE)'). A LIST partition enumerates concrete values, so a
+        // MAXVALUE key can never be matched on load and breaks partition serialization and
+        // pruning afterwards. Reject it at DDL time; tables created by older versions keep
+        // working (see the load/prune handling that skips MAXVALUE keys).
+        if (inValues != null && !DebugPointUtil.isEnable("FE.skipCheckMaxValueInListPartition")) {
+            for (List<PartitionValue> inValue : inValues) {
+                for (PartitionValue value : inValue) {
+                    if (value.isMax()) {
+                        throw new AnalysisException("MAXVALUE is not allowed in LIST partition values: "
+                                + toSql() + ". MAXVALUE can only be used in RANGE partition with "
+                                + "'VALUES LESS THAN (MAXVALUE)'. Please use explicit values or NULL instead.");
+                    }
                 }
             }
         }

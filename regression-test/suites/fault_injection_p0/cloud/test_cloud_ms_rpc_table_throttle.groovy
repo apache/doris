@@ -28,6 +28,7 @@ suite('test_cloud_ms_rpc_table_throttle', 'docker') {
     options.setBeNum(1)
     options.beConfigs += [
         'enable_ms_backpressure_handling=true',
+        'enable_ms_backpressure_handling_dry_run=false',
         // Short intervals for faster test feedback
         'ms_backpressure_upgrade_interval_ms=2000',
         'ms_backpressure_downgrade_interval_ms=5000',

@@ -131,6 +131,10 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
     rowset_meta.set_empty(spec_rowset_meta.num_rows() == 0);
     rowset_meta.set_creation_time(time(nullptr));
     rowset_meta.set_num_segments(spec_rowset_meta.num_segments());
+    if (spec_rowset_meta.has_segment_ids()) {
+        rowset_meta.set_segment_ids(std::vector<int64_t>(spec_rowset_meta.segment_ids().begin(),
+                                                         spec_rowset_meta.segment_ids().end()));
+    }
     rowset_meta.set_segments_overlap(spec_rowset_meta.segments_overlap());
     rowset_meta.set_rowset_state(spec_rowset_meta.rowset_state());
     rowset_meta.set_segments_key_bounds_truncated(
@@ -364,6 +368,9 @@ BetaRowsetWriter::~BetaRowsetWriter() {
 Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
     DCHECK(_context.tablet_schema != nullptr);
+    // Row-binlog writer or a schema carrying ROW_LSN_COL needs allocated LSN.
+    _context._need_allocate_lsn =
+            _context.write_binlog_opt().enable || _context.tablet_schema->row_lsn_col_idx() >= 0;
     _rowset_meta.reset(new RowsetMeta);
     if (_context.storage_resource) {
         _rowset_meta->set_remote_storage_resource(*_context.storage_resource);
@@ -455,10 +462,12 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
         // Step 3: Load segments (needs file_writer to be closed and rowset to be built)
         auto* beta_rowset = reinterpret_cast<BetaRowset*>(rowset_ptr.get());
         std::vector<segment_v2::SegmentSharedPtr> segments;
-        st = beta_rowset->load_segments(segment_id, segment_id + 1, &segments);
+        segment_v2::SegmentSharedPtr segment;
+        st = beta_rowset->load_segment(segment_id, nullptr, &segment);
         if (!st.ok()) {
             return st;
         }
+        segments.emplace_back(std::move(segment));
 
         // Step 4: Calculate delete bitmap
         st = BaseTablet::calc_delete_bitmap(_context.tablet, rowset_ptr, segments,
@@ -671,7 +680,7 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint32_t seg_id) {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_remove_segment_footer_cache(const uint32_t seg_id,
+Status BetaRowsetWriter::_remove_segment_footer_cache(uint32_t seg_pos,
                                                       const std::string& segment_path) {
     auto* footer_page_cache = ExecEnv::GetInstance()->get_storage_page_cache();
     if (!footer_page_cache) {
@@ -688,7 +697,7 @@ Status BetaRowsetWriter::_remove_segment_footer_cache(const uint32_t seg_id,
                                                         : io::FileCachePolicy::NO_CACHE,
                 .is_doris_table = true,
                 .cache_base_path = "",
-                .file_size = _rowset_meta->segment_file_size(static_cast<int>(seg_id)),
+                .file_size = _rowset_meta->segment_file_size_by_pos(seg_pos),
                 .tablet_id = _rowset_meta->tablet_id(),
                 .storage_resource_id = _rowset_meta->resource_id(),
         };
@@ -1034,16 +1043,33 @@ int64_t BetaRowsetWriter::_num_seg() const {
     return is_segcompacted() ? _num_segcompacted : _num_segment;
 }
 
-Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num) {
+Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num,
+                                                std::vector<int64_t>* completed_segment_ids) {
     int64_t num_rows_written = 0;
     int64_t total_data_size = 0;
     int64_t total_index_size = 0;
     std::vector<KeyBoundsPB> segments_encoded_key_bounds;
     std::vector<uint32_t> segment_rows;
+    std::vector<int64_t> segment_ids;
     std::optional<bool> segments_key_bounds_truncated;
+    const bool record_segment_ids =
+            _context.write_type == DataWriteType::TYPE_COMPACTION && _segment_start_id != 0;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
+        if (record_segment_ids) {
+            segment_ids.reserve(_segid_statistics_map.size());
+        }
+        if (completed_segment_ids != nullptr) {
+            completed_segment_ids->clear();
+            completed_segment_ids->reserve(_segid_statistics_map.size());
+        }
         for (const auto& itr : _segid_statistics_map) {
+            if (record_segment_ids) {
+                segment_ids.push_back(itr.first);
+            }
+            if (completed_segment_ids != nullptr) {
+                completed_segment_ids->push_back(itr.first);
+            }
             num_rows_written += itr.second.row_num;
             total_data_size += itr.second.data_size;
             total_index_size += itr.second.index_size;
@@ -1107,6 +1133,10 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     }
 
     rowset_meta->set_num_segments(segment_num);
+    if (!segment_ids.empty()) {
+        DORIS_CHECK_EQ(segment_ids.size(), segment_num);
+        rowset_meta->set_segment_ids(segment_ids);
+    }
     rowset_meta->set_num_rows(num_rows_written + _num_rows_written);
     rowset_meta->set_total_disk_size(total_data_size + _total_data_size + total_index_size +
                                      _total_index_size);
@@ -1127,11 +1157,13 @@ Status BaseBetaRowsetWriter::_build_tmp(RowsetSharedPtr& rowset_ptr) {
     std::shared_ptr<RowsetMeta> tmp_rs_meta = std::make_shared<RowsetMeta>();
     tmp_rs_meta->init(_rowset_meta.get());
 
-    status = _build_rowset_meta(tmp_rs_meta.get());
+    std::vector<int64_t> completed_segment_ids;
+    status = _build_rowset_meta(tmp_rs_meta.get(), false, &completed_segment_ids);
     if (!status.ok()) {
         LOG(WARNING) << "failed to build rowset meta, res=" << status;
         return status;
     }
+    tmp_rs_meta->set_segment_ids(completed_segment_ids);
 
     status = RowsetFactory::create_rowset(_context.tablet_schema, _context.tablet_path, tmp_rs_meta,
                                           &rowset_ptr);
@@ -1242,10 +1274,10 @@ Status BaseBetaRowsetWriter::_check_segment_number_limit(size_t segnum) {
     if (UNLIKELY(segnum > config::max_segment_num_per_rowset)) {
         return Status::Error<TOO_MANY_SEGMENTS>(
                 "too many segments in rowset. tablet_id:{}, rowset_id:{}, max:{}, "
-                "_num_segment:{}, rowset_num_rows:{}. Please check if the bucket number is too "
-                "small or if the data is skewed.",
+                "segment_num:{}, _num_segment:{}, rowset_num_rows:{}. Please check if the bucket "
+                "number is too small or if the data is skewed.",
                 _context.tablet_id, _context.rowset_id.to_string(),
-                config::max_segment_num_per_rowset, _num_segment, get_rowset_num_rows());
+                config::max_segment_num_per_rowset, segnum, _num_segment, get_rowset_num_rows());
     }
     return Status::OK();
 }
@@ -1255,11 +1287,11 @@ Status BetaRowsetWriter::_check_segment_number_limit(size_t segnum) {
                     { segnum = dp->param("segnum", 1024); });
     if (UNLIKELY(segnum > config::max_segment_num_per_rowset)) {
         return Status::Error<TOO_MANY_SEGMENTS>(
-                "too many segments in rowset. tablet_id:{}, rowset_id:{}, max:{}, _num_segment:{}, "
-                "_segcompacted_point:{}, _num_segcompacted:{}, rowset_num_rows:{}. Please check if "
-                "the bucket number is too small or if the data is skewed.",
+                "too many segments in rowset. tablet_id:{}, rowset_id:{}, max:{}, segment_num:{}, "
+                "_num_segment:{}, _segcompacted_point:{}, _num_segcompacted:{}, rowset_num_rows:{}."
+                " Please check if the bucket number is too small or if the data is skewed.",
                 _context.tablet_id, _context.rowset_id.to_string(),
-                config::max_segment_num_per_rowset, _num_segment, _segcompacted_point,
+                config::max_segment_num_per_rowset, segnum, _num_segment, _segcompacted_point,
                 _num_segcompacted, get_rowset_num_rows());
     }
     return Status::OK();
@@ -1274,8 +1306,8 @@ Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStati
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         CHECK_EQ(_segid_statistics_map.find(segment_id) == _segid_statistics_map.end(), true);
         _segid_statistics_map.emplace(segment_id, std::move(stored_segstat));
-        if (segment_id >= _segment_num_rows.size()) {
-            _segment_num_rows.resize(segment_id + 1);
+        if (segid_offset >= _segment_num_rows.size()) {
+            _segment_num_rows.resize(segid_offset + 1);
         }
         _segment_num_rows[segid_offset] = cast_set<uint32_t>(segstat.row_num);
         if (key_bounds_truncated) {

@@ -18,9 +18,9 @@
 package org.apache.doris.common;
 
 import java.io.File;
+import java.lang.reflect.Field;
 
 public class Config extends ConfigBase {
-
     @ConfField(description = "The path of the user-defined configuration file, used to store fe_custom.conf. "
             + "Configurations in this file will override those in fe.conf")
     public static String custom_config_dir = EnvUtils.getDorisHome() + "/conf";
@@ -566,6 +566,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = "Minimum number of successfully written replicas for "
             + "a load job.")
     public static short min_load_replica_num = -1;
+
+    @ConfField(mutable = true, masterOnly = true, description = "Minimum number of successfully written replicas "
+            + "required in each resource group for a load job.")
+    public static volatile String[] resource_group_load_success_quorum = {};
 
     @ConfField(description = "The interval of the load job scheduler, in seconds.")
     public static int load_checker_interval_second = 5;
@@ -1515,6 +1519,10 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static boolean enable_http_server_v2 = true;
+
+    @ConfField(mutable = false, masterOnly = false,
+            description = "Whether to enable the FE Web UI and its dedicated APIs.")
+    public static boolean enable_web_ui = true;
 
     /*
      * Base path is the URL prefix for all API paths.
@@ -2784,6 +2792,64 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false, description = "The maximum number of worker threads for the HTTP "
             + "SQL submitter.")
     public static int http_sql_submitter_max_worker_threads = 2;
+
+    @ConfField(mutable = true, masterOnly = false,
+            description = "Whether to enable stateful Web SQL HTTP sessions.")
+    public static boolean enable_web_sql_session = true;
+
+    @ConfField(mutable = true, masterOnly = false, callback = PositiveWebSqlIntegerConfHandler.class,
+            description = "Idle timeout for Web SQL sessions, in seconds.")
+    public static int web_sql_session_idle_timeout_seconds = 1800;
+
+    @ConfField(mutable = true, masterOnly = false, callback = PositiveWebSqlIntegerConfHandler.class,
+            description = "Maximum number of Web SQL sessions on one FE.")
+    public static int web_sql_max_sessions = 100;
+
+    /** Rejects non-positive dynamic Web SQL session limits. */
+    public static class PositiveWebSqlIntegerConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            int parsed = Integer.parseInt(value);
+            if (parsed <= 0) {
+                throw new ConfigException(field.getName() + " must be greater than 0");
+            }
+            field.setInt(null, parsed);
+        }
+    }
+
+    public static final long WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND = 100L * 1024 * 1024;
+
+    /** Validates Web SQL limits loaded from fe.conf and fe_custom.conf at FE startup. */
+    public static void validateWebSqlConfig() throws ConfigException {
+        if (web_sql_session_idle_timeout_seconds <= 0) {
+            throw new ConfigException("web_sql_session_idle_timeout_seconds must be greater than 0");
+        }
+        if (web_sql_max_sessions <= 0) {
+            throw new ConfigException("web_sql_max_sessions must be greater than 0");
+        }
+        if (web_sql_max_result_bytes <= 0
+                || web_sql_max_result_bytes > WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND) {
+            throw new ConfigException("web_sql_max_result_bytes must be between 1 and "
+                    + WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND);
+        }
+    }
+
+    @ConfField(mutable = true, masterOnly = false, callback = WebSqlMaxResultBytesConfHandler.class,
+            description = "Approximate maximum result bytes for one Web SQL statement.")
+    public static long web_sql_max_result_bytes = 10 * 1024 * 1024;
+
+    /** Validates dynamic Web SQL result limits before publishing them to running statements. */
+    public static class WebSqlMaxResultBytesConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            long parsed = Long.parseLong(value);
+            if (parsed <= 0 || parsed > WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND) {
+                throw new ConfigException("web_sql_max_result_bytes must be between 1 and "
+                        + WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND);
+            }
+            field.setLong(null, parsed);
+        }
+    }
 
     @ConfField(mutable = true, masterOnly = true, description = "The threshold of load labels' number. After this "
             + "number is exceeded, the labels of the completed " + "import jobs or tasks will be deleted, and the "

@@ -1257,20 +1257,24 @@ public class MetadataGenerator {
             ExternalTable table) {
         List<TRow> dataBatch = Lists.newArrayList();
         ConnectorSession session = catalog.buildCrossStatementSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, catalog.getConnector());
-        Optional<ConnectorTableHandle> handle = metadata.getTableHandle(
-                session, table.getRemoteDbName(), table.getRemoteName());
-        if (handle.isPresent()) {
-            for (String partition : metadata.listPartitionNames(session, handle.get())) {
-                TRow trow = new TRow();
-                trow.addToColumnValue(new TCell().setStringVal(partition));
-                dataBatch.add(trow);
+        try {
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, catalog.getConnector());
+            Optional<ConnectorTableHandle> handle = metadata.getTableHandle(
+                    session, table.getRemoteDbName(), table.getRemoteName());
+            if (handle.isPresent()) {
+                for (String partition : metadata.listPartitionNames(session, handle.get())) {
+                    TRow trow = new TRow();
+                    trow.addToColumnValue(new TCell().setStringVal(partition));
+                    dataBatch.add(trow);
+                }
             }
+            TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+            result.setDataBatch(dataBatch);
+            result.setStatus(new TStatus(TStatusCode.OK));
+            return result;
+        } finally {
+            session.getStatementScope().closeAll();
         }
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-        result.setDataBatch(dataBatch);
-        result.setStatus(new TStatus(TStatusCode.OK));
-        return result;
     }
 
     private static TFetchSchemaTableDataResult dealInternalCatalog(Database db, TableIf table) {

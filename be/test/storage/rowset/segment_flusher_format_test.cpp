@@ -3104,6 +3104,7 @@ protected:
             source_mow_context = make_mow_context(source_tablet->tablet_id(), history);
         }
         context.write_binlog_opt().enable = true;
+        context.allocated_lsn_map = std::make_shared<segment_v2::SegmentAllocatedLsnMap>();
         context.write_binlog_opt().set_need_before(need_before);
         auto& options = context.write_binlog_opt().write_binlog_config();
         options.source.tablet_schema = source_tablet->tablet_schema();
@@ -3117,7 +3118,7 @@ protected:
             for (int64_t row = 0; row < 3; ++row) {
                 lsn_ids->push_back(1000 + segment_id * 100 + row);
             }
-            options.insert_seg_lsn(segment_id, std::move(lsn_ids));
+            context.insert_segment_allocated_lsns(segment_id, std::move(lsn_ids));
         }
     }
 

@@ -447,6 +447,7 @@ public:
     using SegmentId = uint32_t;
     using Version = uint64_t;
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
+    using RowsetIdWithSegmentIds = std::pair<RowsetId, std::vector<SegmentId>>;
     std::map<BitmapKey, roaring::Roaring> delete_bitmap; // Ordered map
     constexpr static inline uint32_t INVALID_SEGMENT_ID = std::numeric_limits<uint32_t>::max() - 1;
     constexpr static inline uint32_t ROWSET_SENTINEL_MARK =
@@ -566,7 +567,7 @@ public:
      */
     void subset(const BitmapKey& start, const BitmapKey& end,
                 DeleteBitmap* subset_delete_map) const;
-    void subset(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids, int64_t start_version,
+    void subset(const std::vector<RowsetIdWithSegmentIds>& rowsets, int64_t start_version,
                 int64_t end_version, DeleteBitmap* subset_delete_map) const;
 
     /**
@@ -574,9 +575,8 @@ public:
      * with given version range [start_version, end_version] and agg to end_version,
      * then merge to subset_delete_map
      */
-    void subset_and_agg(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids,
-                        int64_t start_version, int64_t end_version,
-                        DeleteBitmap* subset_delete_map) const;
+    void subset_and_agg(const std::vector<RowsetIdWithSegmentIds>& rowsets, int64_t start_version,
+                        int64_t end_version, DeleteBitmap* subset_delete_map) const;
 
     /**
      * Gets count of delete_bitmap with given range [start, end)

@@ -706,8 +706,9 @@ protected:
                 // check index file terms for multiple segments
                 std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> dirs_idx(
                         num_segments_idx);
-                for (int i = 0; i < num_segments_idx; i++) {
-                    const auto& seg_path = output_rowset_index->segment_path(i);
+                size_t idx_pos = 0;
+                for (auto seg : output_rowset_index->segments()) {
+                    const auto& seg_path = seg.path();
                     EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
                     auto inverted_index_file_reader_index =
                             IndexCompactionUtils::init_index_file_reader(
@@ -715,12 +716,13 @@ protected:
                                     _tablet_schema->get_inverted_index_storage_format());
                     auto dir_idx = inverted_index_file_reader_index->_open(idx, "");
                     EXPECT_TRUE(dir_idx.has_value()) << dir_idx.error();
-                    dirs_idx[i] = std::move(dir_idx.value());
+                    dirs_idx[idx_pos++] = std::move(dir_idx.value());
                 }
                 std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> dirs_normal(
                         num_segments_normal);
-                for (int i = 0; i < num_segments_normal; i++) {
-                    const auto& seg_path = output_rowset_normal->segment_path(i);
+                size_t normal_pos = 0;
+                for (auto seg : output_rowset_normal->segments()) {
+                    const auto& seg_path = seg.path();
                     EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
                     auto inverted_index_file_reader_normal =
                             IndexCompactionUtils::init_index_file_reader(
@@ -728,7 +730,7 @@ protected:
                                     _tablet_schema->get_inverted_index_storage_format());
                     auto dir_normal = inverted_index_file_reader_normal->_open(idx, "");
                     EXPECT_TRUE(dir_normal.has_value()) << dir_normal.error();
-                    dirs_normal[i] = std::move(dir_normal.value());
+                    dirs_normal[normal_pos++] = std::move(dir_normal.value());
                 }
                 st = IndexCompactionUtils::check_idx_file_correctness(dirs_idx, dirs_normal);
                 EXPECT_TRUE(st.ok()) << st.to_string();
@@ -818,20 +820,26 @@ TEST_F(IndexCompactionTest, tes_write_index_normally) {
             _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
             custom_check_build_rowsets);
 
-    auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
+    constexpr int32_t output_segment_start_id = 10;
+    auto custom_check_index = [output_segment_start_id](const BaseCompaction& compaction,
+                                                        const RowsetWriterContext& ctx) {
         EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 2);
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
         EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
         EXPECT_TRUE(compaction._output_rowset->num_segments() == 1);
+        ASSERT_TRUE(compaction._output_rowset->rowset_meta()->has_segment_ids());
+        ASSERT_EQ(compaction._output_rowset->rowset_meta()->segment_ids().size(), 1);
+        EXPECT_EQ(compaction._output_rowset->rowset_meta()->segment_id(0), output_segment_start_id);
     };
 
     RowsetSharedPtr output_rowset_index;
     auto st = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, true,
-                                                  output_rowset_index, custom_check_index);
+                                                  output_rowset_index, custom_check_index, 100000,
+                                                  output_segment_start_id);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
-    const auto& seg_path = output_rowset_index->segment_path(0);
+    const auto& seg_path = output_rowset_index->segment(0).path();
     EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
     auto inverted_index_file_reader_index = IndexCompactionUtils::init_index_file_reader(
             output_rowset_index, seg_path.value(),

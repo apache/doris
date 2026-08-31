@@ -81,12 +81,18 @@ message SniiCoreMetadataPB {
     optional uint32 common_grams_posting_policy = 5;
 }
 
+// FIELD NUMBERS ARE ON DISK. The SNII format shipped before this message reached
+// upstream, and those segments put null_count at 4. Upstream later inserted
+// sum_total_term_freq at 4 and pushed null_count to 5, so the two layouts
+// disagree on what tag 4 means -- and both are uint64, so a mismatched read
+// returns a plausible wrong number instead of failing. Numbering here follows
+// the shipped layout; append new fields, never insert.
 message SniiStatsPB {
     optional uint64 doc_count = 1;
     optional uint64 indexed_doc_count = 2;
     optional uint64 term_count = 3;
-    optional uint64 sum_total_term_freq = 4;
-    optional uint64 null_count = 5;
+    optional uint64 null_count = 4;
+    optional uint64 sum_total_term_freq = 5;
 }
 
 message SniiRegionRefPB {
@@ -94,12 +100,16 @@ message SniiRegionRefPB {
     optional uint64 length = 2;
 }
 
+// FIELD NUMBERS ARE ON DISK -- see the note on SniiStatsPB. Shipped segments put
+// null_bitmap at 3 and bsbf at 4; upstream inserted norms at 3 and shifted both,
+// which makes a reader take the null bitmap's offset/length for the norms region
+// and lose bsbf entirely. Numbering here follows the shipped layout.
 message SniiSectionRefsPB {
     optional SniiRegionRefPB dict_region = 1;
     optional SniiRegionRefPB posting_region = 2;
-    optional SniiRegionRefPB norms = 3;
-    optional SniiRegionRefPB null_bitmap = 4;
-    optional SniiRegionRefPB bsbf = 5;
+    optional SniiRegionRefPB null_bitmap = 3;
+    optional SniiRegionRefPB bsbf = 4;
+    optional SniiRegionRefPB norms = 5;
 }
 
 message SniiCommonGramsMetadataPB {

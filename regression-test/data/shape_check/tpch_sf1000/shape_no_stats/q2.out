@@ -7,26 +7,40 @@ PhysicalResultSink
 --------PhysicalDistribute[DistributionSpecGather]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------PhysicalProject
---------------filter((partsupp.ps_supplycost = min(ps_supplycost) OVER(PARTITION BY p_partkey)))
-----------------PhysicalWindow
-------------------PhysicalQuickSort[LOCAL_SORT]
+--------------hashJoin[INNER_JOIN colocated] hashCondition=((part.p_partkey = partsupp.ps_partkey) and (partsupp.ps_supplycost = min(ps_supplycost))) otherCondition=() build RFs:RF7 min(ps_supplycost)->ps_supplycost;RF8 ps_partkey->p_partkey;RF9 ps_partkey->ps_partkey
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN broadcast] hashCondition=((nation.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF6 r_regionkey->n_regionkey
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((nation.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF3 r_regionkey->n_regionkey
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF5 n_nationkey->s_nationkey
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF2 n_nationkey->s_nationkey
+--------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = partsupp.ps_suppkey)) otherCondition=() build RFs:RF4 s_suppkey->ps_suppkey
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = partsupp.ps_suppkey)) otherCondition=() build RFs:RF1 s_suppkey->ps_suppkey
+------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((part.p_partkey = partsupp.ps_partkey)) otherCondition=() build RFs:RF3 p_partkey->ps_partkey;RF10 p_partkey->ps_partkey
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((part.p_partkey = partsupp.ps_partkey)) otherCondition=() build RFs:RF0 p_partkey->ps_partkey
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[partsupp] apply RFs: RF0 RF1
-------------------------------------PhysicalProject
---------------------------------------filter((part.p_size = 15) and (part.p_type like '%BRASS'))
-----------------------------------------PhysicalLazyMaterializeOlapScan[part lazySlots:(part.p_mfgr)]
---------------------------------PhysicalLazyMaterializeOlapScan[supplier lazySlots:(supplier.s_address,supplier.s_phone,supplier.s_comment)] apply RFs: RF2
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[nation] apply RFs: RF3
+----------------------------------PhysicalOlapScan[partsupp] apply RFs: RF3 RF4 RF7 RF9
+--------------------------------PhysicalProject
+----------------------------------filter((part.p_size = 15) and (part.p_type like '%BRASS'))
+------------------------------------PhysicalLazyMaterializeOlapScan[part lazySlots:(part.p_mfgr)] apply RFs: RF8
+----------------------------PhysicalLazyMaterializeOlapScan[supplier lazySlots:(supplier.s_address,supplier.s_phone,supplier.s_comment)] apply RFs: RF5
 ------------------------PhysicalProject
---------------------------filter((region.r_name = 'EUROPE'))
-----------------------------PhysicalOlapScan[region]
+--------------------------PhysicalOlapScan[nation] apply RFs: RF6
+--------------------PhysicalProject
+----------------------filter((region.r_name = 'EUROPE'))
+------------------------PhysicalOlapScan[region]
+----------------hashAgg[GLOBAL]
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((nation.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF2 r_regionkey->n_regionkey
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF1 n_nationkey->s_nationkey
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = partsupp.ps_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->ps_suppkey
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[partsupp] apply RFs: RF0 RF10
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[supplier] apply RFs: RF1
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[nation] apply RFs: RF2
+----------------------PhysicalProject
+------------------------filter((region.r_name = 'EUROPE'))
+--------------------------PhysicalOlapScan[region]
 

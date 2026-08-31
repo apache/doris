@@ -207,6 +207,37 @@ public class CreateFunctionTest extends TestWithFeService {
     }
 
     @Test
+    public void testDropFunctionReturnsCurrentGenerationId() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database drop_function_id_db;");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("drop_function_id_db");
+        Assertions.assertNotNull(db);
+
+        Function firstGeneration = createJavaUdf("drop_function_id_db", "generation_fn", Type.INT);
+        db.addFunction(firstGeneration, false);
+        Assertions.assertEquals(ImmutableList.of(firstGeneration.getId()),
+                db.dropFunction(searchDesc(firstGeneration), false));
+
+        Function secondGeneration = createJavaUdf("drop_function_id_db", "generation_fn", Type.INT);
+        db.addFunction(secondGeneration, false);
+        Assertions.assertNotEquals(firstGeneration.getId(), secondGeneration.getId());
+        Assertions.assertEquals(ImmutableList.of(secondGeneration.getId()),
+                db.dropFunction(searchDesc(secondGeneration), false));
+    }
+
+    @Test
+    public void testDropGlobalFunctionReturnsCurrentGenerationId() throws Exception {
+        GlobalFunctionMgr globalFunctionMgr = Env.getCurrentEnv().getGlobalFunctionMgr();
+        Function function = createJavaUdf(null, "drop_global_function_id_fn", Type.INT);
+        FunctionSearchDesc functionDesc = searchDesc(function);
+        globalFunctionMgr.dropFunction(functionDesc, true);
+
+        globalFunctionMgr.addFunction(function, false);
+        Assertions.assertEquals(ImmutableList.of(function.getId()),
+                globalFunctionMgr.dropFunction(functionDesc, false));
+    }
+
+    @Test
     public void testCreateTableFunctionRollbackWhenOuterFunctionFails() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         createDatabase(ctx, "create database rollback_table_function_db;");

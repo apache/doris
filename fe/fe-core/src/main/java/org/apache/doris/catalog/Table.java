@@ -161,8 +161,8 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
                 nameToColumn.put(col.getDefineName(), col);
             }
         } else {
-            // Only view in with-clause have null base
-            Preconditions.checkArgument(type == TableType.VIEW, "Table has no columns");
+            // Only view & table stream in with-clause have null base
+            Preconditions.checkArgument(type == TableType.VIEW || type == TableType.STREAM, "Table has no columns");
         }
         this.rwLock = new MonitoredReentrantReadWriteLock(true);
         this.createTime = Instant.now().getEpochSecond();

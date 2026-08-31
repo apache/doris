@@ -395,6 +395,9 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
     tablet_schema_pb->set_num_short_key_columns(tablet_schema.short_key_column_count);
     tablet_schema_pb->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
     tablet_schema_pb->set_sequence_col_idx(tablet_schema.sequence_col_idx);
+    if (tablet_schema.__isset.row_lsn_col_idx) {
+        tablet_schema_pb->set_row_lsn_col_idx(tablet_schema.row_lsn_col_idx);
+    }
     if (tablet_schema.__isset.binlog_tso_idx) {
         tablet_schema_pb->set_binlog_tso_col_idx(tablet_schema.binlog_tso_idx);
     }
@@ -586,6 +589,9 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
     }
     if (tablet_schema.__isset.commit_tso_col_idx) {
         tablet_schema_pb->set_commit_tso_col_idx(tablet_schema.commit_tso_col_idx);
+    }
+    if (tablet_schema.__isset.row_lsn_col_idx) {
+        tablet_schema_pb->set_row_lsn_col_idx(tablet_schema.row_lsn_col_idx);
     }
     if (tablet_schema.__isset.store_row_column) {
         tablet_schema_pb->set_store_row_column(tablet_schema.store_row_column);
@@ -1585,11 +1591,10 @@ void DeleteBitmap::subset(const BitmapKey& start, const BitmapKey& end,
     }
 }
 
-void DeleteBitmap::subset(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids,
-                          int64_t start_version, int64_t end_version,
-                          DeleteBitmap* subset_delete_map) const {
+void DeleteBitmap::subset(const std::vector<RowsetIdWithSegmentIds>& rowsets, int64_t start_version,
+                          int64_t end_version, DeleteBitmap* subset_delete_map) const {
     DCHECK(start_version <= end_version);
-    for (auto& [rowset_id, _] : rowset_ids) {
+    for (const auto& [rowset_id, _] : rowsets) {
         BitmapKey start {rowset_id, 0, 0};
         BitmapKey end {rowset_id, UINT32_MAX, end_version + 1};
         std::shared_lock l(lock);
@@ -1611,16 +1616,16 @@ void DeleteBitmap::subset(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids,
     }
 }
 
-void DeleteBitmap::subset_and_agg(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids,
+void DeleteBitmap::subset_and_agg(const std::vector<RowsetIdWithSegmentIds>& rowsets,
                                   int64_t start_version, int64_t end_version,
                                   DeleteBitmap* subset_delete_map) const {
     DCHECK(start_version <= end_version);
-    for (auto& [rowset_id, segment_num] : rowset_ids) {
-        for (int64_t seg_id = 0; seg_id < segment_num; ++seg_id) {
-            BitmapKey end {rowset_id, seg_id, end_version};
+    for (const auto& [rowset_id, segment_ids] : rowsets) {
+        for (auto segment_id : segment_ids) {
+            BitmapKey end {rowset_id, segment_id, end_version};
             auto bm = get_agg_without_cache(end, start_version);
             VLOG_DEBUG << "subset delete bitmap, tablet=" << _tablet_id << ", rowset=" << rowset_id
-                       << ", segment=" << seg_id << ", version=[" << start_version << "-"
+                       << ", segment=" << segment_id << ", version=[" << start_version << "-"
                        << end_version << "], cardinality=" << bm->cardinality();
             if (bm->isEmpty()) {
                 continue;

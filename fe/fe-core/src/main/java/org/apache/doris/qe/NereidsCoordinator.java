@@ -68,6 +68,7 @@ import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -76,6 +77,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /** NereidsCoordinator */
@@ -371,6 +373,12 @@ public class NereidsCoordinator extends Coordinator {
     @Override
     public List<TNetworkAddress> getInvolvedBackends() {
         return Utils.fastToImmutableList(coordinatorContext.backends.get().keySet());
+    }
+
+    @Override
+    public Set<Long> getDispatchedBackendIdsForAudit() {
+        return executionTask == null
+                ? ImmutableSet.of() : executionTask.getDispatchedBackendIdsForAudit();
     }
 
     @Override

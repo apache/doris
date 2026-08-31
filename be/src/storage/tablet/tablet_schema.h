@@ -522,6 +522,7 @@ public:
     int32_t skip_bitmap_col_idx() const { return _skip_bitmap_col_idx; }
     bool is_tso_enabled() const { return _commit_tso_col_idx != -1 || _binlog_tso_col_idx != -1; }
     int32_t commit_tso_col_idx() const { return _commit_tso_col_idx; }
+    int32_t row_lsn_col_idx() const { return _row_lsn_col_idx; }
     int32_t binlog_tso_col_idx() const { return _binlog_tso_col_idx; }
     int32_t binlog_lsn_col_idx() const { return _binlog_lsn_col_idx; }
     int32_t binlog_op_col_idx() const { return _binlog_op_col_idx; }
@@ -823,6 +824,7 @@ private:
     int32_t _version_col_idx = -1;
     int32_t _skip_bitmap_col_idx = -1;
     int32_t _commit_tso_col_idx = -1;
+    int32_t _row_lsn_col_idx = -1;
     int32_t _binlog_tso_col_idx = -1;
     int32_t _binlog_lsn_col_idx = -1;
     int32_t _binlog_op_col_idx = -1;
