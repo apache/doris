@@ -1918,6 +1918,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         final List<String> allPartitions =
                 new ArrayList<>(selectedPartitions.selectedPartitions.keySet());
         final int batchSize = sessionVariable.getNumPartitionsInBatchMode();
+        SummaryProfile batchSummaryProfile = SummaryProfile.getSummaryProfile(ConnectContext.get());
+        final RuntimeProfile batchExecutionSummary = batchSummaryProfile == null
+                ? null : batchSummaryProfile.getExecutionSummary();
 
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         AtomicReference<UserException> batchException = new AtomicReference<>(null);
@@ -1951,6 +1954,14 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                                 splitAssignment.setException(batchException.get());
                             }
                             if (numFinishedPartitions.addAndGet(curBatchSize) == allPartitions.size()) {
+                                try {
+                                    List<ConnectorScanProfile> profiles = onPluginClassLoader(scanProvider,
+                                            () -> scanProvider.collectScanProfiles(connectorSession));
+                                    writeScanProfilesInto(batchExecutionSummary, profiles);
+                                } catch (Exception e) {
+                                    batchException.set(new UserException(e.getMessage(), e));
+                                    splitAssignment.setException(batchException.get());
+                                }
                                 splitAssignment.finishSchedule();
                             }
                         }

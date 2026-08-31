@@ -165,6 +165,21 @@ public interface HmsClient extends Closeable {
             List<String> partNames);
 
     /**
+     * Returns partition objects together with physical batching statistics. Implementations that do not expose
+     * transport details retain the regular result and report a logical-only event.
+     */
+    default HmsPartitionBatchResult getPartitionsWithStats(String dbName, String tableName,
+            List<String> partNames) {
+        long startNanos = System.nanoTime();
+        List<HmsPartitionInfo> partitions = getPartitions(dbName, tableName, partNames);
+        HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
+                .requestedItems(partNames.size())
+                .logicalElapsedNanos(System.nanoTime() - startNanos)
+                .build();
+        return new HmsPartitionBatchResult(partitions, stats);
+    }
+
+    /**
      * Get a single partition by its values.
      *
      * @param dbName    database name

@@ -18,6 +18,8 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.hms.HmsClient;
+import org.apache.doris.connector.hms.HmsPartitionBatchResult;
+import org.apache.doris.connector.hms.HmsPartitionBatchStats;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -27,6 +29,7 @@ import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
@@ -49,6 +52,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.function.UnaryOperator;
 
 /**
@@ -107,6 +111,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     // so a repeated scan of the same partition directory is served from the cache instead of re-listing. Only the
     // plain (non-ACID) path uses it; the ACID path lists via HiveAcidUtil and is uncached (legacy parity).
     private final HiveFileListingCache fileListingCache;
+    private final PartitionBatchProfile partitionBatchProfile = new PartitionBatchProfile();
 
     public HiveScanPlanProvider(HmsClient hmsClient, HiveCatalogProperties catalogProperties,
             ConnectorContext context, HiveReadTransactionManager readTxnManager,
@@ -243,7 +248,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         String tableName = hiveHandle.getTableName();
 
         // Resolve ONLY this batch's partitions (scoped to partitionBatch), NOT handle.getPrunedPartitions().
-        List<HmsPartitionInfo> hmsPartitions = hmsClient.getPartitions(dbName, tableName, partitionBatch);
+        List<HmsPartitionInfo> hmsPartitions = loadPartitionsWithProfile(dbName, tableName, partitionBatch);
         List<PartitionScanInfo> partitions = convertPartitions(
                 hmsPartitions, hiveHandle.getPartitionKeyNames());
         if (partitions.isEmpty()) {
@@ -350,6 +355,11 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public void releaseReadTransaction(String queryId) {
         readTxnManager.deregister(queryId);
+    }
+
+    @Override
+    public List<ConnectorScanProfile> collectScanProfiles(ConnectorSession session) {
+        return partitionBatchProfile.drain();
     }
 
     /** Encodes each delete-delta as {@code "dir|file1,file2"} for {@link HiveScanRange.Builder#acidInfo}. */
@@ -499,9 +509,16 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         if (partNames.isEmpty()) {
             return Collections.emptyList();
         }
-        List<HmsPartitionInfo> hmsPartitions = hmsClient.getPartitions(
+        List<HmsPartitionInfo> hmsPartitions = loadPartitionsWithProfile(
                 handle.getDbName(), handle.getTableName(), partNames);
         return convertPartitions(hmsPartitions, partKeyNames);
+    }
+
+    private List<HmsPartitionInfo> loadPartitionsWithProfile(
+            String dbName, String tableName, List<String> partitionNames) {
+        HmsPartitionBatchResult result = hmsClient.getPartitionsWithStats(dbName, tableName, partitionNames);
+        partitionBatchProfile.record(dbName, tableName, result.getStats());
+        return result.getPartitions();
     }
 
     private List<PartitionScanInfo> convertPartitions(
@@ -724,5 +741,73 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
     private ConnectorStorageContext storage() {
         return context.getStorageContext();
+    }
+
+    /** Thread-safe aggregation because partition-batch scan planning runs on the shared metadata executor. */
+    private static final class PartitionBatchProfile {
+        private String tableLabel;
+        private int logicalRequests;
+        private long requestedItems;
+        private long rpcAttempts;
+        private long rpcItems;
+        private int largestBatchSize;
+        private int smallestBatchSize;
+        private long fallbacks;
+        private long logicalElapsedNanos;
+        private long rpcElapsedNanos;
+        private long maxRpcElapsedNanos;
+
+        synchronized void record(String dbName, String tableName, HmsPartitionBatchStats stats) {
+            tableLabel = dbName + "." + tableName;
+            logicalRequests++;
+            requestedItems += stats.getRequestedItems();
+            rpcAttempts += stats.getRpcAttempts();
+            rpcItems += stats.getRpcItems();
+            largestBatchSize = Math.max(largestBatchSize, stats.getLargestBatchSize());
+            if (stats.getSmallestBatchSize() > 0) {
+                smallestBatchSize = smallestBatchSize == 0
+                        ? stats.getSmallestBatchSize()
+                        : Math.min(smallestBatchSize, stats.getSmallestBatchSize());
+            }
+            fallbacks += stats.getFallbackCount();
+            logicalElapsedNanos += stats.getLogicalElapsedNanos();
+            rpcElapsedNanos += stats.getRpcElapsedNanos();
+            maxRpcElapsedNanos = Math.max(maxRpcElapsedNanos, stats.getMaxRpcElapsedNanos());
+        }
+
+        synchronized List<ConnectorScanProfile> drain() {
+            if (logicalRequests == 0) {
+                return Collections.emptyList();
+            }
+            Map<String, String> metrics = new LinkedHashMap<>();
+            metrics.put("LogicalRequests", String.valueOf(logicalRequests));
+            metrics.put("RequestedItems", String.valueOf(requestedItems));
+            metrics.put("RpcAttempts", String.valueOf(rpcAttempts));
+            metrics.put("RpcItems", String.valueOf(rpcItems));
+            metrics.put("LargestBatchSize", String.valueOf(largestBatchSize));
+            metrics.put("SmallestBatchSize", String.valueOf(smallestBatchSize));
+            metrics.put("Fallbacks", String.valueOf(fallbacks));
+            metrics.put("LogicalElapsedTime", formatNanos(logicalElapsedNanos));
+            metrics.put("RpcElapsedTime", formatNanos(rpcElapsedNanos));
+            metrics.put("MaxRpcElapsedTime", formatNanos(maxRpcElapsedNanos));
+            ConnectorScanProfile profile = new ConnectorScanProfile(
+                    "Connector Metadata Access", "hms.get_partitions_by_names [QUERY] (" + tableLabel + ")",
+                    metrics);
+            logicalRequests = 0;
+            requestedItems = 0;
+            rpcAttempts = 0;
+            rpcItems = 0;
+            largestBatchSize = 0;
+            smallestBatchSize = 0;
+            fallbacks = 0;
+            logicalElapsedNanos = 0;
+            rpcElapsedNanos = 0;
+            maxRpcElapsedNanos = 0;
+            return Collections.singletonList(profile);
+        }
+
+        private static String formatNanos(long nanos) {
+            return TimeUnit.NANOSECONDS.toMillis(nanos) + "ms";
+        }
     }
 }

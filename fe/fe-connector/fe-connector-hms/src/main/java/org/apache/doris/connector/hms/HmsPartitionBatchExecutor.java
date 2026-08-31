@@ -63,9 +63,17 @@ final class HmsPartitionBatchExecutor {
     }
 
     List<HmsPartitionInfo> execute(HmsPartitionRequest request) {
+        return executeWithStats(request).getPartitions();
+    }
+
+    HmsPartitionBatchResult executeWithStats(HmsPartitionRequest request) {
+        long logicalStartNanos = System.nanoTime();
         List<HmsPartitionIdentity.ParsedPartitionName> partitions = request.getPartitions();
         if (partitions.isEmpty()) {
-            return new ArrayList<>();
+            HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
+                    .logicalElapsedNanos(System.nanoTime() - logicalStartNanos)
+                    .build();
+            return new HmsPartitionBatchResult(new ArrayList<>(), stats);
         }
 
         List<HmsPartitionInfo> result = new ArrayList<>(partitions.size());
@@ -73,6 +81,11 @@ final class HmsPartitionBatchExecutor {
         int effectiveBatchSize = maxBatchSize;
         int attempts = 0;
         int fallbackCount = 0;
+        long rpcItems = 0;
+        long rpcElapsedNanos = 0;
+        long maxRpcElapsedNanos = 0;
+        int largestBatchSize = 0;
+        int smallestBatchSize = Integer.MAX_VALUE;
         boolean fallbackStarted = false;
         long fallbackStartNanos = 0;
         while (offset < partitions.size()) {
@@ -85,6 +98,10 @@ final class HmsPartitionBatchExecutor {
                 batchNames.add(partition.getName());
             }
             attempts++;
+            rpcItems += batchSize;
+            largestBatchSize = Math.max(largestBatchSize, batchSize);
+            smallestBatchSize = Math.min(smallestBatchSize, batchSize);
+            long rpcStartNanos = System.nanoTime();
             try {
                 List<HmsPartitionInfo> returned = transport.getPartitionsByNames(
                         request.getDbName(), request.getTableName(), batchNames);
@@ -106,10 +123,25 @@ final class HmsPartitionBatchExecutor {
                 throw e;
             } catch (Exception e) {
                 throw new HmsClientException("Unexpected checked failure fetching HMS partitions", e);
+            } finally {
+                long elapsedNanos = System.nanoTime() - rpcStartNanos;
+                rpcElapsedNanos += elapsedNanos;
+                maxRpcElapsedNanos = Math.max(maxRpcElapsedNanos, elapsedNanos);
             }
         }
         checkFallbackTimeout(request, offset, fallbackStarted, fallbackStartNanos);
-        return result;
+        HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
+                .requestedItems(partitions.size())
+                .rpcAttempts(attempts)
+                .rpcItems(rpcItems)
+                .largestBatchSize(largestBatchSize)
+                .smallestBatchSize(smallestBatchSize)
+                .fallbackCount(fallbackCount)
+                .logicalElapsedNanos(System.nanoTime() - logicalStartNanos)
+                .rpcElapsedNanos(rpcElapsedNanos)
+                .maxRpcElapsedNanos(maxRpcElapsedNanos)
+                .build();
+        return new HmsPartitionBatchResult(result, stats);
     }
 
     private void checkFallbackTimeout(HmsPartitionRequest request, int offset,

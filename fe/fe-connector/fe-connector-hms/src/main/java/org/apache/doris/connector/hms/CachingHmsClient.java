@@ -198,8 +198,18 @@ public class CachingHmsClient implements HmsClient {
 
     @Override
     public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
+        return getPartitionsWithStats(dbName, tableName, partNames).getPartitions();
+    }
+
+    @Override
+    public HmsPartitionBatchResult getPartitionsWithStats(
+            String dbName, String tableName, List<String> partNames) {
+        long logicalStartNanos = System.nanoTime();
         if (partNames == null || partNames.isEmpty()) {
-            return Collections.emptyList();
+            HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
+                    .logicalElapsedNanos(System.nanoTime() - logicalStartNanos)
+                    .build();
+            return new HmsPartitionBatchResult(Collections.emptyList(), stats);
         }
         HmsPartitionRequest request = HmsPartitionRequest.builder()
                 .database(dbName)
@@ -222,6 +232,7 @@ public class CachingHmsClient implements HmsClient {
                 misses.add(partition);
             }
         }
+        HmsPartitionBatchStats physicalStats = HmsPartitionBatchStats.builder().build();
         if (!misses.isEmpty()) {
             // Capture the invalidation generation BEFORE the delegate RPC so a REFRESH (flush) that races this
             // in-flight cold-cache fetch does not get silently undone by re-caching the pre-refresh partitions.
@@ -233,7 +244,9 @@ public class CachingHmsClient implements HmsClient {
             for (HmsPartitionIdentity.ParsedPartitionName miss : misses) {
                 missNames.add(miss.getName());
             }
-            List<HmsPartitionInfo> loaded = delegate.getPartitions(dbName, tableName, missNames);
+            HmsPartitionBatchResult loadedResult = delegate.getPartitionsWithStats(dbName, tableName, missNames);
+            List<HmsPartitionInfo> loaded = loadedResult.getPartitions();
+            physicalStats = loadedResult.getStats();
             if (loaded == null || loaded.size() != misses.size()) {
                 throw new HmsClientException("HMS partition delegate violated its exact-result contract");
             }
@@ -257,7 +270,9 @@ public class CachingHmsClient implements HmsClient {
                     () -> "validated HMS partition result is incomplete: "
                             + request.getPartitions().get(index).getName()));
         }
-        return result;
+        HmsPartitionBatchStats stats = physicalStats.forLogicalRequest(
+                partNames.size(), System.nanoTime() - logicalStartNanos);
+        return new HmsPartitionBatchResult(result, stats);
     }
 
     @Override

@@ -237,6 +237,30 @@ public class CachingHmsClientTest {
     }
 
     @Test
+    public void getPartitionsStatsKeepLogicalRequestAndPhysicalMissDimensions() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+
+        HmsPartitionBatchStats cold = cache.getPartitionsWithStats(
+                "db", "t", Arrays.asList("p=1", "p=2")).getStats();
+        Assertions.assertEquals(2, cold.getRequestedItems());
+        Assertions.assertEquals(1, cold.getRpcAttempts());
+        Assertions.assertEquals(2, cold.getRpcItems());
+
+        HmsPartitionBatchStats hit = cache.getPartitionsWithStats(
+                "db", "t", Collections.singletonList("p=1")).getStats();
+        Assertions.assertEquals(1, hit.getRequestedItems());
+        Assertions.assertEquals(0, hit.getRpcAttempts());
+        Assertions.assertEquals(0, hit.getRpcItems());
+
+        HmsPartitionBatchStats mixed = cache.getPartitionsWithStats(
+                "db", "t", Arrays.asList("p=1", "p=3")).getStats();
+        Assertions.assertEquals(2, mixed.getRequestedItems());
+        Assertions.assertEquals(1, mixed.getRpcAttempts());
+        Assertions.assertEquals(1, mixed.getRpcItems());
+    }
+
+    @Test
     public void getPartitionsRejectsMissingPartitionWithoutPartialCaching() {
         RecordingHmsClient delegate = new RecordingHmsClient();
         delegate.absentPartitionNames.add("p=9");
@@ -602,6 +626,22 @@ public class CachingHmsClientTest {
                 out.add(new HmsPartitionInfo(values, "loc/" + name, null, null, null, null));
             }
             return out;
+        }
+
+        @Override
+        public HmsPartitionBatchResult getPartitionsWithStats(
+                String dbName, String tableName, List<String> partNames) {
+            long startNanos = System.nanoTime();
+            List<HmsPartitionInfo> partitions = getPartitions(dbName, tableName, partNames);
+            HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
+                    .requestedItems(partNames.size())
+                    .rpcAttempts(1)
+                    .rpcItems(partNames.size())
+                    .largestBatchSize(partNames.size())
+                    .smallestBatchSize(partNames.size())
+                    .logicalElapsedNanos(System.nanoTime() - startNanos)
+                    .build();
+            return new HmsPartitionBatchResult(partitions, stats);
         }
 
         // "p=1" -> ["1"]; "k1=a/k2=b" -> ["a", "b"] (simple split; test names carry no escaped characters).

@@ -81,6 +81,29 @@ public class HmsPartitionBatchExecutorTest {
     }
 
     @Test
+    public void reportsPhysicalBatchExecutionStats() {
+        HmsPartitionBatchExecutor executor = executor(4, (db, table, names) -> {
+            if (names.size() > 2) {
+                throw remoteFailure("frame too large");
+            }
+            return infos(names);
+        });
+
+        HmsPartitionBatchResult result = executor.executeWithStats(request(names(5)));
+        HmsPartitionBatchStats stats = result.getStats();
+
+        Assertions.assertEquals(5, result.getPartitions().size());
+        Assertions.assertEquals(5, stats.getRequestedItems());
+        Assertions.assertEquals(4, stats.getRpcAttempts());
+        Assertions.assertEquals(9, stats.getRpcItems());
+        Assertions.assertEquals(4, stats.getLargestBatchSize());
+        Assertions.assertEquals(1, stats.getSmallestBatchSize());
+        Assertions.assertEquals(1, stats.getFallbackCount());
+        Assertions.assertTrue(stats.getLogicalElapsedNanos() >= stats.getRpcElapsedNanos());
+        Assertions.assertTrue(stats.getRpcElapsedNanos() >= stats.getMaxRpcElapsedNanos());
+    }
+
+    @Test
     public void minimumBatchFailurePropagates() {
         List<Integer> attempts = new ArrayList<>();
         HmsPartitionBatchExecutor executor = executor(2, (db, table, names) -> {

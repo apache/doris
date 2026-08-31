@@ -244,16 +244,22 @@ public class ThriftHmsClient implements HmsClient {
     @Override
     public List<HmsPartitionInfo> getPartitions(String dbName,
             String tableName, List<String> partNames) {
+        return getPartitionsWithStats(dbName, tableName, partNames).getPartitions();
+    }
+
+    @Override
+    public HmsPartitionBatchResult getPartitionsWithStats(String dbName,
+            String tableName, List<String> partNames) {
         HmsPartitionRequest request = HmsPartitionRequest.builder()
                 .database(dbName)
                 .table(tableName)
                 .partitionNames(partNames)
                 .build();
         if (clientPool != null) {
-            return newPartitionBatchExecutor(this::getPartitionsByNames).execute(request);
+            return newPartitionBatchExecutor(this::getPartitionsByNames).executeWithStats(request);
         }
         try (UnpooledPartitionTransport transport = new UnpooledPartitionTransport()) {
-            return newPartitionBatchExecutor(transport).execute(request);
+            return newPartitionBatchExecutor(transport).executeWithStats(request);
         }
     }
 

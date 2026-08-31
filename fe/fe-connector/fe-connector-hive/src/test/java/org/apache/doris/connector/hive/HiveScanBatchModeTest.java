@@ -19,10 +19,13 @@ package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
+import org.apache.doris.connector.hms.HmsPartitionBatchResult;
+import org.apache.doris.connector.hms.HmsPartitionBatchStats;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.filesystem.FileSystem;
@@ -141,6 +144,37 @@ public class HiveScanBatchModeTest {
         Assertions.assertEquals(1, (int) lister.callsPerLocation.get("year=2024/month=01"));
         Assertions.assertNull(lister.callsPerLocation.get("year=2023/month=12"));
         Assertions.assertNull(lister.callsPerLocation.get("year=2024/month=02"));
+    }
+
+    @Test
+    public void partitionBatchStatsAreExposedAsOneScanProfile() {
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .build();
+        FakeSession session = new FakeSession();
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                handle, Collections.<ConnectorColumnHandle>emptyList()).build();
+
+        provider.planScanForPartitionBatch(session, request,
+                Arrays.asList("year=2024/month=01", "year=2024/month=02"));
+        provider.planScanForPartitionBatch(session, request,
+                Collections.singletonList("year=2024/month=03"));
+
+        List<ConnectorScanProfile> profiles = provider.collectScanProfiles(session);
+        Assertions.assertEquals(1, profiles.size());
+        ConnectorScanProfile profile = profiles.get(0);
+        Assertions.assertEquals("Connector Metadata Access", profile.getGroupName());
+        Assertions.assertTrue(profile.getScanLabel().contains("db.t"));
+        Assertions.assertEquals("2", profile.getMetrics().get("LogicalRequests"));
+        Assertions.assertEquals("3", profile.getMetrics().get("RequestedItems"));
+        Assertions.assertEquals("2", profile.getMetrics().get("RpcAttempts"));
+        Assertions.assertEquals("3", profile.getMetrics().get("RpcItems"));
+        Assertions.assertEquals("2", profile.getMetrics().get("LargestBatchSize"));
+        Assertions.assertEquals("1", profile.getMetrics().get("SmallestBatchSize"));
+        Assertions.assertTrue(provider.collectScanProfiles(session).isEmpty());
     }
 
     // ===== object-store native read (FIX-hive-s3a: scheme normalization + canonical creds) =====
@@ -345,6 +379,20 @@ public class HiveScanBatchModeTest {
                         null, null, null, Collections.emptyMap()));
             }
             return result;
+        }
+
+        @Override
+        public HmsPartitionBatchResult getPartitionsWithStats(
+                String dbName, String tableName, List<String> partNames) {
+            List<HmsPartitionInfo> partitions = getPartitions(dbName, tableName, partNames);
+            HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
+                    .requestedItems(partNames.size())
+                    .rpcAttempts(1)
+                    .rpcItems(partNames.size())
+                    .largestBatchSize(partNames.size())
+                    .smallestBatchSize(partNames.size())
+                    .build();
+            return new HmsPartitionBatchResult(partitions, stats);
         }
 
         @Override
