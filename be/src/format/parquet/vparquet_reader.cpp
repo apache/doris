@@ -461,22 +461,37 @@ Status ParquetReader::init_reader(
     _table_column_names = &all_column_names;
     auto schema_desc = _file_metadata->schema();
 
-    std::map<std::string, std::string> required_file_columns; //file column -> table column
+    std::map<std::string, std::string> required_file_columns; // file column -> table column
+    std::multimap<std::string, std::string> duplicate_file_column_aliases;
     for (auto table_column_name : all_column_names) {
         if (_table_info_node_ptr->children_column_exists(table_column_name)) {
-            required_file_columns.emplace(
-                    _table_info_node_ptr->children_file_column_name(table_column_name),
-                    table_column_name);
+            const auto file_column_name =
+                    _table_info_node_ptr->children_file_column_name(table_column_name);
+            if (_duplicate_file_column_aliases.contains(table_column_name)) {
+                duplicate_file_column_aliases.emplace(file_column_name, table_column_name);
+            } else {
+                required_file_columns.emplace(file_column_name, table_column_name);
+            }
         } else {
             _missing_cols.emplace_back(table_column_name);
         }
     }
     for (int i = 0; i < schema_desc.size(); ++i) {
         const auto& name = schema_desc.get_column(i)->name;
-        if (required_file_columns.contains(name)) {
+        const auto required = required_file_columns.find(name);
+        if (required != required_file_columns.end()) {
             _read_file_columns.emplace_back(name);
-            _read_table_columns.emplace_back(required_file_columns[name]);
-            _read_table_columns_set.insert(required_file_columns[name]);
+            _read_table_columns.emplace_back(required->second);
+            _read_table_columns_set.insert(required->second);
+        }
+        const auto [begin, end] = duplicate_file_column_aliases.equal_range(name);
+        for (auto alias = begin; alias != end; ++alias) {
+            if (required != required_file_columns.end() && required->second == alias->second) {
+                continue;
+            }
+            _read_file_columns.emplace_back(name);
+            _read_table_columns.emplace_back(alias->second);
+            _read_table_columns_set.insert(alias->second);
         }
     }
     // build column predicates for column lazy read
@@ -835,7 +850,12 @@ Status ParquetReader::_next_row_group_reader() {
             return size;
         };
         int64_t group_size = 0; // only calculate the needed columns
+        const std::string* previous_read_col = nullptr;
         for (auto& read_col : _read_file_columns) {
+            if (previous_read_col != nullptr && *previous_read_col == read_col) {
+                continue;
+            }
+            previous_read_col = &read_col;
             const FieldSchema* field = _file_metadata->schema().get_column(read_col);
             group_size += column_compressed_size(field);
         }
@@ -948,7 +968,12 @@ std::vector<io::PrefetchRange> ParquetReader::_generate_random_access_ranges(
                 }
             };
     const tparquet::RowGroup& row_group = _t_metadata->row_groups[group.row_group_id];
+    const std::string* previous_read_col = nullptr;
     for (const auto& read_col : _read_file_columns) {
+        if (previous_read_col != nullptr && *previous_read_col == read_col) {
+            continue;
+        }
+        previous_read_col = &read_col;
         const FieldSchema* field = _file_metadata->schema().get_column(read_col);
         scalar_range(field, row_group);
     }

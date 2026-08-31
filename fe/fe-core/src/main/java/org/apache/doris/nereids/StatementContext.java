@@ -32,6 +32,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
@@ -95,6 +96,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Set;
@@ -238,7 +240,6 @@ public class StatementContext implements Closeable {
     private final Map<List<String>, Pair<String, Map<String, String>>> viewInfos = Maps.newHashMap();
     // save insert into schema to avoid schema changed between two read locks
     private final List<Column> insertTargetSchema = new ArrayList<>();
-
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be
     // replaced,
@@ -279,6 +280,10 @@ public class StatementContext implements Closeable {
     // Record external tables that can be preloaded before internal table locks are acquired.
     private final Map<Long, ExternalTablePreloadInfo> externalTablePreloadInfos = new LinkedHashMap<>();
     private ExternalMetadataPreloadResult externalMetadataPreloadResult;
+
+    // Present while analyzing an Iceberg INSERT, UPDATE, or MERGE so DEFAULT(column)
+    // resolves from the statement-pinned Iceberg write schema.
+    private Optional<IcebergWriteSchemaContext> icebergWriteSchemaContext = Optional.empty();
 
     private boolean privChecked;
 
@@ -1048,6 +1053,7 @@ public class StatementContext implements Closeable {
         ExternalScanTaskCache oldCache = externalScanTaskCache;
         externalScanTaskCache = new ExternalScanTaskCache();
         oldCache.invalidate();
+        icebergWriteSchemaContext = Optional.empty();
         // PREPARE keeps preload candidates, but completion belongs to one analysis pass and must
         // not suppress preloading after the next EXECUTE resets its snapshot generation.
         externalMetadataPreloadResult = null;
@@ -1391,6 +1397,10 @@ public class StatementContext implements Closeable {
         this.icebergRewriteFileScanTasks = tasks;
     }
 
+    public List<org.apache.iceberg.FileScanTask> getIcebergRewriteFileScanTasks() {
+        return icebergRewriteFileScanTasks;
+    }
+
     /**
      * Get and consume file scan tasks for Iceberg rewrite operations.
      * Returns the tasks and clears the field to prevent reuse.
@@ -1707,5 +1717,15 @@ public class StatementContext implements Closeable {
 
     public Set<CTEId> getMustInlineCTEs() {
         return mustInlineCTE;
+    }
+
+    public Optional<IcebergWriteSchemaContext> getIcebergWriteSchemaContext() {
+        return icebergWriteSchemaContext;
+    }
+
+    public void setIcebergWriteSchemaContext(
+            Optional<IcebergWriteSchemaContext> icebergWriteSchemaContext) {
+        this.icebergWriteSchemaContext = Objects.requireNonNull(
+                icebergWriteSchemaContext, "icebergWriteSchemaContext should not be null");
     }
 }

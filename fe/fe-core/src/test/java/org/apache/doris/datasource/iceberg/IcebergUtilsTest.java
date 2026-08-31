@@ -30,10 +30,12 @@ import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileFormat;
@@ -496,6 +498,38 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testRejectSmoothUpgradeSourceBackendForOrcBinaryWrite() {
+        Schema binarySchema = new Schema(Types.NestedField.optional(1, "payload",
+                Types.StructType.of(
+                        Types.NestedField.optional(2, "uuid", Types.UUIDType.get()),
+                        Types.NestedField.optional(3, "fixed", Types.FixedType.ofLength(4)),
+                        Types.NestedField.optional(4, "binary", Types.BinaryType.get()))));
+        Backend currentBackend = Mockito.mock(Backend.class);
+        Mockito.when(currentBackend.isQueryAvailable()).thenReturn(true);
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isQueryAvailable()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(10006L);
+
+        IcebergUtils.validateOrcBinaryWriteBackendCompatibility(
+                binarySchema, FileFormat.ORC, ImmutableList.of(currentBackend));
+        IcebergUtils.validateOrcBinaryWriteBackendCompatibility(
+                binarySchema, FileFormat.PARQUET,
+                ImmutableList.of(currentBackend, smoothUpgradeSource));
+        AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                () -> IcebergUtils.validateOrcBinaryWriteBackendCompatibility(
+                        binarySchema, FileFormat.ORC,
+                        ImmutableList.of(currentBackend, smoothUpgradeSource)));
+        Assert.assertTrue(exception.getMessage().contains(
+                "backend 10006 is a smooth upgrade source"));
+
+        Mockito.when(smoothUpgradeSource.isQueryAvailable()).thenReturn(false);
+        IcebergUtils.validateOrcBinaryWriteBackendCompatibility(
+                binarySchema, FileFormat.ORC,
+                ImmutableList.of(currentBackend, smoothUpgradeSource));
+    }
+
+    @Test
     public void testIcebergVariantEnablesParquetMetricsCollection() {
         Table table = Mockito.mock(Table.class);
         Mockito.when(table.properties()).thenReturn(ImmutableMap.of(
@@ -507,16 +541,22 @@ public class IcebergUtilsTest {
     }
 
     @Test
-    public void testParseSchemaPreservesInitialDefault() {
+    public void testIcebergDefaultsStaySeparateFromDorisColumnDefault() {
         Schema schema = new Schema(
                 Types.NestedField.optional("added_column")
                         .withId(1)
                         .ofType(Types.IntegerType.get())
                         .withInitialDefault(7)
+                        .withWriteDefault(9)
                         .build(),
                 Types.NestedField.optional("added_timestamp")
                         .withId(2)
                         .ofType(Types.TimestampType.withoutZone())
+                        .withInitialDefault(1_704_067_200_123_456L)
+                        .build(),
+                Types.NestedField.optional("added_timestamptz")
+                        .withId(6)
+                        .ofType(Types.TimestampType.withZone())
                         .withInitialDefault(1_704_067_200_123_456L)
                         .build(),
                 Types.NestedField.optional("added_uuid")
@@ -537,15 +577,80 @@ public class IcebergUtilsTest {
 
         List<Column> columns = IcebergUtils.parseSchema(schema, true, false);
 
-        Assert.assertEquals("7", columns.get(0).getDefaultValue());
-        Assert.assertEquals("2024-01-01 00:00:00.123456", columns.get(1).getDefaultValue());
-        Assert.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", columns.get(2).getDefaultValue());
-        Assert.assertEquals("AAEC/w==", columns.get(3).getDefaultValue());
+        for (Column column : columns) {
+            Assert.assertNull(column.getDefaultValue());
+        }
+
+        Map<Integer, String> serializedDefaults =
+                IcebergUtils.getSerializedInitialDefaults(schema, false);
+        Assert.assertEquals("7", serializedDefaults.get(1));
+        Assert.assertEquals("2024-01-01 00:00:00.123456", serializedDefaults.get(2));
+        Assert.assertEquals("2024-01-01 00:00:00.123456+00:00", serializedDefaults.get(6));
+        Assert.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", serializedDefaults.get(3));
+        Assert.assertEquals("AAEC/w==", serializedDefaults.get(4));
+        Assert.assertEquals("AwIBAA==", serializedDefaults.get(5));
 
         Map<Integer, String> base64Defaults = IcebergUtils.getBase64EncodedInitialDefaults(schema);
         Assert.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", base64Defaults.get(3));
         Assert.assertEquals("AAEC/w==", base64Defaults.get(4));
         Assert.assertEquals("AwIBAA==", base64Defaults.get(5));
+    }
+
+    @Test
+    public void testLegacyTimestamptzMissingColumnExpressionUsesSessionTimeZone() {
+        Types.NestedField field = Types.NestedField.optional("event_time")
+                .withId(1)
+                .ofType(Types.TimestampType.withZone())
+                .withInitialDefault(1_737_162_123_654_321L)
+                .build();
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("Asia/Shanghai");
+        context.setThreadLocalInfo();
+        try {
+            Assert.assertEquals("2025-01-18 09:02:03.654321",
+                    IcebergUtils.getSerializedInitialDefaultForDorisExpression(field, false));
+            Assert.assertEquals("2025-01-18 01:02:03.654321+00:00",
+                    IcebergUtils.getSerializedInitialDefaultForDorisExpression(field, true));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testParseSchemaPreservesNestedInitialDefaultsAndRequiredness() {
+        Types.NestedField nestedInt = Types.NestedField.required("nested_int")
+                .withId(2)
+                .ofType(Types.IntegerType.get())
+                .withInitialDefault(17)
+                .build();
+        Types.NestedField nestedBinary = Types.NestedField.optional("nested_binary")
+                .withId(3)
+                .ofType(Types.BinaryType.get())
+                .withInitialDefault(ByteBuffer.wrap(new byte[] {0, 1, 2, (byte) 0xFF}))
+                .build();
+        Types.NestedField nestedUuidWithoutDefault = Types.NestedField.optional("nested_uuid")
+                .withId(4)
+                .ofType(Types.UUIDType.get())
+                .build();
+        Schema schema = new Schema(Types.NestedField.required("payload")
+                .withId(1)
+                .ofType(Types.StructType.of(nestedInt, nestedBinary, nestedUuidWithoutDefault))
+                .build());
+
+        List<Column> columns = IcebergUtils.parseSchema(schema, true, false);
+        Assert.assertTrue(columns.get(0).isAllowNull());
+        Assert.assertTrue(columns.get(0).getChildren().get(0).isAllowNull());
+        Assert.assertTrue(columns.get(0).getChildren().get(1).isAllowNull());
+        Assert.assertTrue(columns.get(0).getChildren().get(2).isAllowNull());
+        Assert.assertEquals(ImmutableSet.of(1, 2), IcebergUtils.getRequiredFieldIds(schema.columns()));
+
+        Map<Integer, String> defaults = IcebergUtils.getSerializedInitialDefaults(schema, false);
+        Assert.assertEquals("17", defaults.get(2));
+        Assert.assertEquals("AAEC/w==", defaults.get(3));
+        Assert.assertFalse(defaults.containsKey(4));
+        Assert.assertEquals(Collections.singleton(3),
+                IcebergUtils.getBase64EncodedInitialDefaults(schema).keySet());
+        Assert.assertEquals(ImmutableSet.of(3, 4), IcebergUtils.getBinaryLikeFieldIds(schema));
     }
 
     @Test
@@ -559,7 +664,8 @@ public class IcebergUtilsTest {
 
         List<Column> columns = IcebergUtils.parseSchema(schema, true, false);
 
-        Assert.assertEquals("7", columns.get(0).getChildren().get(0).getDefaultValue());
+        Assert.assertNull(columns.get(0).getChildren().get(0).getDefaultValue());
+        Assert.assertEquals("7", IcebergUtils.getSerializedInitialDefaults(schema, false).get(11));
     }
 
     @Test

@@ -21,6 +21,7 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.schema.external.TSchema;
 
 import lombok.Data;
 import org.apache.iceberg.DeleteFile;
@@ -56,6 +57,7 @@ public class IcebergSplit extends FileSplit {
     private String serializedSplit;
     // maybe mixed file format type in one table. so need record it for every split
     private FileFormat splitFileFormat;
+    private TSchema equalityDeleteSchema;
     private boolean positionDeleteSystemTableSplit = false;
     private TFileFormatType positionDeleteFileFormat;
     private int positionDeleteContent;

@@ -195,7 +195,8 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(
+                    Mockito.eq(dorisTable), Mockito.eq(ops))).thenReturn(icebergTable);
 
             ops.updateTableProperties(dorisTable, properties, 123L);
         }
@@ -218,7 +219,8 @@ public class IcebergMetadataOpsValidationTest {
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
-            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+            mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(
+                    Mockito.eq(dorisTable), Mockito.eq(ops))).thenReturn(icebergTable);
 
             assertUserException(() -> ops.updateTableProperties(
                             dorisTable, Collections.singletonMap("write.target-file-size-bytes", "134217728"), 123L),

@@ -21,11 +21,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
 #include <exception>
 #include <ostream>
 #include <sstream>
+#include <string_view>
 
 #include "common/cast_set.h"
+#include "common/check.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/binary_cast.hpp"
@@ -38,6 +41,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
+#include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
@@ -49,6 +53,7 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "format/arrow/arrow_block_convertor.h"
 #include "format/orc/vorc_reader.h"
 #include "io/fs/file_writer.h"
 #include "orc/Int128.hh"
@@ -62,6 +67,32 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+static Status normalize_iceberg_binary_column(const ColumnPtr& column, const DataTypePtr& type,
+                                              const iceberg::NestedField& nested_field,
+                                              ColumnPtr* normalized_column,
+                                              const NullMap* skipped_rows = nullptr);
+
+bool iceberg_type_requires_binary_normalization(iceberg::Type& type) {
+    switch (type.type_id()) {
+    case iceberg::TypeID::UUID:
+    case iceberg::TypeID::FIXED:
+        return true;
+    case iceberg::TypeID::STRUCT:
+        return std::ranges::any_of(type.as_struct_type()->fields(), [](const auto& field) {
+            return iceberg_type_requires_binary_normalization(*field.field_type());
+        });
+    case iceberg::TypeID::LIST:
+        return iceberg_type_requires_binary_normalization(
+                *type.as_list_type()->element_field().field_type());
+    case iceberg::TypeID::MAP:
+        return iceberg_type_requires_binary_normalization(*type.as_map_type()->key_type()) ||
+               iceberg_type_requires_binary_normalization(*type.as_map_type()->value_type());
+    default:
+        return false;
+    }
+}
+
 VOrcOutputStream::VOrcOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0), _name("VOrcOutputStream") {}
 
@@ -126,6 +157,13 @@ VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* fil
     _write_options->setTimezoneName(_state->timezone());
     _write_options->setUseTightNumericVector(true);
     set_compression_type(compress_type);
+    if (_iceberg_schema != nullptr) {
+        _iceberg_binary_normalization_required.reserve(_iceberg_schema->columns().size());
+        for (const auto& field : _iceberg_schema->columns()) {
+            _iceberg_binary_normalization_required.push_back(
+                    iceberg_type_requires_binary_normalization(*field.field_type()));
+        }
+    }
 }
 
 Status VOrcTransformer::open() {
@@ -319,6 +357,30 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
     }
     }
     if (nested_field != nullptr) {
+        const PrimitiveType primitive_type = data_type->get_primitive_type();
+        const auto use_iceberg_binary_type = [&](std::string_view binary_type) {
+            DORIS_CHECK(is_string_type(primitive_type) || is_varbinary(primitive_type) ||
+                        primitive_type == TYPE_BINARY);
+            type = orc::createPrimitiveType(orc::BINARY);
+            type->setAttribute(ICEBERG_BINARY_TYPE, std::string(binary_type));
+        };
+        switch (nested_field->field_type()->type_id()) {
+        case iceberg::TypeID::UUID:
+            use_iceberg_binary_type("UUID");
+            break;
+        case iceberg::TypeID::FIXED:
+            use_iceberg_binary_type("FIXED");
+            type->setAttribute(ICEBERG_FIXED_LENGTH,
+                               std::to_string(assert_cast<const iceberg::FixedType*>(
+                                                      nested_field->field_type())
+                                                      ->get_length()));
+            break;
+        case iceberg::TypeID::BINARY:
+            use_iceberg_binary_type("BINARY");
+            break;
+        default:
+            break;
+        }
         type->setAttribute(ORC_ICEBERG_ID_KEY, std::to_string(nested_field->field_id()));
         type->setAttribute(ORC_ICEBERG_REQUIRED_KEY, std::to_string(nested_field->is_required()));
     }
@@ -577,11 +639,25 @@ Status VOrcTransformer::write(const Block& block) {
     try {
         DataTypeSerDe::FormatOptions options;
         options.timezone = &_state->timezone_obj();
+        Columns normalized_columns;
+        normalized_columns.reserve(block.columns());
         for (size_t i = 0; i < block.columns(); i++) {
             const auto& col = block.get_by_position(i);
-            const auto& raw_column = col.column;
-            RETURN_IF_ERROR(_resize_row_batch(col.type, *raw_column, root->fields[i]));
-            RETURN_IF_ERROR(_serdes[i]->write_column_to_orc(_state->timezone(), *raw_column,
+            ColumnPtr raw_column = col.column;
+            if (_iceberg_schema != nullptr) {
+                DCHECK(i < _iceberg_schema->root_struct().fields().size());
+                DCHECK(i < _iceberg_binary_normalization_required.size());
+                if (_iceberg_binary_normalization_required[i] != 0) {
+                    raw_column = raw_column->convert_to_full_column_if_const();
+                    RETURN_IF_ERROR(normalize_iceberg_binary_column(
+                            raw_column, col.type, _iceberg_schema->root_struct().fields()[i],
+                            &raw_column));
+                }
+            }
+            normalized_columns.push_back(std::move(raw_column));
+            const auto& write_column = normalized_columns.back();
+            RETURN_IF_ERROR(_resize_row_batch(col.type, *write_column, root->fields[i]));
+            RETURN_IF_ERROR(_serdes[i]->write_column_to_orc(_state->timezone(), *write_column,
                                                             nullptr, root->fields[i], 0, sz, arena,
                                                             options));
         }
@@ -594,6 +670,215 @@ Status VOrcTransformer::write(const Block& block) {
     }
 
     return Status::OK();
+}
+
+static Status normalize_iceberg_nullable_column(const ColumnPtr& column, const DataTypePtr& type,
+                                                const iceberg::NestedField& nested_field,
+                                                ColumnPtr* normalized_column,
+                                                const NullMap* skipped_rows) {
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    const auto& null_map = nullable_column.get_null_map_data();
+    NullMap combined_null_map;
+    const NullMap* combined_skipped_rows = &null_map;
+    if (skipped_rows != nullptr) {
+        combined_null_map.resize(null_map.size());
+        for (size_t row = 0; row < null_map.size(); ++row) {
+            combined_null_map[row] = null_map[row] | (*skipped_rows)[row];
+        }
+        combined_skipped_rows = &combined_null_map;
+    }
+    ColumnPtr nested_column;
+    RETURN_IF_ERROR(normalize_iceberg_binary_column(nullable_column.get_nested_column_ptr(),
+                                                    remove_nullable(type), nested_field,
+                                                    &nested_column, combined_skipped_rows));
+    *normalized_column = ColumnNullable::create(
+            IColumn::mutate(std::move(nested_column)),
+            IColumn::mutate(nullable_column.get_null_map_column_ptr()->clone()));
+    return Status::OK();
+}
+
+static Status normalize_iceberg_uuid_column(const ColumnPtr& column, ColumnPtr* normalized_column,
+                                            const NullMap* skipped_rows) {
+    DORIS_CHECK(check_and_get_column<ColumnString>(*column) != nullptr ||
+                check_and_get_column<ColumnVarbinary>(*column) != nullptr);
+    auto binary_column = column->clone_empty();
+    binary_column->reserve(column->size());
+    for (size_t row = 0; row < column->size(); ++row) {
+        std::array<uint8_t, 16> bytes;
+        if (skipped_rows == nullptr || (*skipped_rows)[row] == 0) {
+            RETURN_IF_ERROR(parse_iceberg_uuid_to_bytes(column->get_data_at(row), &bytes));
+        } else {
+            bytes.fill(0);
+        }
+        binary_column->insert_data(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    }
+    *normalized_column = std::move(binary_column);
+    return Status::OK();
+}
+
+static Status normalize_iceberg_fixed_column(const ColumnPtr& column, const DataTypePtr& type,
+                                             const iceberg::NestedField& nested_field,
+                                             ColumnPtr* normalized_column,
+                                             const NullMap* skipped_rows) {
+    const auto expected_length = cast_set<size_t>(
+            assert_cast<const iceberg::FixedType*>(nested_field.field_type())->get_length());
+    if (type->get_primitive_type() == TYPE_CHAR) {
+        auto padded_column = column->clone_empty();
+        padded_column->reserve(column->size());
+        std::string padded_value(expected_length, '\0');
+        for (size_t row = 0; row < column->size(); ++row) {
+            std::fill(padded_value.begin(), padded_value.end(), '\0');
+            if (skipped_rows == nullptr || (*skipped_rows)[row] == 0) {
+                const auto value = column->get_data_at(row);
+                if (value.size > expected_length) {
+                    return Status::InvalidArgument(
+                            "Iceberg FIXED[{}] ORC CHAR value has {} bytes at row {}",
+                            expected_length, value.size, row);
+                }
+                std::copy_n(value.data, value.size, padded_value.data());
+            }
+            padded_column->insert_data(padded_value.data(), padded_value.size());
+        }
+        *normalized_column = std::move(padded_column);
+        return Status::OK();
+    }
+    for (size_t row = 0; row < column->size(); ++row) {
+        if (skipped_rows != nullptr && (*skipped_rows)[row] != 0) {
+            continue;
+        }
+        const auto value = column->get_data_at(row);
+        if (value.size != expected_length) {
+            return Status::InvalidArgument("Iceberg FIXED[{}] ORC value has {} bytes at row {}",
+                                           expected_length, value.size, row);
+        }
+    }
+    *normalized_column = column;
+    return Status::OK();
+}
+
+static Status normalize_iceberg_struct_column(const ColumnPtr& column, const DataTypePtr& type,
+                                              const iceberg::NestedField& nested_field,
+                                              ColumnPtr* normalized_column,
+                                              const NullMap* skipped_rows) {
+    const auto& struct_column = assert_cast<const ColumnStruct&>(*column);
+    const auto& struct_type = assert_cast<const DataTypeStruct&>(*type);
+    const auto& fields = nested_field.field_type()->as_struct_type()->fields();
+    DORIS_CHECK(struct_column.tuple_size() == fields.size());
+    Columns children;
+    children.reserve(fields.size());
+    for (size_t index = 0; index < fields.size(); ++index) {
+        ColumnPtr child;
+        RETURN_IF_ERROR(normalize_iceberg_binary_column(struct_column.get_column_ptr(index),
+                                                        struct_type.get_element(index),
+                                                        fields[index], &child, skipped_rows));
+        children.push_back(std::move(child));
+    }
+    *normalized_column = ColumnStruct::create(std::move(children));
+    return Status::OK();
+}
+
+static const NullMap* expand_iceberg_collection_skipped_rows(const NullMap* skipped_rows,
+                                                             const ColumnArray::Offsets64& offsets,
+                                                             NullMap& nested_skipped_rows) {
+    if (skipped_rows == nullptr) {
+        return nullptr;
+    }
+    DORIS_CHECK(skipped_rows->size() == offsets.size());
+    const size_t nested_size = offsets.empty() ? 0 : offsets.back();
+    nested_skipped_rows.resize_fill(nested_size, 0);
+    size_t begin = 0;
+    for (size_t row = 0; row < offsets.size(); ++row) {
+        const size_t end = offsets[row];
+        DCHECK(begin <= end && end <= nested_size);
+        if ((*skipped_rows)[row] != 0) {
+            std::fill(nested_skipped_rows.begin() + begin, nested_skipped_rows.begin() + end, 1);
+        }
+        begin = end;
+    }
+    return &nested_skipped_rows;
+}
+
+static Status normalize_iceberg_array_column(const ColumnPtr& column, const DataTypePtr& type,
+                                             const iceberg::NestedField& nested_field,
+                                             ColumnPtr* normalized_column,
+                                             const NullMap* skipped_rows) {
+    const auto& array_column = assert_cast<const ColumnArray&>(*column);
+    const auto& array_type = assert_cast<const DataTypeArray&>(*type);
+    NullMap element_skipped_rows;
+    const NullMap* expanded_skipped_rows = expand_iceberg_collection_skipped_rows(
+            skipped_rows, array_column.get_offsets(), element_skipped_rows);
+    ColumnPtr elements;
+    RETURN_IF_ERROR(normalize_iceberg_binary_column(
+            array_column.get_data_ptr(), array_type.get_nested_type(),
+            nested_field.field_type()->as_list_type()->element_field(), &elements,
+            expanded_skipped_rows));
+    *normalized_column = ColumnArray::create(IColumn::mutate(std::move(elements)),
+                                             array_column.get_offsets_ptr()->clone());
+    return Status::OK();
+}
+
+static Status normalize_iceberg_map_column(const ColumnPtr& column, const DataTypePtr& type,
+                                           const iceberg::NestedField& nested_field,
+                                           ColumnPtr* normalized_column,
+                                           const NullMap* skipped_rows) {
+    const auto& map_column = assert_cast<const ColumnMap&>(*column);
+    const auto& map_type = assert_cast<const DataTypeMap&>(*type);
+    const auto& iceberg_map = nested_field.field_type()->as_map_type();
+    NullMap entry_skipped_rows;
+    const NullMap* expanded_skipped_rows = expand_iceberg_collection_skipped_rows(
+            skipped_rows, map_column.get_offsets(), entry_skipped_rows);
+    ColumnPtr keys;
+    ColumnPtr values;
+    RETURN_IF_ERROR(normalize_iceberg_binary_column(
+            map_column.get_keys_ptr(), map_type.get_key_type(), iceberg_map->key_field(), &keys,
+            expanded_skipped_rows));
+    RETURN_IF_ERROR(normalize_iceberg_binary_column(
+            map_column.get_values_ptr(), map_type.get_value_type(), iceberg_map->value_field(),
+            &values, expanded_skipped_rows));
+    *normalized_column =
+            ColumnMap::create(IColumn::mutate(std::move(keys)), IColumn::mutate(std::move(values)),
+                              map_column.get_offsets_ptr()->clone());
+    return Status::OK();
+}
+
+static Status normalize_iceberg_binary_column(const ColumnPtr& column, const DataTypePtr& type,
+                                              const iceberg::NestedField& nested_field,
+                                              ColumnPtr* normalized_column,
+                                              const NullMap* skipped_rows) {
+    DORIS_CHECK(static_cast<bool>(column));
+    DORIS_CHECK(type != nullptr);
+    DORIS_CHECK(normalized_column != nullptr);
+    DORIS_CHECK(skipped_rows == nullptr || skipped_rows->size() == column->size());
+
+    if (type->is_nullable()) {
+        return normalize_iceberg_nullable_column(column, type, nested_field, normalized_column,
+                                                 skipped_rows);
+    }
+
+    switch (nested_field.field_type()->type_id()) {
+    case iceberg::TypeID::UUID:
+        return normalize_iceberg_uuid_column(column, normalized_column, skipped_rows);
+    case iceberg::TypeID::FIXED:
+        return normalize_iceberg_fixed_column(column, type, nested_field, normalized_column,
+                                              skipped_rows);
+    default:
+        break;
+    }
+
+    switch (type->get_primitive_type()) {
+    case TYPE_STRUCT:
+        return normalize_iceberg_struct_column(column, type, nested_field, normalized_column,
+                                               skipped_rows);
+    case TYPE_ARRAY:
+        return normalize_iceberg_array_column(column, type, nested_field, normalized_column,
+                                              skipped_rows);
+    case TYPE_MAP:
+        return normalize_iceberg_map_column(column, type, nested_field, normalized_column,
+                                            skipped_rows);
+    default:
+        *normalized_column = column;
+        return Status::OK();
+    }
 }
 
 Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn& column,

@@ -18,17 +18,28 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Default;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.iceberg.RowLevelOperationMode;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 public class IcebergDmlCommandUtilsTest {
 
@@ -71,6 +82,42 @@ public class IcebergDmlCommandUtilsTest {
         Assertions.assertDoesNotThrow(() -> IcebergDmlCommandUtils.checkDeleteMode(table));
         Assertions.assertDoesNotThrow(() -> IcebergDmlCommandUtils.checkUpdateMode(table));
         Assertions.assertDoesNotThrow(() -> IcebergDmlCommandUtils.checkMergeMode(table));
+    }
+
+    @Test
+    public void testInstallRestoreAndResolvePinnedWriteDefaults() {
+        IcebergWriteSchemaContext writeSchemaContext = IcebergWriteSchemaContext.forSchema(
+                new Schema(21, Types.NestedField.builder()
+                        .withId(1)
+                        .withName("score")
+                        .ofType(Types.IntegerType.get())
+                        .isOptional(true)
+                        .withInitialDefault(7)
+                        .withWriteDefault(9)
+                        .build()),
+                3, true, true);
+        ConnectContext context = new ConnectContext();
+        context.setStatementContext(new StatementContext());
+
+        Optional<IcebergWriteSchemaContext> previous =
+                IcebergDmlCommandUtils.installWriteSchemaContext(context, writeSchemaContext);
+        Assertions.assertFalse(previous.isPresent());
+        Assertions.assertEquals(Optional.of(writeSchemaContext),
+                context.getStatementContext().getIcebergWriteSchemaContext());
+
+        Expression resolved = IcebergDmlCommandUtils.resolveDefaultReferences(
+                new Default(new UnboundSlot("score")), writeSchemaContext,
+                context, ImmutableList.of("catalog", "database", "test_table"), null);
+        Assertions.assertEquals(new IntegerLiteral(9), resolved);
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> IcebergDmlCommandUtils.resolveDefaultReferences(
+                        new Default(new UnboundSlot("missing")), writeSchemaContext,
+                        context, ImmutableList.of("catalog", "database", "test_table"), null));
+        Assertions.assertTrue(exception.getMessage().contains("missing"));
+
+        IcebergDmlCommandUtils.restoreWriteSchemaContext(context, previous);
+        Assertions.assertFalse(context.getStatementContext()
+                .getIcebergWriteSchemaContext().isPresent());
     }
 
     private static void assertCopyOnWriteException(Runnable action, String operation, String property) {

@@ -38,6 +38,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class ExternalUtil {
     private static TField getExternalSchema(Column column) {
@@ -147,22 +148,57 @@ public class ExternalUtil {
     public static void initSchemaInfoForAllColumn(TFileScanRangeParams params, Long schemaId,
             List<Column> columns, Map<Integer, List<String>> nameMapping, boolean hasNameMapping,
             Map<Integer, String> base64InitialDefaults) {
+        initSchemaInfoForAllColumn(params, schemaId, columns, nameMapping, hasNameMapping,
+                base64InitialDefaults, base64InitialDefaults.keySet());
+    }
+
+    public static void initSchemaInfoForAllColumn(TFileScanRangeParams params, Long schemaId,
+            List<Column> columns, Map<Integer, List<String>> nameMapping,
+            Map<Integer, String> initialDefaults, Set<Integer> binaryLikeFieldIds) {
+        initSchemaInfoForAllColumn(params, schemaId, columns, nameMapping,
+                nameMapping != null && !nameMapping.isEmpty(), initialDefaults, binaryLikeFieldIds);
+    }
+
+    public static void initSchemaInfoForAllColumn(TFileScanRangeParams params, Long schemaId,
+            List<Column> columns, Map<Integer, List<String>> nameMapping, boolean hasNameMapping,
+            Map<Integer, String> initialDefaults, Set<Integer> binaryLikeFieldIds) {
+        initSchemaInfoForAllColumn(params, schemaId, columns, nameMapping, hasNameMapping,
+                initialDefaults, binaryLikeFieldIds, Collections.emptySet());
+    }
+
+    public static void initSchemaInfoForAllColumn(TFileScanRangeParams params, Long schemaId,
+            List<Column> columns, Map<Integer, List<String>> nameMapping, boolean hasNameMapping,
+            Map<Integer, String> initialDefaults, Set<Integer> binaryLikeFieldIds,
+            Set<Integer> requiredFieldIds) {
         params.setCurrentSchemaId(schemaId);
+        params.addToHistorySchemaInfo(createSchemaInfoForAllColumn(
+                schemaId, columns, nameMapping, hasNameMapping, initialDefaults,
+                binaryLikeFieldIds, requiredFieldIds));
+    }
+
+    /** Build an external schema carrier without attaching it to query-wide scan parameters. */
+    public static TSchema createSchemaInfoForAllColumn(Long schemaId,
+            List<Column> columns, Map<Integer, List<String>> nameMapping, boolean hasNameMapping,
+            Map<Integer, String> initialDefaults, Set<Integer> binaryLikeFieldIds,
+            Set<Integer> requiredFieldIds) {
         TSchema tSchema = new TSchema();
         tSchema.setSchemaId(schemaId);
         tSchema.setRootField(getExternalSchemaForAllColumn(
-                columns, nameMapping, hasNameMapping, base64InitialDefaults));
-        params.addToHistorySchemaInfo(tSchema);
+                columns, nameMapping, hasNameMapping, initialDefaults, binaryLikeFieldIds,
+                requiredFieldIds));
+        return tSchema;
     }
 
     private static TStructField getExternalSchemaForAllColumn(List<Column> columns,
             Map<Integer, List<String>> nameMapping, boolean hasNameMapping,
-            Map<Integer, String> base64InitialDefaults) {
+            Map<Integer, String> initialDefaults, Set<Integer> binaryLikeFieldIds,
+            Set<Integer> requiredFieldIds) {
         TStructField structField = new TStructField();
         for (Column child : columns) {
             TFieldPtr fieldPtr = new TFieldPtr();
             fieldPtr.setFieldPtr(getExternalSchema(
-                    child.getType(), child, nameMapping, hasNameMapping, base64InitialDefaults));
+                    child.getType(), child, nameMapping, hasNameMapping, initialDefaults,
+                    binaryLikeFieldIds, requiredFieldIds));
             structField.addToFields(fieldPtr);
         }
         return structField;
@@ -177,14 +213,35 @@ public class ExternalUtil {
     private static TField getExternalSchema(Type columnType, Column dorisColumn,
             Map<Integer, List<String>> nameMapping, boolean hasNameMapping,
             Map<Integer, String> base64InitialDefaults) {
+        return getExternalSchema(columnType, dorisColumn, nameMapping, hasNameMapping,
+                base64InitialDefaults, base64InitialDefaults.keySet());
+    }
+
+    private static TField getExternalSchema(Type columnType, Column dorisColumn,
+            Map<Integer, List<String>> nameMapping, boolean hasNameMapping,
+            Map<Integer, String> initialDefaults, Set<Integer> binaryLikeFieldIds) {
+        return getExternalSchema(columnType, dorisColumn, nameMapping, hasNameMapping,
+                initialDefaults, binaryLikeFieldIds, Collections.emptySet());
+    }
+
+    private static TField getExternalSchema(Type columnType, Column dorisColumn,
+            Map<Integer, List<String>> nameMapping, boolean hasNameMapping,
+            Map<Integer, String> initialDefaults, Set<Integer> binaryLikeFieldIds,
+            Set<Integer> requiredFieldIds) {
         TField root = new TField();
         root.setName(dorisColumn.getName());
         root.setId(dorisColumn.getUniqueId());
-        root.setIsOptional(dorisColumn.isAllowNull());
+        root.setIsOptional(dorisColumn.isAllowNull()
+                && !requiredFieldIds.contains(dorisColumn.getUniqueId()));
         root.setType(dorisColumn.getType().toColumnTypeThrift());
-        if (base64InitialDefaults.containsKey(dorisColumn.getUniqueId())) {
-            root.setInitialDefaultValue(base64InitialDefaults.get(dorisColumn.getUniqueId()));
+        if (binaryLikeFieldIds.contains(dorisColumn.getUniqueId())) {
+            // For a direct primitive default this marks Base64 transport. For a binary value
+            // nested in a complex default it preserves the Iceberg type identity needed to decode
+            // the parent's JSON single-value representation.
             root.setInitialDefaultValueIsBase64(true);
+        }
+        if (initialDefaults.containsKey(dorisColumn.getUniqueId())) {
+            root.setInitialDefaultValue(initialDefaults.get(dorisColumn.getUniqueId()));
         } else if (dorisColumn.getDefaultValue() != null) {
             root.setInitialDefaultValue(dorisColumn.getDefaultValue());
         }
@@ -209,12 +266,21 @@ public class ExternalUtil {
                 subNameToSubColumn.put(subColumn.getName(), subColumn);
             }
 
-            for (StructField subField : dorisStructType.getFields()) {
+            List<StructField> subFields = dorisStructType.getFields();
+            List<Column> subColumns = dorisColumn.getChildren();
+            boolean preservesCompleteStructOrder = subFields.size() == subColumns.size();
+            for (int i = 0; i < subFields.size(); i++) {
+                StructField subField = subFields.get(i);
                 TFieldPtr fieldPtr = new TFieldPtr();
-                Column subColumn = subNameToSubColumn.get(subField.getName());
+                // Full schema carriers preserve Iceberg field identity by position. A synthesized
+                // struct may legitimately contain a dropped field and its same-name replacement;
+                // name lookup would bind both entries to the last Column and lose one field ID.
+                // Pruned slot types can contain only a subset, so retain their name-based lookup.
+                Column subColumn = preservesCompleteStructOrder
+                        ? subColumns.get(i) : subNameToSubColumn.get(subField.getName());
                 fieldPtr.setFieldPtr(getExternalSchema(
                         subField.getType(), subColumn, nameMapping, hasNameMapping,
-                        base64InitialDefaults));
+                        initialDefaults, binaryLikeFieldIds, requiredFieldIds));
                 structField.addToFields(fieldPtr);
             }
 
@@ -227,7 +293,7 @@ public class ExternalUtil {
             TFieldPtr fieldPtr = new TFieldPtr();
             fieldPtr.setFieldPtr(getExternalSchema(
                     dorisArrayType.getItemType(), dorisColumn.getChildren().get(0), nameMapping,
-                    hasNameMapping, base64InitialDefaults));
+                    hasNameMapping, initialDefaults, binaryLikeFieldIds, requiredFieldIds));
             listField.setItemField(fieldPtr);
             nestedField.setArrayField(listField);
             root.setNestedField(nestedField);
@@ -238,13 +304,13 @@ public class ExternalUtil {
             TFieldPtr keyPtr = new TFieldPtr();
             keyPtr.setFieldPtr(getExternalSchema(
                     dorisMapType.getKeyType(), dorisColumn.getChildren().get(0), nameMapping,
-                    hasNameMapping, base64InitialDefaults));
+                    hasNameMapping, initialDefaults, binaryLikeFieldIds, requiredFieldIds));
             mapField.setKeyField(keyPtr);
 
             TFieldPtr valuePtr = new TFieldPtr();
             valuePtr.setFieldPtr(getExternalSchema(
                     dorisMapType.getValueType(), dorisColumn.getChildren().get(1), nameMapping,
-                    hasNameMapping, base64InitialDefaults));
+                    hasNameMapping, initialDefaults, binaryLikeFieldIds, requiredFieldIds));
             mapField.setValueField(valuePtr);
             nestedField.setMapField(mapField);
             root.setNestedField(nestedField);

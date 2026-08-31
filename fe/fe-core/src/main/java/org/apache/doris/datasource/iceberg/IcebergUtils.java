@@ -98,6 +98,7 @@ import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionsTable;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SingleValueParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.StructLike;
@@ -784,17 +785,25 @@ public class IcebergUtils {
     }
 
     public static void validateWriteSchema(Table table, List<Column> columns) {
-        if (columns.stream().noneMatch(column -> containsVariant(column.getType()))) {
+        boolean writesVariant = columns.stream().anyMatch(column -> containsVariant(column.getType()));
+        FileFormat fileFormat = getFileFormat(table);
+        if (writesVariant) {
+            validateWriteSchema(columns, getFormatVersion(table), fileFormat);
+            validateVariantWriteProperties(columns, table.properties());
+        }
+        boolean writesOrcBinary = fileFormat == FileFormat.ORC
+                && TypeUtil.indexById(table.schema().asStruct()).values().stream()
+                        .anyMatch(field -> isBinaryLike(field.type()));
+        if (!writesVariant && !writesOrcBinary) {
             return;
         }
-        validateWriteSchema(columns, getFormatVersion(table), getFileFormat(table));
-        validateVariantWriteProperties(columns, table.properties());
         try {
-            validateVariantWriteBackendCompatibility(
-                    columns, Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values());
+            Iterable<Backend> backends = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values();
+            validateVariantWriteBackendCompatibility(columns, backends);
+            validateOrcBinaryWriteBackendCompatibility(table.schema(), fileFormat, backends);
         } catch (AnalysisException e) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    "Failed to check backend compatibility for Iceberg Variant writes", e);
+                    "Failed to check backend compatibility for Iceberg writes", e);
         }
     }
 
@@ -835,6 +844,23 @@ public class IcebergUtils {
                 throw new org.apache.doris.nereids.exceptions.AnalysisException(
                         "Iceberg Variant writes are unavailable while backend "
                                 + backend.getId() + " is a smooth upgrade source");
+            }
+        }
+    }
+
+    @VisibleForTesting
+    static void validateOrcBinaryWriteBackendCompatibility(
+            Schema schema, FileFormat fileFormat, Iterable<Backend> backends) {
+        if (fileFormat != FileFormat.ORC
+                || TypeUtil.indexById(schema.asStruct()).values().stream()
+                        .noneMatch(field -> isBinaryLike(field.type()))) {
+            return;
+        }
+        for (Backend backend : backends) {
+            if (backend.isQueryAvailable() && backend.isSmoothUpgradeSrc()) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "Iceberg ORC writes with UUID, FIXED, or BINARY columns are unavailable "
+                                + "while backend " + backend.getId() + " is a smooth upgrade source");
             }
         }
     }
@@ -1306,18 +1332,12 @@ public class IcebergUtils {
         return epochSecond * 1_000_000L + microSecond;
     }
 
-    private static void updateIcebergColumnMetadata(Column column, Types.NestedField icebergField,
-            boolean enableMappingTimestampTz) {
+    private static void updateIcebergColumnMetadata(Column column, Types.NestedField icebergField) {
         column.setUniqueId(icebergField.fieldId());
-        if (icebergField.initialDefault() != null) {
-            String serializedDefault = serializeInitialDefault(
-                    icebergField.type(), icebergField.initialDefault(), enableMappingTimestampTz);
-            // Column constructs complex children without Iceberg field metadata. Copy through the
-            // public default-info API so recursive fields retain their logical pre-add value.
-            Column defaultCarrier = new Column(column.getName(), column.getType(), false, null,
-                    column.isAllowNull(), serializedDefault, "");
-            column.setDefaultValueInfo(defaultCarrier);
-        }
+        // Iceberg requiredness is transported separately through required field ids. Keep the
+        // generic Doris scan columns nullable, including nested struct children, so historical
+        // rows can still materialize schema-evolution defaults before requiredness is enforced.
+        column.setIsAllowNull(true);
         List<NestedField> icebergFields = Lists.newArrayList();
         switch (icebergField.type().typeId()) {
             case LIST:
@@ -1336,8 +1356,7 @@ public class IcebergUtils {
         if (column.getChildren() != null) {
             List<Column> childColumns = column.getChildren();
             for (int idx = 0; idx < childColumns.size(); idx++) {
-                updateIcebergColumnMetadata(
-                        childColumns.get(idx), icebergFields.get(idx), enableMappingTimestampTz);
+                updateIcebergColumnMetadata(childColumns.get(idx), icebergFields.get(idx));
             }
         }
     }
@@ -1386,28 +1405,34 @@ public class IcebergUtils {
         List<Types.NestedField> columns = schema.columns();
         List<Column> resSchema = Lists.newArrayListWithCapacity(columns.size());
         for (Types.NestedField field : columns) {
-            String initialDefault = null;
-            if (field.initialDefault() != null) {
-                initialDefault = serializeInitialDefault(field.type(), field.initialDefault(),
-                        enableMappingTimestampTz);
-            }
-            Column column = new Column(field.name(),
-                    IcebergUtils.icebergTypeToDorisType(field.type(), enableMappingVarbinary, enableMappingTimestampTz),
-                    true, null, true, initialDefault, field.doc(), true, -1);
-            updateIcebergColumnMetadata(column, field, enableMappingTimestampTz);
-            if (field.type().isPrimitiveType() && field.type().typeId() == TypeID.TIMESTAMP) {
-                Types.TimestampType timestampType = (Types.TimestampType) field.type();
-                if (timestampType.shouldAdjustToUTC()) {
-                    column.setWithTZExtraInfo();
-                }
-            }
-            resSchema.add(column);
+            resSchema.add(parseField(field, enableMappingVarbinary, enableMappingTimestampTz));
         }
         return resSchema;
     }
 
+    /** Convert one Iceberg field to a Doris column without using the generic Doris default-value channel. */
+    public static Column parseField(Types.NestedField field, boolean enableMappingVarbinary,
+            boolean enableMappingTimestampTz) {
+        Column column = new Column(field.name(),
+                IcebergUtils.icebergTypeToDorisType(
+                        field.type(), enableMappingVarbinary, enableMappingTimestampTz),
+                true, null, true, null, field.doc(), true, -1);
+        updateIcebergColumnMetadata(column, field);
+        if (field.type().isPrimitiveType() && field.type().typeId() == TypeID.TIMESTAMP
+                && ((Types.TimestampType) field.type()).shouldAdjustToUTC()) {
+            column.setWithTZExtraInfo();
+        }
+        return column;
+    }
+
     private static String serializeInitialDefault(org.apache.iceberg.types.Type type, Object value,
             boolean enableMappingTimestampTz) {
+        if (type.isNestedType()) {
+            // Keep Iceberg's type-directed JSON representation for struct/list/map values. In
+            // particular, struct members are keyed by field id and an empty object is the V3
+            // non-null struct sentinel whose children are resolved from their own defaults.
+            return SingleValueParser.toJson(type, value);
+        }
         String humanValue = Transforms.identity(type).toHumanString(type, value);
         if (type.typeId() == TypeID.TIMESTAMP) {
             // Iceberg formats timestamps as ISO-8601 (for example 2024-01-01T00:00:00), while
@@ -1415,9 +1440,9 @@ public class IcebergUtils {
             String dorisValue = humanValue.replace('T', ' ');
             Types.TimestampType timestampType = (Types.TimestampType) type;
             if (timestampType.shouldAdjustToUTC() && !enableMappingTimestampTz) {
-                // Iceberg timestamptz human values carry a trailing offset. DATETIMEV2 has no
-                // offset carrier, so retain the displayed UTC wall time and remove the suffix.
-                return dorisValue.replaceFirst("(Z|[+-]\\d{2}:\\d{2})$", "");
+                // Preserve the instant and its offset through FE-to-BE transport. The BE converts
+                // it to the session-local DATETIMEV2 wall time immediately before materialization.
+                return dorisValue;
             }
             return dorisValue;
         }
@@ -1428,6 +1453,31 @@ public class IcebergUtils {
             return serializeBinaryInitialDefault(type, value);
         }
         return humanValue;
+    }
+
+    public static String getSerializedInitialDefault(Types.NestedField field,
+            boolean enableMappingTimestampTz) {
+        Preconditions.checkArgument(field.initialDefault() != null,
+                "Iceberg field %s has no initial default", field.fieldId());
+        return serializeInitialDefault(field.type(), field.initialDefault(), enableMappingTimestampTz);
+    }
+
+    /** Serialize an initial default for FE's legacy missing-column expression. */
+    public static String getSerializedInitialDefaultForDorisExpression(
+            Types.NestedField field, boolean enableMappingTimestampTz) {
+        Preconditions.checkArgument(field.initialDefault() != null,
+                "Iceberg field %s has no initial default", field.fieldId());
+        if (field.type().typeId() == TypeID.TIMESTAMP
+                && ((Types.TimestampType) field.type()).shouldAdjustToUTC()
+                && !enableMappingTimestampTz) {
+            long micros = (Long) field.initialDefault();
+            long seconds = Math.floorDiv(micros, 1_000_000L);
+            int nanos = Math.toIntExact(Math.floorMod(micros, 1_000_000L) * 1_000L);
+            LocalDateTime localDateTime = LocalDateTime.ofInstant(
+                    Instant.ofEpochSecond(seconds, nanos), TimeUtils.getDorisZoneId());
+            return localDateTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME).replace('T', ' ');
+        }
+        return getSerializedInitialDefault(field, enableMappingTimestampTz);
     }
 
     /**
@@ -1446,7 +1496,67 @@ public class IcebergUtils {
         return result;
     }
 
-    private static boolean isBinaryLike(org.apache.iceberg.types.Type type) {
+    /**
+     * Serialize every non-null initial default in a schema, keyed by Iceberg field id.
+     *
+     * <p>The map is recursive because defaults are attached to Iceberg struct fields, including
+     * fields nested below structs, list elements, and map values. Binary-like values use the same
+     * lossless Base64 carrier as {@link #getBase64EncodedInitialDefaults(Schema)}.
+     */
+    public static Map<Integer, String> getSerializedInitialDefaults(Schema schema,
+            boolean enableMappingTimestampTz) {
+        return getSerializedInitialDefaults(schema.columns(), enableMappingTimestampTz);
+    }
+
+    public static Map<Integer, String> getSerializedInitialDefaults(
+            Iterable<Types.NestedField> fields, boolean enableMappingTimestampTz) {
+        Map<Integer, String> result = Maps.newHashMap();
+        for (Types.NestedField root : fields) {
+            for (Types.NestedField field : TypeUtil.indexById(Types.StructType.of(root)).values()) {
+                if (field.initialDefault() != null) {
+                    result.put(field.fieldId(), getSerializedInitialDefault(field, enableMappingTimestampTz));
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Return every binary-like field id, including list elements and map keys/values without a
+     * field-level default. BE needs this type identity while decoding binary values nested inside
+     * a complex initial-default JSON value because Iceberg STRING, UUID, FIXED, and BINARY can all
+     * map to a Doris string type.
+     */
+    public static Set<Integer> getBinaryLikeFieldIds(Schema schema) {
+        return getBinaryLikeFieldIds(schema.columns());
+    }
+
+    public static Set<Integer> getBinaryLikeFieldIds(Iterable<Types.NestedField> fields) {
+        Set<Integer> result = Sets.newHashSet();
+        for (Types.NestedField root : fields) {
+            for (Types.NestedField field : TypeUtil.indexById(Types.StructType.of(root)).values()) {
+                if (isBinaryLike(field.type())) {
+                    result.add(field.fieldId());
+                }
+            }
+        }
+        return result;
+    }
+
+    /** Return every required field id without exposing Iceberg nullability through generic Columns. */
+    public static Set<Integer> getRequiredFieldIds(Iterable<Types.NestedField> fields) {
+        Set<Integer> result = Sets.newHashSet();
+        for (Types.NestedField root : fields) {
+            for (Types.NestedField field : TypeUtil.indexById(Types.StructType.of(root)).values()) {
+                if (field.isRequired()) {
+                    result.add(field.fieldId());
+                }
+            }
+        }
+        return result;
+    }
+
+    public static boolean isBinaryLike(org.apache.iceberg.types.Type type) {
         return type.typeId() == TypeID.UUID || type.typeId() == TypeID.BINARY
                 || type.typeId() == TypeID.FIXED;
     }
@@ -2274,8 +2384,13 @@ public class IcebergUtils {
     }
 
     public static boolean shouldCollectColumnStats(Table table, Schema writerSchema) {
-        MetricsConfig metricsConfig = MetricsConfig.forTable(table);
-        if (getFileFormat(table) == FileFormat.ORC) {
+        return shouldCollectColumnStats(
+                writerSchema, MetricsConfig.forTable(table), getFileFormat(table));
+    }
+
+    public static boolean shouldCollectColumnStats(
+            Schema writerSchema, MetricsConfig metricsConfig, FileFormat fileFormat) {
+        if (fileFormat == FileFormat.ORC) {
             // Match the footer collectors: ORC reports top-level collection counts, while Parquet reports leaf fields.
             return writerSchema.columns().stream()
                     .anyMatch(field -> MetricsUtil.metricsMode(writerSchema, metricsConfig, field.fieldId())
