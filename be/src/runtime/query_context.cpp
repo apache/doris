@@ -343,7 +343,21 @@ void QueryContext::cancel(Status new_status) {
     }
 
     set_ready_to_execute(new_status);
-    cancel_all_pipeline_context(new_status);
+
+    // Copy the fragment contexts under the map lock, then cancel them after releasing it. Fragment
+    // cancellation may take task-level locks and must not run while holding the query map lock.
+    std::vector<std::weak_ptr<PipelineFragmentContext>> ctx_to_cancel;
+    {
+        std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+        for (auto& entry : _fragment_id_to_pipeline_ctx) {
+            ctx_to_cancel.push_back(entry.second);
+        }
+    }
+    for (auto& f_context : ctx_to_cancel) {
+        if (auto pipeline_ctx = f_context.lock()) {
+            pipeline_ctx->cancel(new_status);
+        }
+    }
 }
 
 void QueryContext::set_load_error_url(std::string error_url) {
@@ -364,21 +378,6 @@ void QueryContext::set_first_error_msg(std::string error_msg) {
 std::string QueryContext::get_first_error_msg() {
     std::lock_guard<std::mutex> lock(_error_url_lock);
     return _first_error_msg;
-}
-
-void QueryContext::cancel_all_pipeline_context(const Status& reason) {
-    std::vector<std::weak_ptr<PipelineFragmentContext>> ctx_to_cancel;
-    {
-        std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
-        for (auto& entry : _fragment_id_to_pipeline_ctx) {
-            ctx_to_cancel.push_back(entry.second);
-        }
-    }
-    for (auto& f_context : ctx_to_cancel) {
-        if (auto pipeline_ctx = f_context.lock()) {
-            pipeline_ctx->cancel(reason);
-        }
-    }
 }
 
 std::string QueryContext::print_all_pipeline_context() {

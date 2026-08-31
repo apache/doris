@@ -153,9 +153,9 @@ private:
     // QueryContext is the sole entry point for query cancellation. Keep fragment cancellation
     // private so callers cannot bypass QueryContext's first-error-wins guard and repeatedly run
     // expensive fragment-local cleanup (for example, timeout diagnostics and task unblocking).
-    // QueryContext::cancel_all_pipeline_context() calls this method only to propagate the accepted
-    // query cancellation to each fragment; this method must not call QueryContext::cancel() back.
-    friend void QueryContext::cancel_all_pipeline_context(const Status& reason);
+    // QueryContext::cancel() calls this method only to propagate the accepted query cancellation
+    // to each fragment; this method must not call QueryContext::cancel() back.
+    friend void QueryContext::cancel(Status new_status);
     void cancel(const Status reason);
 
     void _coordinator_callback(const ReportStatusRequest& req);
