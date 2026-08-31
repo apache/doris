@@ -451,10 +451,25 @@ fi
 # shellcheck source=thirdparty/arrow-paimon-vars.sh
 . "${DORIS_HOME}/thirdparty/arrow-paimon-vars.sh"
 NEED_ARROW_PAIMON_THIRDPARTY=false
-if [[ "${BUILD_BE}" -eq 1 || "${BUILD_CLOUD}" -eq 1 ||
-    "${BUILD_META_TOOL}" == "ON" || "${BUILD_FILE_CACHE_MICROBENCH_TOOL}" == "ON" ||
+if [[ "${BUILD_BE}" -eq 1 || "${BUILD_META_TOOL}" == "ON" ||
+    "${BUILD_FILE_CACHE_MICROBENCH_TOOL}" == "ON" ||
     "${BUILD_INDEX_TOOL}" == "ON" ]]; then
     NEED_ARROW_PAIMON_THIRDPARTY=true
+fi
+
+if [[ "${NEED_ARROW_PAIMON_THIRDPARTY}" == "true" ]]; then
+    DEFAULT_ARROW_PAIMON_HOME="${DORIS_THIRDPARTY}/installed/${ARROW_INSTALL_SUBDIR}"
+    SELECTED_ARROW_HOME="${ARROW_HOME:-${DEFAULT_ARROW_PAIMON_HOME}}"
+    SELECTED_PAIMON_HOME="${PAIMON_HOME:-${SELECTED_ARROW_HOME}}"
+    if [[ "${SELECTED_ARROW_HOME}" != "${DEFAULT_ARROW_PAIMON_HOME}" ||
+        "${SELECTED_PAIMON_HOME}" != "${DEFAULT_ARROW_PAIMON_HOME}" ]]; then
+        echo "build.sh only supports the Arrow/Paimon stack selected from DORIS_THIRDPARTY." >&2
+        echo "Expected ARROW_HOME=${DEFAULT_ARROW_PAIMON_HOME} and PAIMON_HOME=${DEFAULT_ARROW_PAIMON_HOME}." >&2
+        echo "Unset ARROW_HOME and PAIMON_HOME, or point DORIS_THIRDPARTY at the matching thirdparty tree." >&2
+        exit 1
+    fi
+    export ARROW_HOME="${DEFAULT_ARROW_PAIMON_HOME}"
+    export PAIMON_HOME="${DEFAULT_ARROW_PAIMON_HOME}"
 fi
 
 rebuild_thirdparty_libraries() {
@@ -486,7 +501,7 @@ rebuild_thirdparty_libraries() {
         build_args+=(--clean)
     fi
     bash "${build_script}" "${build_args[@]}" "$@"
-    if ! arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
+    if ! shared_arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
         echo "Rebuilt Arrow/Paimon artifacts do not match this checkout's selected inputs." >&2
         exit 1
     fi
@@ -495,10 +510,12 @@ rebuild_thirdparty_libraries() {
 if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
     echo "Thirdparty libraries need to be build ..."
     rebuild_thirdparty_libraries true
-elif [[ "${NEED_ARROW_PAIMON_THIRDPARTY}" == "true" ]] &&
-    ! arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
-    echo "Arrow/Paimon thirdparty libraries need to be rebuilt ..."
-    rebuild_thirdparty_libraries false "${ARROW_PAIMON_BUILD_PACKAGES[@]}"
+elif [[ "${NEED_ARROW_PAIMON_THIRDPARTY}" == "true" ]]; then
+    select_arrow_paimon_rebuild_packages "${DORIS_THIRDPARTY}/installed"
+    if [[ "${#ARROW_PAIMON_REBUILD_PACKAGES[@]}" -gt 0 ]]; then
+        echo "Arrow/Paimon thirdparty libraries need to be rebuilt ..."
+        rebuild_thirdparty_libraries false "${ARROW_PAIMON_REBUILD_PACKAGES[@]}"
+    fi
 fi
 
 update_submodule() {
