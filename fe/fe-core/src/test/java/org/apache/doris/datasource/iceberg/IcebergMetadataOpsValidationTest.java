@@ -664,6 +664,7 @@ public class IcebergMetadataOpsValidationTest {
         Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
         Mockito.when(dorisCatalog.getEnableMappingVarbinary()).thenReturn(true);
         Mockito.when(dorisCatalog.getEnableMappingTimestampTz()).thenReturn(true);
+        ops = new IcebergMetadataOps(dorisCatalog, ops.getCatalog());
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
@@ -694,6 +695,7 @@ public class IcebergMetadataOpsValidationTest {
         Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
         Mockito.when(dorisCatalog.getEnableMappingVarbinary()).thenReturn(true);
         Mockito.when(dorisCatalog.getEnableMappingTimestampTz()).thenReturn(true);
+        ops = new IcebergMetadataOps(dorisCatalog, ops.getCatalog());
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
@@ -722,6 +724,7 @@ public class IcebergMetadataOpsValidationTest {
         Mockito.when(icebergTable.schema()).thenReturn(schema);
         Mockito.when(dorisCatalog.getEnableMappingVarbinary()).thenReturn(true);
         Mockito.when(dorisCatalog.getEnableMappingTimestampTz()).thenReturn(true);
+        ops = new IcebergMetadataOps(dorisCatalog, ops.getCatalog());
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
