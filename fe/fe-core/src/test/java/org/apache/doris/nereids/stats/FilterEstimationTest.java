@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeType;
@@ -1977,5 +1978,71 @@ class FilterEstimationTest {
         Statistics outputStats = filterEstimation.estimate(new IsNull(a), inputStats);
         // make sure when input is 0, output is also 0
         Assertions.assertEquals(0.0, outputStats.getRowCount());
+    }
+
+    /**
+     * Guard: when a hot value's persisted ratio is 0.0 (a rounding artifact from
+     * BaseAnalysisTask's ROUND(count/rowCount, N)), the equal-to-constant estimation
+     * must fall back to 1/ndv rather than collapse to 0. Otherwise downstream RBO
+     * (InitJoinOrder) and JoinEstimation get poisoned by the fake 0-row filter
+     * result and the plan pins itself to the SQL-written join order.
+     */
+    @Test
+    public void testEqualToConstantWithZeroRatioHotValue() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        // Column: 12,509,034 rows, ndv=3, one hot value with rounded ratio = 0.0
+        Map<Literal, Float> hotValues = new HashMap<>();
+        hotValues.put(new IntegerLiteral(0), 0.94f);
+        hotValues.put(new IntegerLiteral(2), 0.06f);
+        hotValues.put(new IntegerLiteral(1), 0.0f); // rounded from 0.19%
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(12509034)
+                .setNdv(3)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(0)
+                .setMaxValue(2)
+                .setHotValues(hotValues);
+        Statistics stats = new Statistics(12509034, new HashMap<>());
+        stats.addColumnStats(a, builder.build());
+
+        // Predicate: a = 1 (matches the poisoned hot value)
+        EqualTo equalTo = new EqualTo(a, new IntegerLiteral(1));
+        Statistics result = new FilterEstimation().estimate(equalTo, stats);
+
+        // Expect fallback to 1/ndv = 1/3 -> ~4169678 rows, NOT the poisoned 0.
+        double expected = 12509034.0 / 3.0;
+        Assertions.assertEquals(expected, result.getRowCount(), expected * 0.05);
+        Assertions.assertTrue(result.getRowCount() > 1.0,
+                "guard failed: hot value ratio 0.0 collapsed the filter result to 0/1 row");
+    }
+
+    /**
+     * Regression: when a hot value's persisted ratio is a real non-zero value, the
+     * hot-value-based estimation should still be preferred over the uniform 1/ndv.
+     * This case pins the existing behavior so the zero-ratio guard above does not
+     * accidentally suppress legitimate small hot ratios.
+     */
+    @Test
+    public void testEqualToConstantWithSmallNonZeroHotValue() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        // ndv=100 (uniform sel 1%), but the matched hot value ratio is 0.5%.
+        Map<Literal, Float> hotValues = new HashMap<>();
+        hotValues.put(new IntegerLiteral(7), 0.005f);
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(1_000_000)
+                .setNdv(100)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(1)
+                .setMaxValue(100)
+                .setHotValues(hotValues);
+        Statistics stats = new Statistics(1_000_000, new HashMap<>());
+        stats.addColumnStats(a, builder.build());
+
+        EqualTo equalTo = new EqualTo(a, new IntegerLiteral(7));
+        Statistics result = new FilterEstimation().estimate(equalTo, stats);
+
+        // Expect the small hot ratio 0.5% to still win over the uniform 1/ndv=1%.
+        // The guard should only kick in when hotSel == 0.
+        Assertions.assertEquals(5000.0, result.getRowCount(), 100.0);
     }
 }
