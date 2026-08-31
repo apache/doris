@@ -3060,9 +3060,13 @@ public:
     }
 };
 
-// json_extract_string over a raw VARCHAR/STRING column carrying JSON text. Instead of first
-// casting the whole document to JSONB (the JsonbExtractString(JSON, path) path), it navigates the
-// document with simdjson on-demand and only touches the bytes on the way to the target value.
+// json_extract_string / jsonb_extract_string over a raw VARCHAR/STRING column carrying JSON text.
+// The path is parsed with the authoritative JsonbPath grammar so invalid paths raise the same error
+// as the JSON-typed route. Paths whose legs are all plain object members or non-negative array
+// indices take a fast simdjson at_pointer navigation that reparses only the extracted slice; the
+// root path, wildcards, [last], negative indices, and any at_pointer miss fall back to the exact
+// Cast(JsonbExtract(...) AS String) route (full parse + JsonbPath findValue + format), so the result
+// matches that route for every JsonbPath-supported form.
 class FunctionJsonExtractStringFromVarchar : public IFunction {
 public:
     static constexpr auto name = "jsonb_extract_string";
@@ -3103,6 +3107,13 @@ public:
         simdjson::ondemand::parser parser;
         JsonbWriter writer;
 
+        // Parse a constant path once; JsonbPath::seek rewrites escapes in place so it must run on
+        // each distinct path buffer, but a const column has a single shared buffer.
+        PreparedPath const_path;
+        if (path_const && !(path_null_map && (*path_null_map)[0])) {
+            RETURN_IF_ERROR(prepare_path(path_col->get_data_at(0), const_path));
+        }
+
         for (size_t i = 0; i < input_rows_count; ++i) {
             size_t json_idx = json_data_const ? 0 : i;
             size_t path_idx = path_const ? 0 : i;
@@ -3114,41 +3125,14 @@ public:
             }
 
             StringRef json_ref = json_col->get_data_at(json_idx);
-            StringRef path_ref = path_col->get_data_at(path_idx);
-            if (json_ref.size == 0 || path_ref.size == 0 || path_ref.data[0] != '$') {
-                StringOP::push_null_string(i, res_data, res_offsets, res_null_map);
-                continue;
-            }
-
-            // Doris paths start with '$'; simdjson at_path() wants the remaining ".key"/"[idx]"
-            // suffix. An empty or "." suffix means the whole document (the "$" root path).
-            std::string_view simd_path(path_ref.data + 1, path_ref.size - 1);
-            bool is_root = simd_path.empty() || simd_path == ".";
-
-            try {
-                simdjson::padded_string json_str {json_ref.data, json_ref.size};
-                simdjson::ondemand::document doc = parser.iterate(json_str);
-
-                if (is_root) {
-                    write_extracted_value(json_ref.data, json_ref.size, writer, i, res_data,
-                                          res_offsets, res_null_map);
-                    continue;
-                }
-
-                simdjson::ondemand::value target;
-                if (doc.at_path(simd_path).get(target)) {
-                    StringOP::push_null_string(i, res_data, res_offsets, res_null_map);
-                    continue;
-                }
-                std::string_view raw;
-                if (simdjson::to_json_string(target).get(raw)) {
-                    StringOP::push_null_string(i, res_data, res_offsets, res_null_map);
-                    continue;
-                }
-                write_extracted_value(raw.data(), raw.size(), writer, i, res_data, res_offsets,
-                                      res_null_map);
-            } catch (const simdjson::simdjson_error&) {
-                StringOP::push_null_string(i, res_data, res_offsets, res_null_map);
+            if (path_const) {
+                extract_one(parser, writer, json_ref, const_path, i, res_data, res_offsets,
+                            res_null_map);
+            } else {
+                PreparedPath row_path;
+                RETURN_IF_ERROR(prepare_path(path_col->get_data_at(path_idx), row_path));
+                extract_one(parser, writer, json_ref, row_path, i, res_data, res_offsets,
+                            res_null_map);
             }
         }
 
@@ -3158,6 +3142,12 @@ public:
     }
 
 private:
+    struct PreparedPath {
+        JsonbPath path;
+        std::string pointer;
+        bool simple = false;
+    };
+
     static const ColumnString* unwrap_string_arg(const ColumnPtr& arg, bool& is_const,
                                                  const NullMap*& null_map) {
         ColumnPtr col;
@@ -3169,40 +3159,150 @@ private:
         return assert_cast<const ColumnString*>(col.get());
     }
 
-    // Reparse the extracted JSON slice into JSONB and format it exactly like the
-    // Cast(JsonbExtract(...) AS String) path: JSON null -> SQL NULL, JSON string -> its raw
-    // unescaped text, everything else -> canonical compact JSON. Reparsing normalizes whitespace
-    // and numbers so the on-demand result stays byte-identical to the JSONB path.
-    static void write_extracted_value(const char* data, size_t size, JsonbWriter& writer,
-                                      size_t row_idx, ColumnString::Chars& res_data,
-                                      ColumnString::Offsets& res_offsets, NullMap& res_null_map) {
-        if (!JsonbParser::parse(data, size, writer).ok()) {
+    static Status prepare_path(const StringRef& path_ref, PreparedPath& out) {
+        if (!out.path.seek(path_ref.data, path_ref.size)) {
+            return Status::InvalidArgument("Json path error: Invalid Json Path for value: {}",
+                                           std::string_view(path_ref.data, path_ref.size));
+        }
+        out.simple = build_pointer_if_simple(out.path, out.pointer);
+        return Status::OK();
+    }
+
+    // true only when the whole path can be navigated by JSON Pointer: no wildcard, no [last], no
+    // negative index, at least one leg. The root path returns false and takes the JSONB fallback.
+    static bool build_pointer_if_simple(const JsonbPath& jpath, std::string& pointer) {
+        if (jpath.is_wildcard() || jpath.is_supper_wildcard()) {
+            return false;
+        }
+        size_t leg_count = jpath.get_leg_vector_size();
+        if (leg_count == 0) {
+            return false;
+        }
+        for (size_t i = 0; i < leg_count; ++i) {
+            const leg_info* leg = jpath.get_leg_from_leg_vector(i);
+            if (leg->type == ARRAY_CODE) {
+                if (leg->array_index < 0) {
+                    return false;
+                }
+                pointer.push_back('/');
+                pointer.append(std::to_string(leg->array_index));
+            } else if (leg->type == MEMBER_CODE) {
+                pointer.push_back('/');
+                append_pointer_token(pointer, leg->leg_ptr, leg->leg_len);
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static void append_pointer_token(std::string& out, const char* key, unsigned int len) {
+        for (unsigned int i = 0; i < len; ++i) {
+            char c = key[i];
+            if (c == '~') {
+                out.append("~0");
+            } else if (c == '/') {
+                out.append("~1");
+            } else {
+                out.push_back(c);
+            }
+        }
+    }
+
+    static void extract_one(simdjson::ondemand::parser& parser, JsonbWriter& writer,
+                            const StringRef& json_ref, PreparedPath& prepared, size_t row_idx,
+                            ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
+                            NullMap& res_null_map) {
+        if (json_ref.size == 0) {
             StringOP::push_null_string(row_idx, res_data, res_offsets, res_null_map);
             return;
         }
-        const char* jsonb_data = writer.getOutput()->getBuffer();
-        size_t jsonb_size = writer.getOutput()->getSize();
+        if (prepared.simple && try_pointer_extract(parser, writer, json_ref, prepared.pointer,
+                                                   row_idx, res_data, res_offsets, res_null_map)) {
+            return;
+        }
+        jsonb_fallback(writer, json_ref, prepared.path, row_idx, res_data, res_offsets,
+                       res_null_map);
+    }
 
-        const JsonbDocument* jsonb_doc = nullptr;
-        if (!JsonbDocument::checkAndCreateDocument(jsonb_data, jsonb_size, &jsonb_doc).ok() ||
-            !jsonb_doc || !jsonb_doc->getValue()) {
+    // Fast path: navigate with simdjson at_pointer. Returns false (so the caller falls back to the
+    // exact JSONB route) on any miss, type mismatch, or parse error, which keeps the result correct
+    // for escaped document keys and the "index a scalar" quirk that only JsonbPath::findValue knows.
+    static bool try_pointer_extract(simdjson::ondemand::parser& parser, JsonbWriter& writer,
+                                    const StringRef& json_ref, const std::string& pointer,
+                                    size_t row_idx, ColumnString::Chars& res_data,
+                                    ColumnString::Offsets& res_offsets, NullMap& res_null_map) {
+        try {
+            simdjson::padded_string json_str {json_ref.data, json_ref.size};
+            simdjson::ondemand::document doc = parser.iterate(json_str);
+            simdjson::ondemand::value target;
+            if (doc.at_pointer(pointer).get(target)) {
+                return false;
+            }
+            std::string_view raw;
+            if (simdjson::to_json_string(target).get(raw)) {
+                return false;
+            }
+            if (!JsonbParser::parse(raw.data(), raw.size(), writer).ok()) {
+                return false;
+            }
+            const JsonbDocument* doc_reparsed = nullptr;
+            if (!JsonbDocument::checkAndCreateDocument(writer.getOutput()->getBuffer(),
+                                                       writer.getOutput()->getSize(), &doc_reparsed)
+                         .ok() ||
+                !doc_reparsed || !doc_reparsed->getValue()) {
+                return false;
+            }
+            format_jsonb_value(doc_reparsed->getValue(), row_idx, res_data, res_offsets,
+                               res_null_map);
+            return true;
+        } catch (const simdjson::simdjson_error&) {
+            return false;
+        }
+    }
+
+    // Exact Cast(JsonbExtract(...) AS String) behavior: parse the whole document to JSONB and
+    // navigate with JsonbPath::findValue (handles wildcards, [last], and the root path).
+    static void jsonb_fallback(JsonbWriter& writer, const StringRef& json_ref, JsonbPath& jpath,
+                               size_t row_idx, ColumnString::Chars& res_data,
+                               ColumnString::Offsets& res_offsets, NullMap& res_null_map) {
+        if (!JsonbParser::parse(json_ref.data, json_ref.size, writer).ok()) {
             StringOP::push_null_string(row_idx, res_data, res_offsets, res_null_map);
             return;
         }
+        const JsonbDocument* doc = nullptr;
+        if (!JsonbDocument::checkAndCreateDocument(writer.getOutput()->getBuffer(),
+                                                   writer.getOutput()->getSize(), &doc)
+                     .ok() ||
+            !doc || !doc->getValue()) {
+            StringOP::push_null_string(row_idx, res_data, res_offsets, res_null_map);
+            return;
+        }
+        JsonbFindResult find_result = doc->getValue()->findValue(jpath);
+        if (!find_result.value) {
+            StringOP::push_null_string(row_idx, res_data, res_offsets, res_null_map);
+            return;
+        }
+        format_jsonb_value(find_result.value, row_idx, res_data, res_offsets, res_null_map);
+    }
 
-        const JsonbValue* value = jsonb_doc->getValue();
+    // Format a found JSONB value exactly as Cast(JSONB AS String) does: JSON null -> SQL NULL,
+    // JSON string -> raw unescaped text, everything else -> canonical compact JSON.
+    static void format_jsonb_value(const JsonbValue* value, size_t row_idx,
+                                   ColumnString::Chars& res_data,
+                                   ColumnString::Offsets& res_offsets, NullMap& res_null_map) {
         if (value->isNull()) {
             StringOP::push_null_string(row_idx, res_data, res_offsets, res_null_map);
             return;
         }
         if (value->isString()) {
-            const auto* blob = value->unpack<JsonbBinaryVal>();
-            StringOP::push_value_string(std::string_view(blob->getBlob(), blob->getBlobLen()),
+            const auto* str_val = value->unpack<JsonbStringVal>();
+            StringOP::push_value_string(std::string_view(str_val->getBlob(), str_val->length()),
                                         row_idx, res_data, res_offsets);
             return;
         }
-        StringOP::push_value_string(JsonbToJson::jsonb_to_json_string(jsonb_data, jsonb_size),
-                                    row_idx, res_data, res_offsets);
+        StringOP::push_value_string(JsonbToJson {}.to_json_string(value), row_idx, res_data,
+                                    res_offsets);
     }
 };
 

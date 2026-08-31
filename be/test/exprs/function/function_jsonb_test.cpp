@@ -1127,6 +1127,39 @@ TEST(FunctionJsonbTEST, JsonExtractStringFromVarcharTest) {
             {{STRING(R"({"k1":"v1"})"), Null()}, Null()},
     };
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    // Exotic JsonbPath forms that the JSON Pointer fast path cannot express and that must fall back
+    // to the exact JsonbPath findValue route: quoted dotted keys, $.[i], wildcards, recursive
+    // wildcard, [last]/[last-N], and the "index a scalar" quirk. Values are the JSONB-route output.
+    data_set = {
+            {{STRING(R"({"k1":"v1", "my.key":["e1", "e2", "e3"]})"), STRING(R"($."my.key"[1])")},
+             STRING("e2")},
+            {{STRING(R"({"k1.key":{"k2":["v1", "v2"]}})"), STRING(R"($."k1.key".k2[0])")},
+             STRING("v1")},
+            {{STRING("[1, 2, 3]"), STRING("$.[1]")}, STRING("2")},
+            {{STRING(R"({"a":[1,2,3]})"), STRING("$.a[*]")}, STRING("[1,2,3]")},
+            {{STRING(R"({"a":1,"b":2})"), STRING("$.*")}, STRING("[1,2]")},
+            {{STRING(R"({"arr":[{"k":1},{"k":2}]})"), STRING("$.arr[*].k")}, STRING("[1,2]")},
+            {{STRING(R"({"a":{"b":1},"c":{"b":2}})"), STRING("$**.b")}, STRING("[1,2]")},
+            {{STRING(R"({"a":[10,20,30]})"), STRING("$.a[last]")}, STRING("30")},
+            {{STRING(R"({"a":[10,20,30]})"), STRING("$.a[last-1]")}, STRING("20")},
+            {{STRING(R"({"a":["x","y","z"]})"), STRING("$.a[last]")}, STRING("z")},
+            {{STRING(R"({"k":5})"), STRING("$.k[0]")}, STRING("5")},
+    };
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+}
+
+// A path that JsonbPath rejects must raise INVALID_ARGUMENT, matching the JSON-typed route, rather
+// than silently returning NULL.
+TEST(FunctionJsonbTEST, JsonExtractStringFromVarcharInvalidPathTest) {
+    std::string func_name = "jsonb_extract_string";
+    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR},
+                                Nullable {PrimitiveType::TYPE_VARCHAR}};
+
+    DataSet data_set = {{{STRING(R"({"a":1})"), STRING("a.b")}, Null()}};
+    EXPECT_FALSE((check_function<DataTypeString, true>(func_name, input_types, data_set, -1, -1,
+                                                       /*expect_execute_fail=*/true))
+                         .ok());
 }
 
 } // namespace doris
