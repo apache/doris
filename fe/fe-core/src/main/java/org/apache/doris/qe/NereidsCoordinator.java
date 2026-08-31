@@ -544,6 +544,11 @@ public class NereidsCoordinator extends Coordinator {
         this.coordinatorContext.setJobProcessor(jobProc);
     }
 
+    @Override
+    protected List<ResultReceiver> getOutfileResultReceivers() {
+        return coordinatorContext.asQueryProcessor().getResultReceivers();
+    }
+
     private void setForBroker(
             CoordinatorContext coordinatorContext, PipelineDistributedPlan topPlan) throws AnalysisException {
         DataSink dataSink = coordinatorContext.dataSink;

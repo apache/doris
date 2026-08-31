@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.DescriptorToThriftConverter;
+import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
@@ -186,6 +187,7 @@ import java.util.stream.Collectors;
 
 public class Coordinator implements CoordInterface {
     private static final Logger LOG = LogManager.getLogger(Coordinator.class);
+    private static final long OUTFILE_CLEANUP_TIMEOUT_MS = 5000;
 
     public static final String localIP = FrontendOptions.getLocalHostAddress();
 
@@ -1459,20 +1461,50 @@ public class Coordinator implements CoordInterface {
         cancelLatch();
     }
 
+    protected List<ResultReceiver> getOutfileResultReceivers() {
+        return receivers;
+    }
+
     @Override
-    public void finishOutfile(boolean success) throws Exception {
+    public void finishOutfile(InternalService.POutfileWriteOperation operation) throws Exception {
         Map<TNetworkAddress, InternalService.POutfileWriteFinishedRequest.Builder> requests = new HashMap<>();
-        for (ResultReceiver receiver : receivers) {
-            requests.computeIfAbsent(receiver.getAddress(), address ->
-                            InternalService.POutfileWriteFinishedRequest.newBuilder().setSuccess(success))
-                    .addBufferIds(receiver.getRealFinstId());
+        for (ResultReceiver receiver : getOutfileResultReceivers()) {
+            InternalService.POutfileWriteFinishedRequest.Builder request = requests.computeIfAbsent(
+                    receiver.getAddress(), address -> InternalService.POutfileWriteFinishedRequest.newBuilder()
+                            // Old BEs ignore operation, so preserve their success field during upgrades.
+                            .setSuccess(operation == InternalService.POutfileWriteOperation.OUTFILE_COMMIT));
+            if (Config.be_exec_version >= OutFileClause.SUPPORT_ATOMIC_OUTFILE_VERSION) {
+                request.setOperation(operation);
+            }
+            request.addBufferIds(receiver.getRealFinstId());
         }
+        if (requests.isEmpty()) {
+            throw new UserException("No OUTFILE result receiver participates in finalization");
+        }
+        long timeoutMs = operation == InternalService.POutfileWriteOperation.OUTFILE_ABORT
+                ? Math.max(1, Math.min(Config.remote_fragment_exec_timeout_ms, OUTFILE_CLEANUP_TIMEOUT_MS))
+                : Math.max(1, Math.min(Config.remote_fragment_exec_timeout_ms,
+                        timeoutDeadline - System.currentTimeMillis()));
+        Map<TNetworkAddress, Future<InternalService.POutfileWriteFinishedResult>> futures = new HashMap<>();
         Exception firstFailure = null;
         for (Entry<TNetworkAddress, InternalService.POutfileWriteFinishedRequest.Builder> entry
                 : requests.entrySet()) {
             try {
-                InternalService.POutfileWriteFinishedResult result = BackendServiceProxy.getInstance()
-                        .outfileWriteFinishedAsync(entry.getKey(), entry.getValue().build()).get();
+                futures.put(entry.getKey(), BackendServiceProxy.getInstance()
+                        .outfileWriteFinishedAsync(entry.getKey(), entry.getValue().build(), timeoutMs));
+            } catch (Exception e) {
+                // One unavailable backend must not prevent rollback from reaching other receivers.
+                if (firstFailure == null) {
+                    firstFailure = e;
+                }
+            }
+        }
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        for (Entry<TNetworkAddress, Future<InternalService.POutfileWriteFinishedResult>> entry
+                : futures.entrySet()) {
+            try {
+                InternalService.POutfileWriteFinishedResult result = entry.getValue()
+                        .get(Math.max(1, deadline - System.currentTimeMillis()), TimeUnit.MILLISECONDS);
                 Status status = new Status(result.getStatus());
                 if (!status.ok()) {
                     throw new UserException(status.getErrorMsg());
@@ -1480,9 +1512,6 @@ public class Coordinator implements CoordInterface {
             } catch (Exception e) {
                 if (firstFailure == null) {
                     firstFailure = e;
-                }
-                if (success) {
-                    break;
                 }
             }
         }

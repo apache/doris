@@ -159,6 +159,8 @@ struct TResultFileSinkOptions {
     // currently only for csv
     // TODO: merge with parquet_compression_type and orc_compression_type
     22: optional PlanNodes.TFileCompressType compression_type
+    // New FE enables deferred cleanup only after every executing BE supports the atomic protocol.
+    23: optional bool enable_atomic_outfile
 }
 
 struct TMemoryScratchSink {

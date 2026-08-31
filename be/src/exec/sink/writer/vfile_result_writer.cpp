@@ -67,6 +67,53 @@ namespace doris {
 
 static double nons_to_second = 1000000000.00;
 
+namespace {
+
+using OwnedOutfile = std::pair<std::shared_ptr<io::FileSystem>, io::Path>;
+
+struct OutfileCleanupState {
+    std::shared_ptr<io::FileWriter> writer;
+    std::vector<OwnedOutfile> files;
+
+    Status cleanup() {
+        Status first_failure = Status::OK();
+        if (writer != nullptr) {
+            Status status = writer->abort();
+            if (status.ok()) {
+                writer.reset();
+            } else {
+                first_failure = status;
+            }
+        }
+
+        std::vector<OwnedOutfile> failed_files;
+        for (auto& [file_system, path] : files) {
+            Status status = file_system->delete_file(path);
+            if (!status.ok() && !status.is<ErrorCode::NOT_FOUND>()) {
+                if (first_failure.ok()) {
+                    first_failure = status;
+                }
+                failed_files.emplace_back(file_system, path);
+            }
+        }
+        files = std::move(failed_files);
+        return first_failure;
+    }
+};
+
+Status run_cleanup_with_retries(const std::shared_ptr<OutfileCleanupState>& state) {
+    Status status;
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        status = state->cleanup();
+        if (status.ok()) {
+            return status;
+        }
+    }
+    return status;
+}
+
+} // namespace
+
 VFileResultWriter::VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
                                      std::shared_ptr<Dependency> dep,
                                      std::shared_ptr<Dependency> fin_dep)
@@ -123,18 +170,17 @@ Status VFileResultWriter::_create_next_file_writer() {
 
 Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
     auto file_type = DORIS_TRY(FileFactory::convert_storage_type(_storage_type));
-    if (_file_system == nullptr) {
-        io::FSPropertiesRef properties(file_type);
-        properties.broker_addresses = &_file_opts->broker_addresses;
-        properties.properties = &_file_opts->broker_properties;
-        io::FileDescription file_description;
-        file_description.path = file_name;
-        _file_system = DORIS_TRY(FileFactory::create_fs(properties, file_description));
-    }
+    io::FSPropertiesRef properties(file_type);
+    properties.broker_addresses = &_file_opts->broker_addresses;
+    properties.properties = &_file_opts->broker_properties;
+    io::FileDescription file_description;
+    file_description.path = file_name;
+    _file_system = DORIS_TRY(FileFactory::create_fs(properties, file_description));
+    // Create/open can publish a path before returning an error, so claim deterministic ownership
+    // first. A separate filesystem preserves Broker's existing per-path endpoint selection.
+    _created_files.emplace_back(_file_system, file_name);
     const io::FileWriterOptions options {.write_file_cache = false, .sync_file_data = false};
     RETURN_IF_ERROR(_file_system->create_file(file_name, &_file_writer_impl, &options));
-    // Exact ownership is recorded at creation so rollback never scans or removes another query's files.
-    _created_file_paths.emplace_back(file_name);
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         _vfile_writer.reset(new VCSVTransformer(
@@ -493,42 +539,58 @@ Status VFileResultWriter::close(Status exec_status) {
         st = _close_file_writer(true);
     }
     if (!st.ok()) {
-        _cleanup_created_files();
+        WARN_IF_ERROR(_cleanup_created_files(), "failed to remove files from aborted OUTFILE");
     } else {
-        _register_created_files_cleanup();
+        RETURN_IF_ERROR(_register_created_files_cleanup());
     }
     return st;
 }
 
-void VFileResultWriter::_cleanup_created_files() {
-    _vfile_writer.reset();
+Status VFileResultWriter::_cleanup_created_files() {
+    if (_vfile_writer != nullptr) {
+        // Format writers must detach without closing the raw writer: Parquet/ORC destructors
+        // otherwise turn a cancelled multipart upload into a published object.
+        WARN_IF_ERROR(_vfile_writer->abort(), "failed to abort outfile format writer");
+        _vfile_writer.reset();
+    }
+    auto cleanup_state = std::make_shared<OutfileCleanupState>();
     if (_file_writer_impl != nullptr) {
-        if (_created_file_paths.empty()) {
-            _created_file_paths.emplace_back(_file_writer_impl->path());
+        cleanup_state->writer = std::shared_ptr<io::FileWriter>(std::move(_file_writer_impl));
+        if (_created_files.empty()) {
+            auto file_system = _file_system;
+            if (file_system == nullptr && _storage_type == TStorageBackendType::LOCAL) {
+                file_system = io::global_local_filesystem();
+            }
+            if (file_system != nullptr) {
+                _created_files.emplace_back(std::move(file_system), cleanup_state->writer->path());
+            }
         }
-        WARN_IF_ERROR(_file_writer_impl->abort(), "failed to abort outfile writer");
-        _file_writer_impl.reset();
     }
-    if (_file_system == nullptr && _storage_type == TStorageBackendType::LOCAL) {
-        _file_system = io::global_local_filesystem();
+    cleanup_state->files = std::move(_created_files);
+    Status status = run_cleanup_with_retries(cleanup_state);
+    if (!status.ok() && _file_opts != nullptr && _file_opts->enable_atomic_outfile &&
+        _sinker != nullptr) {
+        Status register_status = _sinker->add_outfile_cleanup(
+                [cleanup_state] { return run_cleanup_with_retries(cleanup_state); });
+        if (!register_status.ok()) {
+            status = register_status;
+        }
     }
-    if (_file_system != nullptr && !_created_file_paths.empty()) {
-        WARN_IF_ERROR(_file_system->batch_delete(_created_file_paths),
-                      "failed to remove files from aborted outfile");
-    }
-    _created_file_paths.clear();
+    return status;
 }
 
-void VFileResultWriter::_register_created_files_cleanup() {
-    if (_sinker == nullptr || _file_system == nullptr || _created_file_paths.empty()) {
-        return;
+Status VFileResultWriter::_register_created_files_cleanup() {
+    if (_file_opts == nullptr || !_file_opts->enable_atomic_outfile) {
+        _created_files.clear();
+        return Status::OK();
     }
-    auto file_system = _file_system;
-    auto paths = std::move(_created_file_paths);
-    _sinker->add_outfile_cleanup([file_system = std::move(file_system), paths = std::move(paths)] {
-        WARN_IF_ERROR(file_system->batch_delete(paths),
-                      "failed to remove files from aborted outfile query");
-    });
+    if (_sinker == nullptr || _created_files.empty()) {
+        return Status::InternalError("atomic OUTFILE has no result buffer cleanup owner");
+    }
+    auto cleanup_state = std::make_shared<OutfileCleanupState>();
+    cleanup_state->files = std::move(_created_files);
+    return _sinker->add_outfile_cleanup(
+            [cleanup_state] { return run_cleanup_with_retries(cleanup_state); });
 }
 
 } // namespace doris

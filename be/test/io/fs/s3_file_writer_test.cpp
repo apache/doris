@@ -1196,6 +1196,12 @@ public:
         abort_multipart_count++;
         last_opts = opts;
         last_upload_id = upload_id;
+        abort_upload_ids.emplace_back(upload_id);
+        if (abort_failures_remaining > 0) {
+            --abort_failures_remaining;
+            return {.status = ObjStorageStatus {ObjStorageStatus::IO_ERROR,
+                                                "injected abort failure"}};
+        }
         parts.clear();
         return default_response;
     }
@@ -1265,6 +1271,8 @@ public:
     int upload_part_count = 0;
     int complete_multipart_count = 0;
     int abort_multipart_count = 0;
+    int abort_failures_remaining = 0;
+    std::vector<std::string> abort_upload_ids;
 
     // Structures to store input parameters for each call
     struct UploadPartParams {
@@ -1305,6 +1313,8 @@ public:
         upload_part_count = 0;
         complete_multipart_count = 0;
         abort_multipart_count = 0;
+        abort_failures_remaining = 0;
+        abort_upload_ids.clear();
 
         create_multipart_params.clear();
         put_object_params.clear();
@@ -1355,6 +1365,20 @@ TEST_F(S3FileWriterTest, AbortCancelsMultipartUpload) {
 
     EXPECT_EQ(mock_client->create_multipart_count, 1);
     EXPECT_EQ(mock_client->abort_multipart_count, 1);
+    EXPECT_EQ(mock_client->complete_multipart_count, 0);
+}
+
+TEST_F(S3FileWriterTest, AbortRetryReusesMultipartUploadId) {
+    auto [mock_client, writer] = create_s3_client("abort-multipart-retry");
+    std::string content(config::s3_write_buffer_size, 'a');
+    mock_client->abort_failures_remaining = 1;
+
+    ASSERT_TRUE(writer->append(content).ok());
+    ASSERT_FALSE(writer->abort().ok());
+    ASSERT_TRUE(writer->abort().ok());
+
+    ASSERT_EQ(mock_client->abort_upload_ids.size(), 2);
+    EXPECT_EQ(mock_client->abort_upload_ids[0], mock_client->abort_upload_ids[1]);
     EXPECT_EQ(mock_client->complete_multipart_count, 0);
 }
 

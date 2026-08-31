@@ -24,6 +24,7 @@
 #include <google/protobuf/stubs/callback.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <iterator>
 #include <limits>
 #include <ostream>
 #include <string>
@@ -103,78 +104,136 @@ Status ResultBlockBuffer<ResultCtxType>::close(const TUniqueId& id, Status exec_
 }
 
 template <typename ResultCtxType>
-void ResultBlockBuffer<ResultCtxType>::cancel(const Status& reason) {
-    release_outfile_cleanup();
-    std::unique_lock<std::mutex> l(_lock);
+void ResultBlockBuffer<ResultCtxType>::cancel(const Status& reason, bool release_outfile) {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
-    if (_status.ok()) {
-        _status = reason;
+    {
+        std::unique_lock<std::mutex> l(_lock);
+        if (_status.ok()) {
+            _status = reason;
+        }
+        _arrow_data_arrival.notify_all();
+        for (auto& ctx : _waiting_rpc) {
+            ctx->on_failure(reason);
+        }
+        _waiting_rpc.clear();
+        _update_dependency();
+        _result_batch_queue.clear();
     }
-    _arrow_data_arrival.notify_all();
-    for (auto& ctx : _waiting_rpc) {
-        ctx->on_failure(reason);
+    if (release_outfile) {
+        // Release query result memory before rollback performs potentially slow remote I/O.
+        release_outfile_cleanup();
     }
-    _waiting_rpc.clear();
-    _update_dependency();
-    _result_batch_queue.clear();
 }
 
 template <typename ResultCtxType>
-void ResultBlockBuffer<ResultCtxType>::add_outfile_cleanup(std::function<void()> cleanup) {
+Status ResultBlockBuffer<ResultCtxType>::add_outfile_cleanup(OutfileCleanup cleanup) {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     bool run_cleanup = false;
+    bool discard_cleanup = false;
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_outfile_state == OutfileState::ABORTED) {
             run_cleanup = true;
+        } else if (_outfile_state == OutfileState::COMMITTED) {
+            discard_cleanup = true;
         } else {
             _outfile_cleanups.emplace_back(std::move(cleanup));
         }
     }
-    if (run_cleanup) {
-        cleanup();
+    if (discard_cleanup) {
+        cleanup = nullptr;
+        return Status::OK();
     }
+    if (run_cleanup) {
+        Status status = cleanup();
+        if (!status.ok()) {
+            std::lock_guard<std::mutex> l(_lock);
+            _outfile_cleanups.emplace_back(std::move(cleanup));
+        }
+        return status;
+    }
+    return Status::OK();
 }
 
 template <typename ResultCtxType>
-void ResultBlockBuffer<ResultCtxType>::finish_outfile(bool success) {
-    std::vector<std::function<void()>> cleanups;
+Status ResultBlockBuffer<ResultCtxType>::finish_outfile(OutfileOperation operation) {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    std::vector<OutfileCleanup> cleanups;
     {
         std::lock_guard<std::mutex> l(_lock);
-        if (success) {
-            if (_outfile_state == OutfileState::PENDING) {
-                _outfile_state = OutfileState::COMMITTED;
+        if (operation == OutfileOperation::PREPARE) {
+            if (_outfile_state == OutfileState::ABORTED) {
+                return Status::Cancelled("outfile result buffer was already aborted");
             }
-            return;
+            if (_outfile_state == OutfileState::PENDING) {
+                _outfile_state = OutfileState::PREPARED;
+            }
+            return Status::OK();
         }
-        if (_outfile_state == OutfileState::ABORTED) {
-            return;
+        if (operation == OutfileOperation::COMMIT) {
+            if (_outfile_state == OutfileState::COMMITTED) {
+                return Status::OK();
+            }
+            if (_outfile_state != OutfileState::PREPARED) {
+                return Status::InternalError("outfile result buffer is not prepared");
+            }
+            // Keep rollback ownership after this provisional acknowledgement so an explicit ABORT
+            // can compensate a COMMIT that reached only a subset of receivers.
+            _outfile_state = OutfileState::COMMITTED;
+            return Status::OK();
         }
-        _outfile_state = OutfileState::ABORTED;
-        cleanups.swap(_outfile_cleanups);
+        if (operation == OutfileOperation::ABORT) {
+            if (_outfile_state == OutfileState::ABORTED && _outfile_cleanups.empty()) {
+                return Status::OK();
+            }
+            // A global COMMIT can fail after reaching only some receivers. Keep every local
+            // ownership record compensatable until FE observes all acknowledgements.
+            _outfile_state = OutfileState::ABORTED;
+            cleanups.swap(_outfile_cleanups);
+        } else {
+            return Status::InternalError("unknown outfile operation");
+        }
     }
+    Status first_failure = Status::OK();
+    std::vector<OutfileCleanup> failed_cleanups;
     for (auto& cleanup : cleanups) {
-        cleanup();
+        Status status = cleanup();
+        if (!status.ok()) {
+            if (first_failure.ok()) {
+                first_failure = status;
+            }
+            failed_cleanups.emplace_back(std::move(cleanup));
+        }
     }
+    if (!failed_cleanups.empty()) {
+        std::lock_guard<std::mutex> l(_lock);
+        _outfile_cleanups.insert(_outfile_cleanups.end(),
+                                 std::make_move_iterator(failed_cleanups.begin()),
+                                 std::make_move_iterator(failed_cleanups.end()));
+    }
+    return first_failure;
 }
 
 template <typename ResultCtxType>
 void ResultBlockBuffer<ResultCtxType>::release_outfile_cleanup() {
-    std::vector<std::function<void()>> cleanups;
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_outfile_state == OutfileState::COMMITTED) {
             _outfile_cleanups.clear();
             return;
         }
-        if (_outfile_state == OutfileState::ABORTED && _outfile_cleanups.empty()) {
+    }
+    Status status;
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        status = finish_outfile(OutfileOperation::ABORT);
+        if (status.ok()) {
             return;
         }
-        _outfile_state = OutfileState::ABORTED;
-        cleanups.swap(_outfile_cleanups);
     }
-    for (auto& cleanup : cleanups) {
-        cleanup();
-    }
+    LOG(WARNING) << "Failed to clean up aborted OUTFILE after retries: " << status;
+    std::lock_guard<std::mutex> l(_lock);
+    _outfile_cleanups.clear();
 }
 
 template <typename ResultCtxType>

@@ -56,11 +56,14 @@ public class QueryProcessor extends AbstractJobProcessor {
 
     // mutable field
     private ResultReceiverConsumer receiverConsumer;
+    private final List<ResultReceiver> receivers;
 
     private long numReceivedRows;
 
-    public QueryProcessor(CoordinatorContext coordinatorContext, ResultReceiverConsumer consumer) {
+    public QueryProcessor(CoordinatorContext coordinatorContext, List<ResultReceiver> receivers,
+            ResultReceiverConsumer consumer) {
         super(coordinatorContext);
+        this.receivers = receivers;
         receiverConsumer = consumer;
 
         this.limitRows = coordinatorContext.fragments.get(0)
@@ -110,7 +113,11 @@ public class QueryProcessor extends AbstractJobProcessor {
         }
         ResultReceiverConsumer consumer = new ResultReceiverConsumer(receivers,
                 coordinatorContext.timeoutDeadline.get());
-        return new QueryProcessor(coordinatorContext, consumer);
+        return new QueryProcessor(coordinatorContext, receivers, consumer);
+    }
+
+    public List<ResultReceiver> getResultReceivers() {
+        return receivers;
     }
 
     @Override

@@ -24,6 +24,7 @@
 #include <cstdint>
 
 // IWYU pragma: no_include <bits/chrono.h>
+#include <atomic>
 #include <chrono> // IWYU pragma: keep
 #include <memory>
 #include <ostream>
@@ -35,8 +36,10 @@
 #include "common/status.h"
 #include "exec/sink/writer/varrow_flight_result_writer.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
+#include "runtime/exec_env.h"
 #include "runtime/result_block_buffer.h"
 #include "util/thread.h"
+#include "util/threadpool.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -57,6 +60,19 @@ void ResultBufferMgr::stop() {
     _stop_background_threads_latch.count_down();
     if (_clean_thread) {
         _clean_thread->join();
+    }
+    std::vector<TUniqueId> remaining_ids;
+    {
+        std::shared_lock<std::shared_mutex> rlock(_buffer_map_lock);
+        remaining_ids.reserve(_buffer_map.size());
+        for (const auto& item : _buffer_map) {
+            remaining_ids.emplace_back(item.first);
+        }
+    }
+    for (const auto& id : remaining_ids) {
+        // Shutdown must retain cleanup ownership until rollback finishes; the lazy-release pool may
+        // already be stopping and cannot provide that guarantee.
+        cancel(id, Status::Cancelled("ResultBufferMgr is stopping"));
     }
 }
 
@@ -129,7 +145,7 @@ Status ResultBufferMgr::find_buffer(const TUniqueId& finst_id,
                              : Status::OK();
 }
 
-bool ResultBufferMgr::cancel(const TUniqueId& unique_id, const Status& reason) {
+bool ResultBufferMgr::cancel(const TUniqueId& unique_id, const Status& reason, bool cleanup_async) {
     std::shared_ptr<ResultBlockBufferBase> buffer;
     {
         std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
@@ -140,18 +156,33 @@ bool ResultBufferMgr::cancel(const TUniqueId& unique_id, const Status& reason) {
         buffer = std::move(iter->second);
         _buffer_map.erase(iter);
     }
-    // Outfile rollback can perform remote I/O, so it must not hold the manager-wide map lock.
-    buffer->cancel(reason);
+    buffer->cancel(reason, false);
+    auto cleanup_started = std::make_shared<std::atomic<bool>>(false);
+    auto cleanup = [buffer = std::move(buffer), cleanup_started] {
+        if (!cleanup_started->exchange(true)) {
+            buffer->release_outfile_cleanup();
+        }
+    };
+    ThreadPool* pool = ExecEnv::GetInstance()->lazy_release_obj_pool();
+    if (cleanup_async && pool != nullptr) {
+        Status submit_status = pool->submit_func(cleanup);
+        if (!submit_status.ok()) {
+            // submit_func may retain a runnable while returning an error; the guard keeps fallback
+            // cleanup single-shot and ensures ownership is not silently discarded.
+            cleanup();
+        }
+    } else {
+        cleanup();
+    }
     return true;
 }
 
-bool ResultBufferMgr::finish_outfile(const TUniqueId& unique_id, bool success) {
+Status ResultBufferMgr::finish_outfile(const TUniqueId& unique_id, OutfileOperation operation) {
     auto buffer = _find_control_block<ResultBlockBufferBase>(unique_id);
     if (buffer == nullptr) {
-        return false;
+        return Status::NotFound("outfile result buffer no longer exists");
     }
-    buffer->finish_outfile(success);
-    return true;
+    return buffer->finish_outfile(operation);
 }
 
 void ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& unique_id) {
@@ -189,8 +220,10 @@ void ResultBufferMgr::cancel_thread() {
 
         // cancel query
         for (const auto& id : query_to_cancel) {
-            cancel(id, Status::Cancelled("Clean up expired ResultBlockBuffer, queryId: {}",
-                                         print_id(id)));
+            cancel(id,
+                   Status::Cancelled("Clean up expired ResultBlockBuffer, queryId: {}",
+                                     print_id(id)),
+                   true);
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
 

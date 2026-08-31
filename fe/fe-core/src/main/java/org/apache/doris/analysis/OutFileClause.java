@@ -68,6 +68,7 @@ public class OutFileClause {
     public static final String URL = "URL";
     public static final String WRITE_TIME_SEC = "WriteTimeSec";
     public static final String WRITE_SPEED_KB = "WriteSpeedKB";
+    public static final int SUPPORT_ATOMIC_OUTFILE_VERSION = 14;
 
     static {
         RESULT_COL_NAMES.add(FILE_NUMBER);
@@ -756,6 +757,7 @@ public class OutFileClause {
         sinkOptions.setDeleteExistingFiles(deleteExistingFiles);
         sinkOptions.setFileSuffix(fileSuffix);
         sinkOptions.setWithBom(withBom);
+        sinkOptions.setEnableAtomicOutfile(Config.be_exec_version >= SUPPORT_ATOMIC_OUTFILE_VERSION);
 
         if (brokerDesc != null) {
             sinkOptions.setBrokerProperties(brokerDesc.getBackendConfigProperties());

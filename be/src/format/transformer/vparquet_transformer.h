@@ -54,6 +54,10 @@ public:
     // return the current write position of the stream
     arrow::Result<int64_t> Tell() const override;
     arrow::Status Close() override;
+    arrow::Status Abort() override {
+        _is_closed = true;
+        return arrow::Status::OK();
+    }
 
     bool closed() const override { return _is_closed; }
 
@@ -107,6 +111,8 @@ public:
     Status write(const Block& block) override;
 
     Status close() override;
+
+    Status abort() override;
 
     int64_t written_len() override;
 

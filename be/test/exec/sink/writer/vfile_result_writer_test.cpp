@@ -21,6 +21,8 @@
 
 #include <filesystem>
 
+#include "format/transformer/vorc_transformer.h"
+#include "format/transformer/vparquet_transformer.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "util/slice.h"
@@ -41,6 +43,26 @@ bool file_exists(const std::filesystem::path& path) {
     EXPECT_TRUE(io::global_local_filesystem()->exists(path, &exists).ok());
     return exists;
 }
+
+class TrackingFileWriter final : public io::FileWriter {
+public:
+    Status close(bool) override {
+        ++close_count;
+        _state = State::CLOSED;
+        return Status::OK();
+    }
+
+    Status appendv(const Slice*, size_t) override { return Status::OK(); }
+    const io::Path& path() const override { return _path; }
+    size_t bytes_appended() const override { return 0; }
+    State state() const override { return _state; }
+
+    int close_count = 0;
+
+private:
+    io::Path _path = "tracking-output";
+    State _state = State::OPENED;
+};
 
 } // namespace
 
@@ -83,7 +105,7 @@ TEST(VFileResultWriterTest, FailedCloseRemovesOnlyOwnedOutputFiles) {
     VFileResultWriter writer(TDataSink {}, {}, nullptr, nullptr);
     writer._storage_type = TStorageBackendType::LOCAL;
     writer._file_system = io::global_local_filesystem();
-    writer._created_file_paths = {first_path, second_path};
+    writer._created_files = {{writer._file_system, first_path}, {writer._file_system, second_path}};
 
     ASSERT_FALSE(writer.close(Status::IOError("injected outfile failure")).ok());
 
@@ -91,6 +113,22 @@ TEST(VFileResultWriterTest, FailedCloseRemovesOnlyOwnedOutputFiles) {
     EXPECT_FALSE(file_exists(second_path));
     EXPECT_TRUE(file_exists(unrelated_path));
     std::filesystem::remove_all(directory);
+}
+
+TEST(VFileResultWriterTest, AbortedFormatStreamsDoNotCloseRawWriter) {
+    TrackingFileWriter parquet_writer;
+    {
+        ParquetOutputStream output_stream(&parquet_writer);
+        ASSERT_TRUE(output_stream.Abort().ok());
+    }
+    EXPECT_EQ(parquet_writer.close_count, 0);
+
+    TrackingFileWriter orc_writer;
+    {
+        VOrcOutputStream output_stream(&orc_writer);
+        output_stream.abort();
+    }
+    EXPECT_EQ(orc_writer.close_count, 0);
 }
 
 } // namespace doris

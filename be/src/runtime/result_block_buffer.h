@@ -45,6 +45,9 @@ class Controller;
 
 namespace doris {
 
+enum class OutfileOperation : uint8_t { PREPARE, COMMIT, ABORT };
+using OutfileCleanup = std::function<Status()>;
+
 class Dependency;
 
 class GetArrowResultBatchCtx;
@@ -65,7 +68,7 @@ public:
     // when scheduling cancel_at_time() for the deferred cleanup.
     virtual Status close(const TUniqueId& id, Status exec_status, int64_t num_rows,
                          bool& is_fully_closed) = 0;
-    virtual void cancel(const Status& reason) = 0;
+    virtual void cancel(const Status& reason, bool release_outfile = true) = 0;
 
     // The id under which this buffer was registered in ResultBufferMgr.
     // In parallel result-sink mode this equals query_id; in non-parallel mode
@@ -75,8 +78,8 @@ public:
     [[nodiscard]] virtual std::shared_ptr<MemTrackerLimiter> mem_tracker() = 0;
     virtual void set_dependency(const TUniqueId& id,
                                 std::shared_ptr<Dependency> result_sink_dependency) = 0;
-    virtual void add_outfile_cleanup(std::function<void()> cleanup) = 0;
-    virtual void finish_outfile(bool success) = 0;
+    virtual Status add_outfile_cleanup(OutfileCleanup cleanup) = 0;
+    virtual Status finish_outfile(OutfileOperation operation) = 0;
     virtual void release_outfile_cleanup() = 0;
 };
 
@@ -92,14 +95,14 @@ public:
     Status get_batch(std::shared_ptr<ResultCtxType> ctx);
     Status close(const TUniqueId& id, Status exec_status, int64_t num_rows,
                  bool& is_fully_closed) override;
-    void cancel(const Status& reason) override;
+    void cancel(const Status& reason, bool release_outfile = true) override;
 
     [[nodiscard]] const TUniqueId& buffer_id() const override { return _fragment_id; }
     [[nodiscard]] std::shared_ptr<MemTrackerLimiter> mem_tracker() override { return _mem_tracker; }
     void set_dependency(const TUniqueId& id,
                         std::shared_ptr<Dependency> result_sink_dependency) override;
-    void add_outfile_cleanup(std::function<void()> cleanup) override;
-    void finish_outfile(bool success) override;
+    Status add_outfile_cleanup(OutfileCleanup cleanup) override;
+    Status finish_outfile(OutfileOperation operation) override;
     void release_outfile_cleanup() override;
 
 protected:
@@ -142,9 +145,9 @@ protected:
     const segment_v2::CompressionTypePB _fragment_transmission_compression_type;
     const int _buffer_limit;
 
-    enum class OutfileState : uint8_t { PENDING, COMMITTED, ABORTED };
+    enum class OutfileState : uint8_t { PENDING, PREPARED, COMMITTED, ABORTED };
     OutfileState _outfile_state = OutfileState::PENDING;
-    std::vector<std::function<void()>> _outfile_cleanups;
+    std::vector<OutfileCleanup> _outfile_cleanups;
 };
 
 } // namespace doris

@@ -64,6 +64,7 @@ struct ResultFileOptions {
     //Bring BOM when exporting to CSV format
     bool with_bom = false;
     int64_t orc_writer_version = 0;
+    bool enable_atomic_outfile = false;
 
     ResultFileOptions(const TResultFileSinkOptions& t_opt) {
         file_path = t_opt.file_path;
@@ -123,6 +124,9 @@ struct ResultFileOptions {
         }
         if (t_opt.__isset.compression_type) {
             compression_type = t_opt.compression_type;
+        }
+        if (t_opt.__isset.enable_atomic_outfile) {
+            enable_atomic_outfile = t_opt.enable_atomic_outfile;
         }
     }
 };

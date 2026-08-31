@@ -101,8 +101,8 @@ private:
     Status _fill_result_block();
     // delete the dir of file_path
     Status _delete_dir();
-    void _cleanup_created_files();
-    void _register_created_files_cleanup();
+    Status _cleanup_created_files();
+    Status _register_created_files_cleanup();
     double _get_write_speed(int64_t write_bytes, int64_t write_time);
     std::string _compression_type_to_name();
 
@@ -116,7 +116,7 @@ private:
     // If the result file format is Parquet, this _file_writer is owned by _parquet_writer.
     std::unique_ptr<doris::io::FileWriter> _file_writer_impl;
     std::shared_ptr<doris::io::FileSystem> _file_system;
-    std::vector<doris::io::Path> _created_file_paths;
+    std::vector<std::pair<std::shared_ptr<doris::io::FileSystem>, doris::io::Path>> _created_files;
     // Used to buffer the export data of plain text
     // TODO(cmy): I simply use a stringstrteam to buffer the data, to avoid calling
     // file writer's write() for every single row.

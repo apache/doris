@@ -335,10 +335,10 @@ public class BackendServiceProxy {
     }
 
     public Future<InternalService.POutfileWriteSuccessResult> outfileWriteSuccessAsync(TNetworkAddress address,
-            InternalService.POutfileWriteSuccessRequest request)  throws RpcException {
+            InternalService.POutfileWriteSuccessRequest request, long timeoutMs) throws RpcException {
         try {
             final BackendServiceClient client = getProxy(address);
-            return client.outfileWriteSuccessAsync(request);
+            return client.outfileWriteSuccessAsync(request, timeoutMs);
         } catch (Throwable e) {
             LOG.warn("outfile write success file catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
@@ -347,9 +347,9 @@ public class BackendServiceProxy {
     }
 
     public Future<InternalService.POutfileWriteFinishedResult> outfileWriteFinishedAsync(TNetworkAddress address,
-            InternalService.POutfileWriteFinishedRequest request) throws RpcException {
+            InternalService.POutfileWriteFinishedRequest request, long timeoutMs) throws RpcException {
         try {
-            return getProxy(address).outfileWriteFinishedAsync(request);
+            return getProxy(address).outfileWriteFinishedAsync(request, timeoutMs);
         } catch (Throwable e) {
             LOG.warn("outfile write finished catch an exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);

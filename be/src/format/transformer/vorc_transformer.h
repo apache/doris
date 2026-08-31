@@ -67,6 +67,8 @@ public:
 
     void close() override;
 
+    void abort() { _is_closed = true; }
+
     void set_written_len(int64_t written_len);
 
 private:
@@ -95,6 +97,8 @@ public:
 
     Status close() override;
 
+    Status abort() override;
+
     int64_t written_len() override;
 
     Status collect_file_statistics_after_close(TIcebergColumnStats* stats);
@@ -118,7 +122,7 @@ private:
     std::shared_ptr<io::FileSystem> _fs = nullptr;
     doris::io::FileWriter* _file_writer = nullptr;
     std::vector<std::string> _column_names;
-    std::unique_ptr<orc::OutputStream> _output_stream;
+    std::unique_ptr<VOrcOutputStream> _output_stream;
     std::unique_ptr<orc::WriterOptions> _write_options;
     std::string _schema_str;
     std::unique_ptr<orc::Type> _schema;

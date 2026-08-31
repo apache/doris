@@ -325,6 +325,16 @@ Status VParquetTransformer::close() {
     return Status::OK();
 }
 
+Status VParquetTransformer::abort() {
+    if (_outstream != nullptr) {
+        // Parquet's writer destructor may emit a footer, so detach the stream before destroying it.
+        std::ignore = _outstream->Abort();
+    }
+    _writer.reset();
+    _outstream.reset();
+    return Status::OK();
+}
+
 Status VParquetTransformer::collect_file_statistics_after_close(TIcebergColumnStats* stats) {
     std::shared_ptr<::parquet::FileMetaData> file_metadata = _writer->metadata();
     if (file_metadata == nullptr) {

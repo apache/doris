@@ -42,11 +42,14 @@
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <chrono>
 #include <exception>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -135,6 +138,44 @@ class RpcController;
 } // namespace google
 
 namespace doris {
+
+namespace {
+
+std::mutex outfile_marker_lock;
+struct OutfileMarkerState {
+    std::chrono::steady_clock::time_point updated_at;
+    std::string owned_path;
+    bool tombstoned = false;
+};
+std::unordered_map<std::string, std::weak_ptr<std::mutex>> outfile_marker_operation_locks;
+std::unordered_map<std::string, OutfileMarkerState> outfile_marker_states;
+constexpr auto OUTFILE_MARKER_TOMBSTONE_TTL = std::chrono::hours(1);
+constexpr auto OUTFILE_MARKER_CLEANUP_INTERVAL = std::chrono::minutes(1);
+auto outfile_marker_last_cleanup = std::chrono::steady_clock::now();
+
+void cleanup_expired_outfile_marker_states(std::chrono::steady_clock::time_point now) {
+    if (now - outfile_marker_last_cleanup < OUTFILE_MARKER_CLEANUP_INTERVAL) {
+        return;
+    }
+    outfile_marker_last_cleanup = now;
+    for (auto it = outfile_marker_operation_locks.begin();
+         it != outfile_marker_operation_locks.end();) {
+        if (it->second.expired()) {
+            it = outfile_marker_operation_locks.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (auto it = outfile_marker_states.begin(); it != outfile_marker_states.end();) {
+        if (now - it->second.updated_at >= OUTFILE_MARKER_TOMBSTONE_TTL) {
+            it = outfile_marker_states.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+} // namespace
 #include "common/compile_check_avoid_begin.h"
 using namespace ErrorCode;
 
@@ -737,25 +778,38 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
         std::stringstream ss;
         ss << file_options.file_path << file_options.success_file_name;
         std::string file_name = ss.str();
-        if (result_file_sink.storage_backend_type == TStorageBackendType::LOCAL) {
-            // For local file writer, the file_path is a local dir.
-            // Here we do a simple security verification by checking whether the file exists.
-            // Because the file path is currently arbitrarily specified by the user,
-            // Doris is not responsible for ensuring the correctness of the path.
-            // This is just to prevent overwriting the existing file.
-            bool exists = true;
-            st = io::global_local_filesystem()->exists(file_name, &exists);
-            if (!st.ok()) {
-                LOG(WARNING) << "outfile write success filefailed, errmsg = " << st;
-                st.to_protobuf(result->mutable_status());
-                return;
+        const std::string marker_token =
+                request->marker_token().empty() ? file_name : request->marker_token();
+        const auto now = std::chrono::steady_clock::now();
+        std::shared_ptr<std::mutex> operation_lock;
+        {
+            std::lock_guard marker_guard(outfile_marker_lock);
+            cleanup_expired_outfile_marker_states(now);
+            operation_lock = outfile_marker_operation_locks[marker_token].lock();
+            if (operation_lock == nullptr) {
+                operation_lock = std::make_shared<std::mutex>();
+                outfile_marker_operation_locks[marker_token] = operation_lock;
             }
-            if (exists) {
-                st = Status::InternalError("File already exists: {}", file_name);
-            }
-            if (!st.ok()) {
-                LOG(WARNING) << "outfile write success file failed, errmsg = " << st;
-                st.to_protobuf(result->mutable_status());
+        }
+
+        // Serialize only requests for the same query marker. Remote file-system calls can be slow,
+        // so unrelated OUTFILE queries must not block behind them.
+        std::unique_lock operation_guard(*operation_lock);
+        std::string owned_marker_path;
+        {
+            std::lock_guard marker_guard(outfile_marker_lock);
+            auto& marker_state = outfile_marker_states[marker_token];
+            marker_state.updated_at = now;
+            if (request->operation() == OUTFILE_MARKER_DELETE) {
+                // A delete may overtake a timed-out create in the heavy-work pool. The tombstone
+                // makes that delayed create observe rollback instead of recreating the marker.
+                marker_state.tombstoned = true;
+                if (marker_state.owned_path == file_name) {
+                    owned_marker_path = marker_state.owned_path;
+                }
+            } else if (marker_state.tombstoned) {
+                Status::Cancelled("OUTFILE success marker was already rolled back")
+                        .to_protobuf(result->mutable_status());
                 return;
             }
         }
@@ -782,10 +836,53 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
             return;
         }
         auto file_system = std::move(fs_res).value();
+
+        if (request->operation() == OUTFILE_MARKER_DELETE) {
+            // Delete only a path created by this token. A blind rollback could otherwise remove a
+            // pre-existing user file when CREATE failed before acquiring ownership.
+            if (owned_marker_path.empty()) {
+                Status::OK().to_protobuf(result->mutable_status());
+                return;
+            }
+            st = file_system->delete_file(owned_marker_path);
+            if (st.ok() || st.is<ErrorCode::NOT_FOUND>()) {
+                std::lock_guard marker_guard(outfile_marker_lock);
+                auto state_it = outfile_marker_states.find(marker_token);
+                if (state_it != outfile_marker_states.end() &&
+                    state_it->second.owned_path == owned_marker_path) {
+                    state_it->second.owned_path.clear();
+                    state_it->second.updated_at = std::chrono::steady_clock::now();
+                }
+                st = Status::OK();
+            }
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        if (request->operation() != OUTFILE_MARKER_CREATE) {
+            Status::InvalidArgument("unknown OUTFILE success marker operation")
+                    .to_protobuf(result->mutable_status());
+            return;
+        }
+
+        // Never claim an existing marker path; rollback is restricted to token-owned paths below.
+        bool exists = true;
+        st = file_system->exists(file_name, &exists);
+        if (st.ok() && exists) {
+            st = Status::InternalError("File already exists: {}", file_name);
+        }
+        if (!st.ok()) {
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+
         io::FileWriterPtr file_writer;
         const io::FileWriterOptions options {.write_file_cache = false, .sync_file_data = false};
+        // The create acknowledgement can be lost after publishing the marker, so ownership is
+        // retained by marker_token for a compensating DELETE.
         st = file_system->create_file(file_name, &file_writer, &options);
         if (!st.ok()) {
+            // A failed create does not prove ownership; deleting here could remove a file that won
+            // a concurrent exclusive create or existed before this query.
             st.to_protobuf(result->mutable_status());
             return;
         }
@@ -810,6 +907,13 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
             st.to_protobuf(result->mutable_status());
             return;
         }
+        {
+            std::lock_guard marker_guard(outfile_marker_lock);
+            auto& marker_state = outfile_marker_states[marker_token];
+            marker_state.updated_at = std::chrono::steady_clock::now();
+            marker_state.owned_path = file_name;
+        }
+        Status::OK().to_protobuf(result->mutable_status());
     });
     if (!ret) {
         offer_failed(result, done, _heavy_work_pool);
@@ -824,14 +928,41 @@ void PInternalService::outfile_write_finished(google::protobuf::RpcController* c
     bool ret = _heavy_work_pool.try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         Status status = Status::OK();
+        OutfileOperation operation;
+        if (!request->has_operation()) {
+            operation = request->success() ? OutfileOperation::COMMIT : OutfileOperation::ABORT;
+        } else {
+            switch (request->operation()) {
+            case OUTFILE_PREPARE:
+                operation = OutfileOperation::PREPARE;
+                break;
+            case OUTFILE_COMMIT:
+                operation = OutfileOperation::COMMIT;
+                break;
+            case OUTFILE_ABORT:
+                operation = OutfileOperation::ABORT;
+                break;
+            default:
+                status = Status::InvalidArgument("unknown outfile write operation");
+                status.to_protobuf(result->mutable_status());
+                return;
+            }
+        }
         for (const auto& buffer_id : request->buffer_ids()) {
             TUniqueId id;
             id.__set_hi(buffer_id.hi());
             id.__set_lo(buffer_id.lo());
-            if (!ExecEnv::GetInstance()->result_mgr()->finish_outfile(id, request->success()) &&
-                request->success()) {
-                status = Status::InternalError("outfile result buffer no longer exists");
-                break;
+            Status buffer_status = Status::OK();
+            if (!request->has_operation() && operation == OutfileOperation::COMMIT) {
+                // Legacy FE has no PREPARE phase; synthesize it before accepting its final success.
+                buffer_status = ExecEnv::GetInstance()->result_mgr()->finish_outfile(
+                        id, OutfileOperation::PREPARE);
+            }
+            if (buffer_status.ok()) {
+                buffer_status = ExecEnv::GetInstance()->result_mgr()->finish_outfile(id, operation);
+            }
+            if (!buffer_status.ok() && status.ok()) {
+                status = buffer_status;
             }
         }
         status.to_protobuf(result->mutable_status());

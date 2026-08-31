@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.Status;
+import org.apache.doris.proto.InternalService.POutfileWriteOperation;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import java.util.List;
@@ -34,7 +35,10 @@ public interface CoordInterface {
     // some resource.
     public default void close() {}
 
-    public default void finishOutfile(boolean success) throws Exception {}
+    public default void finishOutfile(POutfileWriteOperation operation) throws Exception {
+        // Atomic OUTFILE must never silently skip a coordinator implementation without receivers.
+        throw new UnsupportedOperationException("Atomic OUTFILE finalization is not supported");
+    }
 
     List<TNetworkAddress> getInvolvedBackends();
 

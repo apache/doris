@@ -203,7 +203,13 @@ Status S3FileWriter::abort() {
         return Status::InternalError<false>("invalid obj storage client");
     }
     auto response = client->abort_multipart_upload(_obj_storage_path_opts, _upload_id);
-    return {response.status.code, std::move(response.status.msg)};
+    Status status {response.status.code, std::move(response.status.msg)};
+    if (status.ok()) {
+        // Keep the upload ID intact on failure so the cleanup owner can retry the same multipart
+        // upload instead of leaking hidden parts.
+        _upload_id.clear();
+    }
+    return status;
 }
 
 void S3FileWriter::_record_close_latency() {
