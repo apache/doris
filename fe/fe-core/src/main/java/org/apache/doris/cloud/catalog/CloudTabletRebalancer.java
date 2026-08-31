@@ -356,7 +356,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     private class InfightTask {
-        public long pickedTabletId;
+        public Long pickedTabletId;
         public long srcBe;
         public long destBe;
         public long startTimestamp;
@@ -392,12 +392,12 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     private static class WarmupTabletTask {
-        private final long pickedTabletId;
+        private final Long pickedTabletId;
         private final long srcBe;
         private final long destBe;
         private final String clusterId;
 
-        WarmupTabletTask(long pickedTabletId, long srcBe, long destBe, String clusterId) {
+        WarmupTabletTask(Long pickedTabletId, long srcBe, long destBe, String clusterId) {
             this.pickedTabletId = pickedTabletId;
             this.srcBe = srcBe;
             this.destBe = destBe;
