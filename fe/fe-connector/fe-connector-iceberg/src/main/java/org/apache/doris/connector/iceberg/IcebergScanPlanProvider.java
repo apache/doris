@@ -151,7 +151,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static final long DEFAULT_MAX_FILE_SPLIT_NUM = 100000L;
     // FIX-M3 streaming (file-count) batch gate — keys byte-identical to fe-core SessionVariable.
     private static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
-    private static final String ENABLE_EXTERNAL_SCAN_TASK_REUSE = "enable_external_scan_task_reuse";
     static final String SCAN_REUSE_NAMESPACE = "iceberg.scan-reuse";
     private static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
     private static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
@@ -429,7 +428,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
         IcebergTableHandle icebergHandle = (IcebergTableHandle) request.getTableHandle();
         try {
-            if (!isExternalScanTaskReuseEnabled(session)) {
+            if (session == null || !session.isExternalScanTaskReuseEnabled()) {
                 return planScanInternal(session, icebergHandle, request.getColumns(),
                         request.getFilter(), request.isCountPushdown());
             }
@@ -469,11 +468,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
             throw e;
         }
-    }
-
-    private static boolean isExternalScanTaskReuseEnabled(ConnectorSession session) {
-        return session != null && "true".equalsIgnoreCase(
-                session.getSessionProperties().get(ENABLE_EXTERNAL_SCAN_TASK_REUSE));
     }
 
     /**

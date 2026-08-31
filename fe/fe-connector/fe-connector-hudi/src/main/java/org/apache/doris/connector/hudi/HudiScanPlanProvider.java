@@ -108,7 +108,6 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     // HudiScanNode.canUseNativeReader() / setScanParams (sessionVariable.isForceJniScanner()). Same key + read
     // path as the paimon connector's FORCE_JNI_SCANNER. Default false, so normal reads are unaffected.
     private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
-    private static final String ENABLE_EXTERNAL_SCAN_TASK_REUSE = "enable_external_scan_task_reuse";
     static final String SCAN_REUSE_NAMESPACE = "hudi.scan-reuse";
 
     // Scan-node prop carrying the base64 native-reader schema-evolution dictionary (current_schema_id +
@@ -168,7 +167,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         // shares the result. The scope is NONE for offline planning and tests, in which case the
         // loader runs on every call. Session variables are constant within a statement and
         // deliberately absent from the key.
-        if (!isExternalScanTaskReuseEnabled(session)) {
+        if (session == null || !session.isExternalScanTaskReuseEnabled()) {
             return doPlanScan(session, request);
         }
         String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
@@ -177,11 +176,6 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         HudiScanReuseKey reuseKey = hudiScanReuseKey((HudiTableHandle) request.getTableHandle());
         return scanReuse.computeIfAbsent(reuseKey,
                 key -> Collections.unmodifiableList(doPlanScan(session, request)));
-    }
-
-    private static boolean isExternalScanTaskReuseEnabled(ConnectorSession session) {
-        return session != null && "true".equalsIgnoreCase(
-                session.getSessionProperties().get(ENABLE_EXTERNAL_SCAN_TASK_REUSE));
     }
 
     // Package-private so the statement-reuse test can replace remote Hudi planning with a recording loader.

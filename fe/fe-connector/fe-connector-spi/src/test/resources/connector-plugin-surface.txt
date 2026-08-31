@@ -56,6 +56,7 @@ org.apache.doris.connector.spi.ConnectorSession#getSessionProperties():java.util
 org.apache.doris.connector.spi.ConnectorSession#getStatementScope():org.apache.doris.connector.spi.ConnectorStatementScope
 org.apache.doris.connector.spi.ConnectorSession#getTimeZone():java.lang.String
 org.apache.doris.connector.spi.ConnectorSession#getUser():java.lang.String
+org.apache.doris.connector.spi.ConnectorSession#isExternalScanTaskReuseEnabled():boolean
 org.apache.doris.connector.spi.ConnectorSession#setCurrentTransaction(org.apache.doris.connector.spi.handle.ConnectorTransaction):void
 org.apache.doris.connector.spi.ConnectorTableSchema#equals(java.lang.Object):boolean
 org.apache.doris.connector.spi.ConnectorTableSchema#getColumns():java.util.List

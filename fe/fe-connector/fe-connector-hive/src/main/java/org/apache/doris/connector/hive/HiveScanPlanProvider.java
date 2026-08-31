@@ -94,7 +94,6 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      * surfaced through ConnectorSession.getSessionProperties() (VariableMgr dumps all visible vars).
      */
     private static final String SESSION_READ_HIVE_JSON_IN_ONE_COLUMN = "read_hive_json_in_one_column";
-    private static final String ENABLE_EXTERNAL_SCAN_TASK_REUSE = "enable_external_scan_task_reuse";
     static final String SCAN_REUSE_NAMESPACE = "hms.scan-reuse";
 
     /** Input format of a full-ACID (ORC) transactional Hive table; other formats are rejected. */
@@ -136,7 +135,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
         HiveTableHandle hiveHandle = (HiveTableHandle) request.getTableHandle();
-        if (!isExternalScanTaskReuseEnabled(session)) {
+        if (session == null || !session.isExternalScanTaskReuseEnabled()) {
             return doPlanScan(session, request);
         }
         if (hiveHandle.isTransactional()) {
@@ -154,11 +153,6 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         HiveScanReuseKey reuseKey = new HiveScanReuseKey(hiveHandle);
         return scanReuse.computeIfAbsent(reuseKey,
                 key -> Collections.unmodifiableList(doPlanScan(session, request)));
-    }
-
-    private static boolean isExternalScanTaskReuseEnabled(ConnectorSession session) {
-        return session != null && "true".equalsIgnoreCase(
-                session.getSessionProperties().get(ENABLE_EXTERNAL_SCAN_TASK_REUSE));
     }
 
     private List<ConnectorScanRange> doPlanScan(ConnectorSession session, ConnectorScanRequest request) {

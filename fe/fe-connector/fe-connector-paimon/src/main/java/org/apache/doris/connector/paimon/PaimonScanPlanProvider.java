@@ -181,7 +181,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String IGNORE_SPLIT_TYPE = "ignore_split_type";
     private static final String IGNORE_SPLIT_TYPE_JNI = "IGNORE_JNI";
     private static final String IGNORE_SPLIT_TYPE_NATIVE = "IGNORE_NATIVE";
-    private static final String ENABLE_EXTERNAL_SCAN_TASK_REUSE = "enable_external_scan_task_reuse";
     static final String SCAN_REUSE_NAMESPACE = "paimon.scan-reuse";
 
     // FIX-NATIVE-SUBSPLIT (M-3): file-split session vars (byte-identical to SessionVariable.{FILE_SPLIT_SIZE,
@@ -487,7 +486,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
         PaimonTableHandle paimonHandle = (PaimonTableHandle) request.getTableHandle();
-        if (!isExternalScanTaskReuseEnabled(session)) {
+        if (session == null || !session.isExternalScanTaskReuseEnabled()) {
             return planScanInternal(session, request.getTableHandle(), request.getColumns(),
                     request.getFilter(), request.getLimit(), request.isCountPushdown());
         }
@@ -510,11 +509,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 key -> Collections.unmodifiableList(planScanInternal(session,
                         request.getTableHandle(), request.getColumns(), request.getFilter(),
                         request.getLimit(), request.isCountPushdown())));
-    }
-
-    private static boolean isExternalScanTaskReuseEnabled(ConnectorSession session) {
-        return session != null && "true".equalsIgnoreCase(
-                session.getSessionProperties().get(ENABLE_EXTERNAL_SCAN_TASK_REUSE));
     }
 
     /**
