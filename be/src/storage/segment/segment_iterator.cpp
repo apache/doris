@@ -50,7 +50,6 @@
 #include "core/column/column_nothing.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"

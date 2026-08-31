@@ -29,10 +29,10 @@
 #include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
-#include "core/column/column_variant.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nullable.h"
 #include "exec/common/variant_util.h"
 #include "storage/index/indexed_column_writer.h"
@@ -100,15 +100,13 @@ Status classify_variant_writer_input(const VariantColumnData& column,
     if (column.column_data == nullptr) {
         return Status::InvalidArgument("{} received null column data", writer_description);
     }
-    const bool is_v1 = check_and_get_column<ColumnVariant>(*column.column_data) != nullptr;
     const bool is_v2 = check_and_get_column<ColumnVariantV2>(*column.column_data) != nullptr;
-    if (!is_v1 && !is_v2) {
-        return Status::InvalidArgument("{} requires ColumnVariant or ColumnVariantV2, got {}",
-                                       writer_description, column.column_data->get_name());
+    if (!is_v2) {
+        return Status::InvalidArgument("{} requires ColumnVariantV2, got {}", writer_description,
+                                       column.column_data->get_name());
     }
 
-    const VariantWriterInputFormat detected_format =
-            is_v1 ? VariantWriterInputFormat::V1 : VariantWriterInputFormat::V2;
+    const VariantWriterInputFormat detected_format = VariantWriterInputFormat::V2;
     if (current_format != VariantWriterInputFormat::UNSET && current_format != detected_format) {
         return Status::InvalidArgument("{} input representation changed within one segment",
                                        writer_description);
@@ -360,7 +358,7 @@ void maybe_remove_root_jsonb_with_empty_defaults(MutableColumnPtr* root_column, 
     if (!remove_root_jsonb) {
         return;
     }
-    auto bare_jsonb_type = std::make_shared<ColumnVariant::MostCommonType>();
+    auto bare_jsonb_type = std::make_shared<DataTypeJsonb>();
     auto bare_jsonb_col = bare_jsonb_type->create_column();
     bare_jsonb_col->insert_many_defaults(num_rows);
     *root_column = std::move(bare_jsonb_col);

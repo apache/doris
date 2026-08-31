@@ -16,7 +16,7 @@
 // under the License.
 
 suite("query_on_specific_partition") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     sql "SET enable_nereids_planner=true"
 
     sql """
@@ -96,7 +96,7 @@ suite("query_on_specific_partition") {
     sql """
         CREATE TABLE ut_p (
             id BIGINT,
-            var VARIANT 
+            var VARIANT
         ) unique KEY(`id`)
         PARTITION BY RANGE(`id`)
         (
@@ -143,11 +143,11 @@ suite("query_on_specific_partition") {
     explain {
         sql "select * from ut_p temporary partitions(tp1) where id = 8"
         contains "VEMPTYSET"
-    }    
+    }
 
     explain {
         sql "select * from ut_p where id = 3 and cast(var['a'] as int) = 789"
         contains "partitions=1/2 (p1)"
         contains "tablets=1/3"
-    }    
+    }
 }

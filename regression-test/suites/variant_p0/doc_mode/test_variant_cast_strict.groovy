@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_variant_cast_strict", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     // Use session variables to set variant defaults (column-level properties
     // forbid setting max_subcolumns_count and enable_doc_mode together).
     sql """ set default_variant_enable_doc_mode = true """

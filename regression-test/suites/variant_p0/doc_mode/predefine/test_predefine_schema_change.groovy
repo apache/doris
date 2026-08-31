@@ -16,8 +16,8 @@
 // under the License.
 
 suite("predefine_schema_change_doc_value", "p0"){
-    boolean enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
-    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
+    boolean enableVariantV2 = true
+    def variantV2Function = "parse_to_variant"
     def tableName = "test_predefine_schema_change"
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     boolean minrowszero = new Random().nextBoolean();

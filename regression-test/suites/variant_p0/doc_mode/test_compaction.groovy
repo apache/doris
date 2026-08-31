@@ -19,8 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.awaitility.Awaitility
 
 suite("compaction_variant_doc_value", "p0") {
-    def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
-    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
+    def enableVariantV2 = true
+    def variantV2Function = "parse_to_variant"
     // ColumnVariantV2 intentionally does not support nested arrays yet.
     sql """ set default_variant_enable_doc_mode = true; """
     try {
@@ -61,7 +61,7 @@ suite("compaction_variant_doc_value", "p0") {
             """
         }
 
-       
+
 
         def key_types = ["DUPLICATE", "UNIQUE", "AGGREGATE"]
         // def key_types = ["AGGREGATE"]

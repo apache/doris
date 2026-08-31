@@ -88,11 +88,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
-import org.apache.doris.nereids.types.ConnectorComputeVariantType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -359,14 +356,6 @@ public class BindSink implements AnalysisRuleFactory {
 
     @VisibleForTesting
     static Expression coerceSinkExpression(Expression expression, DataType targetType) {
-        if (!Config.enable_variant_v2
-                && expression.getDataType() instanceof ConnectorComputeVariantType
-                && targetType instanceof VariantType
-                && !(targetType instanceof ConnectorComputeVariantType)) {
-            // JSONB is the executable carrier shared by compute-only V2 and legacy Variant;
-            // a direct cast crosses incompatible physical columns at CTAS/MTMV sink boundaries.
-            return new Cast(new Cast(expression, JsonType.INSTANCE), targetType);
-        }
         return TypeCoercionUtils.castIfNotSameType(expression, targetType);
     }
 

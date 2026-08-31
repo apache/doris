@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_outfile_jsonb_and_variant", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     String ak = getS3AK()
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()

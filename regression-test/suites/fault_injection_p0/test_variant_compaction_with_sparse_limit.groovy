@@ -19,7 +19,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.awaitility.Awaitility
 
 suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
@@ -56,7 +56,7 @@ suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
             sql """
                 CREATE TABLE IF NOT EXISTS ${tableName} (
                     k bigint,
-                    v ${var_def} 
+                    v ${var_def}
                 )
                 ${key_type} KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
@@ -173,5 +173,5 @@ suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
     }
 
     GetDebugPoint().disableDebugPointForAllBEs("exceeded_sparse_column_limit_must_be_false")
-    
+
 }

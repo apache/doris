@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -47,47 +46,25 @@ class CountTest {
     }
 
     @Test
-    void testCountDistinctFollowsVariantConfig() {
+    void testCountDistinctAcceptsVariant() {
         Count count = new Count(true, SlotReference.of("v", VariantType.INSTANCE));
-        boolean originalEnableVariantV2 = Config.enable_variant_v2;
-        try {
-            Config.enable_variant_v2 = false;
-            Assertions.assertThrows(AnalysisException.class, count::checkLegalityAfterRewrite);
-            Config.enable_variant_v2 = true;
-            Assertions.assertDoesNotThrow(count::checkLegalityAfterRewrite);
-        } finally {
-            Config.enable_variant_v2 = originalEnableVariantV2;
-        }
+        Assertions.assertDoesNotThrow(count::checkLegalityAfterRewrite);
     }
 
     @Test
-    void testMultiDistinctCountFollowsVariantConfig() {
+    void testMultiDistinctCountAcceptsVariant() {
         MultiDistinctCount count = new MultiDistinctCount(SlotReference.of("v", VariantType.INSTANCE));
-        boolean originalEnableVariantV2 = Config.enable_variant_v2;
-        try {
-            Config.enable_variant_v2 = false;
-            Assertions.assertThrows(AnalysisException.class, count::checkLegalityAfterRewrite);
-            Config.enable_variant_v2 = true;
-            Assertions.assertDoesNotThrow(count::checkLegalityAfterRewrite);
-        } finally {
-            Config.enable_variant_v2 = originalEnableVariantV2;
-        }
+        Assertions.assertDoesNotThrow(count::checkLegalityAfterRewrite);
     }
 
     @Test
-    void testConnectorComputeVariantDistinctWorksWithVariantV2Disabled() {
+    void testConnectorComputeVariantDistinctWorks() {
         Count count = new Count(true,
                 SlotReference.of("connector_variant", ConnectorComputeVariantType.INSTANCE));
         MultiDistinctCount multiDistinctCount = new MultiDistinctCount(
                 SlotReference.of("connector_variant", ConnectorComputeVariantType.INSTANCE));
-        boolean originalEnableVariantV2 = Config.enable_variant_v2;
-        try {
-            Config.enable_variant_v2 = false;
-            Assertions.assertDoesNotThrow(count::checkLegalityAfterRewrite);
-            Assertions.assertDoesNotThrow(multiDistinctCount::checkLegalityAfterRewrite);
-        } finally {
-            Config.enable_variant_v2 = originalEnableVariantV2;
-        }
+        Assertions.assertDoesNotThrow(count::checkLegalityAfterRewrite);
+        Assertions.assertDoesNotThrow(multiDistinctCount::checkLegalityAfterRewrite);
     }
 
     @Test
@@ -109,11 +86,13 @@ class CountTest {
     }
 
     @Test
-    void testMultiDistinctCountAllowsArray() {
+    void testMultiDistinctCountRejectsArray() {
         MultiDistinctCount count = new MultiDistinctCount(
                 SlotReference.of("arr", ArrayType.of(IntegerType.INSTANCE)));
 
-        Assertions.assertDoesNotThrow(count::checkLegalityAfterRewrite);
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, count::checkLegalityAfterRewrite);
+        Assertions.assertTrue(exception.getMessage().contains("COUNT DISTINCT could not process type"));
+        Assertions.assertTrue(exception.getMessage().contains("count(DISTINCT arr)"));
     }
 
     @Test

@@ -61,7 +61,7 @@ ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_, bool create_with_emp
 }
 
 ColumnPtr ColumnConst::convert_to_full_column() const {
-    // clone_resized(0) will make ColumnVariant loss type information
+    // clone_resized(0) will make Variant lose type information
     // so we use clone_resized(1) as possible workaround
     auto result = data->clone_resized(std::min(1UL, s));
     if (s > 1) {

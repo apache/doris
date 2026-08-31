@@ -16,7 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_predefine_element_at", "p0")  {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     sql """ DROP TABLE IF EXISTS element_fn_test """
     sql """
         CREATE TABLE IF NOT EXISTS element_fn_test(

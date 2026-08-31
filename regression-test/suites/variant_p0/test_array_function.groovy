@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_variant_array_function", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     sql """ set enable_nereids_planner=true;"""
     sql """ set enable_fallback_to_original_planner=false;"""
     def tableName = "test_variant_array_function"
@@ -62,7 +62,7 @@ suite("test_variant_array_function", "p0") {
     qt_sql """
         select array_avg(cast(var['a'] as array<int>)), array_avg(cast(var['c'] as array<double>)) from ${tableName} order by id;
     """
-    
+
     qt_sql """
         select array_product(cast(var['a'] as array<int>)), array_product(cast(var['c'] as array<double>)) from ${tableName} order by id;
     """

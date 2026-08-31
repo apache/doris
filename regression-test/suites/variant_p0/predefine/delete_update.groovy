@@ -18,8 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("regression_test_variant_predefine_delete_and_update", "variant_type"){
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
-    def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
+    def variantV2Function = "parse_to_variant"
+    def enableVariantV2 = true
     sql "set default_variant_enable_doc_mode=false;"
     // MOR
     def table_name = "var_delete_update"
@@ -55,7 +55,7 @@ suite("regression_test_variant_predefine_delete_and_update", "variant_type"){
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
             v ${var},
-            vs string 
+            vs string
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4
@@ -82,19 +82,19 @@ suite("regression_test_variant_predefine_delete_and_update", "variant_type"){
         for (int k = 1; k <= 60; k++) {
             int x = new Random().nextInt(61) % 10;
             sql """insert into ${table_name}(k,vs) values(${x}, '{"k${x}" : ${x}}'),(${x+1}, '{"k${x+1}" : ${x+1}}'),(${x+2}, '{"k${x+2}" : ${x+2}}'),(${x+3}, '{"k${x+3}" : ${x+3}}')"""
-        } 
+        }
     }
     def t2 = Thread.startDaemon {
         for (int k = 1; k <= 60; k++) {
             int x = new Random().nextInt(61) % 10;
             sql """insert into ${table_name}(k,v) values(${x}, ${variantV2Function}('{"k${x}" : ${x}}')),(${x+1}, ${variantV2Function}('{"k${x+1}" : ${x+1}}')),(${x+2}, ${variantV2Function}('{"k${x+2}" : ${x+2}}')),(${x+3}, ${variantV2Function}('{"k${x+3}" : ${x+3}}'))"""
-        } 
+        }
     }
     def t3 = Thread.startDaemon {
         for (int k = 1; k <= 60; k++) {
             int x = new Random().nextInt(61) % 10;
             sql """insert into ${table_name}(k,v) values(${x}, ${variantV2Function}('{"k${x}" : ${x}}')),(${x+1}, ${variantV2Function}('{"k${x+1}" : ${x+1}}')),(${x+2}, ${variantV2Function}('{"k${x+2}" : ${x+2}}')),(${x+3}, ${variantV2Function}('{"k${x+3}" : ${x+3}}'))"""
-        } 
+        }
     }
     t1.join()
     t2.join()

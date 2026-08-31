@@ -16,7 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_topn_opt_read_by_rowids", "p0"){
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     sql "DROP TABLE IF EXISTS test_web_log"
     sql """
         CREATE TABLE `test_web_log` (
@@ -80,9 +80,9 @@ PROPERTIES (
     sql "set topn_opt_limit_threshold = 1024"
     order_qt_sql """SELECT
             * FROM
-             test_web_log 
+             test_web_log
             WHERE
-            ts  >= '1712480940849' 
+            ts  >= '1712480940849'
              AND ts  <= '1712805483291'
             ORDER BY
              ts DESC
@@ -98,7 +98,7 @@ PROPERTIES (
         """
     order_qt_sql """SELECT
             * FROM
-             test_web_log 
+             test_web_log
             ORDER BY
              ts DESC
              LIMIT 10"""

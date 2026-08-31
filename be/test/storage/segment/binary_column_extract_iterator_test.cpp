@@ -37,6 +37,7 @@
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/string_buffer.hpp"
 #include "core/value/jsonb_value.h"
+#include "exec/common/variant_util.h"
 #include "storage/iterators.h"
 
 namespace doris::segment_v2 {
@@ -129,7 +130,7 @@ std::string jsonb_storage_cell(std::string_view value) {
 }
 
 MutableColumnPtr make_sparse_input() {
-    auto sparse = ColumnVariant::create_binary_column_fn();
+    auto sparse = variant_util::create_variant_binary_column();
     auto& map = assert_cast<ColumnMap&>(*sparse);
     auto& offsets = map.get_offsets();
 
@@ -155,7 +156,7 @@ MutableColumnPtr make_sparse_input() {
 }
 
 MutableColumnPtr make_rowid_sparse_input() {
-    auto sparse = ColumnVariant::create_binary_column_fn();
+    auto sparse = variant_util::create_variant_binary_column();
     auto& map = assert_cast<ColumnMap&>(*sparse);
     auto& offsets = map.get_offsets();
 
@@ -195,11 +196,11 @@ std::string variant_v2_json_at(const ColumnVariantV2& column, size_t row) {
     return output->get_data_at(0).to_string();
 }
 
-TEST(BinaryColumnExtractIteratorV2Test, RejectsDestinationThatDoesNotMatchConfiguredRoute) {
+TEST(BinaryColumnExtractIteratorV2Test, RejectsNonV2Destination) {
     auto counters = std::make_shared<SparseReadCounters>();
     auto cache = std::make_shared<BinaryColumnCache>(
             std::make_unique<FixedSparseIterator>(make_sparse_input(), counters),
-            ColumnVariant::create_binary_column_fn());
+            variant_util::create_variant_binary_column());
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
@@ -211,33 +212,18 @@ TEST(BinaryColumnExtractIteratorV2Test, RejectsDestinationThatDoesNotMatchConfig
     ASSERT_TRUE(v2_reader.init(iterator_options).ok());
     ASSERT_TRUE(v2_reader.seek_to_ordinal(0).ok());
 
-    MutableColumnPtr v1_destination = ColumnVariant::create(3, false);
+    MutableColumnPtr v1_destination = ColumnString::create();
     size_t rows = 3;
     const Status v2_to_v1 = v2_reader.next_batch(&rows, v1_destination, nullptr);
     ASSERT_TRUE(v2_to_v1.is<ErrorCode::INVALID_ARGUMENT>()) << v2_to_v1;
     EXPECT_EQ(counters->next_batch, 0);
-
-    auto v1_counters = std::make_shared<SparseReadCounters>();
-    auto v1_cache = std::make_shared<BinaryColumnCache>(
-            std::make_unique<FixedSparseIterator>(make_sparse_input(), v1_counters),
-            ColumnVariant::create_binary_column_fn());
-    BinaryColumnExtractIterator v1_reader("a", v1_cache, &read_options,
-                                          /*use_variant_v2=*/false);
-    ASSERT_TRUE(v1_reader.init(iterator_options).ok());
-    ASSERT_TRUE(v1_reader.seek_to_ordinal(0).ok());
-
-    MutableColumnPtr v2_destination = make_v2_destination();
-    rows = 3;
-    const Status v1_to_v2 = v1_reader.next_batch(&rows, v2_destination, nullptr);
-    EXPECT_TRUE(v1_to_v2.is<ErrorCode::INVALID_ARGUMENT>()) << v1_to_v2;
-    EXPECT_EQ(v1_counters->next_batch, 0);
 }
 
 TEST(BinaryColumnExtractIteratorV2Test, SharedCacheProducesTypedAndEncodedResults) {
     auto counters = std::make_shared<SparseReadCounters>();
     auto cache = std::make_shared<BinaryColumnCache>(
             std::make_unique<FixedSparseIterator>(make_sparse_input(), counters),
-            ColumnVariant::create_binary_column_fn());
+            variant_util::create_variant_binary_column());
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
@@ -261,15 +247,11 @@ TEST(BinaryColumnExtractIteratorV2Test, SharedCacheProducesTypedAndEncodedResult
     EXPECT_TRUE(has_null);
     auto& nullable_a = assert_cast<ColumnNullable&>(*a);
     auto& variant_a = assert_cast<ColumnVariantV2&>(nullable_a.get_nested_column());
-    ASSERT_TRUE(variant_a.is_typed());
-    ASSERT_EQ(variant_a.typed_type()->get_primitive_type(), TYPE_BIGINT);
     EXPECT_FALSE(nullable_a.is_null_at(0));
     EXPECT_TRUE(nullable_a.is_null_at(1));
     EXPECT_FALSE(nullable_a.is_null_at(2));
-    const auto& typed_a = assert_cast<const ColumnNullable&>(variant_a.typed_column());
-    const auto& values_a = assert_cast<const ColumnInt64&>(typed_a.get_nested_column());
-    EXPECT_EQ(values_a.get_element(0), 11);
-    EXPECT_EQ(values_a.get_element(2), 33);
+    EXPECT_EQ(variant_v2_json_at(variant_a, 0), "11");
+    EXPECT_EQ(variant_v2_json_at(variant_a, 2), "33");
 
     auto b = make_v2_destination();
     rows = 3;
@@ -292,9 +274,8 @@ TEST(BinaryColumnExtractIteratorV2Test, SharedCacheProducesTypedAndEncodedResult
 }
 
 TEST(BinaryColumnExtractIteratorV2Test, PhysicalAndEncodedNullUseVersionNativeSemantics) {
-    for (const bool use_variant_v2 : {false, true}) {
-        SCOPED_TRACE(use_variant_v2 ? "V2" : "V1");
-        auto sparse = ColumnVariant::create_binary_column_fn();
+    {
+        auto sparse = variant_util::create_variant_binary_column();
         auto& map = assert_cast<ColumnMap&>(*sparse);
         map.get_offsets().push_back(0);
         const char none = static_cast<char>(FieldType::OLAP_FIELD_TYPE_NONE);
@@ -306,20 +287,18 @@ TEST(BinaryColumnExtractIteratorV2Test, PhysicalAndEncodedNullUseVersionNativeSe
         auto counters = std::make_shared<SparseReadCounters>();
         auto cache = std::make_shared<BinaryColumnCache>(
                 std::make_unique<FixedSparseIterator>(std::move(sparse), counters),
-                ColumnVariant::create_binary_column_fn());
+                variant_util::create_variant_binary_column());
         OlapReaderStatistics stats;
         StorageReadOptions read_options;
         read_options.stats = &stats;
-        auto extract = std::make_unique<BinaryColumnExtractIterator>("a", std::move(cache),
-                                                                     &read_options, use_variant_v2);
+        auto extract =
+                std::make_unique<BinaryColumnExtractIterator>("a", std::move(cache), &read_options,
+                                                              /*use_variant_v2=*/true);
         ColumnIteratorOptions iterator_options;
         ASSERT_TRUE(extract->init(iterator_options).ok());
         ASSERT_TRUE(extract->seek_to_ordinal(0).ok());
 
-        MutableColumnPtr destination =
-                use_variant_v2 ? MutableColumnPtr(make_v2_destination())
-                               : MutableColumnPtr(ColumnNullable::create(
-                                         ColumnVariant::create(3, false), ColumnUInt8::create()));
+        MutableColumnPtr destination = make_v2_destination();
         size_t rows = 3;
         bool has_null = false;
         ASSERT_TRUE(extract->next_batch(&rows, destination, &has_null).ok());
@@ -327,20 +306,17 @@ TEST(BinaryColumnExtractIteratorV2Test, PhysicalAndEncodedNullUseVersionNativeSe
         EXPECT_TRUE(has_null);
         const auto& nullable = assert_cast<const ColumnNullable&>(*destination);
         EXPECT_TRUE(nullable.is_null_at(0));
-        EXPECT_EQ(nullable.is_null_at(1), !use_variant_v2);
-        EXPECT_EQ(nullable.is_null_at(2), !use_variant_v2);
-        if (use_variant_v2) {
-            const auto& variant = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
-            EXPECT_EQ(variant_v2_json_at(variant, 1), "null");
-            EXPECT_EQ(variant_v2_json_at(variant, 2), "null");
-        }
+        EXPECT_FALSE(nullable.is_null_at(1));
+        EXPECT_FALSE(nullable.is_null_at(2));
+        const auto& variant = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+        EXPECT_EQ(variant_v2_json_at(variant, 1), "null");
+        EXPECT_EQ(variant_v2_json_at(variant, 2), "null");
     }
 }
 
 TEST(BinaryColumnExtractIteratorV2Test, ShortFinalAllMissingBatchUsesProducedRowCount) {
-    for (const bool use_variant_v2 : {false, true}) {
-        SCOPED_TRACE(use_variant_v2 ? "V2" : "V1");
-        auto sparse = ColumnVariant::create_binary_column_fn();
+    {
+        auto sparse = variant_util::create_variant_binary_column();
         auto& offsets = assert_cast<ColumnMap&>(*sparse).get_offsets();
         offsets.push_back(0);
         offsets.push_back(0);
@@ -348,19 +324,17 @@ TEST(BinaryColumnExtractIteratorV2Test, ShortFinalAllMissingBatchUsesProducedRow
         auto counters = std::make_shared<SparseReadCounters>();
         auto cache = std::make_shared<BinaryColumnCache>(
                 std::make_unique<FixedSparseIterator>(std::move(sparse), counters),
-                ColumnVariant::create_binary_column_fn());
+                variant_util::create_variant_binary_column());
         OlapReaderStatistics stats;
         StorageReadOptions read_options;
         read_options.stats = &stats;
-        BinaryColumnExtractIterator extract("a", std::move(cache), &read_options, use_variant_v2);
+        BinaryColumnExtractIterator extract("a", std::move(cache), &read_options,
+                                            /*use_variant_v2=*/true);
         ColumnIteratorOptions iterator_options;
         ASSERT_TRUE(extract.init(iterator_options).ok());
         ASSERT_TRUE(extract.seek_to_ordinal(0).ok());
 
-        MutableColumnPtr destination =
-                use_variant_v2 ? MutableColumnPtr(make_v2_destination())
-                               : MutableColumnPtr(ColumnNullable::create(
-                                         ColumnVariant::create(3, false), ColumnUInt8::create()));
+        MutableColumnPtr destination = make_v2_destination();
         size_t rows = 3;
         bool has_null = false;
         ASSERT_TRUE(extract.next_batch(&rows, destination, &has_null).ok());
@@ -377,7 +351,7 @@ TEST(BinaryColumnExtractIteratorV2Test, SharedCacheReusesRowidBatchAcrossPaths) 
     auto counters = std::make_shared<SparseReadCounters>();
     auto cache = std::make_shared<BinaryColumnCache>(
             std::make_unique<FixedSparseIterator>(make_rowid_sparse_input(), counters),
-            ColumnVariant::create_binary_column_fn());
+            variant_util::create_variant_binary_column());
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
@@ -402,7 +376,6 @@ TEST(BinaryColumnExtractIteratorV2Test, SharedCacheReusesRowidBatchAcrossPaths) 
     const auto& nullable_a_first = assert_cast<const ColumnNullable&>(*a_first);
     const auto& variant_a_first =
             assert_cast<const ColumnVariantV2&>(nullable_a_first.get_nested_column());
-    ASSERT_TRUE(variant_a_first.is_typed());
     EXPECT_FALSE(nullable_a_first.is_null_at(0));
     EXPECT_TRUE(nullable_a_first.is_null_at(1));
     EXPECT_EQ(variant_v2_json_at(variant_a_first, 0), "10");
@@ -410,7 +383,6 @@ TEST(BinaryColumnExtractIteratorV2Test, SharedCacheReusesRowidBatchAcrossPaths) 
     const auto& nullable_b_first = assert_cast<const ColumnNullable&>(*b_first);
     const auto& variant_b_first =
             assert_cast<const ColumnVariantV2&>(nullable_b_first.get_nested_column());
-    ASSERT_TRUE(variant_b_first.is_typed());
     EXPECT_FALSE(nullable_b_first.is_null_at(0));
     EXPECT_FALSE(nullable_b_first.is_null_at(1));
     EXPECT_EQ(variant_v2_json_at(variant_b_first, 0), "100");
@@ -425,7 +397,6 @@ TEST(BinaryColumnExtractIteratorV2Test, SharedCacheReusesRowidBatchAcrossPaths) 
     const auto& nullable_a_all = assert_cast<const ColumnNullable&>(*a_first);
     const auto& variant_a_all =
             assert_cast<const ColumnVariantV2&>(nullable_a_all.get_nested_column());
-    ASSERT_TRUE(variant_a_all.is_typed());
     ASSERT_EQ(variant_a_all.size(), 4);
     EXPECT_FALSE(nullable_a_all.is_null_at(0));
     EXPECT_TRUE(nullable_a_all.is_null_at(1));
@@ -438,7 +409,6 @@ TEST(BinaryColumnExtractIteratorV2Test, SharedCacheReusesRowidBatchAcrossPaths) 
     const auto& nullable_b_all = assert_cast<const ColumnNullable&>(*b_first);
     const auto& variant_b_all =
             assert_cast<const ColumnVariantV2&>(nullable_b_all.get_nested_column());
-    ASSERT_TRUE(variant_b_all.is_typed());
     ASSERT_EQ(variant_b_all.size(), 4);
     EXPECT_FALSE(nullable_b_all.is_null_at(0));
     EXPECT_FALSE(nullable_b_all.is_null_at(1));
@@ -453,7 +423,7 @@ TEST(BinaryColumnExtractIteratorV2Test, SharedCacheReusesRowidBatchAcrossPaths) 
 }
 
 TEST(BinaryColumnExtractIteratorV2Test, RejectsInvalidOffsets) {
-    auto sparse = ColumnVariant::create_binary_column_fn();
+    auto sparse = variant_util::create_variant_binary_column();
     auto& map = assert_cast<ColumnMap&>(*sparse);
     auto& paths = assert_cast<ColumnString&>(map.get_keys());
     auto& cells = assert_cast<ColumnString&>(map.get_values());
@@ -464,7 +434,7 @@ TEST(BinaryColumnExtractIteratorV2Test, RejectsInvalidOffsets) {
     auto counters = std::make_shared<SparseReadCounters>();
     auto cache = std::make_shared<BinaryColumnCache>(
             std::make_unique<FixedSparseIterator>(std::move(sparse), counters),
-            ColumnVariant::create_binary_column_fn());
+            variant_util::create_variant_binary_column());
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
@@ -486,7 +456,7 @@ TEST(BinaryColumnExtractIteratorV2Test, RejectsInvalidOffsets) {
 }
 
 TEST(BinaryColumnExtractIteratorV2Test, RejectsDecreasingOffsets) {
-    auto sparse = ColumnVariant::create_binary_column_fn();
+    auto sparse = variant_util::create_variant_binary_column();
     auto& map = assert_cast<ColumnMap&>(*sparse);
     auto& paths = assert_cast<ColumnString&>(map.get_keys());
     auto& cells = assert_cast<ColumnString&>(map.get_values());
@@ -500,7 +470,7 @@ TEST(BinaryColumnExtractIteratorV2Test, RejectsDecreasingOffsets) {
     auto counters = std::make_shared<SparseReadCounters>();
     auto cache = std::make_shared<BinaryColumnCache>(
             std::make_unique<FixedSparseIterator>(std::move(sparse), counters),
-            ColumnVariant::create_binary_column_fn());
+            variant_util::create_variant_binary_column());
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
@@ -522,7 +492,7 @@ TEST(BinaryColumnExtractIteratorV2Test, RejectsDecreasingOffsets) {
 }
 
 TEST(BinaryColumnExtractIteratorV2Test, RejectsOffsetsThatLeaveUnconsumedCells) {
-    auto sparse = ColumnVariant::create_binary_column_fn();
+    auto sparse = variant_util::create_variant_binary_column();
     auto& map = assert_cast<ColumnMap&>(*sparse);
     auto& paths = assert_cast<ColumnString&>(map.get_keys());
     auto& cells = assert_cast<ColumnString&>(map.get_values());
@@ -535,7 +505,7 @@ TEST(BinaryColumnExtractIteratorV2Test, RejectsOffsetsThatLeaveUnconsumedCells) 
     auto counters = std::make_shared<SparseReadCounters>();
     auto cache = std::make_shared<BinaryColumnCache>(
             std::make_unique<FixedSparseIterator>(std::move(sparse), counters),
-            ColumnVariant::create_binary_column_fn());
+            variant_util::create_variant_binary_column());
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
@@ -557,7 +527,7 @@ TEST(BinaryColumnExtractIteratorV2Test, RejectsOffsetsThatLeaveUnconsumedCells) 
 }
 
 TEST(BinaryColumnExtractIteratorV2Test, RejectsMismatchedPathAndCellCounts) {
-    auto sparse = ColumnVariant::create_binary_column_fn();
+    auto sparse = variant_util::create_variant_binary_column();
     auto& map = assert_cast<ColumnMap&>(*sparse);
     auto& paths = assert_cast<ColumnString&>(map.get_keys());
     auto& cells = assert_cast<ColumnString&>(map.get_values());
@@ -569,7 +539,7 @@ TEST(BinaryColumnExtractIteratorV2Test, RejectsMismatchedPathAndCellCounts) {
     auto counters = std::make_shared<SparseReadCounters>();
     auto cache = std::make_shared<BinaryColumnCache>(
             std::make_unique<FixedSparseIterator>(std::move(sparse), counters),
-            ColumnVariant::create_binary_column_fn());
+            variant_util::create_variant_binary_column());
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
@@ -591,7 +561,7 @@ TEST(BinaryColumnExtractIteratorV2Test, RejectsMismatchedPathAndCellCounts) {
 }
 
 TEST(BinaryColumnExtractIteratorV2Test, DoesNotRescanFrozenPathOrdering) {
-    auto sparse = ColumnVariant::create_binary_column_fn();
+    auto sparse = variant_util::create_variant_binary_column();
     auto& map = assert_cast<ColumnMap&>(*sparse);
     DataTypeInt64 int_type;
     auto ints = ColumnInt64::create();
@@ -609,7 +579,7 @@ TEST(BinaryColumnExtractIteratorV2Test, DoesNotRescanFrozenPathOrdering) {
     auto counters = std::make_shared<SparseReadCounters>();
     auto cache = std::make_shared<BinaryColumnCache>(
             std::make_unique<FixedSparseIterator>(std::move(sparse), counters),
-            ColumnVariant::create_binary_column_fn());
+            variant_util::create_variant_binary_column());
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
@@ -627,9 +597,7 @@ TEST(BinaryColumnExtractIteratorV2Test, DoesNotRescanFrozenPathOrdering) {
     ASSERT_TRUE(status.ok()) << status;
     auto& nullable = assert_cast<ColumnNullable&>(*dst);
     auto& variant = assert_cast<ColumnVariantV2&>(nullable.get_nested_column());
-    ASSERT_TRUE(variant.is_typed());
-    const auto& typed = assert_cast<const ColumnNullable&>(variant.typed_column());
-    EXPECT_EQ(assert_cast<const ColumnInt64&>(typed.get_nested_column()).get_element(0), 7);
+    EXPECT_EQ(variant_v2_json_at(variant, 0), "7");
 }
 
 } // namespace

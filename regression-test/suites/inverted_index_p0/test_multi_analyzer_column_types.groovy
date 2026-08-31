@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_multi_analyzer_column_types", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     // Test multi-analyzer indexes on different column types: char, varchar, text, variant
 
     def analyzerStd = "multi_col_type_std_analyzer"

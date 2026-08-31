@@ -16,8 +16,8 @@
 // under the License.
 
 suite("explode") {
-    def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
-    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
+    def enableVariantV2 = true
+    def variantV2Function = "parse_to_variant"
     qt_explode """ select e1 from (select 1 k1) as t lateral view explode([1,2,3]) tmp1 as e1; """
     qt_explode_outer """ select e1 from (select 1 k1) as t lateral view explode_outer([1,2,3]) tmp1 as e1; """
 
@@ -208,8 +208,8 @@ suite("explode") {
     qt_test24 """
         select
             *
-        from array_test2 
-        lateral view explode([], [1, 2, null, 4, 5], ["ab", "cd", "ef"], [null, null, 1, 2, 3, 4, 5]) t2 as c0, c1, c2, c3 
+        from array_test2
+        lateral view explode([], [1, 2, null, 4, 5], ["ab", "cd", "ef"], [null, null, 1, 2, 3, 4, 5]) t2 as c0, c1, c2, c3
         order by 1,2,3,4,5;
     """
 
@@ -221,14 +221,14 @@ suite("explode") {
     """
 
     qt_select27 """
-        select * from (select 1) t1 
+        select * from (select 1) t1
             lateral view explode(
                 array(struct(1, "a"), struct(2, "b")),
                 array(struct(3, "c"), struct(4, "d"))
             ) t2 as c1 order by 1,2;
     """
     qt_select28 """
-        select * from (select 1) t1 
+        select * from (select 1) t1
             lateral view explode(
                 array(struct(1, "a"), struct(2, "b")),
                 array(struct(3, "c"), struct(4, "d"))

@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_variant_equality_contexts", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
-    assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     def variantV2Function = "parse_to_variant"
     sql "SET default_variant_enable_doc_mode = false"
     sql "SET default_variant_max_subcolumns_count = 0"
@@ -237,5 +235,5 @@ suite("test_variant_equality_contexts", "p0,nonConcurrent") {
               FROM numbers("number" = "2")) t
         ORDER BY 1
     """
-    }
+
 }

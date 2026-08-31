@@ -34,7 +34,7 @@
  * FULLTEXT), causing term enumeration to fail.
  */
 suite("test_search_variant_wildcard_custom_analyzer", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def tableName = "test_search_variant_wildcard_custom_analyzer"
 
     sql """ set enable_match_without_inverted_index = false """

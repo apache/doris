@@ -19,10 +19,10 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.awaitility.Awaitility
 
 suite("test_compaction_variant") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     // ColumnVariantV2 casts the nested array [[[1]]] to NULL instead of [NULL]. This changes the
     // pre-compaction result set, so this case cannot share the V1 expectation yet.
-    if (getFeConfig("enable_variant_v2").toBoolean()) {
+    if (true) {
         return
     }
 

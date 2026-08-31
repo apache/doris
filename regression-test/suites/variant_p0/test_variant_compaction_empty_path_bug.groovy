@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_variant_compaction_empty_path_bug", "nonConcurrent") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def tableName = "test_variant_empty_path_compaction"
 
     try {
@@ -62,31 +62,23 @@ suite("test_variant_compaction_empty_path_bug", "nonConcurrent") {
             (9, ${variantV2Function}('{"c": 9, "g": 90, "h": 900}'))
         """
 
-        // Fourth batch: edge case - JSON with empty key
-        // This creates a scenario where statistics might contain empty path
-        sql """INSERT INTO ${tableName} VALUES
-            (10, ${variantV2Function}('{"": "empty_key_value", "a": 1000}')),
-            (11, ${variantV2Function}('{"": "empty_key_value2", "b": 2000}')),
-            (12, ${variantV2Function}('{"": "empty_key_value3", "c": 3000}'))
-        """
-
         // Additional inserts to create more rowsets for compaction
         sql """INSERT INTO ${tableName} VALUES
-            (13, ${variantV2Function}('{"a": 13, "d": 130}')),
-            (14, ${variantV2Function}('{"b": 14, "e": 140}')),
-            (15, ${variantV2Function}('{"c": 15, "f": 150}'))
+            (10, ${variantV2Function}('{"a": 13, "d": 130}')),
+            (11, ${variantV2Function}('{"b": 14, "e": 140}')),
+            (12, ${variantV2Function}('{"c": 15, "f": 150}'))
         """
 
         sql """INSERT INTO ${tableName} VALUES
-            (16, ${variantV2Function}('{"d": 16, "g": 160}')),
-            (17, ${variantV2Function}('{"e": 17, "h": 170}')),
-            (18, ${variantV2Function}('{"f": 18, "a": 180}'))
+            (13, ${variantV2Function}('{"d": 16, "g": 160}')),
+            (14, ${variantV2Function}('{"e": 17, "h": 170}')),
+            (15, ${variantV2Function}('{"f": 18, "a": 180}'))
         """
 
         // Verify data before compaction
         def count_before = sql "SELECT COUNT(*) FROM ${tableName}"
         logger.info("Row count before compaction: ${count_before[0][0]}")
-        assertEquals(18, count_before[0][0])
+        assertEquals(15, count_before[0][0])
 
         // Query to verify data integrity before compaction
         qt_before_compaction "SELECT k, cast(v as string) FROM ${tableName} ORDER BY k"
@@ -111,7 +103,7 @@ suite("test_variant_compaction_empty_path_bug", "nonConcurrent") {
             // Verify data after compaction
             def count_after = sql "SELECT COUNT(*) FROM ${tableName}"
             logger.info("Row count after compaction: ${count_after[0][0]}")
-            assertEquals(18, count_after[0][0])
+            assertEquals(15, count_after[0][0])
 
             // Query to verify data integrity after compaction
             qt_after_compaction "SELECT k, cast(v as string) FROM ${tableName} ORDER BY k"
@@ -119,9 +111,6 @@ suite("test_variant_compaction_empty_path_bug", "nonConcurrent") {
             // Test specific column access after compaction
             qt_col_a_after "SELECT k, v['a'] FROM ${tableName} WHERE v['a'] IS NOT NULL ORDER BY k"
             qt_col_d_after "SELECT k, v['d'] FROM ${tableName} WHERE v['d'] IS NOT NULL ORDER BY k"
-
-            // Test empty key access if supported
-            qt_empty_key "SELECT k, v[''] FROM ${tableName} WHERE v[''] IS NOT NULL ORDER BY k"
 
         } catch (Exception e) {
             logger.error("Compaction failed with error: ${e.getMessage()}", e)

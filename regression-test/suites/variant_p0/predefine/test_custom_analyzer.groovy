@@ -18,7 +18,7 @@
 import java.sql.SQLException
 
 suite("test_variant_custom_analyzer", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def indexTbName1 = "test_custom_analyzer_1"
     def indexTbName2 = "test_custom_analyzer_2"
     def indexTbName3 = "test_custom_analyzer_3"

@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_column_reorder") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def tableName = "variant_column_reorder"
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """

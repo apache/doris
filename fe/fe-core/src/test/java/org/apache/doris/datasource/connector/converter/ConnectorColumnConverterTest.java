@@ -26,7 +26,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorType;
 
@@ -147,25 +146,19 @@ class ConnectorColumnConverterTest {
 
     @Test
     void testComputeVariantCarrierConversion() {
-        boolean originalEnableVariantV2 = Config.enable_variant_v2;
-        try {
-            Config.enable_variant_v2 = false;
-            Type type = ConnectorColumnConverter.convertType(ConnectorType.of("VARIANT_COMPUTE_V2"));
-            Assertions.assertInstanceOf(ConnectorComputeVariantType.class, type);
-            Assertions.assertTrue(type.toThrift().types.get(0).scalar_type.variant_is_v2,
-                    "external compute carriers must remain V2 independently of storage defaults");
+        Type type = ConnectorColumnConverter.convertType(ConnectorType.of("VARIANT_COMPUTE_V2"));
+        Assertions.assertInstanceOf(ConnectorComputeVariantType.class, type);
+        Assertions.assertTrue(type.toThrift().types.get(0).scalar_type.variant_is_v2,
+                "external compute carriers must remain V2");
 
-            Type nested = ArrayType.create(type, true);
-            ConnectorType connectorType = ConnectorColumnConverter.toConnectorType(nested);
-            Assertions.assertEquals("VARIANT_COMPUTE_V2",
-                    connectorType.getChildren().get(0).getTypeName(),
-                    "nested execution carriers must not become persisted VARIANT schemas on the write path");
-            Type roundTripped = ConnectorColumnConverter.convertType(connectorType);
-            Assertions.assertInstanceOf(ConnectorComputeVariantType.class,
-                    ((ArrayType) roundTripped).getItemType());
-        } finally {
-            Config.enable_variant_v2 = originalEnableVariantV2;
-        }
+        Type nested = ArrayType.create(type, true);
+        ConnectorType connectorType = ConnectorColumnConverter.toConnectorType(nested);
+        Assertions.assertEquals("VARIANT_COMPUTE_V2",
+                connectorType.getChildren().get(0).getTypeName(),
+                "nested execution carriers must not become persisted VARIANT schemas on the write path");
+        Type roundTripped = ConnectorColumnConverter.convertType(connectorType);
+        Assertions.assertInstanceOf(ConnectorComputeVariantType.class,
+                ((ArrayType) roundTripped).getItemType());
     }
 
     @Test

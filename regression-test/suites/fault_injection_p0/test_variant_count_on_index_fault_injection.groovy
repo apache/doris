@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_variant_count_on_index_fault_injection", "p0, nonConcurrent") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def tbl = "test_variant_count_on_index_tbl"
 
     def toInt = { v -> Integer.parseInt(v.toString()) }

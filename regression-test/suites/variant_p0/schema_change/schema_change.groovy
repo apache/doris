@@ -17,7 +17,7 @@
 
 suite("regression_test_variant_schema_change", "variant_type"){
 
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def table_name = "variant_schema_change"
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
@@ -75,9 +75,9 @@ suite("regression_test_variant_schema_change", "variant_type"){
 
     // add, drop materialized view
     // TODO: fix mv duplicate name issue
-    // createMV("""create materialized view var_order as select vs, k, v from ${table_name} order by vs""")    
+    // createMV("""create materialized view var_order as select vs, k, v from ${table_name} order by vs""")
     sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name} limit 4096"""
-    // createMV("""create materialized view var_cnt as select k, count(k) from ${table_name} group by k""")    
+    // createMV("""create materialized view var_cnt as select k, count(k) from ${table_name} group by k""")
     sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name} limit 8101"""
     // sql """DROP MATERIALIZED VIEW var_cnt ON ${table_name}"""
     sql """INSERT INTO ${table_name} SELECT k, v,v  from ${table_name} limit 1111"""

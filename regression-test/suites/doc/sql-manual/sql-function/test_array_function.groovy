@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_array_function_doc", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
-    
+    def variantV2Function = "parse_to_variant"
+
     def tableName = "array_table"
     sql """
         drop table if exists ${tableName};
@@ -278,7 +278,7 @@ suite("test_array_function_doc", "p0") {
         sql """ SELECT ARRAY_WITH_CONSTANT(1000001, 'hello');"""
         exception "Array size should in range(0, 1000000) in function: array_with_constant"
     }
-    
+
     qt_sql """ SELECT ARRAY_WITH_CONSTANT(0, 'hello'); """
 
     qt_sql """ SELECT ARRAY_WITH_CONSTANT(NULL, 'hello'); """
@@ -358,9 +358,9 @@ suite("test_array_function_doc", "p0") {
     qt_sql """ SELECT ARRAY_REPEAT(NULL, 3); """
 
     qt_sql """ SELECT ARRAY_REPEAT(NULL, NULL); """
-    
+
     qt_sql """ SELECT ARRAY_REPEAT(NULL, 'hello'); """
-    
+
     qt_sql """ SELECT array_sort(ARRAY_UNION(array_boolean, array_boolean)) from ${tableName}; """
 
     qt_sql """ SELECT array_sort(ARRAY_UNION(array_tinyint, array_tinyint)) from ${tableName}; """
@@ -398,7 +398,7 @@ suite("test_array_function_doc", "p0") {
     qt_sql """ SELECT array_sort(ARRAY_UNION(array_ipv4, array_ipv4)) from ${tableName}; """
 
     qt_sql """ SELECT array_sort(ARRAY_UNION(array_ipv6, array_ipv6)) from ${tableName}; """
-    
+
     test {
         sql """ SELECT ARRAY_UNION(array_struct, array_struct) from ${tableName}; """
         exception "array_union does not support types: ARRAY<STRUCT<id:INT,name:TEXT>>"
@@ -413,7 +413,7 @@ suite("test_array_function_doc", "p0") {
         sql """ SELECT ARRAY_UNION(array_map, array_map) from ${tableName}; """
         exception "array_union does not support types: ARRAY<MAP<TEXT,INT>>"
     }
-    
+
     qt_sql """ SELECT array_sort(ARRAY_UNION(NULL, array_boolean)) from ${tableName}; """
 
     qt_sql """ SELECT array_sort(ARRAY_UNION(array_boolean, NULL)) from ${tableName}; """
@@ -425,7 +425,7 @@ suite("test_array_function_doc", "p0") {
     qt_sql """ SELECT array_sort(ARRAY_UNION(ARRAY('hello', 'world'), ARRAY('hello', 'world'))); """
 
     qt_sql """ SELECT array_sort(ARRAY_UNION(ARRAY('hello', 'world'), ARRAY('hello', 'world'), NULL)); """
- 
+
     qt_sql """ SELECT array_sort(ARRAY_UNION(ARRAY('hello', 'world'), ARRAY('hello', NULL))); """
 
     qt_sql """SELECT array_sort(ARRAY_UNION(ARRAY(NULL, 'world'), ARRAY('hello', NULL))); """

@@ -16,15 +16,15 @@
 // under the License.
 
 suite("regression_test_variant_desc", "p0"){
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
             table "${table_name}"
 
             // set http request header params
-            set 'read_json_by_line', 'true' 
-            set 'format', 'json' 
+            set 'read_json_by_line', 'true'
+            set 'format', 'json'
             set 'max_filter_ratio', '0.1'
             file file_name // import json file
             time 10000 // limit inflight 10s
@@ -206,7 +206,7 @@ suite("regression_test_variant_desc", "p0"){
         qt_sql_10_3 """desc ${table_name}"""
         //sql "truncate table ${table_name}"
 
-        // varaint column name: chinese name, unicode 
+        // varaint column name: chinese name, unicode
         table_name = "chinese_table"
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
@@ -242,7 +242,7 @@ suite("regression_test_variant_desc", "p0"){
 
         // desc with large tablets
         table_name = "large_tablets"
-        create_table_partition.call(table_name, "200") 
+        create_table_partition.call(table_name, "200")
         sql """insert into large_tablets values (1, ${variantV2Function}('{"a" : 10}'))"""
         sql """insert into large_tablets values (3001, ${variantV2Function}('{"b" : 10}'))"""
         sql """insert into large_tablets values (50001, ${variantV2Function}('{"c" : 10}'))"""

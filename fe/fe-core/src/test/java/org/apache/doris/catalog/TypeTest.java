@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.Config;
-
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -148,17 +146,8 @@ public class TypeTest {
     }
 
     @Test
-    public void testVariantToThriftUsesGlobalV2Config() {
-        boolean originalEnableVariantV2 = Config.enable_variant_v2;
-        try {
-            Config.enable_variant_v2 = false;
-            Assert.assertFalse(new VariantType().toThrift().types.get(0).scalar_type.variant_is_v2);
-
-            Config.enable_variant_v2 = true;
-            Assert.assertTrue(new VariantType().toThrift().types.get(0).scalar_type.variant_is_v2);
-        } finally {
-            Config.enable_variant_v2 = originalEnableVariantV2;
-        }
+    public void testVariantToThriftUsesV2() {
+        Assert.assertTrue(new VariantType().toThrift().types.get(0).scalar_type.variant_is_v2);
     }
 
     // ===================== Mixed Nesting & Precision =====================

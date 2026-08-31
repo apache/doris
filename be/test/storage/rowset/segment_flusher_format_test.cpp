@@ -51,7 +51,7 @@
 #include "core/block/block.h"
 #include "core/column/column_complex.h"
 #include "core/column/column_nullable.h"
-#include "core/column/column_variant.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type.h"
 #include "core/field.h"
 #include "core/value/bitmap_value.h"
@@ -832,14 +832,12 @@ Result<Block> create_complex_value_block(const TabletSchemaSPtr& schema, int seg
             variant_column->insert_default();
         } else if (nullable_complex_values) {
             auto& nullable = assert_cast<ColumnNullable&>(*variant_column);
-            auto& variant = assert_cast<ColumnVariant&>(nullable.get_nested_column());
-            VariantUtil::insert_root_scalar_field(
-                    variant, Field::create_field<TYPE_STRING>(String(variants[value_index])));
+            auto& variant = assert_cast<ColumnVariantV2&>(nullable.get_nested_column());
+            VariantUtil::insert_json_rows(variant, {std::string(variants[value_index])});
             nullable.get_null_map_column().insert_value(0);
         } else {
-            auto& variant = assert_cast<ColumnVariant&>(*variant_column);
-            VariantUtil::insert_root_scalar_field(
-                    variant, Field::create_field<TYPE_STRING>(String(variants[value_index])));
+            auto& variant = assert_cast<ColumnVariantV2&>(*variant_column);
+            VariantUtil::insert_json_rows(variant, {std::string(variants[value_index])});
         }
 
         const uint64_t count = 300 + segment_ordinal * 10 + row;
@@ -1078,11 +1076,10 @@ Result<Block> create_variant_row_store_block(const TabletSchemaSPtr& schema, int
     for (size_t row = 0; row < rows; ++row) {
         RETURN_IF_ERROR_RESULT(append_text_value(
                 &block, 0, std::to_string(segment_ordinal * 100 + static_cast<int>(row))));
-        auto* variant = assert_cast<ColumnVariant*>(
+        auto* variant = assert_cast<ColumnVariantV2*>(
                 block.get_by_position(1).column->assert_mutable().get());
-        VariantUtil::insert_root_scalar_field(
-                *variant,
-                Field::create_field<TYPE_STRING>(String(variants[(row + segment_ordinal) % 3])));
+        VariantUtil::insert_json_rows(*variant,
+                                      {std::string(variants[(row + segment_ordinal) % 3])});
         RETURN_IF_ERROR_RESULT(append_text_value(
                 &block, 2,
                 fmt::format("segment-{}-row-{}-{}", segment_ordinal, row,
@@ -1188,10 +1185,9 @@ Result<Block> create_fixed_partial_update_block(const TabletSchemaSPtr& schema,
                 RETURN_IF_ERROR_RESULT(append_text_value(
                         &block, column_index, std::to_string(6000 + segment_ordinal * 10 + row)));
             } else if (name == "v_variant_updated") {
-                auto* variant = assert_cast<ColumnVariant*>(
+                auto* variant = assert_cast<ColumnVariantV2*>(
                         block.get_by_position(column_index).column->assert_mutable().get());
-                VariantUtil::insert_root_scalar_field(
-                        *variant, Field::create_field<TYPE_STRING>(String(variants[row])));
+                VariantUtil::insert_json_rows(*variant, {std::string(variants[row])});
             } else {
                 return ResultError(
                         Status::InternalError("unexpected fixed partial-update column {}", name));
@@ -1356,16 +1352,12 @@ Result<Block> create_mow_history_block(const TabletSchemaSPtr& schema) {
                 auto history_json = fmt::format("{{\"history\":true,\"key\":{}}}", key);
                 if (name == "v_variant_missing") {
                     auto& nullable = assert_cast<ColumnNullable&>(*variant_column);
-                    auto& variant = assert_cast<ColumnVariant&>(nullable.get_nested_column());
-                    VariantUtil::insert_root_scalar_field(
-                            variant,
-                            Field::create_field<TYPE_STRING>(String(std::move(history_json))));
+                    auto& variant = assert_cast<ColumnVariantV2&>(nullable.get_nested_column());
+                    VariantUtil::insert_json_rows(variant, {history_json});
                     nullable.get_null_map_column().insert_value(0);
                 } else {
-                    auto& variant = assert_cast<ColumnVariant&>(*variant_column);
-                    VariantUtil::insert_root_scalar_field(
-                            variant,
-                            Field::create_field<TYPE_STRING>(String(std::move(history_json))));
+                    auto& variant = assert_cast<ColumnVariantV2&>(*variant_column);
+                    VariantUtil::insert_json_rows(variant, {history_json});
                 }
             } else {
                 block.get_by_position(column_index).column->assert_mutable()->insert_default();
@@ -2950,8 +2942,8 @@ protected:
                     }
                 }
             } else if (schema_column.is_variant_type()) {
-                const auto& variant = assert_cast<const ColumnVariant&>(block_column);
-                if (variant.is_scalar_variant() || !variant.is_finalized()) {
+                const auto& variant = assert_cast<const ColumnVariantV2&>(block_column);
+                if (variant.size() != contents.block.rows()) {
                     return ResultError(Status::InternalError(
                             "direct source for {} did not materialize its Variant column",
                             source_name));

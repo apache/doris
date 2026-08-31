@@ -17,7 +17,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_insert_with_index", "p0, nonConcurrent") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
 
      def set_be_config = { key, value ->
         def backendId_to_backendIP = [:]
@@ -29,7 +29,7 @@ suite("test_insert_with_index", "p0, nonConcurrent") {
             logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
         }
     }
-    def test = { format -> 
+    def test = { format ->
         def srcName = "src_table"
         def dstName = "dst_table"
         sql """ DROP TABLE IF EXISTS ${srcName}; """

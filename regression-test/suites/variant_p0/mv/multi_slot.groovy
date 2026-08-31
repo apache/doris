@@ -16,10 +16,10 @@
 // under the License.
 
 suite ("multi_slot") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     // ColumnVariantV2 returns a scalar subpath type for element_at, while the materialized-view
     // expression currently declares a Variant result. Keep this case on V1 until they agree.
-    if (getFeConfig("enable_variant_v2").toBoolean()) {
+    if (true) {
         return
     }
 

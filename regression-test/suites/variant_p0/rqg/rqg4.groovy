@@ -18,8 +18,6 @@
 import org.apache.doris.regression.util.SqlUtils
 
 suite("rqg4", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: false]) {
-        assertFalse(getFeConfig("enable_variant_v2").toBoolean())
         StringBuilder sqlBuilder = new StringBuilder()
         sqlBuilder.append($/
 DROP TABLE if exists table_500_undef_partitions2_keys3_properties4_distributed_by52;
@@ -61,5 +59,5 @@ with cte1 as (select 32767  AS col_alias23973 , CAST(var['col_largeint_undef_sig
         if (!exceptions.isEmpty()) {
             throw new IllegalStateException("exceptions : ${exceptions}")
         }
-    }
+
 }

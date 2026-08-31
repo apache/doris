@@ -22,7 +22,7 @@
 
 suite("variant_mv_rowstore_crash", "variant_type") {
 
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def tbl = "var_mv_rs_tbl"
     def mv_name = "var_mv_rs_mv"
 

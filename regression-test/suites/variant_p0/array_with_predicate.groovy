@@ -17,7 +17,7 @@
 
 // test array types with predicate
 suite("regression_test_variant_array_with_predicate", "p0"){
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     sql "DROP TABLE IF EXISTS array_with_predicate"
     sql """
         CREATE TABLE IF NOT EXISTS array_with_predicate (

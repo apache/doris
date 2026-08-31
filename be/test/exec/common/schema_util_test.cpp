@@ -24,7 +24,7 @@
 
 #include "core/column/column_decimal.h"
 #include "core/column/column_nothing.h"
-#include "core/column/column_variant.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_date_time.h"
@@ -37,11 +37,11 @@
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type_serde/data_type_jsonb_serde.h"
+#include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "exec/common/variant_util.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/segment/variant/variant_column_writer_impl.h"
-#include "testutil/variant_util.h"
 
 using namespace doris;
 
@@ -69,36 +69,6 @@ ColumnString::MutablePtr make_jsonb_column(std::initializer_list<std::string_vie
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
     return jsonb_column;
-}
-
-void expect_variant_string_subcolumn(const ColumnVariant& variant, std::string_view path,
-                                     std::string_view expected) {
-    const auto* subcolumn = variant.get_subcolumn(PathInData(std::string(path)));
-    ASSERT_NE(subcolumn, nullptr);
-
-    FieldWithDataType field;
-    subcolumn->get(0, field);
-    ASSERT_EQ(field.field.get_type(), PrimitiveType::TYPE_STRING);
-    EXPECT_EQ(field.field.get<PrimitiveType::TYPE_STRING>(), expected);
-}
-
-void expect_variant_int_field(const Field& field, int64_t expected) {
-    switch (field.get_type()) {
-    case PrimitiveType::TYPE_TINYINT:
-        EXPECT_EQ(field.get<PrimitiveType::TYPE_TINYINT>(), expected);
-        break;
-    case PrimitiveType::TYPE_SMALLINT:
-        EXPECT_EQ(field.get<PrimitiveType::TYPE_SMALLINT>(), expected);
-        break;
-    case PrimitiveType::TYPE_INT:
-        EXPECT_EQ(field.get<PrimitiveType::TYPE_INT>(), expected);
-        break;
-    case PrimitiveType::TYPE_BIGINT:
-        EXPECT_EQ(field.get<PrimitiveType::TYPE_BIGINT>(), expected);
-        break;
-    default:
-        FAIL() << "unexpected field type: " << field.get_type_name();
-    }
 }
 
 void construct_column(ColumnPB* column_pb, TabletIndexPB* tablet_index, int64_t index_id,
@@ -782,7 +752,7 @@ TEST_F(SchemaUtilTest, TestGetColumnByType) {
     EXPECT_TRUE(variant_v2_column.variant_is_v2());
 }
 
-TEST_F(SchemaUtilTest, VariantV2MarkerIsTransientAcrossSchemaCopy) {
+TEST_F(SchemaUtilTest, VariantV2MarkerIsPreservedAcrossSchemaCopy) {
     TabletColumn variant_column;
     variant_column.set_name("v");
     variant_column.set_unique_id(1);
@@ -798,30 +768,8 @@ TEST_F(SchemaUtilTest, VariantV2MarkerIsTransientAcrossSchemaCopy) {
     TabletSchema copied;
     copied.copy_from(source);
     ASSERT_EQ(copied.num_columns(), 1);
-    EXPECT_FALSE(copied.column(0).variant_is_v2());
+    EXPECT_TRUE(copied.column(0).variant_is_v2());
 }
-
-//TEST_F(SchemaUtilTest, TestGetSortedSubcolumns) {
-//    // Create test subcolumns
-//    ColumnVariant::Subcolumns subcolumns;
-//
-//    auto create_subcolumn = [](const std::string& path) {
-//        auto subcol = std::make_shared<ColumnVariant::Subcolumn>();
-//        subcol->path = path;
-//        return subcol;
-//    };
-//
-//    subcolumns.push_back(create_subcolumn("c"));
-//    subcolumns.push_back(create_subcolumn("a"));
-//    subcolumns.push_back(create_subcolumn("b"));
-//
-//    auto sorted = variant_util::get_sorted_subcolumns(subcolumns);
-//
-//    EXPECT_EQ(sorted.size(), 3);
-//    EXPECT_EQ(sorted[0]->path, "a");
-//    EXPECT_EQ(sorted[1]->path, "b");
-//    EXPECT_EQ(sorted[2]->path, "c");
-//}
 
 TEST_F(SchemaUtilTest, TestHasSchemaIndexDiff) {
     TabletSchemaPB schema1_pb;
@@ -851,29 +799,25 @@ TEST_F(SchemaUtilTest, TestParseVariantColumns) {
     // Create a block with variant column
     Block block;
 
-    // Create a variant column with JSON string data
     auto variant_type = std::make_shared<DataTypeVariant>(10, false);
-    auto variant_column = ColumnVariant::create(10, false);
-    auto root_column = ColumnString::create();
-    root_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 1, 'b': 'test'}"));
-    variant_column->create_root(std::make_shared<DataTypeString>(), root_column->get_ptr());
+    auto variant_column = ColumnVariantV2::create();
+    Slice value(R"({"a":1,"b":"test"})", 18);
+    DataTypeSerDe::FormatOptions options;
+    ASSERT_TRUE(DataTypeVariantV2SerDe()
+                        .deserialize_one_cell_from_json(*variant_column, value, options)
+                        .ok());
 
     block.insert({variant_column->get_ptr(), variant_type, "variant_col"});
 
-    std::vector<uint32_t> variant_pos {0};
-    ParseConfig config;
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000, "v_index", 1, "VARIANT",
+                     "variant_col", IndexType::INVERTED);
+    TabletSchema schema;
+    schema.init_from_pb(schema_pb);
 
-    std::vector<ParseConfig> configs {config};
-    auto status = variant_util::parse_and_materialize_variant_columns(block, variant_pos, configs);
-    EXPECT_TRUE(status.ok());
-
-    // Check the parsed variant column
-    const auto& result_column = block.get_by_position(0).column;
-    std::cout << "Result column name: " << result_column->get_name() << std::endl;
-    EXPECT_TRUE(result_column->get_name().find("variant") == std::string::npos);
-
-    const auto& obj_column = assert_cast<const ColumnVariant&>(*result_column);
-    EXPECT_TRUE(obj_column.is_scalar_variant());
+    auto status = variant_util::parse_and_materialize_variant_columns(block, schema, {0});
+    EXPECT_TRUE(status.ok()) << status;
 }
 
 TEST_F(SchemaUtilTest, TestGetLeastCommonSchema) {
@@ -943,15 +887,14 @@ TEST_F(SchemaUtilTest, TestCastColumnEdgeCases) {
     EXPECT_TRUE(status.ok());
     EXPECT_TRUE(result1->is_nullable());
 
-    // Test casting from variant to variant
-    auto variant_column = ColumnVariant::create(10, false);
-    // nullable_array_column is also stored in array_col.column (use_count=2), so mutate() clones it.
-    variant_column->create_root(nullable_array_type, IColumn::mutate(nullable_array_column));
+    auto variant_column = ColumnVariantV2::create();
+    Slice value(R"({"a":1})", 7);
+    DataTypeSerDe::FormatOptions options;
+    ASSERT_TRUE(DataTypeVariantV2SerDe()
+                        .deserialize_one_cell_from_json(*variant_column, value, options)
+                        .ok());
 
-    ColumnWithTypeAndName variant_col;
-    variant_col.type = variant_type;
-    variant_col.column = variant_column->get_ptr();
-    variant_col.name = "variant_col";
+    ColumnWithTypeAndName variant_col {variant_column->get_ptr(), variant_type, "variant_col"};
 
     ColumnPtr result2;
     status = variant_util::cast_column(variant_col, variant_type, &result2);
@@ -1380,20 +1323,6 @@ TEST_F(SchemaUtilTest,
     EXPECT_FALSE(path_set_info->typed_path_set.contains("owner"));
 }
 
-TEST_F(SchemaUtilTest, TestGetSortedSubcolumns) {
-    // Create test subcolumns
-    ColumnVariant::Subcolumns subcolumns;
-    auto obj = VariantUtil::construct_dst_varint_column();
-
-    auto sorted = variant_util::get_sorted_subcolumns(obj->get_subcolumns());
-    std::vector<std::string> expected_paths = {"", "v.b", "v.b.d", "v.c.d", "v.e", "v.f"};
-    EXPECT_EQ(sorted.size(), 6);
-    int i = 0;
-    for (auto iter = sorted.begin(); iter != sorted.end(); ++iter) {
-        EXPECT_EQ(iter.operator*()->path.get_path(), expected_paths[i++]);
-    }
-}
-
 TEST_F(SchemaUtilTest, TestCreateSparseColumn) {
     TabletColumn variant;
     variant.set_name("test_variant");
@@ -1413,118 +1342,23 @@ TEST_F(SchemaUtilTest, TestCreateSparseColumn) {
     EXPECT_EQ(sparse_column.get_sub_column(1).type(), FieldType::OLAP_FIELD_TYPE_STRING);
 }
 
-TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
+TEST_F(SchemaUtilTest, TestParseVariantColumnsRejectsNonV2PhysicalColumn) {
     Block block;
-
-    // Test parsing from string to variant
-    auto variant_type = std::make_shared<DataTypeVariant>(10, false);
-    auto variant_column = ColumnVariant::create(10, false);
-    auto root_column = ColumnString::create();
-
-    // Add some test JSON data
-    root_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 1, 'b': 'test'}"));
-    root_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 2, 'c': [1,2,3]}"));
-    root_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 3, 'd': {'x': 1}}"));
-
-    variant_column->create_root(std::make_shared<DataTypeString>(), root_column->get_ptr());
-    block.insert({variant_column->get_ptr(), variant_type, "variant_col"});
-
-    std::vector<uint32_t> variant_pos {0};
-    ParseConfig config;
-
-    std::vector<ParseConfig> configs {config};
-    auto status = variant_util::parse_and_materialize_variant_columns(block, variant_pos, configs);
-    EXPECT_TRUE(status.ok());
-
-    // Test parsing from JSONB to variant
-    auto jsonb_type = std::make_shared<DataTypeJsonb>();
-    auto jsonb_column = make_jsonb_column({R"({"x":1})"});
-
-    auto variant_column2 = ColumnVariant::create(10, false);
-    variant_column2->create_root(jsonb_type, jsonb_column->get_ptr());
-
-    Block block2;
-    block2.insert({variant_column2->get_ptr(), variant_type, "variant_col2"});
-
-    status = variant_util::parse_and_materialize_variant_columns(block2, {0}, configs);
-    EXPECT_TRUE(status.ok());
-
-    // Test parsing already parsed variant
-    auto variant_column3 = ColumnVariant::create(10, false);
-    variant_column3->finalize();
-
-    Block block3;
-    block3.insert({variant_column3->get_ptr(), variant_type, "variant_col3"});
-
-    status = variant_util::parse_and_materialize_variant_columns(block3, {0}, configs);
-    EXPECT_TRUE(status.ok());
-}
-
-TEST_F(SchemaUtilTest, TestParseJsonbRootVariantMaterializesDocument) {
-    auto variant_type = std::make_shared<DataTypeVariant>(10, false);
-    auto jsonb_type = std::make_shared<DataTypeJsonb>();
-    auto jsonb_column = make_jsonb_column(
-            {R"({"ok":"abc","msg":"he said \"hi\"","path":"C:\\tmp","nested":{"x":1},"arr":[1,2]})"});
-
-    auto variant_column = ColumnVariant::create(10, false);
-    variant_column->create_root(jsonb_type, jsonb_column->get_ptr());
-
-    Block block;
-    block.insert({variant_column->get_ptr(), variant_type, "variant_col"});
-
-    ParseConfig config;
-    auto status = variant_util::parse_and_materialize_variant_columns(block, {0}, {config});
-    ASSERT_TRUE(status.ok()) << status.to_string();
-
-    const auto& result = assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
-    EXPECT_FALSE(result.is_scalar_variant());
-    expect_variant_string_subcolumn(result, "ok", "abc");
-    expect_variant_string_subcolumn(result, "msg", R"(he said "hi")");
-    expect_variant_string_subcolumn(result, "path", R"(C:\tmp)");
-
-    FieldWithDataType nested_x;
-    const auto* nested_x_subcolumn = result.get_subcolumn(PathInData("nested.x"));
-    ASSERT_NE(nested_x_subcolumn, nullptr);
-    nested_x_subcolumn->get(0, nested_x);
-    expect_variant_int_field(nested_x.field, 1);
-
-    FieldWithDataType arr;
-    const auto* arr_subcolumn = result.get_subcolumn(PathInData("arr"));
-    ASSERT_NE(arr_subcolumn, nullptr);
-    arr_subcolumn->get(0, arr);
-    ASSERT_EQ(arr.field.get_type(), PrimitiveType::TYPE_ARRAY);
-    const auto& arr_value = arr.field.get<PrimitiveType::TYPE_ARRAY>();
-    ASSERT_EQ(arr_value.size(), 2);
-    expect_variant_int_field(arr_value[0], 1);
-    expect_variant_int_field(arr_value[1], 2);
-}
-
-TEST_F(SchemaUtilTest, TestParseVariantColumnsWithNulls) {
-    Block block;
-
-    // Create a nullable variant column
-    auto variant_type = make_nullable(std::make_shared<DataTypeVariant>(10, false));
-    auto string_type = make_nullable(std::make_shared<DataTypeString>());
-
     auto string_column = ColumnString::create();
-    string_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 1}"));
-    auto nullable_string = make_nullable(string_column->get_ptr());
+    string_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>(R"({"a":1})"));
+    block.insert({string_column->get_ptr(), std::make_shared<DataTypeVariant>(10, false),
+                  "variant_col"});
 
-    auto variant_column = ColumnVariant::create(10, false);
-    variant_column->create_root(string_type, nullable_string->assert_mutable());
-    auto nullable_variant = make_nullable(variant_column->get_ptr());
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000, "v_index", 1, "VARIANT",
+                     "variant_col", IndexType::INVERTED);
+    TabletSchema schema;
+    schema.init_from_pb(schema_pb);
 
-    block.insert({nullable_variant, variant_type, "nullable_variant"});
-
-    std::vector<uint32_t> variant_pos {0};
-    ParseConfig config;
-
-    std::vector<ParseConfig> configs {config};
-    auto status = variant_util::parse_and_materialize_variant_columns(block, variant_pos, configs);
-    EXPECT_TRUE(status.ok());
-
-    const auto& result_column = block.get_by_position(0).column;
-    EXPECT_TRUE(result_column->is_nullable());
+    auto status = variant_util::parse_and_materialize_variant_columns(block, schema, {0});
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+    EXPECT_NE(status.to_string().find("ColumnVariantV2"), std::string::npos);
 }
 
 TEST_F(SchemaUtilTest, get_compaction_typed_columns) {
@@ -2178,37 +2012,4 @@ TEST_F(SchemaUtilTest, check_path_conflicts_with_existing) {
         // This should succeed since the paths are the same and we're just checking for structure conflicts
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
-}
-
-TEST_F(SchemaUtilTest, parse_and_materialize_variant_columns_ambiguous_paths) {
-    using namespace doris;
-    // Prepare the string column with two rows
-    auto string_col = ColumnString::create();
-    string_col->insert(doris::Field::create_field<TYPE_STRING>(
-            String("{\"nested\": [{\"a\": 2.5, \"b\": \"123.1\"}]}")));
-    string_col->insert(doris::Field::create_field<TYPE_STRING>(
-            String("{\"nested\": {\"a\": 2.5, \"b\": \"123.1\"}}")));
-    auto string_type = std::make_shared<DataTypeString>();
-
-    // Prepare the variant column with the string column as root
-    ColumnVariant::Subcolumns dynamic_subcolumns;
-    dynamic_subcolumns.create_root(
-            ColumnVariant::Subcolumn(std::move(string_col), string_type, true));
-
-    auto variant_col = ColumnVariant::create(0, false, std::move(dynamic_subcolumns));
-    auto variant_type = std::make_shared<DataTypeVariant>();
-
-    // Construct the block
-    Block block;
-    block.insert(ColumnWithTypeAndName(std::move(variant_col), variant_type, "v"));
-
-    // The variant column is at index 0
-    std::vector<uint32_t> variant_pos = {0};
-    ParseConfig config;
-    config.deprecated_enable_flatten_nested = true;
-
-    // Should throw due to ambiguous paths
-    Status st = variant_util::parse_and_materialize_variant_columns(block, variant_pos, {config});
-    EXPECT_FALSE(st.ok());
-    EXPECT_TRUE(st.to_string().find("Ambiguous paths") != std::string::npos);
 }

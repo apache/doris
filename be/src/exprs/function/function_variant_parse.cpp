@@ -22,13 +22,11 @@
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
-#include "exec/common/variant_util.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "exprs/function/simple_function_factory.h"
 #include "util/json/json_parser.h"
@@ -54,7 +52,7 @@ public:
                                                             : std::move(result);
     }
 
-    // Keep strict/error-to-null, SQL-null, and legacy/V2 parse transitions in one auditable state machine.
+    // Keep strict/error-to-null and SQL-null transitions in one auditable state machine.
     // NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
@@ -75,75 +73,6 @@ public:
         auto result_nulls = ColumnUInt8::create(input_rows_count, uint8_t {0});
 
         const IDataType* result_type = remove_nullable(block.get_by_position(result).type).get();
-        if (const auto* variant_type = dynamic_cast<const DataTypeVariant*>(result_type)) {
-            const int32_t max_subcolumns_count = variant_type->variant_max_subcolumns_count();
-            const bool enable_doc_mode = variant_type->enable_doc_mode();
-            auto values = ColumnVariant::create(max_subcolumns_count, enable_doc_mode);
-            ParseConfig parse_config;
-            parse_config.check_duplicate_json_path =
-                    config::variant_enable_duplicate_json_path_check;
-            parse_config.parse_to = enable_doc_mode ? ParseConfig::ParseTo::OnlyDocValueColumn
-                                                    : ParseConfig::ParseTo::OnlySubcolumns;
-            JsonParser parser;
-            const StringRef empty_json("", 0);
-            if constexpr (!ERROR_TO_NULL) {
-                for (size_t row = 0; row < input_rows_count; ++row) {
-                    const bool input_is_null = input_nulls != nullptr && (*input_nulls)[row] != 0;
-                    try {
-                        variant_util::parse_json_to_variant(
-                                *values, input_is_null ? empty_json : strings->get_data_at(row),
-                                &parser, parse_config);
-                    } catch (const Exception& exception) {
-                        const Status status = exception.to_status();
-                        if (!status.is<ErrorCode::INVALID_ARGUMENT>()) {
-                            return status;
-                        }
-                        return Status::InvalidArgument(
-                                "Parse json document failed at row {}, error: {}", row,
-                                status.to_string());
-                    }
-                    if (input_is_null) {
-                        result_nulls->get_data()[row] = 1;
-                    }
-                }
-            } else {
-                for (size_t row = 0; row < input_rows_count; ++row) {
-                    const bool input_is_null = input_nulls != nullptr && (*input_nulls)[row] != 0;
-                    auto one_row = ColumnVariant::create(max_subcolumns_count, enable_doc_mode);
-                    try {
-                        variant_util::parse_json_to_variant(
-                                *one_row, input_is_null ? empty_json : strings->get_data_at(row),
-                                &parser, parse_config);
-                        one_row->finalize();
-                    } catch (const Exception& exception) {
-                        const Status status = exception.to_status();
-                        if (!status.is<ErrorCode::INVALID_ARGUMENT>()) {
-                            return status;
-                        }
-                        one_row = ColumnVariant::create(max_subcolumns_count, enable_doc_mode);
-                        variant_util::parse_json_to_variant(*one_row, empty_json, &parser,
-                                                            parse_config);
-                        one_row->finalize();
-                        result_nulls->get_data()[row] = 1;
-                    }
-                    if (input_is_null) {
-                        result_nulls->get_data()[row] = 1;
-                    }
-                    values->insert_range_from(*one_row, 0, 1);
-                }
-            }
-            values->finalize();
-
-            ColumnPtr output;
-            if (result_is_nullable) {
-                output = ColumnNullable::create(std::move(values), std::move(result_nulls));
-            } else {
-                output = std::move(values);
-            }
-            DORIS_CHECK_EQ(output->size(), input_rows_count);
-            block.replace_by_position(result, std::move(output));
-            return Status::OK();
-        }
         DORIS_CHECK(dynamic_cast<const DataTypeVariantV2*>(result_type) != nullptr);
 
         JsonStringToVariantEncoder encoder(JsonToVariantOptions::current_config());

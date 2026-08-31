@@ -29,7 +29,7 @@
  * the index_properties via TSearchFieldBinding to BE.
  */
 suite("test_search_variant_subcolumn_analyzer", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def tableName = "test_variant_subcolumn_analyzer"
 
     sql """ set enable_match_without_inverted_index = false """

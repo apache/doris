@@ -143,24 +143,18 @@ public class PluginDrivenScanNodeCompatibilityTest {
 
     @Test
     public void translatedScanTuplePreservesNestedComputeVariantCarrier() {
-        boolean originalEnableVariantV2 = Config.enable_variant_v2;
-        try {
-            Config.enable_variant_v2 = false;
-            Column column = new Column("payload",
-                    ArrayType.create(new ConnectorComputeVariantType(), true));
-            SlotReference slot = SlotReference.fromColumn(
-                    StatementScopeIdGenerator.newExprId(), org.mockito.Mockito.mock(TableIf.class), column,
-                    Collections.emptyList());
-            PlanTranslatorContext context = new PlanTranslatorContext();
-            TupleDescriptor tuple = context.generateTupleDesc();
-            context.createSlotDesc(tuple, slot);
+        Column column = new Column("payload",
+                ArrayType.create(new ConnectorComputeVariantType(), true));
+        SlotReference slot = SlotReference.fromColumn(
+                StatementScopeIdGenerator.newExprId(), org.mockito.Mockito.mock(TableIf.class), column,
+                Collections.emptyList());
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        TupleDescriptor tuple = context.generateTupleDesc();
+        context.createSlotDesc(tuple, slot);
 
-            Assert.assertTrue(PluginDrivenScanNode.projectsComputeVariant(tuple));
-            Assert.assertTrue(tuple.getSlots().get(0).getType().toThrift()
-                    .types.get(1).scalar_type.variant_is_v2);
-        } finally {
-            Config.enable_variant_v2 = originalEnableVariantV2;
-        }
+        Assert.assertTrue(PluginDrivenScanNode.projectsComputeVariant(tuple));
+        Assert.assertTrue(tuple.getSlots().get(0).getType().toThrift()
+                .types.get(1).scalar_type.variant_is_v2);
     }
 
     @Test

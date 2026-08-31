@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_predefine_schema_change", "p0"){
-    boolean enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
-    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
+    boolean enableVariantV2 = true
+    def variantV2Function = "parse_to_variant"
     def normalizedVariant = "regexp_replace(cast(var as string), " +
             "'([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})[.]000000', '\\\\1')"
     def tableName = "test_predefine_schema_change"
