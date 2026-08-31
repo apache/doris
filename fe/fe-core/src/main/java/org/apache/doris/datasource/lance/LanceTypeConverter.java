@@ -45,12 +45,12 @@ public final class LanceTypeConverter {
     private LanceTypeConverter() {
     }
 
-    /** 将 Lance 暴露的 Arrow 字段递归转换为 Doris 类型。 */
+    /** Converts Arrow fields exposed by Lance to Doris types. */
     public static Type toDorisType(Field field) {
         return toDorisType(field, true);
     }
 
-    /** 转换 Arrow 字段，并仅允许顶层字段使用 Doris NULL 类型。 */
+    /** Converts an Arrow field, allowing Doris NULL only at the top level. */
     private static Type toDorisType(Field field, boolean allowNull) {
         // TODO(lance): Dataset.getSchema() currently erases the Dictionary marker, while
         // Dataset.getLanceSchema() fails to convert a schema containing Dictionary in the
@@ -145,7 +145,7 @@ public final class LanceTypeConverter {
         }
     }
 
-    /** 根据扩展名及其物理存储类型返回对应的 Doris 类型。 */
+    /** Maps a known extension and validates its storage type. */
     private static Type extensionType(Field field, String extensionName) {
         ArrowType storageType = field.getType();
         switch (extensionName) {
@@ -169,7 +169,7 @@ public final class LanceTypeConverter {
         }
     }
 
-    /** 校验 Blob v2 的逻辑结构，兼容最小字段集和带范围信息的完整字段集。 */
+    /** Validates the minimal and ranged Blob v2 storage layouts. */
     private static boolean isBlobV2Storage(Field field) {
         if (field.getType().getTypeID() != ArrowType.ArrowTypeID.Struct) {
             return false;
@@ -187,12 +187,12 @@ public final class LanceTypeConverter {
                         && isUnsignedIntegerField(children.get(3), "size", 64));
     }
 
-    /** 校验字段名称和 Arrow 类型标识。 */
+    /** Checks a field's name and Arrow type. */
     private static boolean isField(Field field, String name, ArrowType.ArrowTypeID typeId) {
         return name.equals(field.getName()) && field.getType().getTypeID() == typeId;
     }
 
-    /** 校验指定名称和位宽的无符号整数字段。 */
+    /** Checks an unsigned integer field's name and width. */
     private static boolean isUnsignedIntegerField(Field field, String name, int bitWidth) {
         if (!name.equals(field.getName())
                 || field.getType().getTypeID() != ArrowType.ArrowTypeID.Int) {
@@ -202,7 +202,7 @@ public final class LanceTypeConverter {
         return !integer.getIsSigned() && integer.getBitWidth() == bitWidth;
     }
 
-    /** 将 Arrow 整数按有符号性和位宽映射到可无损容纳它的 Doris 类型。 */
+    /** Maps an Arrow integer to the narrowest lossless Doris type. */
     private static Type integerType(ArrowType.Int type) {
         if (type.getIsSigned()) {
             switch (type.getBitWidth()) {
@@ -232,7 +232,7 @@ public final class LanceTypeConverter {
         }
     }
 
-    /** 将 Arrow 时间戳映射到对应精度和时区语义的 Doris 类型。 */
+    /** Maps an Arrow timestamp while preserving precision and timezone semantics. */
     private static Type timestampType(ArrowType.Timestamp type) {
         TimeUnit unit = type.getUnit();
         int scale;
@@ -256,7 +256,7 @@ public final class LanceTypeConverter {
                 : ScalarType.createTimeStampTzType(scale);
     }
 
-    /** 将 Arrow 日内时间映射到 Doris TIMEV2。 */
+    /** Maps an Arrow time value to Doris TIMEV2. */
     private static Type timeType(ArrowType.Time type) {
         TimeUnit unit = type.getUnit();
         switch (unit) {
@@ -275,7 +275,7 @@ public final class LanceTypeConverter {
         }
     }
 
-    /** 将 Arrow 日期单位映射到 Doris DATEV2。 */
+    /** Maps an Arrow date value to Doris DATEV2. */
     private static Type dateType(ArrowType.Date type) {
         DateUnit unit = type.getUnit();
         switch (unit) {
@@ -287,7 +287,7 @@ public final class LanceTypeConverter {
         }
     }
 
-    /** 校验嵌套 Arrow 字段的子字段数量。 */
+    /** Checks the child count of a nested Arrow field. */
     private static void requireChildren(Field field, int expected) {
         if (field.getChildren().size() != expected) {
             throw new IllegalArgumentException("Invalid Arrow children for Lance field '" + field.getName()

@@ -129,7 +129,7 @@ suite("test_lance_catalog_all_types","p0,external") {
             where row_id = 1;
         """
 
-        // 验证新增 Lance 类型不仅能完成 Schema 映射，也能读取实际值。
+        // Verify both schema mappings and values for the additional Lance types.
         qt_additional_lance_types """
             SELECT
                 null_col IS NULL AS null_is_null,
