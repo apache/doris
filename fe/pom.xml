@@ -389,7 +389,7 @@ under the License.
         <aircompressor.version>2.0.3</aircompressor.version>
         <!-- paimon -->
         <paimon.version>1.4.2</paimon.version>
-        <frocksdbjni.version>6.20.3-ververica-2.0</frocksdbjni.version>
+        <frocksdbjni.version>8.10.0-ververica-1.0</frocksdbjni.version>
         <disruptor.version>3.4.4</disruptor.version>
         <!-- arrow flight sql -->
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
