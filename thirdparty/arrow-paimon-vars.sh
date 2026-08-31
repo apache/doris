@@ -521,7 +521,7 @@ install_arrow_paimon_prebuilt_archive() {
         rm -rf "${staging_dir}"
         return 1
     fi
-    if ! arrow_paimon_prebuilt_valid "${staging_dir}/candidate/installed"; then
+    if ! shared_arrow_paimon_prebuilt_valid "${staging_dir}/candidate/installed"; then
         rm -rf "${staging_dir}"
         return 1
     fi
@@ -549,7 +549,7 @@ ensure_arrow_paimon_prebuilt_from_url() {
     local download_dir
     local archive
 
-    if arrow_paimon_prebuilt_valid "${thirdparty_root}/installed"; then
+    if shared_arrow_paimon_prebuilt_valid "${thirdparty_root}/installed"; then
         return 0
     fi
 
@@ -566,7 +566,7 @@ ensure_arrow_paimon_prebuilt_from_url() {
         return 1
     fi
     rm -rf "${download_dir}"
-    arrow_paimon_prebuilt_valid "${thirdparty_root}/installed"
+    shared_arrow_paimon_prebuilt_valid "${thirdparty_root}/installed"
 }
 
 invalidate_arrow_prebuilt_marker() {

@@ -78,8 +78,8 @@ exercise_semantic_fingerprints() {
 
     fingerprint_from_fixture "${first_fixture}" arrow first_arrow
     fingerprint_from_fixture "${first_fixture}" paimon first_paimon
-    [[ "${first_arrow}" == "${ARROW_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT}" ]] ||
-        fail "the Arrow legacy marker migration target is stale"
+    [[ "${first_arrow}" != "${ARROW_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT}" ]] ||
+        fail "the empty-row-group fix unexpectedly accepts the legacy Arrow marker"
     [[ "${first_paimon}" != "${PAIMON_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT}" ]] ||
         fail "the dual-prefix Paimon build unexpectedly accepts the legacy root-prefix marker"
     fingerprint_from_fixture "${second_fixture}" arrow second_arrow
@@ -484,17 +484,19 @@ printf '%s\n' "${ARROW_LEGACY_BUILD_FINGERPRINTS[0]}" \
     >"${selected_prebuilt}/arrow-build-fingerprint.txt"
 printf '%s\n' "${PAIMON_LEGACY_BUILD_FINGERPRINTS[0]}" \
     >"${selected_prebuilt}/paimon-build-fingerprint.txt"
-arrow_prebuilt_valid "${prebuilt}" ||
-    fail "the unchanged Arrow artifacts were rejected during fingerprint migration"
+if arrow_prebuilt_valid "${prebuilt}" >/dev/null 2>&1; then
+    fail "the empty-row-group fix accepted a legacy Arrow prebuilt"
+fi
 if paimon_prebuilt_valid "${prebuilt}" >/dev/null 2>&1; then
-    fail "the root-prefix Paimon marker certified the dual-prefix Paimon build"
+    fail "the empty-row-group fix accepted a legacy Paimon prebuilt"
 fi
 if arrow_paimon_prebuilt_valid "${prebuilt}" >/dev/null 2>&1; then
     fail "the shared prebuilt accepted a stale Paimon marker"
 fi
+publish_arrow_prebuilt_marker "${prebuilt}"
 publish_paimon_prebuilt_marker "${prebuilt}"
 arrow_paimon_prebuilt_valid "${prebuilt}" ||
-    fail "the migrated Arrow and Paimon component markers were rejected"
+    fail "the refreshed Arrow and Paimon component markers were rejected"
 if (
     ARROW_BUILD_SCHEMA_VERSION="${ARROW_BUILD_SCHEMA_VERSION}-changed"
     arrow_prebuilt_valid "${prebuilt}"
@@ -508,6 +510,19 @@ if (
     fail "the legacy Paimon marker survived a semantic fingerprint change"
 fi
 
+# A shared prebuilt is complete only when the legacy root stack and the
+# versioned current stack are both present and independently valid.
+mkdir -p "${prebuilt}/include/arrow/util" "${prebuilt}/lib64"
+printf '#define ARROW_VERSION_STRING "%s"\n' "${ARROW_17_VERSION}" \
+    >"${prebuilt}/include/arrow/util/config.h"
+for library in "${ARROW_17_REQUIRED_LIBRARIES[@]}" "${PAIMON_REQUIRED_LIBRARIES[@]}"; do
+    touch "${prebuilt}/lib64/${library}"
+done
+publish_arrow_17_prebuilt_marker "${prebuilt}"
+publish_paimon_17_prebuilt_marker "${prebuilt}"
+shared_arrow_paimon_prebuilt_valid "${prebuilt}" ||
+    fail "matching shared Arrow/Paimon stacks were rejected"
+
 prebuilt_archive_root="${tmpdir}/prebuilt-archive-root"
 prebuilt_archive="${tmpdir}/prebuilt.tar.xz"
 mkdir -p "${prebuilt_archive_root}/installed"
@@ -515,18 +530,37 @@ cp -a "${prebuilt}/." "${prebuilt_archive_root}/installed/"
 tar -C "${prebuilt_archive_root}" -cJf "${prebuilt_archive}" installed
 
 external_thirdparty="${tmpdir}/external-thirdparty"
-mkdir -p "${external_thirdparty}/installed"
+mkdir -p "${external_thirdparty}/installed/${ARROW_INSTALL_SUBDIR}"
+cp -a "${selected_prebuilt}/." \
+    "${external_thirdparty}/installed/${ARROW_INSTALL_SUBDIR}/"
 touch "${external_thirdparty}/installed/old-image-artifact"
 ensure_arrow_paimon_prebuilt_from_url "${external_thirdparty}" \
     "file://${prebuilt_archive}" >/dev/null 2>&1 ||
     fail "BE UT could not refresh an outdated build-image prebuilt"
-arrow_paimon_prebuilt_valid "${external_thirdparty}/installed" ||
+shared_arrow_paimon_prebuilt_valid "${external_thirdparty}/installed" ||
     fail "BE UT installed an invalid build-image prebuilt"
 [[ ! -e "${external_thirdparty}/installed/old-image-artifact" ]] ||
-    fail "BE UT kept files from the outdated build-image prebuilt"
+    fail "BE UT accepted a current-only prebuilt without refreshing the legacy stack"
 ensure_arrow_paimon_prebuilt_from_url "${external_thirdparty}" \
     "file://${tmpdir}/missing-prebuilt.tar.xz" >/dev/null 2>&1 ||
     fail "BE UT tried to download over a valid build-image prebuilt"
+
+missing_legacy_archive_root="${tmpdir}/missing-legacy-prebuilt-archive-root"
+missing_legacy_archive="${tmpdir}/missing-legacy-prebuilt.tar.xz"
+mkdir -p "${missing_legacy_archive_root}/installed"
+cp -a "${prebuilt}/." "${missing_legacy_archive_root}/installed/"
+rm "${missing_legacy_archive_root}/installed/include/arrow/util/config.h"
+tar -C "${missing_legacy_archive_root}" -cJf "${missing_legacy_archive}" installed
+
+missing_legacy_thirdparty="${tmpdir}/missing-legacy-thirdparty"
+mkdir -p "${missing_legacy_thirdparty}/installed"
+touch "${missing_legacy_thirdparty}/installed/preserved-after-missing-legacy-download"
+if ensure_arrow_paimon_prebuilt_from_url "${missing_legacy_thirdparty}" \
+    "file://${missing_legacy_archive}" >/dev/null 2>&1; then
+    fail "BE UT accepted a downloaded prebuilt without Arrow 17"
+fi
+[[ -e "${missing_legacy_thirdparty}/installed/preserved-after-missing-legacy-download" ]] ||
+    fail "BE UT replaced the build-image prebuilt before validating the legacy stack"
 
 invalid_archive_root="${tmpdir}/invalid-prebuilt-archive-root"
 invalid_archive="${tmpdir}/invalid-prebuilt.tar.xz"
@@ -579,31 +613,14 @@ fi
 publish_arrow_prebuilt_marker "${prebuilt}"
 arrow_paimon_prebuilt_valid "${prebuilt}" ||
     fail "republished component markers were rejected"
-select_arrow_paimon_rebuild_packages "${prebuilt}" >/dev/null 2>&1
-[[ "${ARROW_PAIMON_REBUILD_PACKAGES[*]}" == "arrow_17 paimon_cpp_17" ]] ||
-    fail "recovery did not select only the missing Arrow 17 stack"
-
-# The legacy stack remains at the unversioned prefix and is validated
-# independently. Rebuilding or invalidating either stack must not affect the
-# other branch's artifacts or fingerprints.
-mkdir -p "${prebuilt}/include/arrow/util" "${prebuilt}/lib64"
-printf '#define ARROW_VERSION_STRING "%s"\n' "${ARROW_17_VERSION}" \
-    >"${prebuilt}/include/arrow/util/config.h"
-for library in "${ARROW_17_REQUIRED_LIBRARIES[@]}" "${PAIMON_REQUIRED_LIBRARIES[@]}"; do
-    touch "${prebuilt}/lib64/${library}"
-done
-publish_arrow_17_prebuilt_marker "${prebuilt}"
-publish_paimon_17_prebuilt_marker "${prebuilt}"
-arrow_paimon_17_prebuilt_valid "${prebuilt}" ||
-    fail "matching Arrow 17 and Paimon artifacts were rejected"
-arrow_paimon_prebuilt_valid "${prebuilt}" ||
-    fail "publishing the Arrow 17 stack invalidated Arrow 24"
 shared_arrow_paimon_prebuilt_valid "${prebuilt}" ||
-    fail "matching shared Arrow/Paimon stacks were rejected"
+    fail "republishing the Arrow 24 stack invalidated Arrow 17"
 select_arrow_paimon_rebuild_packages "${prebuilt}"
 [[ "${#ARROW_PAIMON_REBUILD_PACKAGES[@]}" -eq 0 ]] ||
     fail "recovery rebuilt an already valid shared stack"
 
+# Rebuilding or invalidating either stack must not affect the other branch's
+# artifacts or fingerprints.
 invalidate_arrow_prebuilt_marker "${prebuilt}"
 arrow_paimon_17_prebuilt_valid "${prebuilt}" ||
     fail "invalidating Arrow 24 affected the Arrow 17 stack"

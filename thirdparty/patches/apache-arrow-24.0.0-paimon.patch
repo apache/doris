@@ -39,14 +39,14 @@
          // don't reserve more rows than necessary
 -        int64_t batch_size = std::min(properties().batch_size(), num_rows);
 -        num_rows -= batch_size;
-+        int64_t batch_size = 0;
-+        if (!num_rows.empty()) {
-+          batch_size = std::min(properties().batch_size(), num_rows[row_group_idx]);
-+          num_rows[row_group_idx] -= batch_size;
-+          if (num_rows[row_group_idx] == 0 && row_group_idx + 1 < num_rows.size()) {
-+            ++row_group_idx;
-+          }
++        while (row_group_idx < num_rows.size() && num_rows[row_group_idx] == 0) {
++          ++row_group_idx;
 +        }
++        if (row_group_idx == num_rows.size()) {
++          return ::arrow::IterationTraits<RecordBatchIterator>::End();
++        }
++        int64_t batch_size = std::min(properties().batch_size(), num_rows[row_group_idx]);
++        num_rows[row_group_idx] -= batch_size;
 
          RETURN_NOT_OK(::arrow::internal::OptionalParallelFor(
              reader_properties_.use_threads(), static_cast<int>(readers.size()),
@@ -224,3 +224,38 @@
    list(GET Thrift_VERSION_LIST 0 Thrift_VERSION_MAJOR)
    list(GET Thrift_VERSION_LIST 1 Thrift_VERSION_MINOR)
    list(GET Thrift_VERSION_LIST 2 Thrift_VERSION_PATCH)
+--- a/cpp/src/parquet/arrow/arrow_reader_writer_test.cc
++++ b/cpp/src/parquet/arrow/arrow_reader_writer_test.cc
+@@ -2571 +2571,32 @@
+ TEST(TestArrowReadWrite, GetRecordBatchReader) { TestGetRecordBatchReader(); }
++
++TEST(TestArrowReadWrite, GetRecordBatchReaderSkipsEmptyLeadingRowGroup) {
++  constexpr int num_columns = 2;
++  constexpr int num_rows = 10;
++
++  std::shared_ptr<Table> table;
++  ASSERT_NO_FATAL_FAILURE(MakeDoubleTable(num_columns, num_rows, 1, &table));
++
++  auto sink = CreateOutputStream();
++  ASSERT_OK_AND_ASSIGN(
++      auto writer,
++      FileWriter::Open(*table->schema(), ::arrow::default_memory_pool(), sink));
++  ASSERT_OK(writer->NewRowGroup());
++  for (int i = 0; i < num_columns; ++i) {
++    ASSERT_OK(writer->WriteColumnChunk(*table->column(i)->chunk(0)->Slice(0, 0)));
++  }
++  ASSERT_OK(writer->NewRowGroup());
++  for (int i = 0; i < num_columns; ++i) {
++    ASSERT_OK(writer->WriteColumnChunk(*table->column(i)->chunk(0)));
++  }
++  ASSERT_OK(writer->Close());
++  ASSERT_OK_AND_ASSIGN(auto buffer, sink->Finish());
++
++  ASSERT_OK_AND_ASSIGN(auto reader, OpenFile(std::make_shared<BufferReader>(buffer),
++                                             ::arrow::default_memory_pool()));
++  ASSERT_EQ(2, reader->num_row_groups());
++
++  ASSERT_OK_AND_ASSIGN(auto batch_reader, reader->GetRecordBatchReader({0, 1}));
++  ASSERT_OK_AND_ASSIGN(auto actual, Table::FromRecordBatchReader(batch_reader.get()));
++  AssertTablesEqual(*table, *actual, /*same_chunk_layout=*/false);
++}

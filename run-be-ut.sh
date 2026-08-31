@@ -57,6 +57,16 @@ prepare_build_image_arrow_paimon_prebuilt() {
     selected_thirdparty_root="$(cd "${DORIS_THIRDPARTY}" && pwd -P)"
     checkout_thirdparty_root="$(cd "${DORIS_HOME}/thirdparty" && pwd -P)"
     if [[ "${selected_thirdparty_root}" == "${checkout_thirdparty_root}" ]]; then
+        select_arrow_paimon_rebuild_packages "${DORIS_THIRDPARTY}/installed"
+        if [[ "${#ARROW_PAIMON_REBUILD_PACKAGES[@]}" -gt 0 ]]; then
+            echo "Arrow/Paimon BE UT thirdparty libraries need to be rebuilt ..."
+            bash "${checkout_thirdparty_root}/build-thirdparty.sh" -j "${PARALLEL}" \
+                "${ARROW_PAIMON_REBUILD_PACKAGES[@]}"
+        fi
+        if ! shared_arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
+            echo "Rebuilt Arrow/Paimon BE UT artifacts do not match this checkout's selected inputs." >&2
+            exit 1
+        fi
         return 0
     fi
 

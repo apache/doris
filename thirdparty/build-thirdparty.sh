@@ -314,23 +314,23 @@ else
 fi
 
 strip_lib_at() {
-    local install_dir="$1"
+    local library_dir="$1"
     local library="$2"
     if [[ "${STRIP_TP_LIB}" = "ON" ]]; then
         if [[ -z "${library}" ]]; then
             echo "Must specify the library to be stripped."
             exit 1
         fi
-        if [[ ! -f "${install_dir}/lib/${library}" ]]; then
-            echo "Library to be stripped (${install_dir}/lib/${library}) does not exist."
+        if [[ ! -f "${library_dir}/${library}" ]]; then
+            echo "Library to be stripped (${library_dir}/${library}) does not exist."
             exit 1
         fi
-        strip --strip-debug --strip-unneeded "${install_dir}/lib/${library}"
+        strip --strip-debug --strip-unneeded "${library_dir}/${library}"
     fi
 }
 
 strip_lib() {
-    strip_lib_at "${TP_INSTALL_DIR}" "$1"
+    strip_lib_at "${TP_LIB_DIR}" "$1"
 }
 
 #libbacktrace
@@ -1079,7 +1079,6 @@ build_arrow_stack() {
 
     check_if_source_exist "${arrow_source}"
     mkdir -p "${install_dir}/lib64"
-    ln -sfn lib64 "${install_dir}/lib"
     cd "${TP_SOURCE_DIR}/${arrow_source}/cpp"
 
     mkdir -p release
@@ -1161,13 +1160,13 @@ build_arrow_stack() {
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a "${install_dir}/lib64/libbrotlienc.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a "${install_dir}/lib64/libbrotlidec.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${install_dir}/lib64/libbrotlicommon.a"
-    strip_lib_at "${install_dir}" libarrow.a
+    strip_lib_at "${install_dir}/lib64" libarrow.a
     if [[ "${has_separate_compute_archive}" == "true" ]]; then
-        strip_lib_at "${install_dir}" libarrow_compute.a
+        strip_lib_at "${install_dir}/lib64" libarrow_compute.a
     fi
-    strip_lib_at "${install_dir}" libparquet.a
-    strip_lib_at "${install_dir}" libarrow_dataset.a
-    strip_lib_at "${install_dir}" libarrow_acero.a
+    strip_lib_at "${install_dir}/lib64" libparquet.a
+    strip_lib_at "${install_dir}/lib64" libarrow_dataset.a
+    strip_lib_at "${install_dir}/lib64" libarrow_acero.a
 }
 
 build_arrow_17() {
@@ -2082,7 +2081,6 @@ build_paimon_cpp_stack() {
 
     check_if_source_exist "${paimon_source}"
     mkdir -p "${install_dir}/lib64"
-    ln -sfn lib64 "${install_dir}/lib"
     cd "${TP_SOURCE_DIR}/${paimon_source}"
 
     rm -rf "${BUILD_DIR}"
