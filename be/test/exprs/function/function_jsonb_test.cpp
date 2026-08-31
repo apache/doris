@@ -1056,4 +1056,77 @@ TEST(FunctionJsonbTEST, JsonbModifyMissingPathParent) {
     }
 }
 
+// json_extract_string over a raw VARCHAR/STRING column must stay byte-identical to the existing
+// Cast(JsonbExtract(CAST(text AS JSON), path) AS String) path; expected values below are that
+// path's output (JSON null -> SQL NULL, strings unescaped, numbers/whitespace normalized).
+TEST(FunctionJsonbTEST, JsonExtractStringFromVarcharTest) {
+    std::string func_name = "jsonb_extract_string";
+    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR},
+                                Nullable {PrimitiveType::TYPE_VARCHAR}};
+
+    DataSet data_set = {
+            {{Null(), STRING("$.k1")}, Null()},
+            {{STRING("{}"), STRING("$.k1")}, Null()},
+            {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$.k1")}, STRING("v31")},
+            {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$.k2")}, STRING("300")},
+            {{STRING(R"({"k1":null})"), STRING("$.k1")}, Null()},
+            {{STRING(R"({"k1":"null"})"), STRING("$.k1")}, STRING("null")},
+            {{STRING(R"({"k1":true})"), STRING("$.k1")}, STRING("true")},
+            {{STRING(R"({"k1":false})"), STRING("$.k1")}, STRING("false")},
+            {{STRING(R"({"k1":123})"), STRING("$.k1")}, STRING("123")},
+            {{STRING(R"({"k1":3.14})"), STRING("$.k1")}, STRING("3.14")},
+            {{STRING(R"({"k1":3.140})"), STRING("$.k1")}, STRING("3.14")},
+            {{STRING(R"({"k1":1e2})"), STRING("$.k1")}, STRING("100")},
+            {{STRING(R"({"k1":10000000000})"), STRING("$.k1")}, STRING("10000000000")},
+            {{STRING(R"({"k1":[1, 2, 3]})"), STRING("$.k1")}, STRING("[1,2,3]")},
+            {{STRING(R"({"k1":{"nested" : "value"}})"), STRING("$.k1")},
+             STRING(R"({"nested":"value"})")},
+            {{STRING(R"({"k1":"caf\u00e9"})"), STRING("$.k1")}, STRING("caf\u00e9")},
+            {{STRING(R"({"k1":"a\"b"})"), STRING("$.k1")}, STRING(R"(a"b)")},
+    };
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    data_set = {
+            {{STRING(R"({"k1":{"k2":"v2"}})"), STRING("$.k1.k2")}, STRING("v2")},
+            {{STRING(R"({"k1":{"k2":[1,2,3]}})"), STRING("$.k1.k2[0]")}, STRING("1")},
+            {{STRING(R"({"k1":{"k2":[1,2,3]}})"), STRING("$.k1.k2[1]")}, STRING("2")},
+            {{STRING(R"({"k1":[{"k2":"v1"},{"k2":"v2"}]})"), STRING("$.k1[0].k2")}, STRING("v1")},
+            {{STRING(R"({"k1":[{"k2":"v1"},{"k2":"v2"}]})"), STRING("$.k1[1].k2")}, STRING("v2")},
+            {{STRING(R"({"arr":[123, 456]})"), STRING("$.arr[0]")}, STRING("123")},
+            {{STRING(R"({"arr":[123, 456]})"), STRING("$.arr[1]")}, STRING("456")},
+            {{STRING(R"({"arr":[123, 456]})"), STRING("$.arr[2]")}, Null()},
+            {{STRING(R"({"arr":[{"k1":"v41", "k2": 400}, 1]})"), STRING("$.arr[0]")},
+             STRING(R"({"k1":"v41","k2":400})")},
+            {{STRING(R"({"k1":"v1"})"), STRING("$.nope")}, Null()},
+    };
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    // top-level object, array and scalar roots must be preserved, not narrowed to NULL.
+    data_set = {
+            {{STRING(R"({"k1":"v1"})"), STRING("$")}, STRING(R"({"k1":"v1"})")},
+            {{STRING("[1, 2, 3]"), STRING("$")}, STRING("[1,2,3]")},
+            {{STRING("[]"), STRING("$")}, STRING("[]")},
+            {{STRING("[1,2,3]"), STRING("$[0]")}, STRING("1")},
+            {{STRING("[1,2,3]"), STRING("$[9]")}, Null()},
+            {{STRING(R"([{"k":1},{"k":2}])"), STRING("$[1].k")}, STRING("2")},
+            {{STRING("100"), STRING("$")}, STRING("100")},
+            {{STRING("6.18"), STRING("$")}, STRING("6.18")},
+            {{STRING(R"("abcd")"), STRING("$")}, STRING("abcd")},
+            {{STRING("true"), STRING("$")}, STRING("true")},
+            {{STRING("false"), STRING("$")}, STRING("false")},
+            {{STRING("null"), STRING("$")}, Null()},
+    };
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    data_set = {
+            {{STRING("invalid"), STRING("$")}, Null()},
+            {{STRING("{invalid}"), STRING("$")}, Null()},
+            {{STRING("[1,2,"), STRING("$")}, Null()},
+            {{STRING(""), STRING("$")}, Null()},
+            {{STRING(""), STRING("$.k1")}, Null()},
+            {{STRING(R"({"k1":"v1"})"), Null()}, Null()},
+    };
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+}
+
 } // namespace doris
