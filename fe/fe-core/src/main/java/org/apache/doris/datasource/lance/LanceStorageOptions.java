@@ -75,7 +75,16 @@ public final class LanceStorageOptions {
         // Safe to validate the vended half before normalizing: normalizeVended only ever renames a
         // key to one of this class's own constants or passes it through unchanged, so it cannot
         // introduce a NUL that the check above would have missed.
-        result.putAll(LanceStorageProvider.forDataset(datasetUri).normalizeVended(vendedOptions));
+        LanceStorageProvider provider = LanceStorageProvider.forDataset(datasetUri);
+        Map<String, String> normalizedVended = provider.normalizeVended(vendedOptions);
+        result.putAll(normalizedVended);
+        // The overlay above is key by key, which can leave OSS's authentication options - a key
+        // pair, its token, and the flag saying there is no pair - disagreeing with one another.
+        // Only OSS couples its options this way, so this is a direct call rather than a hook on
+        // LanceStorageProvider that one implementation would honour and the others ignore.
+        if (provider instanceof LanceOssStorageProvider) {
+            LanceOssStorageProvider.reconcileAuth(result, normalizedVended);
+        }
         return result;
     }
 

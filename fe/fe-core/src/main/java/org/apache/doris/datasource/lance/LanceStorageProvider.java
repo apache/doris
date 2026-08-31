@@ -68,6 +68,7 @@ public interface LanceStorageProvider {
      */
     Map<String, String> normalizeVended(Map<String, String> vendedOptions);
 
+
     /** The provider Lance will route this dataset to. */
     static LanceStorageProvider forDataset(String datasetUri) {
         String scheme = schemeOf(datasetUri);

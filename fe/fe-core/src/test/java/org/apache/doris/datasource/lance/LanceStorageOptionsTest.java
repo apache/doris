@@ -131,7 +131,7 @@ public class LanceStorageOptionsTest {
         Assertions.assertEquals(
                 new TreeSet<>(Arrays.asList("oss_endpoint", "oss_access_key_id",
                         "oss_secret_access_key", "oss_region", "oss_security_token",
-                        "addressing_style")),
+                        "addressing_style", "allow_anonymous")),
                 new TreeSet<>(options.keySet()));
     }
 
@@ -179,7 +179,10 @@ public class LanceStorageOptionsTest {
 
     @Test
     public void testOssAliasesCollapseAndConflictsAreRejected() {
+        // Carries a whole credential: a lone secret is a one-sided pair, which reconciliation
+        // now rejects on its own account, and that is not what this case is about.
         Map<String, String> agreeing = new HashMap<>();
+        agreeing.put("access_key_id", "ak");
         agreeing.put("access_key_secret", "same");
         agreeing.put("oss_secret_access_key", "same");
         Assertions.assertEquals("same", LanceStorageOptions.forVendedTable(
@@ -457,7 +460,7 @@ public class LanceStorageOptionsTest {
     public void testOssCredentialedModeDoesNotClaimAnonymous() {
         Map<String, String> options = LanceStorageOptions.forUri(OSS_URI, createAll(ossProperties()));
 
-        Assertions.assertNull(options.get("allow_anonymous"));
+        Assertions.assertEquals("false", options.get("allow_anonymous"));
     }
 
     /**
@@ -502,5 +505,164 @@ public class LanceStorageOptionsTest {
         Assertions.assertNotEquals(
                 options.containsKey("oss_access_key_id"), options.containsKey("allow_anonymous"),
                 "a credential and a claim of anonymity must never both be emitted");
+    }
+
+    /**
+     * The case that makes this matter: an anonymous catalog whose namespace vends real credentials.
+     * OpenDAL's OssCore::sign returns the request unsigned whenever allow_anonymous is set, no
+     * matter what credentials sit beside it, so leaving the flag on would silently unsign every
+     * FE metadata read and BE scan that the vended credentials were supposed to authorize.
+     */
+    @Test
+    public void testVendedOssCredentialsClearStaticAnonymousMode() {
+        Map<String, String> properties = ossProperties();
+        properties.remove("oss.access_key");
+        properties.remove("oss.secret_key");
+        Assertions.assertEquals("true",
+                LanceStorageOptions.forUri(OSS_URI, createAll(properties)).get("allow_anonymous"),
+                "precondition: the static half alone is anonymous");
+
+        Map<String, String> vended = new HashMap<>();
+        vended.put("access_key_id", "vended-ak");
+        vended.put("access_key_secret", "vended-sk");
+
+        Map<String, String> merged = LanceStorageOptions.forVendedTable(
+                OSS_URI, createAll(properties), vended);
+
+        // Stated false rather than removed: an absent key would let an exported
+        // OSS_ALLOW_ANONYMOUS put the flag back, which is the bug this guards.
+        Assertions.assertEquals("false", merged.get("allow_anonymous"));
+        Assertions.assertEquals("vended-ak", merged.get("oss_access_key_id"));
+        Assertions.assertEquals("vended-sk", merged.get("oss_secret_access_key"));
+    }
+
+    /**
+     * A vended key pair replaces the catalog's. A token from the static half belonged to the pair
+     * that was just replaced, and signing the new pair with it fails; drop it with its pair.
+     */
+    @Test
+    public void testVendedOssKeyPairDropsTheStaticToken() {
+        Map<String, String> properties = ossProperties();
+        properties.put("oss.session_token", "static-token");
+        Map<String, String> vended = new HashMap<>();
+        vended.put("access_key_id", "vended-ak");
+        vended.put("access_key_secret", "vended-sk");
+
+        Map<String, String> merged = LanceStorageOptions.forVendedTable(
+                OSS_URI, createAll(properties), vended);
+
+        Assertions.assertNull(merged.get("oss_security_token"));
+        Assertions.assertEquals("vended-ak", merged.get("oss_access_key_id"));
+    }
+
+    /**
+     * A namespace that vends its own token keeps it - only a stale one is dropped. The token
+     * assertion alone would pass without reconciliation, since the overlay overwrites it anyway,
+     * so this also pins the flag that only reconciliation states.
+     */
+    @Test
+    public void testVendedOssTokenSurvivesWithItsOwnPair() {
+        Map<String, String> properties = ossProperties();
+        properties.put("oss.session_token", "static-token");
+        Map<String, String> vended = new HashMap<>();
+        vended.put("access_key_id", "vended-ak");
+        vended.put("access_key_secret", "vended-sk");
+        vended.put("security_token", "vended-token");
+
+        Map<String, String> merged = LanceStorageOptions.forVendedTable(
+                OSS_URI, createAll(properties), vended);
+
+        Assertions.assertEquals("vended-token", merged.get("oss_security_token"));
+        Assertions.assertEquals("false", merged.get("allow_anonymous"));
+    }
+
+    /**
+     * The half that was not vended belongs to the pair being replaced. Keeping it produces a
+     * mismatched tuple that OpenDAL signs with anyway, failing at scan time with
+     * SignatureDoesNotMatch; the catalog's own both-or-neither rule cannot catch it, because the
+     * merged map is not one-sided until the stale half is dropped.
+     */
+    @Test
+    public void testVendedOssHalfPairDoesNotMixWithTheStaticOne() {
+        Map<String, String> properties = ossProperties();
+        Map<String, String> vended = new HashMap<>();
+        vended.put("access_key_id", "vended-ak");
+
+        IllegalArgumentException thrown = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> LanceStorageOptions.forVendedTable(OSS_URI, createAll(properties), vended));
+        Assertions.assertTrue(thrown.getMessage().contains("Incomplete OSS credential"),
+                "unexpected message: " + thrown.getMessage());
+    }
+
+    /**
+     * A namespace asking for anonymous access has just described this table, which outranks a
+     * credential the catalog holds for something else. Signing with it would 403 on a bucket the
+     * catalog's account cannot read.
+     */
+    @Test
+    public void testVendedAnonymousModeOutranksStaticOssCredentials() {
+        Map<String, String> vended = new HashMap<>();
+        vended.put("allow_anonymous", "true");
+
+        Map<String, String> merged = LanceStorageOptions.forVendedTable(
+                OSS_URI, createAll(ossProperties()), vended);
+
+        Assertions.assertEquals("true", merged.get("allow_anonymous"));
+        Assertions.assertNull(merged.get("oss_access_key_id"));
+        Assertions.assertNull(merged.get("oss_secret_access_key"));
+    }
+
+    /**
+     * Blank is not a credential. OpenDAL would otherwise build a signer from empty strings and
+     * sign every request with them, while nothing says the access is anonymous.
+     */
+    @Test
+    public void testVendedEmptyOssCredentialsFallBackToAnonymous() {
+        Map<String, String> properties = ossProperties();
+        properties.put("oss.session_token", "static-token");
+        Map<String, String> vended = new HashMap<>();
+        vended.put("access_key_id", "");
+        vended.put("access_key_secret", "");
+
+        Map<String, String> merged = LanceStorageOptions.forVendedTable(
+                OSS_URI, createAll(properties), vended);
+
+        Assertions.assertEquals("true", merged.get("allow_anonymous"));
+        Assertions.assertNull(merged.get("oss_access_key_id"));
+        Assertions.assertNull(merged.get("oss_secret_access_key"));
+        Assertions.assertNull(merged.get("oss_security_token"));
+    }
+
+    /**
+     * Absence is not neutral: lance snapshots the host's OSS_/AWS_ environment into the same config
+     * map before these options are applied, so an exported OSS_ALLOW_ANONYMOUS decides this unless
+     * Doris states the answer.
+     */
+    @Test
+    public void testOssAnonymousModeIsStatedEitherWay() {
+        Assertions.assertEquals("false",
+                LanceStorageOptions.forUri(OSS_URI, createAll(ossProperties()))
+                        .get("allow_anonymous"));
+
+        Map<String, String> anonymous = ossProperties();
+        anonymous.remove("oss.access_key");
+        anonymous.remove("oss.secret_key");
+        Assertions.assertEquals("true",
+                LanceStorageOptions.forUri(OSS_URI, createAll(anonymous)).get("allow_anonymous"));
+    }
+
+    /** Half a credential cannot sign; fail where the catalog is defined rather than at scan time. */
+    @Test
+    public void testOneSidedVendedOssCredentialIsRejected() {
+        Map<String, String> vended = new HashMap<>();
+        vended.put("access_key_id", "vended-ak-only");
+
+        IllegalArgumentException thrown = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> LanceStorageOptions.forVendedTable(
+                        OSS_URI, Collections.emptyList(), vended));
+        Assertions.assertTrue(thrown.getMessage().contains("Incomplete OSS credential"),
+                "unexpected message: " + thrown.getMessage());
     }
 }

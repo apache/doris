@@ -79,8 +79,11 @@ public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties 
             throw new IllegalArgumentException(
                     "Missing required property 'warehouse' for Lance filesystem catalog");
         }
-        warehouse = normalizeWarehouse(warehouse);
+        rejectOssHdfs();
+        // Validate before normalizing: the rewrite collapses the authority at its first dot, which
+        // would strip the very marker that identifies an OSS-HDFS root.
         validateWarehouse(warehouse);
+        warehouse = normalizeWarehouse(warehouse);
         for (String key : origProps.keySet()) {
             if (key.startsWith("lance.rest.")) {
                 throw new IllegalArgumentException(
@@ -120,6 +123,28 @@ public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties 
     }
 
     /**
+     * Doris routes an OSS-HDFS configuration to {@code OSSHdfsProperties}, which the Lance OSS
+     * provider cannot read - it accepts only {@code OSSProperties} - so the namespace would be
+     * handed no endpoint and no credentials and could not open at all.
+     *
+     * <p>Checks every property rather than only the warehouse: {@code OSSHdfsProperties.guessIsMe}
+     * selects on the endpoint, so {@code oss://bucket/path} with an {@code oss.endpoint} ending in
+     * the OSS-HDFS suffix routes there just the same, with a clean-looking warehouse.
+     */
+    private void rejectOssHdfs() {
+        for (Map.Entry<String, String> property : origProps.entrySet()) {
+            String value = property.getValue();
+            if (value != null && value.toLowerCase(Locale.ROOT).contains(OSS_HDFS_MARKER)) {
+                throw new IllegalArgumentException(
+                        "OSS-HDFS is not supported by the Lance catalog, but '"
+                                + property.getKey() + "' names it. Doris reads this form through "
+                                + "its HDFS-compatible properties, which carry no Lance OSS "
+                                + "storage options.");
+            }
+        }
+    }
+
+    /**
      * Doris accepts an OSS URL that spells out the endpoint in its authority and normalizes it to
      * the bare bucket. Lance takes the authority as the bucket verbatim, so a warehouse left in the
      * qualified form would address {@code bucket.oss-<region>.aliyuncs.com.<endpoint>}. Apply the
@@ -136,12 +161,6 @@ public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties 
             return warehouse;
         }
         if (uri.getScheme() == null || !"oss".equals(uri.getScheme().toLowerCase(Locale.ROOT))) {
-            return warehouse;
-        }
-        // OSS-HDFS is the one oss:// form whose qualified authority is the required spelling -
-        // OSSHdfsProperties validates such a URL without ever rewriting it - so leave it alone.
-        String authority = uri.getAuthority();
-        if (authority != null && authority.toLowerCase(Locale.ROOT).contains(OSS_HDFS_MARKER)) {
             return warehouse;
         }
         return OSSProperties.rewriteOssBucketIfNecessary(warehouse);
