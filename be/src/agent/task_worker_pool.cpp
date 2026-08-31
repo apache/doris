@@ -2577,17 +2577,30 @@ void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
 
 void clean_udf_cache_callback(const TAgentTaskRequest& req) {
     const auto& clean_req = req.clean_udf_cache_req;
+    if (clean_req.__isset.function_id && clean_req.function_id <= 0) {
+        LOG(WARNING) << "skip clean udf cache request with invalid function_id="
+                     << clean_req.function_id
+                     << ", function_signature=" << clean_req.function_signature;
+        return;
+    }
+    // Requests from old FEs do not set function_id and must keep signature-based cleanup.
+    const bool drop_by_function_id = clean_req.__isset.function_id;
 
     if (doris::config::enable_java_support) {
-        static_cast<void>(Jni::Util::clean_udf_class_load_cache(clean_req.function_signature));
+        WARN_IF_ERROR(
+                Jni::Util::clean_udf_class_load_cache(
+                        clean_req.function_signature,
+                        drop_by_function_id ? clean_req.function_id : 0),
+                fmt::format("failed to clean Java UDF cache, function_signature={}, function_id={}",
+                            clean_req.function_signature, clean_req.function_id));
     }
-
-    if (clean_req.__isset.function_id && clean_req.function_id > 0) {
+    if (drop_by_function_id) {
         UserFunctionCache::instance()->drop_function_cache(clean_req.function_id);
         PythonServerManager::instance().clear_udaf_state_cache(clean_req.function_id);
     }
 
-    LOG(INFO) << "clean udf cache finish: function_signature=" << clean_req.function_signature;
+    LOG(INFO) << "clean udf cache callback finish: function_signature="
+              << clean_req.function_signature << ", function_id=" << clean_req.function_id;
 }
 
 void report_index_policy_callback(const ClusterInfo* cluster_info) {
