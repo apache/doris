@@ -29,9 +29,11 @@
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/field.h"
 #include "core/string_ref.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "storage/metadata_adder.h"
+#include "storage/olap_define.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/once.h"
 
@@ -65,6 +67,18 @@ struct ZoneMap {
     bool has_negative_inf = false;
 
     bool has_nan = false;
+
+    // True when a string bound was cut to MAX_ZONE_MAP_INDEX_SIZE bytes. A cut max is bumped by
+    // one byte to stay above the real value, and that bump used to wrap: "aa..a\xff" was stored
+    // as "aa..a\x00", below the value it covers. Old segments keep that bad max until they are
+    // rewritten, so a cut bound must never prove that every row matches.
+    bool has_cut_string_bounds() const {
+        if (!is_string_type(min_value.get_type())) {
+            return false;
+        }
+        return min_value.as_string_view().size() >= MAX_ZONE_MAP_INDEX_SIZE ||
+               max_value.as_string_view().size() >= MAX_ZONE_MAP_INDEX_SIZE;
+    }
 
     void to_proto(ZoneMapPB* dst, const DataTypePtr& data_type) const {
         if (pass_all || !has_not_null) {

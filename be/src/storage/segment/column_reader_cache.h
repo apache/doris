@@ -67,8 +67,7 @@ public:
 
     // Get column reader by column unique id
     Status get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
-                             OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr,
-                             std::optional<Field> const_value = std::nullopt);
+                             OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr);
 
     // Get column reader by column unique id and path(leaf node of variant's subcolumn)
     virtual Status get_path_column_reader(int32_t col_uid, PathInData relative_path,

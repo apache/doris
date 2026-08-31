@@ -438,7 +438,8 @@ TEST(ExprZonemapFilterTest, ComparisonZonemapHandlesBoundariesAndAllOperators) {
     auto single_value_ctx = make_context(make_int_zonemap(10, 10), type);
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
               not_equals.evaluate_zonemap_filter(single_value_ctx, {slot, make_int_literal(10)}));
-    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+    // The zone holds only 10, so every row differs from 11.
+    EXPECT_EQ(ZoneMapFilterResult::kAllMatch,
               not_equals.evaluate_zonemap_filter(single_value_ctx, {slot, make_int_literal(11)}));
 
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
@@ -929,8 +930,10 @@ TEST(ExprZonemapFilterTest, NullZonemapUsesNullFlagsOnly) {
     };
     const std::vector<NullFlagCase> cases {
             {false, false, ZoneMapFilterResult::kNoMatch, ZoneMapFilterResult::kNoMatch},
-            {true, false, ZoneMapFilterResult::kMayMatch, ZoneMapFilterResult::kNoMatch},
-            {false, true, ZoneMapFilterResult::kNoMatch, ZoneMapFilterResult::kMayMatch},
+            // Every row is NULL, so IS NULL holds for all of them and IS NOT NULL for none.
+            {true, false, ZoneMapFilterResult::kAllMatch, ZoneMapFilterResult::kNoMatch},
+            // Mirror of the row above.
+            {false, true, ZoneMapFilterResult::kNoMatch, ZoneMapFilterResult::kAllMatch},
             {true, true, ZoneMapFilterResult::kMayMatch, ZoneMapFilterResult::kMayMatch}};
 
     for (const auto& c : cases) {
@@ -1030,7 +1033,8 @@ TEST(ExprZonemapFilterTest, FunctionStringStartsWithZonemapUsesPrefixRange) {
             starts_with->can_evaluate_zonemap_filter({slot, make_string_literal(max_byte_prefix)}));
     auto max_prefix_ctx =
             make_context(make_string_zonemap(max_byte_prefix, max_byte_prefix + "z"), type);
-    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+    // 0xff has no next prefix, so the range is [0xff, +inf) and the whole zone sits inside it.
+    EXPECT_EQ(ZoneMapFilterResult::kAllMatch,
               starts_with->evaluate_zonemap_filter(max_prefix_ctx,
                                                    {slot, make_string_literal(max_byte_prefix)}));
 }
@@ -1169,8 +1173,9 @@ TEST(ExprZonemapFilterTest, InZonemapHandlesEmptyListAndNotInSingleValueRange) {
               expr_zonemap::eval_in_zonemap(single_value_ctx, slot, true, values.min_max,
                                             *values.set));
 
+    // The zone holds only 10 and the list only 11, so every row satisfies NOT IN.
     auto other_values = make_int_set_with_min_max({11});
-    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+    EXPECT_EQ(ZoneMapFilterResult::kAllMatch,
               expr_zonemap::eval_in_zonemap(single_value_ctx, slot, true, other_values.min_max,
                                             *other_values.set));
 }
@@ -1865,10 +1870,30 @@ TEST(ExprZonemapFilterTest, CompoundPredicateEvaluatesChildrenForZonemap) {
     or_pred.add_child(make_fixed_zonemap_expr(ZoneMapFilterResult::kMayMatch));
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch, or_pred.evaluate_zonemap_filter(ctx));
 
+    // One branch we cannot read stops the group from proving anything. Answering kAllMatch off a
+    // readable sibling would drop the whole conjunct, including a branch that is there to raise.
     VCompoundPred or_with_unsupported(make_compound_node(TExprOpcode::COMPOUND_OR, 2));
     or_with_unsupported.add_child(make_fixed_zonemap_expr(ZoneMapFilterResult::kNoMatch));
     or_with_unsupported.add_child(std::make_shared<UnsupportedSingleSlotExpr>(slot));
     EXPECT_FALSE(or_with_unsupported.can_evaluate_zonemap_filter());
+
+    // With every branch readable, one that matches every row settles the group.
+    VCompoundPred or_all_match(make_compound_node(TExprOpcode::COMPOUND_OR, 2));
+    or_all_match.add_child(make_fixed_zonemap_expr(ZoneMapFilterResult::kAllMatch));
+    or_all_match.add_child(make_fixed_zonemap_expr(ZoneMapFilterResult::kNoMatch));
+    EXPECT_TRUE(or_all_match.can_evaluate_zonemap_filter());
+    EXPECT_EQ(ZoneMapFilterResult::kAllMatch, or_all_match.evaluate_zonemap_filter(ctx));
+
+    // AND matches every row only when every branch does.
+    VCompoundPred and_all_match(make_compound_node(TExprOpcode::COMPOUND_AND, 2));
+    and_all_match.add_child(make_fixed_zonemap_expr(ZoneMapFilterResult::kAllMatch));
+    and_all_match.add_child(make_fixed_zonemap_expr(ZoneMapFilterResult::kAllMatch));
+    EXPECT_EQ(ZoneMapFilterResult::kAllMatch, and_all_match.evaluate_zonemap_filter(ctx));
+
+    VCompoundPred and_partly_all_match(make_compound_node(TExprOpcode::COMPOUND_AND, 2));
+    and_partly_all_match.add_child(make_fixed_zonemap_expr(ZoneMapFilterResult::kAllMatch));
+    and_partly_all_match.add_child(make_fixed_zonemap_expr(ZoneMapFilterResult::kMayMatch));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch, and_partly_all_match.evaluate_zonemap_filter(ctx));
 
     VCompoundPred or_no_match(make_compound_node(TExprOpcode::COMPOUND_OR, 2));
     or_no_match.add_child(make_fixed_zonemap_expr(ZoneMapFilterResult::kNoMatch));
@@ -1888,17 +1913,20 @@ TEST(ExprZonemapFilterTest, ExprContextZonemapEvaluationShortCircuitsOnNoMatch) 
             VExprContext::create_shared(make_fixed_zonemap_expr(ZoneMapFilterResult::kNoMatch));
 
     ZoneMapEvalContext ctx;
+    std::vector<bool> always_true;
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-              VExprContext::evaluate_zonemap_filter({may_match, no_match}, ctx));
+              VExprContext::evaluate_zonemap_filter({may_match, no_match}, ctx, &always_true));
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
-              VExprContext::evaluate_zonemap_filter({may_match}, ctx));
+              VExprContext::evaluate_zonemap_filter({may_match}, ctx, &always_true));
+    // A conjunct that only may match is never marked for dropping.
+    EXPECT_EQ(std::vector<bool> {false}, always_true);
 
     auto type = int_type();
     auto slot = make_slot(0, type);
     auto unsupported =
             VExprContext::create_shared(std::make_shared<UnsupportedSingleSlotExpr>(slot));
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
-              VExprContext::evaluate_zonemap_filter({unsupported, no_match}, ctx));
+              VExprContext::evaluate_zonemap_filter({unsupported, no_match}, ctx, &always_true));
     EXPECT_EQ(0, ctx.stats.unusable_zonemap_eval_count);
 }
 

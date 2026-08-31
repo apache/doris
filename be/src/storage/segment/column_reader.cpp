@@ -258,10 +258,6 @@ bool ColumnReader::is_compaction_reader_type(ReaderType type) {
 Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                             uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                             std::shared_ptr<ColumnReader>* reader) {
-    if (opts.const_value.has_value()) {
-        *reader = std::make_shared<ConstantColumnReader>(*opts.const_value);
-        return Status::OK();
-    }
     if (is_scalar_type((FieldType)meta.type())) {
         std::shared_ptr<ColumnReader> reader_local(
                 new ColumnReader(opts, meta, num_rows, file_reader));
@@ -459,15 +455,38 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
 
-Status ColumnReader::get_row_ranges_by_zone_map(
-        const AndBlockColumnPredicate* col_predicates,
-        const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
-        RowRanges* row_ranges, const ColumnIteratorOptions& iter_opts) {
-    std::vector<uint32_t> page_indexes;
-    RETURN_IF_ERROR(
-            _get_filtered_pages(col_predicates, delete_predicates, &page_indexes, iter_opts));
-    RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, row_ranges, iter_opts));
+Status ColumnReader::get_page_zone_map_count(const ColumnIteratorOptions& iter_opts,
+                                             size_t* count) {
+    DORIS_CHECK(count != nullptr);
+    if (_zone_map_index == nullptr) {
+        *count = 0;
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_load_zone_map_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
+    RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
+    *count = _zone_map_index->num_pages();
     return Status::OK();
+}
+
+Status ColumnReader::get_page_zone_map(size_t page_index, RowRange* rows,
+                                       segment_v2::ZoneMap* zone_map) {
+    DORIS_CHECK(rows != nullptr && zone_map != nullptr);
+    DORIS_CHECK(_zone_map_index != nullptr && page_index < _zone_map_index->num_pages());
+    // The two indexes are stored apart and are only equal in length on a healthy segment.
+    // get_last_ordinal() reads one past its argument, so a zone map with more pages than the
+    // ordinal index would run off the end of the ordinal vector.
+    if (_ordinal_index == nullptr ||
+        page_index >= cast_set<size_t>(_ordinal_index->num_data_pages())) {
+        return Status::Corruption(
+                "zone map page {} has no ordinal entry, zone map pages={}, ordinal pages={}",
+                page_index, _zone_map_index->num_pages(),
+                _ordinal_index == nullptr ? -1 : _ordinal_index->num_data_pages());
+    }
+    const auto index = cast_set<uint32_t>(page_index);
+    *rows = RowRange(_ordinal_index->get_first_ordinal(index),
+                     _ordinal_index->get_last_ordinal(index) + 1);
+    return ZoneMap::from_proto(_zone_map_index->page_zone_maps()[page_index], _data_type,
+                               *zone_map);
 }
 
 Status ColumnReader::next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) const {
@@ -486,119 +505,6 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) co
     dst->insert(zone_map.max_value);
     for (int i = 1; i < *n; ++i) {
         dst->insert(zone_map.min_value);
-    }
-    return Status::OK();
-}
-
-Status ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicates,
-                                     bool* matched) const {
-    *matched = true;
-    if (_zone_map_index == nullptr) {
-        return Status::OK();
-    }
-    ZoneMap zone_map;
-    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
-
-    *matched = _zone_map_match_condition(zone_map, col_predicates);
-    return Status::OK();
-}
-
-Status ConstantColumnReader::match_condition(const AndBlockColumnPredicate* col_predicates,
-                                             bool* matched) const {
-    ZoneMap zone_map;
-    zone_map.min_value = _value;
-    zone_map.max_value = _value;
-    zone_map.has_not_null = !_value.is_null();
-    // evaluate_and returns false iff no value in [min, max] (i.e. the real constant) can satisfy
-    // the predicates; predicates that don't support zonemap conservatively return true.
-    *matched = col_predicates->evaluate_and(zone_map);
-    return Status::OK();
-}
-
-Status ColumnReader::prune_predicates_by_zone_map(
-        std::vector<std::shared_ptr<ColumnPredicate>>& predicates, const int column_id,
-        bool* pruned) const {
-    *pruned = false;
-    if (_zone_map_index == nullptr) {
-        return Status::OK();
-    }
-
-    ZoneMap zone_map;
-    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
-    if (zone_map.pass_all) {
-        return Status::OK();
-    }
-
-    for (auto it = predicates.begin(); it != predicates.end();) {
-        auto predicate = *it;
-        if (predicate->column_id() == column_id && predicate->is_always_true(zone_map)) {
-            *pruned = true;
-            it = predicates.erase(it);
-        } else {
-            ++it;
-        }
-    }
-    return Status::OK();
-}
-
-bool ColumnReader::_zone_map_match_condition(const ZoneMap& zone_map,
-                                             const AndBlockColumnPredicate* col_predicates) const {
-    if (zone_map.pass_all) {
-        return true;
-    }
-
-    return col_predicates->evaluate_and(zone_map);
-}
-
-Status ColumnReader::_get_filtered_pages(
-        const AndBlockColumnPredicate* col_predicates,
-        const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
-        std::vector<uint32_t>* page_indexes, const ColumnIteratorOptions& iter_opts) {
-    RETURN_IF_ERROR(_load_zone_map_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
-
-    const std::vector<ZoneMapPB>& zone_maps = _zone_map_index->page_zone_maps();
-    size_t page_size = _zone_map_index->num_pages();
-    for (size_t i = 0; i < page_size; ++i) {
-        if (zone_maps[i].pass_all()) {
-            page_indexes->push_back(cast_set<uint32_t>(i));
-        } else {
-            segment_v2::ZoneMap zone_map;
-            RETURN_IF_ERROR(ZoneMap::from_proto(zone_maps[i], _data_type, zone_map));
-            if (_zone_map_match_condition(zone_map, col_predicates)) {
-                bool should_read = true;
-                if (delete_predicates != nullptr) {
-                    for (auto del_pred : *delete_predicates) {
-                        // TODO: Both `min_value` and `max_value` should be 0 or neither should be 0.
-                        //  So nullable only need to judge once.
-                        if (del_pred->evaluate_del(zone_map)) {
-                            should_read = false;
-                            break;
-                        }
-                    }
-                }
-                if (should_read) {
-                    page_indexes->push_back(cast_set<uint32_t>(i));
-                }
-            }
-        }
-    }
-    VLOG(1) << "total-pages: " << page_size << " not-filtered-pages: " << page_indexes->size()
-            << " filtered-percent:"
-            << 1.0 - (static_cast<double>(page_indexes->size()) /
-                      (static_cast<double>(page_size) * 1.0));
-    return Status::OK();
-}
-
-Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_indexes,
-                                           RowRanges* row_ranges,
-                                           const ColumnIteratorOptions& iter_opts) {
-    row_ranges->clear();
-    RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
-    for (auto i : page_indexes) {
-        ordinal_t page_first_id = _ordinal_index->get_first_ordinal(i);
-        ordinal_t page_last_id = _ordinal_index->get_last_ordinal(i);
-        RowRanges page_row_ranges(RowRanges::create_single(page_first_id, page_last_id + 1));
-        RowRanges::ranges_union(*row_ranges, page_row_ranges, row_ranges);
     }
     return Status::OK();
 }
@@ -666,29 +572,6 @@ Status ConstantColumnReader::get_segment_zone_map(segment_v2::ZoneMap* zone_map)
     zone_map->min_value = _value;
     zone_map->max_value = _value;
     zone_map->has_not_null = !_value.is_null();
-    return Status::OK();
-}
-
-Status ColumnReader::get_page_zone_maps(const ColumnIteratorOptions& iter_opts,
-                                        const std::vector<ZoneMapPB>** zone_maps) {
-    DORIS_CHECK(zone_maps != nullptr);
-    if (_zone_map_index == nullptr) {
-        *zone_maps = nullptr;
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(_load_zone_map_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
-    *zone_maps = &_zone_map_index->page_zone_maps();
-    return Status::OK();
-}
-
-Status ColumnReader::get_row_range_for_page(uint32_t page_index,
-                                            const ColumnIteratorOptions& iter_opts,
-                                            RowRange* row_range) {
-    DORIS_CHECK(row_range != nullptr);
-    RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
-    DORIS_CHECK(page_index < _ordinal_index->num_data_pages());
-    *row_range = RowRange(_ordinal_index->get_first_ordinal(page_index),
-                          _ordinal_index->get_last_ordinal(page_index) + 1);
     return Status::OK();
 }
 
@@ -2963,15 +2846,17 @@ Status FileColumnIterator::_read_dict_data() {
     return Status::OK();
 }
 
-Status FileColumnIterator::get_row_ranges_by_zone_map(
-        const AndBlockColumnPredicate* col_predicates,
-        const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
-        RowRanges* row_ranges) {
-    if (_reader->has_zone_map()) {
-        RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(col_predicates, delete_predicates,
-                                                            row_ranges, _opts));
+Status FileColumnIterator::get_page_zone_map_count(size_t* count) {
+    if (!_reader->has_zone_map()) {
+        *count = 0;
+        return Status::OK();
     }
-    return Status::OK();
+    return _reader->get_page_zone_map_count(_opts, count);
+}
+
+Status FileColumnIterator::get_page_zone_map(size_t page_index, RowRange* rows,
+                                             segment_v2::ZoneMap* zone_map) {
+    return _reader->get_page_zone_map(page_index, rows, zone_map);
 }
 
 Status FileColumnIterator::get_row_ranges_by_bloom_filter(

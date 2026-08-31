@@ -142,6 +142,10 @@ public:
                 return child->can_evaluate_zonemap_filter();
             });
         case TExprOpcode::COMPOUND_OR:
+            // A branch we cannot read holds the group at kMayMatch, so an OR can only prove
+            // anything when every branch can be read. Letting a readable sibling answer
+            // kAllMatch on its own would drop the whole conjunct, including a branch that is
+            // there to raise an error.
             return !_children.empty() && std::ranges::all_of(_children, [](const VExprSPtr& child) {
                 return child->can_evaluate_zonemap_filter();
             });
@@ -155,24 +159,40 @@ public:
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
         switch (_op) {
         case TExprOpcode::COMPOUND_AND: {
+            // One branch that matches nothing kills the group; the group matches everything only
+            // when every branch does, so a branch we cannot read holds it at kMayMatch.
+            auto result = ZoneMapFilterResult::kAllMatch;
             for (const auto& child : _children) {
                 if (!child->can_evaluate_zonemap_filter()) {
+                    result = ZoneMapFilterResult::kMayMatch;
                     continue;
                 }
-                if (child->evaluate_zonemap_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+                const auto child_result = child->evaluate_zonemap_filter(ctx);
+                if (child_result == ZoneMapFilterResult::kNoMatch) {
                     return ZoneMapFilterResult::kNoMatch;
                 }
-            }
-            return ZoneMapFilterResult::kMayMatch;
-        }
-        case TExprOpcode::COMPOUND_OR: {
-            for (const auto& child : _children) {
-                DORIS_CHECK(child->can_evaluate_zonemap_filter());
-                if (child->evaluate_zonemap_filter(ctx) != ZoneMapFilterResult::kNoMatch) {
-                    return ZoneMapFilterResult::kMayMatch;
+                if (child_result != ZoneMapFilterResult::kAllMatch) {
+                    result = ZoneMapFilterResult::kMayMatch;
                 }
             }
-            return ZoneMapFilterResult::kNoMatch;
+            return result;
+        }
+        case TExprOpcode::COMPOUND_OR: {
+            // Mirror of AND: one branch that matches everything is enough for the group, and only
+            // all branches matching nothing rules it out. Every branch is readable here, which
+            // the gate above guarantees.
+            auto result = ZoneMapFilterResult::kNoMatch;
+            for (const auto& child : _children) {
+                DORIS_CHECK(child->can_evaluate_zonemap_filter());
+                const auto child_result = child->evaluate_zonemap_filter(ctx);
+                if (child_result == ZoneMapFilterResult::kAllMatch) {
+                    return ZoneMapFilterResult::kAllMatch;
+                }
+                if (child_result != ZoneMapFilterResult::kNoMatch) {
+                    result = ZoneMapFilterResult::kMayMatch;
+                }
+            }
+            return result;
         }
         case TExprOpcode::COMPOUND_NOT:
             return unsupported_zonemap_filter(ctx);

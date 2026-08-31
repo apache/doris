@@ -151,7 +151,10 @@ Status append_plan_from_rowset_reader(const RowsetReaderSharedPtr& input_rs_read
     for (const auto& segment : segment_cache.get_segments()) {
         std::shared_ptr<ColumnReader> column_reader;
         OlapReaderStatistics stats;
-        Status st = segment->get_column_reader(variant_uid, &column_reader, &stats);
+        // Only the reader's nested group layout is wanted here, no rows are read.
+        StorageReadOptions tmp_read_options;
+        tmp_read_options.stats = &stats;
+        Status st = segment->get_column_reader(variant_uid, &column_reader, tmp_read_options);
         if (st.is<ErrorCode::NOT_FOUND>()) {
             continue;
         }

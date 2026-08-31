@@ -955,8 +955,11 @@ Status VariantCompactionUtil::aggregate_path_to_stats(
         for (const auto& segment : segment_cache.get_segments()) {
             std::shared_ptr<ColumnReader> column_reader;
             OlapReaderStatistics stats;
-            RETURN_IF_ERROR(
-                    segment->get_column_reader(column->unique_id(), &column_reader, &stats));
+            // Only the reader's column metadata is wanted here, no rows are read.
+            StorageReadOptions tmp_read_options;
+            tmp_read_options.stats = &stats;
+            RETURN_IF_ERROR(segment->get_column_reader(column->unique_id(), &column_reader,
+                                                       tmp_read_options));
             if (!column_reader) {
                 continue;
             }
@@ -1000,8 +1003,11 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
         for (const auto& segment : segment_cache.get_segments()) {
             std::shared_ptr<ColumnReader> column_reader;
             OlapReaderStatistics stats;
-            RETURN_IF_ERROR(
-                    segment->get_column_reader(column->unique_id(), &column_reader, &stats));
+            // Only the reader's column metadata is wanted here, no rows are read.
+            StorageReadOptions tmp_read_options;
+            tmp_read_options.stats = &stats;
+            RETURN_IF_ERROR(segment->get_column_reader(column->unique_id(), &column_reader,
+                                                       tmp_read_options));
             if (!column_reader) {
                 continue;
             }
@@ -1715,7 +1721,11 @@ TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
                 }
                 std::shared_ptr<ColumnReader> column_reader;
                 OlapReaderStatistics stats;
-                st = segment->get_column_reader(column->unique_id(), &column_reader, &stats);
+                // Only the reader's column metadata is wanted here, no rows are read.
+                StorageReadOptions tmp_read_options;
+                tmp_read_options.stats = &stats;
+                st = segment->get_column_reader(column->unique_id(), &column_reader,
+                                                tmp_read_options);
                 if (!st.ok()) {
                     LOG(WARNING) << "Failed to get column reader for column: " << column->name()
                                  << " error: " << st.to_string();

@@ -231,8 +231,6 @@ Status OlapScanLocalState::_init_profile() {
     _output_col_timer = ADD_TIMER(_segment_profile, "OutputColumnTime");
 
     _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
-    _stats_rp_filtered_counter =
-            ADD_COUNTER(_segment_profile, "RowsZoneMapRuntimePredicateFiltered", TUnit::UNIT);
     _expr_zonemap_filtered_segment_counter =
             ADD_COUNTER(_segment_profile, "ExprZoneMapFilteredSegments", TUnit::UNIT);
     _expr_zonemap_filtered_page_counter =

@@ -190,7 +190,10 @@ Status has_bloom_filter_index(const TabletSchemaSPtr& schema, std::string_view f
 
     std::shared_ptr<ColumnReader> column_reader;
     OlapReaderStatistics stats;
-    RETURN_IF_ERROR(segment->get_column_reader(1, &column_reader, &stats));
+    // Only the reader's bloom filter metadata is wanted here, no rows are read.
+    StorageReadOptions tmp_read_options;
+    tmp_read_options.stats = &stats;
+    RETURN_IF_ERROR(segment->get_column_reader(1, &column_reader, tmp_read_options));
     has_bloom_filter = column_reader->has_bloom_filter_index(false);
     return Status::OK();
 }

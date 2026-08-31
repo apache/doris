@@ -1386,6 +1386,7 @@ Status ParquetReader::_process_expr_zonemap_page_filter(
         }
     }
 
+    std::vector<bool> ignored_always_true;
     for (const auto& [cid, conjuncts] : ctxs_by_column) {
         auto* slot = _tuple_descriptor->slots()[cid];
         ParquetPredicate::PageIndexStat* stat = nullptr;
@@ -1422,7 +1423,8 @@ Status ParquetReader::_process_expr_zonemap_page_filter(
                 slot_zone_map.zone_map = std::make_shared<segment_v2::ZoneMap>(std::move(zone_map));
             }
             ctx.slots.emplace(cid, std::move(slot_zone_map));
-            const auto result = VExprContext::evaluate_zonemap_filter(conjuncts, ctx);
+            const auto result =
+                    VExprContext::evaluate_zonemap_filter(conjuncts, ctx, &ignored_always_true);
             page_stats.merge_page_eval_stats(ctx.stats);
             if (result != ZoneMapFilterResult::kNoMatch) {
                 expr_ranges.add(page_range);
@@ -1706,7 +1708,9 @@ Status ParquetReader::_process_expr_zonemap_filter(const tparquet::RowGroup& row
         ctx.slots.emplace(cid, std::move(slot_zone_map));
     }
 
-    const auto result = VExprContext::evaluate_zonemap_filter(all_conjuncts, ctx);
+    std::vector<bool> ignored_always_true;
+    const auto result =
+            VExprContext::evaluate_zonemap_filter(all_conjuncts, ctx, &ignored_always_true);
     ctx.stats.accumulate_to(&_reader_statistics);
     if (result == ZoneMapFilterResult::kNoMatch) {
         *filter_group = true;

@@ -130,26 +130,55 @@ public:
         _evaluate_bit<true>(column, sel, size, flags);
     }
 
-    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
+    ZoneMapFilterResult evaluate_zonemap_filter_impl(
+            const segment_v2::ZoneMap& zone_map) const override {
+        // Every row is NULL, and a comparison against NULL never passes the filter.
         if (!zone_map.has_not_null) {
-            return false;
+            return ZoneMapFilterResult::kNoMatch;
         }
+        const auto& min_value = zone_map.min_value.template get<Type>();
+        const auto& max_value = zone_map.max_value.template get<Type>();
+        // One NULL row is enough to stop the whole zone from matching.
+        const bool can_match_all = !zone_map.has_null;
 
+        // EQ and NE read the same two facts and reach opposite conclusions.
         if constexpr (PT == PredicateType::EQ) {
-            return _operator(
-                    Compare::less_equal(zone_map.min_value.template get<Type>(), _value) &&
-                            Compare::greater_equal(zone_map.max_value.template get<Type>(), _value),
-                    true);
+            // The value sits outside [min, max], so no row can be equal to it.
+            if (Compare::less(_value, min_value) || Compare::less(max_value, _value)) {
+                return ZoneMapFilterResult::kNoMatch;
+            }
+            // The zone holds nothing but the value.
+            if (can_match_all && Compare::equal(min_value, _value) &&
+                Compare::equal(max_value, _value)) {
+                return ZoneMapFilterResult::kAllMatch;
+            }
+            return ZoneMapFilterResult::kMayMatch;
         } else if constexpr (PT == PredicateType::NE) {
-            return _operator(
-                    Compare::equal(zone_map.min_value.template get<Type>(), _value) &&
-                            Compare::equal(zone_map.max_value.template get<Type>(), _value),
-                    true);
-        } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
-            return _operator(zone_map.min_value.template get<Type>(), _value);
+            // The zone holds nothing but the value, so no row can differ from it.
+            if (Compare::equal(min_value, _value) && Compare::equal(max_value, _value)) {
+                return ZoneMapFilterResult::kNoMatch;
+            }
+            // The value sits outside [min, max], so no row can be equal to it.
+            if (can_match_all &&
+                (Compare::less(_value, min_value) || Compare::less(max_value, _value))) {
+                return ZoneMapFilterResult::kAllMatch;
+            }
+            return ZoneMapFilterResult::kMayMatch;
         } else {
-            static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
-            return _operator(zone_map.max_value.template get<Type>(), _value);
+            static_assert(PT == PredicateType::LT || PT == PredicateType::LE ||
+                          PT == PredicateType::GT || PT == PredicateType::GE);
+            // These four accept everything on one side of the value, so their answer at the two
+            // ends of [min, max] covers the whole range: false at both ends means no row is
+            // accepted, true at both means every row is.
+            const bool min_matches = _operator(min_value, _value);
+            const bool max_matches = _operator(max_value, _value);
+            if (!min_matches && !max_matches) {
+                return ZoneMapFilterResult::kNoMatch;
+            }
+            if (can_match_all && min_matches && max_matches) {
+                return ZoneMapFilterResult::kAllMatch;
+            }
+            return ZoneMapFilterResult::kMayMatch;
         }
     }
 
@@ -238,42 +267,6 @@ public:
             }
         };
         return row_ranges->count() > 0;
-    }
-
-    bool is_always_true(const segment_v2::ZoneMap& zone_map) const override {
-        if (zone_map.has_null) {
-            return false;
-        }
-
-        if constexpr (PT == PredicateType::LT) {
-            return _value > zone_map.max_value.template get<Type>();
-        } else if constexpr (PT == PredicateType::LE) {
-            return _value >= zone_map.max_value.template get<Type>();
-        } else if constexpr (PT == PredicateType::GT) {
-            return _value < zone_map.min_value.template get<Type>();
-        } else if constexpr (PT == PredicateType::GE) {
-            return _value <= zone_map.min_value.template get<Type>();
-        }
-
-        return false;
-    }
-
-    bool evaluate_del(const segment_v2::ZoneMap& zone_map) const override {
-        if (zone_map.has_null) {
-            return false;
-        }
-        if constexpr (PT == PredicateType::EQ) {
-            return zone_map.min_value.template get<Type>() == _value &&
-                   zone_map.max_value.template get<Type>() == _value;
-        } else if constexpr (PT == PredicateType::NE) {
-            return zone_map.min_value.template get<Type>() > _value ||
-                   zone_map.max_value.template get<Type>() < _value;
-        } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
-            return _operator(zone_map.max_value.template get<Type>(), _value);
-        } else {
-            static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
-            return _operator(zone_map.min_value.template get<Type>(), _value);
-        }
     }
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {

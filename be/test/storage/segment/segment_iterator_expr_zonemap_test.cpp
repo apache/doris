@@ -97,6 +97,52 @@ private:
     std::string _expr_name = "int_max_at_least_expr";
 };
 
+// `col >= threshold` read off a zone map: nothing matches when the max is below the threshold,
+// and everything matches when the min is not. Written as its own expr so a test can reach
+// kAllMatch, which IntMaxAtLeastExpr never returns.
+class IntMinAtLeastExpr final : public VExpr {
+public:
+    IntMinAtLeastExpr(int column_id, int32_t threshold)
+            : _column_id(column_id), _threshold(threshold) {
+        _data_type = std::make_shared<DataTypeUInt8>();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("IntMinAtLeastExpr is only used by zonemap tests");
+    }
+
+    bool can_evaluate_zonemap_filter() const override { return true; }
+
+    bool is_constant() const override { return false; }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_column_id);
+    }
+
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        auto zone_map = ctx.zone_map(_column_id);
+        if (zone_map == nullptr) {
+            return unsupported_zonemap_filter(ctx);
+        }
+        if (!zone_map->has_not_null) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        if (zone_map->max_value.get<TYPE_INT>() < _threshold) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        return zone_map->min_value.get<TYPE_INT>() >= _threshold ? ZoneMapFilterResult::kAllMatch
+                                                                 : ZoneMapFilterResult::kMayMatch;
+    }
+
+private:
+    int _column_id;
+    int32_t _threshold;
+    std::string _expr_name = "int_min_at_least_expr";
+};
+
 TabletSchemaSPtr make_tablet_schema() {
     auto tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->append_column(*create_int_key(0, false));
@@ -279,6 +325,68 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorKeepsSegmentWhenExprZonemapMay
     EXPECT_EQ(0, _stats.expr_zonemap_filtered_segments);
 }
 
+// A conjunct the segment zone map proves true for every row cannot remove anything, so it is
+// handed to the iterator without it. The conjuncts the zone map cannot settle must stay.
+TEST_F(SegmentIteratorExprZonemapTest, NewIteratorDropsConjunctsProvedTrueForEveryRow) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    // Column 1 holds 0 in the first half of the rows and 1000 in the second, so its segment zone
+    // map is [0, 1000] with no NULL row.
+    auto always_true = std::make_shared<VExprContext>(std::make_shared<IntMinAtLeastExpr>(1, 0));
+    ASSERT_NO_FATAL_FAILURE(prepare_expr_context(always_true));
+    auto may_match = std::make_shared<VExprContext>(std::make_shared<IntMinAtLeastExpr>(1, 500));
+    ASSERT_NO_FATAL_FAILURE(prepare_expr_context(may_match));
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.runtime_state = &_runtime_state;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.common_expr_ctxs_push_down = {always_true, may_match};
+
+    std::unique_ptr<RowwiseIterator> iter;
+    auto st = segment->new_iterator(read_schema, read_options, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, iter);
+    EXPECT_FALSE(iter->empty());
+    EXPECT_EQ(0, _stats.filtered_segment_number);
+
+    auto* segment_iter = dynamic_cast<SegmentIterator*>(iter.get());
+    ASSERT_NE(nullptr, segment_iter);
+    const auto& kept = segment_iter->_opts.common_expr_ctxs_push_down;
+    ASSERT_EQ(1, kept.size());
+    EXPECT_EQ(may_match.get(), kept[0].get());
+
+    // The caller's own list is untouched: the next segment still has to judge both conjuncts.
+    ASSERT_EQ(2, read_options.common_expr_ctxs_push_down.size());
+}
+
+// Mirror of the test above: with nothing proved always true, the iterator gets every conjunct.
+TEST_F(SegmentIteratorExprZonemapTest, NewIteratorKeepsConjunctsItCannotProve) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    auto may_match = std::make_shared<VExprContext>(std::make_shared<IntMinAtLeastExpr>(1, 500));
+    ASSERT_NO_FATAL_FAILURE(prepare_expr_context(may_match));
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.runtime_state = &_runtime_state;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.common_expr_ctxs_push_down = {may_match};
+
+    std::unique_ptr<RowwiseIterator> iter;
+    auto st = segment->new_iterator(read_schema, read_options, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    auto* segment_iter = dynamic_cast<SegmentIterator*>(iter.get());
+    ASSERT_NE(nullptr, segment_iter);
+    const auto& kept = segment_iter->_opts.common_expr_ctxs_push_down;
+    ASSERT_EQ(1, kept.size());
+    EXPECT_EQ(may_match.get(), kept[0].get());
+}
+
 TEST_F(SegmentIteratorExprZonemapTest, ApplyExprZonemapPrunesPageRowRanges) {
     std::shared_ptr<Segment> segment;
     ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
@@ -287,6 +395,18 @@ TEST_F(SegmentIteratorExprZonemapTest, ApplyExprZonemapPrunesPageRowRanges) {
     iter._file_reader = segment->_file_reader;
     iter._opts.stats = &_stats;
     iter._opts.tablet_schema = _tablet_schema;
+
+    // Page zone maps are reached through the column iterators, so create them the way
+    // SegmentIterator::_init_return_column_iterators() does before calling the private method.
+    ColumnIteratorOptions iter_opts;
+    iter_opts.file_reader = segment->file_reader().get();
+    iter_opts.stats = &_stats;
+    for (size_t ordinal = 0; ordinal < read_schema->num_read_columns(); ++ordinal) {
+        ASSERT_TRUE(segment->new_column_iterator(*read_schema->column(ordinal),
+                                                 &iter._column_iterators[ordinal], &iter._opts)
+                            .ok());
+        ASSERT_TRUE(iter._column_iterators[ordinal]->init(iter_opts).ok());
+    }
 
     auto expr_ctx = std::make_shared<VExprContext>(std::make_shared<IntMaxAtLeastExpr>(1, 500));
     VExprContextSPtrs conjuncts {expr_ctx};
