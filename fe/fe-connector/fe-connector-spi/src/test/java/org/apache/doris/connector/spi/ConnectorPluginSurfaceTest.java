@@ -81,7 +81,11 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
+        // Storage predicate pruning, provider-level DDL validation and ConnectorMetadata's
+        // listsPartitionsAtSnapshot changed the public surface in major 7.
         // Latest-schema publication is explicit in major 8; older engines cannot honor the opt-in contract.
+        // ConnectorSession gained the external-scan-reuse policy method in major 8. An older FE must reject
+        // plugins using additions it does not provide before linking incompatible bytecode.
         Assertions.assertEquals("8.0", version.getProperty("api.version"));
     }
 
