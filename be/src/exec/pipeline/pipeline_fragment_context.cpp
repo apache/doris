@@ -2187,7 +2187,7 @@ Status PipelineFragmentContext::submit() {
             DBUG_EXECUTE_IF("PipelineFragmentContext.submit.failed",
                             { st = Status::Aborted("PipelineFragmentContext.submit.failed"); });
             if (!st) {
-                cancel(Status::InternalError("submit context to executor fail"));
+                _query_ctx->cancel(Status::InternalError("submit context to executor fail"));
                 std::lock_guard<std::mutex> l(_task_mutex);
                 _total_tasks = submit_tasks;
                 break;
