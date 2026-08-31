@@ -95,6 +95,14 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return runtimeGeneration.get();
     }
 
+    /** Captures the authentication context and generation used by one Hudi scan. */
+    public synchronized HudiScanRuntimeContext getHudiScanRuntimeContext() {
+        makeSureInitialized();
+        HudiExternalMetaCache hudiCache = Env.getCurrentEnv().getExtMetaCacheMgr().hudi(getId());
+        return new HudiScanRuntimeContext(runtimeGeneration.get(), executionAuthenticator,
+                hudiCache.captureFsViewGeneration(getId()));
+    }
+
     @Override
     public synchronized void modifyCatalogProps(Map<String, String> props) {
         // Fence scans before the mutable CatalogProperty is changed. super invokes resetToUninitialized while
@@ -418,6 +426,31 @@ public class HMSExternalCatalog extends ExternalCatalog {
         @Override
         public void close() {
             guard.close();
+        }
+    }
+
+    public static final class HudiScanRuntimeContext {
+        private final long generation;
+        private final ExecutionAuthenticator authenticator;
+        private final HudiExternalMetaCache.FsViewGeneration fsViewGeneration;
+
+        private HudiScanRuntimeContext(long generation, ExecutionAuthenticator authenticator,
+                HudiExternalMetaCache.FsViewGeneration fsViewGeneration) {
+            this.generation = generation;
+            this.authenticator = authenticator;
+            this.fsViewGeneration = fsViewGeneration;
+        }
+
+        public long getGeneration() {
+            return generation;
+        }
+
+        public ExecutionAuthenticator getAuthenticator() {
+            return authenticator;
+        }
+
+        public HudiExternalMetaCache.FsViewGeneration getFsViewGeneration() {
+            return fsViewGeneration;
         }
     }
 }
