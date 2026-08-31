@@ -524,7 +524,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         return result.getPartitions();
     }
 
-    private void recordPruningProfile(HiveTableHandle handle) {
+    void recordPruningProfile(HiveTableHandle handle) {
         if (handle.getPruningBatchStats() != null) {
             partitionBatchProfile.recordOnce(
                     handle.getDbName(), handle.getTableName(), handle.getPruningBatchStats());

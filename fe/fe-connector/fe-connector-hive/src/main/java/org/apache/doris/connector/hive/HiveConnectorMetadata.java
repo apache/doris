@@ -1396,8 +1396,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             // Parity: an empty partition list yields MTMVMaxTimestampSnapshot(tableName, 0).
             return Optional.of(new ConnectorTableFreshness(hiveHandle.getTableName(), 0L));
         }
-        List<HmsPartitionInfo> partitions =
-                hmsClient.getPartitions(hiveHandle.getDbName(), hiveHandle.getTableName(), partitionNames);
+        List<HmsPartitionInfo> partitions = hmsClient.getExistingPartitions(
+                hiveHandle.getDbName(), hiveHandle.getTableName(), partitionNames);
         String maxName = hiveHandle.getTableName();
         long maxMillis = 0L;
         for (HmsPartitionInfo partition : partitions) {

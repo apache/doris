@@ -25,6 +25,7 @@ import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
@@ -207,6 +208,38 @@ public class HiveScanBatchModeTest {
         Assertions.assertEquals("4", profile.getMetrics().get("RpcItems"));
         Assertions.assertEquals("3", profile.getMetrics().get("LargestBatchSize"));
         Assertions.assertEquals("1", profile.getMetrics().get("SmallestBatchSize"));
+    }
+
+    @Test
+    public void predicatePruningStatsAreAvailableBeforeScanPlanning() {
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
+        HmsPartitionBatchStats pruningStats = HmsPartitionBatchStats.builder()
+                .requestedItems(3)
+                .rpcAttempts(1)
+                .rpcItems(3)
+                .largestBatchSize(3)
+                .smallestBatchSize(3)
+                .build();
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(PART_KEYS)
+                .pruningBatchStats(pruningStats)
+                .build();
+        FakeSession session = new FakeSession();
+
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(), new FakeConnectorContext()) {
+            @Override
+            public ConnectorScanPlanProvider getScanPlanProvider() {
+                return provider;
+            }
+        };
+
+        ConnectorScanPlanProvider selectedProvider = connector.getScanPlanProvider(handle);
+
+        Assertions.assertSame(provider, selectedProvider);
+        ConnectorScanProfile profile = selectedProvider.collectScanProfiles(session).get(0);
+        Assertions.assertEquals("1", profile.getMetrics().get("LogicalRequests"));
+        Assertions.assertEquals("3", profile.getMetrics().get("RequestedItems"));
+        Assertions.assertEquals("1", profile.getMetrics().get("RpcAttempts"));
     }
 
     // ===== object-store native read (FIX-hive-s3a: scheme normalization + canonical creds) =====

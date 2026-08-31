@@ -504,6 +504,17 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         writeScanProfilesInto(summaryProfile.getExecutionSummary(), profiles);
     }
 
+    private void collectAndAppendConnectorScanProfiles(ConnectorScanPlanProvider scanProvider) {
+        List<ConnectorScanProfile> profiles = onPluginClassLoader(scanProvider,
+                () -> scanProvider.collectScanProfiles(connectorSession));
+        appendConnectorScanProfiles(profiles);
+    }
+
+    private List<Split> finishPrunedToZeroScan(ConnectorScanPlanProvider scanProvider) {
+        collectAndAppendConnectorScanProfiles(scanProvider);
+        return Collections.emptyList();
+    }
+
     /**
      * Transcribe connector-supplied scan profiles into {@code executionSummary}: get-or-create a group named
      * {@link ConnectorScanProfile#getGroupName()}, add a child named {@link ConnectorScanProfile#getScanLabel()},
@@ -1531,7 +1542,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             this.totalPartitionNum = partitionCounts[1];
         }
         if (requiredPartitions != null && requiredPartitions.isEmpty()) {
-            return Collections.emptyList();
+            return finishPrunedToZeroScan(scanProvider);
         }
 
         List<ConnectorColumnHandle> columns = buildColumnHandles();
@@ -1619,9 +1630,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // queryId) and write them into the query profile. connector-agnostic: the connector supplies the
         // group/label/metrics, the engine only transcribes them (no source branch). Default empty for
         // connectors that don't harvest. Same thread as planScan, so the harvest is complete.
-        List<ConnectorScanProfile> scanProfiles = onPluginClassLoader(scanProvider,
-                () -> scanProvider.collectScanProfiles(connectorSession));
-        appendConnectorScanProfiles(scanProfiles);
+        collectAndAppendConnectorScanProfiles(scanProvider);
         long pushDownRowCount = resolvePushDownRowCount(countPushdown, ranges);
         if (pushDownRowCount >= 0) {
             // Only set when a range actually carries a precomputed count (e.g. paimon's collapsed count

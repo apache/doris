@@ -17,15 +17,23 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.profile.RuntimeProfile;
+import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -108,6 +116,38 @@ public class PluginDrivenScanNodeScanProfileTest {
                 .get("hms.get_partitions_by_names [QUERY] (db.t)").getInfoString("RequestedItems"));
         Assertions.assertEquals("20", group.getChildMap()
                 .get("hms.get_partitions_by_names [QUERY] (db.t) #2").getInfoString("RequestedItems"));
+    }
+
+    @Test
+    public void pruneToZeroPublishesProfilesCollectedBeforeScanPlanning() {
+        PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+        Mockito.when(provider.collectScanProfiles(session)).thenReturn(Collections.singletonList(
+                profile("Connector Metadata Access", "hms.get_partitions_by_names [QUERY] (db.t)",
+                        "RequestedItems", "5")));
+        Deencapsulation.setField(node, "connectorSession", session);
+
+        SummaryProfile summaryProfile = new SummaryProfile();
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(executor.getSummaryProfile()).thenReturn(summaryProfile);
+        ConnectContext context = new ConnectContext();
+        context.setExecutor(executor);
+        context.setThreadLocalInfo();
+        try {
+            List<?> splits = Deencapsulation.invoke(node, "finishPrunedToZeroScan", provider);
+
+            Assertions.assertTrue(splits.isEmpty());
+            RuntimeProfile group = summaryProfile.getExecutionSummary().getChildMap()
+                    .get("Connector Metadata Access");
+            Assertions.assertNotNull(group);
+            Assertions.assertEquals("5", group.getChildMap()
+                    .get("hms.get_partitions_by_names [QUERY] (db.t)")
+                    .getInfoString("RequestedItems"));
+            Mockito.verify(provider).collectScanProfiles(session);
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test
