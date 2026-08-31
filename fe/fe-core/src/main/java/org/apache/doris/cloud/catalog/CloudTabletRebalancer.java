@@ -105,6 +105,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
     private Map<String, List<Long>> clusterToBes;
 
     private Set<Long> allBes;
+    // backend baseline and remaining sweep rounds, see staleRouteSweepNeeded()
+    private Set<Long> lastSweptBackends = null;
+    private int pendingSweepRounds = 0;
 
     // partitionId -> indexId -> be -> tabletIds
     private ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>> partitionToTablets;
@@ -966,9 +969,47 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
     }
 
+    /**
+     * Decides whether this round sweeps stale routes, and advances the backend baseline. Call once per
+     * round. Without this gate the sweep would walk every replica's route maps once a second under
+     * table.readLock() only to find nothing, which on a large catalog is pure allocation.
+     */
+    @VisibleForTesting
+    boolean staleRouteSweepNeeded(Set<Long> currentBes) {
+        if (!Config.enable_cloud_replica_stale_route_clean) {
+            lastSweptBackends = null;
+            pendingSweepRounds = 0;
+            return false;
+        }
+        if (lastSweptBackends == null || !currentBes.containsAll(lastSweptBackends)) {
+            // Only a backend that went away can strand a route. Two rounds rather than one: a query
+            // thread can pick a backend in hashReplicaToBe() before the drop and publish the route in
+            // getBackendIdImpl() after this pass already visited that replica, so the extra round
+            // catches writers that were in flight during the first one.
+            pendingSweepRounds = 2;
+        }
+        // An addition strands nothing, so it does not trigger a sweep -- but it must still enter the
+        // baseline. Advancing only after a sweep would leave the baseline at the pre-addition set, and
+        // dropping that same backend later would compare equal to it and go unnoticed.
+        lastSweptBackends = currentBes;
+        if (pendingSweepRounds > 0) {
+            pendingSweepRounds--;
+            return true;
+        }
+        return false;
+    }
+
     private boolean completeRouteInfo() {
         List<UpdateCloudReplicaInfo> updateReplicaInfos = new ArrayList<UpdateCloudReplicaInfo>();
         long[] assignedErrNum = {0L};
+        long[] staleRouteNum = {0L};
+        boolean sweepStaleRoutes = staleRouteSweepNeeded(allBes);
+        // loopCloudReplica() has the compute group loop innermost, so it hands us every replica once per
+        // live compute group, while removeInvalidRoutes() scans the whole route map and does not care
+        // which group we are on. Pin the sweep to one arbitrary group id so a sweeping round still makes a
+        // single pass per replica. If clusterToBes is empty the callback never runs at all, so the serving
+        // catalog keeps the entries until it reloads the image -- there is nothing to route in that state.
+        String sweepTicket = sweepStaleRoutes ? clusterToBes.keySet().stream().findFirst().orElse(null) : null;
         long needRehashDeadTime = System.currentTimeMillis() - Config.rehash_tablet_after_be_dead_seconds * 1000L;
         loopCloudReplica((Database db, Table table, Partition partition, MaterializedIndex index, String cluster) -> {
             boolean assigned = false;
@@ -980,6 +1021,16 @@ public class CloudTabletRebalancer extends MasterDaemon {
             for (Tablet tablet : tablets) {
                 for (Replica r : tablet.getReplicas()) {
                     CloudReplica replica = (CloudReplica) r;
+                    // Drop routes of compute groups that no longer exist; gsonPostProcess() only converges
+                    // the catalog on image load, so without this the leader keeps them until it restarts.
+                    // No edit log op is written for the removal: the entries are already unroutable, and
+                    // the image is written by the master-only checkpoint, whose Env cleans the catalog it
+                    // loads, so no leader/follower difference ever reaches persisted state. Note this
+                    // daemon is master-only, so a follower keeps its own stale entries in heap until it
+                    // restarts or is promoted and runs a round here.
+                    if (cluster.equals(sweepTicket)) {
+                        staleRouteNum[0] += replica.removeInvalidRoutes();
+                    }
                     // clean secondary map
                     replica.checkAndClearSecondaryClusterToBe(cluster, needRehashDeadTime);
                     // colocate table no need to update primary backends
@@ -1048,7 +1099,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
             }
         });
 
-        LOG.info("collect to editlog route {} infos, error num {}", updateReplicaInfos.size(), assignedErrNum[0]);
+        LOG.info("collect to editlog route {} infos, error num {}, swept stale routes {}, entries dropped {}",
+                updateReplicaInfos.size(), assignedErrNum[0], sweepStaleRoutes, staleRouteNum[0]);
 
         if (updateReplicaInfos.isEmpty()) {
             return true;
@@ -1773,6 +1825,14 @@ public class CloudTabletRebalancer extends MasterDaemon {
             }
 
             cloudReplica.updateClusterToPrimaryBe(clusterId, destBe);
+            if (!cloudReplica.discardRouteIfBackendVanished(destBe)) {
+                // The warmup checker resolves its destination on its own scheduler thread and can stall
+                // there while the compute group is dropped and the sweeps triggered by that drop finish.
+                // Journalling the route now would hand every FE an entry nothing is left to clean.
+                LOG.info("compute group {} lost backend {} while warming up tablet {}, dropping the route",
+                        clusterId, destBe, tabletId);
+                return;
+            }
             UpdateCloudReplicaInfo info = new UpdateCloudReplicaInfo(tabletMeta.getDbId(),
                     tabletMeta.getTableId(), tabletMeta.getPartitionId(), tabletMeta.getIndexId(),
                     tabletId, cloudReplica.getId(), clusterId, destBe);

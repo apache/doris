@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -389,7 +390,32 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         } else {
             updateClusterToSecondaryBe(clusterId, pickBeId);
         }
+        discardRouteIfBackendVanished(pickBeId);
         return pickBeId;
+    }
+
+    /**
+     * The compute group can be dropped while a publisher is picking a backend out of it, in which case the
+     * route just written would outlive the group. Re-checking right after publishing closes that window:
+     * either the backend is already gone and the write is undone here, or it was still registered, which
+     * means the drop -- and the rebalancer sweep it triggers -- happens after this write and will visit
+     * this replica. Ordering, not timing, is what makes the sweep sufficient; a publisher may stall for
+     * arbitrarily long between choosing a backend and publishing without escaping cleanup.
+     *
+     * Every route publisher that resolves a backend outside the rebalancer round must call this, and must
+     * not persist the route when it returns false.
+     *
+     * @return false when the route was discarded because its backend is gone
+     */
+    public boolean discardRouteIfBackendVanished(long beId) {
+        if (!Config.enable_cloud_replica_stale_route_clean) {
+            return true;
+        }
+        if (Env.getCurrentSystemInfo().getBackend(beId) == null) {
+            removeInvalidRoutes();
+            return false;
+        }
+        return true;
     }
 
     public Backend getPrimaryBackend(String clusterId, boolean setIfAbsent) {
@@ -403,6 +429,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
                 try {
                     beId = getBackendIdImpl(clusterId);
                     updateClusterToPrimaryBe(clusterId, beId);
+                    discardRouteIfBackendVanished(beId);
                     return Env.getCurrentSystemInfo().getBackend(beId);
                 } catch (ComputeGroupException e) {
                     return null;
@@ -598,6 +625,48 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     }
 
     /**
+     * Drop the route entries whose backend has been dropped from the cluster.
+     *
+     * Such an entry is already dead weight: getBackendIdImpl() resolves the backend id, gets null and
+     * falls back to hashReplicaToBe(), so removing it does not change routing. But nothing ever removes
+     * it either -- dropCluster() only touches CloudSystemInfoService, and the rebalancer only walks the
+     * compute groups that currently exist -- so entries of dropped compute groups pile up forever, both
+     * in FE heap and in the image (the `bes`/`be` field).
+     *
+     * @return how many entries were dropped
+     */
+    public int removeInvalidRoutes() {
+        if (!Config.enable_cloud_replica_stale_route_clean || FeConstants.runningUnitTest) {
+            return 0;
+        }
+        SystemInfoService systemInfo = Env.getCurrentSystemInfo();
+        // Remove conditionally rather than by predicate: route writers run concurrently, so comparing map
+        // sizes before and after would mix their insertions into the count (and could even report a
+        // negative one), and a key whose value was just rewritten to a live backend must not be dropped.
+        int removed = 0;
+        if (!secondaryClusterToBackends.isEmpty()) {
+            for (Map.Entry<String, Pair<Long, Long>> entry : secondaryClusterToBackends.entrySet()) {
+                if (systemInfo.getBackend(entry.getValue().key()) == null
+                        && secondaryClusterToBackends.remove(entry.getKey(), entry.getValue())) {
+                    removed++;
+                }
+            }
+        }
+        // Keep a dead primary whose compute group still has a live secondary. With
+        // enable_immediate_be_assign=false that is the normal failover state, and the lazy fetch path in
+        // FrontendServiceImpl.getTabletReplicaInfos() enumerates secondaries through the primary key set,
+        // so dropping the key would hide a live secondary from the peer cache candidates.
+        for (Map.Entry<String, Long> entry : primaryClusterToBackend.entrySet()) {
+            if (systemInfo.getBackend(entry.getValue()) == null
+                    && !secondaryClusterToBackends.containsKey(entry.getKey())
+                    && primaryClusterToBackend.remove(entry.getKey(), entry.getValue())) {
+                removed++;
+            }
+        }
+        return removed;
+    }
+
+    /**
      * Returns the set of compute group IDs that have primary backends for this replica.
      * Used by lazy fetch path to also collect secondary backends per compute group.
      */
@@ -670,5 +739,10 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
             }
             this.primaryClusterToBackends = null;
         }
+        // outside the `bes` branch on purpose: the new `be` format accumulates stale entries just the same.
+        // The backends module is loaded before db/recycleBin (PersistMetaModules.MODULE_NAMES), and the
+        // checkpoint thread resolves Env.getCurrentEnv() to its own Env, so the backend set read here is
+        // the one belonging to the image being loaded.
+        removeInvalidRoutes();
     }
 }
