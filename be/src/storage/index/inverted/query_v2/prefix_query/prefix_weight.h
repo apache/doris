@@ -24,6 +24,10 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Woverloaded-virtual"
 #endif
+// StdHeader.h must precede repl_wchar.h: it defines the CLUCENE_SHARED_EXPORT /
+// TCHAR macros repl_wchar.h uses but does not pull in itself (same pairing as
+// exprs/function/function_tokenize.cpp).
+#include <CLucene/StdHeader.h>
 #include <CLucene/config/repl_wchar.h>
 #include <CLucene/index/IndexReader.h>
 #include <CLucene/index/Term.h>
