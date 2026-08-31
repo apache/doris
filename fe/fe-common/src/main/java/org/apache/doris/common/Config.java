@@ -362,7 +362,7 @@ public class Config extends ConfigBase {
     @ConfField(description = "Path to the FE TLS private key.")
     public static String tls_private_key_path = "";
 
-    @ConfField(description = "Password for the FE TLS private key.")
+    @ConfField(sensitive = true, description = "Password for the FE TLS private key.")
     public static String tls_private_key_password = "";
 
     @ConfField(description = "Path to the FE TLS CA certificate.")
@@ -393,7 +393,7 @@ public class Config extends ConfigBase {
     public static String key_store_path =  EnvUtils.getDorisHome()
             + "/conf/ssl/doris_ssl_certificate.keystore";
 
-    @ConfField(description = "The key store password of FE https service")
+    @ConfField(sensitive = true, description = "The key store password of FE https service")
     public static String key_store_password = "";
 
     @ConfField(description = "The key store type of FE https service")
@@ -2364,13 +2364,13 @@ public class Config extends ConfigBase {
     /**
      * Password for default CA certificate file.
      */
-    @ConfField(mutable = false, masterOnly = false)
+    @ConfField(sensitive = true, mutable = false, masterOnly = false)
     public static String mysql_ssl_default_ca_certificate_password = "doris";
 
     /**
      * Password for default CA certificate file.
      */
-    @ConfField(mutable = false, masterOnly = false)
+    @ConfField(sensitive = true, mutable = false, masterOnly = false)
     public static String mysql_ssl_default_server_certificate_password = "doris";
 
     /**
@@ -2751,7 +2751,8 @@ public class Config extends ConfigBase {
             + "BE in partition rebalance mode. If it is less than " + "this value, it will be diagnosed as balanced.")
     public static double diagnose_balance_max_tablet_num_ratio = 1.1;
 
-    @ConfField(masterOnly = true, description = "Set root user initial 2-staged SHA-1 encrypted password, default as "
+    @ConfField(sensitive = true, masterOnly = true, description = "Set root user initial 2-staged SHA-1 "
+            + "encrypted password, default as "
             + "'', means no root password. Subsequent `set password` operations for "
             + "root user will overwrite the initial root password. Example: If you "
             + "want to configure a plaintext password `root@123`.You can execute "
