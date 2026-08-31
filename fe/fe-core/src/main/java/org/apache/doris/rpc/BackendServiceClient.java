@@ -113,6 +113,11 @@ public class BackendServiceClient {
         return stub.outfileWriteSuccess(request);
     }
 
+    public Future<InternalService.POutfileWriteFinishedResult> outfileWriteFinishedAsync(
+            InternalService.POutfileWriteFinishedRequest request) {
+        return stub.outfileWriteFinished(request);
+    }
+
     public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
             InternalService.PFetchTableSchemaRequest request) {
         return stub.fetchTableSchema(request);

@@ -780,6 +780,15 @@ message POutfileWriteSuccessResult {
     optional PStatus status = 1;
 }
 
+message POutfileWriteFinishedRequest {
+    repeated PUniqueId buffer_ids = 1;
+    optional bool success = 2;
+}
+
+message POutfileWriteFinishedResult {
+    optional PStatus status = 1;
+}
+
 message PJdbcTestConnectionRequest {
     optional bytes jdbc_table = 1;
     optional int32 jdbc_table_type = 2;
@@ -1260,6 +1269,7 @@ service PBackendService {
     rpc request_slave_tablet_pull_rowset(PTabletWriteSlaveRequest) returns (PTabletWriteSlaveResult);
     rpc response_slave_tablet_pull_rowset(PTabletWriteSlaveDoneRequest) returns (PTabletWriteSlaveDoneResult);
     rpc outfile_write_success(POutfileWriteSuccessRequest) returns (POutfileWriteSuccessResult);
+    rpc outfile_write_finished(POutfileWriteFinishedRequest) returns (POutfileWriteFinishedResult);
     rpc fetch_table_schema(PFetchTableSchemaRequest) returns (PFetchTableSchemaResult);
     rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse) {
         option deprecated = true;

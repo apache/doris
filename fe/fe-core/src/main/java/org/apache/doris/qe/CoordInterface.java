@@ -34,6 +34,8 @@ public interface CoordInterface {
     // some resource.
     public default void close() {}
 
+    public default void finishOutfile(boolean success) throws Exception {}
+
     List<TNetworkAddress> getInvolvedBackends();
 
     void setIsProfileSafeStmt(boolean isSafe);

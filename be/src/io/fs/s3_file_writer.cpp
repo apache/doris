@@ -185,6 +185,27 @@ Status S3FileWriter::close(bool non_block) {
     return _st;
 }
 
+Status S3FileWriter::abort() {
+    if (_async_close_pack != nullptr) {
+        std::ignore = _async_close_pack->future.get();
+        _async_close_pack = nullptr;
+    } else {
+        _wait_until_finish(fmt::format("wait s3 file {} uploads before abort",
+                                       _obj_storage_path_opts.path.native()));
+    }
+    _pending_buf.reset();
+    _state = State::CLOSED;
+    if (_upload_id.empty() || _multipart_upload_completed) {
+        return Status::OK();
+    }
+    const auto& client = _obj_client->get();
+    if (client == nullptr) {
+        return Status::InternalError<false>("invalid obj storage client");
+    }
+    auto response = client->abort_multipart_upload(_obj_storage_path_opts, _upload_id);
+    return {response.status.code, std::move(response.status.msg)};
+}
+
 void S3FileWriter::_record_close_latency() {
     if (_close_latency_recorded || !_first_append_timestamp.has_value()) {
         return;
@@ -514,6 +535,7 @@ Status S3FileWriter::_complete() {
     RETURN_IF_ERROR(check_after_upload(client.get(), resp, _obj_storage_path_opts, _bytes_appended,
                                        "complete_multipart"));
 
+    _multipart_upload_completed = true;
     s3_file_created_total << 1;
     return Status::OK();
 }

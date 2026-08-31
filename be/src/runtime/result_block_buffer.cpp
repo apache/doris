@@ -104,6 +104,7 @@ Status ResultBlockBuffer<ResultCtxType>::close(const TUniqueId& id, Status exec_
 
 template <typename ResultCtxType>
 void ResultBlockBuffer<ResultCtxType>::cancel(const Status& reason) {
+    release_outfile_cleanup();
     std::unique_lock<std::mutex> l(_lock);
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     if (_status.ok()) {
@@ -116,6 +117,64 @@ void ResultBlockBuffer<ResultCtxType>::cancel(const Status& reason) {
     _waiting_rpc.clear();
     _update_dependency();
     _result_batch_queue.clear();
+}
+
+template <typename ResultCtxType>
+void ResultBlockBuffer<ResultCtxType>::add_outfile_cleanup(std::function<void()> cleanup) {
+    bool run_cleanup = false;
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        if (_outfile_state == OutfileState::ABORTED) {
+            run_cleanup = true;
+        } else {
+            _outfile_cleanups.emplace_back(std::move(cleanup));
+        }
+    }
+    if (run_cleanup) {
+        cleanup();
+    }
+}
+
+template <typename ResultCtxType>
+void ResultBlockBuffer<ResultCtxType>::finish_outfile(bool success) {
+    std::vector<std::function<void()>> cleanups;
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        if (success) {
+            if (_outfile_state == OutfileState::PENDING) {
+                _outfile_state = OutfileState::COMMITTED;
+            }
+            return;
+        }
+        if (_outfile_state == OutfileState::ABORTED) {
+            return;
+        }
+        _outfile_state = OutfileState::ABORTED;
+        cleanups.swap(_outfile_cleanups);
+    }
+    for (auto& cleanup : cleanups) {
+        cleanup();
+    }
+}
+
+template <typename ResultCtxType>
+void ResultBlockBuffer<ResultCtxType>::release_outfile_cleanup() {
+    std::vector<std::function<void()>> cleanups;
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        if (_outfile_state == OutfileState::COMMITTED) {
+            _outfile_cleanups.clear();
+            return;
+        }
+        if (_outfile_state == OutfileState::ABORTED && _outfile_cleanups.empty()) {
+            return;
+        }
+        _outfile_state = OutfileState::ABORTED;
+        cleanups.swap(_outfile_cleanups);
+    }
+    for (auto& cleanup : cleanups) {
+        cleanup();
+    }
 }
 
 template <typename ResultCtxType>

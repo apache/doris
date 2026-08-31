@@ -346,6 +346,17 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.POutfileWriteFinishedResult> outfileWriteFinishedAsync(TNetworkAddress address,
+            InternalService.POutfileWriteFinishedRequest request) throws RpcException {
+        try {
+            return getProxy(address).outfileWriteFinishedAsync(request);
+        } catch (Throwable e) {
+            LOG.warn("outfile write finished catch an exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
     public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
             TNetworkAddress address, InternalService.PFetchTableSchemaRequest request) throws RpcException {
         try {

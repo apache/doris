@@ -115,4 +115,53 @@ TEST_F(ResultBufferMgrTest, cancel_no_block) {
     EXPECT_FALSE(buffer_mgr.cancel(query_id, Status::InternalError("")));
 }
 
+TEST_F(ResultBufferMgrTest, OutfileAbortCleansRegisteredAndLateFiles) {
+    ResultBufferMgr buffer_mgr;
+    TUniqueId query_id;
+    query_id.lo = 20;
+    query_id.hi = 200;
+
+    std::shared_ptr<ResultBlockBufferBase> buffer;
+    ASSERT_TRUE(buffer_mgr.create_sender(query_id, 1024, &buffer, &_state, false).ok());
+    int cleanup_count = 0;
+    buffer->add_outfile_cleanup([&] { ++cleanup_count; });
+
+    EXPECT_TRUE(buffer_mgr.finish_outfile(query_id, false));
+    EXPECT_EQ(cleanup_count, 1);
+    buffer->add_outfile_cleanup([&] { ++cleanup_count; });
+    EXPECT_EQ(cleanup_count, 2);
+}
+
+TEST_F(ResultBufferMgrTest, OutfileCommitSurvivesDeferredBufferCleanup) {
+    ResultBufferMgr buffer_mgr;
+    TUniqueId query_id;
+    query_id.lo = 30;
+    query_id.hi = 300;
+
+    std::shared_ptr<ResultBlockBufferBase> buffer;
+    ASSERT_TRUE(buffer_mgr.create_sender(query_id, 1024, &buffer, &_state, false).ok());
+    int cleanup_count = 0;
+    buffer->add_outfile_cleanup([&] { ++cleanup_count; });
+
+    EXPECT_TRUE(buffer_mgr.finish_outfile(query_id, true));
+    EXPECT_TRUE(buffer_mgr.cancel(query_id, Status::Cancelled("deferred cleanup")));
+    EXPECT_EQ(cleanup_count, 0);
+}
+
+TEST_F(ResultBufferMgrTest, OutfileAbortOverridesPartialCommit) {
+    ResultBufferMgr buffer_mgr;
+    TUniqueId query_id;
+    query_id.lo = 40;
+    query_id.hi = 400;
+
+    std::shared_ptr<ResultBlockBufferBase> buffer;
+    ASSERT_TRUE(buffer_mgr.create_sender(query_id, 1024, &buffer, &_state, false).ok());
+    int cleanup_count = 0;
+    buffer->add_outfile_cleanup([&] { ++cleanup_count; });
+
+    EXPECT_TRUE(buffer_mgr.finish_outfile(query_id, true));
+    EXPECT_TRUE(buffer_mgr.finish_outfile(query_id, false));
+    EXPECT_EQ(cleanup_count, 1);
+}
+
 } // namespace doris

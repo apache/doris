@@ -70,6 +70,7 @@ public:
     Status find_buffer(const TUniqueId& unique_id, std::shared_ptr<ResultBlockBufferType>& buffer);
     // cancel
     bool cancel(const TUniqueId& unique_id, const Status& reason);
+    bool finish_outfile(const TUniqueId& unique_id, bool success);
 
     // cancel one query at a future time.
     void cancel_at_time(time_t cancel_time, const TUniqueId& unique_id);

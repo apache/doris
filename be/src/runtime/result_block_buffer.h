@@ -26,6 +26,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -74,6 +75,9 @@ public:
     [[nodiscard]] virtual std::shared_ptr<MemTrackerLimiter> mem_tracker() = 0;
     virtual void set_dependency(const TUniqueId& id,
                                 std::shared_ptr<Dependency> result_sink_dependency) = 0;
+    virtual void add_outfile_cleanup(std::function<void()> cleanup) = 0;
+    virtual void finish_outfile(bool success) = 0;
+    virtual void release_outfile_cleanup() = 0;
 };
 
 // This is used to serialize a result block by normal queries / arrow flight queries / point queries.
@@ -94,6 +98,9 @@ public:
     [[nodiscard]] std::shared_ptr<MemTrackerLimiter> mem_tracker() override { return _mem_tracker; }
     void set_dependency(const TUniqueId& id,
                         std::shared_ptr<Dependency> result_sink_dependency) override;
+    void add_outfile_cleanup(std::function<void()> cleanup) override;
+    void finish_outfile(bool success) override;
+    void release_outfile_cleanup() override;
 
 protected:
     friend class GetArrowResultBatchCtx;
@@ -134,6 +141,10 @@ protected:
     const int _be_exec_version;
     const segment_v2::CompressionTypePB _fragment_transmission_compression_type;
     const int _buffer_limit;
+
+    enum class OutfileState : uint8_t { PENDING, COMMITTED, ABORTED };
+    OutfileState _outfile_state = OutfileState::PENDING;
+    std::vector<std::function<void()>> _outfile_cleanups;
 };
 
 } // namespace doris

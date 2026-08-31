@@ -770,31 +770,43 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
             return;
         }
 
-        auto&& res = FileFactory::create_file_writer(file_type_res.value(), ExecEnv::GetInstance(),
-                                                     file_options.broker_addresses,
-                                                     file_options.broker_properties, file_name,
-                                                     {
-                                                             .write_file_cache = false,
-                                                             .sync_file_data = false,
-                                                     });
-        using T = std::decay_t<decltype(res)>;
-        if (!res.has_value()) [[unlikely]] {
-            st = std::forward<T>(res).error();
+        io::FSPropertiesRef properties(file_type_res.value());
+        properties.broker_addresses = &file_options.broker_addresses;
+        properties.properties = &file_options.broker_properties;
+        io::FileDescription file_description;
+        file_description.path = file_name;
+        auto fs_res = FileFactory::create_fs(properties, file_description);
+        if (!fs_res.has_value()) [[unlikely]] {
+            st = std::move(fs_res).error();
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        auto file_system = std::move(fs_res).value();
+        io::FileWriterPtr file_writer;
+        const io::FileWriterOptions options {.write_file_cache = false, .sync_file_data = false};
+        st = file_system->create_file(file_name, &file_writer, &options);
+        if (!st.ok()) {
             st.to_protobuf(result->mutable_status());
             return;
         }
 
-        std::unique_ptr<doris::io::FileWriter> _file_writer_impl = std::forward<T>(res).value();
         // must write somthing because s3 file writer can not writer empty file
-        st = _file_writer_impl->append({"success"});
+        st = file_writer->append({"success"});
         if (!st.ok()) {
             LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+            WARN_IF_ERROR(file_writer->abort(), "failed to abort outfile success file writer");
+            // The marker belongs to this request, so a failed write must not outlive the query.
+            WARN_IF_ERROR(file_system->delete_file(file_name),
+                          "failed to remove incomplete outfile success file");
             st.to_protobuf(result->mutable_status());
             return;
         }
-        st = _file_writer_impl->close();
+        st = file_writer->close();
         if (!st.ok()) {
             LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
+            WARN_IF_ERROR(file_writer->abort(), "failed to abort outfile success file writer");
+            WARN_IF_ERROR(file_system->delete_file(file_name),
+                          "failed to remove incomplete outfile success file");
             st.to_protobuf(result->mutable_status());
             return;
         }
@@ -802,6 +814,30 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
     if (!ret) {
         offer_failed(result, done, _heavy_work_pool);
         return;
+    }
+}
+
+void PInternalService::outfile_write_finished(google::protobuf::RpcController* controller,
+                                              const POutfileWriteFinishedRequest* request,
+                                              POutfileWriteFinishedResult* result,
+                                              google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([request, result, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        Status status = Status::OK();
+        for (const auto& buffer_id : request->buffer_ids()) {
+            TUniqueId id;
+            id.__set_hi(buffer_id.hi());
+            id.__set_lo(buffer_id.lo());
+            if (!ExecEnv::GetInstance()->result_mgr()->finish_outfile(id, request->success()) &&
+                request->success()) {
+                status = Status::InternalError("outfile result buffer no longer exists");
+                break;
+            }
+        }
+        status.to_protobuf(result->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(result, done, _heavy_work_pool);
     }
 }
 

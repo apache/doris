@@ -1459,6 +1459,38 @@ public class Coordinator implements CoordInterface {
         cancelLatch();
     }
 
+    @Override
+    public void finishOutfile(boolean success) throws Exception {
+        Map<TNetworkAddress, InternalService.POutfileWriteFinishedRequest.Builder> requests = new HashMap<>();
+        for (ResultReceiver receiver : receivers) {
+            requests.computeIfAbsent(receiver.getAddress(), address ->
+                            InternalService.POutfileWriteFinishedRequest.newBuilder().setSuccess(success))
+                    .addBufferIds(receiver.getRealFinstId());
+        }
+        Exception firstFailure = null;
+        for (Entry<TNetworkAddress, InternalService.POutfileWriteFinishedRequest.Builder> entry
+                : requests.entrySet()) {
+            try {
+                InternalService.POutfileWriteFinishedResult result = BackendServiceProxy.getInstance()
+                        .outfileWriteFinishedAsync(entry.getKey(), entry.getValue().build()).get();
+                Status status = new Status(result.getStatus());
+                if (!status.ok()) {
+                    throw new UserException(status.getErrorMsg());
+                }
+            } catch (Exception e) {
+                if (firstFailure == null) {
+                    firstFailure = e;
+                }
+                if (success) {
+                    break;
+                }
+            }
+        }
+        if (firstFailure != null) {
+            throw firstFailure;
+        }
+    }
+
     private void cancelRemoteFragmentsAsync(Status cancelReason) {
         for (PipelineExecContexts ctx : beToPipelineExecCtxs.values()) {
             LOG.debug("Cancel query {} on BE {}. Reason: {}", DebugUtil.printId(queryId), ctx.brpcAddr,

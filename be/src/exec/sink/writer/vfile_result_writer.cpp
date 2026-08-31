@@ -123,13 +123,18 @@ Status VFileResultWriter::_create_next_file_writer() {
 
 Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
     auto file_type = DORIS_TRY(FileFactory::convert_storage_type(_storage_type));
-    _file_writer_impl = DORIS_TRY(FileFactory::create_file_writer(
-            file_type, _state->exec_env(), _file_opts->broker_addresses,
-            _file_opts->broker_properties, file_name,
-            {
-                    .write_file_cache = false,
-                    .sync_file_data = false,
-            }));
+    if (_file_system == nullptr) {
+        io::FSPropertiesRef properties(file_type);
+        properties.broker_addresses = &_file_opts->broker_addresses;
+        properties.properties = &_file_opts->broker_properties;
+        io::FileDescription file_description;
+        file_description.path = file_name;
+        _file_system = DORIS_TRY(FileFactory::create_fs(properties, file_description));
+    }
+    const io::FileWriterOptions options {.write_file_cache = false, .sync_file_data = false};
+    RETURN_IF_ERROR(_file_system->create_file(file_name, &_file_writer_impl, &options));
+    // Exact ownership is recorded at creation so rollback never scans or removes another query's files.
+    _created_file_paths.emplace_back(file_name);
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         _vfile_writer.reset(new VCSVTransformer(
@@ -487,7 +492,43 @@ Status VFileResultWriter::close(Status exec_status) {
         }
         st = _close_file_writer(true);
     }
+    if (!st.ok()) {
+        _cleanup_created_files();
+    } else {
+        _register_created_files_cleanup();
+    }
     return st;
+}
+
+void VFileResultWriter::_cleanup_created_files() {
+    _vfile_writer.reset();
+    if (_file_writer_impl != nullptr) {
+        if (_created_file_paths.empty()) {
+            _created_file_paths.emplace_back(_file_writer_impl->path());
+        }
+        WARN_IF_ERROR(_file_writer_impl->abort(), "failed to abort outfile writer");
+        _file_writer_impl.reset();
+    }
+    if (_file_system == nullptr && _storage_type == TStorageBackendType::LOCAL) {
+        _file_system = io::global_local_filesystem();
+    }
+    if (_file_system != nullptr && !_created_file_paths.empty()) {
+        WARN_IF_ERROR(_file_system->batch_delete(_created_file_paths),
+                      "failed to remove files from aborted outfile");
+    }
+    _created_file_paths.clear();
+}
+
+void VFileResultWriter::_register_created_files_cleanup() {
+    if (_sinker == nullptr || _file_system == nullptr || _created_file_paths.empty()) {
+        return;
+    }
+    auto file_system = _file_system;
+    auto paths = std::move(_created_file_paths);
+    _sinker->add_outfile_cleanup([file_system = std::move(file_system), paths = std::move(paths)] {
+        WARN_IF_ERROR(file_system->batch_delete(paths),
+                      "failed to remove files from aborted outfile query");
+    });
 }
 
 } // namespace doris

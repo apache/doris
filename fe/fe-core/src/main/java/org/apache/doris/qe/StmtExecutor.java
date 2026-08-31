@@ -1521,6 +1521,7 @@ public class StmtExecutor {
             Preconditions.checkState(outFileClause != null, "OUTFILE query must have OutFileClause");
         }
 
+        boolean outfileCommitted = false;
         try {
             if (outFileClause != null) {
                 deleteExistingOutfileFilesInFe(outFileClause);
@@ -1574,9 +1575,6 @@ public class StmtExecutor {
                             sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
                                     getReturnTypes(queryStmt));
                         } else {
-                            if (!Strings.isNullOrEmpty(outFileClause.getSuccessFileName())) {
-                                outfileWriteSuccess(outFileClause);
-                            }
                             sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
                         }
                         isSendFields = true;
@@ -1591,6 +1589,13 @@ public class StmtExecutor {
                 if (batch.isEos()) {
                     break;
                 }
+            }
+            if (isOutfileQuery) {
+                coordBase.finishOutfile(true);
+                if (!Strings.isNullOrEmpty(outFileClause.getSuccessFileName())) {
+                    outfileWriteSuccess(outFileClause);
+                }
+                outfileCommitted = true;
             }
             if (cacheAnalyzer != null && !isDryRun) {
                 if (cacheResult != null && cacheAnalyzer.getHitRange() == Cache.HitRange.Right) {
@@ -1642,6 +1647,9 @@ public class StmtExecutor {
                     "cancel fragment query_id:{} cause query timeout",
                     DebugUtil.printId(context.queryId()));
             LOG.warn(internalErrorSt.getErrorMsg());
+            if (isOutfileQuery && !outfileCommitted) {
+                abortOutfile(coordBase);
+            }
             coordBase.cancel(internalErrorSt);
             throw e;
         } catch (Exception e) {
@@ -1652,6 +1660,9 @@ public class StmtExecutor {
                     "cancel fragment query_id:{} cause {}",
                     DebugUtil.printId(context.queryId()), e.getMessage());
             LOG.warn(internalErrorSt.getErrorMsg());
+            if (isOutfileQuery && !outfileCommitted) {
+                abortOutfile(coordBase);
+            }
             coordBase.cancel(internalErrorSt);
             // set to null so that the retry logic will generate a new coordinator
             this.coord = null;
@@ -1663,6 +1674,15 @@ public class StmtExecutor {
             if (!deferredForArrowFlight) {
                 coordBase.close();
             }
+        }
+    }
+
+    private void abortOutfile(CoordInterface coordBase) {
+        try {
+            coordBase.finishOutfile(false);
+        } catch (Exception cleanupError) {
+            // Cleanup diagnostics must not hide the execution error that caused the rollback.
+            LOG.warn("Failed to clean up files from aborted OUTFILE query", cleanupError);
         }
     }
 

@@ -75,6 +75,11 @@ public:
                                POutfileWriteSuccessResult* result,
                                google::protobuf::Closure* done) override;
 
+    void outfile_write_finished(google::protobuf::RpcController* controller,
+                                const POutfileWriteFinishedRequest* request,
+                                POutfileWriteFinishedResult* result,
+                                google::protobuf::Closure* done) override;
+
     void fetch_table_schema(google::protobuf::RpcController* controller,
                             const PFetchTableSchemaRequest* request,
                             PFetchTableSchemaResult* result,

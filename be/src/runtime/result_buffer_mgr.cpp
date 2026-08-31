@@ -130,15 +130,28 @@ Status ResultBufferMgr::find_buffer(const TUniqueId& finst_id,
 }
 
 bool ResultBufferMgr::cancel(const TUniqueId& unique_id, const Status& reason) {
-    std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
-    auto iter = _buffer_map.find(unique_id);
-
-    auto exist = _buffer_map.end() != iter;
-    if (exist) {
-        iter->second->cancel(reason);
+    std::shared_ptr<ResultBlockBufferBase> buffer;
+    {
+        std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
+        auto iter = _buffer_map.find(unique_id);
+        if (iter == _buffer_map.end()) {
+            return false;
+        }
+        buffer = std::move(iter->second);
         _buffer_map.erase(iter);
     }
-    return exist;
+    // Outfile rollback can perform remote I/O, so it must not hold the manager-wide map lock.
+    buffer->cancel(reason);
+    return true;
+}
+
+bool ResultBufferMgr::finish_outfile(const TUniqueId& unique_id, bool success) {
+    auto buffer = _find_control_block<ResultBlockBufferBase>(unique_id);
+    if (buffer == nullptr) {
+        return false;
+    }
+    buffer->finish_outfile(success);
+    return true;
 }
 
 void ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& unique_id) {

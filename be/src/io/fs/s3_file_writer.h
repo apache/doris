@@ -67,6 +67,7 @@ public:
     std::string upload_id() const { return _upload_id; }
 
     Status close(bool non_block = false) override;
+    Status abort() override;
     Status try_finish_close() override;
 
 private:
@@ -114,6 +115,7 @@ private:
     std::shared_ptr<ObjClientHolder> _obj_client;
     std::optional<std::chrono::steady_clock::time_point> _first_append_timestamp;
     bool _close_latency_recorded = false;
+    bool _multipart_upload_completed = false;
 };
 
 } // namespace io
