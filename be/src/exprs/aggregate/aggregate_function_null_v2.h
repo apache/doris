@@ -24,15 +24,20 @@
 
 #include <memory>
 
+#include "common/check.h"
 #include "common/logging.h"
 #include "core/assert_cast.h"
+#include "core/block/column_with_type_and_name.h"
+#include "core/block/columns_with_type_and_name.h"
 #include "core/column/column.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/string_buffer.hpp"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_distinct.h"
+#include "exprs/vexpr_context.h"
 
 namespace doris {
 
@@ -140,6 +145,10 @@ public:
     }
 
     bool is_blockable() const override { return nested_function->is_blockable(); }
+
+    const std::vector<size_t>& get_const_argument_indexes() const override {
+        return nested_function->get_const_argument_indexes();
+    }
 
     void set_version(const int version_) override {
         IAggregateFunctionHelper<Derived>::set_version(version_);
@@ -426,7 +435,7 @@ public:
 
     void check_input_columns_type(const IColumn** columns) const override {
         IAggregateFunction::check_input_columns_type(columns);
-        const auto* column = check_and_get_column<ColumnNullable>(*columns[0]);
+        const auto* column = check_and_get_column_with_const<ColumnNullable>(*columns[0]);
         if (UNLIKELY(column == nullptr)) {
             throw doris::Exception(Status::InternalError(
                     "Aggregate function {} argument 0 type check failed: Column type {} is not "

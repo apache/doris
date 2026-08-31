@@ -20,14 +20,19 @@
 
 #pragma once
 
+#include <array>
 #include <cmath>
 #include <memory>
 
 #include "core/assert_cast.h"
+#include "core/block/column_with_type_and_name.h"
+#include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "exprs/vexpr_context.h"
 
 namespace doris {
 class Arena;
@@ -135,24 +140,28 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
+    const std::vector<size_t>& get_const_argument_indexes() const override {
+        static const std::vector<size_t> indexes {0};
+        return indexes;
+    }
+
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
-        const double half_decay =
-                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0])
-                        .get_data()[row_num];
         const double new_value =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1])
                         .get_data()[row_num];
         const double current_time =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[2])
                         .get_data()[row_num];
-        this->data(place).add(new_value, current_time, half_decay);
+        const auto& half_decay_column =
+                *check_and_get_column_with_const<ColumnFloat64>(*columns[0]);
+        this->data(place).add(new_value, current_time, half_decay_column.get_data()[0]);
     }
 
     void check_input_columns_type(const IColumn** columns) const override {
-        this->template check_argument_column_type<ColumnFloat64>(columns[0]);
+        this->template check_const_argument_column_type<ColumnFloat64>(columns[0]);
         this->template check_argument_column_type<ColumnFloat64>(columns[1]);
         this->template check_argument_column_type<ColumnFloat64>(columns[2]);
     }
