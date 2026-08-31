@@ -183,6 +183,34 @@ TEST(FunctionMapInnerProductTest, string_and_null_keys) {
     EXPECT_FLOAT_EQ(result[0], 22.0F);
 }
 
+TEST(FunctionMapInnerProductTest, duplicate_keys_use_last_value) {
+    auto map_type = std::make_shared<DataTypeMap>(nullable_int_type(), nullable_float_type());
+    auto return_type = std::make_shared<DataTypeFloat32>();
+    Block block;
+    // Rows 0 and 2 build the left map; rows 1 and 3 build the right map.
+    // Rows 0 and 1 use ordinary duplicate keys; rows 2 and 3 use duplicate NULL keys.
+    block.insert(
+            {make_int_float_map(
+                     {1, 1, 1, 1, 2, std::nullopt, std::nullopt, std::nullopt, std::nullopt, 2},
+                     {2.0F, 3.0F, 4.0F, 5.0F, 7.0F, 2.0F, 3.0F, 4.0F, 5.0F, 7.0F}, {2, 5, 7, 10}),
+             map_type, "left"});
+    block.insert(
+            {make_int_float_map(
+                     {1, 1, 2, 1, 1, std::nullopt, std::nullopt, 2, std::nullopt, std::nullopt},
+                     {4.0F, 5.0F, 7.0F, 2.0F, 3.0F, 4.0F, 5.0F, 7.0F, 2.0F, 3.0F}, {3, 5, 8, 10}),
+             map_type, "right"});
+    block.insert({nullptr, return_type, "result"});
+
+    ASSERT_TRUE(execute_inner_product(block, return_type).ok());
+    const auto& result =
+            assert_cast<const ColumnFloat32&>(*block.get_by_position(2).column).get_data();
+    ASSERT_EQ(result.size(), 4);
+    EXPECT_FLOAT_EQ(result[0], 15.0F);
+    EXPECT_FLOAT_EQ(result[1], 15.0F);
+    EXPECT_FLOAT_EQ(result[2], 15.0F);
+    EXPECT_FLOAT_EQ(result[3], 15.0F);
+}
+
 TEST(FunctionMapInnerProductTest, rejects_null_values) {
     auto map_type = std::make_shared<DataTypeMap>(nullable_int_type(), nullable_float_type());
     auto return_type = std::make_shared<DataTypeFloat32>();

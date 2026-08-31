@@ -229,26 +229,35 @@ private:
             values_by_key.reserve(build_range.size);
             bool has_null_key = false;
             float null_key_value = 0.0F;
-            for (size_t i = build_range.begin; i < build_range.begin + build_range.size; ++i) {
-                if (build.key_null_map != nullptr && build.key_null_map[i]) {
-                    has_null_key = true;
-                    null_key_value = build.values[i];
+            // Scan backwards so emplace keeps the last value for duplicate keys.
+            for (size_t i = build_range.begin + build_range.size; i > build_range.begin; --i) {
+                const size_t index = i - 1;
+                if (build.key_null_map != nullptr && build.key_null_map[index]) {
+                    if (!has_null_key) {
+                        has_null_key = true;
+                        null_key_value = build.values[index];
+                    }
                 } else {
-                    values_by_key[KeyTraits::get_key(build.keys, i)] = build.values[i];
+                    values_by_key.emplace(KeyTraits::get_key(build.keys, index),
+                                          build.values[index]);
                 }
             }
 
             float inner_product = 0.0F;
-            for (size_t i = probe_range.begin; i < probe_range.begin + probe_range.size; ++i) {
-                if (probe.key_null_map != nullptr && probe.key_null_map[i]) {
+            // Erase matches while scanning backwards so probe duplicates also use the last value.
+            for (size_t i = probe_range.begin + probe_range.size; i > probe_range.begin; --i) {
+                const size_t index = i - 1;
+                if (probe.key_null_map != nullptr && probe.key_null_map[index]) {
                     if (has_null_key) {
-                        inner_product += null_key_value * probe.values[i];
+                        inner_product += null_key_value * probe.values[index];
+                        has_null_key = false;
                     }
                     continue;
                 }
-                const auto it = values_by_key.find(KeyTraits::get_key(probe.keys, i));
+                const auto it = values_by_key.find(KeyTraits::get_key(probe.keys, index));
                 if (it != values_by_key.end()) {
-                    inner_product += it->second * probe.values[i];
+                    inner_product += it->second * probe.values[index];
+                    values_by_key.erase(it);
                 }
             }
             destination_data[row] = inner_product;
