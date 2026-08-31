@@ -19,6 +19,9 @@ package org.apache.doris.datasource.metacache;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -28,6 +31,7 @@ import org.apache.doris.datasource.SchemaCacheValue;
 
 import com.google.common.collect.Maps;
 
+import java.time.Duration;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -35,17 +39,16 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
-import java.util.function.Predicate;
 
 /**
  * Base implementation of {@link ExternalMetaCache}.
  * It keeps the shared in-memory layout
- * Map&lt;CatalogId, CatalogEntryGroup&gt;, implements default
+ * Map&lt;CatalogId, CatalogMetaCacheRuntime&gt;, implements default
  * lifecycle behavior, and provides conservative invalidation fallback.
  * Subclasses register entry definitions during construction and expect callers
  * to initialize a catalog explicitly before accessing entries.
  */
-public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
+public abstract class ExternalCatalogMetaCache implements ExternalMetaCache {
     protected static CacheSpec defaultEntryCacheSpec() {
         return CacheSpec.of(
                 true,
@@ -62,10 +65,10 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
 
     private final String engine;
     private final ExecutorService refreshExecutor;
-    private final Map<Long, CatalogEntryGroup> catalogEntries = Maps.newConcurrentMap();
+    private final Map<Long, CatalogMetaCacheRuntime> catalogEntries = Maps.newConcurrentMap();
     private final Map<String, MetaCacheEntryDef<?, ?>> metaCacheEntryDefs = Maps.newConcurrentMap();
 
-    protected AbstractExternalMetaCache(String engine, ExecutorService refreshExecutor) {
+    protected ExternalCatalogMetaCache(String engine, ExecutorService refreshExecutor) {
         this.engine = engine;
         this.refreshExecutor = Objects.requireNonNull(refreshExecutor, "refreshExecutor can not be null");
     }
@@ -84,12 +87,12 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
     public void initCatalog(long catalogId, Map<String, String> catalogProperties) {
         Map<String, String> safeCatalogProperties = CacheSpec.applyCompatibilityMap(
                 catalogProperties, catalogPropertyCompatibilityMap());
-        catalogEntries.computeIfAbsent(catalogId, id -> buildCatalogEntryGroup(safeCatalogProperties));
+        catalogEntries.computeIfAbsent(catalogId, id -> buildCatalogRuntime(safeCatalogProperties));
     }
 
     @Override
     public void checkCatalogInitialized(long catalogId) {
-        requireCatalogEntryGroup(catalogId);
+        requireCatalogRuntime(catalogId);
     }
 
     @Override
@@ -109,31 +112,31 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
 
     @Override
     @SuppressWarnings("unchecked")
-    public <K, V> MetaCacheEntry<K, V> entry(long catalogId, String entryName, Class<K> keyType, Class<V> valueType) {
-        CatalogEntryGroup group = requireCatalogEntryGroup(catalogId);
+    public <K, V> MetaCache<K, V> entry(long catalogId, String entryName, Class<K> keyType, Class<V> valueType) {
+        CatalogMetaCacheRuntime group = requireCatalogRuntime(catalogId);
         MetaCacheEntryDef<?, ?> def = requireMetaCacheEntryDef(entryName);
         ensureTypeCompatible(def, keyType, valueType);
 
-        MetaCacheEntry<?, ?> cacheEntry = group.get(entryName);
+        MetaCache<?, ?> cacheEntry = group.get(entryName);
         if (cacheEntry == null) {
             throw new IllegalStateException(String.format(
                     "Entry '%s' is not initialized for engine '%s', catalog %d.",
                     entryName, engine, catalogId));
         }
-        return (MetaCacheEntry<K, V>) cacheEntry;
+        return (MetaCache<K, V>) cacheEntry;
     }
 
     @Override
     public void invalidateCatalog(long catalogId) {
-        CatalogEntryGroup removed = catalogEntries.remove(catalogId);
+        CatalogMetaCacheRuntime removed = catalogEntries.remove(catalogId);
         if (removed != null) {
-            removed.invalidateAll();
+            removed.close();
         }
     }
 
     @Override
     public void invalidateCatalogEntries(long catalogId) {
-        CatalogEntryGroup group = catalogEntries.get(catalogId);
+        CatalogMetaCacheRuntime group = catalogEntries.get(catalogId);
         if (group != null) {
             group.invalidateAll();
         }
@@ -141,29 +144,35 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
 
     @Override
     public void invalidateDb(long catalogId, String dbName) {
-        invalidateEntries(catalogId, entryDef -> entryDef.getInvalidation().dbPredicate(dbName));
+        CatalogMetaCacheRuntime group = catalogEntries.get(catalogId);
+        if (group != null) {
+            group.owner().invalidateDatabase(dbName);
+        }
     }
 
     @Override
     public void invalidateTable(long catalogId, String dbName, String tableName) {
-        invalidateEntries(catalogId, entryDef -> entryDef.getInvalidation().tablePredicate(dbName, tableName));
+        CatalogMetaCacheRuntime group = catalogEntries.get(catalogId);
+        if (group != null) {
+            group.owner().invalidateTable(dbName, tableName);
+        }
     }
 
     @Override
     public void invalidatePartitions(long catalogId, String dbName, String tableName, List<String> partitions) {
-        invalidateEntries(catalogId,
-                entryDef -> entryDef.getInvalidation().partitionPredicate(dbName, tableName, partitions));
+        // FE schema entries are table-scoped: any partition metadata change can affect the table view.
+        invalidateTable(catalogId, dbName, tableName);
     }
 
     @Override
     public Map<String, MetaCacheEntryStats> stats(long catalogId) {
-        CatalogEntryGroup group = catalogEntries.get(catalogId);
+        CatalogMetaCacheRuntime group = catalogEntries.get(catalogId);
         return group == null ? Maps.newHashMap() : group.stats();
     }
 
     @Override
     public void close() {
-        catalogEntries.values().forEach(CatalogEntryGroup::invalidateAll);
+        catalogEntries.values().forEach(CatalogMetaCacheRuntime::close);
         catalogEntries.clear();
     }
 
@@ -186,7 +195,7 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
         return new EntryHandle<>(entryDef);
     }
 
-    protected final <K, V> MetaCacheEntry<K, V> entry(long catalogId, MetaCacheEntryDef<K, V> entryDef) {
+    protected final <K, V> MetaCache<K, V> entry(long catalogId, MetaCacheEntryDef<K, V> entryDef) {
         validateRegisteredMetaCacheEntryDef(entryDef);
         return entry(catalogId, entryDef.getName(), entryDef.getKeyType(), entryDef.getValueType());
     }
@@ -222,8 +231,8 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
                         nameMapping.getLocalTblName(), engineNameForError));
     }
 
-    private CatalogEntryGroup requireCatalogEntryGroup(long catalogId) {
-        CatalogEntryGroup group = catalogEntries.get(catalogId);
+    private CatalogMetaCacheRuntime requireCatalogRuntime(long catalogId) {
+        CatalogMetaCacheRuntime group = catalogEntries.get(catalogId);
         if (group == null) {
             throw new IllegalStateException(String.format(
                     "Catalog %d is not initialized for engine '%s'.",
@@ -262,45 +271,31 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
         ensureTypeCompatible(registered, entryDef.getKeyType(), entryDef.getValueType());
     }
 
-    private void invalidateEntries(long catalogId, Function<MetaCacheEntryDef<?, ?>, Predicate<?>> predicateFactory) {
-        CatalogEntryGroup group = catalogEntries.get(catalogId);
-        if (group == null) {
-            return;
-        }
-        metaCacheEntryDefs.values().forEach(entryDef -> invalidateEntryIfMatched(group, entryDef, predicateFactory));
-    }
-
-    @SuppressWarnings("unchecked")
-    private <K, V> void invalidateEntryIfMatched(CatalogEntryGroup group, MetaCacheEntryDef<K, V> entryDef,
-            Function<MetaCacheEntryDef<?, ?>, Predicate<?>> predicateFactory) {
-        Predicate<K> predicate = (Predicate<K>) predicateFactory.apply(entryDef);
-        if (predicate == null) {
-            return;
-        }
-        MetaCacheEntry<K, V> entry = (MetaCacheEntry<K, V>) group.get(entryDef.getName());
-        if (entry != null) {
-            entry.invalidateIf(predicate);
-        }
-    }
-
-    private CatalogEntryGroup buildCatalogEntryGroup(Map<String, String> catalogProperties) {
-        CatalogEntryGroup group = new CatalogEntryGroup();
+    private CatalogMetaCacheRuntime buildCatalogRuntime(Map<String, String> catalogProperties) {
+        CatalogMetaCacheRuntime group = new CatalogMetaCacheRuntime();
         metaCacheEntryDefs.values()
-                .forEach(entryDef -> group.put(entryDef.getName(), newMetaCacheEntry(entryDef, catalogProperties)));
+                .forEach(entryDef -> group.put(entryDef.getName(),
+                        newMetaCacheEntry(group, entryDef, catalogProperties)));
         return group;
     }
 
     @SuppressWarnings("unchecked")
-    private <K, V> MetaCacheEntry<K, V> newMetaCacheEntry(
-            MetaCacheEntryDef<?, ?> rawEntryDef, Map<String, String> catalogProperties) {
+    private <K, V> MetaCache<K, V> newMetaCacheEntry(
+            CatalogMetaCacheRuntime group, MetaCacheEntryDef<?, ?> rawEntryDef, Map<String, String> catalogProperties) {
         MetaCacheEntryDef<K, V> entryDef = (MetaCacheEntryDef<K, V>) rawEntryDef;
         CacheSpec cacheSpec = CacheSpec.fromProperties(
                 catalogProperties, engine, entryDef.getName(), entryDef.getDefaultCacheSpec());
-        return new MetaCacheEntry<>(entryDef.getName(),
-                wrapSchemaValidator(entryDef.getLoader(), entryDef.getValueType()),
-                cacheSpec,
-                refreshExecutor, entryDef.isAutoRefresh(), entryDef.isContextualOnly(),
-                MetaCacheEntry.defaultObjectStripeCount());
+        Function<K, V> loader = wrapSchemaValidator(entryDef.getLoader(), entryDef.getValueType());
+        MetaCacheDefinition.Builder<K, V> builder = MetaCacheDefinition.builder(
+                entryDef.getName(), cacheSpec, entryDef.getInvalidation()::scope);
+        if (loader != null) {
+            builder.loader(loader);
+        }
+        if (entryDef.isAutoRefresh() && Config.external_cache_refresh_time_minutes > 0) {
+            builder.refreshAfterWrite(
+                    Duration.ofMinutes(Config.external_cache_refresh_time_minutes), refreshExecutor);
+        }
+        return group.owner().create(builder.build());
     }
 
     private <K, V> Function<K, V> wrapSchemaValidator(Function<K, V> loader, Class<V> valueType) {
@@ -324,11 +319,11 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
             this.entryDef = entryDef;
         }
 
-        public MetaCacheEntry<K, V> get(long catalogId) {
+        public MetaCache<K, V> get(long catalogId) {
             return entry(catalogId, entryDef);
         }
 
-        public MetaCacheEntry<K, V> getIfInitialized(long catalogId) {
+        public MetaCache<K, V> getIfInitialized(long catalogId) {
             return isCatalogInitialized(catalogId) ? get(catalogId) : null;
         }
     }

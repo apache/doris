@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.metastore.paimon.jdbc.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.AbstractHmsMetaStoreProperties;
@@ -49,7 +50,6 @@ import org.apache.paimon.catalog.CachingCatalog;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
-import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.hive.HiveCatalog;
@@ -136,12 +136,14 @@ public class PaimonConnector implements Connector {
     // returns a fresh metadata per query, so this lives on the connector and is injected into the metadata so
     // beginQuerySnapshot pins a stable id across queries. Cleared wholesale on REFRESH CATALOG (connector rebuilt).
     private final PaimonLatestSnapshotCache latestSnapshotCache;
+    private final CatalogMetaCache metaCache = new CatalogMetaCache();
 
     // FIX-B-MC2: connector-level (per-catalog, long-lived) second-level memo for the time-travel
     // schema-at-snapshot read. getMetadata() returns a FRESH metadata per query, so this must live on the
     // connector (not the metadata) to give the cross-query hit the legacy PaimonExternalMetaCache provided.
     // Cleared wholesale on REFRESH CATALOG (the connector is rebuilt). See PaimonSchemaAtMemo.
-    private final PaimonSchemaAtMemo schemaAtMemo = new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
+    private final PaimonSchemaAtMemo schemaAtMemo =
+            new PaimonSchemaAtMemo(metaCache, PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
 
     // PERF-06: cross-query DERIVED partition-view cache ("cache A", the generic ConnectorMetadataCache from
     // fe-connector-cache), layered ABOVE the raw remote catalog.listPartitions call (PaimonCatalogOps#listPartitions):
@@ -175,10 +177,12 @@ public class PaimonConnector implements Connector {
         this.context = new TcclPinningConnectorContext(context, getClass().getClassLoader(),
                 this::pluginAuthenticator);
         this.latestSnapshotCache =
-                new PaimonLatestSnapshotCache(resolveTableCacheTtlSecond(properties), DEFAULT_TABLE_CACHE_CAPACITY);
+                new PaimonLatestSnapshotCache(
+                        metaCache, resolveTableCacheTtlSecond(properties), DEFAULT_TABLE_CACHE_CAPACITY);
         // Reads its own meta.cache.paimon.partition_view.(enable|ttl-second|capacity) from the catalog
         // properties via the framework's CacheSpec (default ON / 24h / 1000).
-        this.partitionViewCache = new ConnectorMetadataCache<>("paimon", "partition_view", properties);
+        this.partitionViewCache = new ConnectorMetadataCache<>(
+                metaCache, "paimon.partition-view", "paimon", "partition_view", properties);
     }
 
     /**
@@ -293,14 +297,12 @@ public class PaimonConnector implements Connector {
         // DROP/CREATE of this name): drop the cached latest snapshot id so the next read goes live. Keyed by
         // the REMOTE db/table names, matching the key beginQuerySnapshot stores (PaimonTableHandle carries
         // remote names).
-        latestSnapshotCache.invalidate(Identifier.create(dbName, tableName));
         // Also drop the time-travel schema memo for this table: unlike the snapshot cache it is keyed by
         // (db,table,sysTable,branch,schemaId) and would otherwise serve a stale schema-at-snapshot after a
         // drop+recreate that reuses a schemaId (the memo's narrow write-once-per-schemaId assumption breaks).
-        schemaAtMemo.invalidate(dbName, tableName);
         // PERF-06: also drop this table's cached derived partition-view entries (every snapshotId cached for
         // it), so the next listPartitions re-enumerates live.
-        partitionViewCache.invalidateTable(dbName, tableName);
+        metaCache.invalidateTable(dbName, tableName);
     }
 
     /**
@@ -315,16 +317,12 @@ public class PaimonConnector implements Connector {
      */
     @Override
     public void invalidateDb(String dbName) {
-        latestSnapshotCache.invalidateDb(dbName);
-        schemaAtMemo.invalidateDb(dbName);
-        partitionViewCache.invalidateDb(dbName);
+        metaCache.invalidateDatabase(dbName);
     }
 
     @Override
     public void invalidateAll() {
-        latestSnapshotCache.invalidateAll();
-        schemaAtMemo.invalidateAll();
-        partitionViewCache.invalidateAll();
+        metaCache.invalidateCatalog();
     }
 
     @Override
@@ -732,6 +730,7 @@ public class PaimonConnector implements Connector {
 
     @Override
     public void close() throws IOException {
+        metaCache.close();
         Catalog cat = catalog;
         if (cat != null) {
             try {
