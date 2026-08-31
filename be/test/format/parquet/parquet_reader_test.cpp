@@ -95,7 +95,7 @@ public:
         EXPECT_TRUE(st.ok()) << st;
 
         cctz::time_zone ctz;
-        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+        ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
         auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
         std::vector<std::string> column_names;
         std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
@@ -197,7 +197,7 @@ public:
         EXPECT_TRUE(st.ok()) << st;
 
         cctz::time_zone ctz;
-        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+        ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
         auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
         std::vector<std::string> column_names;
         std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
@@ -370,7 +370,7 @@ TEST_F(ParquetReaderTest, normal) {
             "./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", &reader));
 
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
@@ -435,7 +435,7 @@ TEST_F(ParquetReaderTest, uuid_varbinary) {
     EXPECT_TRUE(st.ok()) << st;
 
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
@@ -509,7 +509,7 @@ TEST_F(ParquetReaderTest, varbinary_varbinary) {
     EXPECT_TRUE(st.ok()) << st;
 
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
@@ -583,7 +583,7 @@ TEST_F(ParquetReaderTest, varbinary_string) {
     EXPECT_TRUE(st.ok()) << st;
 
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
@@ -659,7 +659,7 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     EXPECT_TRUE(st.ok()) << st;
 
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
@@ -991,7 +991,7 @@ TEST_F(ParquetReaderTest, only_partition_column) {
     EXPECT_TRUE(st.ok()) << st;
 
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx;

@@ -63,8 +63,8 @@ protected:
         cache = std::make_unique<doris::FileMetaCache>(1024);
 
         // Setup timezone
-        doris::TimezoneUtils::find_cctz_time_zone(doris::TimezoneUtils::default_time_zone,
-                                                  timezone_obj);
+        ASSERT_TRUE(doris::TimezoneUtils::find_cctz_time_zone(
+                doris::TimezoneUtils::default_time_zone, timezone_obj));
     }
 
     void TearDown() override { cache.reset(); }
@@ -530,7 +530,7 @@ TEST_F(HiveReaderTest, read_hive_parquet_file) {
 
     // Create HiveParquetReader (directly inherits ParquetReader)
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
     auto hive_reader =
             std::make_unique<HiveParquetReader>(&profile, scan_params, scan_range, 1024, &ctz,
                                                 nullptr, &runtime_state, nullptr, cache.get());

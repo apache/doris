@@ -255,7 +255,7 @@ TEST_F(DataTypeVarbinarySerDeTest, OrcWriteSupported) {
     TimezoneUtils::load_timezones_to_cache();
     DataTypeSerDe::FormatOptions format_options;
     cctz::time_zone tz;
-    TimezoneUtils::find_cctz_time_zone("UTC", tz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("UTC", tz));
     format_options.timezone = &tz;
     auto batch = std::make_unique<orc::StringVectorBatch>(1, *orc::getDefaultPool());
     auto st = serde.write_column_to_orc("UTC", *col, nullptr, batch.get(), 0, 0, arena,
@@ -368,7 +368,7 @@ TEST_F(DataTypeVarbinarySerDeTest, OrcWriteStartEndNullMapIgnoredAndEmptyRange) 
     TimezoneUtils::load_timezones_to_cache();
     DataTypeSerDe::FormatOptions format_options;
     cctz::time_zone tz;
-    TimezoneUtils::find_cctz_time_zone("UTC", tz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("UTC", tz));
     format_options.timezone = &tz;
 
     // Provide a null_map but implementation ignores it; ensure data still written.

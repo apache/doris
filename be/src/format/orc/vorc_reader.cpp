@@ -51,6 +51,7 @@
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/exception.h"
+#include "common/logging.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
@@ -237,7 +238,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _enable_filter_by_min_max(
                   state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
           _dict_cols_has_converted(false) {
-    TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone);
+    DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone));
     _meta_cache = meta_cache;
     _init_profile();
     _init_system_properties();
@@ -263,7 +264,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _enable_filter_by_min_max(
                   state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
           _dict_cols_has_converted(false) {
-    TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone);
+    DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone));
     _meta_cache = meta_cache;
     _init_profile();
     _init_system_properties();
@@ -297,7 +298,7 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(true),
           _dict_cols_has_converted(false) {
-    TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone);
+    DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone));
     _meta_cache = meta_cache;
     _init_system_properties();
     _init_file_description();
@@ -318,7 +319,7 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(true),
           _dict_cols_has_converted(false) {
-    TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone);
+    DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone));
     _meta_cache = meta_cache;
     _init_system_properties();
     _init_file_description();

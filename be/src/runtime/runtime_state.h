@@ -38,6 +38,7 @@
 #include "agent/be_exec_version_manager.h"
 #include "cctz/time_zone.h"
 #include "common/be_mock_util.h"
+#include "common/check.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/factory_creator.h"
@@ -227,7 +228,7 @@ public:
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
     void set_timezone(const std::string& timezone) {
         _timezone = timezone;
-        TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
+        DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj));
     }
     const std::string& lc_time_names() const { return _lc_time_names; }
     const TUniqueId& query_id() const { return _query_id; }

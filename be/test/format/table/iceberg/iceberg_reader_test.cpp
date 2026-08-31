@@ -946,8 +946,8 @@ protected:
         cache = std::make_unique<doris::FileMetaCache>(1024);
 
         // Setup timezone
-        doris::TimezoneUtils::find_cctz_time_zone(doris::TimezoneUtils::default_time_zone,
-                                                  timezone_obj);
+        ASSERT_TRUE(doris::TimezoneUtils::find_cctz_time_zone(
+                doris::TimezoneUtils::default_time_zone, timezone_obj));
     }
 
     void TearDown() override { cache.reset(); }
@@ -1581,7 +1581,7 @@ TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
 
     // Create IcebergParquetReader (IS-A ParquetReader via CRTP mixin)
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
 
     auto iceberg_reader = std::make_unique<IcebergParquetReader>(
             nullptr /* kv_cache */, &profile, scan_params, scan_range, 1024, &ctz,
@@ -1666,7 +1666,7 @@ TEST_F(IcebergReaderTest, v1_deletion_vector_read_error_releases_cache_entry) {
 
     RuntimeProfile profile("test_profile");
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
     io::IOContext io_ctx;
     ShardedKVCache kv_cache(8);
 
@@ -1700,7 +1700,7 @@ TEST_F(IcebergReaderTest, v1_position_delete_read_error_releases_cache_entry) {
 
     RuntimeProfile profile("test_profile");
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
     io::IOContext io_ctx;
     ShardedKVCache kv_cache(8);
 
@@ -2046,7 +2046,7 @@ TEST_F(IcebergReaderTest, v2_parquet_materializes_nested_initial_default_without
     RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
     runtime_state.set_timezone("UTC");
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone("UTC", ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("UTC", ctz));
     io::IOContext io_ctx;
     ShardedKVCache kv_cache(8);
     IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz, &io_ctx,
@@ -2201,7 +2201,7 @@ TEST_F(IcebergReaderTest, v1_materializes_missing_equality_delete_initial_defaul
     RuntimeProfile profile("test_profile");
     RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
     io::IOContext io_ctx;
     ShardedKVCache kv_cache(8);
     IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz, &io_ctx,
@@ -2270,7 +2270,7 @@ TEST_F(IcebergReaderTest, v1_top_level_missing_binary_prefers_iceberg_initial_de
     RuntimeProfile profile("test_profile");
     RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
     io::IOContext io_ctx;
     ShardedKVCache kv_cache(8);
     IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz, &io_ctx,
@@ -2321,7 +2321,7 @@ TEST_F(IcebergReaderTest, v1_legacy_plan_keeps_missing_binary_null) {
     RuntimeProfile profile("test_profile");
     RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
     io::IOContext io_ctx;
     ShardedKVCache kv_cache(8);
     IcebergParquetReader reader(&kv_cache, &profile, old_fe_scan_params, scan_range, 1024, &ctz,
@@ -2357,7 +2357,7 @@ TEST_F(IcebergReaderTest, v1_multi_equality_delete_hashes_materialized_missing_d
     RuntimeProfile profile("test_profile");
     RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
     io::IOContext io_ctx;
     ShardedKVCache kv_cache(8);
     IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz, &io_ctx,
@@ -2418,7 +2418,7 @@ TEST_F(IcebergReaderTest, v2_recovers_dropped_equality_key_default_from_historic
     RuntimeProfile profile("test_profile");
     RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
     io::IOContext io_ctx;
     ShardedKVCache kv_cache(8);
     IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz, &io_ctx,
@@ -2465,7 +2465,7 @@ TEST_F(IcebergReaderTest, v1_missing_equality_key_returns_error_for_pruned_descr
     RuntimeProfile profile("test_profile");
     RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
     io::IOContext io_ctx;
     ShardedKVCache kv_cache(8);
     IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz, &io_ctx,
@@ -2623,7 +2623,7 @@ TEST_F(IcebergReaderTest, v1_parquet_reads_idless_wrapper_with_authoritative_emp
     RuntimeProfile profile("test_profile");
     RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone("UTC", ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("UTC", ctz));
     io::IOContext io_ctx;
     ShardedKVCache kv_cache(8);
     IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz, &io_ctx,
@@ -2719,7 +2719,7 @@ TEST_F(IcebergReaderTest, v1_parquet_keeps_file_id_mode_inside_nested_struct) {
     RuntimeProfile profile("test_profile");
     RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone("UTC", ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("UTC", ctz));
     io::IOContext io_ctx;
     ShardedKVCache kv_cache(8);
     IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz, &io_ctx,
@@ -3338,7 +3338,7 @@ TEST_F(IcebergReaderTest, v2_parquet_keeps_dropped_equality_id_when_name_is_reus
     RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
     runtime_state.set_timezone("UTC");
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone("UTC", ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("UTC", ctz));
     io::IOContext io_ctx;
     ShardedKVCache kv_cache(8);
     IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz, &io_ctx,
@@ -3440,7 +3440,7 @@ TEST_F(IcebergReaderTest, v2_parquet_separates_hidden_reused_equality_names) {
     RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
     runtime_state.set_timezone("UTC");
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone("UTC", ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("UTC", ctz));
     io::IOContext io_ctx;
     ShardedKVCache kv_cache(8);
     IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz, &io_ctx,
@@ -3534,7 +3534,7 @@ TEST_F(IcebergReaderTest, v1_parquet_mixed_ids_prefer_existing_equality_field_id
     RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
     runtime_state.set_timezone("UTC");
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone("UTC", ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("UTC", ctz));
     io::IOContext io_ctx;
     ShardedKVCache kv_cache(8);
     IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz, &io_ctx,
@@ -3662,7 +3662,7 @@ TEST_F(IcebergReaderTest, v1_parquet_uses_descendant_id_for_hidden_nested_equali
     RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
     runtime_state.set_timezone("UTC");
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone("UTC", ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("UTC", ctz));
     io::IOContext io_ctx;
     ShardedKVCache kv_cache(8);
     IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz, &io_ctx,
@@ -3758,7 +3758,7 @@ TEST_F(IcebergReaderTest, v2_parquet_idless_equality_key_uses_delete_file_name) 
     RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
     runtime_state.set_timezone("UTC");
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone("UTC", ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("UTC", ctz));
     io::IOContext io_ctx;
     ShardedKVCache kv_cache(8);
     IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz, &io_ctx,

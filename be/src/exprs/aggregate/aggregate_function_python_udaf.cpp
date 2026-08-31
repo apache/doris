@@ -63,7 +63,7 @@ Status AggregatePythonUDAFData::add(int64_t place_id, const IColumn** columns,
     RETURN_IF_ERROR(
             get_arrow_schema_from_block(input_block, &schema, TimezoneUtils::default_time_zone));
     cctz::time_zone timezone_obj;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
+    DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj));
 
     std::shared_ptr<arrow::RecordBatch> batch;
     // Zero-copy: convert only the specified range
@@ -108,7 +108,7 @@ Status AggregatePythonUDAFData::add_batch(AggregateDataPtr* places, size_t place
     RETURN_IF_ERROR(
             get_arrow_schema_from_block(input_block, &schema, TimezoneUtils::default_time_zone));
     cctz::time_zone timezone_obj;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
+    DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj));
 
     std::shared_ptr<arrow::RecordBatch> batch;
     // Zero-copy: convert only the [start, end) range
@@ -175,7 +175,7 @@ Status AggregatePythonUDAFData::get(IColumn& to, const DataTypePtr& result_type,
     Block result_block;
     DataTypes types = {result_type};
     cctz::time_zone timezone_obj;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
+    DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj));
     RETURN_IF_ERROR(convert_from_arrow_batch(result, types, &result_block, timezone_obj));
 
     // Insert the result value into output column

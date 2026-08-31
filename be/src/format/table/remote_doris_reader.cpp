@@ -28,6 +28,7 @@
 #include "arrow/memory_pool.h"
 #include "arrow/result.h"
 #include "arrow/status.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
@@ -49,7 +50,7 @@ RemoteDorisReader::RemoteDorisReader(const std::vector<SlotDescriptor*>& file_sl
                                      RuntimeState* state, RuntimeProfile* profile,
                                      const TFileRangeDesc& range)
         : _range(range), _file_slot_descs(file_slot_descs) {
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _ctzz);
+    DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _ctzz));
 }
 
 Status RemoteDorisReader::init_reader() {

@@ -122,7 +122,7 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
                                 &reader));
 
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx;

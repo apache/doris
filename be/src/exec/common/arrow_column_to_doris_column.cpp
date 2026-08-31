@@ -92,7 +92,9 @@ Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arr
                                     ColumnPtr& doris_column, const DataTypePtr& type,
                                     size_t num_elements, const std::string& timezone) {
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(timezone, ctz);
+    if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
+        return Status::InvalidArgument("Invalid timezone: {}", timezone);
+    }
     return arrow_column_to_doris_column(arrow_column, arrow_batch_cur_idx, doris_column, type,
                                         num_elements, ctz);
 }

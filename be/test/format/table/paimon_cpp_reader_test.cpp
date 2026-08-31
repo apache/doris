@@ -313,7 +313,7 @@ TEST(PaimonDeletionVectorTest, V1ParquetReaderReadErrorReleasesCacheEntry) {
     const auto range = make_paimon_range_with_deletion_file(
             "./be/test/exec/test_data/missing_paimon_v1_delete_vector.bin");
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz));
     io::IOContext io_ctx;
     FileMetaCache meta_cache(1024);
     ShardedKVCache kv_cache(8);

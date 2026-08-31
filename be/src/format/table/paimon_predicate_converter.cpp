@@ -21,6 +21,7 @@
 #include <cctype>
 #include <utility>
 
+#include "common/logging.h"
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type.h"
@@ -59,7 +60,7 @@ PaimonPredicateConverter::PaimonPredicateConverter(
     }
 
     if (!TimezoneUtils::find_cctz_time_zone("GMT", _gmt_tz)) {
-        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _gmt_tz);
+        DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _gmt_tz));
     }
 }
 

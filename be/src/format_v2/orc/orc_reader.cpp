@@ -907,7 +907,7 @@ Status OrcReader::init(RuntimeState* state) {
     SCOPED_TIMER(_orc_profile.total_time);
     RETURN_IF_ERROR(format::FileReader::init(state));
     _state = std::make_unique<OrcReaderScanState>();
-    TimezoneUtils::find_cctz_time_zone(_state->timezone, _state->timezone_obj);
+    DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(_state->timezone, _state->timezone_obj));
     if (state != nullptr) {
         _state->enable_lazy_materialization = state->query_options().enable_orc_lazy_mat;
         _state->enable_filter_by_min_max = state->query_options().enable_orc_filter_by_min_max;

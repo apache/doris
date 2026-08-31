@@ -74,6 +74,7 @@
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
+#include "common/check.h"
 #include "core/types.h"
 #include "core/value/hll.h"
 #include "core/value/vdatetime_value.h"
@@ -289,7 +290,7 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
             DateV2Value<DateTimeV2ValueType> value;
             std::string date_literal = "2022-01-01 11:11:11.111";
             cctz::time_zone ctz;
-            TimezoneUtils::find_cctz_time_zone("UTC", ctz);
+            DORIS_CHECK(TimezoneUtils::find_cctz_time_zone("UTC", ctz));
             {
                 CastParameters p;
                 EXPECT_TRUE(CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(

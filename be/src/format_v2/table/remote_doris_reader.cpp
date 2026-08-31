@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "common/cast_set.h"
+#include "common/logging.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type.h"
@@ -330,7 +331,7 @@ RemoteDorisFileReader::RemoteDorisFileReader(
           _range(range),
           _file_slot_descs(file_slot_descs),
           _stream_factory(std::move(stream_factory)) {
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _ctz);
+    DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _ctz));
 }
 
 RemoteDorisFileReader::~RemoteDorisFileReader() {
