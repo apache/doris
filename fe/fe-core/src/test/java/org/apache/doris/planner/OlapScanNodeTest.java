@@ -28,23 +28,30 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.LocalReplica;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TOlapScanNode;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPartitionBoundary;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -59,6 +66,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class OlapScanNodeTest {
@@ -354,6 +362,45 @@ public class OlapScanNodeTest {
                 OlapScanNode.class.getDeclaredField("tabletId2BucketInfo");
         bucketInfoField.setAccessible(true);
         return (Map<Long, Long>) bucketInfoField.get(scanNode);
+    }
+
+    @Test
+    public void testPointQueryBackendAlivePathsOnlyUseSelectedTabletBackends() {
+        Backend firstBackend = backendWithDisks(1L, 11L, 12L);
+        Backend secondBackend = backendWithDisks(2L, 21L, 22L);
+        Backend unrelatedBackend = backendWithDisks(3L, 31L, 32L);
+        Map<Long, Backend> backends = ImmutableMap.of(
+                firstBackend.getId(), firstBackend,
+                secondBackend.getId(), secondBackend,
+                unrelatedBackend.getId(), unrelatedBackend);
+
+        LocalTablet selectedTablet = new LocalTablet(10L);
+        selectedTablet.addReplica(new LocalReplica(101L, firstBackend.getId(), 0, ReplicaState.NORMAL), true);
+        selectedTablet.addReplica(new LocalReplica(102L, secondBackend.getId(), 0, ReplicaState.NORMAL), true);
+        selectedTablet.addReplica(new LocalReplica(103L, 4L, 0, ReplicaState.NORMAL), true);
+
+        Map<Long, Set<Long>> alivePathHashes = OlapScanNode.getBackendAlivePathHashes(
+                backends, Lists.<Tablet>newArrayList(selectedTablet));
+
+        Assert.assertEquals(2, alivePathHashes.size());
+        Assert.assertEquals(Collections.singleton(11L), alivePathHashes.get(firstBackend.getId()));
+        Assert.assertEquals(Collections.singleton(21L), alivePathHashes.get(secondBackend.getId()));
+        Assert.assertFalse(alivePathHashes.containsKey(unrelatedBackend.getId()));
+        Assert.assertFalse(alivePathHashes.containsKey(4L));
+    }
+
+    private Backend backendWithDisks(long backendId, long alivePathHash, long offlinePathHash) {
+        DiskInfo aliveDisk = new DiskInfo("/alive-" + backendId);
+        aliveDisk.setPathHash(alivePathHash);
+        DiskInfo offlineDisk = new DiskInfo("/offline-" + backendId);
+        offlineDisk.setPathHash(offlinePathHash);
+        offlineDisk.setState(DiskInfo.DiskState.OFFLINE);
+
+        Backend backend = new Backend(backendId, "127.0.0." + backendId, 9050);
+        backend.setDisks(ImmutableMap.of(
+                aliveDisk.getRootPath(), aliveDisk,
+                offlineDisk.getRootPath(), offlineDisk));
+        return backend;
     }
 
     private Partition mockPartition(String name) {
