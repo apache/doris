@@ -106,7 +106,6 @@ public class ThriftHmsClient implements HmsClient {
     private final MetaStoreClientProvider clientProvider;
     private final HmsTypeMapping.Options typeMappingOptions;
     private final int partitionBatchSize;
-    private final long partitionBatchFallbackTimeoutMillis;
     private volatile boolean closed;
 
     /**
@@ -145,7 +144,6 @@ public class ThriftHmsClient implements HmsClient {
         this.clientProvider = clientProvider;
         this.typeMappingOptions = typeMappingOptions;
         this.partitionBatchSize = config.getPartitionBatchSize();
-        this.partitionBatchFallbackTimeoutMillis = config.getPartitionBatchFallbackTimeoutMillis();
         if (config.getPoolSize() > 0) {
             this.clientPool = new GenericObjectPool<>(
                     new HmsClientFactory(), createPoolConfig(config.getPoolSize()));
@@ -289,7 +287,6 @@ public class ThriftHmsClient implements HmsClient {
     private HmsPartitionBatchExecutor newPartitionBatchExecutor(HmsPartitionTransport transport) {
         return HmsPartitionBatchExecutor.builder()
                 .maxBatchSize(partitionBatchSize)
-                .fallbackTimeoutMillis(partitionBatchFallbackTimeoutMillis)
                 .transport(transport)
                 .build();
     }

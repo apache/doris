@@ -25,8 +25,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
-import java.util.function.LongSupplier;
 
 /** Splits one logical partition request into bounded, validated HMS RPCs. */
 final class HmsPartitionBatchExecutor {
@@ -44,18 +42,14 @@ final class HmsPartitionBatchExecutor {
 
     private final int maxBatchSize;
     private final int minBatchSize;
-    private final long fallbackTimeoutNanos;
     private final HmsPartitionTransport transport;
     private final FailureClassifier failureClassifier;
-    private final LongSupplier nanoTime;
 
     private HmsPartitionBatchExecutor(Builder builder) {
         this.maxBatchSize = builder.maxBatchSize;
         this.minBatchSize = builder.minBatchSize;
-        this.fallbackTimeoutNanos = TimeUnit.MILLISECONDS.toNanos(builder.fallbackTimeoutMillis);
         this.transport = builder.transport;
         this.failureClassifier = builder.failureClassifier;
-        this.nanoTime = builder.nanoTime;
     }
 
     static Builder builder() {
@@ -98,10 +92,7 @@ final class HmsPartitionBatchExecutor {
         long maxRpcElapsedNanos = 0;
         int largestBatchSize = 0;
         int smallestBatchSize = Integer.MAX_VALUE;
-        boolean fallbackStarted = false;
-        long fallbackStartNanos = 0;
         while (offset < partitions.size()) {
-            checkFallbackTimeout(request, offset, fallbackStarted, fallbackStartNanos);
             int batchSize = Math.min(effectiveBatchSize, partitions.size() - offset);
             List<HmsPartitionIdentity.ParsedPartitionName> batch =
                     partitions.subList(offset, offset + batchSize);
@@ -124,11 +115,6 @@ final class HmsPartitionBatchExecutor {
                     throw finalBatchFailure(request, offset, batchSize, effectiveBatchSize,
                             attempts, fallbackCount, e);
                 }
-                if (!fallbackStarted) {
-                    fallbackStartNanos = nanoTime.getAsLong();
-                    fallbackStarted = true;
-                }
-                checkFallbackTimeout(request, offset, true, fallbackStartNanos);
                 effectiveBatchSize = Math.max(minBatchSize, batchSize / 2);
                 fallbackCount++;
             } catch (RuntimeException e) {
@@ -141,7 +127,6 @@ final class HmsPartitionBatchExecutor {
                 maxRpcElapsedNanos = Math.max(maxRpcElapsedNanos, elapsedNanos);
             }
         }
-        checkFallbackTimeout(request, offset, fallbackStarted, fallbackStartNanos);
         HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
                 .requestedItems(partitions.size())
                 .rpcAttempts(attempts)
@@ -154,17 +139,6 @@ final class HmsPartitionBatchExecutor {
                 .maxRpcElapsedNanos(maxRpcElapsedNanos)
                 .build();
         return new HmsPartitionBatchResult(result, stats);
-    }
-
-    private void checkFallbackTimeout(HmsPartitionRequest request, int offset,
-            boolean fallbackStarted, long fallbackStartNanos) {
-        if (fallbackStarted && nanoTime.getAsLong() - fallbackStartNanos >= fallbackTimeoutNanos) {
-            throw new HmsClientException(
-                    "HMS partition batch fallback timeout exceeded: db=%s, table=%s, requested=%d, "
-                            + "offset=%d, timeoutMs=%d",
-                    request.getDbName(), request.getTableName(), request.getPartitions().size(), offset,
-                    TimeUnit.NANOSECONDS.toMillis(fallbackTimeoutNanos));
-        }
     }
 
     static List<HmsPartitionInfo> validateAndOrder(
@@ -278,10 +252,8 @@ final class HmsPartitionBatchExecutor {
     static final class Builder {
         private int maxBatchSize;
         private int minBatchSize = 1;
-        private long fallbackTimeoutMillis;
         private HmsPartitionTransport transport;
         private FailureClassifier failureClassifier = HmsPartitionBatchExecutor::isDegradableRemoteFailure;
-        private LongSupplier nanoTime = System::nanoTime;
 
         private Builder() {
         }
@@ -296,11 +268,6 @@ final class HmsPartitionBatchExecutor {
             return this;
         }
 
-        Builder fallbackTimeoutMillis(long fallbackTimeoutMillis) {
-            this.fallbackTimeoutMillis = fallbackTimeoutMillis;
-            return this;
-        }
-
         Builder transport(HmsPartitionTransport transport) {
             this.transport = transport;
             return this;
@@ -311,21 +278,12 @@ final class HmsPartitionBatchExecutor {
             return this;
         }
 
-        Builder nanoTime(LongSupplier nanoTime) {
-            this.nanoTime = nanoTime;
-            return this;
-        }
-
         HmsPartitionBatchExecutor build() {
             if (maxBatchSize <= 0 || minBatchSize <= 0 || minBatchSize > maxBatchSize) {
                 throw new IllegalArgumentException("invalid HMS partition batch size range");
             }
-            if (fallbackTimeoutMillis <= 0) {
-                throw new IllegalArgumentException("fallback timeout must be positive");
-            }
             java.util.Objects.requireNonNull(transport, "transport");
             java.util.Objects.requireNonNull(failureClassifier, "failureClassifier");
-            java.util.Objects.requireNonNull(nanoTime, "nanoTime");
             return new HmsPartitionBatchExecutor(this);
         }
     }

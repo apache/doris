@@ -26,7 +26,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -147,26 +146,6 @@ public class HmsPartitionBatchExecutorTest {
     }
 
     @Test
-    public void fallbackTimeoutStopsBeforeNextRetry() {
-        AtomicLong time = new AtomicLong();
-        List<Integer> attempts = new ArrayList<>();
-        HmsPartitionBatchExecutor executor = HmsPartitionBatchExecutor.builder()
-                .maxBatchSize(8)
-                .fallbackTimeoutMillis(30)
-                .transport((db, table, names) -> {
-                    attempts.add(names.size());
-                    throw remoteFailure("request too large");
-                })
-                .nanoTime(() -> time.getAndAdd(31_000_000L))
-                .build();
-
-        HmsClientException failure = Assertions.assertThrows(
-                HmsClientException.class, () -> executor.execute(request(names(8))));
-        Assertions.assertTrue(failure.getMessage().contains("fallback timeout"));
-        Assertions.assertEquals(Collections.singletonList(8), attempts);
-    }
-
-    @Test
     public void reportsAllResultMismatchTypesPrecisely() {
         HmsPartitionBatchExecutor executor = executor(10, (db, table, names) -> Arrays.asList(
                 info("a"), info("c"), info("c")));
@@ -248,14 +227,11 @@ public class HmsPartitionBatchExecutorTest {
     public void parsesAndValidatesConfiguration() {
         HmsClientConfig defaults = new HmsClientConfig(Collections.emptyMap(), 0);
         Assertions.assertEquals(5000, defaults.getPartitionBatchSize());
-        Assertions.assertEquals(30_000L, defaults.getPartitionBatchFallbackTimeoutMillis());
 
         Map<String, String> properties = new HashMap<>();
         properties.put(HmsClientConfig.PARTITION_BATCH_SIZE_KEY, "321");
-        properties.put(HmsClientConfig.PARTITION_BATCH_FALLBACK_TIMEOUT_MS_KEY, "4567");
         HmsClientConfig config = new HmsClientConfig(properties, 1);
         Assertions.assertEquals(321, config.getPartitionBatchSize());
-        Assertions.assertEquals(4567L, config.getPartitionBatchFallbackTimeoutMillis());
 
         properties.put(HmsClientConfig.PARTITION_BATCH_SIZE_KEY, "0");
         Assertions.assertThrows(IllegalArgumentException.class, () -> new HmsClientConfig(properties, 1));
@@ -266,7 +242,6 @@ public class HmsPartitionBatchExecutorTest {
     private static HmsPartitionBatchExecutor executor(int batchSize, HmsPartitionTransport transport) {
         return HmsPartitionBatchExecutor.builder()
                 .maxBatchSize(batchSize)
-                .fallbackTimeoutMillis(30_000)
                 .transport(transport)
                 .build();
     }

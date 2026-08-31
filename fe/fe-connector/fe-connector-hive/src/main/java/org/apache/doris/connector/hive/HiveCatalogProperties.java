@@ -120,11 +120,6 @@ public final class HiveCatalogProperties {
             description = "maximum partition names sent in one Hive Metastore RPC")
     private int hmsPartitionsBatchSizePerRpc = HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE;
 
-    @ConnectorProperty(names = {HmsClientConfig.PARTITION_BATCH_FALLBACK_TIMEOUT_MS_KEY}, required = false,
-            description = "time budget in milliseconds after HMS partition batch fallback starts")
-    private long hmsPartitionsBatchFallbackTimeoutMs =
-            HmsClientConfig.DEFAULT_PARTITION_BATCH_FALLBACK_TIMEOUT_MS;
-
     @ConnectorProperty(names = {ENABLE_HMS_EVENTS_INCREMENTAL_SYNC}, required = false,
             description = "poll HMS notification events for incremental metadata refresh")
     private boolean enableHmsEventsIncrementalSync;

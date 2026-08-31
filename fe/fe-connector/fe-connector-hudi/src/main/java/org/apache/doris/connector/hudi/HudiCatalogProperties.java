@@ -86,11 +86,6 @@ public final class HudiCatalogProperties {
             description = "maximum partition names sent in one Hive Metastore RPC")
     private int hmsPartitionsBatchSizePerRpc = HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE;
 
-    @ConnectorProperty(names = {HmsClientConfig.PARTITION_BATCH_FALLBACK_TIMEOUT_MS_KEY}, required = false,
-            description = "time budget in milliseconds after HMS partition batch fallback starts")
-    private long hmsPartitionsBatchFallbackTimeoutMs =
-            HmsClientConfig.DEFAULT_PARTITION_BATCH_FALLBACK_TIMEOUT_MS;
-
     @ConnectorProperty(names = {USE_HIVE_SYNC_PARTITION}, required = false,
             description = "read partition names from the metastore instead of the table's file layout")
     private boolean useHiveSyncPartition;

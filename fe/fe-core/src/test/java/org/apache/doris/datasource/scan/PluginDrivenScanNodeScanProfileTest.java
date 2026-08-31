@@ -39,6 +39,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * FIX-SCAN-METRICS — guards {@link PluginDrivenScanNode#writeScanProfilesInto}, the connector-agnostic
@@ -148,6 +149,52 @@ public class PluginDrivenScanNodeScanProfileTest {
         } finally {
             ConnectContext.remove();
         }
+    }
+
+    @Test
+    public void synchronousPlanningFailurePublishesProfilesWithoutMaskingThePrimaryFailure() {
+        RuntimeProfile summary = new RuntimeProfile("Execution Summary");
+        RuntimeException primaryFailure = new RuntimeException("plan failed");
+        RuntimeException profileFailure = new RuntimeException("profile finalization failed");
+
+        RuntimeException thrown = Assertions.assertThrows(RuntimeException.class,
+                () -> PluginDrivenScanNode.executeWithProfileFinalization(
+                        () -> {
+                            throw primaryFailure;
+                        },
+                        () -> {
+                            PluginDrivenScanNode.writeScanProfilesInto(summary, Collections.singletonList(
+                                    profile("Connector Metadata Access", "failed scan", "RequestedItems", "5")));
+                            throw profileFailure;
+                        }));
+
+        Assertions.assertSame(primaryFailure, thrown);
+        Assertions.assertArrayEquals(new Throwable[] {profileFailure}, thrown.getSuppressed());
+        Assertions.assertNotNull(summary.getChildMap().get("Connector Metadata Access")
+                .getChildMap().get("failed scan"));
+    }
+
+    @Test
+    public void earlyDispatchStopFinalizesAfterOnlySubmittedTasksFinish() {
+        RuntimeProfile summary = new RuntimeProfile("Execution Summary");
+        AtomicInteger finalizations = new AtomicInteger();
+        PluginDrivenScanNode.SubmittedTaskFinalizer finalizer =
+                new PluginDrivenScanNode.SubmittedTaskFinalizer(() -> {
+                    finalizations.incrementAndGet();
+                    PluginDrivenScanNode.writeScanProfilesInto(summary, Collections.singletonList(
+                            profile("Connector Metadata Access", "partial batch scan", "RpcAttempts", "1")));
+                });
+
+        finalizer.taskSubmitted();
+        finalizer.closeDispatch();
+        Assertions.assertEquals(0, finalizations.get());
+
+        finalizer.taskFinished();
+        finalizer.closeDispatch();
+
+        Assertions.assertEquals(1, finalizations.get());
+        Assertions.assertNotNull(summary.getChildMap().get("Connector Metadata Access")
+                .getChildMap().get("partial batch scan"));
     }
 
     @Test

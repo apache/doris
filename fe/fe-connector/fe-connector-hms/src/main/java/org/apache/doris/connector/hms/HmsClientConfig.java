@@ -43,11 +43,7 @@ public final class HmsClientConfig {
 
     public static final String PARTITION_BATCH_SIZE_KEY = "hive.hms_partitions_batch_size_per_rpc";
 
-    public static final String PARTITION_BATCH_FALLBACK_TIMEOUT_MS_KEY =
-            "hive.hms_partitions_batch_fallback_timeout_ms";
-
     public static final int DEFAULT_PARTITION_BATCH_SIZE = 5000;
-    public static final long DEFAULT_PARTITION_BATCH_FALLBACK_TIMEOUT_MS = 30_000L;
 
     /**
      * Metastore types that have been REMOVED and are no longer routable, mapped to what each one was.
@@ -94,7 +90,6 @@ public final class HmsClientConfig {
     private final String confResources;
     private final int poolSize;
     private final int partitionBatchSize;
-    private final long partitionBatchFallbackTimeoutMillis;
 
     /**
      * Creates a new HMS client configuration.
@@ -118,9 +113,6 @@ public final class HmsClientConfig {
         this.poolSize = poolSize;
         this.partitionBatchSize = parsePositiveInt(
                 properties, PARTITION_BATCH_SIZE_KEY, DEFAULT_PARTITION_BATCH_SIZE);
-        this.partitionBatchFallbackTimeoutMillis = parsePositiveLong(
-                properties, PARTITION_BATCH_FALLBACK_TIMEOUT_MS_KEY,
-                DEFAULT_PARTITION_BATCH_FALLBACK_TIMEOUT_MS);
     }
 
     public Map<String, String> getProperties() {
@@ -147,10 +139,6 @@ public final class HmsClientConfig {
         return partitionBatchSize;
     }
 
-    public long getPartitionBatchFallbackTimeoutMillis() {
-        return partitionBatchFallbackTimeoutMillis;
-    }
-
     private static int parsePositiveInt(Map<String, String> properties, String key, int defaultValue) {
         String value = properties.get(key);
         if (value == null) {
@@ -164,23 +152,6 @@ public final class HmsClientConfig {
         }
         if (parsed <= 0) {
             throw new IllegalArgumentException(key + " must be a positive integer, got " + value);
-        }
-        return parsed;
-    }
-
-    private static long parsePositiveLong(Map<String, String> properties, String key, long defaultValue) {
-        String value = properties.get(key);
-        if (value == null) {
-            return defaultValue;
-        }
-        long parsed;
-        try {
-            parsed = Long.parseLong(value);
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException(key + " must be a positive long, got " + value, e);
-        }
-        if (parsed <= 0) {
-            throw new IllegalArgumentException(key + " must be a positive long, got " + value);
         }
         return parsed;
     }
