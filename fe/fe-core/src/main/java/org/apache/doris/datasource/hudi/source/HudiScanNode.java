@@ -27,6 +27,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
@@ -40,6 +41,7 @@ import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
+import org.apache.doris.datasource.hudi.HudiExternalMetaCache;
 import org.apache.doris.datasource.hudi.HudiFsViewCacheValue;
 import org.apache.doris.datasource.hudi.HudiPartitionUtils;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
@@ -122,6 +124,8 @@ public class HudiScanNode extends HiveScanNode {
     private List<String> partitionColumnNames;
     private String storagePropertiesFingerprint;
     private final long hmsRuntimeGeneration;
+    private final ExecutionAuthenticator executionAuthenticator;
+    private final HudiExternalMetaCache.FsViewGeneration fsViewGeneration;
 
     private boolean partitionInit = false;
     private HoodieTimeline timeline;
@@ -157,7 +161,11 @@ public class HudiScanNode extends HiveScanNode {
             SessionVariable sv, DirectoryLister directoryLister, ScanContext scanContext) {
         super(id, desc, "HUDI_SCAN_NODE", StatisticalType.HUDI_SCAN_NODE,
                 needCheckColumnPriv, sv, directoryLister, scanContext);
-        hmsRuntimeGeneration = ((HMSExternalCatalog) hmsTable.getCatalog()).getRuntimeGeneration();
+        HMSExternalCatalog.HudiScanRuntimeContext runtimeContext =
+                ((HMSExternalCatalog) hmsTable.getCatalog()).getHudiScanRuntimeContext();
+        hmsRuntimeGeneration = runtimeContext.getGeneration();
+        executionAuthenticator = runtimeContext.getAuthenticator();
+        fsViewGeneration = runtimeContext.getFsViewGeneration();
         isCowTable = hmsTable.isHoodieCowTable();
         if (LOG.isDebugEnabled()) {
             if (isCowTable) {
@@ -390,10 +398,8 @@ public class HudiScanNode extends HiveScanNode {
         if (fsViewReleased.get()) {
             throw new IllegalStateException("Hudi filesystem-view lease has already been released");
         }
-        fsViewLease = Env.getCurrentEnv()
-                .getExtMetaCacheMgr()
-                .hudi(hmsTable.getCatalog().getId())
-                .getFsView(hmsTable.getOrBuildNameMapping());
+        fsViewLease = fsViewGeneration.getFsView(
+                hmsTable.getOrBuildNameMapping(), executionAuthenticator);
         fsView = fsViewLease.get();
     }
 
@@ -605,7 +611,7 @@ public class HudiScanNode extends HiveScanNode {
             }
             acquireFsView();
             List<Split> splits = Collections.synchronizedList(new ArrayList<>());
-            hmsTable.getCatalog().getExecutionAuthenticator().execute(() -> {
+            executionAuthenticator.execute(() -> {
                 getPartitionsSplits(prunedPartitions, splits);
                 return null;
             });
@@ -625,7 +631,7 @@ public class HudiScanNode extends HiveScanNode {
         }
         long startTime = System.currentTimeMillis();
         try {
-            prunedPartitions = hmsTable.getCatalog().getExecutionAuthenticator().execute(()
+            prunedPartitions = executionAuthenticator.execute(()
                     -> getPrunedPartitions(hudiClient));
             if (getSummaryProfile() != null) {
                 getSummaryProfile().addExternalTableGetPartitionsTime(System.currentTimeMillis() - startTime);

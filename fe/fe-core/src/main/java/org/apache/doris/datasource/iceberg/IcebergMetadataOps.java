@@ -90,6 +90,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -129,7 +130,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         this.executionAuthenticator = dorisCatalog.getExecutionAuthenticator();
         this.threadPoolWithPreAuth = dorisCatalog.getThreadPoolWithPreAuth();
         this.catalogProperties = Collections.unmodifiableMap(new HashMap<>(dorisCatalog.getProperties()));
-        this.icebergCatalogType = catalogProperties.get(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE);
+        String catalogType = catalogProperties.get(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE);
+        this.icebergCatalogType = catalogType == null ? null : catalogType.toLowerCase(Locale.ROOT);
         this.enableMappingVarbinary = dorisCatalog.getEnableMappingVarbinary();
         this.enableMappingTimestampTz = dorisCatalog.getEnableMappingTimestampTz();
 
