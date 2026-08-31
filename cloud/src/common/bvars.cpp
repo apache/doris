@@ -47,6 +47,8 @@ BvarLatencyRecorderWithTag g_bvar_ms_abort_txn_with_coordinator("ms", "abort_txn
 BvarLatencyRecorderWithTag g_bvar_ms_get_prepare_txn_by_coordinator("ms", "get_prepare_txn_by_coordinator");
 BvarLatencyRecorderWithTag g_bvar_ms_clean_txn_label("ms", "clean_txn_label");
 BvarLatencyRecorderWithTag g_bvar_ms_get_version("ms", "get_version");
+BvarLatencyRecorderWithTag g_bvar_ms_get_table_stream_offset(
+        "ms", "get_table_stream_offset");
 BvarLatencyRecorderWithTag g_bvar_ms_batch_get_version("ms", "batch_get_version");
 BvarLatencyRecorderWithTag g_bvar_ms_create_tablets("ms", "create_tablets");
 BvarLatencyRecorderWithTag g_bvar_ms_update_tablet("ms", "update_tablet");
@@ -111,6 +113,16 @@ BvarLatencyRecorderWithTag g_bvar_ms_list_snapshot("ms", "list_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_clone_instance("ms", "clone_instance");
 BvarLatencyRecorderWithTag g_bvar_ms_compact_snapshot("ms", "compact_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_update_packed_file_info("ms", "update_packed_file_info");
+bvar::Adder<int64_t> g_bvar_ms_rate_limit_trigger_fdb_cluster(
+        "ms", "rate_limit_trigger_fdb_cluster");
+bvar::Adder<int64_t> g_bvar_ms_rate_limit_trigger_fdb_client_thread(
+        "ms", "rate_limit_trigger_fdb_client_thread");
+bvar::Adder<int64_t> g_bvar_ms_rate_limit_trigger_ms_resource(
+        "ms", "rate_limit_trigger_ms_resource");
+bvar::Adder<int64_t> g_bvar_ms_rate_limit_trigger_test_injection(
+        "ms", "rate_limit_trigger_test_injection");
+bvar::Status<int64_t> g_bvar_ms_cpu_usage_percent("ms_process_cpu_usage_percent", -1);
+bvar::Status<int64_t> g_bvar_ms_memory_usage_percent("ms_process_memory_usage_percent", -1);
 bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_update_delete_bitmap_fail_counter_minute("ms", "update_delete_bitmap_fail", &g_bvar_update_delete_bitmap_fail_counter, 60);
 bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
@@ -321,6 +333,9 @@ BvarStatusWithTag<int64_t> g_bvar_checker_restore_job_cost_many_time("checker", 
 mBvarInt64Adder g_bvar_rpc_kv_get_rowset_get_counter("rpc_kv_get_rowset_get_counter",{"instance_id"});
 // get_version
 mBvarInt64Adder g_bvar_rpc_kv_get_version_get_counter("rpc_kv_get_version_get_counter",{"instance_id"});
+// get_table_stream_offset
+mBvarInt64Adder g_bvar_rpc_kv_get_table_stream_offset_get_counter(
+        "rpc_kv_get_table_stream_offset_get_counter", {"instance_id"});
 // get_schema_dict
 mBvarInt64Adder g_bvar_rpc_kv_get_schema_dict_get_counter("rpc_kv_get_schema_dict_get_counter",{"instance_id"});
 // create_tablets
@@ -528,6 +543,9 @@ mBvarInt64Adder g_bvar_rpc_kv_compact_snapshot_put_counter("rpc_kv_compact_snaps
 mBvarInt64Adder g_bvar_rpc_kv_get_rowset_get_bytes("rpc_kv_get_rowset_get_bytes",{"instance_id"});
 // get_version
 mBvarInt64Adder g_bvar_rpc_kv_get_version_get_bytes("rpc_kv_get_version_get_bytes",{"instance_id"});
+// get_table_stream_offset
+mBvarInt64Adder g_bvar_rpc_kv_get_table_stream_offset_get_bytes(
+        "rpc_kv_get_table_stream_offset_get_bytes", {"instance_id"});
 // get_schema_dict
 mBvarInt64Adder g_bvar_rpc_kv_get_schema_dict_get_bytes("rpc_kv_get_schema_dict_get_bytes",{"instance_id"});
 // create_tablets

@@ -37,6 +37,7 @@ class SegmentWriter;
 } // namespace segment_v2
 
 class RowSourcesBuffer;
+class ReadSchema;
 class VerticalBlockReader;
 struct VerticalCompactionContextStats;
 
@@ -90,8 +91,7 @@ public:
 
     // for segcompaction
     static Status vertical_compact_one_group(
-            int64_t tablet_id, ReaderType reader_type, const TabletSchema& tablet_schema,
-            bool is_key, const std::vector<uint32_t>& column_group,
+            int64_t tablet_id, ReaderType reader_type, const ReadSchema& read_schema, bool is_key,
             RowSourcesBuffer* row_source_buf, VerticalBlockReader& src_block_reader,
             segment_v2::SegmentWriter& dst_segment_writer, Statistics* stats_output,
             uint64_t* index_size, KeyBoundsPB& key_bounds, SimpleRowIdConversion* rowid_conversion);

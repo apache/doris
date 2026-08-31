@@ -280,6 +280,28 @@ VExprSPtr table_struct_int32_child_greater_than_expr(int slot_id, int column_id,
     return predicate;
 }
 
+VExprSPtr table_array_struct_int_greater_than_expr(int column_id, const std::string& column_name,
+                                                   const DataTypePtr& array_type,
+                                                   const DataTypePtr& element_type,
+                                                   const DataTypePtr& accessor_type,
+                                                   const std::string& child_name, int32_t value) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_element = table_function_expr("element_at", element_type, {array_type, int_type});
+    array_element->add_child(VSlotRef::create_shared(0, column_id, -1, array_type, column_name));
+    array_element->add_child(table_int32_literal(1));
+    auto struct_element = table_function_expr("element_at", accessor_type,
+                                              {element_type, std::make_shared<DataTypeString>()});
+    struct_element->add_child(std::move(array_element));
+    struct_element->add_child(VLiteral::create_shared(
+            std::make_shared<DataTypeString>(), Field::create_field<TYPE_STRING>(child_name)));
+    auto greater_than = table_function_expr("gt", make_nullable(std::make_shared<DataTypeUInt8>()),
+                                            {accessor_type, int_type}, TExprNodeType::BINARY_PRED,
+                                            TExprOpcode::GT);
+    greater_than->add_child(std::move(struct_element));
+    greater_than->add_child(table_int32_literal(value));
+    return greater_than;
+}
+
 VExprSPtr runtime_filter_wrapper_expr(VExprSPtr impl) {
     TExprNode node;
     node.__set_node_type(TExprNodeType::SLOT_REF);
@@ -701,6 +723,84 @@ void write_list_struct_parquet_file(const std::string& file_path) {
                                                       writer_builder.build()));
 }
 
+void write_nullable_list_struct_parquet_file(const std::string& file_path, bool first_a_is_null) {
+    auto struct_type = arrow::struct_(
+            {arrow::field("a", arrow::int32(), true), arrow::field("b", arrow::int32(), true)});
+    std::vector<std::shared_ptr<arrow::ArrayBuilder>> field_builders;
+    field_builders.push_back(std::make_shared<arrow::Int32Builder>());
+    field_builders.push_back(std::make_shared<arrow::Int32Builder>());
+    auto struct_builder = std::make_shared<arrow::StructBuilder>(
+            struct_type, arrow::default_memory_pool(), std::move(field_builders));
+    auto list_type = arrow::list(arrow::field("element", struct_type, true));
+    arrow::ListBuilder builder(arrow::default_memory_pool(), struct_builder, list_type);
+    auto* a_builder = assert_cast<arrow::Int32Builder*>(struct_builder->field_builder(0));
+    auto* b_builder = assert_cast<arrow::Int32Builder*>(struct_builder->field_builder(1));
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(struct_builder->Append().ok());
+    if (first_a_is_null) {
+        EXPECT_TRUE(a_builder->AppendNull().ok());
+    } else {
+        EXPECT_TRUE(a_builder->Append(0).ok());
+    }
+    EXPECT_TRUE(b_builder->AppendNull().ok());
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(struct_builder->Append().ok());
+    EXPECT_TRUE(a_builder->Append(20).ok());
+    EXPECT_TRUE(b_builder->Append(1).ok());
+
+    auto schema = arrow::schema({arrow::field("items", list_type, false)});
+    auto table = arrow::Table::Make(schema, {finish_array(&builder)});
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder writer_builder;
+    writer_builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    writer_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    writer_builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 2,
+                                                      writer_builder.build()));
+}
+
+void write_narrowing_list_struct_parquet_file(const std::string& file_path) {
+    auto struct_type = arrow::struct_(
+            {arrow::field("a", arrow::int32(), false), arrow::field("b", arrow::int64(), false)});
+    std::vector<std::shared_ptr<arrow::ArrayBuilder>> field_builders;
+    field_builders.push_back(std::make_shared<arrow::Int32Builder>());
+    field_builders.push_back(std::make_shared<arrow::Int64Builder>());
+    auto struct_builder = std::make_shared<arrow::StructBuilder>(
+            struct_type, arrow::default_memory_pool(), std::move(field_builders));
+    auto list_type = arrow::list(arrow::field("element", struct_type, true));
+    arrow::ListBuilder builder(arrow::default_memory_pool(), struct_builder, list_type);
+    auto* a_builder = assert_cast<arrow::Int32Builder*>(struct_builder->field_builder(0));
+    auto* b_builder = assert_cast<arrow::Int64Builder*>(struct_builder->field_builder(1));
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(struct_builder->Append().ok());
+    EXPECT_TRUE(a_builder->Append(0).ok());
+    EXPECT_TRUE(b_builder->Append(2147483648LL).ok());
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(struct_builder->Append().ok());
+    EXPECT_TRUE(a_builder->Append(20).ok());
+    EXPECT_TRUE(b_builder->Append(1).ok());
+
+    auto schema = arrow::schema({arrow::field("items", list_type, false)});
+    auto table = arrow::Table::Make(schema, {finish_array(&builder)});
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder writer_builder;
+    writer_builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    writer_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    writer_builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 2,
+                                                      writer_builder.build()));
+}
+
 void write_map_struct_parquet_file(const std::string& file_path) {
     auto key_builder = std::make_shared<arrow::Int32Builder>();
     auto struct_type = arrow::struct_(
@@ -1064,7 +1164,9 @@ public:
     using TableReader::_materialize_mapping_column;
     using TableReader::_materialize_present_child_mapping_column;
     using TableReader::_materialize_struct_mapping_column;
-    using TableReader::_project_collection_parent_null_map;
+    using TableReader::_project_collection_parent_null_map_for_hidden_entries;
+    using TableReader::_requires_collection_parent_null_map;
+    using TableReader::_requires_parent_null_map_for_alignment;
 };
 
 TEST(TableReaderTest, TruncateCharOrVarcharPredicateOnlyAppliesToParquetStringWidthMismatch) {
@@ -1512,7 +1614,13 @@ TEST(TableReaderTest, UnsafePredicateStaysOnScannerPath) {
     FakeTableReader reader(file_schema, fake_state);
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .conjuncts = {prepared_conjunct(&state, unsafe_predicate)},
+                                    .conjuncts =
+                                            {
+                                                    prepared_conjunct(&state, unsafe_predicate),
+                                                    prepared_conjunct(&state,
+                                                                      table_int32_greater_than_expr(
+                                                                              0, 0, 10)),
+                                            },
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1528,7 +1636,8 @@ TEST(TableReaderTest, UnsafePredicateStaysOnScannerPath) {
     bool eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_NE(fake_state->last_request, nullptr);
-    EXPECT_TRUE(fake_state->last_request->conjuncts.empty());
+    ASSERT_EQ(fake_state->last_request->conjuncts.size(), 1);
+    EXPECT_EQ(fake_state->last_request->metadata_pruning_safe_conjunct_count, 0);
     EXPECT_FALSE(predicate_executed);
     ASSERT_TRUE(reader.close().ok());
 }
@@ -1583,6 +1692,48 @@ TEST(TableReaderTest, ConstantPruningStopsAtUnsafeSlotlessPredicate) {
     // The later predicate must stay on the scanner's row-level path instead of running inside the
     // file reader before the unsafe conjunct.
     EXPECT_TRUE(fake_state->last_request->conjuncts.empty());
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, MetadataPruningBoundaryKeepsUnsafeSlotlessBarrier) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    bool predicate_executed = false;
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(
+            reader
+                    .init({
+                            .projected_columns = projected_columns,
+                            .conjuncts =
+                                    {prepared_conjunct(
+                                             &state,
+                                             std::make_shared<NonDeterministicPartitionPredicate>(
+                                                     &predicate_executed)),
+                                     prepared_conjunct(&state,
+                                                       table_int32_greater_than_expr(0, 0, 10))},
+                            .format = FileFormat::PARQUET,
+                            .scan_params = nullptr,
+                            .io_ctx = nullptr,
+                            .runtime_state = &state,
+                            .scanner_profile = nullptr,
+                    })
+                    .ok());
+
+    SplitReadOptions split;
+    split.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_NE(fake_state->last_request, nullptr);
+    ASSERT_EQ(fake_state->last_request->conjuncts.size(), 1);
+    EXPECT_EQ(fake_state->last_request->metadata_pruning_safe_conjunct_count, 0);
     ASSERT_TRUE(reader.close().ok());
 }
 
@@ -3149,6 +3300,76 @@ TEST(TableReaderTest, ScalarProjectionRejectsNullInRequiredTableColumn) {
               std::string::npos);
 }
 
+TEST(TableReaderTest, CollectionParentMaskSkipsLargeArrayWhenNearerMaskCoversVisibleNull) {
+    constexpr size_t visible_entries = 500000;
+    const size_t entries = visible_entries + 1;
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"value"});
+    const auto nullable_struct_type = make_nullable(struct_type);
+
+    auto values = ColumnInt32::create(entries, 0);
+    auto value_null_map = ColumnUInt8::create(entries, 0);
+    value_null_map->get_data().back() = 1;
+    MutableColumns struct_children;
+    struct_children.push_back(ColumnNullable::create(std::move(values), std::move(value_null_map)));
+    auto element_null_map = ColumnUInt8::create(entries, 0);
+    element_null_map->get_data().back() = 1;
+    ColumnPtr nullable_elements = ColumnNullable::create(
+            ColumnStruct::create(std::move(struct_children)), std::move(element_null_map));
+    NullMap parent_null_map {1, 0};
+    ColumnArray::Offsets64 offsets {1, entries};
+
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &parent_null_map, nullable_elements, nullable_struct_type, 2, offsets));
+}
+
+TEST(TableReaderTest, CollectionParentMaskSkipsLargeMapWhenNearerMaskCoversVisibleNull) {
+    constexpr size_t visible_entries = 500000;
+    const size_t entries = visible_entries + 1;
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"value"});
+    const auto nullable_struct_type = make_nullable(struct_type);
+
+    auto values = ColumnInt32::create(entries, 0);
+    auto value_null_map = ColumnUInt8::create(entries, 0);
+    value_null_map->get_data().back() = 1;
+    MutableColumns struct_children;
+    struct_children.push_back(ColumnNullable::create(std::move(values), std::move(value_null_map)));
+    auto value_struct_null_map = ColumnUInt8::create(entries, 0);
+    value_struct_null_map->get_data().back() = 1;
+    ColumnPtr nullable_value_structs = ColumnNullable::create(
+            ColumnStruct::create(std::move(struct_children)), std::move(value_struct_null_map));
+    NullMap parent_null_map {1, 0};
+    ColumnArray::Offsets64 offsets {1, entries};
+
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &parent_null_map, nullable_value_structs, nullable_struct_type, 2, offsets));
+}
+
+TEST(TableReaderTest, CollectionParentMaskKeepsRequiredNullInHiddenEntry) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"value"});
+    const auto nullable_struct_type = make_nullable(struct_type);
+
+    auto values = ColumnInt32::create(2, 0);
+    auto value_null_map = ColumnUInt8::create();
+    value_null_map->get_data().assign({1, 1});
+    MutableColumns struct_children;
+    struct_children.push_back(ColumnNullable::create(std::move(values), std::move(value_null_map)));
+    auto element_null_map = ColumnUInt8::create();
+    element_null_map->get_data().assign({0, 1});
+    ColumnPtr nullable_elements = ColumnNullable::create(
+            ColumnStruct::create(std::move(struct_children)), std::move(element_null_map));
+    NullMap parent_null_map {1, 0};
+    ColumnArray::Offsets64 offsets {1, 2};
+
+    EXPECT_TRUE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &parent_null_map, nullable_elements, nullable_struct_type, 2, offsets));
+}
+
 TEST(TableReaderTest, ReopenSplitAfterClose) {
     const auto test_dir = std::filesystem::temp_directory_path() / "doris_table_reader_test";
     std::filesystem::remove_all(test_dir);
@@ -3971,6 +4192,238 @@ TEST(TableReaderTest, ProjectedListStructReadsSelectedElementChild) {
     EXPECT_EQ(a_values.get_element(1), 20);
     EXPECT_EQ(a_values.get_element(2), 30);
     EXPECT_EQ(a_values.get_element(3), 40);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, NestedEqualityReachesParquetBloomProbe) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_nested_bloom_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_list_struct_parquet_file(file_path);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_int_type = make_nullable(int_type);
+    auto element_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {nullable_int_type, nullable_int_type}, Strings {"a", "b"}));
+    auto list_column = make_table_column(100, "xs", std::make_shared<DataTypeArray>(element_type));
+    std::vector<ColumnDefinition> projected_columns = {list_column};
+    set_name_identifiers(&projected_columns);
+
+    const auto root_type = projected_columns[0].type;
+    auto array_element = table_function_expr("element_at", element_type, {root_type, int_type});
+    array_element->add_child(VSlotRef::create_shared(0, 0, -1, root_type, "xs"));
+    array_element->add_child(table_int32_literal(1));
+    auto struct_element = table_function_expr("element_at", nullable_int_type,
+                                              {element_type, std::make_shared<DataTypeString>()});
+    struct_element->add_child(std::move(array_element));
+    struct_element->add_child(VLiteral::create_shared(std::make_shared<DataTypeString>(),
+                                                      Field::create_field<TYPE_STRING>("a")));
+    auto equality = table_function_expr("eq", make_nullable(std::make_shared<DataTypeUInt8>()),
+                                        {nullable_int_type, int_type}, TExprNodeType::BINARY_PRED,
+                                        TExprOpcode::EQ);
+    equality->add_child(std::move(struct_element));
+    equality->add_child(table_int32_literal(10));
+
+    RuntimeProfile profile("profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {prepared_conjunct(&state, equality)},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    ASSERT_TRUE(status.ok()) << status;
+    auto* attempts = profile.get_counter("BloomFilterProbeAttempts");
+    auto* fallbacks = profile.get_counter("BloomFilterConservativeFallbacks");
+    ASSERT_NE(attempts, nullptr);
+    ASSERT_NE(fallbacks, nullptr);
+    EXPECT_EQ(attempts->value(), 1);
+    EXPECT_EQ(fallbacks->value(), 1);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, ArrayAccessorDoesNotHideRequiredUnreferencedSibling) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_array_sibling_nullability_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_nullable_list_struct_parquet_file(file_path, false);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_int_type = make_nullable(int_type);
+    const auto table_element = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {nullable_int_type, int_type}, Strings {"a", "b"}));
+    const auto table_array = std::make_shared<DataTypeArray>(table_element);
+    auto a_child = make_table_column(0, "a", nullable_int_type);
+    ColumnDefinition b_child;
+    b_child.name = "b";
+    b_child.type = int_type;
+    ColumnDefinition element_child;
+    element_child.name = "element";
+    element_child.type = table_element;
+    element_child.children = {std::move(a_child), std::move(b_child)};
+    ColumnDefinition list_column;
+    list_column.name = "items";
+    list_column.type = make_nullable(table_array);
+    list_column.children = {std::move(element_child)};
+    std::vector<ColumnDefinition> projected_columns = {std::move(list_column)};
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    const auto root_type = projected_columns[0].type;
+    auto predicate = table_array_struct_int_greater_than_expr(0, "items", root_type, table_element,
+                                                              nullable_int_type, "a", 5);
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {prepared_conjunct(&state, predicate)},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    EXPECT_FALSE(status.ok()) << "A file-local filter must not hide a required sibling NULL";
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, ArrayAccessorDoesNotHideLossyUnreferencedSiblingConversion) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_array_sibling_conversion_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_narrowing_list_struct_parquet_file(file_path);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto table_element = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type}, Strings {"a", "b"}));
+    const auto table_array = std::make_shared<DataTypeArray>(table_element);
+    auto a_child = make_table_column(0, "a", int_type);
+    auto b_child = make_table_column(1, "b", int_type);
+    ColumnDefinition element_child;
+    element_child.name = "element";
+    element_child.type = table_element;
+    element_child.children = {std::move(a_child), std::move(b_child)};
+    ColumnDefinition list_column;
+    list_column.name = "items";
+    list_column.type = make_nullable(table_array);
+    list_column.children = {std::move(element_child)};
+    std::vector<ColumnDefinition> projected_columns = {std::move(list_column)};
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    const auto root_type = projected_columns[0].type;
+    auto predicate = table_array_struct_int_greater_than_expr(0, "items", root_type, table_element,
+                                                              make_nullable(int_type), "a", 5);
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {prepared_conjunct(&state, predicate)},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    EXPECT_FALSE(status.ok()) << "A file-local filter must not hide a lossy sibling conversion";
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, RejectedArrayAccessorFencesLaterDefaultConstantPruning) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_array_constant_pruning_barrier_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_nullable_list_struct_parquet_file(file_path, true);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_int_type = make_nullable(int_type);
+    const auto table_element = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {int_type, nullable_int_type}, Strings {"a", "b"}));
+    const auto table_array = std::make_shared<DataTypeArray>(table_element);
+    ColumnDefinition a_child;
+    a_child.name = "a";
+    a_child.type = int_type;
+    auto b_child = make_table_column(1, "b", nullable_int_type);
+    ColumnDefinition element_child;
+    element_child.name = "element";
+    element_child.type = table_element;
+    element_child.children = {std::move(a_child), std::move(b_child)};
+    ColumnDefinition list_column;
+    list_column.name = "items";
+    list_column.type = make_nullable(table_array);
+    list_column.children = {std::move(element_child)};
+    auto missing_default = make_table_column(101, "z", nullable_int_type);
+    missing_default.default_expr = VExprContext::create_shared(
+            VLiteral::create_shared(nullable_int_type, Field::create_field<TYPE_INT>(0)));
+    std::vector<ColumnDefinition> projected_columns = {std::move(list_column),
+                                                       std::move(missing_default)};
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    const auto root_type = projected_columns[0].type;
+    auto accessor_predicate = table_array_struct_int_greater_than_expr(
+            0, "items", root_type, table_element, nullable_int_type, "a", 10);
+    auto default_predicate = table_function_expr(
+            "eq", make_nullable(std::make_shared<DataTypeUInt8>()), {nullable_int_type, int_type},
+            TExprNodeType::BINARY_PRED, TExprOpcode::EQ);
+    default_predicate->add_child(VSlotRef::create_shared(1, 1, -1, nullable_int_type, "z"));
+    default_predicate->add_child(table_int32_literal(7));
+
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {prepared_conjunct(&state, accessor_predicate),
+                                                  prepared_conjunct(&state, default_predicate)},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    EXPECT_FALSE(status.ok())
+            << "A later false default predicate must not bypass required-child validation";
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
@@ -4922,6 +5375,112 @@ TEST(TableReaderTest, CreateScanRequestDeduplicatesSharedPredicateColumns) {
         EXPECT_TRUE(std::find(non_predicate_column_ids.begin(), non_predicate_column_ids.end(),
                               predicate_column_id) == non_predicate_column_ids.end());
     }
+}
+
+TEST(TableReaderTest, TrivialArrayChildProjectsNullableStructParentMask) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto element_struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"value"});
+    const auto nullable_element_struct_type = make_nullable(element_struct_type);
+    const auto array_type = std::make_shared<DataTypeArray>(nullable_element_struct_type);
+    const auto table_struct_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {array_type, int_type}, Strings {"items", "added"}));
+    const auto file_struct_type = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {array_type}, Strings {"items"}));
+
+    auto table_items = make_table_column(0, "items", array_type);
+    table_items.type = array_type;
+    auto table_element = make_table_column(0, "element", element_struct_type);
+    table_element.type = element_struct_type;
+    auto table_value = make_table_column(0, "value", int_type);
+    table_value.type = int_type;
+    table_element.children = {table_value};
+    table_items.children = {table_element};
+    auto table_added = make_table_column(1, "added", int_type);
+    table_added.type = int_type;
+    auto table_struct = make_table_column(0, "payload", table_struct_type);
+    table_struct.type = table_struct_type;
+    table_struct.children = {table_items, table_added};
+
+    auto file_items = make_file_column(0, "items", array_type);
+    file_items.type = array_type;
+    auto file_element = make_file_column(0, "element", element_struct_type);
+    file_element.type = element_struct_type;
+    auto file_value = make_file_column(0, "value", int_type);
+    file_value.type = int_type;
+    file_element.children = {file_value};
+    file_items.children = {file_element};
+    auto file_struct = make_file_column(0, "payload", file_struct_type);
+    file_struct.type = file_struct_type;
+    file_struct.children = {file_items};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    ASSERT_FALSE(mapper.mappings()[0].is_trivial);
+    ASSERT_TRUE(mapper.mappings()[0].child_mappings[0].is_trivial);
+
+    auto values = ColumnInt32::create();
+    values->get_data().assign({0, 7});
+    auto value_null_map = ColumnUInt8::create();
+    value_null_map->get_data().assign({1, 0});
+    MutableColumns element_children;
+    element_children.push_back(
+            ColumnNullable::create(std::move(values), std::move(value_null_map)));
+    auto element_null_map = ColumnUInt8::create(2, 0);
+    auto array_values = ColumnNullable::create(ColumnStruct::create(std::move(element_children)),
+                                               std::move(element_null_map));
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->get_data().assign({1, 2});
+    MutableColumns struct_children;
+    struct_children.push_back(ColumnArray::create(std::move(array_values), std::move(offsets)));
+    auto parent_null_map = ColumnUInt8::create();
+    parent_null_map->get_data().assign({1, 0});
+    ColumnPtr file_data = ColumnNullable::create(ColumnStruct::create(std::move(struct_children)),
+                                                 std::move(parent_null_map));
+
+    TableReaderCastTestHelper reader;
+    ColumnPtr result;
+    const auto status =
+            reader._materialize_struct_mapping_column(mapper.mappings()[0], file_data, 2, &result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& result_struct = assert_cast<const ColumnStruct&>(
+            assert_cast<const ColumnNullable&>(*result).get_nested_column());
+    const auto& result_array = assert_cast<const ColumnArray&>(result_struct.get_column(0));
+    const auto& result_elements = assert_cast<const ColumnNullable&>(result_array.get_data());
+    const auto& result_element_struct =
+            assert_cast<const ColumnStruct&>(result_elements.get_nested_column());
+    ASSERT_FALSE(result_element_struct.get_column(0).is_nullable());
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(result_element_struct.get_column(0)).get_element(1),
+              7);
+}
+
+TEST(TableReaderTest, ParentMaskProjectionOnlyWhenRequiredDescendantCanConsumeIt) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto mutable_values = ColumnInt32::create();
+    mutable_values->get_data().assign({1, 2});
+    ColumnPtr values = std::move(mutable_values);
+    EXPECT_FALSE(
+            TableReaderCastTestHelper::_requires_parent_null_map_for_alignment(values, int_type));
+
+    ColumnPtr nullable_values = ColumnNullable::create(values->clone(), ColumnUInt8::create(2, 0));
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_parent_null_map_for_alignment(nullable_values,
+                                                                                    int_type));
+    auto null_map = ColumnUInt8::create(2, 0);
+    null_map->get_data()[0] = 1;
+    ColumnPtr nullable_values_with_null =
+            ColumnNullable::create(values->clone(), std::move(null_map));
+    EXPECT_TRUE(TableReaderCastTestHelper::_requires_parent_null_map_for_alignment(
+            nullable_values_with_null, int_type));
+
+    NullMap all_clear_parent_mask(2, 0);
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &all_clear_parent_mask, nullable_values_with_null, int_type));
+    NullMap hidden_parent_mask {1, 0};
+    EXPECT_TRUE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &hidden_parent_mask, nullable_values_with_null, int_type));
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            nullptr, nullable_values_with_null, int_type));
 }
 
 TEST(TableReaderTest, CreateScanRequestPromotesProjectedColumnToPredicateColumn) {
@@ -6452,9 +7011,52 @@ TEST(TableReaderTest, CollectionParentMaskFastPathSkipsEntryScratchForClearMasks
     ColumnArray::Offsets64 offsets {500000, 1000000};
     NullMap projected_null_map;
 
-    const auto* result = TableReaderCastTestHelper::_project_collection_parent_null_map(
-            &container_null_map, &ancestor_null_map, 2, offsets, offsets.back(),
-            &projected_null_map);
+    const auto* result =
+            TableReaderCastTestHelper::_project_collection_parent_null_map_for_hidden_entries(
+                    &container_null_map, &ancestor_null_map, 2, offsets, offsets.back(),
+                    &projected_null_map);
+
+    EXPECT_EQ(nullptr, result);
+    EXPECT_TRUE(projected_null_map.empty());
+}
+
+TEST(TableReaderTest, CollectionParentMaskSkipsLargeArrayWhenOnlyEmptyRowIsHidden) {
+    constexpr size_t entries = 500000;
+    auto values = ColumnInt32::create(entries, 0);
+    auto value_null_map = ColumnUInt8::create(entries, 0);
+    value_null_map->get_data().back() = 1;
+    ColumnPtr nullable_values =
+            ColumnNullable::create(std::move(values), std::move(value_null_map));
+    NullMap parent_null_map {1, 0};
+    ColumnArray::Offsets64 offsets {0, entries};
+    NullMap projected_null_map;
+
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &parent_null_map, nullable_values, std::make_shared<DataTypeInt32>(), 2, offsets));
+    const auto* result =
+            TableReaderCastTestHelper::_project_collection_parent_null_map_for_hidden_entries(
+                    nullptr, &parent_null_map, 2, offsets, entries, &projected_null_map);
+
+    EXPECT_EQ(nullptr, result);
+    EXPECT_TRUE(projected_null_map.empty());
+}
+
+TEST(TableReaderTest, CollectionParentMaskSkipsLargeMapWhenOnlyEmptyRowIsHidden) {
+    constexpr size_t entries = 500000;
+    auto values = ColumnInt32::create(entries, 0);
+    auto value_null_map = ColumnUInt8::create(entries, 0);
+    value_null_map->get_data().back() = 1;
+    ColumnPtr nullable_values =
+            ColumnNullable::create(std::move(values), std::move(value_null_map));
+    NullMap parent_null_map {1, 0};
+    ColumnArray::Offsets64 offsets {0, entries};
+    NullMap projected_null_map;
+
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &parent_null_map, nullable_values, std::make_shared<DataTypeInt32>(), 2, offsets));
+    const auto* result =
+            TableReaderCastTestHelper::_project_collection_parent_null_map_for_hidden_entries(
+                    nullptr, &parent_null_map, 2, offsets, entries, &projected_null_map);
 
     EXPECT_EQ(nullptr, result);
     EXPECT_TRUE(projected_null_map.empty());

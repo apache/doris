@@ -43,8 +43,8 @@ class AdbcConnectorCacheHookTest {
     private static final AdbcTableHandle MAIN_T1 = new AdbcTableHandle(MAIN, "t1");
 
     private static AdbcConnector connector() {
-        return new AdbcConnector(Map.of(AdbcConnectorProperties.URI, "file:/tmp/does-not-matter.db",
-                AdbcConnectorProperties.DRIVER_URL, "libadbc_driver_sqlite.so"), context());
+        return new AdbcConnector(Map.of(AdbcCatalogProperties.URI, "file:/tmp/does-not-matter.db",
+                AdbcCatalogProperties.DRIVER_URL, "libadbc_driver_sqlite.so"), context());
     }
 
     private static ConnectorContext context() {

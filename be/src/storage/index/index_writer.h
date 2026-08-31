@@ -59,6 +59,15 @@ public:
     virtual Status add_nulls(uint32_t count) = 0;
     virtual Status add_array_nulls(const uint8_t* null_map, size_t num_rows) = 0;
 
+    // Write-path hint from the segment writer: this writer serves a direct load
+    // (stream/broker load, DataWriteType::TYPE_DIRECT) as opposed to compaction
+    // / schema change / index build. The column writer forwards it
+    // unconditionally right after create() succeeds (i.e. after init(), before
+    // any value is added); creation paths outside the column writer (e.g. ADD
+    // INDEX in index_builder.cpp) never call it and keep the non-direct default.
+    // Default no-op: SNII uses it to select the direct-load PRX zstd level.
+    virtual void set_direct_load(bool /*is_direct_load*/) {}
+
     virtual Status finish() = 0;
 
     virtual int64_t size() const = 0;

@@ -61,6 +61,7 @@ import org.apache.iceberg.SortField;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.LocationUtil;
 
@@ -71,10 +72,14 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * Write plan provider for iceberg INSERT / INSERT OVERWRITE.
@@ -99,6 +104,8 @@ import java.util.function.Function;
  * connector transaction and fails loud if absent.</p>
  */
 public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
+
+    private static final int SUPPORT_NESTED_PARTITION_WRITE_EXEC_VERSION = 12;
 
     // Legacy IcebergUtils compression-codec property keys (connector-local copies; iceberg SDK has no
     // constant for the doris/spark-sql forms).
@@ -127,6 +134,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                 "Iceberg row position metadata", false, null, false).invisible();
     }
 
+    private final IcebergCatalogProperties catalogProps;
     private final Map<String, String> properties;
     // Per-request catalog-ops resolver: applied with the current ConnectorSession to obtain the IcebergCatalogOps
     // for that request. For a iceberg.rest.session=user catalog the connector passes this::newCatalogBackedOps so
@@ -137,12 +145,13 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     // single shared ops regardless of session (constant s -> catalogOps).
     private final Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver;
     private final ConnectorContext context;
+    private final IcebergCatalogResourceTracker resourceTracker;
 
-    public IcebergWritePlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps,
+    public IcebergWritePlanProvider(IcebergCatalogProperties catalogProps, IcebergCatalogOps catalogOps,
             ConnectorContext context) {
         // Constant resolver: these ctors (offline tests) bind a single ops that ignores the session, so existing
         // behaviour/tests are byte-identical.
-        this(properties, session -> catalogOps, context);
+        this(catalogProps, session -> catalogOps, context);
     }
 
     /**
@@ -151,16 +160,25 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
      * resolves the querying user's per-request delegated catalog for the write-side read helpers (the connector
      * passes {@code this::newCatalogBackedOps}); every other catalog resolves the single shared ops.
      */
-    public IcebergWritePlanProvider(Map<String, String> properties,
+    public IcebergWritePlanProvider(IcebergCatalogProperties catalogProps,
             Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
             ConnectorContext context) {
-        this.properties = properties;
+        this(catalogProps, catalogOpsResolver, context, null);
+    }
+
+    IcebergWritePlanProvider(IcebergCatalogProperties catalogProps,
+            Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
+            ConnectorContext context, IcebergCatalogResourceTracker resourceTracker) {
+        this.catalogProps = catalogProps;
+        this.properties = catalogProps.getRaw();
         this.catalogOpsResolver = catalogOpsResolver;
         this.context = context;
+        this.resourceTracker = resourceTracker;
     }
 
     @Override
     public ConnectorSinkPlan planWrite(ConnectorSession session, ConnectorWriteHandle handle) {
+        validateWriteSchema(handle);
         IcebergTableHandle tableHandle = (IcebergTableHandle) handle.getTableHandle();
         IcebergConnectorTransaction transaction = currentTransaction(session);
 
@@ -170,9 +188,12 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // transaction switches on at commit time (Append vs ReplacePartitions / OverwriteFiles).
         IcebergWriteSchemaContext schemaContext = handle.getWriteOperation() == WriteOperation.REWRITE
                 ? null : resolveWriteSchema(session, tableHandle, handle.getBranchName());
+        validateNestedPartitionWriteCompatibility(handle, schemaContext);
         IcebergWriteContext writeContext = buildWriteContext(handle, schemaContext);
         transaction.beginWrite(session, tableHandle.getDbName(), tableHandle.getTableName(), writeContext);
         Table table = transaction.getTable();
+        validateBoundWriteMetadata(table, handle);
+        validateBoundWriteColumns(table, schemaContext, handle, writeContext.getWriteOperation());
 
         // commit-bridge supply (S4 part 2): read the non-equality delete supply the scan seam accumulated into the
         // per-statement scope. DELETE/MERGE attach it to the sink so the BE OR-merges old deletes into the new
@@ -213,7 +234,10 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             case MERGE: {
                 TDataSink dataSink = new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK);
                 dataSink.setIcebergMergeSink(buildMergeSink(table, tableHandle, rewritableDeletes,
-                        handle.isRequireMergeCardinalityCheck(), schemaContext));
+                        handle.isWritesDataFiles(), handle.isRequireMergeCardinalityCheck(),
+                        handle.getBoundTargetColumns().stream()
+                                .anyMatch(column -> containsVariant(column.getType())),
+                        schemaContext));
                 return new ConnectorSinkPlan(dataSink);
             }
             case REWRITE: {
@@ -229,6 +253,181 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                 throw new DorisConnectorException(
                         "Unsupported iceberg write operation: " + writeContext.getWriteOperation());
         }
+    }
+
+    private void validateBoundWriteColumns(Table table, IcebergWriteSchemaContext schemaContext,
+            ConnectorWriteHandle handle, WriteOperation writeOperation) {
+        List<ConnectorColumn> boundTargetColumns = handle.getBoundTargetColumns();
+        if (!boundTargetColumns.isEmpty()
+                && (writeOperation == WriteOperation.REWRITE
+                        || writeOperation == WriteOperation.UPDATE
+                        || writeOperation == WriteOperation.MERGE)) {
+            long boundLineageColumns = boundTargetColumns.stream()
+                    .filter(ConnectorColumn::isReservedPassthrough)
+                    .count();
+            long currentLineageColumns = IcebergWriterHelper.getFormatVersion(table) >= 3 ? 2 : 0;
+            // Format version changes the physical sink arity without changing table.schema(); the reserved
+            // columns are the bind-time witness that the output and v3 schema-json belong to one generation.
+            if (boundLineageColumns != currentLineageColumns) {
+                throw new DorisConnectorException(
+                        "Iceberg write metadata changed after the write was bound; retry the statement");
+            }
+        }
+        // V3 row-lineage columns are engine-generated metadata, not fields in table.schema(). Excluding
+        // their neutral marker keeps the comparison on the complete user schema for INSERT and MERGE.
+        List<ConnectorColumn> boundColumns = boundTargetColumns.stream()
+                .filter(column -> !column.isReservedPassthrough())
+                .collect(Collectors.toList());
+        if (writeOperation == WriteOperation.DELETE || boundColumns.isEmpty()) {
+            return;
+        }
+        // A branch write is deliberately bound to the branch-head schema, which can lag the current main
+        // schema. The schema context separately fences branch evolution, so comparing with table.schema()
+        // rejects valid branch writes without adding concurrency protection.
+        Schema writeSchema = schemaContext == null ? table.schema() : schemaContext.getSchema();
+        List<NestedField> currentColumns = writeSchema.columns();
+        boolean rowLevelWrite = writeOperation == WriteOperation.UPDATE || writeOperation == WriteOperation.MERGE;
+        boolean hasSyntheticRowId = rowLevelWrite && boundColumns.size() == currentColumns.size() + 1
+                && DORIS_ICEBERG_ROWID_COL.equals(boundColumns.get(boundColumns.size() - 1).getName());
+        if (boundColumns.size() != currentColumns.size() && !hasSyntheticRowId) {
+            throw new DorisConnectorException("Iceberg table schema changed after the write was bound; retry the "
+                    + "statement with the latest schema");
+        }
+        boolean enableVarbinary = mappingVarbinaryEnabled();
+        boolean enableTimestampTz = mappingTimestampTzEnabled();
+        for (int i = 0; i < currentColumns.size(); ++i) {
+            NestedField current = currentColumns.get(i);
+            ConnectorColumn bound = boundColumns.get(i);
+            ConnectorType currentType = IcebergTypeMapping.fromIcebergType(
+                    current.type(), enableVarbinary, enableTimestampTz);
+            String boundDefaultSql = bound.getDefaultValueSql();
+            if ("NULL".equalsIgnoreCase(boundDefaultSql)) {
+                boundDefaultSql = null;
+            }
+            String currentDefaultSql = current.writeDefault() == null ? null
+                    : IcebergWriteSchemaContext.toDorisSql(current.type(), current.writeDefault(),
+                            enableVarbinary, enableTimestampTz);
+            // Do not compare top-level nullability: Doris widens Iceberg required columns in its read schema
+            // so evolution default-fill may yield NULL. Nested requiredness remains authoritative in
+            // sameBoundType, while current schema JSON enforces writes at the root.
+            if (!current.name().equalsIgnoreCase(bound.getName())
+                    || !sameBoundType(currentType, bound.getType())
+                    || (bound.getUniqueId() >= 0 && current.fieldId() != bound.getUniqueId())
+                    // Omitted columns and DEFAULT expressions were already materialized from this value at bind.
+                    || !Objects.equals(boundDefaultSql, currentDefaultSql)) {
+                // BE maps write expressions to schema-json by ordinal, so accepting a reordered live
+                // schema here could silently place values under the wrong Iceberg field names.
+                throw new DorisConnectorException("Iceberg table schema changed after the write was bound; retry "
+                        + "the statement with the latest schema");
+            }
+        }
+    }
+
+    private void validateBoundWriteMetadata(Table table, ConnectorWriteHandle handle) {
+        String boundIdentity = handle.getBoundWriteMetadataIdentity();
+        if (boundIdentity == null) {
+            return;
+        }
+        // The FE sort/distribution and Iceberg file metadata must come from one generation; otherwise
+        // beginWrite's refresh can silently stamp files with a sort order or partition spec they did not use.
+        if (!boundIdentity.equals(writeMetadataIdentity(table))) {
+            throw new DorisConnectorException(
+                    "Iceberg write metadata changed after the write was bound; retry the statement");
+        }
+    }
+
+    private static boolean sameBoundType(ConnectorType current, ConnectorType bound) {
+        String currentName = canonicalTypeName(current.getTypeName());
+        String boundName = canonicalTypeName(bound.getTypeName());
+        if (!currentName.equals(boundName)
+                || current.getChildren().size() != bound.getChildren().size()
+                || current.getFieldNames().size() != bound.getFieldNames().size()) {
+            return false;
+        }
+        if (hasMeaningfulTypeParameters(currentName)
+                && (current.getPrecision() != bound.getPrecision() || current.getScale() != bound.getScale())) {
+            return false;
+        }
+        for (int i = 0; i < current.getChildren().size(); i++) {
+            if (!current.getFieldNames().isEmpty()
+                    && !current.getFieldNames().get(i).equalsIgnoreCase(bound.getFieldNames().get(i))) {
+                return false;
+            }
+            int boundFieldId = bound.getChildFieldId(i);
+            if ((boundFieldId >= 0 && current.getChildFieldId(i) != boundFieldId)
+                    || current.isChildNullable(i) != bound.isChildNullable(i)
+                    || !sameBoundType(current.getChildren().get(i), bound.getChildren().get(i))) {
+                // Nested field identity and requiredness are part of the write contract even though the SPI
+                // type's general equals() deliberately excludes them for non-write consumers.
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static String canonicalTypeName(String typeName) {
+        String normalized = typeName.toUpperCase(Locale.ROOT);
+        // Doris chooses a physical DECIMAL width after conversion, while Iceberg exposes one logical decimal.
+        // Width aliases with the same precision/scale are one schema, not concurrent evolution.
+        return normalized.startsWith("DECIMAL") && !"DECIMALV2".equals(normalized)
+                ? "DECIMALV3" : normalized;
+    }
+
+    private static boolean hasMeaningfulTypeParameters(String typeName) {
+        return typeName.startsWith("DECIMAL")
+                || "CHAR".equals(typeName)
+                || "VARCHAR".equals(typeName)
+                || "VARBINARY".equals(typeName)
+                || "DATETIMEV2".equals(typeName)
+                || "TIMESTAMPTZ".equals(typeName);
+    }
+
+    static void validateWriteSchema(List<ConnectorColumn> columns, boolean writesDataFiles) {
+        if (!writesDataFiles) {
+            return;
+        }
+        if (columns.stream().anyMatch(column -> containsVariant(column.getType()))) {
+            // Reject the whole data-file write: validating only selected columns would let an
+            // unchanged Variant target flow through a writer that cannot preserve its physical identity.
+            throw new DorisConnectorException(
+                    "Iceberg VARIANT columns are read-only and cannot be written");
+        }
+    }
+
+    static void validateWriteSchema(ConnectorWriteHandle handle) {
+        // The explicit INSERT column list can omit an unchanged Variant column, but the data writer
+        // still binds the complete target schema and therefore must validate that complete shape.
+        validateWriteSchema(handle.getBoundTargetColumns(), handle.isWritesDataFiles());
+    }
+
+    private static void validateNestedPartitionWriteCompatibility(
+            ConnectorWriteHandle handle, IcebergWriteSchemaContext schemaContext) {
+        WriteOperation operation = handle.getWriteOperation();
+        // Only DELETE avoids the old data-writer path; old MERGE initializes it even when the
+        // finalized plan reports that no data files will be produced.
+        boolean writesDataFiles = operation != WriteOperation.DELETE
+                && (operation != WriteOperation.UPDATE || handle.isWritesDataFiles());
+        if (!writesDataFiles || schemaContext == null
+                || handle.getBeExecVersion() >= SUPPORT_NESTED_PARTITION_WRITE_EXEC_VERSION) {
+            return;
+        }
+        Set<Integer> topLevelIds = schemaContext.getSchema().columns().stream()
+                .map(NestedField::fieldId).collect(Collectors.toSet());
+        if (schemaContext.getPartitionSpec().fields().stream()
+                .anyMatch(field -> !topLevelIds.contains(field.sourceId()))) {
+            // Old writers resolve partition sources only from top-level IDs and ignore nested source paths.
+            throw new DorisConnectorException(
+                    "Iceberg nested partition writes are unavailable during rolling upgrade");
+        }
+    }
+
+    private static boolean containsVariant(ConnectorType type) {
+        String typeName = type.getTypeName();
+        if ("VARIANT".equalsIgnoreCase(typeName)
+                || "VARIANT_COMPUTE_V2".equalsIgnoreCase(typeName)) {
+            return true;
+        }
+        return type.getChildren().stream().anyMatch(IcebergWritePlanProvider::containsVariant);
     }
 
     @Override
@@ -265,6 +464,12 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     @Override
     public List<ConnectorWriteSortColumn> getWriteSortColumns(ConnectorSession session,
             ConnectorTableHandle tableHandle) {
+        return getWriteSortColumns(session, tableHandle, Collections.emptyList());
+    }
+
+    @Override
+    public List<ConnectorWriteSortColumn> getWriteSortColumns(ConnectorSession session,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> boundTargetColumns) {
         IcebergTableHandle handle = (IcebergTableHandle) tableHandle;
         Optional<IcebergWriteSchemaContext> active =
                 IcebergStatementScope.activeWriteSchema(
@@ -278,23 +483,101 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             // unconditional setSortInfo inside the isSorted() branch even when no identity column resolves.
             return null;
         }
-        List<NestedField> columns = active.isPresent()
-                ? active.get().getSchema().columns() : table.schema().columns();
+        Map<Integer, Integer> positionsByFieldId = new HashMap<>();
+        if (boundTargetColumns.isEmpty()) {
+            List<NestedField> currentColumns = active.isPresent()
+                    ? active.get().getSchema().columns() : table.schema().columns();
+            for (int i = 0; i < currentColumns.size(); i++) {
+                positionsByFieldId.put(currentColumns.get(i).fieldId(), i);
+            }
+        } else {
+            for (int i = 0; i < boundTargetColumns.size(); i++) {
+                positionsByFieldId.put(boundTargetColumns.get(i).getUniqueId(), i);
+            }
+        }
         List<ConnectorWriteSortColumn> result = new ArrayList<>();
         for (SortField sortField : sortOrder.fields()) {
             if (!sortField.transform().isIdentity()) {
                 continue;
             }
-            for (int i = 0; i < columns.size(); i++) {
-                if (columns.get(i).fieldId() == sortField.sourceId()) {
-                    result.add(new ConnectorWriteSortColumn(i,
-                            sortField.direction() == SortDirection.ASC,
-                            sortField.nullOrder() == NullOrder.NULLS_FIRST));
-                    break;
-                }
+            Integer position = positionsByFieldId.get(sortField.sourceId());
+            if (position != null) {
+                // Resolve against the bound field id, never a newly refreshed live ordinal; otherwise
+                // schema reorder can sort one output expression using another column's ordering contract.
+                result.add(new ConnectorWriteSortColumn(position,
+                        sortField.direction() == SortDirection.ASC,
+                        sortField.nullOrder() == NullOrder.NULLS_FIRST));
             }
         }
         return result;
+    }
+
+    @Override
+    public String getWriteMetadataIdentity(ConnectorSession session, ConnectorTableHandle tableHandle) {
+        return writeMetadataIdentity(resolveTable(session, (IcebergTableHandle) tableHandle));
+    }
+
+    static String writeMetadataIdentity(Table table) {
+        StringBuilder identity = new StringBuilder();
+        // UUID and schema id make this a table-generation fence, not just a physical-layout signature. They
+        // reject same-name recreation and every schema commit before a stale bound output can reach the sink.
+        appendMetadataToken(identity, "uuid");
+        appendMetadataToken(identity, tableUuid(table));
+        appendMetadataToken(identity, "schema");
+        appendMetadataToken(identity, table.schema().schemaId());
+        appendMetadataToken(identity, "format");
+        appendMetadataToken(identity, IcebergWriterHelper.getFormatVersion(table));
+        SortOrder sortOrder = table.sortOrder();
+        appendMetadataToken(identity, "sort");
+        // Preserve a deterministic fence for partial Table implementations instead of failing schema loads.
+        appendMetadataToken(identity, sortOrder == null ? null : sortOrder.orderId());
+        if (sortOrder != null) {
+            for (SortField field : sortOrder.fields()) {
+                appendMetadataToken(identity, field.sourceId());
+                appendMetadataToken(identity, field.transform());
+                appendMetadataToken(identity, field.direction());
+                appendMetadataToken(identity, field.nullOrder());
+            }
+        }
+        PartitionSpec spec = table.spec();
+        appendMetadataToken(identity, "spec");
+        appendMetadataToken(identity, spec == null ? null : spec.specId());
+        if (spec != null) {
+            for (PartitionField field : spec.fields()) {
+                appendMetadataToken(identity, field.sourceId());
+                appendMetadataToken(identity, field.fieldId());
+                appendMetadataToken(identity, field.name());
+                appendMetadataToken(identity, field.transform());
+            }
+        }
+        // Admission reads these properties before physical planning, while UPDATE is later encoded as MERGE.
+        // Fence all three contracts so a property-only refresh cannot open an unsupported RowDelta path.
+        appendMetadataToken(identity, "row-level-modes");
+        appendMetadataToken(identity, normalizedMode(table, TableProperties.DELETE_MODE,
+                TableProperties.DELETE_MODE_DEFAULT));
+        appendMetadataToken(identity, normalizedMode(table, TableProperties.UPDATE_MODE,
+                TableProperties.UPDATE_MODE_DEFAULT));
+        appendMetadataToken(identity, normalizedMode(table, TableProperties.MERGE_MODE,
+                TableProperties.MERGE_MODE_DEFAULT));
+        return identity.toString();
+    }
+
+    private static String normalizedMode(Table table, String property, String defaultMode) {
+        return table.properties().getOrDefault(property, defaultMode).toLowerCase(Locale.ROOT);
+    }
+
+    private static Object tableUuid(Table table) {
+        try {
+            return table.uuid();
+        } catch (UnsupportedOperationException e) {
+            // Non-BaseTable test doubles may not expose UUID; their remaining metadata still forms a fence.
+            return null;
+        }
+    }
+
+    private static void appendMetadataToken(StringBuilder identity, Object value) {
+        String token = String.valueOf(value);
+        identity.append(token.length()).append(':').append(token);
     }
 
     @Override
@@ -316,16 +599,37 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                 ? active.get().getSchema() : table.schema();
         List<ConnectorWritePartitionField> fields = new ArrayList<>();
         for (PartitionField field : spec.fields()) {
-            // sourceColumnName mirrors the legacy schema.findField(field.sourceId()).name() lookup the engine
-            // used to map a partition field back to a bound output expr id. transform/param mirror
-            // field.transform().toString() + parseTransformParam (kept connector-side so fe-core never parses).
-            NestedField sourceField = schema.findField(field.sourceId());
-            String sourceColumnName = sourceField == null ? null : sourceField.name();
+            // Bind a nested source to its top-level slot. fe-core recovers child indexes from the stable Iceberg
+            // field ids already carried by the Doris Column tree, so the public connector SPI stays unchanged.
+            String sourceColumnName = findPartitionSourceColumnName(schema, field.sourceId());
             String transform = field.transform().toString();
             fields.add(new ConnectorWritePartitionField(
-                    transform, parseTransformParam(transform), sourceColumnName, field.name(), field.sourceId()));
+                    transform, parseTransformParam(transform), sourceColumnName,
+                    field.name(), field.sourceId()));
         }
         return new ConnectorWritePartitionSpec(spec.specId(), fields);
+    }
+
+    private static String findPartitionSourceColumnName(Schema schema, int sourceId) {
+        List<NestedField> columns = schema.columns();
+        for (NestedField column : columns) {
+            if (column.fieldId() == sourceId || containsStructField(column.type(), sourceId)) {
+                return column.name();
+            }
+        }
+        return null;
+    }
+
+    private static boolean containsStructField(Type type, int sourceId) {
+        if (!type.isStructType()) {
+            return false;
+        }
+        for (NestedField field : type.asStructType().fields()) {
+            if (field.fieldId() == sourceId || containsStructField(field.type(), sourceId)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -390,13 +694,16 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // Carry it on the op-context so beginWrite anchors the RowDelta baseSnapshotId at S_read, keeping
         // the commit-time removeDeletes (option D) and BE's scan-time DV union on one snapshot. -1 (no pin)
         // preserves the legacy begin-time current snapshot.
-        long readSnapshotId = handle.getTableHandle() instanceof IcebergTableHandle
-                ? ((IcebergTableHandle) handle.getTableHandle()).getSnapshotId() : -1L;
+        IcebergTableHandle readHandle = handle.getTableHandle() instanceof IcebergTableHandle
+                ? (IcebergTableHandle) handle.getTableHandle() : null;
+        long readSnapshotId = readHandle != null ? readHandle.getSnapshotId() : -1L;
+        boolean readSnapshotResolved = readHandle != null && readHandle.isSnapshotResolved();
         // Branch-targeted INSERT (INSERT INTO tbl@branch): the branch is threaded from the generic insert
         // command context onto the write handle; beginWrite validates it against the table refs and points
         // the commit at the branch. Empty for a default-ref write.
         return new IcebergWriteContext(op, handle.isOverwrite(), handle.getStaticPartitionSpec(),
-                handle.getBranchName(), readSnapshotId, schemaContext);
+                handle.getBranchName(), readSnapshotId, readSnapshotResolved,
+                schemaContext, handle.getBoundWriteMetadataIdentity());
     }
 
     private TIcebergTableSink buildSink(Table table, IcebergTableHandle tableHandle,
@@ -468,9 +775,13 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         if (handle.isOverwrite()) {
             throw new DorisConnectorException("REWRITE writes cannot be overwrite operations");
         }
-        TIcebergTableSink tSink = buildSink(table, tableHandle, handle,
-                IcebergWriteSchemaContext.create(table, tableHandle.getTableName(), Optional.empty(),
-                        mappingVarbinaryEnabled(), mappingTimestampTzEnabled()));
+        IcebergWriteSchemaContext rewriteSchemaContext = IcebergWriteSchemaContext.create(
+                table, tableHandle.getTableName(), Optional.empty(),
+                mappingVarbinaryEnabled(), mappingTimestampTzEnabled());
+        // REWRITE resolves its schema after beginWrite, so its rolling-upgrade fence must run here
+        // against the same partition spec that the compaction sink will actually use.
+        validateNestedPartitionWriteCompatibility(handle, rewriteSchemaContext);
+        TIcebergTableSink tSink = buildSink(table, tableHandle, handle, rewriteSchemaContext);
         tSink.setWriteType(TIcebergWriteType.REWRITE);
         if (IcebergWriterHelper.getFormatVersion(table) >= 3) {
             // iceberg v3 format requires the row-lineage fields when rewriting data files.
@@ -535,7 +846,9 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
      */
     private TIcebergMergeSink buildMergeSink(Table table, IcebergTableHandle tableHandle,
             Map<String, List<TIcebergDeleteFileDesc>> rewritableDeletes,
-            boolean requireMergeCardinalityCheck, IcebergWriteSchemaContext schemaContext) {
+            boolean writesDataFiles, boolean requireMergeCardinalityCheck,
+            boolean hasVariantSchema,
+            IcebergWriteSchemaContext schemaContext) {
         TIcebergMergeSink tSink = new TIcebergMergeSink();
         tSink.setDbName(tableHandle.getDbName());
         tSink.setTbName(tableHandle.getTableName());
@@ -549,6 +862,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                 IcebergWriterHelper.shouldCollectColumnStats(schemaContext, schema));
         // #66112: UPDATE and SQL MERGE share this sink, but only SQL MERGE has the one-source-row invariant.
         tSink.setRequireMergeCardinalityCheck(requireMergeCardinalityCheck);
+        tSink.setWritesDataFiles(writesDataFiles);
+        tSink.setHasVariantSchema(hasVariantSchema);
 
         PartitionSpec partitionSpec = schemaContext.getPartitionSpec();
         if (partitionSpec.isPartitioned()) {
@@ -708,7 +1023,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             // getBackendStorageProperties() second parse). The BE S3 sink (s3_util.cpp
             // convert_properties_to_s3_conf) reads ONLY AWS_*, so the fs.s3a.* hadoop form (correct for the FE
             // iceberg-catalog Configuration) would leave the BE writer with no creds.
-            for (StorageProperties sp : storage().getStorageProperties()) {
+            for (StorageProperties sp : IcebergCatalogFactory.selectEffectiveStorages(
+                    storage().getStorageProperties())) {
                 sp.toBackendProperties().ifPresent(b -> merged.putAll(b.toMap()));
             }
             // REST per-table vended overlay (colliding key takes the vended value — legacy/scan precedence): a
@@ -736,7 +1052,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // newTransaction refreshes this object without changing a concurrently planned statement generation.
         // Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces verbatim.
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
-        return IcebergStatementScope.sharedWritableTable(session, handle.getDbName(), handle.getTableName(), () -> {
+        Supplier<Table> loader = () -> {
             if (context == null) {
                 return ops.loadTable(handle.getDbName(), handle.getTableName());
             }
@@ -747,7 +1063,13 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                 throw new DorisConnectorException("Failed to load iceberg table "
                         + handle.getDbName() + "." + handle.getTableName() + ": " + e.getMessage(), e);
             }
-        });
+        };
+        return resourceTracker == null
+                ? IcebergStatementScope.sharedWritableTable(
+                        session, handle.getDbName(), handle.getTableName(), loader)
+                : IcebergStatementScope.sharedTrackedWritableTable(
+                        session, handle.getDbName(), handle.getTableName(), resourceTracker, loader,
+                        table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor())).table();
     }
 
     private IcebergWriteSchemaContext resolveWriteSchema(ConnectorSession session,
@@ -764,13 +1086,11 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     }
 
     private boolean mappingVarbinaryEnabled() {
-        return Boolean.parseBoolean(properties.getOrDefault(
-                IcebergConnectorProperties.ENABLE_MAPPING_VARBINARY, "false"));
+        return catalogProps.isEnableMappingVarbinary();
     }
 
     private boolean mappingTimestampTzEnabled() {
-        return Boolean.parseBoolean(properties.getOrDefault(
-                IcebergConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
+        return catalogProps.isEnableMappingTimestampTz();
     }
 
     private static TFileFormatType toTFileFormatType(FileFormat format) {

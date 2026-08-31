@@ -46,6 +46,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -74,7 +75,7 @@ public abstract class AbstractInsertExecutor {
     protected Optional<InsertCommandContext> insertCtx;
     protected final boolean emptyInsert;
     protected long txnId = INVALID_TXN_ID;
-    protected List<TableStreamUpdateInfo> streamUpdateInfos;
+    protected List<TableStreamUpdateInfo> streamUpdateInfos = Collections.emptyList();
 
     /**
      * Insert executor listener
@@ -138,6 +139,10 @@ public abstract class AbstractInsertExecutor {
 
     public void unregisterListener(InsertExecutorListener listener) {
         listeners.remove(listener);
+    }
+
+    protected void handleAfterCompleteFailure(Exception e) throws Exception {
+        throw e;
     }
 
     public Coordinator getCoordinator() {
@@ -259,17 +264,24 @@ public abstract class AbstractInsertExecutor {
      * execute insert txn for insert into select command.
      */
     public void executeSingleInsert(StmtExecutor executor) throws Exception {
-        beforeExec();
         try {
+            // Pre-execution work may register external resources, so it must share the transaction cleanup scope.
+            beforeExec();
             executor.updateProfile(false);
-            execImpl(executor);
+            if (!emptyInsert) {
+                execImpl(executor);
+            }
             checkStrictModeAndFilterRatio();
             for (InsertExecutorListener listener : listeners) {
                 listener.beforeComplete(this, executor, jobId);
             }
             onComplete();
             for (InsertExecutorListener listener : listeners) {
-                listener.afterComplete(this, executor, jobId);
+                try {
+                    listener.afterComplete(this, executor, jobId);
+                } catch (Exception e) {
+                    handleAfterCompleteFailure(e);
+                }
             }
         } catch (Throwable t) {
             onFail(t);
@@ -288,6 +300,14 @@ public abstract class AbstractInsertExecutor {
 
     public boolean isEmptyInsert() {
         return emptyInsert;
+    }
+
+    /**
+     * Return whether this insert needs its transaction lifecycle. A Table Stream offset update
+     * must be committed even when optimization proves that the target receives no rows.
+     */
+    public boolean requiresTransaction() {
+        return !emptyInsert || !streamUpdateInfos.isEmpty();
     }
 
     public void setStreamUpdateInfos(List<TableStreamUpdateInfo> streamUpdateInfos) {

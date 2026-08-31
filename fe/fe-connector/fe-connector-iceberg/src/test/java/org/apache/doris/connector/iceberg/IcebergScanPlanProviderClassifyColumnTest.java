@@ -42,7 +42,7 @@ import java.util.Collections;
 public class IcebergScanPlanProviderClassifyColumnTest {
 
     private static final IcebergScanPlanProvider PROVIDER =
-            new IcebergScanPlanProvider(Collections.emptyMap(), null);
+            new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), null);
 
     @Test
     public void hiddenRowIdIsSynthesized() {

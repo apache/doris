@@ -18,18 +18,26 @@
 #pragma once
 
 #include <memory>
+#include <unordered_map>
+#include <vector>
 
 namespace doris {
+
+struct Version;
+struct HashOfVersion;
 
 class Rowset;
 using RowsetSharedPtr = std::shared_ptr<Rowset>;
 class RowsetMeta;
 using RowsetMetaSharedPtr = std::shared_ptr<RowsetMeta>;
+using RowsetMetaMapContainer = std::unordered_map<Version, RowsetMetaSharedPtr, HashOfVersion>;
 class RowsetReader;
 using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
 class RowsetWriter;
 using RowsetWriterSharedPtr = std::shared_ptr<RowsetWriter>;
 class RowsetBuilder;
 using RowsetBuilderSharedPtr = std::shared_ptr<RowsetBuilder>;
+using AllocatedLsnVectorSharedPtr = std::shared_ptr<std::vector<int64_t>>;
+using ConstAllocatedLsnVectorSharedPtr = std::shared_ptr<const std::vector<int64_t>>;
 
 } // namespace doris

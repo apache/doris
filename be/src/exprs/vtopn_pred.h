@@ -121,19 +121,7 @@ public:
         RETURN_IF_ERROR(_function->execute(nullptr, temp_block, arguments,
                                            num_columns_without_result, temp_block.rows()));
         result_column = std::move(temp_block.get_by_position(num_columns_without_result).column);
-        if (auto mutable_result = IColumn::mutate(std::move(result_column));
-            auto* nullable = check_and_get_column<ColumnNullable>(*mutable_result)) {
-            auto& values = assert_cast<ColumnUInt8&>(*nullable->get_nested_column_ptr()).get_data();
-            const auto& null_map = nullable->get_null_map_data();
-            // Master validates execute_type() against the physical result column. Collapse SQL
-            // NULL to the filter decision here: NULLS FIRST keeps it, while NULLS LAST rejects it.
-            for (size_t row = 0; row < values.size(); ++row) {
-                values[row] = null_map[row] ? _predicate->nulls_first() : values[row];
-            }
-            result_column = nullable->get_nested_column_ptr();
-        } else {
-            result_column = std::move(mutable_result);
-        }
+        result_column = _normalize_filter_result(std::move(result_column));
         DCHECK_EQ(result_column->size(), count);
         return Status::OK();
     }
@@ -284,6 +272,29 @@ public:
     }
 
 private:
+    ColumnPtr _normalize_filter_result(ColumnPtr column) const {
+        const size_t rows = column->size();
+        if (const auto* constant = check_and_get_column<ColumnConst>(*column)) {
+            auto nested = _normalize_filter_result(constant->get_data_column_ptr());
+            return ColumnConst::create(std::move(nested), rows);
+        }
+
+        auto mutable_column = IColumn::mutate(std::move(column));
+        if (auto* nullable = check_and_get_column<ColumnNullable>(*mutable_column)) {
+            auto& values = assert_cast<ColumnUInt8&>(*nullable->get_nested_column_ptr()).get_data();
+            auto& null_map = nullable->get_null_map_data();
+            // Collapse SQL NULL to the filter decision: NULLS FIRST keeps it, while NULLS LAST
+            // rejects it. Preserve the nullable wrapper so strict block execution still matches
+            // the expression's declared Nullable(Boolean) type.
+            for (size_t row = 0; row < values.size(); ++row) {
+                values[row] = null_map[row] ? _predicate->nulls_first() : values[row];
+            }
+            nullable->fill_false_to_nullmap(rows);
+            return mutable_column;
+        }
+        return mutable_column;
+    }
+
     int _source_node_id;
     std::string _expr_name;
     RuntimePredicate* _predicate = nullptr;

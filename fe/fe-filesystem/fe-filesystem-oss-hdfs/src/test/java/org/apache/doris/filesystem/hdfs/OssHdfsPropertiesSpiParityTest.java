@@ -20,6 +20,7 @@ package org.apache.doris.filesystem.hdfs;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.hdfs.properties.OssHdfsProperties;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.StorageKind;
 
 import org.junit.jupiter.api.Assertions;
@@ -77,7 +78,17 @@ class OssHdfsPropertiesSpiParityTest {
         golden.put("fs.AbstractFileSystem.oss.impl", "com.aliyun.jindodata.oss.JindoOSS");
         golden.put("fs.defaultFS", "oss://mybucket");
         assertExactMap(golden, p.getBackendConfigProperties());
-        assertExactMap(golden, p.toHadoopProperties().orElseThrow().toHadoopConfigurationMap());
+        // The derived (consumable) map additionally carries the per-scheme credential fingerprint keying
+        // the Doris-patched FileSystem cache; the raw backend map above stays the fe-core golden.
+        Map<String, String> goldenWithCacheKey = new HashMap<>(golden);
+        FsCacheKeys.putFsCacheKeys(goldenWithCacheKey, p);
+        // Pin the scheme names literally: building the expectation with the production helper says
+        // nothing about WHICH keys it writes. OSS-HDFS declares {oss, hdfs} -- the hdfs entry is the
+        // one it shares with the plain HDFS provider (see FsCacheKeys on that ambiguity).
+        Assertions.assertEquals(p.fsCacheFingerprint(), goldenWithCacheKey.get("doris.fs.cache.key.oss"));
+        Assertions.assertEquals(p.fsCacheFingerprint(), goldenWithCacheKey.get("doris.fs.cache.key.hdfs"));
+        Assertions.assertNull(goldenWithCacheKey.get("doris.fs.cache.key"));
+        assertExactMap(goldenWithCacheKey, p.toHadoopProperties().orElseThrow().toHadoopConfigurationMap());
         Assertions.assertFalse(p.isKerberos());
     }
 

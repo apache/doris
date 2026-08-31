@@ -20,14 +20,14 @@ package org.apache.doris.connector.cache;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ForkJoinPool;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
  * GENERIC (engine-agnostic) cross-query cache of a connector's derived metadata, keyed by a table identity plus
  * an optional MVCC coordinate ({@link ConnectorTableKey}) and holding an opaque value {@code V}. It is the generic
  * form of the hand-rolled iceberg caches (e.g. {@code IcebergPartitionCache}): same construction pattern (a
- * contextual-only, manual-miss-load {@link MetaCacheEntry}), same {@link CacheSpec} wiring, same invalidation style
+ * contextual-only, manual-miss-load {@link MetaCache}), same {@link CacheSpec} wiring, same invalidation style
  * — but keyed by the engine-agnostic {@link ConnectorTableKey} and holding an opaque {@code V} instead of an
  * engine-specific value, so it has no engine-specific imports and is shared by every connector. Consumers today:
  * the hive/iceberg/paimon derived partition-view caches (entry {@code "partition_view"}); a connector may hold
@@ -50,7 +50,8 @@ public final class ConnectorMetadataCache<V> {
     /** Default capacity, matching {@code IcebergPartitionCache}'s {@code DEFAULT_TABLE_CACHE_CAPACITY}. */
     static final long DEFAULT_CAPACITY = 1000L;
 
-    private final MetaCacheEntry<ConnectorTableKey, V> entry;
+    private final CatalogMetaCache owner;
+    private final MetaCache<ConnectorTableKey, V> entry;
 
     /**
      * @param engine    engine token for the {@code meta.cache.<engine>.<entry>.*} property namespace, e.g.
@@ -61,20 +62,31 @@ public final class ConnectorMetadataCache<V> {
      *                  {@code null}, treated as empty (defaults apply).
      */
     public ConnectorMetadataCache(String engine, String entryName, Map<String, String> props) {
+        this(new CatalogMetaCache(), engine + "." + entryName, engine, entryName, props);
+    }
+
+    public ConnectorMetadataCache(
+            CatalogMetaCache owner, String cacheName, String engine, String entryName, Map<String, String> props) {
+        this(owner, cacheName, engine, entryName, props,
+                key -> ScopePath.table(key.getDb(), key.getTable()));
+    }
+
+    public ConnectorMetadataCache(CatalogMetaCache owner, String cacheName, String engine, String entryName,
+            Map<String, String> props, Function<ConnectorTableKey, ScopePath> scopeResolver) {
+        this.owner = Objects.requireNonNull(owner, "owner can not be null");
         Objects.requireNonNull(engine, "engine can not be null");
         Objects.requireNonNull(entryName, "entryName can not be null");
         Map<String, String> properties = props == null ? Collections.emptyMap() : props;
         CacheSpec spec = CacheSpec.fromProperties(properties, engine, entryName,
                 CacheSpec.of(true, DEFAULT_TTL_SECOND, DEFAULT_CAPACITY));
-        // contextual-only (loader == null, supplied per-call by get()) + manual-miss-load, no auto-refresh --
-        // identical shape to IcebergPartitionCache / MaxComputePartitionCache's entry construction.
-        this.entry = new MetaCacheEntry<>(engine + "." + entryName, null, spec,
-                ForkJoinPool.commonPool(), false, true, 0L, true);
+        this.entry = owner.create(MetaCacheDefinition
+                .<ConnectorTableKey, V>builder(cacheName, spec, scopeResolver)
+                .build());
     }
 
     /** Caching is on only when the resolved {@link CacheSpec} is effectively enabled (see {@link #entry}'s spec). */
     public boolean isEnabled() {
-        return entry.stats().isEffectiveEnabled();
+        return entry.isEnabled();
     }
 
     /**
@@ -89,23 +101,21 @@ public final class ConnectorMetadataCache<V> {
 
     /** Evicts every cached snapshot/schema entry of one (db, table). Backs REFRESH TABLE / table-level invalidation. */
     public void invalidateTable(String db, String table) {
-        entry.invalidateIf(key -> key.matches(db, table));
+        owner.invalidateTable(db, table);
     }
 
     /** Evicts every cached entry of one db (all its tables). Backs REFRESH DATABASE / db-level invalidation. */
     public void invalidateDb(String db) {
-        entry.invalidateIf(key -> key.matchesDb(db));
+        owner.invalidateDatabase(db);
     }
 
     /** Evicts every cached entry. Backs REFRESH CATALOG. */
     public void invalidateAll() {
-        entry.invalidateAll();
+        owner.invalidateCatalog();
     }
 
     /** Test-only: current number of cached entries (accurate map membership, not Caffeine's estimate). */
     long size() {
-        int[] count = {0};
-        entry.forEach((key, value) -> count[0]++);
-        return count[0];
+        return entry.size();
     }
 }

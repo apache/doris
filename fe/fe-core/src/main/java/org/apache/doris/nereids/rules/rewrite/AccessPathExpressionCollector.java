@@ -87,7 +87,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     private boolean bottomPredicate;
     private boolean skipMetaPath;
     private Multimap<Integer, CollectAccessPathResult> slotToAccessPaths;
-    private Stack<Map<String, Expression>> nameToLambdaArguments = new Stack<>();
+    private Stack<Map<ExprId, Expression>> exprIdToLambdaArguments = new Stack<>();
 
     public AccessPathExpressionCollector(
             StatementContext statementContext, Multimap<Integer, CollectAccessPathResult> slotToAccessPaths,
@@ -135,6 +135,15 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             int slotId = slotReference.getExprId().asInt();
             slotToAccessPaths.put(slotId, new CollectAccessPathResult(
                     path, context.bottomFilter, ColumnAccessPathType.DATA));
+            return null;
+        }
+        if (dataType instanceof VariantType) {
+            // A root Variant consumer must dominate any predicate-only leaf path. Otherwise the
+            // scanner can legally project a shredded leaf that cannot serve the root expression.
+            int slotId = slotReference.getExprId().asInt();
+            slotToAccessPaths.put(slotId, new CollectAccessPathResult(
+                    ImmutableList.of(slotReference.getName()),
+                    context.bottomFilter, ColumnAccessPathType.DATA));
             return null;
         }
         if (dataType instanceof NestedColumnPrunable) {
@@ -263,15 +272,17 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
     @Override
     public Void visitArrayItemSlot(ArrayItemSlot arrayItemSlot, CollectorContext context) {
-        if (nameToLambdaArguments.isEmpty()) {
+        if (exprIdToLambdaArguments.isEmpty()) {
             return null;
         }
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
-        Expression argument = nameToLambdaArguments.peek().get(arrayItemSlot.getName());
-        if (argument == null) {
-            return null;
+        for (int i = exprIdToLambdaArguments.size() - 1; i >= 0; i--) {
+            Expression argument = exprIdToLambdaArguments.get(i).get(arrayItemSlot.getExprId());
+            if (argument != null) {
+                return continueCollectAccessPath(argument, context);
+            }
         }
-        return continueCollectAccessPath(argument, context);
+        return null;
     }
 
     @Override
@@ -313,7 +324,11 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             continueCollectAccessPath(first, context);
 
             for (int i = 1; i < arguments.size(); i++) {
-                visit(arguments.get(i), context);
+                // Dispatch every index/key expression with a fresh context. For example, in
+                // element_at(a, i), generic visit(i, context) treats a leaf lambda slot as having
+                // no children and skips visitArrayItemSlot, so the bound index array loses its payload.
+                arguments.get(i).accept(this,
+                        new CollectorContext(context.statementContext, context.bottomFilter));
             }
             return null;
         } else if (first.getDataType().isVariantType() && arguments.size() >= 2
@@ -485,7 +500,13 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
         Expression argument = arraySort.getArgument(0);
         if ((argument instanceof Lambda)) {
-            return collectArrayPathInLambda((Lambda) argument, context);
+            Lambda lambda = (Lambda) argument;
+            // A comparator may inspect only array lengths, while array_sort still returns every element.
+            // Propagate the result access path through the source expression to preserve its payload.
+            CollectorContext resultContext = copyContext(context);
+            collectArrayPathInLambda(lambda, context);
+            return continueCollectAccessPath(
+                    lambda.getLambdaArgument(0).getArrayExpression(), resultContext);
         }
         return visit(arraySort, context);
     }
@@ -676,10 +697,10 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
     private Void collectArrayPathInLambda(Lambda lambda, CollectorContext context) {
         List<Expression> arguments = lambda.getArguments();
-        Map<String, Expression> nameToArray = Maps.newLinkedHashMap();
+        Map<ExprId, Expression> exprIdToArray = Maps.newLinkedHashMap();
         for (Expression argument : arguments) {
             if (argument instanceof ArrayItemReference) {
-                nameToArray.put(((ArrayItemReference) argument).getName(), argument.child(0));
+                exprIdToArray.put(((ArrayItemReference) argument).getExprId(), argument.child(0));
             }
         }
 
@@ -688,11 +709,11 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             context.accessPathBuilder.removePrefix();
         }
 
-        nameToLambdaArguments.push(nameToArray);
+        exprIdToLambdaArguments.push(exprIdToArray);
         try {
             continueCollectAccessPath(arguments.get(0), context);
         } finally {
-            nameToLambdaArguments.pop();
+            exprIdToLambdaArguments.pop();
         }
 
         // After visiting the lambda body, for any bound array whose lambda variable
@@ -703,7 +724,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         // the complex column to null-only / offset-only instead of reading full data.
         //
         // Detect usage by scanning the lambda body for ArrayItemSlots matching the
-        // argument name, which is more reliable than getInputSlots() that deliberately
+        // argument ExprId, which is more reliable than getInputSlots() that deliberately
         // excludes ArrayItemSlot and may falsely match outer slots.
         //
         // Must use a fresh context: when the body DOES reference some variables

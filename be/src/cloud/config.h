@@ -90,6 +90,7 @@ DECLARE_mInt32(lease_compaction_interval_seconds);
 DECLARE_mBool(enable_parallel_cumu_compaction);
 DECLARE_mDouble(base_compaction_thread_num_factor);
 DECLARE_mDouble(cumu_compaction_thread_num_factor);
+DECLARE_mDouble(binlog_compaction_thread_num_factor);
 DECLARE_mInt32(check_auto_compaction_interval_seconds);
 DECLARE_mInt32(max_base_compaction_task_num_per_disk);
 DECLARE_mBool(prioritize_query_perf_in_compaction);
@@ -232,6 +233,10 @@ DECLARE_mBool(enable_file_cache_write_cumu_compaction_index_only);
 // MS RPC rate limiting config
 // Enable host-level rate limiting for MS RPCs to prevent burst traffic
 DECLARE_mBool(enable_ms_rpc_host_level_rate_limit);
+// Evaluate and record host-level MS RPC rate limits without delaying requests.
+// Dry-run evaluation is independent of enable_ms_rpc_host_level_rate_limit.
+// When both are enabled, dry-run takes precedence and requests are not delayed.
+DECLARE_mBool(enable_ms_rpc_host_level_rate_limit_dry_run);
 
 // Per-RPC QPS limit configs (per CPU core)
 // QPS limit = config_value * num_cores
@@ -265,6 +270,10 @@ DECLARE_mInt32(ms_rpc_qps_update_packed_file_info);
 
 // Enable MS backpressure response handling (table-level adaptive throttling)
 DECLARE_mBool(enable_ms_backpressure_handling);
+// Evaluate and record table-level adaptive throttling without delaying requests.
+// Dry-run evaluation is independent of enable_ms_backpressure_handling.
+// When both are enabled, dry-run takes precedence and requests are not delayed.
+DECLARE_mBool(enable_ms_backpressure_handling_dry_run);
 
 // Time window (seconds) for computing per-table QPS via bvar::PerSecond.
 // Larger window smooths out short-term spikes; smaller window reacts faster.

@@ -60,7 +60,7 @@ public class HudiSchemaAtInstantTest {
         int calls;
 
         RecordingMetadata() {
-            super(null, Collections.emptyMap(), null);
+            super(null, HudiTestProperties.minimal(), null);
         }
 
         @Override

@@ -23,6 +23,17 @@
 # Things will only be downloaded, unpacked and patched once.
 ################################################################
 
+# The shebang above only takes effect when this script is executed directly.
+# `sh download-thirdparty.sh` hands it to /bin/sh instead, which is dash on
+# Debian and Ubuntu and parses none of the `[[ ]]`, arrays and here-strings this
+# script is built on. It does not stop at the first of them either, it keeps
+# going and runs a mangled version of the script. Re-exec under bash so that the
+# way the script was invoked cannot decide whether the download works. Keep this
+# block POSIX, it has to be parsed by the shell that is about to be replaced.
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
+
 set -eo pipefail
 
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
@@ -74,13 +85,30 @@ while [[ $# -gt 0 ]]; do
     )
 done
 if [[ "${SPEC_LIB}" != "" ]]; then
+    # ARROW_ADBC_FLIGHTSQL is a companion archive of arrow_adbc rather than a
+    # package of its own: it has no build function, build_arrow_adbc() only copies
+    # the prebuilt driver out of it. Its name therefore never appears on a command
+    # line, so narrowing to the named entries alone leaves it unfetched and
+    # `build-thirdparty.sh arrow_adbc` dies on the missing source directory.
+    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]] &&
+        [[ " ${SPEC_ARCHIVES[*]} " == *' ARROW_ADBC '* ]] &&
+        [[ " ${SPEC_ARCHIVES[*]} " != *' ARROW_ADBC_FLIGHTSQL '* ]]; then
+        SPEC_ARCHIVES+=('ARROW_ADBC_FLIGHTSQL')
+    fi
     TP_ARCHIVES=("${SPEC_ARCHIVES[@]}")
     echo "Download and build specified libs only: ${TP_ARCHIVES[*]}"
 fi
 
 md5sum_bin='md5sum'
 if ! command -v "${md5sum_bin}" >/dev/null 2>&1; then
-    echo "Warn: md5sum is not installed"
+    # macOS ships BSD md5 rather than GNU md5sum. Giving up on verification there
+    # is not a neutral loss: `wget -O` creates its output file before the transfer,
+    # so a failed download leaves a 0-byte file behind, and an unverified retry
+    # then reports it as a valid cached archive and carries on.
+    md5sum_bin='md5'
+fi
+if ! command -v "${md5sum_bin}" >/dev/null 2>&1; then
+    echo "Warn: neither md5sum nor md5 is installed, archives will not be verified"
     md5sum_bin=""
 fi
 
@@ -92,13 +120,18 @@ md5sum_func() {
 
     if [[ "${md5sum_bin}" == "" ]]; then
         return 0
+    fi
+
+    # Compare the digest alone, the two tools disagree on everything around it.
+    if [[ "${md5sum_bin}" == 'md5' ]]; then
+        md5="$("${md5sum_bin}" -q "${DESC_DIR}/${FILENAME}")"
     else
-        md5="$(md5sum "${DESC_DIR}/${FILENAME}")"
-        if [[ "${md5}" != "${MD5SUM}  ${DESC_DIR}/${FILENAME}" ]]; then
-            echo "${DESC_DIR}/${FILENAME} md5sum check failed!"
-            echo -e "except-md5 ${MD5SUM} \nactual-md5 ${md5}"
-            return 1
-        fi
+        md5="$("${md5sum_bin}" "${DESC_DIR}/${FILENAME}" | awk '{ print $1 }')"
+    fi
+    if [[ "${md5}" != "${MD5SUM}" ]]; then
+        echo "${DESC_DIR}/${FILENAME} md5sum check failed!"
+        echo -e "except-md5 ${MD5SUM} \nactual-md5 ${md5}"
+        return 1
     fi
     return 0
 }
@@ -238,13 +271,24 @@ for TP_ARCH in "${TP_ARCHIVES[@]}"; do
     fi
     NAME="${TP_ARCH}_NAME"
     SOURCE="${TP_ARCH}_SOURCE"
+    ARCHIVE_SOURCE_VAR="${TP_ARCH}_ARCHIVE_SOURCE"
+    ARCHIVE_SOURCE="${!ARCHIVE_SOURCE_VAR}"
 
     if [[ -z "${!SOURCE}" ]]; then
         continue
     fi
 
     if [[ ! -d "${TP_SOURCE_DIR}/${!SOURCE}" ]]; then
-        if [[ "${!NAME}" =~ ${SUFFIX_TGZ} ]]; then
+        if [[ -n "${ARCHIVE_SOURCE}" && "${ARCHIVE_SOURCE}" != "${!SOURCE}" ]]; then
+            alias_unpack_dir="$(mktemp -d "${TP_SOURCE_DIR}/.unpack-${TP_ARCH}.XXXXXX")"
+            if ! "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${!NAME}" -C "${alias_unpack_dir}"; then
+                echo "Failed to untar ${!NAME} for ${!SOURCE}"
+                rm -rf "${alias_unpack_dir}"
+                exit 1
+            fi
+            mv "${alias_unpack_dir}/${ARCHIVE_SOURCE}" "${TP_SOURCE_DIR}/${!SOURCE}"
+            rm -rf "${alias_unpack_dir}"
+        elif [[ "${!NAME}" =~ ${SUFFIX_TGZ} ]]; then
             echo "${TP_SOURCE_DIR}/${!NAME}"
             echo "${TP_SOURCE_DIR}/${!SOURCE}"
             if ! "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${!NAME}" -C "${TP_SOURCE_DIR}/"; then
@@ -336,17 +380,31 @@ echo "===== Patching thirdparty archives..."
 PATCHED_MARK="patched_mark"
 ARROW_PAIMON_PATCH_FINGERPRINT_MARK="patched_mark_arrow_paimon_fingerprint"
 ARROW_PAIMON_BUILD_FINGERPRINT=""
+ARROW_PAIMON_17_BUILD_FINGERPRINT=""
 if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ||
       " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
     ARROW_PAIMON_BUILD_FINGERPRINT="$(arrow_paimon_build_fingerprint)"
+fi
+if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW_17 " ||
+      " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP_17 " ]]; then
+    ARROW_PAIMON_17_BUILD_FINGERPRINT="$(arrow_paimon_17_build_fingerprint)"
 fi
 
 reset_arrow_paimon_source() {
     local archive_name="$1"
     local source_name="$2"
+    local archive_source="${3:-${source_name}}"
     echo "Resetting ${source_name} because its patch state is incomplete or stale"
     rm -rf "${TP_SOURCE_DIR:?}/${source_name}"
-    "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${archive_name}" -C "${TP_SOURCE_DIR}/"
+    if [[ "${archive_source}" == "${source_name}" ]]; then
+        "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${archive_name}" -C "${TP_SOURCE_DIR}/"
+    else
+        local alias_unpack_dir
+        alias_unpack_dir="$(mktemp -d "${TP_SOURCE_DIR}/.reset-${source_name}.XXXXXX")"
+        "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${archive_name}" -C "${alias_unpack_dir}"
+        mv "${alias_unpack_dir}/${archive_source}" "${TP_SOURCE_DIR}/${source_name}"
+        rm -rf "${alias_unpack_dir}"
+    fi
 }
 
 # glog patch
@@ -440,6 +498,26 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ROCKSDB " ]]; then
         cd -
     fi
     echo "Finished patching ${ROCKSDB_SOURCE}"
+fi
+
+# Keep the Arrow 17 source used by pre-upgrade branch-4.1 revisions independently
+# patched from the Arrow 24 source selected by master.
+if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW_17 " ]]; then
+    arrow_17_fingerprint_mark="${TP_SOURCE_DIR}/${ARROW_17_SOURCE}/${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
+    if ! [[ -f "${TP_SOURCE_DIR}/${ARROW_17_SOURCE}/${PATCHED_MARK}" &&
+           -f "${arrow_17_fingerprint_mark}" ]] ||
+       [[ "$(<"${arrow_17_fingerprint_mark}")" != "${ARROW_PAIMON_17_BUILD_FINGERPRINT}" ]]; then
+        reset_arrow_paimon_source "${ARROW_17_NAME}" "${ARROW_17_SOURCE}"
+        cd "${TP_SOURCE_DIR}/${ARROW_17_SOURCE}"
+        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-paimon.patch"
+        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-force-write-int96-timestamps.patch"
+        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-lzo.patch"
+        touch "${PATCHED_MARK}"
+        printf '%s\n' "${ARROW_PAIMON_17_BUILD_FINGERPRINT}" \
+            >"${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
+        cd -
+    fi
+    echo "Finished patching ${ARROW_17_SOURCE}"
 fi
 
 # arrow patch is used to get the raw orc reader for filter prune.
@@ -761,6 +839,24 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
     echo "Finished patching ${AZURE_SOURCE}"
 fi
 
+# Keep the Arrow 17 Paimon source free of the Arrow 24 API and Compute patches.
+if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP_17 " ]]; then
+    paimon_17_fingerprint_mark="${TP_SOURCE_DIR}/${PAIMON_CPP_17_SOURCE}/${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
+    if ! [[ -f "${TP_SOURCE_DIR}/${PAIMON_CPP_17_SOURCE}/${PATCHED_MARK}" &&
+           -f "${paimon_17_fingerprint_mark}" ]] ||
+       [[ "$(<"${paimon_17_fingerprint_mark}")" != "${ARROW_PAIMON_17_BUILD_FINGERPRINT}" ]]; then
+        reset_arrow_paimon_source "${PAIMON_CPP_17_NAME}" "${PAIMON_CPP_17_SOURCE}" \
+            "${PAIMON_CPP_17_ARCHIVE_SOURCE}"
+        cd "${TP_SOURCE_DIR}/${PAIMON_CPP_17_SOURCE}"
+        patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch"
+        touch "${PATCHED_MARK}"
+        printf '%s\n' "${ARROW_PAIMON_17_BUILD_FINGERPRINT}" \
+            >"${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
+        cd -
+    fi
+    echo "Finished patching ${PAIMON_CPP_17_SOURCE}"
+fi
+
 # patch paimon-cpp
 if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
     PAIMON_CPP_ARROW_24_PATCHED_MARK="patched_mark_arrow_24"
@@ -784,6 +880,19 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
         cd -
     fi
     echo "Finished patching ${PAIMON_CPP_SOURCE}"
+fi
+
+# Patch lance-c with the scan execution statistics API from upstream PR #64.
+if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
+    if [[ "${LANCE_C_SOURCE}" == "lance-c-0.1.7" ]]; then
+        cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/lance-c-0.1.7-pr-64.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${LANCE_C_SOURCE}"
 fi
 
 if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then

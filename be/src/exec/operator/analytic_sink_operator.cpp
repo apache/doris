@@ -64,8 +64,10 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     } else {
         if (!p._has_window_start) {
             _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_unbounded_rows;
+            _rows_window_type = RowsWindowType::UNBOUNDED_START;
         } else {
             _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_sliding_rows;
+            _rows_window_type = RowsWindowType::SLIDING;
         }
         _streaming_mode = true;
         _support_incremental_calculate = (p._has_window_start && p._has_window_end);
@@ -681,7 +683,7 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
 Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<AnalyticSinkLocalState>::prepare(state));
     for (const auto& ctx : _agg_expr_ctxs) {
-        RETURN_IF_ERROR(VExpr::prepare(ctx, state, _child->row_desc()));
+        RETURN_IF_ERROR(VExpr::prepare(ctx, state, _child->operator_row_desc_after_projection()));
     }
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
@@ -689,7 +691,8 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[i];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[i];
-        RETURN_IF_ERROR(_agg_functions[i]->prepare(state, _child->row_desc(),
+        RETURN_IF_ERROR(_agg_functions[i]->prepare(state,
+                                                   _child->operator_row_desc_after_projection(),
                                                    intermediate_slot_desc, output_slot_desc));
         _agg_functions[i]->set_version(state->be_exec_version());
         _change_to_nullable_flags[i] =
@@ -697,7 +700,8 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     }
     if (!_partition_by_eq_expr_ctxs.empty() || !_order_by_eq_expr_ctxs.empty()) {
         std::vector<TTupleId> tuple_ids;
-        tuple_ids.push_back(_child->row_desc().tuple_descriptors()[0]->id());
+        tuple_ids.push_back(
+                _child->operator_row_desc_after_projection().tuple_descriptors()[0]->id());
         tuple_ids.push_back(_buffered_tuple_id);
         RowDescriptor cmp_row_desc(state->desc_tbl(), tuple_ids);
         if (!_partition_by_eq_expr_ctxs.empty()) {
@@ -709,7 +713,8 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     }
     if (!_range_between_expr_ctxs.empty()) {
         DCHECK(_range_between_expr_ctxs.size() == 2);
-        RETURN_IF_ERROR(VExpr::prepare(_range_between_expr_ctxs, state, _child->row_desc()));
+        RETURN_IF_ERROR(VExpr::prepare(_range_between_expr_ctxs, state,
+                                       _child->operator_row_desc_after_projection()));
     }
     RETURN_IF_ERROR(VExpr::open(_range_between_expr_ctxs, state));
     RETURN_IF_ERROR(VExpr::open(_partition_by_eq_expr_ctxs, state));
@@ -840,6 +845,18 @@ void AnalyticSinkLocalState::_remove_unused_rows() {
         auto idx = _output_block_index - 1;
         if (idx < 0 || _input_block_first_row_positions[idx] <= unused_rows_pos) {
             return;
+        }
+        if (_rows_window_type != RowsWindowType::NONE) {
+            // Sliding frames need the outgoing row; unbounded-start frames need the next unread row.
+            const int64_t earliest_required_row =
+                    _rows_window_type == RowsWindowType::SLIDING
+                            ? std::max(_partition_by_pose.start,
+                                       _current_row_position + _rows_start_offset - 1)
+                            : std::max(_partition_by_pose.start,
+                                       _current_row_position + _rows_end_offset);
+            if (_have_removed_rows + earliest_required_row < unused_rows_pos) {
+                return;
+            }
         }
     } else {
         if (_have_removed_rows + _partition_by_pose.start <= unused_rows_pos) {

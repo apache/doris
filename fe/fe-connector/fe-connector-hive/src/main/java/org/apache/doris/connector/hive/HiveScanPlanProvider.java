@@ -86,11 +86,18 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      */
     public static final String PROP_TRANSACTIONAL_HIVE = "transactional_hive";
 
+    /**
+     * Session variable gating the OpenX-JSON "read the whole JSON row into one CSV column" mode (legacy
+     * SessionVariable.read_hive_json_in_one_column). Byte-identical to the fe-core session-var name; it is
+     * surfaced through ConnectorSession.getSessionProperties() (VariableMgr dumps all visible vars).
+     */
+    private static final String SESSION_READ_HIVE_JSON_IN_ONE_COLUMN = "read_hive_json_in_one_column";
+
     /** Input format of a full-ACID (ORC) transactional Hive table; other formats are rejected. */
     private static final String ORC_ACID_INPUT_FORMAT = "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat";
 
     private final HmsClient hmsClient;
-    private final Map<String, String> catalogProperties;
+    private final HiveCatalogProperties catalogProperties;
     // Engine-owned, per-catalog filesystem accessor. The non-ACID listing path borrows the Doris FileSystem via
     // storage().getFileSystem(session) (never closes it — the engine owns its lifecycle) to list partition
     // directories, replacing bare Hadoop FileSystem.get (FIX-HIVEFS: the hive plugin bundles no HDFS impl).
@@ -101,7 +108,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     // plain (non-ACID) path uses it; the ACID path lists via HiveAcidUtil and is uncached (legacy parity).
     private final HiveFileListingCache fileListingCache;
 
-    public HiveScanPlanProvider(HmsClient hmsClient, Map<String, String> catalogProperties,
+    public HiveScanPlanProvider(HmsClient hmsClient, HiveCatalogProperties catalogProperties,
             ConnectorContext context, HiveReadTransactionManager readTxnManager,
             HiveFileListingCache fileListingCache) {
         this.hmsClient = hmsClient;
@@ -405,7 +412,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         //  (2) Raw catalog aliases + inline fs./hadoop./dfs. keys. Emitted AFTER the canonical set so a user-inline
         //      fs./hadoop. key wins; the s3./oss./cos./obs. aliases are harmless to BE (ignored by the native
         //      reader) but kept so no configured key is dropped.
-        for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
+        for (Map.Entry<String, String> entry : catalogProperties.getRaw().entrySet()) {
             String key = entry.getKey();
             if (isLocationProperty(key)) {
                 props.put(ScanNodePropertyKeys.LOCATION_PREFIX + key, entry.getValue());
@@ -464,7 +471,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private static boolean readHiveJsonInOneColumn(ConnectorSession session) {
         return Boolean.parseBoolean(session.getSessionProperties()
-                .getOrDefault(HiveConnectorProperties.SESSION_READ_HIVE_JSON_IN_ONE_COLUMN, "false"));
+                .getOrDefault(SESSION_READ_HIVE_JSON_IN_ONE_COLUMN, "false"));
     }
 
     /**
@@ -539,8 +546,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             // must fail the query loud with the legacy message rather than be silently skipped. Only a
             // not-found cause counts as "absent"; a transient/unreadable listing failure still follows the
             // tolerant skip-with-warning path below. Default true preserves the skip behavior.
-            if (isLocationNotFound(e) && !HiveConnectorProperties.getBoolean(
-                    catalogProperties, HiveConnectorProperties.IGNORE_ABSENT_PARTITIONS, true)) {
+            if (isLocationNotFound(e) && !catalogProperties.isIgnoreAbsentPartitions()) {
                 throw new DorisConnectorException(
                         "Partition location does not exist: " + partition.location, e);
             }

@@ -47,11 +47,13 @@ RUN mkdir -p /usr/share/maven /usr/share/maven/ref \
     && ln -s /usr/share/maven/bin/mvn /usr/bin/mvn
 
 # install nodejs
-RUN wget https://nodejs.org/download/release/latest-v14.x/node-v14.21.3-linux-x64.tar.gz \
-    -q -O /tmp/node-v14.21.3-linux-x64.tar.gz \
-    && cd /tmp/ && tar -xf node-v14.21.3-linux-x64.tar.gz \
-    && cp -r node-v14.21.3-linux-x64/* /usr/local/ \
-    && rm /tmp/node-v14.21.3-linux-x64.tar.gz && rm -rf node-v14.21.3-linux-x64
+ARG NODEJS_VERSION=22.12.0
+RUN wget https://nodejs.org/dist/v${NODEJS_VERSION}/node-v${NODEJS_VERSION}-linux-x64.tar.xz \
+    -q -O /tmp/node-v${NODEJS_VERSION}-linux-x64.tar.xz \
+    && cd /tmp/ && tar -xf node-v${NODEJS_VERSION}-linux-x64.tar.xz \
+    && cp -r node-v${NODEJS_VERSION}-linux-x64/* /usr/local/ \
+    && rm /tmp/node-v${NODEJS_VERSION}-linux-x64.tar.xz \
+    && rm -rf node-v${NODEJS_VERSION}-linux-x64
 
 # install Rust for lance-c
 ARG RUST_TOOLCHAIN="1.91.0"

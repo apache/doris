@@ -147,4 +147,5 @@ header:
     - "tools/FlameGraph/*"
     - "thirdparty/LICENSE.txt"
     - "fs_brokers/cdc_client/src/main/java/io/debezium/**"
+    - "fs_brokers/cdc_client/src/main/java/com/github/shyiko/**"
   comment: on-failure

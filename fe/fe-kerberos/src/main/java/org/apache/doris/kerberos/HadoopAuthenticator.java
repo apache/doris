@@ -40,7 +40,13 @@ public interface HadoopAuthenticator {
             if (e.getCause() instanceof RuntimeException) {
                 throw (RuntimeException) e.getCause();
             } else {
-                throw new RuntimeException(e.getCause());
+                Throwable cause = e.getCause();
+                if (cause == null) {
+                    throw e;
+                }
+                // Keep checked-operation error text stable across UGI doAs; the cause chain still carries its type.
+                String message = cause.getMessage() == null ? cause.toString() : cause.getMessage();
+                throw new RuntimeException(message, cause);
             }
         }
     }

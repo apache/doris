@@ -18,7 +18,10 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.cache.CacheSpec;
-import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
@@ -34,7 +37,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.ForkJoinPool;
 
 /**
  * The hive connector's own directory-listing cache — the second, separate cache layer of the D2 scan-side cache
@@ -60,7 +62,7 @@ import java.util.concurrent.ForkJoinPool;
  * fail to resolve its impl.</p>
  *
  * <p><b>Failures are not cached, and are split by blast radius.</b> The loader never caches a failed load (matching
- * {@code MetaCacheEntry}'s null-is-a-miss / exception-propagates contract). A SYSTEMIC filesystem-resolution failure
+ * the shared MetaCache's null-is-a-miss / exception-propagates contract). A SYSTEMIC filesystem-resolution failure
  * ({@link FileSystem#forLocation} unresolvable scheme/storage, or a lazily-surfaced {@code "No FileSystem for
  * scheme"} — it fails for every partition of the table) is thrown as a plain {@link DorisConnectorException} and the
  * scan path lets it propagate to fail the query loud. A LOCAL per-directory failure ({@link FileSystem#list}: this
@@ -92,13 +94,6 @@ public class HiveFileListingCache {
     static final long DEFAULT_FILE_CAPACITY = 10000L;
 
     /**
-     * Catalog property controlling whether partition directories are listed recursively (descend into
-     * sub-directories). Default {@code true} — legacy {@code HiveExternalMetaCache.getFileCache} defaulted the
-     * same. When {@code false}, a table whose data lives in sub-directories silently loses those rows.
-     */
-    static final String RECURSIVE_DIRECTORIES_PROPERTY = "hive.recursive_directories";
-
-    /**
      * The raw directory lister: the engine-injected Doris {@link FileSystem} in production
      * ({@link #listFromFileSystem}), a fake in unit tests. Injected so the cache's hit/miss/invalidation behaviour
      * is testable without a live filesystem (mirrors {@code HiveConnectorMetadata.estimateDataSize} injecting its
@@ -111,11 +106,16 @@ public class HiveFileListingCache {
         List<HiveFileStatus> list(String location, FileSystem fs);
     }
 
-    private final MetaCacheEntry<FileListingKey, List<HiveFileStatus>> cache;
+    private final CatalogMetaCache owner;
+    private final MetaCache<FileListingKey, List<HiveFileStatus>> cache;
     private final DirectoryLister lister;
 
-    public HiveFileListingCache(Map<String, String> properties) {
-        this(properties, defaultLister(properties));
+    public HiveFileListingCache(HiveCatalogProperties properties) {
+        this(new CatalogMetaCache(), properties, defaultLister(properties));
+    }
+
+    public HiveFileListingCache(CatalogMetaCache owner, HiveCatalogProperties properties) {
+        this(owner, properties, defaultLister(properties));
     }
 
     /**
@@ -124,15 +124,20 @@ public class HiveFileListingCache {
      * constant, so capturing it here makes every consumer of the shared cache (scan, size estimate, stats
      * sampling) recurse consistently without a hot-path signature change.
      */
-    private static DirectoryLister defaultLister(Map<String, String> properties) {
-        Map<String, String> props = properties == null ? Collections.emptyMap() : properties;
-        boolean recursive = Boolean.parseBoolean(
-                props.getOrDefault(RECURSIVE_DIRECTORIES_PROPERTY, "true"));
+    private static DirectoryLister defaultLister(HiveCatalogProperties properties) {
+        boolean recursive = properties.isRecursiveDirectories();
         return (location, fs) -> listFromFileSystem(location, fs, recursive);
     }
 
-    HiveFileListingCache(Map<String, String> properties, DirectoryLister lister) {
-        Map<String, String> props = properties == null ? Collections.emptyMap() : properties;
+    HiveFileListingCache(HiveCatalogProperties properties, DirectoryLister lister) {
+        this(new CatalogMetaCache(), properties, lister);
+    }
+
+    HiveFileListingCache(CatalogMetaCache owner, HiveCatalogProperties properties, DirectoryLister lister) {
+        this.owner = Objects.requireNonNull(owner, "owner can not be null");
+        // The cache knobs are owned by the shared CacheSpec framework, not by this connector, so they are read
+        // from the raw map rather than bound as holder fields (there is only one source of truth for them).
+        Map<String, String> props = properties.getRaw();
         // Translate the legacy fe-core catalog knob file.meta.cache.ttl-second into the namespaced key this cache
         // reads (mirrors HiveExternalMetaCache.catalogPropertyCompatibilityMap: FILE_META_CACHE_TTL_SECOND ->
         // ENTRY_FILE ttl). Without this, an "hms" catalog that set the legacy key silently kept the default 24h
@@ -143,9 +148,12 @@ public class HiveFileListingCache {
                         CacheSpec.metaCacheTtlKey(ENGINE, ENTRY_FILE)));
         CacheSpec spec = CacheSpec.fromProperties(props, ENGINE, ENTRY_FILE,
                 CacheSpec.of(true, DEFAULT_TTL_SECOND, DEFAULT_FILE_CAPACITY));
-        // Contextual-only + manual-miss so the slow listStatus runs on the caller (TCCL-pinned) thread outside
-        // Caffeine's sync compute lock, deduplicated by a striped lock — mirrors CachingHmsClient's entries.
-        this.cache = new MetaCacheEntry<>("hive.file", null, spec, ForkJoinPool.commonPool(), false, true, 0L, true);
+        this.cache = owner.create(MetaCacheDefinition
+                .<FileListingKey, List<HiveFileStatus>>builder("hive-file", spec,
+                        key -> key.partitionValues.isEmpty()
+                                ? ScopePath.table(key.dbName, key.tableName)
+                                : ScopePath.partition(key.dbName, key.tableName, key.partitionValues))
+                .build());
         this.lister = Objects.requireNonNull(lister, "lister can not be null");
     }
 
@@ -177,7 +185,7 @@ public class HiveFileListingCache {
 
     /** Drops every cached listing for one table. Backs {@code REFRESH TABLE}. */
     public void invalidateTable(String dbName, String tableName) {
-        cache.invalidateIf(key -> key.matches(dbName, tableName));
+        owner.invalidateTable(dbName, tableName);
     }
 
     /**
@@ -189,28 +197,24 @@ public class HiveFileListingCache {
      * (the #65334 failure mode). Backs a partition add/drop/alter refresh.
      */
     public void invalidatePartitions(String dbName, String tableName, Set<List<String>> partitionValues) {
-        if (partitionValues.isEmpty()) {
-            return;
+        for (List<String> values : partitionValues) {
+            owner.invalidatePartition(dbName, tableName, values);
         }
-        cache.invalidateIf(key -> key.matches(dbName, tableName)
-                && partitionValues.contains(key.partitionValues));
     }
 
     /** Drops every cached listing for one database (all its tables). Backs {@code REFRESH DATABASE}. */
     public void invalidateDb(String dbName) {
-        cache.invalidateIf(key -> key.matchesDb(dbName));
+        owner.invalidateDatabase(dbName);
     }
 
     /** Drops the whole file-listing cache. Backs {@code REFRESH CATALOG}. */
     public void invalidateAll() {
-        cache.invalidateAll();
+        owner.invalidateCatalog();
     }
 
     /** Current number of cached directory listings — for unit tests only (mirrors iceberg manifestCache.size()). */
     long size() {
-        long[] count = {0L};
-        cache.forEach((key, value) -> count[0]++);
-        return count[0];
+        return cache.size();
     }
 
     /**
@@ -353,14 +357,6 @@ public class HiveFileListingCache {
             this.partitionValues = partitionValues == null
                     ? Collections.emptyList()
                     : Collections.unmodifiableList(new ArrayList<>(partitionValues));
-        }
-
-        boolean matches(String db, String table) {
-            return Objects.equals(dbName, db) && Objects.equals(tableName, table);
-        }
-
-        boolean matchesDb(String db) {
-            return Objects.equals(dbName, db);
         }
 
         @Override

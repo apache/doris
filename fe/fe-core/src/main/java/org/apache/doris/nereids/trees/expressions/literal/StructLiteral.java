@@ -158,9 +158,16 @@ public class StructLiteral extends Literal {
         ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
         for (int i = 0; i < fields.size(); i++) {
             Expression field = fields.get(i);
-            // Preserve literal nullability so a known non-null value can satisfy a required nested field.
-            structFields.add(new StructField(COL_PREFIX + (i + 1), field.getDataType(), field.nullable(), ""));
+            structFields.add(new StructField(COL_PREFIX + (i + 1), field.getDataType(),
+                    computeFieldNullable(field), ""));
         }
         return new StructType(structFields.build());
+    }
+
+    /** Infer field nullability for struct constructors. */
+    public static boolean computeFieldNullable(Expression field) {
+        // Strict cast changes failure behavior, not the physical result column. Preserve the cast's
+        // nullable type so FunctionStruct never inserts ColumnNullable into a required child column.
+        return field.nullable();
     }
 }

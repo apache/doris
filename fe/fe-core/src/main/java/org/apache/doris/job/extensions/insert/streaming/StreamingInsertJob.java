@@ -18,7 +18,6 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
@@ -103,6 +102,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
@@ -152,6 +152,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @SerializedName("opp")
     // The value to be persisted in offsetProvider
     private String offsetProviderPersist;
+    private transient long lastOffsetPersistTimeMs;
     @Setter
     @Getter
     private long lastScheduleTaskTimestamp = -1L;
@@ -300,18 +301,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private List<String> createTableIfNotExists() throws Exception {
         List<String> syncTbls = new ArrayList<>();
         Map<String, String> effectiveSourceProperties = buildConvertedSourceProperties(sourceProperties);
-        // Key: source table name; Value: CreateTableCommand for the Doris target table.
-        // The two names differ when "table.<src>.target_table" is configured.
-        LinkedHashMap<String, CreateTableCommand> createTblCmds =
+        // Key: source table name; Value: CREATE TABLE command, or empty if the target already exists.
+        // The source and target table names differ when "table.<src>.target_table" is configured.
+        LinkedHashMap<String, Optional<CreateTableCommand>> createTblCmds =
                 StreamingJobUtils.generateCreateTableCmds(targetDb,
                         dataSourceType, effectiveSourceProperties, targetProperties);
-        Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(targetDb);
-        Preconditions.checkNotNull(db, "target database %s does not exist", targetDb);
-        for (Map.Entry<String, CreateTableCommand> entry : createTblCmds.entrySet()) {
+        for (Map.Entry<String, Optional<CreateTableCommand>> entry : createTblCmds.entrySet()) {
             String srcTable = entry.getKey();
-            CreateTableCommand createTblCmd = entry.getValue();
-            if (!db.isTableExist(createTblCmd.getCreateTableInfo().getTableName())) {
-                createTblCmd.run(ConnectContext.get(), null);
+            if (entry.getValue().isPresent()) {
+                entry.getValue().get().run(ConnectContext.get(), null);
             }
             // Use the upstream table name so CDC monitors the correct source table.
             syncTbls.add(srcTable);
@@ -899,6 +897,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 // offset provider has reached a natural end, mark job as finished
                 log.info("Streaming insert job {} source data fully consumed, marking job as FINISHED", getJobId());
                 updateJobStatus(JobStatus.FINISHED);
+                logUpdateOperation();
                 return;
             }
             AbstractStreamingTask nextTask = createStreamingTask();
@@ -998,21 +997,19 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     public String getLag() {
-        return offsetProvider != null ? offsetProvider.getLag() : "";
+        return offsetProvider != null ? offsetProvider.getLag() : "-1";
     }
 
-    // Numeric lag for metrics. Returns -1 when lag is not applicable (S3, snapshot phase)
-    // or unparseable, so dashboards can filter N/A jobs via lag >= 0.
-    public long getLagSeconds() {
-        String lagStr = getLag();
-        if (lagStr == null || lagStr.isEmpty()) {
-            return -1L;
-        }
-        try {
-            return Long.parseLong(lagStr);
-        } catch (NumberFormatException e) {
-            return -1L;
-        }
+    public long getLagBytes() {
+        return offsetProvider != null ? offsetProvider.getLagBytes() : -1;
+    }
+
+    public long getLastSourceEventTimestampSeconds() {
+        return offsetProvider != null ? offsetProvider.getLastSourceEventTimestampSeconds() : 0;
+    }
+
+    public long getLastTaskSuccessTimeSeconds() {
+        return lastTaskSuccessTime / 1000L;
     }
 
     /**
@@ -1026,6 +1023,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             // insert TVF does not persist the running state.
             // streaming multi task persists the running state when commitOffset() is called.
             setJobStatus(replayJob.getJobStatus());
+            if (isFinalStatus()) {
+                setFinishTimeMs(replayJob.getFinishTimeMs());
+                Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getJobId());
+            }
         }
         try {
             modifyPropertiesInternal(replayJob.getProperties());
@@ -1059,6 +1060,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         setFailedTaskCount(replayJob.getFailedTaskCount());
         setCanceledTaskCount(replayJob.getCanceledTaskCount());
         setLastTaskSuccessTime(replayJob.getLastTaskSuccessTime());
+        setStartTimeMs(replayJob.getStartTimeMs());
         this.boundBackendId = replayJob.boundBackendId;
     }
 
@@ -1070,6 +1072,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())) {
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
+            this.offsetProvider.resetLag();
             this.offsetProviderPersist = offsetProvider.getPersistInfo();
             log.info("modifyPropertiesInternal: offset updated to {}, job {}",
                     inputStreamProps.getOffsetProperty(), getJobId());
@@ -1167,8 +1170,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 ? "" : GsonUtils.GSON.toJson(failureReason)));
         trow.addToColumnValue(new TCell().setStringVal(jobRuntimeMsg == null
                 ? "" : jobRuntimeMsg));
-        trow.addToColumnValue(new TCell().setStringVal(
-                offsetProvider != null ? offsetProvider.getLag() : ""));
+        trow.addToColumnValue(new TCell().setStringVal(getLag()));
+        long lastSourceEventTimestampSeconds = getLastSourceEventTimestampSeconds();
+        trow.addToColumnValue(new TCell().setStringVal(lastSourceEventTimestampSeconds > 0
+                ? String.valueOf(lastSourceEventTimestampSeconds) : ""));
         trow.addToColumnValue(new TCell().setStringVal(lastTaskSuccessTime > 0
                 ? TimeUtils.longToTimeString(lastTaskSuccessTime) : ""));
         return trow;
@@ -1548,6 +1553,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             throw new JobException("Unsupported commit offset for offset provider type: "
                     + offsetProvider.getClass().getSimpleName());
         }
+        JdbcSourceOffsetProvider jdbcOffsetProvider = (JdbcSourceOffsetProvider) offsetProvider;
 
         writeLock();
         try {
@@ -1575,10 +1581,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 updateNoTxnJobStatisticAndOffset(offsetRequest);
                 offsetProvider.onTaskCommitted(offsetRequest.getScannedRows(), offsetRequest.getLoadBytes());
                 if (offsetRequest.getTableSchemas() != null) {
-                    JdbcSourceOffsetProvider op = (JdbcSourceOffsetProvider) offsetProvider;
-                    op.setTableSchemas(offsetRequest.getTableSchemas());
+                    jdbcOffsetProvider.setTableSchemas(offsetRequest.getTableSchemas());
                 }
-                persistOffsetProviderIfNeed();
+                persistOffsetProviderIfNeed(jdbcOffsetProvider, System.currentTimeMillis());
                 log.info("Streaming multi table job {} task {} commit offset successfully, offset: {}",
                         getJobId(), offsetRequest.getTaskId(), offsetRequest.getOffset());
                 ((StreamingMultiTblTask) this.runningStreamTask).successCallback(offsetRequest);
@@ -1638,12 +1643,19 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
-    private void persistOffsetProviderIfNeed() {
-        // only for jdbc
-        this.offsetProviderPersist = offsetProvider.getPersistInfo();
-        if (this.offsetProviderPersist != null) {
-            logUpdateOperation();
+    private void persistOffsetProviderIfNeed(
+            JdbcSourceOffsetProvider jdbcOffsetProvider, long currentTimeMs) {
+        this.offsetProviderPersist = jdbcOffsetProvider.getPersistInfo();
+        if (this.offsetProviderPersist == null) {
+            return;
         }
+
+        if (!jdbcOffsetProvider.shouldPersistOffset(lastOffsetPersistTimeMs, currentTimeMs)) {
+            return;
+        }
+
+        logUpdateOperation();
+        lastOffsetPersistTimeMs = currentTimeMs;
     }
 
     public void replayOffsetProviderIfNeed() throws JobException {

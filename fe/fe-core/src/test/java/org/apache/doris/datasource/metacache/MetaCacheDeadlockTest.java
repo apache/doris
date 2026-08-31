@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.metacache;
 
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.connector.cache.CacheSpec;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -43,7 +44,7 @@ public class MetaCacheDeadlockTest {
         );
 
         CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 100);
-        MetaCacheEntry<String, String> tableCache = MetaCacheEntry.withSyncRemovalListener(
+        FeMetaCacheEntry<String, String> tableCache = FeMetaCacheEntry.withSyncRemovalListener(
                 "tableCache",
                 key -> "table-" + key,
                 cacheSpec,
@@ -54,7 +55,7 @@ public class MetaCacheDeadlockTest {
             tableCache.put("table" + i, "table-" + i);
         }
 
-        MetaCacheEntry<String, String> dbCache = MetaCacheEntry.withSyncRemovalListener(
+        FeMetaCacheEntry<String, String> dbCache = FeMetaCacheEntry.withSyncRemovalListener(
                 "databaseCache",
                 key -> "db-" + key,
                 CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 1),
@@ -84,7 +85,7 @@ public class MetaCacheDeadlockTest {
         executor.shutdown();
         boolean terminated = executor.awaitTermination(1, TimeUnit.SECONDS);
 
-        Assert.assertTrue("MetaCacheEntry deadlock detected. Ensure sync removal listeners use direct execution.",
+        Assert.assertTrue("FeMetaCacheEntry deadlock detected. Ensure sync removal listeners use direct execution.",
                 completed && terminated);
     }
 }

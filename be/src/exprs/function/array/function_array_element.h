@@ -183,6 +183,11 @@ public:
     }
 
 private:
+    static bool valid_negative_array_index(Int64 index, size_t length) {
+        // Compare abs(index) - 1 so INT64_MIN stays representable and remains an out-of-range NULL.
+        return index < 0 && std::cmp_less(static_cast<UInt64>(-(index + 1)), length);
+    }
+
     //=========================== struct element===========================//
     // Resolve the 0-based field offset selected by a constant int/string index. Mirrors the logic
     // of the former struct_element function, which element_at now subsumes.
@@ -323,7 +328,7 @@ private:
             bool null_flag = bool(arr_null_map && arr_null_map[arr_row]);
             if (!null_flag && index > 0 && index <= len) {
                 index += off - 1;
-            } else if (!null_flag && index < 0 && -index <= len) {
+            } else if (!null_flag && valid_negative_array_index(index, len)) {
                 index += off + len;
             } else {
                 null_flag = true;
@@ -366,7 +371,7 @@ private:
             bool null_flag = bool(arr_null_map && arr_null_map[arr_row]);
             if (!null_flag && index > 0 && index <= len) {
                 index += off - 1;
-            } else if (!null_flag && index < 0 && -index <= len) {
+            } else if (!null_flag && valid_negative_array_index(index, len)) {
                 index += off + len;
             } else {
                 null_flag = true;
@@ -436,7 +441,7 @@ private:
             bool null_flag = bool(arr_null_map && arr_null_map[arr_row]);
             if (!null_flag && index > 0 && index <= len) {
                 index += off - 1;
-            } else if (!null_flag && index < 0 && -index <= len) {
+            } else if (!null_flag && valid_negative_array_index(index, len)) {
                 index += off + len;
             } else {
                 null_flag = true;

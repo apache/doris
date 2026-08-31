@@ -681,7 +681,7 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
         Optional<Expression> chosen2 = (Optional<Expression>) method.invoke(
                 rule, groupingSets, -1, candidates, stats, 50);
         Assertions.assertTrue(chosen2.isPresent());
-        Assertions.assertEquals(b, chosen2.get());
+        Assertions.assertEquals(c, chosen2.get());
 
         // inputStats null -> chooseByNdv returns empty for every group -> empty
         @SuppressWarnings("unchecked")

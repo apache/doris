@@ -23,16 +23,19 @@ package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsCommonStatistics;
+import org.apache.doris.connector.hms.HmsNotificationEvent;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsPartitionStatistics;
 import org.apache.doris.connector.hms.HmsPartitionWithStatistics;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.hms.HmsTypeMapping;
+import org.apache.doris.connector.hms.event.HmsEventParser;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
@@ -75,6 +78,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -105,6 +110,9 @@ import java.util.stream.Collectors;
 public class HiveConnectorTransaction implements ConnectorTransaction {
 
     private static final Logger LOG = LogManager.getLogger(HiveConnectorTransaction.class);
+    private static final long COMMIT_LOCK_TIMEOUT_MS = 5000;
+    private static final long COMMIT_LOCK_HEARTBEAT_SECONDS = 10;
+    private static final int NOTIFICATION_BATCH_SIZE = 1000;
 
     private final long transactionId;
     private final HmsClient hmsClient;
@@ -113,7 +121,7 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
     // Plugin-owned async pool for staging renames + MPU complete/abort (the legacy class had this injected
     // by fe-core). Shut down in close(). authWrappingExecutor wraps each submitted task in the catalog auth
     // context (D5: plugin-owned pool threads do not inherit the caller pin).
-    private final ExecutorService fileSystemExecutor;
+    private final ScheduledExecutorService fileSystemExecutor;
     private final Executor authWrappingExecutor;
 
     // Captured at beginWrite (D6). Threaded to storage().getFileSystem(session) so the engine hands back the
@@ -123,6 +131,8 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
 
     private NameMapping nameMapping;
     private volatile HmsTableInfo hmsTableInfo;
+    private String writeMetadataIdentity;
+    private long writeMetadataEventId = -1;
     private String queryId;
     private boolean isOverwrite;
     private TFileType fileType;
@@ -140,7 +150,8 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
         this.transactionId = transactionId;
         this.hmsClient = hmsClient;
         this.context = context;
-        this.fileSystemExecutor = Executors.newFixedThreadPool(16, namedDaemonThreadFactory("hive-write-fs-%d"));
+        this.fileSystemExecutor = Executors.newScheduledThreadPool(
+                16, namedDaemonThreadFactory("hive-write-fs-%d"));
         this.authWrappingExecutor = command -> fileSystemExecutor.execute(() -> {
             try {
                 context.executeAuthenticated(() -> {
@@ -199,6 +210,20 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
      * only pre-commit point that has the table — so the full-ACID reject (D7) can run here.
      */
     public void beginWrite(ConnectorSession session, String db, String tableName, HiveWriteContext ctx) {
+        HiveWriteMetadataSnapshot writeMetadata;
+        try {
+            writeMetadata = context.executeAuthenticated(
+                    () -> HiveWriteMetadataSnapshot.loadFresh(hmsClient, db, tableName));
+        } catch (Exception e) {
+            throw new DorisConnectorException(
+                    "Failed to begin write for hive table " + tableName + ": " + e.getMessage(), e);
+        }
+        beginWrite(session, db, tableName, ctx, writeMetadata.getTable(), writeMetadata.getIdentity(),
+                writeMetadata.getNotificationEventId());
+    }
+
+    void beginWrite(ConnectorSession session, String db, String tableName, HiveWriteContext ctx,
+            HmsTableInfo table, String metadataIdentity, long metadataEventId) {
         this.session = session;
         this.queryId = ctx.getQueryId();
         this.isOverwrite = ctx.isOverwrite();
@@ -207,12 +232,10 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
                 ? Optional.empty() : Optional.of(ctx.getWritePath());
         this.nameMapping = new NameMapping(context.getCatalogId(), db, tableName, db, tableName);
         try {
-            context.executeAuthenticated(() -> {
-                HmsTableInfo table = hmsClient.getTable(db, tableName);
-                rejectTransactionalWrite(table.getParameters());
-                this.hmsTableInfo = table;
-                return null;
-            });
+            rejectTransactionalWrite(table.getParameters());
+            this.hmsTableInfo = table;
+            this.writeMetadataIdentity = metadataIdentity;
+            this.writeMetadataEventId = metadataEventId;
         } catch (Exception e) {
             throw new DorisConnectorException(
                     "Failed to begin write for hive table " + tableName + ": " + e.getMessage(), e);
@@ -221,10 +244,67 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
 
     @Override
     public void commit() {
-        // The classification (finishInsertTable) ran from the executor in the legacy class; the unified SPI
-        // exposes only commit(), so it runs here (before the committer) to populate the action maps. If it
-        // throws, the committer was never created and the engine's subsequent rollback() cleans up.
-        finishInsertTable(nameMapping);
+        long lockId;
+        try {
+            String user = session == null ? "doris" : session.getUser();
+            lockId = context.executeAuthenticated(() -> hmsClient.acquireExclusiveTableLock(
+                    queryId, user, nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(),
+                    COMMIT_LOCK_TIMEOUT_MS));
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to lock hive table generation before commit: "
+                    + e.getMessage(), e);
+        }
+        ScheduledFuture<?> heartbeat = startCommitLockHeartbeat(lockId);
+        try {
+            commitWhileTableLocked();
+        } finally {
+            heartbeat.cancel(false);
+            try {
+                context.executeAuthenticated(() -> {
+                    hmsClient.releaseLock(lockId);
+                    return null;
+                });
+            } catch (Exception e) {
+                // Publication may already have succeeded, so a lock-cleanup failure must not turn success into
+                // a retry that could duplicate data. HMS expires abandoned standalone locks as a fallback.
+                LOG.warn("Failed to release hive commit lock {} for {}", lockId, queryId, e);
+            }
+        }
+    }
+
+    private ScheduledFuture<?> startCommitLockHeartbeat(long lockId) {
+        // File moves may outlive the HMS lock timeout. Heartbeating on the transaction-owned daemon pool keeps
+        // the table-generation exclusion valid until every publication action has completed.
+        return fileSystemExecutor.scheduleAtFixedRate(() -> {
+            try {
+                context.executeAuthenticated(() -> {
+                    hmsClient.heartbeatLock(lockId);
+                    return null;
+                });
+            } catch (Exception e) {
+                LOG.warn("Failed to heartbeat hive commit lock {} for {}; will retry", lockId, queryId, e);
+            }
+        }, COMMIT_LOCK_HEARTBEAT_SECONDS, COMMIT_LOCK_HEARTBEAT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    private void commitWhileTableLocked() {
+        try {
+            // Object-store files remain unpublished until FE consumes one completion record per file.
+            validateObjectStoreCommitRecords();
+            validateWriteMetadataBeforePublication();
+            // Classification can perform metastore reads, so validate once more before any publication.
+            finishInsertTable(nameMapping);
+            validateWriteMetadataBeforePublication();
+        } catch (Throwable t) {
+            // The transaction manager removes this connector before commit(), so this is the last owner
+            // capable of aborting deferred uploads when pre-commit validation or classification fails.
+            try {
+                rollback();
+            } catch (Throwable cleanupFailure) {
+                t.addSuppressed(new Exception("Failed to clean up after pre-commit failure", cleanupFailure));
+            }
+            throw t;
+        }
         hmsCommitter = new HmsCommitter();
         try {
             for (Map.Entry<NameMapping, Action<TableAndMore>> entry : tableActions.entrySet()) {
@@ -279,6 +359,109 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
         } finally {
             hmsCommitter.runClearPathsForFinish();
             hmsCommitter.shutdownExecutorService();
+        }
+    }
+
+    private void validateWriteMetadataBeforePublication() {
+        HiveWriteMetadataSnapshot current;
+        try {
+            current = context.executeAuthenticated(() -> {
+                validateTableIncarnationEvents();
+                return HiveWriteMetadataSnapshot.loadFresh(
+                        hmsClient, nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to validate hive table generation before commit: "
+                    + e.getMessage(), e);
+        }
+        // Files and HMS mutations must target the same incarnation and effective schema used by the BE writer.
+        if (!Objects.equals(writeMetadataIdentity, current.getIdentity())) {
+            throw new DorisConnectorException(
+                    "Hive table metadata changed while the write was running; retry the statement");
+        }
+    }
+
+    private void validateTableIncarnationEvents() {
+        if (writeMetadataEventId < 0) {
+            return;
+        }
+        long endEventId = hmsClient.getCurrentNotificationEventId();
+        long cursor = writeMetadataEventId;
+        while (cursor < endEventId) {
+            List<HmsNotificationEvent> events = hmsClient.getNextNotification(cursor, NOTIFICATION_BATCH_SIZE);
+            if (events.isEmpty()) {
+                throw new DorisConnectorException(
+                        "Hive table metadata event history is incomplete; retry the statement");
+            }
+            long nextCursor = cursor;
+            for (HmsNotificationEvent event : events) {
+                if (event.getEventId() <= cursor) {
+                    continue;
+                }
+                if (event.getEventId() > endEventId) {
+                    break;
+                }
+                nextCursor = Math.max(nextCursor, event.getEventId());
+                if (isTargetTableGenerationEvent(event)) {
+                    // HMS has no portable table UUID. The notification lineage is therefore the incarnation
+                    // token that distinguishes an identical drop/recreate from the object bound by the writer.
+                    throw new DorisConnectorException(
+                            "Hive table metadata changed while the write was running; retry the statement");
+                }
+            }
+            if (nextCursor <= cursor) {
+                throw new DorisConnectorException(
+                        "Hive table metadata event history did not advance; retry the statement");
+            }
+            cursor = nextCursor;
+        }
+    }
+
+    private boolean isTargetTableGenerationEvent(HmsNotificationEvent event) {
+        String type = event.getEventType();
+        if (!("CREATE_TABLE".equalsIgnoreCase(type)
+                || "DROP_TABLE".equalsIgnoreCase(type)
+                || "ALTER_TABLE".equalsIgnoreCase(type))) {
+            return false;
+        }
+        if (isTargetTable(event.getDbName(), event.getTableName())) {
+            return true;
+        }
+        if (!"ALTER_TABLE".equalsIgnoreCase(type)) {
+            return false;
+        }
+        // ALTER_TABLE identifies a rename by its old name in the event envelope. Inspect the parsed after-name
+        // too, or a same-shaped table renamed onto this target could evade the incarnation fence.
+        for (MetastoreChangeDescriptor change : HmsEventParser.parse(event)) {
+            if (isTargetTable(change.getDbName(), change.getTableName())
+                    || isTargetTable(change.getDbNameAfter(), change.getTableNameAfter())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isTargetTable(String dbName, String tableName) {
+        return nameMapping.getRemoteDbName().equalsIgnoreCase(dbName)
+                && nameMapping.getRemoteTblName().equalsIgnoreCase(tableName);
+    }
+
+    private void validateObjectStoreCommitRecords() {
+        if (fileType != TFileType.FILE_S3) {
+            return;
+        }
+        for (THivePartitionUpdate update : hivePartitionUpdates) {
+            int fileCount = update.getFileNames() == null ? 0 : update.getFileNames().size();
+            List<TS3MPUPendingUpload> uploads = update.getS3MpuPendingUploads();
+            int uploadCount = uploads == null ? 0 : uploads.size();
+            boolean completeRecords = uploads != null && uploads.stream()
+                    .allMatch(HiveConnectorTransaction::isCompleteObjectStoreUpload);
+            if (fileCount != uploadCount || (fileCount > 0 && !completeRecords)) {
+                throw new DorisConnectorException(String.format(
+                        "Object-store write reported %d file(s) but %d valid multipart completion record(s); "
+                                + "all backends must support deferred multipart completion before metadata commit",
+                        fileCount, completeRecords ? uploadCount : 0));
+            }
         }
     }
 
@@ -454,13 +637,30 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
 
     private void collectUncompletedMpuPendingUploads(List<THivePartitionUpdate> hivePartitionUpdates) {
         for (THivePartitionUpdate pu : hivePartitionUpdates) {
-            if (pu.getS3MpuPendingUploads() != null) {
-                for (TS3MPUPendingUpload s3MpuPendingUpload : pu.getS3MpuPendingUploads()) {
-                    uncompletedMpuPendingUploads.add(
-                            new UncompletedMpuPendingUpload(s3MpuPendingUpload, pu.getLocation().getWritePath()));
+            List<TS3MPUPendingUpload> uploads = pu.getS3MpuPendingUploads();
+            if (uploads == null) {
+                continue;
+            }
+            String writePath = pu.getLocation() == null ? null : pu.getLocation().getWritePath();
+            if (writePath == null || writePath.isEmpty()) {
+                // A malformed record must not prevent other valid uploads from being aborted.
+                LOG.warn("Skipping MPU cleanup record without a write path");
+                continue;
+            }
+            for (TS3MPUPendingUpload upload : uploads) {
+                if (!isCompleteObjectStoreUpload(upload)) {
+                    LOG.warn("Skipping incomplete MPU cleanup record for write path {}", writePath);
+                    continue;
                 }
+                uncompletedMpuPendingUploads.add(new UncompletedMpuPendingUpload(upload, writePath));
             }
         }
+    }
+
+    private static boolean isCompleteObjectStoreUpload(TS3MPUPendingUpload upload) {
+        return upload != null && upload.getUploadId() != null && !upload.getUploadId().isEmpty()
+                && upload.getBucket() != null && !upload.getBucket().isEmpty()
+                && upload.getKey() != null && !upload.getKey().isEmpty();
     }
 
     private void convertToInsertExistingPartitionAction(

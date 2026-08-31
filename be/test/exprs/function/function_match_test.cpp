@@ -28,7 +28,9 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "exprs/function/match.h"
+#include "runtime/runtime_state.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/analyzer/custom_analyzer.h"
 
 namespace doris {
 
@@ -82,6 +84,26 @@ TEST(FunctionMatchTest, analyse_query_str) {
         auto query_tokens = func_match_phrase.analyse_query_str_token(inverted_index_ctx.get(),
                                                                       "a b c", "name");
         ASSERT_EQ(query_tokens.size(), 3);
+    }
+}
+
+TEST(FunctionMatchTest, regexp_rejects_expensive_bounded_repeat) {
+    TQueryOptions query_options;
+    query_options.__set_enable_match_without_inverted_index(true);
+    RuntimeState runtime_state(query_options, TQueryGlobals {});
+    auto context = FunctionContext::create_context(&runtime_state, {}, {});
+
+    auto string_col = ColumnString::create();
+    string_col->insert_data("abcd", 4);
+    ColumnUInt8::Container result(1, 0);
+
+    FunctionMatchRegexp function;
+    for (const char* pattern : {"(ab?c?d){1000,5000}", "(?# [)(ab?c?d){1000,5000}"}) {
+        SCOPED_TRACE(pattern);
+        Status status = function.execute_match(context.get(), "test_column", pattern, 1,
+                                               string_col.get(), nullptr, nullptr, result);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("bounded repetition exceeds 50"), std::string::npos);
     }
 }
 
@@ -582,18 +604,32 @@ TEST(FunctionMatchTest, execute_impl_structure) {
 TEST(FunctionMatchTest, custom_analyzer_handling) {
     FunctionMatchAny match_any;
 
-    auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_ENGLISH);
+    segment_v2::inverted_index::CustomAnalyzerConfig::Builder builder;
+    builder.with_tokenizer_config("keyword", {});
+    builder.add_token_filter_config("lowercase", {});
+    auto provider =
+            std::make_shared<segment_v2::inverted_index::CustomAnalyzerProvider>(builder.build());
 
-    // Test without custom analyzer
-    ctx.ctx->analyzer_name = "";
-    auto tokens1 = match_any.analyse_query_str_token(ctx.ctx.get(), "test query", "test_col");
-    EXPECT_GT(tokens1.size(), 0);
+    InvertedIndexAnalyzerCtx analyzer_ctx;
+    analyzer_ctx.analyzer_name = "custom_keyword_lowercase";
+    analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
+    analyzer_ctx.analyzer_provider = provider;
+    analyzer_ctx.analyzer =
+            provider->get_analyzer(segment_v2::inverted_index::AnalysisPurpose::kPlainQuery);
 
-    // Test with custom analyzer (should be handled appropriately)
-    ctx.ctx->analyzer_name = "custom_analyzer_name";
-    auto tokens2 = match_any.analyse_query_str_token(ctx.ctx.get(), "test query", "test_col");
-    // Custom analyzer handling would depend on implementation details
-    EXPECT_GE(tokens2.size(), 0);
+    auto query_tokens = match_any.analyse_query_str_token(&analyzer_ctx, "TEST QUERY", "test_col");
+    ASSERT_EQ(query_tokens.size(), 1);
+    ASSERT_TRUE(query_tokens[0].is_single_term());
+    EXPECT_EQ(query_tokens[0].get_single_term(), "test query");
+
+    auto string_col = ColumnString::create();
+    string_col->insert_data("TEST QUERY", 10);
+    int32_t offset = 0;
+    auto data_tokens = match_any.analyse_data_token("test_col", &analyzer_ctx, string_col.get(), 0,
+                                                    nullptr, offset);
+    ASSERT_EQ(data_tokens.size(), 1);
+    ASSERT_TRUE(data_tokens[0].is_single_term());
+    EXPECT_EQ(data_tokens[0].get_single_term(), "test query");
 }
 
 // Test column type validation

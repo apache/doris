@@ -33,10 +33,10 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/metrics/doris_metrics.h"
+#include "cpp/obj-client/obj_storage_client.h"
+#include "cpp/obj-client/s3_common.h"
 #include "io/cache/block_file_cache.h"
 #include "io/fs/err_utils.h"
-#include "io/fs/obj_storage_client.h"
-#include "io/fs/s3_common.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
@@ -162,6 +162,7 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     SCOPED_RAW_TIMER(&_s3_stats.total_get_request_time_ns);
 
     int total_sleep_time = 0;
+    Status last_error;
     while (retry_count <= max_retries) {
         *bytes_read = 0;
         s3_file_reader_read_counter << 1;
@@ -174,6 +175,7 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
             if (resp.http_code ==
                 static_cast<int>(Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS)) {
                 s3_file_reader_too_many_request_counter << 1;
+                last_error = Status(resp.status.code, std::move(resp.status.msg));
                 retry_count++;
                 int wait_time = std::min(base_wait_time * (1 << retry_count),
                                          max_wait_time); // Exponential backoff
@@ -184,8 +186,7 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
                 continue;
             } else {
                 // Handle other errors
-                return std::move(Status(resp.status.code, std::move(resp.status.msg))
-                                         .append("failed to read"));
+                return {resp.status.code, std::move(resp.status.msg)};
             }
         }
         if (*bytes_read != bytes_req) {
@@ -208,8 +209,9 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     }
     std::string msg = fmt::format(
             "failed to get object, path={} offset={} bytes_req={} bytes_read={} file_size={} "
-            "tries={}",
-            _path.native(), offset, bytes_req, *bytes_read, _file_size, (max_retries + 1));
+            "tries={}, last error: [{}]",
+            _path.native(), offset, bytes_req, *bytes_read, _file_size, (max_retries + 1),
+            last_error.msg());
     LOG(WARNING) << msg;
     return Status::InternalError(msg);
 }

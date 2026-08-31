@@ -18,13 +18,17 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.stream.AbstractTableStreamUpdate;
+import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
@@ -52,14 +56,18 @@ public class StreamConsumptionInfoExtractor {
                     LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) scan;
                     if (!streamScan.isSnapshot()) {
                         OlapTableStreamWrapper wrapper = streamScan.getTable();
-                        OlapTableStreamUpdate update = toOlapTableStreamUpdate(wrapper);
-                        if (!update.getNext().isEmpty()) {
+                        Preconditions.checkState(Config.isNotCloudMode() || wrapper.hasCloudReadStates(),
+                                "Cloud Table Stream read state must be installed during relation analysis");
+                        AbstractTableStreamUpdate update = Config.isCloudMode()
+                                ? toCloudOlapTableStreamUpdate(wrapper, streamScan.getSelectedPartitionIds())
+                                : toOlapTableStreamUpdate(wrapper);
+                        if (hasUpdates(update)) {
                             // key -> (dbId, streamId)
                             Pair<Long, Long> key = Pair.of(wrapper.getStreamDbId(), wrapper.getStreamId());
-                            if (!distinctUpdate.containsKey(key)) {
-                                distinctUpdate.put(key, new OlapTableStreamUpdate());
+                            AbstractTableStreamUpdate existing = distinctUpdate.putIfAbsent(key, update);
+                            if (existing != null) {
+                                existing.merge(update);
                             }
-                            distinctUpdate.get(key).merge(update);
                         }
                     }
                 });
@@ -67,6 +75,33 @@ public class StreamConsumptionInfoExtractor {
         List<TableStreamUpdateInfo> infos = new ArrayList<>(distinctUpdate.size());
         distinctUpdate.forEach((key, value) -> infos.add(new TableStreamUpdateInfo(key.first, key.second, value)));
         return infos;
+    }
+
+    private static boolean hasUpdates(AbstractTableStreamUpdate update) {
+        if (update instanceof CloudOlapTableStreamUpdate) {
+            return !((CloudOlapTableStreamUpdate) update).getPartitionUpdates().isEmpty();
+        }
+        return !((OlapTableStreamUpdate) update).getNext().isEmpty();
+    }
+
+    private static CloudOlapTableStreamUpdate toCloudOlapTableStreamUpdate(
+            OlapTableStreamWrapper wrapper, List<Long> selectedPartitionIds) {
+        Map<Long, Cloud.TableStreamPartitionUpdatePB> updates = Maps.newLinkedHashMap();
+        for (Long partitionId : selectedPartitionIds) {
+            if (!wrapper.getOutputUpdateMap().containsKey(partitionId)) {
+                continue;
+            }
+            Cloud.TableStreamPartitionReadStatePB readState = wrapper.getCloudReadStates().get(partitionId);
+            Cloud.TableStreamPartitionUpdatePB.Builder update = Cloud.TableStreamPartitionUpdatePB.newBuilder()
+                    .setPartitionId(partitionId)
+                    .setExpectedState(readState.getOffsetState())
+                    .setNextOffsetTso(readState.getEndTso());
+            if (readState.hasOffsetTso()) {
+                update.setExpectedOffsetTso(readState.getOffsetTso());
+            }
+            updates.put(partitionId, update.build());
+        }
+        return new CloudOlapTableStreamUpdate(wrapper.getCloudIdentity(), updates);
     }
 
     private static OlapTableStreamUpdate toOlapTableStreamUpdate(OlapTableStreamWrapper wrapper) {

@@ -42,6 +42,36 @@ public final class IcebergJdbcMetaStoreProperties extends AbstractMetaStorePrope
             description = "The Iceberg JDBC catalog_name used to isolate metadata in JDBC catalog tables.")
     private String jdbcCatalogName = "";
 
+    @ConnectorProperty(names = {"iceberg.jdbc.user"}, required = false,
+            description = "The user of the JDBC database holding the catalog tables.")
+    private String user = "";
+
+    @ConnectorProperty(names = {"iceberg.jdbc.password"}, required = false, sensitive = true,
+            description = "The password of the JDBC database holding the catalog tables.")
+    private String password = "";
+
+    // Handed to the iceberg SDK verbatim, so all three stay Strings rather than being bound as
+    // boolean/enum: a catalog created with a value the SDK tolerates must keep building.
+    @ConnectorProperty(names = {"iceberg.jdbc.init-catalog-tables"}, required = false,
+            description = "Whether to create the catalog tables when they do not exist yet.")
+    private String initCatalogTables = "";
+
+    @ConnectorProperty(names = {"iceberg.jdbc.schema-version"}, required = false,
+            description = "The schema version of the JDBC catalog tables.")
+    private String schemaVersion = "";
+
+    @ConnectorProperty(names = {"iceberg.jdbc.strict-mode"}, required = false,
+            description = "Whether the JDBC catalog rejects namespaces that do not exist.")
+    private String strictMode = "";
+
+    @ConnectorProperty(names = {"iceberg.jdbc.driver_url"}, required = false,
+            description = "URL or file name of the JDBC driver jar to load dynamically.")
+    private String driverUrl = "";
+
+    @ConnectorProperty(names = {"iceberg.jdbc.driver_class"}, required = false,
+            description = "Class name of the JDBC driver to register.")
+    private String driverClass = "";
+
     private IcebergJdbcMetaStoreProperties(Map<String, String> raw) {
         super(raw);
     }
@@ -55,6 +85,49 @@ public final class IcebergJdbcMetaStoreProperties extends AbstractMetaStorePrope
     @Override
     public String providerName() {
         return "JDBC";
+    }
+
+    // ---------------------------------------------------------------------
+    // Assembly surface: the connector builds the jdbc catalog options, resolves the positional catalog name
+    // and registers the driver from these, so the alias sets declared above are the single place a jdbc key
+    // name lives.
+    // ---------------------------------------------------------------------
+
+    public String getUri() {
+        return uri;
+    }
+
+    /** The positional catalog name the iceberg JdbcCatalog is built with, NOT the Doris catalog name. */
+    public String getJdbcCatalogName() {
+        return jdbcCatalogName;
+    }
+
+    public String getUser() {
+        return user;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public String getInitCatalogTables() {
+        return initCatalogTables;
+    }
+
+    public String getSchemaVersion() {
+        return schemaVersion;
+    }
+
+    public String getStrictMode() {
+        return strictMode;
+    }
+
+    public String getDriverUrl() {
+        return driverUrl;
+    }
+
+    public String getDriverClass() {
+        return driverClass;
     }
 
     @Override

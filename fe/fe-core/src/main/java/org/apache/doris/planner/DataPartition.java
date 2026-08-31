@@ -161,14 +161,21 @@ public class DataPartition {
         private final Integer param;
         private final String name;
         private final Integer sourceId;
+        private final ImmutableList<Integer> sourceFieldPath;
 
         public MergePartitionField(Expr sourceExpr, String transform, Integer param,
                 String name, Integer sourceId) {
+            this(sourceExpr, transform, param, name, sourceId, ImmutableList.of());
+        }
+
+        public MergePartitionField(Expr sourceExpr, String transform, Integer param,
+                String name, Integer sourceId, List<Integer> sourceFieldPath) {
             this.sourceExpr = Preconditions.checkNotNull(sourceExpr, "sourceExpr should not be null");
             this.transform = Preconditions.checkNotNull(transform, "transform should not be null");
             this.param = param;
             this.name = name;
             this.sourceId = sourceId;
+            this.sourceFieldPath = ImmutableList.copyOf(sourceFieldPath);
         }
 
         public TIcebergPartitionField toThrift() {
@@ -183,6 +190,9 @@ public class DataPartition {
             }
             if (sourceId != null) {
                 field.setSourceId(sourceId);
+            }
+            if (!sourceFieldPath.isEmpty()) {
+                field.setSourceFieldPath(sourceFieldPath);
             }
             return field;
         }

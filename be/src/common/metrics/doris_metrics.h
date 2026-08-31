@@ -165,9 +165,11 @@ public:
     IntGauge* process_fd_num_limit_hard = nullptr;
 
     // the max compaction score of all tablets.
-    // Record base and cumulative scores separately, because
-    // we need to get the larger of the two.
+    // Keep the cumulative score as the aggregate for compatibility, and record
+    // size-based and time-series cumulative scores separately.
     IntGauge* tablet_cumulative_max_compaction_score = nullptr;
+    IntGauge* tablet_size_based_max_compaction_score = nullptr;
+    IntGauge* tablet_time_series_max_compaction_score = nullptr;
     IntGauge* tablet_base_max_compaction_score = nullptr;
     IntGauge* tablet_binlog_max_compaction_score = nullptr;
 
@@ -176,7 +178,6 @@ public:
 
     // permits have been used for all compaction tasks
     IntGauge* compaction_used_permits = nullptr;
-    IntGauge* binlog_compaction_used_permits = nullptr;
     // permits required by the compaction task which is waiting for permits
     IntGauge* compaction_waitting_permits = nullptr;
 
@@ -231,6 +232,7 @@ public:
     UIntGauge* load_mem_consumption = nullptr;
     UIntGauge* load_channel_mem_consumption = nullptr;
     UIntGauge* memtable_memory_limiter_mem_consumption = nullptr;
+    UIntGauge* snii_index_build_mem_consumption = nullptr;
     UIntGauge* query_mem_consumption = nullptr;
     UIntGauge* schema_change_mem_consumption = nullptr;
     UIntGauge* storage_migration_mem_consumption = nullptr;

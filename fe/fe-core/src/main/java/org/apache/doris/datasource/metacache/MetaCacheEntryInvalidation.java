@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.metacache;
 
+import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.datasource.NameMapping;
 
 import java.util.List;
@@ -27,7 +28,7 @@ import java.util.function.Predicate;
 import javax.annotation.Nullable;
 
 /**
- * Entry-level invalidation metadata used by {@link AbstractExternalMetaCache}.
+ * Entry-level invalidation metadata used by {@link ExternalCatalogMetaCache}.
  */
 public final class MetaCacheEntryInvalidation<K> {
     @FunctionalInterface
@@ -35,7 +36,10 @@ public final class MetaCacheEntryInvalidation<K> {
         Predicate<K> create(String dbName, String tableName, List<String> partitions);
     }
 
-    private static final MetaCacheEntryInvalidation<?> NONE = new MetaCacheEntryInvalidation<>(null, null, null);
+    private static final MetaCacheEntryInvalidation<?> NONE =
+            new MetaCacheEntryInvalidation<>(ignored -> ScopePath.catalog(), null, null, null);
+
+    private final Function<K, ScopePath> scopeResolver;
 
     @Nullable
     private final Function<String, Predicate<K>> dbPredicateFactory;
@@ -45,9 +49,11 @@ public final class MetaCacheEntryInvalidation<K> {
     private final PartitionPredicateFactory<K> partitionPredicateFactory;
 
     private MetaCacheEntryInvalidation(
+            Function<K, ScopePath> scopeResolver,
             @Nullable Function<String, Predicate<K>> dbPredicateFactory,
             @Nullable BiFunction<String, String, Predicate<K>> tablePredicateFactory,
             @Nullable PartitionPredicateFactory<K> partitionPredicateFactory) {
+        this.scopeResolver = Objects.requireNonNull(scopeResolver, "scopeResolver");
         this.dbPredicateFactory = dbPredicateFactory;
         this.tablePredicateFactory = tablePredicateFactory;
         this.partitionPredicateFactory = partitionPredicateFactory;
@@ -70,11 +76,16 @@ public final class MetaCacheEntryInvalidation<K> {
         Objects.requireNonNull(dbNameExtractor, "dbNameExtractor");
         Objects.requireNonNull(tableNameExtractor, "tableNameExtractor");
         return new MetaCacheEntryInvalidation<>(
+                key -> ScopePath.table(dbNameExtractor.apply(key), tableNameExtractor.apply(key)),
                 dbName -> key -> dbNameExtractor.apply(key).equals(dbName),
                 (dbName, tableName) -> key -> dbNameExtractor.apply(key).equals(dbName)
                         && tableNameExtractor.apply(key).equals(tableName),
                 (dbName, tableName, partitions) -> key -> dbNameExtractor.apply(key).equals(dbName)
                         && tableNameExtractor.apply(key).equals(tableName));
+    }
+
+    ScopePath scope(K key) {
+        return scopeResolver.apply(key);
     }
 
     @Nullable

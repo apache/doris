@@ -16,10 +16,6 @@
 // under the License.
 
 suite("test_row_binlog_basic", "nonConcurrent") {
-    if (isCloudMode()) {
-        return
-    }
-
     sql "DROP TABLE IF EXISTS test_dup_with_binlog FORCE"
     sql "DROP TABLE IF EXISTS test_mow_with_binlog FORCE"
     sql "DROP TABLE IF EXISTS test_mow_with_before_binlog FORCE"
@@ -204,6 +200,25 @@ suite("test_row_binlog_basic", "nonConcurrent") {
         ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
 
+    def dupRawLsnRows = sql """
+        SELECT k1, k2, k3, v1, v2, __DORIS_ROW_LSN_COL__
+        FROM test_dup_with_binlog
+        ORDER BY k1, k2, k3, v1, v2
+    """
+    def dupBinlogLsnRows = sql """
+        SELECT k1, k2, k3, v1, v2, __DORIS_BINLOG_LSN__
+        FROM binlog("table" = "test_dup_with_binlog")
+        ORDER BY k1, k2, k3, v1, v2
+    """
+    assertEquals(dupRawLsnRows.size(), dupBinlogLsnRows.size())
+    def dupRowLsns = dupRawLsnRows.collect { it[5] as long }
+    dupRowLsns.each { lsn -> assertTrue(lsn > 0, "row lsn should be positive but got ${lsn}") }
+    assertEquals(dupRowLsns.size(), dupRowLsns.toSet().size())
+    for (int i = 0; i < dupRawLsnRows.size(); i++) {
+        assertEquals(dupRawLsnRows[i][0..4], dupBinlogLsnRows[i][0..4])
+        assertEquals(dupRawLsnRows[i][5], dupBinlogLsnRows[i][5])
+    }
+
     sql """
         INSERT INTO test_mow_with_binlog VALUES
             (1, 1, 1, 10, '10'),
@@ -231,6 +246,14 @@ suite("test_row_binlog_basic", "nonConcurrent") {
         FROM binlog("table" = "test_mow_with_binlog")
         ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
+
+    test {
+        sql """
+            SELECT __DORIS_ROW_LSN_COL__
+            FROM test_mow_with_binlog
+        """
+        exception "Unknown column"
+    }
 
     sql """
         INSERT INTO test_mow_with_before_binlog VALUES

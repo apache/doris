@@ -38,17 +38,25 @@ public class DistributionSpecMerge extends DistributionSpec {
         private final Integer param;
         private final String name;
         private final Integer sourceId;
+        private final ImmutableList<Integer> sourceFieldPath;
 
         /**
          * Create a partition field mapping for merge insert routing.
          */
         public MergePartitionField(String transform, ExprId sourceExprId, Integer param,
                 String name, Integer sourceId) {
+            this(transform, sourceExprId, param, name, sourceId, ImmutableList.of());
+        }
+
+        /** Create a partition field mapping whose source is nested below a top-level slot. */
+        public MergePartitionField(String transform, ExprId sourceExprId, Integer param,
+                String name, Integer sourceId, List<Integer> sourceFieldPath) {
             this.transform = Objects.requireNonNull(transform, "transform should not be null");
             this.sourceExprId = Objects.requireNonNull(sourceExprId, "sourceExprId should not be null");
             this.param = param;
             this.name = name;
             this.sourceId = sourceId;
+            this.sourceFieldPath = ImmutableList.copyOf(sourceFieldPath);
         }
 
         public String getTransform() {
@@ -71,6 +79,10 @@ public class DistributionSpecMerge extends DistributionSpec {
             return sourceId;
         }
 
+        public List<Integer> getSourceFieldPath() {
+            return sourceFieldPath;
+        }
+
         @Override
         public boolean equals(Object o) {
             if (this == o) {
@@ -84,12 +96,13 @@ public class DistributionSpecMerge extends DistributionSpec {
                     && sourceExprId.equals(that.sourceExprId)
                     && Objects.equals(param, that.param)
                     && Objects.equals(name, that.name)
-                    && Objects.equals(sourceId, that.sourceId);
+                    && Objects.equals(sourceId, that.sourceId)
+                    && sourceFieldPath.equals(that.sourceFieldPath);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(transform, sourceExprId, param, name, sourceId);
+            return Objects.hash(transform, sourceExprId, param, name, sourceId, sourceFieldPath);
         }
     }
 

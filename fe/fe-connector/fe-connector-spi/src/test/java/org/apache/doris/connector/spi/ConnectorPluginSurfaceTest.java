@@ -18,6 +18,8 @@
 package org.apache.doris.connector.spi;
 
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 
 import org.junit.jupiter.api.Assertions;
@@ -71,10 +73,9 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // ConnectorWritePlanProvider and ConnectorColumnHandle gained public default methods in this
-        // surface revision. A plugin built against major 3 must be refused rather than silently run
-        // against an expanded contract it did not compile against.
-        Assertions.assertEquals("4.0", version.getProperty("api.version"));
+        // Write binding gained execution-capability methods in this surface revision. A plugin built against
+        // major 5 must be refused rather than run against a contract it did not compile against.
+        Assertions.assertEquals("6.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -83,6 +84,9 @@ public class ConnectorPluginSurfaceTest {
             ConnectorContext.class,
             Connector.class,
             ConnectorColumnHandle.class,
+            ConnectorTableSchema.class,
+            ConnectorScanPlanProvider.class,
+            ConnectorWriteHandle.class,
             ConnectorWritePlanProvider.class,
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,

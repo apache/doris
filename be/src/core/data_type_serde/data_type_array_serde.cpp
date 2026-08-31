@@ -35,6 +35,7 @@
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/string_ref.h"
 #include "exprs/function/function_helpers.h"
+#include "storage/field_type.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 
@@ -325,29 +326,67 @@ Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::
                                                   const cctz::time_zone& ctz) const {
     auto& column_array = static_cast<ColumnArray&>(column);
     auto& offsets_data = column_array.get_offsets();
-    const auto* concrete_array = dynamic_cast<const arrow::ListArray*>(arrow_array);
-    auto arrow_offsets_array = concrete_array->offsets();
-    auto* arrow_offsets = dynamic_cast<arrow::Int32Array*>(arrow_offsets_array.get());
-    if (config::enable_arrow_input_validation) {
-        check_arrow_list_offsets(*concrete_array, start, end);
-    }
-    auto prev_size = offsets_data.back();
-    const auto* base_offsets_ptr = reinterpret_cast<const uint8_t*>(arrow_offsets->raw_values());
-    const size_t offset_element_size = sizeof(int32_t);
-    const uint8_t* start_offset_ptr = base_offsets_ptr + start * offset_element_size;
-    const uint8_t* end_offset_ptr = base_offsets_ptr + end * offset_element_size;
-    auto arrow_nested_start_offset = unaligned_load<int32_t>(start_offset_ptr);
-    auto arrow_nested_end_offset = unaligned_load<int32_t>(end_offset_ptr);
+    const auto read_list = [&](const auto* concrete_array, const auto& read_offset) -> Status {
+        const int64_t arrow_nested_start_offset = read_offset(start);
+        const int64_t arrow_nested_end_offset = read_offset(end);
+        const auto prev_size = offsets_data.back();
+        for (int64_t i = start + 1; i <= end; ++i) {
+            // Convert Arrow offsets to Doris offsets, starting at offsets.back().
+            offsets_data.emplace_back(prev_size + read_offset(i) - arrow_nested_start_offset);
+        }
+        return nested_serde->read_column_from_arrow(
+                column_array.get_data(), concrete_array->values().get(), arrow_nested_start_offset,
+                arrow_nested_end_offset, ctz);
+    };
 
-    for (auto i = start + 1; i < end + 1; ++i) {
-        const uint8_t* current_offset_ptr = base_offsets_ptr + i * offset_element_size;
-        auto current_offset = unaligned_load<int32_t>(current_offset_ptr);
-        // convert to doris offset, start from offsets.back()
-        offsets_data.emplace_back(prev_size + current_offset - arrow_nested_start_offset);
+    switch (arrow_array->type_id()) {
+    case arrow::Type::LIST: {
+        const auto* concrete_array = dynamic_cast<const arrow::ListArray*>(arrow_array);
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow ListArray, got {}",
+                                           arrow_array->type()->name());
+        }
+        if (config::enable_arrow_input_validation) {
+            check_arrow_list_offsets(*concrete_array, start, end);
+        }
+        const auto* offsets = concrete_array->value_offsets()->data();
+        const auto array_offset = concrete_array->offset();
+        return read_list(concrete_array, [offsets, array_offset](int64_t index) {
+            return unaligned_load<int32_t>(offsets + (array_offset + index) * sizeof(int32_t));
+        });
     }
-    return nested_serde->read_column_from_arrow(
-            column_array.get_data(), concrete_array->values().get(), arrow_nested_start_offset,
-            arrow_nested_end_offset, ctz);
+    case arrow::Type::LARGE_LIST: {
+        const auto* concrete_array = dynamic_cast<const arrow::LargeListArray*>(arrow_array);
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow LargeListArray, got {}",
+                                           arrow_array->type()->name());
+        }
+        if (config::enable_arrow_input_validation) {
+            check_arrow_large_list_offsets(*concrete_array, start, end);
+        }
+        const auto* offsets = concrete_array->value_offsets()->data();
+        const auto array_offset = concrete_array->offset();
+        return read_list(concrete_array, [offsets, array_offset](int64_t index) {
+            return unaligned_load<int64_t>(offsets + (array_offset + index) * sizeof(int64_t));
+        });
+    }
+    case arrow::Type::FIXED_SIZE_LIST: {
+        const auto* concrete_array = dynamic_cast<const arrow::FixedSizeListArray*>(arrow_array);
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow FixedSizeListArray, got {}",
+                                           arrow_array->type()->name());
+        }
+        if (config::enable_arrow_input_validation) {
+            check_arrow_array_range(*concrete_array, start, end);
+        }
+        return read_list(concrete_array, [concrete_array](int64_t index) {
+            return concrete_array->value_offset(index);
+        });
+    }
+    default:
+        return Status::InvalidArgument("Unsupported Arrow array type for Doris ARRAY: {}",
+                                       arrow_array->type()->name());
+    }
 }
 
 Status DataTypeArraySerDe::write_column_to_mysql_binary(const IColumn& column,
@@ -404,7 +443,7 @@ Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, cons
                                                       packed_nested_size, arena, options));
     // String batches borrow their source bytes, but the packed column is local to this call;
     // keep only those borrowed leaves in the write Arena until Writer::add() consumes them.
-    copy_orc_string_data_to_arena(cur_batch->elements.get(), arena);
+    orc_serde_utils::copy_orc_string_data_to_arena(cur_batch->elements.get(), arena);
     cur_batch->elements->numElements = packed_nested_size;
 
     cur_batch->numElements = end - start;
@@ -625,6 +664,58 @@ bool DataTypeArraySerDe::write_column_to_hive_text(const IColumn& column, Buffer
     }
     bw.write("]", 1);
     return true;
+}
+
+namespace {
+
+Status decode_list_orc_values(const DataTypeSerDeSPtr& nested_serde, IColumn& nested_column,
+                              const OrcDecodedColumnView& orc_view) {
+    const auto* orc_list = dynamic_cast<const ::orc::ListVectorBatch*>(orc_view.batch);
+    if (orc_list == nullptr) {
+        return Status::InternalError("Unexpected ORC list batch type {}",
+                                     orc_view.batch->toString());
+    }
+    DORIS_CHECK(orc_view.file_type != nullptr);
+    DORIS_CHECK(orc_view.selected_type != nullptr);
+    DORIS_CHECK(orc_view.file_type->getSubtypeCount() == 1);
+    DORIS_CHECK(orc_view.selected_type->getSubtypeCount() == 1);
+    DORIS_CHECK(orc_list->elements != nullptr);
+    const auto* file_element_type = orc_view.file_type->getSubtype(0);
+    const auto* selected_element_type = orc_view.selected_type->getSubtype(0);
+    DORIS_CHECK(file_element_type != nullptr);
+    DORIS_CHECK(selected_element_type != nullptr);
+
+    auto& array_column = assert_cast<ColumnArray&>(nested_column);
+    size_t element_size = 0;
+    std::vector<size_t> element_selection;
+    RETURN_IF_ERROR(orc_serde_utils::append_orc_offsets(
+            array_column.get_offsets(), orc_list->offsets, orc_view.rows, &element_size,
+            orc_view.selected_rows, &element_selection));
+    auto element_column = array_column.get_data_ptr()->assert_mutable();
+    const auto child_rows = orc_view.selected_rows == nullptr
+                                    ? element_size
+                                    : static_cast<size_t>(orc_list->elements->numElements);
+    const auto* child_selection = orc_view.selected_rows == nullptr ? nullptr : &element_selection;
+    auto child_view = orc_serde_utils::make_child_orc_view(
+            orc_view, file_element_type, selected_element_type, orc_list->elements.get(),
+            child_rows, child_selection);
+    RETURN_IF_ERROR(
+            orc_serde_utils::read_orc_child_column(nested_serde, element_column, child_view));
+    array_column.get_data_ptr() = std::move(element_column);
+    return Status::OK();
+}
+
+} // namespace
+
+Status DataTypeArraySerDe::read_column_from_orc(IColumn& column,
+                                                const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::LIST);
+    if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_list_orc_values(nested_serde, column, view);
 }
 
 } // namespace doris

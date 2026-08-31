@@ -38,6 +38,24 @@ add_library(Exec STATIC
 
 pch_reuse(Exec)
 
+# Unity build for the whole Exec target: the operator/sink/scan glue TUs share
+# one heavy (operator.h/dependency.h) header closure, so batching them cuts the
+# repeated frontend work. Batch 12 bounds jumbo-TU size and memory. Opted out:
+# five files whose file-scope macros must not leak into unity siblings, plus
+# the two heaviest template-instantiation TUs which would dominate any batch
+# they join (scan_operator.cpp is both).
+set(EXEC_UNITY_SKIP
+    ${CMAKE_CURRENT_SOURCE_DIR}/common/arrow_column_to_doris_column.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operator/hashjoin_build_sink.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operator/join_build_sink_operator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operator/operator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operator/partitioned_aggregation_sink_operator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/operator/scan_operator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sink/writer/vfile_result_writer.cpp)
+doris_skip_unity_inclusion(${EXEC_UNITY_SKIP})
+set_target_properties(Exec PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
+                                      UNITY_BUILD_BATCH_SIZE 12)
+
 if (${BUILD_TASK_EXECUTOR_SIMULATOR} STREQUAL "ON")
     file(GLOB_RECURSE SIMULATOR_FILES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/scan/task_executor/tools/simulator/*.cpp"

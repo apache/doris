@@ -39,10 +39,14 @@ namespace doris {
 
 class ColumnVariant;
 class OlapBlockDataConvertor;
+struct VariantColumnData;
 namespace segment_v2 {
 
 class ColumnWriter;
 class ScalarColumnWriter;
+class VariantV2ColumnWriter;
+class VariantShredder;
+struct VariantShreddedColumns;
 
 // Write already serialized binary data of variant columns into storage.
 class VariantBinaryWriter {
@@ -52,6 +56,9 @@ public:
                         const ColumnWriterOptions& opts, SegmentFooterPB* footer) = 0;
     virtual Status append_data(const TabletColumn* parent_column, const ColumnVariant& src,
                                size_t num_rows, OlapBlockDataConvertor* converter) = 0;
+    virtual Status append_shredded(const TabletColumn* parent_column,
+                                   const VariantShreddedColumns& shredded, size_t num_rows,
+                                   OlapBlockDataConvertor* converter) = 0;
     virtual Status finish() = 0;
     virtual Status write_data() = 0;
     virtual Status write_ordinal_index() = 0;
@@ -69,6 +76,9 @@ public:
                 const ColumnWriterOptions& opts, SegmentFooterPB* footer) override;
     Status append_data(const TabletColumn* parent_column, const ColumnVariant& src, size_t num_rows,
                        OlapBlockDataConvertor* converter) override;
+    Status append_shredded(const TabletColumn* parent_column,
+                           const VariantShreddedColumns& shredded, size_t num_rows,
+                           OlapBlockDataConvertor* converter) override;
     Status finish() override;
     Status write_data() override;
     Status write_ordinal_index() override;
@@ -124,6 +134,9 @@ public:
                 const ColumnWriterOptions& opts, SegmentFooterPB* footer) override;
     Status append_data(const TabletColumn* parent_column, const ColumnVariant& src, size_t num_rows,
                        OlapBlockDataConvertor* converter) override;
+    Status append_shredded(const TabletColumn* parent_column,
+                           const VariantShreddedColumns& shredded, size_t num_rows,
+                           OlapBlockDataConvertor* converter) override;
     uint64_t estimate_buffer_size() const override;
     Status finish() override;
     Status write_data() override;
@@ -162,10 +175,10 @@ private:
     VariantStatistics _stats;
 };
 
-class VariantColumnWriterImpl {
+class VariantV1ColumnWriter {
 public:
-    VariantColumnWriterImpl(const ColumnWriterOptions& opts, const TabletColumn* column);
-    ~VariantColumnWriterImpl();
+    VariantV1ColumnWriter(const ColumnWriterOptions& opts, const TabletColumn* column);
+    ~VariantV1ColumnWriter();
     Status finalize();
     Status init();
     bool is_finalized() const;
@@ -189,7 +202,6 @@ private:
     bool _can_use_nested_group_streaming_compaction() const;
     Status _ensure_materialized_variant_finalized();
     void _assert_ready_for_index_writes() const;
-    bool _has_extracted_variant_columns() const;
     Status _process_root_column(ColumnVariant* ptr, OlapBlockDataConvertor* converter,
                                 size_t num_rows, int& column_id);
     // Write parse-time subcolumns. This remains the path for nested group, legacy flatten nested,
@@ -227,11 +239,47 @@ private:
     std::unique_ptr<VariantStreamingCompactionWriter> _streaming_compaction_writer;
 };
 
+// Selects the storage writer once from the first physical input column. The tablet schema remains
+// format-agnostic: V1 and V2 execution columns both persist the same compatible segment layout.
+class VariantColumnWriterImpl {
+public:
+    VariantColumnWriterImpl(ColumnWriterOptions opts, const TabletColumn* column);
+    ~VariantColumnWriterImpl();
+
+    Status finalize();
+    Status init();
+    bool is_finalized() const;
+    bool has_streaming_compaction_writer_for_test() const;
+
+    Status append_data(const uint8_t** ptr, size_t num_rows);
+    Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
+
+    Status finish();
+    Status write_data();
+    Status write_ordinal_index();
+    Status write_zone_map();
+    Status write_inverted_index();
+    Status write_bloom_filter_index();
+    uint64_t estimate_buffer_size();
+
+private:
+    Status _ensure_writer(const VariantColumnData& column);
+    Status _ensure_writer_for_empty_segment();
+    Status _initialize_v1_writer();
+
+    ColumnWriterOptions _opts;
+    const TabletColumn* _tablet_column = nullptr;
+    VariantWriterInputFormat _input_format = VariantWriterInputFormat::UNSET;
+    bool _initialized = false;
+    std::unique_ptr<VariantV1ColumnWriter> _v1_writer;
+    std::unique_ptr<VariantV2ColumnWriter> _v2_writer;
+};
+
 class VariantDocCompactWriter : public ColumnWriter {
 public:
     explicit VariantDocCompactWriter(const ColumnWriterOptions& opts, TabletColumnPtr column);
 
-    ~VariantDocCompactWriter() override = default;
+    ~VariantDocCompactWriter() override;
 
     Status init() override;
     bool is_finalized() const { return _is_finalized; }
@@ -274,16 +322,31 @@ public:
     Status finalize();
 
 private:
+    Status _append(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
+    Status _ensure_input_format(const VariantColumnData& column);
+    Status _initialize_v2_shredder();
     Status _write_materialized_subcolumn(const TabletColumn& parent_column, std::string_view path,
                                          ColumnVariant::Subcolumn& subcolumn, size_t num_rows,
                                          OlapBlockDataConvertor* converter, int& column_id,
                                          const std::vector<uint32_t>* rowids);
-    Status _write_doc_value_column(const TabletColumn& parent_column, ColumnVariant* variant_column,
+    Status _write_materialized_subcolumns(const TabletColumn& parent_column,
+                                          const VariantShreddedColumns& shredded,
+                                          OlapBlockDataConvertor* converter, size_t num_rows,
+                                          int& column_id);
+    Status _write_doc_value_column(const TabletColumn& parent_column, int bucket_value,
+                                   const ColumnPtr& source_column, const DataTypePtr& source_type,
                                    OlapBlockDataConvertor* converter, int column_id,
                                    size_t num_rows);
+    Status _finalize_v1(const TabletColumn& parent_column, size_t num_rows,
+                        OlapBlockDataConvertor* converter, int& column_id);
+    Status _finalize_v2(const TabletColumn& parent_column, size_t num_rows,
+                        OlapBlockDataConvertor* converter, int& column_id);
 
     ordinal_t _next_rowid = 0;
-    MutableColumnPtr _column;
+    VariantWriterInputFormat _input_format = VariantWriterInputFormat::UNSET;
+    ColumnVariant::MutablePtr _v1_column;
+    std::unique_ptr<VariantShredder> _v2_shredder;
+    size_t _num_rows = 0;
     ColumnWriterOptions _opts;
     bool _is_finalized = false;
     bool _data_written = false;
@@ -293,6 +356,8 @@ private:
     std::vector<ColumnWriterOptions> _subcolumn_opts;
 };
 
+// Legacy test/helper entrypoint. New writer code should use
+// variant_writer_helpers::init_column_meta directly.
 void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
                        const ColumnWriterOptions& opts);
 

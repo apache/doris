@@ -202,13 +202,12 @@ final class IcebergWriteSchemaContext {
 
     private static void validateWriterMetadataSources(
             Schema schema, PartitionSpec partitionSpec, SortOrder sortOrder, String tableName) {
-        Map<Integer, Types.NestedField> topLevelFields = schema.columns().stream()
-                .collect(ImmutableMap.toImmutableMap(Types.NestedField::fieldId, field -> field));
         for (PartitionField field : partitionSpec.fields()) {
-            if (!topLevelFields.containsKey(field.sourceId())) {
+            // Iceberg permits a nested primitive field as a partition source; field IDs are schema-wide.
+            if (schema.findField(field.sourceId()) == null) {
                 throw new DorisConnectorException("Iceberg partition field " + field.fieldId()
                         + " references source field " + field.sourceId()
-                        + " outside pinned top-level schema " + schema.schemaId()
+                        + " outside pinned schema " + schema.schemaId()
                         + " for table " + tableName);
             }
         }

@@ -37,6 +37,7 @@
 #include "core/data_type/storage_field_type.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/types.h"
 #include "exec/common/arithmetic_overflow.h"
@@ -51,6 +52,115 @@
 
 namespace doris {
 namespace {
+
+constexpr int DECIMAL_PRECISION_FOR_HIVE11 = BeConsts::MAX_DECIMAL128_PRECISION;
+
+Int128 to_int128(::orc::Int128 value) {
+    const auto high_bits = static_cast<__uint128_t>(static_cast<uint64_t>(value.getHighBits()));
+    const auto low_bits = static_cast<__uint128_t>(value.getLowBits());
+    return static_cast<Int128>((high_bits << 64) | low_bits);
+}
+
+::orc::Int128 to_orc_int128(Int128 value) {
+    const auto unsigned_value = static_cast<__uint128_t>(value);
+    return ::orc::Int128(static_cast<int64_t>(static_cast<uint64_t>(unsigned_value >> 64)),
+                         static_cast<uint64_t>(unsigned_value));
+}
+
+Status scale_decimal_value(Int128 value, int32_t source_scale, int32_t target_scale,
+                           Int128* scaled_value) {
+    DORIS_CHECK(scaled_value != nullptr);
+    if (source_scale == target_scale) {
+        *scaled_value = value;
+        return Status::OK();
+    }
+    if (source_scale < target_scale) {
+        bool overflow = false;
+        const auto scaled = ::orc::scaleUpInt128ByPowerOfTen(to_orc_int128(value),
+                                                             target_scale - source_scale, overflow);
+        if (overflow) {
+            return Status::DataQualityError(
+                    "ORC decimal value overflows when scaling from {} to {}", source_scale,
+                    target_scale);
+        }
+        *scaled_value = to_int128(scaled);
+        return Status::OK();
+    }
+    *scaled_value = to_int128(
+            ::orc::scaleDownInt128ByPowerOfTen(to_orc_int128(value), source_scale - target_scale));
+    return Status::OK();
+}
+
+void fill_decimal_big_endian_value(Int128 value, std::array<uint8_t, sizeof(Int128)>* bytes) {
+    DORIS_CHECK(bytes != nullptr);
+    const auto unsigned_value = static_cast<__uint128_t>(value);
+    for (size_t byte_idx = 0; byte_idx < bytes->size(); ++byte_idx) {
+        const auto shift = (bytes->size() - byte_idx - 1) * 8;
+        (*bytes)[byte_idx] = static_cast<uint8_t>(unsigned_value >> shift);
+    }
+}
+
+Status decode_decimal_orc_values(const DataTypeSerDe& serde, IColumn& column,
+                                 const OrcDecodedColumnView& orc_view, int32_t target_scale) {
+    DORIS_CHECK(orc_view.file_type != nullptr);
+    auto view = orc_serde_utils::make_orc_decoded_view(orc_view, DecodedValueKind::FIXED_BINARY);
+    view.decimal_precision = orc_view.file_type->getPrecision() == 0
+                                     ? DECIMAL_PRECISION_FOR_HIVE11
+                                     : cast_set<int>(orc_view.file_type->getPrecision());
+    NullMap null_map;
+    orc_serde_utils::fill_orc_decoded_null_map(*orc_view.batch, orc_view.rows,
+                                               orc_view.selected_rows, &null_map);
+    view.null_map = null_map.empty() ? nullptr : null_map.data();
+    view.fixed_length = sizeof(Int128);
+
+    std::vector<StringRef> binary_values;
+    std::vector<std::array<uint8_t, sizeof(Int128)>> decimal_values;
+    const auto output_rows =
+            orc_serde_utils::orc_decode_row_count(orc_view.rows, orc_view.selected_rows);
+    decimal_values.resize(output_rows);
+    binary_values.reserve(output_rows);
+    if (const auto* decimal64_batch =
+                dynamic_cast<const ::orc::Decimal64VectorBatch*>(orc_view.batch);
+        decimal64_batch != nullptr) {
+        view.decimal_scale = decimal64_batch->scale;
+        for (size_t row = 0; row < output_rows; ++row) {
+            Int128 value = 0;
+            const auto source_row = orc_serde_utils::orc_source_row_at(row, orc_view.selected_rows);
+            if (!orc_serde_utils::orc_row_is_null(*orc_view.batch, source_row)) {
+                RETURN_IF_ERROR(scale_decimal_value(decimal64_batch->values[source_row],
+                                                    decimal64_batch->scale, target_scale, &value));
+            }
+            fill_decimal_big_endian_value(value, &decimal_values[row]);
+            binary_values.emplace_back(reinterpret_cast<const char*>(decimal_values[row].data()),
+                                       decimal_values[row].size());
+        }
+        view.binary_values = &binary_values;
+        RETURN_IF_ERROR(orc_serde_utils::read_decoded_values(serde, column, &view));
+        return Status::OK();
+    }
+
+    const auto* decimal128_batch =
+            dynamic_cast<const ::orc::Decimal128VectorBatch*>(orc_view.batch);
+    if (decimal128_batch == nullptr) {
+        return Status::InternalError("Unexpected ORC decimal batch type {}",
+                                     orc_view.batch->toString());
+    }
+    view.decimal_scale = decimal128_batch->scale;
+    for (size_t row = 0; row < output_rows; ++row) {
+        Int128 value = 0;
+        const auto source_row = orc_serde_utils::orc_source_row_at(row, orc_view.selected_rows);
+        if (!orc_serde_utils::orc_row_is_null(*orc_view.batch, source_row)) {
+            RETURN_IF_ERROR(scale_decimal_value(to_int128(decimal128_batch->values[source_row]),
+                                                decimal128_batch->scale, target_scale, &value));
+        }
+        fill_decimal_big_endian_value(value, &decimal_values[row]);
+        binary_values.emplace_back(reinterpret_cast<const char*>(decimal_values[row].data()),
+                                   decimal_values[row].size());
+    }
+    view.binary_values = &binary_values;
+    RETURN_IF_ERROR(orc_serde_utils::read_decoded_values(serde, column, &view));
+    return Status::OK();
+}
 
 template <typename NativeType>
 NativeType decode_big_endian_signed_integer(const uint8_t* data, int length) {
@@ -570,12 +680,8 @@ Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(
     const auto row = str.size();
     column.resize(row);
 
-    const ColumnString::Chars* chars = &str.get_chars();
-    const IColumn::Offsets* offsets = &str.get_offsets();
-
     auto& column_to = assert_cast<ColumnType&>(column);
     auto& vec_to = column_to.get_data();
-    size_t current_offset = 0;
     auto arg_precision = static_cast<UInt32>(precision);
     auto arg_scale = static_cast<UInt32>(scale);
     CastParameters params;
@@ -584,16 +690,10 @@ Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(
         if (null_map && null_map[i]) {
             continue;
         }
-        size_t next_offset = (*offsets)[i];
-        size_t string_size = next_offset - current_offset;
-
-        if (!CastToDecimal::from_string(StringRef(&(*chars)[current_offset], string_size),
-                                        vec_to[i], arg_precision, arg_scale, params)) {
-            return Status::InvalidArgument(
-                    "parse number fail, string: '{}'",
-                    std::string((char*)&(*chars)[current_offset], string_size));
+        const auto str_ref = str.get_data_at(i);
+        if (!CastToDecimal::from_string(str_ref, vec_to[i], arg_precision, arg_scale, params)) {
+            return Status::InvalidArgument("parse number fail, string: '{}'", str_ref.to_string());
         }
-        current_offset = next_offset;
     }
     return Status::OK();
 }
@@ -1307,7 +1407,10 @@ const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_column(const uint8
     auto& col = assert_cast<ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column);
     data += sizeof(uint8_t);
     data += sizeof(uint8_t);
-    if constexpr (T == TYPE_DECIMAL32) {
+    if constexpr (T == TYPE_DECIMALV2) {
+        col.insert_value(DecimalV2Value(unaligned_load<Int128>(data)));
+        data += sizeof(Int128);
+    } else if constexpr (T == TYPE_DECIMAL32) {
         col.insert_value(unaligned_load<Int32>(data));
         data += sizeof(Int32);
     } else if constexpr (T == TYPE_DECIMAL64) {
@@ -1335,7 +1438,11 @@ const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_field(const uint8_
     data += sizeof(uint8_t);
     info.precision = static_cast<int>(precision);
     info.scale = static_cast<int>(scale);
-    if constexpr (T == TYPE_DECIMAL32) {
+    if constexpr (T == TYPE_DECIMALV2) {
+        const auto value = DecimalV2Value(unaligned_load<Int128>(data));
+        field = Field::create_field<TYPE_DECIMALV2>(value);
+        data += sizeof(Int128);
+    } else if constexpr (T == TYPE_DECIMAL32) {
         Int32 v = unaligned_load<Int32>(data);
         field = Field::create_field<TYPE_DECIMAL32>(Decimal32(v));
         data += sizeof(Int32);
@@ -1358,6 +1465,18 @@ const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_field(const uint8_
                                "deserialize_binary_to_field with type " + type_to_string(T));
     }
     return data;
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::read_column_from_orc(IColumn& column,
+                                                     const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::DECIMAL);
+    if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_decimal_orc_values(*this, column, view, cast_set<int32_t>(scale));
 }
 
 template class DataTypeDecimalSerDe<TYPE_DECIMAL32>;

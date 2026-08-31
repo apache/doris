@@ -17,7 +17,6 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -40,51 +39,37 @@ public class IcebergConnectorConfTest {
 
     @Test
     public void driversDirPrefersThePluginConfThenFeConf() {
-        Assertions.assertEquals("/from/plugin/conf", ConnectorConf.get(
-                context(Collections.singletonMap(IcebergConnectorProperties.CONF_DRIVERS_DIR,
-                                "/from/plugin/conf"),
-                        Collections.singletonMap(IcebergConnectorProperties.ENV_JDBC_DRIVERS_DIR,
-                                "/from/fe/conf")),
-                IcebergConnectorProperties.CONF_DRIVERS_DIR,
-                IcebergConnectorProperties.ENV_JDBC_DRIVERS_DIR, null));
+        Assertions.assertEquals("/from/plugin/conf", IcebergConf.driversDir(
+                context(Collections.singletonMap(IcebergConf.CONF_DRIVERS_DIR, "/from/plugin/conf"),
+                        Collections.singletonMap(IcebergConf.ENV_JDBC_DRIVERS_DIR, "/from/fe/conf"))));
 
-        Assertions.assertEquals("/from/fe/conf", ConnectorConf.get(
+        Assertions.assertEquals("/from/fe/conf", IcebergConf.driversDir(
                 context(Collections.emptyMap(),
-                        Collections.singletonMap(IcebergConnectorProperties.ENV_JDBC_DRIVERS_DIR,
-                                "/from/fe/conf")),
-                IcebergConnectorProperties.CONF_DRIVERS_DIR,
-                IcebergConnectorProperties.ENV_JDBC_DRIVERS_DIR, null));
+                        Collections.singletonMap(IcebergConf.ENV_JDBC_DRIVERS_DIR, "/from/fe/conf"))));
 
-        Assertions.assertNull(ConnectorConf.get(context(Collections.emptyMap(), Collections.emptyMap()),
-                IcebergConnectorProperties.CONF_DRIVERS_DIR,
-                IcebergConnectorProperties.ENV_JDBC_DRIVERS_DIR, null));
+        Assertions.assertNull(IcebergConf.driversDir(
+                context(Collections.emptyMap(), Collections.emptyMap())));
+
+        // A null context is a direct-construction unit test: neither channel exists, and the driver
+        // support falls back to <doris_home>/plugins/jdbc_drivers as it always has.
+        Assertions.assertNull(IcebergConf.driversDir(null));
     }
 
     @Test
     public void metastoreTimeoutPrefersThePluginConfThenFeConfThenTen() {
-        Assertions.assertEquals("30", ConnectorConf.get(
-                context(Collections.singletonMap(
-                                IcebergConnectorProperties.CONF_METASTORE_CLIENT_TIMEOUT_SECOND, "30"),
+        Assertions.assertEquals("30", IcebergConf.metastoreClientTimeoutSecond(
+                context(Collections.singletonMap(IcebergConf.CONF_METASTORE_CLIENT_TIMEOUT_SECOND, "30"),
                         Collections.singletonMap(
-                                IcebergConnectorProperties.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND, "20")),
-                IcebergConnectorProperties.CONF_METASTORE_CLIENT_TIMEOUT_SECOND,
-                IcebergConnectorProperties.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND,
-                IcebergConnectorProperties.DEFAULT_METASTORE_CLIENT_TIMEOUT_SECOND));
+                                IcebergConf.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND, "20"))));
 
-        Assertions.assertEquals("20", ConnectorConf.get(
+        Assertions.assertEquals("20", IcebergConf.metastoreClientTimeoutSecond(
                 context(Collections.emptyMap(), Collections.singletonMap(
-                        IcebergConnectorProperties.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND, "20")),
-                IcebergConnectorProperties.CONF_METASTORE_CLIENT_TIMEOUT_SECOND,
-                IcebergConnectorProperties.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND,
-                IcebergConnectorProperties.DEFAULT_METASTORE_CLIENT_TIMEOUT_SECOND));
+                        IcebergConf.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND, "20"))));
 
         // The literal the call site used before this channel existed; keeping it is what makes a
         // deployment with neither file behave exactly as it did.
-        Assertions.assertEquals("10", ConnectorConf.get(
-                context(Collections.emptyMap(), Collections.emptyMap()),
-                IcebergConnectorProperties.CONF_METASTORE_CLIENT_TIMEOUT_SECOND,
-                IcebergConnectorProperties.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND,
-                IcebergConnectorProperties.DEFAULT_METASTORE_CLIENT_TIMEOUT_SECOND));
+        Assertions.assertEquals("10", IcebergConf.metastoreClientTimeoutSecond(
+                context(Collections.emptyMap(), Collections.emptyMap())));
     }
 
     @Test
@@ -94,6 +79,17 @@ public class IcebergConnectorConfTest {
         String expected = new IcebergConnectorProvider().name() + ".conf.template";
         Assertions.assertNotNull(getClass().getClassLoader().getResource(expected),
                 "the plugin must ship " + expected + " on its classpath");
+    }
+
+    @Test
+    public void dorisHomeComesFromTheEngineEnvironmentOnly() {
+        // WHY: the FE install root is engine-wide, not this connector's setting, so it has no iceberg.conf
+        // key -- only the environment. MUTATION: adding a conf key for it -> a deployment could set a
+        // per-plugin doris_home that disagrees with the engine's.
+        Assertions.assertEquals("/opt/doris", IcebergConf.dorisHome(
+                context(Collections.singletonMap(IcebergConf.ENV_DORIS_HOME, "/from/plugin/conf"),
+                        Collections.singletonMap(IcebergConf.ENV_DORIS_HOME, "/opt/doris"))));
+        Assertions.assertNull(IcebergConf.dorisHome(null));
     }
 
     private static ConnectorContext context(Map<String, String> conf, Map<String, String> env) {

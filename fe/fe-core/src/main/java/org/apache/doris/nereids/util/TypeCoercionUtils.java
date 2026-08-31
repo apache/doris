@@ -1195,10 +1195,7 @@ public class TypeCoercionUtils {
     }
 
     private static Optional<DataType> findCommonVariantType(VariantType left, VariantType right) {
-        if (!left.isExecutionCompatibleWith(right)) {
-            return Optional.empty();
-        }
-        return Optional.of(left.isComputeV2() ? VariantType.COMPUTE_V2_INSTANCE : left);
+        return left.equals(right) ? Optional.of(left) : Optional.empty();
     }
 
     private static Optional<DataType> findWiderPrimitiveTypeForTwo(

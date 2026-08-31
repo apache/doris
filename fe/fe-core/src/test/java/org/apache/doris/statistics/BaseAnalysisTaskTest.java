@@ -20,13 +20,10 @@ package org.apache.doris.statistics;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedConstruction;
-import org.mockito.Mockito;
 
 import java.util.List;
 
@@ -84,24 +81,9 @@ public class BaseAnalysisTaskTest {
         values.add("500");
         values.add(null);
         ResultRow row = new ResultRow(values);
-        List<ResultRow> result = Lists.newArrayList();
-        result.add(row);
-
-        try (MockedConstruction<StmtExecutor> mocked = Mockito.mockConstruction(StmtExecutor.class,
-                (mock, context) -> {
-                    Mockito.when(mock.executeInternalQuery()).thenReturn(result);
-                })) {
-            BaseAnalysisTask task = new OlapAnalysisTask();
-            try {
-                task.runQuery("test");
-            } catch (Exception e) {
-                Assertions.assertEquals(e.getMessage(),
-                        "ColStatsData is invalid, skip analyzing. "
-                                + "('id',10000,20000,30000,0,'col',null,100,1100,300,'min','max',400,'500',NULL)");
-                return;
-            }
-            Assertions.fail();
-        }
+        ColStatsData data = new ColStatsData(row);
+        Assertions.assertFalse(data.isValid());
+        Assertions.assertEquals(ColumnStatistic.UNKNOWN, data.toColumnStatistic());
     }
 
     @Test
@@ -123,23 +105,8 @@ public class BaseAnalysisTaskTest {
         values.add("500");
         values.add(null);
         ResultRow row = new ResultRow(values);
-        List<ResultRow> result = Lists.newArrayList();
-        result.add(row);
-
-        try (MockedConstruction<StmtExecutor> mocked = Mockito.mockConstruction(StmtExecutor.class,
-                (mock, context) -> {
-                    Mockito.when(mock.executeInternalQuery()).thenReturn(result);
-                })) {
-            BaseAnalysisTask task = new OlapAnalysisTask();
-            try {
-                task.runQuery("test");
-            } catch (Exception e) {
-                Assertions.assertEquals(e.getMessage(),
-                        "ColStatsData is invalid, skip analyzing. "
-                                + "('id',10000,20000,30000,0,'col',null,500,0,300,'min','max',400,'500',NULL)");
-                return;
-            }
-            Assertions.fail();
-        }
+        ColStatsData data = new ColStatsData(row);
+        Assertions.assertFalse(data.isValid());
+        Assertions.assertEquals(ColumnStatistic.UNKNOWN, data.toColumnStatistic());
     }
 }

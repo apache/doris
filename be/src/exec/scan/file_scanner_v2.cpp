@@ -36,7 +36,10 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/string_ref.h"
 #include "exec/common/util.hpp"
@@ -79,6 +82,8 @@ namespace {
 constexpr int kIcebergPositionDeleteContent = 1;
 constexpr int kIcebergDeletionVectorContent = 3;
 
+std::string table_format_name(const TFileRangeDesc& range);
+
 std::string table_format_name(const TFileRangeDesc& range) {
     return range.__isset.table_format_params ? range.table_format_params.table_format_type
                                              : "NotSet";
@@ -87,6 +92,26 @@ std::string table_format_name(const TFileRangeDesc& range) {
 TFileFormatType::type get_range_format_type(const TFileScanRangeParams& params,
                                             const TFileRangeDesc& range) {
     return range.__isset.format_type ? range.format_type : params.format_type;
+}
+
+bool contains_variant_type(const DataTypePtr& input) {
+    const auto type = remove_nullable(input);
+    switch (type->get_primitive_type()) {
+    case TYPE_VARIANT:
+        return true;
+    case TYPE_ARRAY:
+        return contains_variant_type(assert_cast<const DataTypeArray&>(*type).get_nested_type());
+    case TYPE_MAP: {
+        const auto& map = assert_cast<const DataTypeMap&>(*type);
+        return contains_variant_type(map.get_key_type()) ||
+               contains_variant_type(map.get_value_type());
+    }
+    case TYPE_STRUCT:
+        return std::ranges::any_of(assert_cast<const DataTypeStruct&>(*type).get_elements(),
+                                   contains_variant_type);
+    default:
+        return false;
+    }
 }
 
 bool is_supported_table_format(const TFileRangeDesc& range) {
@@ -134,15 +159,6 @@ bool is_supported_jni_table_format(const TFileRangeDesc& range) {
     }
     return table_format == "jdbc" || table_format == "iceberg" || table_format == "hudi" ||
            table_format == "max_compute" || table_format == "trino_connector";
-}
-
-bool is_iceberg_position_deletes_sys_table(const TFileRangeDesc& range) {
-    return range.__isset.table_format_params &&
-           range.table_format_params.table_format_type == "iceberg" &&
-           range.table_format_params.__isset.iceberg_params &&
-           range.table_format_params.iceberg_params.__isset.content &&
-           (range.table_format_params.iceberg_params.content == kIcebergPositionDeleteContent ||
-            range.table_format_params.iceberg_params.content == kIcebergDeletionVectorContent);
 }
 
 bool is_csv_format(TFileFormatType::type format_type) {
@@ -333,6 +349,18 @@ Status FileScannerV2::_validate_scan_range(const TFileScanRangeParams& params,
     return Status::OK();
 }
 
+Status FileScannerV2::_validate_variant_projection(TFileFormatType::type format_type,
+                                                   bool has_variant_projection) {
+    if (!has_variant_projection || format_type != TFileFormatType::FORMAT_ARROW) {
+        return Status::OK();
+    }
+    // Arrow readers have no external Variant carrier contract; reject before a stream is opened so
+    // every Arrow-backed table gets the same deterministic capability error instead of SerDe leakage.
+    return Status::NotSupported(
+            "External Variant is supported only for Parquet files in FileScannerV2; "
+            "file format ARROW is not supported");
+}
+
 FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_state, int64_t limit,
                              std::shared_ptr<SplitSourceConnector> split_source,
                              RuntimeProfile* profile, ShardedKVCache* kv_cache,
@@ -405,7 +433,6 @@ Status FileScannerV2::_open_impl(RuntimeState* state) {
     if (_first_scan_range) {
         RETURN_IF_ERROR(_create_table_reader_for_format(_current_range, &_table_reader));
         DORIS_CHECK(_table_reader != nullptr);
-        _table_reader_format = table_format_name(_current_range);
         RETURN_IF_ERROR(_init_expr_ctxes());
         RETURN_IF_ERROR(_init_table_reader(_current_range));
     }
@@ -486,6 +513,13 @@ Status FileScannerV2::_filter_output_block(Block* block) {
                                                _get_current_format_type());
 }
 
+bool FileScannerV2::_can_merge_padding_blocks(const Block& /*left*/, const Block& /*right*/) const {
+    // A Variant access expression is evaluated above the file reader. Keep each file-local
+    // shredded schema intact until that projection turns complete and leaf-only states into a
+    // common logical result column.
+    return !_has_variant_projection;
+}
+
 Status FileScannerV2::_contextualize_output_filter_status(Status status,
                                                           TFileFormatType::type format_type) {
     if (!status.ok() && format_type == TFileFormatType::FORMAT_ORC) {
@@ -510,14 +544,6 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
         }
         DORIS_CHECK(_table_reader != nullptr);
         _current_range_path = _current_range.path;
-
-        bool reader_rebuilt = false;
-        RETURN_IF_ERROR(_rebuild_table_reader_if_format_changed(_current_range, &reader_rebuilt));
-        if (reader_rebuilt) {
-            // Same init the first reader got. The expression contexts are NOT rebuilt: they are
-            // per-scanner and format-independent, and _init_expr_ctxes is not idempotent.
-            RETURN_IF_ERROR(_init_table_reader(_current_range));
-        }
 
         const auto format_type = get_range_format_type(*_params, _current_range);
         _init_adaptive_batch_size_state(format_type);
@@ -601,31 +627,6 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
     return Status::OK();
 }
 
-Status FileScannerV2::_rebuild_table_reader_if_format_changed(const TFileRangeDesc& range,
-                                                              bool* rebuilt) {
-    // The reader is chosen by the range's table format, not the node's, because one node can be given
-    // both: a connector that reads a table as a lake plus the log written after it plans its lake half
-    // through a sibling connector and its log half itself, and both land here as ranges of the same
-    // scan. Built once from the first range and never revisited, the reader is then handed a range of
-    // the other format -- which does not fail cleanly. It fails as whatever that reader makes of a
-    // foreign range, e.g. paimon's reporting an unsupported file format for a range that carries no
-    // paimon parameters at all. And which ranges share a scanner is up to the engine's assignment, so
-    // the same query succeeds or fails by how the ranges happened to be dealt out.
-    //
-    // Split out from _prepare_next_split so the decision can be tested on its own: re-initializing the
-    // new reader needs scan-wide state that choosing it does not, so that step stays with the caller.
-    auto table_format = table_format_name(range);
-    if (table_format == _table_reader_format) {
-        *rebuilt = false;
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(_create_table_reader_for_format(range, &_table_reader));
-    DORIS_CHECK(_table_reader != nullptr);
-    _table_reader_format = std::move(table_format);
-    *rebuilt = true;
-    return Status::OK();
-}
-
 Status FileScannerV2::_create_table_reader_for_format(
         const TFileRangeDesc& range, std::unique_ptr<format::TableReader>* reader) const {
     DORIS_CHECK(reader != nullptr);
@@ -672,8 +673,9 @@ Status FileScannerV2::_create_table_reader_for_format(
 
 Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
                                                   std::map<std::string, Field> partition_values) {
+    const auto format_type = get_range_format_type(*_params, range);
     format::FileFormat current_split_format;
-    RETURN_IF_ERROR(_to_file_format(get_range_format_type(*_params, range), &current_split_format));
+    RETURN_IF_ERROR(_to_file_format(format_type, &current_split_format));
     VExprContextSPtrs conjuncts;
     RETURN_IF_ERROR(_build_table_conjuncts(&conjuncts));
     VExprContextSPtrs partition_prune_conjuncts;
@@ -797,6 +799,7 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
     _projected_columns.clear();
     _projected_columns.reserve(_params->required_slots.size());
     _need_global_rowid_column = false;
+    _has_variant_projection = false;
     format::ProjectedColumnBuildContext build_context {
             .scan_params = _params,
             .range = &_current_range,
@@ -814,6 +817,7 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
                                          slot_info.slot_id);
         }
         auto column = _build_table_column(it->second);
+        _has_variant_projection = _has_variant_projection || contains_variant_type(column.type);
         build_context.slot_desc = it->second;
         if (column.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
             _need_global_rowid_column = true;
@@ -846,6 +850,8 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
         _projected_columns.push_back(std::move(column));
     }
     RETURN_IF_ERROR(table_reader.validate_projected_columns(build_context));
+    RETURN_IF_ERROR(_validate_variant_projection(get_range_format_type(*_params, _current_range),
+                                                 _has_variant_projection));
     return Status::OK();
 }
 

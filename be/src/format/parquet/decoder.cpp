@@ -20,6 +20,7 @@
 #include <cctz/time_zone.h>
 #include <gen_cpp/parquet_types.h>
 
+#include "common/cast_set.h"
 #include "format/parquet/bool_plain_decoder.h"
 #include "format/parquet/bool_rle_decoder.h"
 #include "format/parquet/byte_array_dict_decoder.h"
@@ -28,8 +29,30 @@
 #include "format/parquet/delta_bit_pack_decoder.h"
 #include "format/parquet/fix_length_dict_decoder.hpp"
 #include "format/parquet/fix_length_plain_decoder.h"
+#include "util/rle_encoding.h"
 
 namespace doris {
+
+BaseDictDecoder::BaseDictDecoder() = default;
+
+BaseDictDecoder::~BaseDictDecoder() = default;
+
+Status BaseDictDecoder::set_data(Slice* data) {
+    _data = data;
+    _offset = 0;
+    uint8_t bit_width = *data->data;
+    _index_batch_decoder = std::make_unique<RleBatchDecoder<uint32_t>>(
+            reinterpret_cast<uint8_t*>(data->data) + 1, static_cast<int>(data->size) - 1,
+            bit_width);
+    return Status::OK();
+}
+
+Status BaseDictDecoder::skip_values(size_t num_values) {
+    _indexes.resize(num_values);
+    _index_batch_decoder->GetBatch(_indexes.data(), cast_set<uint32_t>(num_values));
+    return Status::OK();
+}
+
 Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type encoding,
                             std::unique_ptr<Decoder>& decoder) {
     switch (encoding) {

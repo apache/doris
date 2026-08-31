@@ -95,6 +95,13 @@ void write_json_value(VariantRef value, Writer& writer,
     to_json(value, writer, json_options);
 }
 
+template <typename Writer>
+void write_sql_value(VariantRef value, Writer& writer,
+                     const DataTypeSerDe::FormatOptions& options) {
+    VariantJsonFormatOptions json_options {.timezone = options.timezone};
+    to_sql_string(value, writer, json_options);
+}
+
 constexpr size_t VARIANT_V2_TYPE_META_BYTES = sizeof(int32_t) * 4;
 
 const ColumnVariantV2& get_variant_v2_column(const IColumn& column) {
@@ -181,7 +188,7 @@ DataTypeVariantV2SerDe::DataTypeVariantV2SerDe(int nesting_level) : DataTypeSerD
 
 int64_t DataTypeVariantV2SerDe::get_uncompressed_serialized_bytes(const IColumn& column,
                                                                   int be_exec_version) {
-    const auto& variant = get_variant_v2_column(column);
+    const auto& variant = get_variant_v2_column(column).serialization_column();
     int64_t size = sizeof(bool) + sizeof(size_t) * 2 + sizeof(bool);
     if (variant.is_typed()) {
         const DataTypePtr nullable_type = make_nullable(variant._typed_type);
@@ -199,7 +206,7 @@ char* DataTypeVariantV2SerDe::serialize(const IColumn& column, char* buf, int be
     const IColumn* physical = &column;
     size_t saved_rows = 0;
     buf = serialize_const_flag_and_row_num(&physical, buf, &saved_rows);
-    const auto& variant = assert_cast<const ColumnVariantV2&>(*physical);
+    const auto& variant = assert_cast<const ColumnVariantV2&>(*physical).serialization_column();
     DCHECK_EQ(variant.size(), saved_rows);
     unaligned_store<bool>(buf, variant.is_typed());
     buf += sizeof(bool);
@@ -251,9 +258,12 @@ const char* DataTypeVariantV2SerDe::deserialize(const char* buf, MutableColumnPt
             }
         }
         decoded = ColumnVariantV2::create();
-        static_cast<IColumn::Ptr&>(decoded->_metadatas) = std::move(metadatas);
-        static_cast<IColumn::Ptr&>(decoded->_meta_ids) = std::move(meta_ids);
-        static_cast<IColumn::Ptr&>(decoded->_values) = std::move(values);
+        static_cast<ColumnString::Ptr&>(decoded->_metadatas) =
+                ColumnString::cast_to_column_ptr(assert_cast<const ColumnString*>(metadatas.get()));
+        static_cast<MetaIdsColumn::Ptr&>(decoded->_meta_ids) = MetaIdsColumn::cast_to_column_ptr(
+                assert_cast<const MetaIdsColumn*>(meta_ids.get()));
+        static_cast<ColumnString::Ptr&>(decoded->_values) =
+                ColumnString::cast_to_column_ptr(assert_cast<const ColumnString*>(values.get()));
         decoded->sanity_check();
     }
     if (decoded->size() != saved_rows) {
@@ -485,12 +495,15 @@ Status write_arrow(const IColumn& column, const NullMap* null_map, Builder& buil
 
 void DataTypeVariantV2SerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                                        const FormatOptions& options) const {
-    const DorisVector<size_t> lengths =
-            json_lengths(column, row_num, row_num + 1, nullptr, options);
-    DCHECK_EQ(lengths.size(), 1);
     visit_variant_v2_values(
             column, row_num, row_num + 1, {}, [](size_t) {},
-            [&](size_t, VariantRef value) { write_json_value(value, bw, options); });
+            [&](size_t, VariantRef value) {
+                if (_nesting_level > 1) {
+                    write_json_value(value, bw, options);
+                } else {
+                    write_sql_value(value, bw, options);
+                }
+            });
 }
 
 Status DataTypeVariantV2SerDe::write_column_to_mysql_binary(const IColumn& column,
@@ -499,17 +512,20 @@ Status DataTypeVariantV2SerDe::write_column_to_mysql_binary(const IColumn& colum
                                                             const FormatOptions& options) const {
     RETURN_IF_CATCH_EXCEPTION({
         const size_t row = col_const ? 0 : checked_row(row_idx);
-        const DorisVector<size_t> lengths = json_lengths(column, row, row + 1, nullptr, options);
-        DorisVector<char> rendered(lengths[0]);
+        CountingWriter counter;
+        visit_variant_v2_values(
+                column, row, row + 1, {}, [](size_t) {},
+                [&](size_t, VariantRef value) { write_sql_value(value, counter, options); });
+        const size_t rendered_size = counter.count;
+        DorisVector<char> rendered(rendered_size == 0 ? 1 : rendered_size);
         visit_variant_v2_values(
                 column, row, row + 1, {}, [](size_t) {},
                 [&](size_t, VariantRef value) {
-                    FixedWriter writer {.destination = rendered.data(),
-                                        .capacity = rendered.size()};
-                    write_json_value(value, writer, options);
-                    DCHECK_EQ(writer.written, rendered.size());
+                    FixedWriter writer {.destination = rendered.data(), .capacity = rendered_size};
+                    write_sql_value(value, writer, options);
+                    DCHECK_EQ(writer.written, rendered_size);
                 });
-        if (row_buffer.push_string(rendered.data(), rendered.size()) != 0) {
+        if (row_buffer.push_string(rendered.data(), rendered_size) != 0) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "Failed to pack Variant MySQL buffer");
         }
     });

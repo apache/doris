@@ -32,6 +32,13 @@ import java.util.Map;
  * <p>The output keys are the text-family keys declared in {@link ScanNodePropertyKeys} — they are shared
  * with the engine rather than mirrored, so a mistyped suffix (which would silently disable that one
  * attribute, e.g. leaving the whole row in the first column) is a compile error.</p>
+ *
+ * <p>Despite the name, this is <b>not</b> a catalog-properties class — those are
+ * {@link HiveCatalogProperties} (per catalog) and {@link HmsConf} (per FE). Its input keys are remote HMS
+ * table parameters and its output keys are a BE payload, so both sets belong to the single class that
+ * reads them, which is this one. That is also why its two numeric parses stay lenient: a garbage
+ * {@code skip.header.line.count} or delimiter in somebody else's Hive table must not fail the query the
+ * way a garbage value a user typed into {@code CREATE CATALOG} now does.</p>
  */
 public final class HiveTextProperties {
 

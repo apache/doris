@@ -465,6 +465,16 @@ std::string TupleDescriptor::debug_string() const {
     return out.str();
 }
 
+int TupleDescriptor::get_column_id(SlotId slot_id) const {
+    for (int column_id = 0; auto* slot : slots()) {
+        if (slot->id() == slot_id) {
+            return column_id;
+        }
+        ++column_id;
+    }
+    return -1;
+}
+
 RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl,
                              const std::vector<TTupleId>& row_tuples) {
     DCHECK_GT(row_tuples.size(), 0);

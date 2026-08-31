@@ -26,6 +26,7 @@
 #include <memory>
 #include <ostream>
 #include <set>
+#include <string>
 #include <utility>
 
 #include "common/cast_set.h"
@@ -34,7 +35,9 @@
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
+#include "core/column/column_nothing.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/field.h"
 #include "io/io_common.h"
@@ -47,6 +50,7 @@
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_meta.h"
+#include "storage/schema.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_schema.h"
 
@@ -76,7 +80,7 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
         _merge = false;
     }
 
-    if (_reader->_reader_type == ReaderType::READER_BINLOG) {
+    if (_reader->_reader_context.read_row_binlog) {
         _merge = false;
     }
 
@@ -214,7 +218,7 @@ bool VCollectIterator::LevelIteratorComparator::operator()(LevelIterator* lhs, L
 
     int cmp_res = UNLIKELY(lhs->compare_columns())
                           ? lhs_ref.compare(rhs_ref, lhs->compare_columns())
-                          : lhs_ref.compare(rhs_ref, lhs->tablet_schema().num_key_columns());
+                          : lhs_ref.compare(rhs_ref, lhs->schema().num_key_columns());
     if (cmp_res != 0) {
         return UNLIKELY(_is_reverse) ? cmp_res < 0 : cmp_res > 0;
     }
@@ -291,12 +295,11 @@ Status VCollectIterator::_topn_next(Block* block) {
     // separate mutable block with the same schema so stored row positions remain stable.
     auto clone_block = block->clone_empty();
     // Initialize virtual slot columns by schema (avoid runtime type checks).
-    for (const auto& [cid, expr_ctx] : _reader->_reader_context.virtual_column_exprs) {
-        auto it = std::find(_reader->_return_columns.begin(), _reader->_return_columns.end(), cid);
-        DORIS_CHECK(it != _reader->_return_columns.end());
-        auto idx = cast_set<size_t>(std::distance(_reader->_return_columns.begin(), it));
-        DORIS_CHECK(idx < clone_block.columns());
-        clone_block.get_by_position(idx).column = expr_ctx->root()->data_type()->create_column();
+    // virtual_column_exprs is keyed by read-schema ordinal == block position.
+    for (const auto& [ordinal, expr_ctx] : _reader->_reader_context.virtual_column_exprs) {
+        DORIS_CHECK(ordinal < clone_block.columns());
+        clone_block.get_by_position(ordinal).column =
+                expr_ctx->root()->data_type()->create_column();
     }
     const size_t clone_block_columns = clone_block.columns();
     MutableBlock mutable_block = MutableBlock::build_mutable_block(std::move(clone_block));
@@ -388,14 +391,6 @@ Status VCollectIterator::_topn_next(Block* block) {
             }
 
             if (rows_to_copy > 0) {
-                // create column that is not in mutable_block but in block
-                for (size_t j = mutable_block.columns(); j < block->columns(); ++j) {
-                    auto col = block->get_by_position(j).clone_empty();
-                    mutable_block.mutable_columns().push_back(col.column->assert_mutable());
-                    mutable_block.data_types().push_back(std::move(col.type));
-                    mutable_block.get_names().push_back(std::move(col.name));
-                }
-
                 size_t base = mutable_block.rows();
                 // append block to mutable_block
                 RETURN_IF_ERROR(mutable_block.add_rows(block, 0, rows_to_copy));
@@ -477,12 +472,15 @@ VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader
     DCHECK_EQ(RowsetTypePB::BETA_ROWSET, rs_reader->type());
 }
 
+std::shared_ptr<Block> VCollectIterator::Level0Iterator::_create_read_block() const {
+    return std::make_shared<Block>(_reader->_read_schema->create_read_block());
+}
+
 Status VCollectIterator::Level0Iterator::init(bool get_data_by_ref) {
     _is_merge_iterator = _rs_reader->is_merge_iterator();
     _get_data_by_ref = get_data_by_ref && _is_merge_iterator;
     if (!_get_data_by_ref) {
-        _block = std::make_shared<Block>(_schema.create_block(
-                _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
+        _block = _create_read_block();
     }
 
     auto st = refresh_current_row();
@@ -525,8 +523,7 @@ Status VCollectIterator::Level0Iterator::refresh_current_row() {
 
     do {
         if (_block == nullptr && !_get_data_by_ref) {
-            _block = std::make_shared<Block>(_schema.create_block(
-                    _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
+            _block = _create_read_block();
             _ref.block = _block;
         }
 
@@ -690,28 +687,19 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
 
     // Only when there are multiple children that need to be merged
     if (_merge && _children.size() > 1) {
-        auto sequence_loc = -1;
-        for (int loc = 0; loc < _reader->_return_columns.size(); loc++) {
-            if (_reader->_return_columns[loc] == _reader->_sequence_col_idx) {
-                sequence_loc = loc;
-                break;
-            }
+        // Read-schema positions of the tie-break columns.
+        int32_t sequence_loc = _reader->_read_schema->sequence_ordinal();
+        int32_t tso_ordinal = _reader->_read_schema->tso_ordinal();
+        if (tso_ordinal >= 0) {
+            DCHECK(sequence_loc == -1);
+            sequence_loc = tso_ordinal;
         }
 
-        int32_t tso_col_id = _reader->_tablet_schema->binlog_tso_col_idx();
-        if (tso_col_id >= 0) {
-            DCHECK(sequence_loc == -1);
-            for (int loc = 0; loc < _reader->_return_columns.size(); ++loc) {
-                if (_reader->_return_columns[loc] == static_cast<uint32_t>(tso_col_id)) {
-                    sequence_loc = loc;
-                    break;
-                }
-            }
-        }
+        RETURN_IF_ERROR(_validate_merge_compare_contract(sequence_loc));
 
         _heap = std::make_unique<MergeHeap>(LevelIteratorComparator(
                 sequence_loc, _is_reverse, _reader->_reader_context.use_insert_order_when_same,
-                tso_col_id >= 0));
+                tso_ordinal >= 0));
         for (auto&& child : _children) {
             DCHECK(child != nullptr);
             //DCHECK(child->current_row().ok());
@@ -764,6 +752,54 @@ void VCollectIterator::Level1Iterator::init_level0_iterators_for_union() {
         have_multiple_child = true;
         ++iter;
     }
+}
+
+Status VCollectIterator::Level1Iterator::_validate_merge_compare_contract(
+        int sequence_ordinal) const {
+    const auto& read_schema = *_schema;
+    const size_t num_key_columns = read_schema.num_key_columns();
+
+    for (const auto& child : _children) {
+        const IteratorRowRef* ref = child->current_row_ref();
+        if (ref->block == nullptr) {
+            continue;
+        }
+
+        const size_t block_columns = ref->block->columns();
+        auto contract_error = [&](const std::string& detail) {
+            return Status::InternalError(
+                    "merge heap compare contract violated: {}, tablet_id={}, block_columns={}, "
+                    "read_columns={}, num_key_columns={}, sequence_ordinal={}",
+                    detail, _reader->_tablet->tablet_id(), block_columns,
+                    read_schema.num_block_columns(), num_key_columns, sequence_ordinal);
+        };
+
+        if (_compare_columns != nullptr) {
+            for (uint32_t ordinal : *_compare_columns) {
+                if (ordinal >= block_columns) {
+                    return contract_error("compare column ordinal " + std::to_string(ordinal) +
+                                          " out of range");
+                }
+            }
+        } else {
+            if (num_key_columns > read_schema.num_block_columns() ||
+                num_key_columns > block_columns) {
+                return contract_error("read schema has fewer columns than the key prefix");
+            }
+            for (size_t ordinal = 0; ordinal < num_key_columns; ++ordinal) {
+                const auto& read_column = *read_schema.column(ordinal);
+                if (!read_column.is_key()) {
+                    return contract_error("read schema ordinal " + std::to_string(ordinal) +
+                                          " is not a key column");
+                }
+            }
+        }
+
+        if (sequence_ordinal != -1 && static_cast<size_t>(sequence_ordinal) >= block_columns) {
+            return contract_error("sequence column ordinal out of range");
+        }
+    }
+    return Status::OK();
 }
 
 Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {
@@ -874,10 +910,6 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     IteratorRowRef cur_row = _ref;
     IteratorRowRef pre_row_ref = _ref;
 
-    // append extra columns (eg. MATCH pred result column) from src_block to block
-    for (size_t i = block->columns(); i < cur_row.block->columns(); ++i) {
-        block->insert(cur_row.block->get_by_position(i).clone_empty());
-    }
     auto target_columns_guard = block->mutate_columns_scoped();
     auto& target_columns = target_columns_guard.mutable_columns();
     size_t column_count = target_columns.size();

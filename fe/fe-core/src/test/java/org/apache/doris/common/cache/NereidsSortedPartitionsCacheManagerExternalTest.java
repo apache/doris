@@ -235,13 +235,7 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
         PluginDrivenMvccSnapshot pinT1 = new PluginDrivenMvccSnapshot(
                 connectorSnapshotT1, pinnedPartsT1, Maps.newHashMap());
 
-        // A DIFFERENT pin for the SAME table at a second @tag reference. With two non-default versions
-        // pinned and no default ("") entry, the version-BLIND lookup (StatementContext#getSnapshot(TableIf))
-        // is ambiguous and gives up (see its javadoc); only the version-AWARE lookup that the
-        // LogicalFileScan branch of pinnedSnapshot uses resolves the exact t1 reference. MUTATION:
-        // collapsing pinnedSnapshot to the version-blind fallback makes this test observably diverge
-        // (an unresolved pin sends getOrMaterialize to materializeLatest() on a field-less mock, or the
-        // assertions below simply see the wrong values).
+        // A second version makes the version-blind lookup ambiguous; the scan must resolve its exact reference.
         ConnectorMvccSnapshot connectorSnapshotT2 = ConnectorMvccSnapshot.builder()
                 .snapshotId(99L).schemaId(3L).build();
         PluginDrivenMvccSnapshot pinT2 = new PluginDrivenMvccSnapshot(
@@ -515,12 +509,12 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
         ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
-            metaCacheMgr.invalidateTable(catalogId, DB, TBL);
+            metaCacheMgr.invalidateTable(catalogId, 8L, DB, 9L, TBL);
         }
 
         Assertions.assertEquals(0, rangesCacheMgr.getPartitionCaches().estimatedSize(),
                 "ExternalMetaCacheMgr.invalidateTable must also drop the "
-                        + "NereidsSortedPartitionsCacheManager entry (ExternalMetaCacheMgr.java:217-220)");
+                        + "NereidsSortedPartitionsCacheManager entry");
     }
 
     // ── db/catalog-level invalidation also drops Cache B (§10 completeness) ──
@@ -566,7 +560,7 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
 
     @Test
     public void testInvalidateDbDropsRangesCache() throws Exception {
-        assertDropsAllRangesCache(m -> m.invalidateDb(CATALOG_ID, DB));
+        assertDropsAllRangesCache(m -> m.invalidateDbMetadataCache(CATALOG_ID, DB));
     }
 
     @Test

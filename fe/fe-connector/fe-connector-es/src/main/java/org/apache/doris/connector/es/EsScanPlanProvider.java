@@ -92,7 +92,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String SESSION_BATCH_SIZE = "batch_size";
 
     private final EsConnectorRestClient restClient;
-    private final Map<String, String> properties;
+    private final EsCatalogProperties props;
 
     // ES-F1 per-scan hoist. planScan and buildScanNodeProperties of one scan node run on the same
     // per-scan-node provider instance on the synchronous FE planning thread, and each used to fetch
@@ -104,9 +104,9 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
     private EsMetadataState memoizedState;
 
     public EsScanPlanProvider(EsConnectorRestClient restClient,
-            Map<String, String> properties) {
+            EsCatalogProperties props) {
         this.restClient = restClient;
-        this.properties = properties;
+        this.props = props;
     }
 
     @Override
@@ -122,8 +122,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
             return Collections.emptyList();
         }
 
-        String mappingType = properties.getOrDefault(
-                EsConnectorProperties.MAPPING_TYPE, null);
+        String mappingType = props.getMappingType();
 
         boolean enableParallelScroll = Boolean.parseBoolean(
                 session.getSessionProperties()
@@ -196,17 +195,16 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         nodeProps.put(PROP_ES_INDEX, esHandle.getIndexName());
 
         // Auth properties
-        String user = properties.getOrDefault(EsConnectorProperties.USER, null);
-        if (user != null && !user.isEmpty()) {
-            nodeProps.put(PROP_USER, user);
+        if (!props.getUser().isEmpty()) {
+            nodeProps.put(PROP_USER, props.getUser());
         }
-        String password = properties.getOrDefault(EsConnectorProperties.PASSWORD, null);
-        if (password != null && !password.isEmpty()) {
-            nodeProps.put(PROP_PASSWORD, password);
+        if (!props.getPassword().isEmpty()) {
+            nodeProps.put(PROP_PASSWORD, props.getPassword());
         }
-        nodeProps.put(PROP_HTTP_SSL_ENABLED, properties.getOrDefault(
-                EsConnectorProperties.HTTP_SSL_ENABLED,
-                EsConnectorProperties.HTTP_SSL_ENABLED_DEFAULT));
+        // Rendered from the parsed flag, not copied from what the user typed: BE parses this with
+        // std::boolalpha, which only accepts lower-case "true"/"false", while Boolean.parseBoolean here
+        // accepts any casing. Passing the raw string through let "TRUE" mean https to FE and http to BE.
+        nodeProps.put(PROP_HTTP_SSL_ENABLED, String.valueOf(props.isHttpSslEnabled()));
 
         // Query DSL (with not-pushed conjunct tracking)
         EsQueryDslResult dslResult = buildQueryDsl(filter, state);
@@ -232,21 +230,15 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         if (state.getFieldContext() == null) {
             return;
         }
-        boolean enableDocValueScan = Boolean.parseBoolean(properties.getOrDefault(
-                EsConnectorProperties.DOC_VALUE_SCAN,
-                EsConnectorProperties.DOC_VALUE_SCAN_DEFAULT));
-        boolean enableKeywordSniff = Boolean.parseBoolean(properties.getOrDefault(
-                EsConnectorProperties.KEYWORD_SNIFF,
-                EsConnectorProperties.KEYWORD_SNIFF_DEFAULT));
         try {
-            if (enableDocValueScan) {
+            if (props.isDocValuesMode()) {
                 Map<String, String> docCtx = state.getFieldContext().getDocValueFieldsContext();
                 if (docCtx != null && !docCtx.isEmpty()) {
                     nodeProps.put(PROP_DOCVALUE_CONTEXT_JSON,
                             JSON_MAPPER.writeValueAsString(docCtx));
                 }
             }
-            if (enableKeywordSniff) {
+            if (props.isKeywordSniff()) {
                 Map<String, String> fieldsCtx = state.getFieldContext().getFetchFieldsContext();
                 if (fieldsCtx != null && !fieldsCtx.isEmpty()) {
                     nodeProps.put(PROP_FIELDS_CONTEXT_JSON,
@@ -269,23 +261,16 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         Map<String, String> column2typeMap = Collections.emptyMap();
 
         if (state.getFieldContext() != null) {
-            boolean enableKeywordSniff = Boolean.parseBoolean(properties.getOrDefault(
-                    EsConnectorProperties.KEYWORD_SNIFF,
-                    EsConnectorProperties.KEYWORD_SNIFF_DEFAULT));
-            if (enableKeywordSniff) {
+            if (props.isKeywordSniff()) {
                 fieldsContext = state.getFieldContext().getFetchFieldsContext();
             }
             needCompatDateFields = state.getFieldContext().getNeedCompatDateFields();
             column2typeMap = state.getFieldContext().getColumn2typeMap();
         }
 
-        boolean likePushDown = Boolean.parseBoolean(properties.getOrDefault(
-                EsConnectorProperties.LIKE_PUSH_DOWN,
-                EsConnectorProperties.LIKE_PUSH_DOWN_DEFAULT));
-
         return EsQueryDslBuilder.buildQueryDslWithResult(
                 filter.get(), fieldsContext, column2typeMap,
-                likePushDown, needCompatDateFields);
+                props.isLikePushDown(), needCompatDateFields);
     }
 
     private EsMetadataState fetchMetadataState(ConnectorSession session, EsTableHandle handle,
@@ -303,16 +288,9 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
             return cached;
         }
 
-        String mappingType = properties.getOrDefault(
-                EsConnectorProperties.MAPPING_TYPE, null);
-        boolean nodesDiscovery = Boolean.parseBoolean(properties.getOrDefault(
-                EsConnectorProperties.NODES_DISCOVERY,
-                EsConnectorProperties.NODES_DISCOVERY_DEFAULT));
-        String hostsStr = properties.getOrDefault(EsConnectorProperties.HOSTS, "");
-        String[] seeds = hostsStr.split(",");
-
         EsMetadataState state = new EsMetadataState(
-                indexName, mappingType, columnNames, nodesDiscovery, seeds);
+                indexName, props.getMappingType(), columnNames, props.isNodesDiscovery(),
+                props.getSeeds());
         EsMetadataFetcher fetcher = new EsMetadataFetcher(restClient, state, session);
         state = fetcher.fetch();
         memoizedState = state;
@@ -333,10 +311,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private int useDocValueScan(List<ConnectorColumnHandle> columns,
             EsMetadataState state) {
-        boolean enableDocValueScan = Boolean.parseBoolean(properties.getOrDefault(
-                EsConnectorProperties.DOC_VALUE_SCAN,
-                EsConnectorProperties.DOC_VALUE_SCAN_DEFAULT));
-        if (!enableDocValueScan || state.getFieldContext() == null) {
+        if (!props.isDocValuesMode() || state.getFieldContext() == null) {
             return 0;
         }
 
@@ -349,10 +324,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         // Gate 1: field count limit
-        int maxDocValueFields = Integer.parseInt(properties.getOrDefault(
-                EsConnectorProperties.MAX_DOCVALUE_FIELDS,
-                String.valueOf(EsConnectorProperties.MAX_DOCVALUE_FIELDS_DEFAULT)));
-        if (selectedFields.size() > maxDocValueFields) {
+        if (selectedFields.size() > props.getMaxDocValueFields()) {
             return 0;
         }
 

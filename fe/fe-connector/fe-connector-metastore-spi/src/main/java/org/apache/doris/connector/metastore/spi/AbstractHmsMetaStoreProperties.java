@@ -87,6 +87,15 @@ public abstract class AbstractHmsMetaStoreProperties extends AbstractMetaStorePr
             description = "The user name for the hive metastore service.")
     private String userName = "";
 
+    // The external hive-site.xml files a connector seeds as the HiveConf BASE before applying
+    // toHiveConfOverrides(). Declared here rather than read as a bare literal in each connector: both
+    // the paimon and the iceberg connector resolve this same key the same way, and it is an HMS-backend
+    // fact like every other field above. Note this does NOT remove it from toHiveConfOverrides()'s
+    // verbatim hive.* passthrough -- HiveConf keeps seeing it, exactly as before.
+    @ConnectorProperty(names = {"hive.conf.resources"}, required = false,
+            description = "Comma-separated hive-site.xml files to seed the HiveConf with.")
+    private String confResources = "";
+
     private final Map<String, String> storageHadoopConfig;
 
     protected AbstractHmsMetaStoreProperties(Map<String, String> raw, Map<String, String> storageHadoopConfig) {
@@ -134,6 +143,11 @@ public abstract class AbstractHmsMetaStoreProperties extends AbstractMetaStorePr
     @Override
     public String getUri() {
         return uri;
+    }
+
+    /** The {@code hive.conf.resources} file list; blank when the catalog names no external hive-site.xml. */
+    public String getConfResources() {
+        return confResources;
     }
 
     @Override
@@ -187,6 +201,11 @@ public abstract class AbstractHmsMetaStoreProperties extends AbstractMetaStorePr
         }
         // 5. Storage overlay (legacy buildHiveConfiguration + appendUserHadoopConfig). BEFORE kerberos.
         MetaStoreParseUtils.applyStorageConfig(storageHadoopConfig, raw, conf::put);
+        // Legacy copyIfPresent ignored an explicitly blank username. Do not let the raw Hadoop passthrough
+        // overwrite a hive-site.xml user with "" or feed createRemoteUser an invalid empty identity.
+        if (raw.containsKey("hadoop.username") && StringUtils.isBlank(raw.get("hadoop.username"))) {
+            conf.remove("hadoop.username");
+        }
         // 6. Kerberos-conditional metastore block (legacy initHadoopAuthenticator), LAST.
         if (StringUtils.isNotBlank(servicePrincipal)) {
             conf.put("hive.metastore.kerberos.principal", servicePrincipal);
@@ -197,7 +216,10 @@ public abstract class AbstractHmsMetaStoreProperties extends AbstractMetaStorePr
         boolean hdfsFallbackKerberos = !"simple".equalsIgnoreCase(hmsAuthType)
                 && !hmsKerberos
                 && "kerberos".equalsIgnoreCase(hdfsAuthType);
-        if (hmsKerberos || hdfsFallbackKerberos) {
+        if ("simple".equalsIgnoreCase(hmsAuthType)) {
+            // Canonical HMS auth must override a SASL value inherited from raw properties or hive-site.xml.
+            conf.put("hive.metastore.sasl.enabled", "false");
+        } else if (hmsKerberos || hdfsFallbackKerberos) {
             conf.put("hadoop.security.authentication", "kerberos");
             conf.put("hive.metastore.sasl.enabled", "true");
         }

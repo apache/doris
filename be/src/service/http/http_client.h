@@ -117,6 +117,17 @@ public:
         curl_easy_setopt(_curl, CURLOPT_TIMEOUT_MS, timeout_ms);
     }
 
+    // Register a callback that libcurl polls while the request is in flight: often while
+    // data is flowing, and about once per second when the connection is idle. Returning
+    // true aborts the transfer right away, so `execute()` fails instead of blocking until
+    // CURLOPT_TIMEOUT_MS expires.
+    //
+    // This is for callers that must be able to give up on a request which may never be
+    // answered, e.g. a background worker that is being stopped while the http service
+    // serving its request is going away. Must be called after init(), which resets all
+    // curl options. Passing an empty callback clears a previously registered one.
+    void set_abort_callback(std::function<bool()> callback);
+
     // used to get content length
     // return -1 as error
     Status get_content_length(uint64_t* length) const {
@@ -205,6 +216,7 @@ private:
     CURL* _curl = nullptr;
     using HttpCallback = std::function<bool(const void* data, size_t length)>;
     const HttpCallback* _callback = nullptr;
+    std::function<bool()> _abort_callback;
     char _error_buf[CURL_ERROR_SIZE];
     curl_slist* _header_list = nullptr;
     HttpMethod _method = GET;

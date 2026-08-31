@@ -159,7 +159,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     private void addRecycledTabletsForPartition(Set<Long> recycledTabletSet, Partition partition) {
-        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
             for (Tablet tablet : index.getTablets()) {
                 recycledTabletSet.add(tablet.getId());
             }
@@ -369,7 +369,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 if (dbInfo == null || !isExpireMinLatency(dbId, currentTimeMs)) {
                     continue;
                 }
-                eraseAllTables(dbInfo);
+                if (!eraseAllTables(dbInfo)) {
+                    continue;
+                }
                 idToDatabase.remove(dbId);
                 idToRecycleTime.remove(dbId);
 
@@ -390,11 +392,12 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         return (currentTimeMs - idToRecycleTime.get(id)) > minEraseLatency || FeConstants.runningUnitTest;
     }
 
-    private void eraseAllTables(RecycleDatabaseInfo dbInfo) {
+    private boolean eraseAllTables(RecycleDatabaseInfo dbInfo) {
         Database db = dbInfo.getDb();
         Set<String> tableNames = Sets.newHashSet(dbInfo.getTableNames());
         Set<Long> tableIds = Sets.newHashSet(dbInfo.getTableIds());
         long dbId = db.getId();
+        boolean allEraseTasksCreated = true;
         Iterator<Map.Entry<Long, RecycleTableInfo>> iterator = idToTable.entrySet().iterator();
         while (iterator.hasNext() && !tableNames.isEmpty()) {
             Map.Entry<Long, RecycleTableInfo> entry = iterator.next();
@@ -405,6 +408,13 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
 
             Table table = tableInfo.getTable();
+            try {
+                Env.getCurrentInternalCatalog().beforeEraseTable(dbId, table, false);
+            } catch (DdlException e) {
+                LOG.warn("failed to create erase task for table {} in db {}", table.getId(), dbId, e);
+                allEraseTasksCreated = false;
+                continue;
+            }
             if (table.isManagedTable()) {
                 Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
             }
@@ -420,6 +430,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             Env.getCurrentEnv().getEditLog().logEraseTable(table.getId());
             LOG.info("erase db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());
         }
+        return allEraseTasksCreated;
     }
 
     public void replayEraseDatabase(long dbId) {
@@ -463,15 +474,22 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             for (Long tableId : expiredIds) {
                 writeLock();
                 try {
-                    RecycleTableInfo tableInfo = idToTable.remove(tableId);
+                    RecycleTableInfo tableInfo = idToTable.get(tableId);
                     if (tableInfo == null) {
                         continue;
                     }
                     Table table = tableInfo.getTable();
+                    try {
+                        Env.getCurrentInternalCatalog().beforeEraseTable(tableInfo.dbId, table, false);
+                    } catch (DdlException e) {
+                        LOG.warn("failed to create erase task for table {}", tableId, e);
+                        continue;
+                    }
                     if (table.isManagedTable()) {
                         Env.getCurrentEnv().onEraseOlapTable(tableInfo.dbId, (OlapTable) table, false);
                     }
 
+                    idToTable.remove(tableId);
                     idToRecycleTime.remove(tableId);
 
                     dbIdTableNameToIds.computeIfPresent(Pair.of(tableInfo.getDbId(), table.getName()),
@@ -526,6 +544,12 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                     continue;
                 }
                 Table table = tableInfo.getTable();
+                try {
+                    Env.getCurrentInternalCatalog().beforeEraseTable(dbId, table, false);
+                } catch (DdlException e) {
+                    LOG.warn("failed to create erase task for table {}", tableId, e);
+                    continue;
+                }
                 if (table.isManagedTable()) {
                     Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
                 }
@@ -1024,8 +1048,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             // check if schema change
             Partition recoverPartition = recoverPartitionInfo.getPartition();
-            Set<Long> tableIndex = table.getIndexIdToMeta().keySet();
-            Set<Long> partitionIndex = recoverPartition.getMaterializedIndices(IndexExtState.ALL).stream()
+            Set<Long> tableIndex = table.getIndexIdToMeta(true).keySet();
+            Set<Long> partitionIndex = recoverPartition.getMaterializedIndices(IndexExtState.ALL, true).stream()
                     .map(i -> i.getId()).collect(Collectors.toSet());
             if (!tableIndex.equals(partitionIndex)) {
                 throw new DdlException("table's index not equal with partition's index. table's index=" + tableIndex
@@ -1225,6 +1249,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             if (tableInfo != null) {
                 long dbId = tableInfo.getDbId();
                 Table table = tableInfo.getTable();
+                Env.getCurrentInternalCatalog().beforeEraseTable(dbId, table, false);
                 if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
                     Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
                 }
@@ -1323,7 +1348,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             for (Partition partition : olapTable.getAllPartitions()) {
                 long partitionId = partition.getId();
                 TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
                     long indexId = index.getId();
                     int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                     for (Tablet tablet : index.getTablets()) {
@@ -1375,7 +1400,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             // storage medium should be got from RecyclePartitionInfo, not from olap table. because olap table
             // does not have this partition any more
             TStorageMedium medium = partitionInfo.getDataProperty().getStorageMedium();
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
                 long indexId = index.getId();
                 int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                 for (Tablet tablet : index.getTablets()) {

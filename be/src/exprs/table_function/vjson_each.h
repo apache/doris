@@ -69,4 +69,8 @@ private:
 using VJsonEachTableFn = VJsonEachTableFunction<false>;
 using VJsonEachTextTableFn = VJsonEachTableFunction<true>;
 
+/// Instantiated once in vjson_each.cpp; suppresses per-TU implicit instantiation.
+extern template class VJsonEachTableFunction<false>;
+extern template class VJsonEachTableFunction<true>;
+
 } // namespace doris

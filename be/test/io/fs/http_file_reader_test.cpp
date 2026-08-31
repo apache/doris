@@ -23,6 +23,7 @@
 #include <map>
 #include <string>
 
+#include "io/file_factory.h"
 #include "io/fs/file_reader.h"
 #include "service/http/ev_http_server.h"
 #include "service/http/http_channel.h"
@@ -32,6 +33,21 @@
 #include "util/slice.h"
 
 namespace doris::io {
+
+TEST(HttpFileReaderTest, ChunkResponseDisablesFileCache) {
+    FileSystemProperties properties;
+    properties.system_type = TFileType::FILE_HTTP;
+    properties.properties = {{"http.enable.chunk.response", "true"}};
+    FileDescription file_description;
+    file_description.path = "http://127.0.0.1/stream";
+    FileReaderOptions opts;
+    opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
+
+    auto reader = FileFactory::create_file_reader(properties, file_description, opts);
+
+    ASSERT_TRUE(reader.has_value()) << reader.error();
+    EXPECT_NE(std::dynamic_pointer_cast<HttpFileReader>(reader.value()), nullptr);
+}
 
 // Full file content served by the test handlers.
 static const std::string kFileContent = "0123456789abcdefghij"; // 20 bytes

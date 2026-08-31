@@ -100,6 +100,7 @@ import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.EmptyCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.commands.Redirect;
 import org.apache.doris.nereids.trees.plans.commands.SupportProfile;
@@ -182,6 +183,7 @@ public class StmtExecutor {
     private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
 
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
+    private static final String MASKED_STMT_FALLBACK = "/* masked statement unavailable */";
     public static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
     private static Set<String> blockSqlAstNames = Sets.newHashSet();
 
@@ -199,6 +201,7 @@ public class StmtExecutor {
 
     @Setter
     private volatile Coordinator coord = null;
+    private volatile Coordinator externalDmlAuditCoordinator = null;
     // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
     // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
     // is skipped.
@@ -349,6 +352,14 @@ public class StmtExecutor {
         builder.defaultCatalog(context.getCurrentCatalog().getName());
         builder.defaultDb(context.getDatabase());
         builder.workloadGroup(context.getWorkloadGroupName());
+        String queryBackendSelection = context.getBackendSelectionProfile().getQuerySummary();
+        if (queryBackendSelection != null) {
+            builder.queryBackendSelection(queryBackendSelection);
+        }
+        String loadBackendSelection = context.getBackendSelectionProfile().getLoadSummary();
+        if (loadBackendSelection != null) {
+            builder.loadBackendSelection(loadBackendSelection);
+        }
         builder.sqlStatement(originStmt == null ? "" : originStmt.originStmt);
         builder.isCached(isCached ? "Yes" : "No");
 
@@ -461,7 +472,8 @@ public class StmtExecutor {
 
         // this is a query stmt, but this non-master FE can not read, forward it to master
         if (isQuery() && !Env.getCurrentEnv().isMaster()
-                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries() || Config.force_forward_all_queries)) {
+                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries() || Config.force_forward_all_queries
+                        || context.getSessionVariable().isForceForwardAllQueries())) {
             return true;
         }
 
@@ -493,6 +505,18 @@ public class StmtExecutor {
      */
     public boolean hasForwardedToMaster() {
         return masterOpExecutor != null;
+    }
+
+    public void setExternalDmlAuditCoordinator(Coordinator coordinator) {
+        externalDmlAuditCoordinator = coordinator;
+    }
+
+    public Set<Long> getExternalDmlAuditBackendIds() {
+        if (masterOpExecutor != null) {
+            return masterOpExecutor.getAuditStatisticsBackendIds();
+        }
+        return externalDmlAuditCoordinator == null
+                ? Collections.emptySet() : externalDmlAuditCoordinator.getDispatchedBackendIdsForAudit();
     }
 
     public ShowResultSet getProxyShowResultSet() {
@@ -588,7 +612,7 @@ public class StmtExecutor {
         TUniqueId queryId = UniqueIdUtils.fastUniqueId();
         if (Config.enable_print_request_before_execution) {
             LOG.info("begin to execute query {} {}",
-                    DebugUtil.printId(queryId), originStmt == null ? "null" : originStmt.originStmt);
+                    DebugUtil.printId(queryId), getStmtForLoggingBeforeParse());
         }
         queryRetry(queryId);
     }
@@ -673,6 +697,7 @@ public class StmtExecutor {
     public void execute(TUniqueId queryId) throws Exception {
         SessionVariable sessionVariable = context.getSessionVariable();
         context.setEffectiveCloudCluster(null);
+        externalDmlAuditCoordinator = null;
         if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
             context.setReturnResultFromLocal(true);
         }
@@ -762,7 +787,7 @@ public class StmtExecutor {
 
     private void executeByNereids(TUniqueId queryId) throws Exception {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("Nereids start to execute query:\n {}", originStmt.originStmt);
+            LOG.debug("Nereids start to execute query:\n {}", getStmtForLoggingBeforeParse());
         }
         context.setQueryId(queryId);
         context.setStartTime();
@@ -843,15 +868,16 @@ public class StmtExecutor {
                 ((Command) logicalPlan).run(context, this);
             } catch (QueryStateException e) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
+                    LOG.debug("Command({}) process failed.", getStmtForLogging(originStmt.originStmt), e);
                 }
                 context.setState(e.getQueryState());
-                throw new NereidsException("Command(" + originStmt.originStmt + ") process failed",
+                throw new NereidsException("Command(" + getStmtForLogging(originStmt.originStmt)
+                        + ") process failed",
                         new AnalysisException(e.getMessage(), e));
             } catch (UserException e) {
                 // Return message to info client what happened.
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
+                    LOG.debug("Command({}) process failed.", getStmtForLogging(originStmt.originStmt), e);
                 }
                 if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getDetailMessage())) {
                     // For errors in SystemInfoService.NEED_REPLAN_ERRORS,
@@ -859,13 +885,15 @@ public class StmtExecutor {
                     throw e;
                 }
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-                throw new NereidsException("Command (" + originStmt.originStmt + ") process failed",
+                throw new NereidsException("Command (" + getStmtForLogging(originStmt.originStmt)
+                        + ") process failed",
                         new AnalysisException(e.getMessage(), e));
             } catch (Exception | Error e) {
                 // Maybe our bug
-                LOG.info("Command({}) process failed.", originStmt.originStmt, e);
+                LOG.info("Command({}) process failed.", getStmtForLogging(originStmt.originStmt), e);
                 context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
-                throw new NereidsException("Command (" + originStmt.originStmt + ") process failed.",
+                throw new NereidsException("Command (" + getStmtForLogging(originStmt.originStmt)
+                        + ") process failed.",
                         new AnalysisException(e.getMessage() == null ? e.toString() : e.getMessage(), e));
             }
         } else {
@@ -905,7 +933,7 @@ public class StmtExecutor {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                 checkBlockRulesByScan(planner);
             } catch (Exception e) {
-                LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
+                LOG.warn("Nereids plan query failed:\n{}", getStmtForLogging(originStmt.originStmt), e);
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
             profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
@@ -2401,6 +2429,55 @@ public class StmtExecutor {
             return originStmt.originStmt;
         }
         return "";
+    }
+
+    private String getStmtForLogging(String stmt) {
+        if (stmt == null) {
+            return stmt;
+        }
+        if (!(parsedStmt instanceof LogicalPlanAdapter)) {
+            return getStmtForLoggingBeforeParse(stmt);
+        }
+        // Internal export outfile tasks use an empty origin SQL, so audit masking must skip reparsing here.
+        if (stmt.isEmpty()) {
+            return stmt;
+        }
+        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        if (!(logicalPlan instanceof NeedAuditEncryption)) {
+            return stmt;
+        }
+        try {
+            return ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(stmt);
+        } catch (Exception e) {
+            // Logging must not leak plaintext or change command behavior when masking fails.
+            LOG.warn("failed to mask statement for FE logging", e);
+            return MASKED_STMT_FALLBACK;
+        }
+    }
+
+    private String getStmtForLoggingBeforeParse() {
+        return getStmtForLoggingBeforeParse(originStmt == null ? null : originStmt.originStmt);
+    }
+
+    private String getStmtForLoggingBeforeParse(String stmt) {
+        if (stmt == null) {
+            return null;
+        }
+        // Empty SQL cannot produce a valid parse tree for audit masking, so keep the original text.
+        if (stmt.isEmpty()) {
+            return stmt;
+        }
+        try {
+            LogicalPlan logicalPlan = new NereidsParser().parseSingle(stmt);
+            if (!(logicalPlan instanceof NeedAuditEncryption)) {
+                return stmt;
+            }
+            return ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(stmt);
+        } catch (Exception e) {
+            // Logging must fail closed before parsing so secrets never fall back to plaintext.
+            LOG.warn("failed to prepare masked statement for FE logging", e);
+            return MASKED_STMT_FALLBACK;
+        }
     }
 
     public List<ByteBuffer> getProxyQueryResultBufList() {

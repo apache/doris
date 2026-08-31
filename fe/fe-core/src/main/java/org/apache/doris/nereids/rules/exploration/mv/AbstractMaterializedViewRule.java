@@ -375,17 +375,20 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     // if mv can not offer any partition for query, query rewrite bail out to avoid cycle run
                     return rewriteResults;
                 }
-                boolean partitionNeedUnion = PartitionCompensator.needUnionRewrite(invalidPartitions, cascadesContext);
-                boolean canUnionRewrite = canUnionRewrite(queryPlan,
-                        (AsyncMaterializationContext) materializationContext, cascadesContext);
-                if (partitionNeedUnion && !canUnionRewrite) {
+                boolean needRemoveMvPartitions = !invalidPartitions.key().isEmpty();
+                boolean needBaseTableUnion = !invalidPartitions.value().isEmpty();
+                if (needBaseTableUnion && !canUnionRewrite(queryPlan,
+                        (AsyncMaterializationContext) materializationContext, cascadesContext)) {
                     materializationContext.recordFailReason(queryStructInfo,
                             "need compensate union all, but can not, because the query structInfo",
                             () -> String.format("mv partition info is %s, and the query plan is %s",
                                     mtmv.getMvPartitionInfo(), queryPlan.treeString()));
                     return rewriteResults;
                 }
-                if (partitionNeedUnion) {
+                if (needRemoveMvPartitions) {
+                    rewrittenPlan = rewrittenPlan.accept(new PartitionRemover(), invalidPartitions.key());
+                }
+                if (needBaseTableUnion) {
                     Pair<Plan, Boolean> planAndNeedAddFilterPair =
                             StructInfo.addFilterOnTableScan(queryPlan, invalidPartitions.value(), cascadesContext);
                     if (planAndNeedAddFilterPair == null) {
@@ -395,15 +398,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                         invalidPartitions, queryPlan.treeString()));
                         continue;
                     }
-                    if (invalidPartitions.value().isEmpty() || !planAndNeedAddFilterPair.value()) {
-                        // if invalid base table filter is empty or doesn't need to add filter on base table,
-                        // only need remove mv invalid partition
-                        rewrittenPlan = rewrittenPlan.accept(new PartitionRemover(), invalidPartitions.key());
-                    } else {
-                        // For rewrittenPlan which contains materialized view should remove invalid partition ids
-                        List<Plan> children = Lists.newArrayList(
-                                rewrittenPlan.accept(new PartitionRemover(), invalidPartitions.key()),
-                                planAndNeedAddFilterPair.key());
+                    if (planAndNeedAddFilterPair.value()) {
+                        List<Plan> children = Lists.newArrayList(rewrittenPlan, planAndNeedAddFilterPair.key());
                         // Union query materialized view and source table
                         rewrittenPlan = new LogicalUnion(Qualifier.ALL,
                                 queryPlan.getOutput().stream().map(NamedExpression.class::cast)
@@ -969,7 +965,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         for (Set<Slot> requireNullableSlots : requireNoNullableViewSlot) {
             shuttledRequireNoNullableViewSlot.add(
                     ExpressionUtils.shuttleExpressionWithLineage(new ArrayList<>(requireNullableSlots),
-                                    viewStructInfo.getTopPlan()).stream().map(Slot.class::cast)
+                                    viewStructInfo.getTopPlan()).stream()
+                            .filter(Slot.class::isInstance)
+                            .map(Slot.class::cast)
                             .collect(Collectors.toSet()));
         }
         return shuttledRequireNoNullableViewSlot;

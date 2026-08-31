@@ -31,13 +31,20 @@ jobs:
     name: "PR title checker"
     runs-on: ubuntu-latest
     steps:
-      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: actions/checkout@v2
-        with:
-          persist-credentials: false
-          submodules: recursive
       - name: Check Title
-        uses: ./.github/actions/action-pr-title
-        with:
-          regex: '\[([a-zA-Z0-9 \-_])+\]\(([a-zA-Z0-9 \-_])+\)(.*)'
-          github_token: ${{ github.token }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TITLE="$(jq -r '.pull_request.title // empty' "$GITHUB_EVENT_PATH")"
+          PR_NUM="$(jq -r '.pull_request.number // empty' "$GITHUB_EVENT_PATH")"
+          if [[ -z "${TITLE}" || -z "${PR_NUM}" ]]; then
+            echo "::error::Unable to read the pull request title from the event payload."
+            exit 1
+          fi
+          # Same regex as the previously used deepakputhraya/action-pr-title submodule.
+          if ! grep -qE '\[([a-zA-Z0-9 \-_])+\]\(([a-zA-Z0-9 \-_])+\)(.*)' <<< "${TITLE}"; then
+            echo "::error::PR title \"${TITLE}\" does not match the required pattern: [type](scope) description"
+            gh pr comment "${PR_NUM}" --body "PR title \`${TITLE}\` does not match the required pattern: \`[type](scope) description\`"
+            exit 1
+          fi

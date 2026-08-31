@@ -296,6 +296,8 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
         curl_slist_free_all(_header_list);
         _header_list = nullptr;
     }
+    // curl_easy_reset() dropped the progress callback options, so drop the functor too.
+    _abort_callback = nullptr;
     // set error_buf
     _error_buf[0] = 0;
     auto code = curl_easy_setopt(_curl, CURLOPT_ERRORBUFFER, _error_buf);
@@ -387,6 +389,26 @@ void HttpClient::set_method(HttpMethod method) {
     default:
         return;
     }
+}
+
+void HttpClient::set_abort_callback(std::function<bool()> callback) {
+    _abort_callback = std::move(callback);
+    if (!_abort_callback) {
+        curl_easy_setopt(_curl, CURLOPT_NOPROGRESS, 1L);
+        return;
+    }
+
+    curl_xferinfo_callback xferinfo = [](void* param, curl_off_t /*dltotal*/, curl_off_t /*dlnow*/,
+                                         curl_off_t /*ultotal*/, curl_off_t /*ulnow*/) -> int {
+        auto* client = (HttpClient*)param;
+        // A non-zero return value makes libcurl abort the transfer with
+        // CURLE_ABORTED_BY_CALLBACK.
+        return client->_abort_callback() ? 1 : 0;
+    };
+    curl_easy_setopt(_curl, CURLOPT_XFERINFOFUNCTION, xferinfo);
+    curl_easy_setopt(_curl, CURLOPT_XFERINFODATA, (void*)this);
+    // libcurl only calls the progress callback when the progress meter is enabled.
+    curl_easy_setopt(_curl, CURLOPT_NOPROGRESS, 0L);
 }
 
 void HttpClient::set_speed_limit() {

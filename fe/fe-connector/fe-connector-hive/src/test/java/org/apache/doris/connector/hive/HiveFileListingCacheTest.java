@@ -64,7 +64,9 @@ public class HiveFileListingCacheTest {
     private static final FileSystem FS = new FakeFileSystem();
 
     private static Map<String, String> props(String... kv) {
-        Map<String, String> m = new HashMap<>();
+        // Seeded with the metastore URI: HiveCatalogProperties.of() requires it, and this helper's callers are
+        // about the cache knobs, not about connectivity.
+        Map<String, String> m = HiveTestProperties.minimalMap();
         for (int i = 0; i < kv.length; i += 2) {
             m.put(kv[i], kv[i + 1]);
         }
@@ -76,7 +78,7 @@ public class HiveFileListingCacheTest {
     @Test
     public void listingIsCachedPerLocation() {
         CountingLister lister = new CountingLister();
-        HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap(), lister);
+        HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal(), lister);
 
         List<HiveFileStatus> a = cache.listDataFiles("db", "t", "loc1", FS);
         List<HiveFileStatus> b = cache.listDataFiles("db", "t", "loc1", FS);
@@ -92,7 +94,7 @@ public class HiveFileListingCacheTest {
     @Test
     public void keyIsScopedByDbTableAndLocation() {
         CountingLister lister = new CountingLister();
-        HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap(), lister);
+        HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal(), lister);
 
         // Same location string, different db / table. WHY: (db, table) must be part of the key so invalidateTable
         // can scope one table — and so two tables that happen to share a path never serve each other's listing.
@@ -107,7 +109,7 @@ public class HiveFileListingCacheTest {
     @Test
     public void invalidateTableDropsOnlyThatTablesEntries() {
         CountingLister lister = new CountingLister();
-        HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap(), lister);
+        HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal(), lister);
 
         cache.listDataFiles("db", "t1", "locA", FS);
         cache.listDataFiles("db", "t2", "locB", FS);
@@ -126,7 +128,7 @@ public class HiveFileListingCacheTest {
     @Test
     public void invalidateAllDropsEverything() {
         CountingLister lister = new CountingLister();
-        HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap(), lister);
+        HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal(), lister);
 
         cache.listDataFiles("db", "t1", "locA", FS);
         cache.listDataFiles("db", "t2", "locB", FS);
@@ -146,7 +148,7 @@ public class HiveFileListingCacheTest {
     public void listingFailureIsPropagatedAndNotCached() {
         CountingLister lister = new CountingLister();
         lister.error = new DorisConnectorException("boom");
-        HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap(), lister);
+        HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal(), lister);
 
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
                 () -> cache.listDataFiles("db", "t", "loc", FS));
@@ -167,7 +169,7 @@ public class HiveFileListingCacheTest {
     public void disablingViaPropsBypassesTheCache() {
         CountingLister lister = new CountingLister();
         HiveFileListingCache cache = new HiveFileListingCache(
-                props("meta.cache.hive.file.enable", "false"), lister);
+                HiveCatalogProperties.of(props("meta.cache.hive.file.enable", "false")), lister);
 
         cache.listDataFiles("db", "t", "loc", FS);
         cache.listDataFiles("db", "t", "loc", FS);
@@ -179,7 +181,7 @@ public class HiveFileListingCacheTest {
     public void legacyFileMetaCacheTtlZeroBypassesTheCache() {
         CountingLister lister = new CountingLister();
         HiveFileListingCache cache = new HiveFileListingCache(
-                props("file.meta.cache.ttl-second", "0"), lister);
+                HiveCatalogProperties.of(props("file.meta.cache.ttl-second", "0")), lister);
 
         cache.listDataFiles("db", "t", "loc", FS);
         cache.listDataFiles("db", "t", "loc", FS);
@@ -322,7 +324,7 @@ public class HiveFileListingCacheTest {
         // RED-against-literal-HEAD guarantee (today's non-recursive lister returns 1, not 3).
         String top = "file:///wh/db/t/dt=1";
         FakeFileSystem fs = new FakeFileSystem().withTree(recursiveTree(top));
-        HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap());
+        HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal());
 
         List<HiveFileStatus> files = cache.listDataFiles("db", "t", top, fs);
 
@@ -335,7 +337,7 @@ public class HiveFileListingCacheTest {
         // pins that the tag-1 vs tag-2 divergence is driven by the property, not hardcoded.
         String top = "file:///wh/db/t/dt=1";
         FakeFileSystem fs = new FakeFileSystem().withTree(recursiveTree(top));
-        HiveFileListingCache cache = new HiveFileListingCache(props("hive.recursive_directories", "false"));
+        HiveFileListingCache cache = new HiveFileListingCache(HiveCatalogProperties.of(props("hive.recursive_directories", "false")));
 
         List<HiveFileStatus> files = cache.listDataFiles("db", "t", top, fs);
 
@@ -414,11 +416,11 @@ public class HiveFileListingCacheTest {
     public void resolutionFailureThroughCacheFailsLoudAndIsNotCached() {
         // Drives the REAL production lister THROUGH the cache lookup with a forLocation failure. WHY (Rule 9): pins
         // that (1) a systemic storage-config failure propagates from listDataFiles as the loud plain
-        // DorisConnectorException — MetaCacheEntry's manual-miss load rethrows RuntimeException unwrapped, so the
+        // DorisConnectorException — MetaCache's manual-miss load rethrows RuntimeException unwrapped, so the
         // type survives the cache boundary — and NOT the skippable subtype; and (2) the failure leaves NO cache
         // entry. (2) kills the mutation "catch -> return emptyList" in the loader, which would cache a poisoned
         // empty listing and silently turn every later scan into 0 rows for the TTL.
-        HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap());
+        HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal());
         FakeFileSystem fs = new FakeFileSystem().failForLocation(new IOException("no StorageProperties for scheme"));
 
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
@@ -434,7 +436,7 @@ public class HiveFileListingCacheTest {
         // the listing genuinely fails. WHY (Rule 9): pins that the LOCAL per-directory failure keeps its distinct
         // skippable type (HiveDirectoryListingException, exactly what the scan's per-partition skip catches) across
         // the cache boundary, and leaves no cache entry either.
-        HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap());
+        HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal());
         FakeFileSystem fs = new FakeFileSystem().failList(new FileNotFoundException("Path does not exist"));
 
         Assertions.assertThrows(HiveDirectoryListingException.class,
@@ -451,9 +453,9 @@ public class HiveFileListingCacheTest {
         CountingLister lister = new CountingLister();
         lister.error = new HiveDirectoryListingException("dir gone", new IOException("boom"));
         lister.errorLocation = "loc/dt=1";
-        HiveScanPlanProvider provider = new HiveScanPlanProvider(null, Collections.emptyMap(),
+        HiveScanPlanProvider provider = new HiveScanPlanProvider(null, HiveTestProperties.minimal(),
                 new FakeConnectorContext(), new HiveReadTransactionManager(),
-                new HiveFileListingCache(Collections.emptyMap(), lister));
+                new HiveFileListingCache(HiveTestProperties.minimal(), lister));
 
         List<ConnectorScanRange> ranges = provider.planScan(new FakeSession(),
                 ConnectorScanRequest.builder(twoPartitionHandle(), Collections.<ConnectorColumnHandle>emptyList())
@@ -474,9 +476,9 @@ public class HiveFileListingCacheTest {
         // return an empty range list instead of throwing -> red.
         CountingLister lister = new CountingLister();
         lister.error = new DorisConnectorException("bad storage config");
-        HiveScanPlanProvider provider = new HiveScanPlanProvider(null, Collections.emptyMap(),
+        HiveScanPlanProvider provider = new HiveScanPlanProvider(null, HiveTestProperties.minimal(),
                 new FakeConnectorContext(), new HiveReadTransactionManager(),
-                new HiveFileListingCache(Collections.emptyMap(), lister));
+                new HiveFileListingCache(HiveTestProperties.minimal(), lister));
 
         Assertions.assertThrows(DorisConnectorException.class, () -> provider.planScan(new FakeSession(),
                 ConnectorScanRequest.builder(singlePartitionHandle(), Collections.<ConnectorColumnHandle>emptyList())
@@ -509,10 +511,10 @@ public class HiveFileListingCacheTest {
     @Test
     public void scanProviderServesRepeatedScansFromTheCache() {
         CountingLister lister = new CountingLister();
-        HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap(), lister);
+        HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal(), lister);
         // hmsClient is null: with pruned partitions on the handle the scan never calls the metastore.
         HiveScanPlanProvider provider = new HiveScanPlanProvider(
-                null, Collections.emptyMap(), new FakeConnectorContext(), new HiveReadTransactionManager(), cache);
+                null, HiveTestProperties.minimal(), new FakeConnectorContext(), new HiveReadTransactionManager(), cache);
 
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .inputFormat("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat")
@@ -544,11 +546,11 @@ public class HiveFileListingCacheTest {
     @Test
     public void estimateDataSizeIsServedFromTheCache() {
         CountingLister lister = new CountingLister();
-        HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap(), lister);
+        HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal(), lister);
         // The production 7-arg constructor injects the connector's shared cache; the sibling seams are unused for
         // a plain-hive handle, so dummy suppliers suffice.
         HiveConnectorMetadata md = new HiveConnectorMetadata(
-                null, Collections.emptyMap(), new FakeConnectorContext(),
+                null, HiveTestProperties.minimal(), new FakeConnectorContext(),
                 () -> null, () -> null, h -> null, cache);
 
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)

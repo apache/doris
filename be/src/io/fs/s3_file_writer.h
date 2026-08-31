@@ -26,9 +26,9 @@
 #include <string>
 
 #include "common/status.h"
+#include "cpp/obj-client/obj_storage_client.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/obj_storage_client.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_bufferpool.h"
 
@@ -60,22 +60,17 @@ public:
     size_t bytes_appended() const override { return _bytes_appended; }
     State state() const override { return _state; }
 
-    const std::vector<ObjectCompleteMultiPart>& completed_parts() const { return _completed_parts; }
+    const std::vector<ObjStorageCompletedPart>& completed_parts() const { return _completed_parts; }
 
     const std::string& key() const { return _obj_storage_path_opts.key; }
     const std::string& bucket() const { return _obj_storage_path_opts.bucket; }
-    std::string upload_id() const {
-        return _obj_storage_path_opts.upload_id.has_value()
-                       ? _obj_storage_path_opts.upload_id.value()
-                       : std::string();
-    }
+    std::string upload_id() const { return _upload_id; }
 
     Status close(bool non_block = false) override;
     Status try_finish_close() override;
 
 private:
     Status _close_impl();
-    Status _abort();
     [[nodiscard]] std::string _dump_completed_part() const;
     void _wait_until_finish(std::string_view task_name);
     Status _complete();
@@ -88,12 +83,13 @@ private:
     Status _submit_upload_buffer(const std::shared_ptr<FileBuffer>& buf);
     void _record_close_latency();
 
-    ObjectStoragePathOptions _obj_storage_path_opts;
+    ObjStoragePath _obj_storage_path_opts;
+    std::string _upload_id;
 
     // Current Part Num for CompletedPart
     int _cur_part_num = 1;
     std::mutex _completed_lock;
-    std::vector<ObjectCompleteMultiPart> _completed_parts;
+    std::vector<ObjStorageCompletedPart> _completed_parts;
 
     // **Attention** call add_count() before submitting buf to async thread pool
     bthread::CountdownEvent _countdown_event {0};

@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.adbc;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.spi.Connector;
-import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -42,27 +42,37 @@ public class AdbcConnector implements Connector {
 
     private static final Logger LOG = LogManager.getLogger(AdbcConnector.class);
 
-    private final Map<String, String> properties;
+    private final AdbcCatalogProperties props;
     private final ConnectorContext context;
     private final AdbcSchemaStrategy schemaStrategy = new AdbcSchemaStrategy();
     private final AdbcPartitionedReadSupport partitionedRead = new AdbcPartitionedReadSupport();
     private final AdbcDialectSelector dialectSelector;
+    private final CatalogMetaCache metaCache = new CatalogMetaCache();
     private final AdbcMetadataCache metadataCache;
 
     private volatile AdbcClient client;
     private volatile boolean closed;
 
+    /**
+     * Binding the properties here is what makes them checked on every path that builds a connector,
+     * including the ones no validator runs on -- a replayed edit log, a mirror loaded on first access.
+     * An invalid catalog then fails when it is built rather than serving a query with a property nobody
+     * could read.
+     */
     public AdbcConnector(Map<String, String> properties, ConnectorContext context) {
-        this.properties = properties;
+        this.props = AdbcCatalogProperties.of(properties);
         this.context = context;
         // Both read properties only; the driver is not touched here (see getOrCreateClient).
-        this.dialectSelector = new AdbcDialectSelector(properties);
-        this.metadataCache = new AdbcMetadataCache(properties);
+        this.dialectSelector = new AdbcDialectSelector(props.getSqlDialect());
+        // The raw map, because the cache knobs are the shared framework's keys rather than this
+        // connector's: CacheSpec owns their names, and mirroring them as fields here would give the
+        // validator and the reader two things to drift apart.
+        this.metadataCache = new AdbcMetadataCache(metaCache, props.getRaw());
     }
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new AdbcConnectorMetadata(getOrCreateClient(), schemaStrategy, properties,
+        return new AdbcConnectorMetadata(getOrCreateClient(), schemaStrategy,
                 () -> dialectSelector.select(this::getOrCreateClient), metadataCache);
     }
 
@@ -114,7 +124,7 @@ public class AdbcConnector implements Connector {
      */
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
-        return new AdbcScanPlanProvider(properties, resolveDriverPath(), dialectSelector,
+        return new AdbcScanPlanProvider(props, resolveDriverPath(), dialectSelector,
                 this::getOrCreateClient, partitionedRead);
     }
 
@@ -127,8 +137,7 @@ public class AdbcConnector implements Connector {
         // Checked here rather than through the context's own checksum service: that one resolves against
         // jdbc_drivers_dir and a .jar grammar, neither of which applies to an ADBC driver library.
         AdbcDriverPathResolver.checkChecksum(resolveDriverPath(),
-                properties.get(AdbcConnectorProperties.DRIVER_CHECKSUM),
-                properties.get(AdbcConnectorProperties.DRIVER_URL));
+                props.getDriverChecksum(), props.getDriverUrl());
         // Before the remote check, because a misspelled dialect is answerable without a source and its
         // error should not be preceded by a connection failure the user cannot act on.
         dialectSelector.validateConfiguredName();
@@ -156,41 +165,22 @@ public class AdbcConnector implements Connector {
             // AdbcClient already funnels every driver-side failure (any AdbcException, whatever its status)
             // into this one type, so catching it covers "the driver could not answer" in full.
             LOG.info("ADBC driver cannot report its current catalog, so the '{}' property is accepted"
-                            + " as written: {}", AdbcConnectorProperties.URI, e.toString());
+                            + " as written: {}", AdbcCatalogProperties.URI, e.toString());
             return;
         }
         if (currentCatalog != null && currentCatalog.isEmpty()) {
             throw new DorisConnectorException("The ADBC source reports no current catalog, so '"
-                    + AdbcConnectorProperties.URI + "' does not pin one. Name the remote catalog in the"
+                    + AdbcCatalogProperties.URI + "' does not pin one. Name the remote catalog in the"
                     + " uri (for example postgresql://host:5432/mydb) or through a driver option, because"
                     + " a Doris catalog maps exactly one remote catalog.");
         }
     }
 
     private Path resolveDriverPath() {
-        Path driverPath = AdbcDriverPathResolver.resolve(
-                properties.get(AdbcConnectorProperties.DRIVER_URL),
-                driversDir(),
-                ConnectorConf.get(context, AdbcConnectorProperties.CONF_DRIVER_SECURE_PATH, null,
-                        AdbcConnectorProperties.DEFAULT_DRIVER_SECURE_PATH));
-        AdbcDriverPathResolver.checkExists(driverPath, properties.get(AdbcConnectorProperties.DRIVER_URL));
+        Path driverPath = AdbcDriverPathResolver.resolve(props.getDriverUrl(),
+                AdbcConf.driversDir(context), AdbcConf.driverSecurePath(context));
+        AdbcDriverPathResolver.checkExists(driverPath, props.getDriverUrl());
         return driverPath;
-    }
-
-    /**
-     * The directory a bare {@code driver_url} file name resolves under: adbc.conf's
-     * {@code drivers_dir}, else {@code <DORIS_HOME>/plugins/adbc_drivers}.
-     *
-     * <p>The default is computed here rather than declared as an fe.conf {@code @ConfField}, because a
-     * key in fe-core is an engine change per connector setting. Null when DORIS_HOME is unknown and the
-     * conf file says nothing -- {@link AdbcDriverPathResolver#resolve} then reports the bare name as
-     * unresolvable instead of quietly resolving it against the process working directory.
-     */
-    private String driversDir() {
-        String dorisHome = context.getEnvironment().get(AdbcConnectorProperties.ENV_DORIS_HOME);
-        String defaultDir = dorisHome == null
-                ? null : dorisHome + AdbcConnectorProperties.DEFAULT_DRIVERS_SUBDIR;
-        return ConnectorConf.get(context, AdbcConnectorProperties.CONF_DRIVERS_DIR, null, defaultDir);
     }
 
     private AdbcClient getOrCreateClient() {
@@ -210,12 +200,12 @@ public class AdbcConnector implements Connector {
                 // catalog, and its filesystem layout need not match the leader's, so resolving the driver
                 // here would let a missing file stop FE from starting.
                 client = new AdbcClient(resolveDriverPath(),
-                        properties.get(AdbcConnectorProperties.DRIVER_URL),
-                        properties.get(AdbcConnectorProperties.DRIVER_ENTRYPOINT),
-                        AdbcConnectorProperties.require(properties, AdbcConnectorProperties.URI),
-                        properties.get(AdbcConnectorProperties.USER),
-                        properties.get(AdbcConnectorProperties.PASSWORD),
-                        AdbcConnectorProperties.driverOptions(properties));
+                        props.getDriverUrl(),
+                        props.getDriverEntrypoint(),
+                        props.getUri(),
+                        props.getUser(),
+                        props.getPassword(),
+                        props.getDriverOptions());
             }
             return client;
         }
@@ -224,6 +214,7 @@ public class AdbcConnector implements Connector {
     @Override
     public synchronized void close() throws IOException {
         closed = true;
+        metaCache.close();
         if (client != null) {
             client.close();
             client = null;

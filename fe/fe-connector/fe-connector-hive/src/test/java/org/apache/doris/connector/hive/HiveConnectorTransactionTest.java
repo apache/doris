@@ -19,6 +19,7 @@ package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
+import org.apache.doris.connector.hms.HmsNotificationEvent;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsPartitionStatistics;
 import org.apache.doris.connector.hms.HmsPartitionWithStatistics;
@@ -117,13 +118,19 @@ public class HiveConnectorTransactionTest {
     }
 
     private static HmsTableInfo table(boolean partitioned, Map<String, String> params) {
+        return table(partitioned, params, 10, Collections.singletonList(col("c1", "int")));
+    }
+
+    private static HmsTableInfo table(boolean partitioned, Map<String, String> params,
+            int createTime, List<ConnectorColumn> columns) {
         return HmsTableInfo.builder()
                 .dbName(DB).tableName(TBL).tableType("MANAGED_TABLE")
+                .owner("owner").createTime(createTime)
                 .location("s3://bucket/db/t")
                 .inputFormat("org.apache.hadoop.mapred.TextInputFormat")
                 .outputFormat("org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat")
                 .serializationLib("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe")
-                .columns(Collections.singletonList(col("c1", "int")))
+                .columns(columns)
                 .partitionKeys(partitioned
                         ? Collections.singletonList(col("dt", "string"))
                         : Collections.emptyList())
@@ -253,6 +260,77 @@ public class HiveConnectorTransactionTest {
         client.table = table(false, Collections.emptyMap());
         HiveConnectorTransaction txn = newTxn(client);
         txn.beginWrite(null, DB, TBL, ctx(false)); // must not throw
+    }
+
+    @Test
+    public void testCommitRejectsSameShapeTableReplacementBeforePublishing() throws TException {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = table(false, Collections.emptyMap(), 10,
+                Collections.singletonList(col("c1", "int")));
+        client.currentNotificationEventId = 10;
+        RecordingObjStorage objStorage = new RecordingObjStorage();
+        HiveConnectorTransaction txn = newTxnWithFs(client, new RecordingObjFileSystem(objStorage));
+        txn.beginWrite(null, DB, TBL, ctx(false));
+        // A complete ownership record is required so this test reaches the generation fence instead of the
+        // earlier fail-closed multipart validation.
+        txn.addCommitData(serialize(puWithMpu("", TUpdateMode.APPEND, "s3://bucket/db/t",
+                "bucket", "db/t/f1", "upload-replaced", Collections.singletonMap(1, "etag-1"))));
+
+        // Recreate the table with every digest-visible field unchanged. Only the HMS event stream can
+        // distinguish this new object from the table whose schema and location were bound above.
+        client.table = table(false, Collections.emptyMap(), 10,
+                Collections.singletonList(col("c1", "int")));
+        client.notificationEvents = Arrays.asList(
+                event(11, "DROP_TABLE"), event(12, "CREATE_TABLE"));
+        client.currentNotificationEventId = 12;
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class, txn::commit);
+        Assertions.assertTrue(ex.getMessage().contains("metadata changed"));
+        Assertions.assertFalse(client.calls.contains("updateTableStatistics:" + DB + "." + TBL),
+                "a replacement must be detected before files or HMS statistics are published");
+    }
+
+    @Test
+    public void testCommitHoldsExclusiveTableLockThroughPublication() throws TException {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = table(false, Collections.emptyMap());
+        client.currentNotificationEventId = 10;
+        RecordingObjStorage objStorage = new RecordingObjStorage();
+        HiveConnectorTransaction txn = newTxnWithFs(client, new RecordingObjFileSystem(objStorage));
+        txn.beginWrite(null, DB, TBL, ctx(false));
+        // Keep multipart validation green so the assertion measures the lock around actual publication.
+        txn.addCommitData(serialize(puWithMpu("", TUpdateMode.APPEND, "s3://bucket/db/t",
+                "bucket", "db/t/f1", "upload-lock", Collections.singletonMap(1, "etag-1"))));
+
+        txn.commit();
+
+        int acquired = client.calls.indexOf("acquireExclusiveTableLock:" + DB + "." + TBL);
+        int published = client.calls.indexOf("updateTableStatistics:" + DB + "." + TBL);
+        int released = client.calls.indexOf("releaseLock:77");
+        Assertions.assertTrue(acquired >= 0 && acquired < published && published < released,
+                "the commit fence must cover every file/HMS publication action; calls=" + client.calls);
+    }
+
+    private static HmsNotificationEvent event(long id, String type) {
+        return new HmsNotificationEvent(id, type, DB, TBL, "{}", "json-0.2", 0);
+    }
+
+    @Test
+    public void testCommitRejectsPostPlanSchemaDdlBeforePublishing() throws TException {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = table(false, Collections.emptyMap(), 10,
+                Arrays.asList(col("a", "int"), col("b", "int")));
+        HiveConnectorTransaction txn = newTxn(client);
+        txn.beginWrite(null, DB, TBL, ctx(false));
+        txn.addCommitData(serialize(pu("", TUpdateMode.APPEND, "s3://bucket/db/t",
+                Collections.singletonList("f1"), 100, 4)));
+
+        client.table = table(false, Collections.emptyMap(), 10,
+                Arrays.asList(col("b", "int"), col("a", "int")));
+
+        Assertions.assertThrows(DorisConnectorException.class, txn::commit,
+                "a schema reorder after sink planning must abort before positional rows are published");
+        Assertions.assertFalse(client.calls.contains("updateTableStatistics:" + DB + "." + TBL));
     }
 
     // ─────────────────────────────── classification / NEW→APPEND downgrade ───────────────────────────────
@@ -387,6 +465,69 @@ public class HiveConnectorTransactionTest {
     }
 
     @Test
+    public void testCommitRejectsBaseBeObjectStoreUpdateWithoutPendingUpload() throws TException {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = table(false, Collections.emptyMap());
+        HiveConnectorTransaction txn = newTxn(client);
+        txn.beginWrite(null, DB, TBL, ctx(false));
+        // The base Azure BE reports the file but omits this field because initiation returned no upload ID.
+        txn.addCommitData(serialize(pu("", TUpdateMode.APPEND, "s3://bucket/db/t",
+                Collections.singletonList("base-be-file"), 100, 4)));
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class, txn::commit);
+
+        Assertions.assertTrue(ex.getMessage().contains("multipart completion"), ex.getMessage());
+        Assertions.assertFalse(client.calls.stream().anyMatch(c -> c.startsWith("updateTableStatistics")),
+                "metadata must remain unchanged when the object is still uncommitted");
+    }
+
+    @Test
+    public void testCommitValidationFailureAbortsEveryValidPendingUpload() throws TException {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = table(false, Collections.emptyMap());
+        RecordingObjStorage objStorage = new RecordingObjStorage();
+        HiveConnectorTransaction txn = newTxnWithFs(client, new RecordingObjFileSystem(objStorage));
+        txn.beginWrite(null, DB, TBL, ctx(false));
+        txn.addCommitData(serialize(puWithMpu("", TUpdateMode.APPEND, "s3://bucket/db/t",
+                "bucket", "db/t/valid", "upload-valid", Collections.singletonMap(1, "etag-1"))));
+        THivePartitionUpdate malformed = puWithMpu("", TUpdateMode.APPEND, "s3://bucket/db/t",
+                "bucket", "db/t/malformed", "upload-malformed", Collections.singletonMap(1, "etag-1"));
+        malformed.unsetLocation();
+        txn.addCommitData(serialize(malformed));
+        txn.addCommitData(serialize(pu("", TUpdateMode.APPEND, "s3://bucket/db/t",
+                Collections.singletonList("missing-completion"), 100, 4)));
+
+        Assertions.assertThrows(DorisConnectorException.class, txn::commit);
+
+        Assertions.assertEquals(Collections.singletonList("abort:s3://bucket/db/t/valid:upload-valid"),
+                objStorage.calls,
+                "a pre-committer validation failure must abort every valid provider upload it rejects");
+        Assertions.assertFalse(client.calls.stream().anyMatch(c -> c.startsWith("updateTableStatistics")),
+                "validation failure must not publish HMS metadata");
+    }
+
+    @Test
+    public void testCommitClassificationFailureAbortsPendingUpload() throws TException {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = table(false, Collections.emptyMap());
+        RecordingObjStorage objStorage = new RecordingObjStorage();
+        HiveConnectorTransaction txn = newTxnWithFs(client, new RecordingObjFileSystem(objStorage));
+        txn.beginWrite(null, DB, TBL, ctx(false));
+        txn.addCommitData(serialize(puWithMpu("", TUpdateMode.NEW, "s3://bucket/db/t",
+                "bucket", "db/t/unclassified", "upload-unclassified",
+                Collections.singletonMap(1, "etag-1"))));
+
+        Assertions.assertThrows(RuntimeException.class, txn::commit);
+
+        Assertions.assertEquals(
+                Collections.singletonList("abort:s3://bucket/db/t/unclassified:upload-unclassified"),
+                objStorage.calls,
+                "a classification failure before HmsCommitter creation must abort its provider upload");
+        Assertions.assertFalse(client.calls.stream().anyMatch(c -> c.startsWith("updateTableStatistics")),
+                "classification failure must not publish HMS metadata");
+    }
+
+    @Test
     public void testRollbackAbortsPendingMultipartUploads() throws TException {
         // rollback() is NOT a no-op for hive (D9): data files are staged before commit, so a rollback must
         // abort the in-flight object-store multipart uploads — otherwise they linger server-side (leaked /
@@ -430,15 +571,17 @@ public class HiveConnectorTransactionTest {
         // GAP-7: the 20-at-a-time batching moved INTO ThriftHmsClient.addPartitions, so the committer must
         // call addPartitions ONCE with the whole list (not re-batch it). GAP-4: the new partition's storage
         // descriptor (values/location/columns) is rebuilt from the table at commit time. A genuinely-new
-        // partition takes the ADD path; on FILE_S3 the write path == target path, so no rename/MPU runs and
-        // the object-store FileSystem is never resolved (hence newTxn, not newTxnWithFs).
+        // partition takes the ADD path; on FILE_S3 the write path == target path, so FE completes the deferred
+        // multipart upload before adding HMS metadata.
         RecordingHmsClient client = new RecordingHmsClient();
         client.table = table(true, Collections.emptyMap());
         client.partitionExistsResult = false;
-        HiveConnectorTransaction txn = newTxn(client);
+        RecordingObjStorage objStorage = new RecordingObjStorage();
+        HiveConnectorTransaction txn = newTxnWithFs(client, new RecordingObjFileSystem(objStorage));
         txn.beginWrite(null, DB, TBL, ctx(false));
-        txn.addCommitData(serialize(pu("dt=2024-01-01", TUpdateMode.NEW, "s3://bucket/db/t/dt=2024-01-01",
-                Collections.singletonList("f1"), 100, 4)));
+        txn.addCommitData(serialize(puWithMpu("dt=2024-01-01", TUpdateMode.NEW,
+                "s3://bucket/db/t/dt=2024-01-01", "bucket", "db/t/dt=2024-01-01/f1",
+                "upload-1", Collections.singletonMap(1, "etag-1"))));
 
         txn.commit();
         txn.close();
@@ -467,6 +610,8 @@ public class HiveConnectorTransactionTest {
         private HmsTableInfo table;
         private boolean partitionExistsResult;
         private List<HmsPartitionInfo> partitions = Collections.emptyList();
+        private long currentNotificationEventId;
+        private List<HmsNotificationEvent> notificationEvents = Collections.emptyList();
 
         @Override
         public List<String> listDatabases() {
@@ -547,6 +692,33 @@ public class HiveConnectorTransactionTest {
                 boolean deleteData) {
             calls.add("dropPartition:" + partitionValues + ":" + deleteData);
             return true;
+        }
+
+        @Override
+        public long getCurrentNotificationEventId() {
+            calls.add("getCurrentNotificationEventId:" + currentNotificationEventId);
+            return currentNotificationEventId;
+        }
+
+        @Override
+        public List<HmsNotificationEvent> getNextNotification(long lastEventId, int maxEvents) {
+            calls.add("getNextNotification:" + lastEventId);
+            return notificationEvents.stream()
+                    .filter(event -> event.getEventId() > lastEventId)
+                    .limit(maxEvents)
+                    .collect(Collectors.toList());
+        }
+
+        @Override
+        public long acquireExclusiveTableLock(String queryId, String user, String dbName,
+                String tableName, long timeoutMs) {
+            calls.add("acquireExclusiveTableLock:" + dbName + "." + tableName);
+            return 77;
+        }
+
+        @Override
+        public void releaseLock(long lockId) {
+            calls.add("releaseLock:" + lockId);
         }
 
         @Override

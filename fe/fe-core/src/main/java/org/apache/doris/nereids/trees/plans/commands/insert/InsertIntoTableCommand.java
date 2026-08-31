@@ -23,6 +23,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -259,6 +260,9 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         int retryTimes = 0;
         ctx.getStatementContext().setIsInsert(true);
         while (++retryTimes < Math.max(ctx.getSessionVariable().dmlPlanRetryTimes, 3)) {
+            // Each internal attempt must repin connector metadata; retaining the previous writer schema can
+            // plan defaults and partition fields against the table version that triggered the retry.
+            ctx.getStatementContext().resetConnectorStatementScope();
             TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             DatabaseIf<?> targetDatabase = getTargetDatabase(targetTableIf);
             // check auth
@@ -295,16 +299,21 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                 }
                 // put offset into executor
                 insertExecutor.setStreamUpdateInfos(infos);
-                insertExecutor.registerListener(new InsertExecutorListener() {
-                    @Override
-                    public void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor,
-                                               long jobId) throws Exception {
-                        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
-                                .getTransactionState(insertExecutor.getDatabase().getId(),
-                                        insertExecutor.getTxnId());
-                        transactionState.setStreamUpdateInfos(insertExecutor.getStreamUpdateInfos());
-                    }
-                });
+                if (Config.isCloudMode()) {
+                    checkCloudTableStreamTarget(ctx, insertExecutor, targetTableIf);
+                    checkCloudTableStreamPartitionLimit(infos);
+                } else {
+                    insertExecutor.registerListener(new InsertExecutorListener() {
+                        @Override
+                        public void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor,
+                                                   long jobId) throws Exception {
+                            TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                                    .getTransactionState(insertExecutor.getDatabase().getId(),
+                                            insertExecutor.getTxnId());
+                            transactionState.setStreamUpdateInfos(insertExecutor.getStreamUpdateInfos());
+                        }
+                    });
+                }
             }
 
             // lock after plan and check does table's schema changed to ensure we lock table order by id.
@@ -326,7 +335,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                     newestTargetTableIf.readUnlock();
                     continue;
                 }
-                if (!insertExecutor.isEmptyInsert()) {
+                if (insertExecutor.requiresTransaction()) {
                     insertExecutor.beginTransaction();
                     insertExecutor.finalizeSink(
                             buildResult.planner.getFragments().get(0), buildResult.dataSink,
@@ -348,10 +357,20 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             // so we need to set this here
             insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
             stmtExecutor.setCoord(insertExecutor.getCoordinator());
+            if (needsExternalDmlAuditBarrier(insertExecutor)) {
+                // The resolved executor is the invariant that distinguishes an external write;
+                // logical sink roots are rewritten and are not a stable audit classification.
+                stmtExecutor.setExternalDmlAuditCoordinator(insertExecutor.getCoordinator());
+            }
             return insertExecutor;
         }
         LOG.warn("insert plan failed {} times. query id is {}.", retryTimes, DebugUtil.printId(ctx.queryId()));
         throw new AnalysisException("Insert plan failed. Could not get target table lock.");
+    }
+
+    static boolean needsExternalDmlAuditBarrier(AbstractInsertExecutor insertExecutor) {
+        return insertExecutor instanceof BaseExternalTableInsertExecutor
+                || insertExecutor instanceof RemoteOlapInsertExecutor;
     }
 
     /**
@@ -393,6 +412,33 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             return planInsertExecutor(ctx, stmtExecutor, logicalPlanAdapter, targetTableIf);
         } finally {
             targetTableIf.readUnlock();
+        }
+    }
+
+    static void checkCloudTableStreamPartitionLimit(List<TableStreamUpdateInfo> infos) {
+        int partitionCount = infos.stream()
+                .map(TableStreamUpdateInfo::getUpdate)
+                .filter(CloudOlapTableStreamUpdate.class::isInstance)
+                .map(CloudOlapTableStreamUpdate.class::cast)
+                .mapToInt(update -> update.getPartitionUpdates().size())
+                .sum();
+        if (partitionCount > Config.cloud_table_stream_max_partitions_per_insert) {
+            throw new AnalysisException("Cloud Table Stream consumes " + partitionCount
+                    + " partitions, exceeding cloud_table_stream_max_partitions_per_insert="
+                    + Config.cloud_table_stream_max_partitions_per_insert
+                    + ". Use stream PARTITION (...) and consume it in batches.");
+        }
+    }
+
+    static void checkCloudTableStreamTarget(ConnectContext ctx, AbstractInsertExecutor insertExecutor,
+            TableIf targetTable) {
+        if (!(targetTable instanceof OlapTable) || ctx.isTxnModel() || ctx.isGroupCommit()
+                || !(insertExecutor instanceof OlapInsertExecutor)
+                || insertExecutor instanceof OlapTxnInsertExecutor
+                || insertExecutor instanceof OlapGroupCommitInsertExecutor
+                || insertExecutor instanceof RemoteOlapInsertExecutor) {
+            throw new AnalysisException("Cloud Table Stream consumption only supports a normal INSERT "
+                    + "into a local OLAP table");
         }
     }
 
@@ -642,8 +688,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
     private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
         AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
-        // if the insert stmt data source is empty, directly return, no need to be executed.
-        if (insertExecutor.isEmptyInsert()) {
+        // An empty Table Stream read still needs to commit its offset update atomically.
+        if (!insertExecutor.requiresTransaction()) {
             return;
         }
         if (insertExecutorListener != null) {
@@ -651,10 +697,6 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         }
         insertExecutor.executeSingleInsert(executor);
         LineageUtils.submitLineageEventIfNeeded(executor, lineagePlan, getLogicalQuery(), getClass());
-    }
-
-    public boolean isExternalTableSink() {
-        return !(getLogicalQuery() instanceof UnboundTableSink);
     }
 
     /**

@@ -127,7 +127,7 @@ public class HiveTableFormatDetectionTest {
 
     private Optional<ConnectorTableHandle> handleFor(HmsTableInfo tableInfo) {
         HiveConnectorMetadata metadata = new HiveConnectorMetadata(
-                new FakeHmsClient(tableInfo), Collections.emptyMap(), new FakeConnectorContext());
+                new FakeHmsClient(tableInfo), HiveTestProperties.minimal(), new FakeConnectorContext());
         return metadata.getTableHandle(null, "db", "t");
     }
 

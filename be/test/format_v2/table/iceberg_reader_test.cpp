@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -59,6 +60,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "exec/common/endian.h"
 #include "exec/scan/access_path_parser.h"
 #include "exprs/runtime_filter_expr.h"
@@ -1475,6 +1477,38 @@ TEST(IcebergV2ReaderTest, AnnotateBuildsTypedNestedInitialDefault) {
     EXPECT_EQ(value.get<TYPE_INT>(), 7);
 }
 
+TEST(IcebergV2ReaderTest, PreparesIcebergNonFiniteInitialDefaults) {
+    struct Case {
+        DataTypePtr type;
+        std::string value;
+        bool nan;
+        bool negative;
+    };
+    std::vector<Case> cases {{std::make_shared<DataTypeFloat32>(), "NaN", true, false},
+                             {std::make_shared<DataTypeFloat64>(), "Infinity", false, false},
+                             {std::make_shared<DataTypeFloat64>(), "-Infinity", false, true}};
+    for (const auto& test_case : cases) {
+        ColumnDefinition column;
+        column.name = "value";
+        column.type = test_case.type;
+        column.initial_default_value = test_case.value;
+        ASSERT_TRUE(iceberg::prepare_iceberg_initial_default_exprs(&column).ok());
+        ASSERT_NE(column.default_expr, nullptr);
+        const auto* literal = dynamic_cast<const VLiteral*>(column.default_expr->root().get());
+        ASSERT_NE(literal, nullptr);
+        Field value;
+        literal->get_column_ptr()->get(0, value);
+        const double number = test_case.type->get_primitive_type() == TYPE_FLOAT
+                                      ? value.get<TYPE_FLOAT>()
+                                      : value.get<TYPE_DOUBLE>();
+        EXPECT_EQ(std::isnan(number), test_case.nan);
+        if (!test_case.nan) {
+            EXPECT_TRUE(std::isinf(number));
+            EXPECT_EQ(std::signbit(number), test_case.negative);
+        }
+    }
+}
+
 TEST(IcebergV2ReaderTest, AnnotateBuildsComplexInitialDefaults) {
     const auto required_int_type = std::make_shared<DataTypeInt32>();
     const auto optional_string_type = make_nullable(std::make_shared<DataTypeString>());
@@ -2627,6 +2661,99 @@ TEST(IcebergV2ReaderTest, IcebergLegacyPlanKeepsAllFieldIdsMappingRule) {
               TableColumnMappingMode::BY_NAME);
 }
 
+TEST(IcebergV2ReaderTest, VariantFormatGateUsesPhysicalFileMappings) {
+    ColumnMapping missing_variant;
+    missing_variant.table_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    EXPECT_TRUE(doris::format::iceberg::IcebergTableReader::validate_variant_file_mappings(
+                        FileFormat::ORC, {missing_variant})
+                        .ok());
+
+    ColumnMapping physical_variant = missing_variant;
+    physical_variant.file_local_id = 0;
+    const auto orc_status =
+            doris::format::iceberg::IcebergTableReader::validate_variant_file_mappings(
+                    FileFormat::ORC, {physical_variant});
+    EXPECT_TRUE(orc_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << orc_status;
+    EXPECT_TRUE(doris::format::iceberg::IcebergTableReader::validate_variant_file_mappings(
+                        FileFormat::PARQUET, {physical_variant})
+                        .ok());
+
+    ColumnMapping projected_struct;
+    projected_struct.table_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {make_nullable(std::make_shared<DataTypeString>()),
+                       make_nullable(std::make_shared<DataTypeVariantV2>())},
+            Strings {"label", "payload"}));
+    projected_struct.file_local_id = 0;
+    ColumnMapping label;
+    label.table_type = make_nullable(std::make_shared<DataTypeString>());
+    label.file_local_id = 1;
+    projected_struct.child_mappings = {label, missing_variant};
+    EXPECT_TRUE(doris::format::iceberg::IcebergTableReader::validate_variant_file_mappings(
+                        FileFormat::ORC, {projected_struct})
+                        .ok());
+
+    projected_struct.child_mappings[1] = physical_variant;
+    const auto nested_orc_status =
+            doris::format::iceberg::IcebergTableReader::validate_variant_file_mappings(
+                    FileFormat::ORC, {projected_struct});
+    EXPECT_TRUE(nested_orc_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << nested_orc_status;
+}
+
+TEST(IcebergV2ReaderTest, OrcVariantCountWithPositionDeleteRequiresPhysicalReadSupport) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_orc_variant_count_position_delete_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.orc").string();
+    const auto delete_file_path = (test_dir / "position-delete.parquet").string();
+    write_single_int_orc_file(file_path, "payload", {1, 2, 3}, 0);
+    write_position_delete_parquet_file(delete_file_path, {file_path}, {1});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(
+            make_table_column(0, "payload", std::make_shared<DataTypeVariantV2>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_scan_params(FileFormat::ORC);
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::ORC,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                                    .push_down_count_columns = std::vector<GlobalIndex> {},
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_split_format = FileFormat::ORC;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_position_delete_file(delete_file_path)}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find("Iceberg Variant is supported only for Parquet files"),
+              std::string::npos)
+            << status;
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(IcebergV2ReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithPositionDelete) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_iceberg_aggregate_position_delete_test";
@@ -2658,6 +2785,7 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithPosition
                                     .runtime_state = &state,
                                     .scanner_profile = &profile,
                                     .push_down_agg_type = TPushAggOp::type::COUNT,
+                                    .push_down_count_columns = std::vector<GlobalIndex> {},
                             })
                         .ok());
 
@@ -2671,10 +2799,9 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithPosition
     bool eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
+    // COUNT(*) retains a non-semantic carrier column, so the row count verifies that position
+    // deletes forced a real scan without depending on placeholder carrier values.
     ASSERT_EQ(block.rows(), 2);
-    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
-    EXPECT_EQ(id_column.get_element(0), 1);
-    EXPECT_EQ(id_column.get_element(1), 3);
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);

@@ -90,6 +90,7 @@ import org.apache.doris.nereids.DorisParser.AddRollupClauseContext;
 import org.apache.doris.nereids.DorisParser.AdminCancelRebalanceDiskContext;
 import org.apache.doris.nereids.DorisParser.AdminCheckTabletsContext;
 import org.apache.doris.nereids.DorisParser.AdminCompactTableContext;
+import org.apache.doris.nereids.DorisParser.AdminCompactTabletContext;
 import org.apache.doris.nereids.DorisParser.AdminDiagnoseTabletContext;
 import org.apache.doris.nereids.DorisParser.AdminRebalanceDiskContext;
 import org.apache.doris.nereids.DorisParser.AdminRotateTdeRootKeyContext;
@@ -418,6 +419,7 @@ import org.apache.doris.nereids.DorisParser.ShowPartitionsContext;
 import org.apache.doris.nereids.DorisParser.ShowPluginsContext;
 import org.apache.doris.nereids.DorisParser.ShowPrivilegesContext;
 import org.apache.doris.nereids.DorisParser.ShowProcContext;
+import org.apache.doris.nereids.DorisParser.ShowProcedureStatusContext;
 import org.apache.doris.nereids.DorisParser.ShowProcessListContext;
 import org.apache.doris.nereids.DorisParser.ShowQueryProfileContext;
 import org.apache.doris.nereids.DorisParser.ShowQueryStatsContext;
@@ -521,7 +523,6 @@ import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintOrdered;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
-import org.apache.doris.nereids.properties.SelectHintUseCboRule;
 import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -633,6 +634,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminCancelRepairTableComma
 import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCleanTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCompactTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCopyTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCreateClusterSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminDropClusterSnapshotCommand;
@@ -855,6 +857,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcessListCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPythonPackagesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPythonVersionsCommand;
@@ -1763,15 +1766,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public ReplayCommand visitReplay(DorisParser.ReplayContext ctx) {
-        if (ctx.replayCommand().replayType().DUMP() != null) {
-            LogicalPlan plan = plan(ctx.replayCommand().replayType().query());
-            return new ReplayCommand(PlanType.REPLAY_COMMAND, null, plan, ReplayCommand.ReplayType.DUMP);
-        } else if (ctx.replayCommand().replayType().PLAY() != null) {
-            String tmpPath = ctx.replayCommand().replayType().filePath.getText();
-            String path = LogicalPlanBuilderAssistant.escapeBackSlash(tmpPath.substring(1, tmpPath.length() - 1));
-            return new ReplayCommand(PlanType.REPLAY_COMMAND, path, null, ReplayCommand.ReplayType.PLAY);
-        }
-        return null;
+        LogicalPlan plan = plan(ctx.replayCommand().replayType().query());
+        return new ReplayCommand(PlanType.REPLAY_COMMAND, plan);
     }
 
     @Override
@@ -1934,6 +1930,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             equalTo = new EqualTo(left, right);
         }
         return new AdminCompactTableCommand(tableRefInfo, equalTo);
+    }
+
+    @Override
+    public AdminCompactTabletCommand visitAdminCompactTablet(AdminCompactTabletContext ctx) {
+        String compactionType = stripQuotes(ctx.STRING_LITERAL().getText());
+        return new AdminCompactTabletCommand(Long.parseLong(ctx.tabletId.getText()), compactionType);
     }
 
     @Override
@@ -3199,8 +3201,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Only supported: " + Operator.ADD, ctx);
                 }
                 Interval interval = (Interval) left;
-                String funcOpName = String.format("%sS_ADD", interval.timeUnit());
-                return new UnboundFunction(funcOpName, ImmutableList.of(right, interval.value()));
+                return buildDateArithmetic(right, interval, "ADD");
             }
 
             if (right instanceof Interval) {
@@ -3213,8 +3214,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Only supported: " + Operator.ADD + " and " + Operator.SUBTRACT, ctx);
                 }
                 Interval interval = (Interval) right;
-                String funcOpName = String.format("%sS_%s", interval.timeUnit(), op);
-                return new UnboundFunction(funcOpName, ImmutableList.of(left, interval.value()));
+                return buildDateArithmetic(left, interval, op);
             }
 
             return ParserUtils.withOrigin(ctx, () -> {
@@ -3245,6 +3245,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             });
         });
+    }
+
+    private static UnboundFunction buildDateArithmetic(Expression date, Interval interval, String operation) {
+        return new UnboundFunction("DATE_" + operation, ImmutableList.of(date, interval));
     }
 
     @Override
@@ -4861,26 +4865,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         case "ordered":
                             hints.add(new SelectHintOrdered(hintName));
                             break;
-                        case "use_cbo_rule":
-                            List<String> useRuleParameters = new ArrayList<>();
-                            for (HintAssignmentContext kv : hintStatement.parameters) {
-                                if (kv.key != null) {
-                                    String parameterName = visitIdentifierOrText(kv.key);
-                                    useRuleParameters.add(parameterName);
-                                }
-                            }
-                            hints.add(new SelectHintUseCboRule(hintName, useRuleParameters, false));
-                            break;
-                        case "no_use_cbo_rule":
-                            List<String> noUseRuleParameters = new ArrayList<>();
-                            for (HintAssignmentContext kv : hintStatement.parameters) {
-                                String parameterName = visitIdentifierOrText(kv.key);
-                                if (kv.key != null) {
-                                    noUseRuleParameters.add(parameterName);
-                                }
-                            }
-                            hints.add(new SelectHintUseCboRule(hintName, noUseRuleParameters, true));
-                            break;
                         default:
                             break;
                     }
@@ -5756,6 +5740,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowProcedureStatus(ShowProcedureStatusContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> new ShowProcedureStatusCommand());
+    }
+
+    @Override
     public LogicalPlan visitShowConfig(ShowConfigContext ctx) {
         ShowConfigCommand command;
         if (ctx.type.getText().equalsIgnoreCase(NodeType.FRONTEND.name())) {
@@ -6459,6 +6448,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             indexType = "INVERTED";
         } else if (ctx.ANN() != null) {
             indexType = "ANN";
+        } else if (ctx.BLOOMFILTER() != null) {
+            indexType = "BLOOMFILTER";
         }
         String comment = ctx.STRING_LITERAL() == null ? "" : stripQuotes(ctx.STRING_LITERAL().getText());
         IndexDefinition indexDefinition = new IndexDefinition(indexName, ifNotExists, indexCols, indexType,
@@ -7835,12 +7826,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.sortClause() != null) {
             orderKeys = visit(ctx.sortClause().sortItem(), OrderKey.class);
         }
-        long limit = 0;
+        // -1 means the statement carries no LIMIT clause at all, which is not the same as an
+        // explicit LIMIT 0: the former returns every row, the latter returns none.
+        long limit = -1;
         long offset = 0;
         if (ctx.limitClause() != null) {
-            limit = ctx.limitClause().limit != null
-                    ? Long.parseLong(ctx.limitClause().limit.getText())
-                    : 0;
+            // every alternative of the limitClause rule binds `limit`, so it is never null here
+            limit = Long.parseLong(ctx.limitClause().limit.getText());
             if (limit < 0) {
                 throw new ParseException("Limit requires non-negative number", ctx.limitClause());
             }
@@ -8387,16 +8379,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             for (DorisParser.WorkloadPolicyActionContext actionCtx :
                     ctx.workloadPolicyActions().workloadPolicyAction()) {
                 try {
-                    if (actionCtx.SET_SESSION_VARIABLE() != null) {
-                        actions.add(new WorkloadActionMeta("SET_SESSION_VARIABLE",
-                                stripQuotes(actionCtx.STRING_LITERAL().getText())));
-                    } else {
-                        String identifier = actionCtx.identifier().getText();
-                        String value = actionCtx.STRING_LITERAL() != null
-                                ? stripQuotes(actionCtx.STRING_LITERAL().getText())
-                                : null;
-                        actions.add(new WorkloadActionMeta(identifier, value));
-                    }
+                    String identifier = actionCtx.identifier().getText();
+                    String value = actionCtx.STRING_LITERAL() != null
+                            ? stripQuotes(actionCtx.STRING_LITERAL().getText())
+                            : null;
+                    actions.add(new WorkloadActionMeta(identifier, value));
                 } catch (UserException e) {
                     throw new AnalysisException(e.getMessage(), e);
                 }
