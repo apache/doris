@@ -14,11 +14,11 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------filter(((cast(f.v as BIGINT) * 2) > sum(v) OVER(PARTITION BY k)))
+----------filter(((cast(v as BIGINT) * 2) > sum(v) OVER(PARTITION BY k)))
 ------------PhysicalWindow
 --------------PhysicalQuickSort[LOCAL_SORT]
-----------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->k
-------------------PhysicalOlapScan[fact(f)] apply RFs: RF0
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->[k]
+------------------PhysicalOlapScan[fact] apply RFs: RF0
 ------------------PhysicalProject
 --------------------filter((dim_unique.__DORIS_DELETE_SIGN__ = 0))
 ----------------------PhysicalOlapScan[dim_unique]
@@ -29,16 +29,16 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN colocated] hashCondition=((f2.k = d.k)) otherCondition=(((cast(f.v as BIGINT) * 2) > SUM(f2.v))) build RFs:RF1 k->k;RF2 k->k
-------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->k
---------------PhysicalOlapScan[fact(f)] apply RFs: RF0 RF2
+----------hashJoin[INNER_JOIN colocated] hashCondition=((f2.k = d.k)) otherCondition=(((cast(v as BIGINT) * 2) > SUM(f2.v))) build RFs:RF1 k->[k,k]
+------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->[k]
+--------------PhysicalOlapScan[fact] apply RFs: RF0 RF1
 --------------PhysicalProject
-----------------PhysicalOlapScan[dim(d)] apply RFs: RF1
+----------------PhysicalOlapScan[dim] apply RFs: RF1
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[fact(f2)]
+--------------------PhysicalOlapScan[fact]
 
 -- !shared_filter_above_window --
 30	5	3	8
@@ -49,11 +49,11 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------filter(((cast(f.v as BIGINT) * 2) > sum(v) OVER(PARTITION BY k)) and (f.v > 5))
+----------filter(((cast(v as BIGINT) * 2) > sum(v) OVER(PARTITION BY k)) and (f.v > 5))
 ------------PhysicalWindow
 --------------PhysicalQuickSort[LOCAL_SORT]
-----------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->k
-------------------PhysicalOlapScan[fact(f)] apply RFs: RF0
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->[k]
+------------------PhysicalOlapScan[fact] apply RFs: RF0
 ------------------PhysicalProject
 --------------------filter((dim_unique.__DORIS_DELETE_SIGN__ = 0))
 ----------------------PhysicalOlapScan[dim_unique]
@@ -67,11 +67,11 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------filter(((cast(f.v as BIGINT) * 2) > sum(v) OVER(PARTITION BY k)) and (f.v > d.tag))
+----------filter(((cast(v as BIGINT) * 2) > sum(v) OVER(PARTITION BY k)) and (f.v > d.tag))
 ------------PhysicalWindow
 --------------PhysicalQuickSort[LOCAL_SORT]
-----------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->k
-------------------PhysicalOlapScan[fact(f)] apply RFs: RF0
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->[k]
+------------------PhysicalOlapScan[fact] apply RFs: RF0
 ------------------PhysicalProject
 --------------------filter((dim_unique.__DORIS_DELETE_SIGN__ = 0))
 ----------------------PhysicalOlapScan[dim_unique]
@@ -86,12 +86,12 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------filter(((cast(f.v as BIGINT) * 2) > sum(v) OVER(PARTITION BY k)))
+----------filter(((cast(v as BIGINT) * 2) > sum(v) OVER(PARTITION BY k)))
 ------------PhysicalWindow
 --------------PhysicalQuickSort[LOCAL_SORT]
-----------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->k
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->[k]
 ------------------filter((f.v < 10))
---------------------PhysicalOlapScan[fact(f)] apply RFs: RF0
+--------------------PhysicalOlapScan[fact] apply RFs: RF0
 ------------------PhysicalProject
 --------------------filter((dim_unique.__DORIS_DELETE_SIGN__ = 0))
 ----------------------PhysicalOlapScan[dim_unique]
