@@ -330,6 +330,7 @@ public class HudiScanNode extends HiveScanNode {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(hudiSplit.getTableFormatType().value());
         THudiFileDesc fileDesc = new THudiFileDesc();
+        InternalSchema internalSchema = null;
         if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_JNI) {
             fileDesc.setInstantTime(hudiSplit.getInstantTime());
             fileDesc.setSerde(hudiSplit.getSerde());
@@ -347,23 +348,17 @@ public class HudiScanNode extends HiveScanNode {
             if (hudiSchemaCacheValue.isEnableSchemaEvolution()) {
                 long commitInstantTime = Long.parseLong(FSUtils.getCommitTime(
                         new File(hudiSplit.getPath().getNormalizedLocation()).getName()));
-                InternalSchema internalSchema = hudiSchemaCacheValue
+                internalSchema = hudiSchemaCacheValue
                         .getCommitInstantInternalSchema(hudiClient, commitInstantTime);
-                putHistorySchemaInfo(internalSchema); //for schema change. (native reader)
-                fileDesc.setSchemaId(internalSchema.schemaId());
             } else {
                 try {
                     TableSchemaResolver schemaUtil = new TableSchemaResolver(hudiClient);
-                    InternalSchema internalSchema =
-                            AvroInternalSchemaConverter.convert(schemaUtil.getTableAvroSchema(true));
-                    putHistorySchemaInfo(internalSchema); //Handle column name case for BE
-                    fileDesc.setSchemaId(internalSchema.schemaId());
+                    internalSchema = AvroInternalSchemaConverter.convert(schemaUtil.getTableAvroSchema(true));
                 } catch (Exception e) {
                     throw new RuntimeException("Cannot get hudi table schema.", e);
                 }
             }
         }
-        tableFormatFileDesc.setHudiParams(fileDesc);
         Map<String, String> partitionValues = hudiSplit.getHudiPartitionValues();
         if (partitionValues != null) {
             List<String> formPathKeys = new ArrayList<>();
@@ -378,6 +373,14 @@ public class HudiScanNode extends HiveScanNode {
             rangeDesc.setColumnsFromPath(parsedColumnsFromPath.getValues());
             rangeDesc.setColumnsFromPathIsNull(parsedColumnsFromPath.getIsNull());
         }
+        // Schema resolution may access the remote timeline after the initial scan-generation check.
+        // Reject the stale result before it is copied into shared query parameters or the range descriptor.
+        ensureHmsRuntimeGeneration();
+        if (internalSchema != null) {
+            putHistorySchemaInfo(internalSchema);
+            fileDesc.setSchemaId(internalSchema.schemaId());
+        }
+        tableFormatFileDesc.setHudiParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
