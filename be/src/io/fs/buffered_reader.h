@@ -425,12 +425,12 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
     enum class BufferStatus { RESET, PENDING, PREFETCHED, CLOSED };
 
     PrefetchBuffer(const PrefetchRange file_range, size_t buffer_size, size_t whole_buffer_size,
-                   io::FileReader* reader, std::shared_ptr<const IOContext> io_ctx,
+                   io::FileReaderSPtr reader, std::shared_ptr<const IOContext> io_ctx,
                    std::function<void(PrefetchBuffer&)> sync_profile)
             : _file_range(file_range),
               _size(buffer_size),
               _whole_buffer_size(whole_buffer_size),
-              _reader(reader),
+              _reader(std::move(reader)),
               _io_ctx_holder(std::move(io_ctx)),
               _io_ctx(_io_ctx_holder.get()),
               _sync_profile(std::move(sync_profile)) {}
@@ -441,7 +441,7 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
               _random_access_ranges(other._random_access_ranges),
               _size(other._size),
               _whole_buffer_size(other._whole_buffer_size),
-              _reader(other._reader),
+              _reader(std::move(other._reader)),
               _io_ctx_holder(std::move(other._io_ctx_holder)),
               _io_ctx(_io_ctx_holder.get()),
               _buf(std::move(other._buf)),
@@ -458,7 +458,7 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
     size_t _size {0};
     size_t _len {0};
     size_t _whole_buffer_size;
-    io::FileReader* _reader = nullptr;
+    io::FileReaderSPtr _reader;
     std::shared_ptr<const IOContext> _io_ctx_holder;
     const IOContext* _io_ctx = nullptr;
     vectorized::PODArray<char> _buf;
