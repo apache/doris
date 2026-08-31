@@ -28,7 +28,7 @@ every "indexed" query in test_lance_vector_search silently ran a flat KNN scan.
 The generated catalog contains:
   - __manifest            Directory Namespace V2 manifest table (with its scalar indexes).
   - all_types.lance       The pre-existing compatibility-mode root table, re-registered as-is.
-  - The `doris` namespace with one indexed vector table per cell of the
+  - The `doris` namespace with two full-text-search fixtures, one indexed vector table per cell of the
     algorithm x element type x metric matrix (hash-prefixed directories), listed in
     VECTOR_TABLES below; BREADTH_TABLE, one table carrying the remaining cells at plan
     level; and NESTED_TABLE, a nested-field scalar index fixture used by the SHOW INDEX /
@@ -445,6 +445,41 @@ NESTED_INDEX_NAME = "nested_label_btree"
 NESTED_COLUMN = "attributes.`child.with.dot`"
 NESTED_ROWS = 16
 
+# Full-text-search fixtures. full_text_search indexes both fragments. The partial table
+# deliberately appends its second fragment after index creation so Doris can exercise the
+# STRICT and INDEX_ONLY coverage modes against the same committed index segment.
+FTS_TABLE = "full_text_search"
+FTS_PARTIAL_TABLE = "full_text_search_partial"
+FTS_INDEX_NAME = "body_fts"
+FTS_PARTIAL_INDEX_NAME = "body_fts_partial"
+FTS_ROWS = (
+    (1, "Lance search", "lance search engine", "tech"),
+    (2, "Lance search twice", "lance lance search engine", "tech"),
+    (3, "Lance search three times", "lance lance lance search engine", "tech"),
+    (4, "Vector search", "vector search engine", "vector"),
+    (5, "Full text search", "full text search engine", "search"),
+    (6, "Doris lakehouse", "apache doris lakehouse", "database"),
+    (7, "Lance storage", "lance columnar storage format analytics", "storage"),
+    (8, "Unrelated", "unrelated document", "other"),
+)
+FTS_PARTIAL_ROWS = (
+    (101, "lance indexed document", "indexed"),
+    (102, "another lance indexed document", "indexed"),
+    (103, "unrelated indexed document", "indexed"),
+    (104, "lance appended after indexing", "unindexed"),
+    (105, "second lance appended after indexing", "unindexed"),
+)
+FTS_INDEX_PARAMS = {
+    "base_tokenizer": "simple",
+    "language": "English",
+    "max_token_length": 40,
+    "lower_case": True,
+    "stem": False,
+    "remove_stop_words": False,
+    "ascii_folding": False,
+    "with_position": True,
+}
+
 
 def buildable_combos():
     """Every (element type, metric, algorithm) cell the embedded Lance actually accepts.
@@ -697,6 +732,77 @@ def create_vector_table(namespace, table_name: str, spec: dict) -> str:
     return location
 
 
+def make_fts_table(rows, *, include_title: bool) -> pa.Table:
+    if include_title:
+        schema = pa.schema(
+            [
+                pa.field("row_id", pa.int64(), nullable=False),
+                pa.field("title", pa.string(), nullable=False),
+                pa.field("body", pa.string(), nullable=False),
+                pa.field("category", pa.string(), nullable=False),
+            ]
+        )
+        columns = list(zip(*rows))
+        return pa.Table.from_arrays(
+            [
+                pa.array(columns[0], type=pa.int64()),
+                pa.array(columns[1], type=pa.string()),
+                pa.array(columns[2], type=pa.string()),
+                pa.array(columns[3], type=pa.string()),
+            ],
+            schema=schema,
+        )
+
+    schema = pa.schema(
+        [
+            pa.field("row_id", pa.int64(), nullable=False),
+            pa.field("body", pa.string(), nullable=False),
+            pa.field("category", pa.string(), nullable=False),
+        ]
+    )
+    columns = list(zip(*rows))
+    return pa.Table.from_arrays(
+        [
+            pa.array(columns[0], type=pa.int64()),
+            pa.array(columns[1], type=pa.string()),
+            pa.array(columns[2], type=pa.string()),
+        ],
+        schema=schema,
+    )
+
+
+def create_fts_table(namespace, table_name: str, rows, *, indexed_rows: int,
+                     index_name: str, include_title: bool) -> str:
+    first = make_fts_table(rows[:indexed_rows], include_title=include_title)
+    buffer = io.BytesIO()
+    with ipc.new_stream(buffer, first.schema) as writer:
+        writer.write_table(first)
+    response = namespace.create_table(
+        CreateTableRequest(id=[NAMESPACE, table_name]), buffer.getvalue()
+    )
+    location = response.location
+    dataset = lance.dataset(location)
+    if table_name == FTS_TABLE:
+        # Make the fully indexed fixture cover two physical fragments.
+        lance.write_dataset(
+            make_fts_table(rows[indexed_rows:], include_title=include_title),
+            location,
+            mode="append",
+        )
+        dataset = lance.dataset(location)
+    dataset.create_scalar_index(
+        "body", "INVERTED", name=index_name, **FTS_INDEX_PARAMS
+    )
+    if table_name == FTS_PARTIAL_TABLE:
+        # Keep these rows outside the committed segment for coverage-mode tests.
+        lance.write_dataset(
+            make_fts_table(rows[indexed_rows:], include_title=include_title),
+            location,
+            mode="append",
+        )
+    return location
+
+
 def make_nested_fragment_table(row_offset_start: int, row_offset_end: int) -> pa.Table:
     offsets = list(range(row_offset_start, row_offset_end))
     attributes = pa.StructArray.from_arrays(
@@ -794,6 +900,22 @@ def build(root: Path, all_types_source: Path) -> None:
         RegisterTableRequest(id=["all_types"], location=ALL_TYPES_DIR)
     )
     namespace.create_namespace(CreateNamespaceRequest(id=[NAMESPACE]))
+    create_fts_table(
+        namespace,
+        FTS_TABLE,
+        FTS_ROWS,
+        indexed_rows=4,
+        index_name=FTS_INDEX_NAME,
+        include_title=True,
+    )
+    create_fts_table(
+        namespace,
+        FTS_PARTIAL_TABLE,
+        FTS_PARTIAL_ROWS,
+        indexed_rows=3,
+        index_name=FTS_PARTIAL_INDEX_NAME,
+        include_title=False,
+    )
     for table_name, spec in VECTOR_TABLES.items():
         location = create_vector_table(namespace, table_name, spec)
         # DirectoryNamespace.create_table_index exists but raises UnsupportedOperationError,
@@ -1431,11 +1553,43 @@ def check_nested_dataset(location: str):
     assert probe == [7], f"{NESTED_TABLE}: BTREE probe returned {probe}"
 
 
+def check_fts_dataset(location: str, *, table_name: str, index_name: str,
+                      expected_rows: int, expected_indexed_fragments: int) -> None:
+    dataset = lance.dataset(location)
+    assert dataset.count_rows() == expected_rows, (
+        f"{table_name}: expected {expected_rows} rows"
+    )
+    fragments = dataset.get_fragments()
+    assert len(fragments) == 2, f"{table_name}: expected 2 fragments"
+    indices = {index["name"]: index for index in dataset.list_indices()}
+    index = indices.get(index_name)
+    assert index is not None, f"{table_name}: missing FTS index {index_name}: {indices}"
+    assert index["type"] == "Inverted", (
+        f"{table_name}: {index_name} has type {index['type']}, expected Inverted"
+    )
+    indexed_fragments = set(index["fragment_ids"])
+    assert len(indexed_fragments) == expected_indexed_fragments, (
+        f"{table_name}: {index_name} covers fragments {sorted(indexed_fragments)}, expected "
+        f"{expected_indexed_fragments} fragments"
+    )
+    if table_name == FTS_TABLE:
+        ranked = dataset.scanner(
+            columns=["row_id", "_score"],
+            full_text_query={"query": "lance", "columns": ["body"]},
+            limit=4,
+        ).to_table()
+        assert ranked["row_id"].to_pylist() == [3, 2, 1, 7], (
+            f"{table_name}: indexed BM25 probe returned {ranked.to_pydict()}"
+        )
+
+
 def check_catalog(root: Path) -> None:
     check_data_shapes()
     namespace = lance_namespace.connect("dir", {"root": str(root)})
     tables = namespace.list_tables(ListTablesRequest(id=[NAMESPACE]))
-    expected_tables = sorted([*VECTOR_TABLES, BREADTH_TABLE, NESTED_TABLE])
+    expected_tables = sorted(
+        [*VECTOR_TABLES, BREADTH_TABLE, NESTED_TABLE, FTS_TABLE, FTS_PARTIAL_TABLE]
+    )
     assert sorted(tables.tables) == expected_tables, (
         f"unexpected {NAMESPACE} tables: {tables.tables}"
     )
@@ -1490,6 +1644,25 @@ def check_catalog(root: Path) -> None:
     nested_path = Path(nested.location.removeprefix("file://"))
     assert nested_path.is_dir(), f"{NESTED_TABLE} location missing: {nested.location}"
     check_nested_dataset(nested.location)
+
+    full_fts = namespace.describe_table(DescribeTableRequest(id=[NAMESPACE, FTS_TABLE]))
+    check_fts_dataset(
+        full_fts.location,
+        table_name=FTS_TABLE,
+        index_name=FTS_INDEX_NAME,
+        expected_rows=len(FTS_ROWS),
+        expected_indexed_fragments=2,
+    )
+    partial_fts = namespace.describe_table(
+        DescribeTableRequest(id=[NAMESPACE, FTS_PARTIAL_TABLE])
+    )
+    check_fts_dataset(
+        partial_fts.location,
+        table_name=FTS_PARTIAL_TABLE,
+        index_name=FTS_PARTIAL_INDEX_NAME,
+        expected_rows=len(FTS_PARTIAL_ROWS),
+        expected_indexed_fragments=1,
+    )
     print(f"self-check OK: {root}")
 
 

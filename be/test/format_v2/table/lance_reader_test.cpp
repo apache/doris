@@ -57,6 +57,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "exec/common/endian.h"
+#include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vdirect_in_predicate.h"
@@ -275,6 +276,74 @@ TFileScanRangeParams make_float32_vector_search_params(
     return scan_params;
 }
 
+TFileScanRangeParams make_full_text_search_params(
+        std::string query_text, int64_t top_k, int64_t offset,
+        TFtsCoverageMode::type coverage_mode = TFtsCoverageMode::STRICT,
+        std::optional<std::string> filter = std::nullopt) {
+    TFullTextSearchParams full_text_params;
+    full_text_params.__set_column("body");
+    full_text_params.__set_query(std::move(query_text));
+    full_text_params.__set_top_k(top_k);
+    full_text_params.__set_offset(offset);
+    full_text_params.__set_coverage_mode(coverage_mode);
+
+    TExternalSearchQuery query;
+    query.__set_full_text_search(std::move(full_text_params));
+    TExternalSearchRequest request;
+    request.__set_schema_version(1);
+    request.__set_search_query(std::move(query));
+    if (filter.has_value()) {
+        TSearchFilter search_filter;
+        search_filter.__set_format(TSearchFilterFormat::SQL);
+        search_filter.__set_payload(*filter);
+        request.__set_search_filter(std::move(search_filter));
+    }
+
+    TLanceScanParams lance_scan_params;
+    lance_scan_params.__set_external_search_request(std::move(request));
+    TFileScanRangeParams scan_params;
+    scan_params.__set_lance_scan_params(std::move(lance_scan_params));
+    return scan_params;
+}
+
+Status get_index_segment_uuids(const std::filesystem::path& dataset_uri, const char* index_name,
+                               std::vector<std::string>* encoded_uuids) {
+    std::unique_ptr<LanceDataset, decltype(&lance_dataset_close)> dataset(
+            lance_dataset_open(dataset_uri.c_str(), nullptr, 0), lance_dataset_close);
+    if (dataset == nullptr) {
+        return Status::InternalError("Failed to open Lance fixture: {}", dataset_uri.string());
+    }
+    const auto segment_count = lance_dataset_index_segment_count(dataset.get(), index_name);
+    if (segment_count == 0) {
+        return Status::InternalError("Lance fixture index '{}' has no segments", index_name);
+    }
+    std::vector<uint8_t> raw_uuids(segment_count * 16);
+    uint64_t actual_count = 0;
+    if (lance_dataset_index_segments(dataset.get(), index_name, raw_uuids.data(), segment_count,
+                                     &actual_count) != 0 ||
+        actual_count != segment_count) {
+        return Status::InternalError("Failed to enumerate Lance fixture index '{}' segments",
+                                     index_name);
+    }
+    encoded_uuids->clear();
+    encoded_uuids->reserve(segment_count);
+    for (size_t index = 0; index < segment_count; ++index) {
+        encoded_uuids->emplace_back(reinterpret_cast<const char*>(raw_uuids.data() + index * 16),
+                                    16);
+    }
+    return Status::OK();
+}
+
+TFileRangeDesc make_full_text_search_range(const std::filesystem::path& dataset_uri,
+                                           const LanceFixtureInfo& fixture,
+                                           const char* index_name) {
+    auto range = make_lance_range(dataset_uri, fixture.version, fixture.fragment_ids);
+    std::vector<std::string> segment_uuids;
+    EXPECT_TRUE(get_index_segment_uuids(dataset_uri, index_name, &segment_uuids).ok());
+    range.table_format_params.lance_params.__set_index_segment_uuids(std::move(segment_uuids));
+    return range;
+}
+
 TEST(LanceTableReaderVectorSearchTest, RejectsMalformedVectorPayloadBeforeReadingIt) {
     const Columns columns {
             projected_column("row_id", TYPE_BIGINT, false),
@@ -292,6 +361,133 @@ TEST(LanceTableReaderVectorSearchTest, RejectsMalformedVectorPayloadBeforeReadin
 
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("query vector byte size"), std::string::npos);
+}
+
+TEST(LanceTableReaderFullTextSearchTest, ValidatesRequestAndScoreTypeBeforeDatasetAccess) {
+    const Columns columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("_score", TYPE_FLOAT, true),
+    };
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile valid_profile("lance_fts_valid_request");
+    auto valid_params = make_full_text_search_params("lance", 4, 1);
+    LanceTableReader valid_reader;
+    ASSERT_TRUE(init_reader(&valid_reader, columns, &state, &valid_profile, &valid_params).ok());
+    ASSERT_NE(valid_profile.get_info_string("LanceSearchType"), nullptr);
+    EXPECT_EQ("FULL_TEXT", *valid_profile.get_info_string("LanceSearchType"));
+    ASSERT_NE(valid_profile.get_info_string("LanceFtsCoverageMode"), nullptr);
+    EXPECT_EQ("STRICT", *valid_profile.get_info_string("LanceFtsCoverageMode"));
+    ASSERT_NE(valid_profile.get_info_string("LanceTopKPlusOffset"), nullptr);
+    EXPECT_EQ("5", *valid_profile.get_info_string("LanceTopKPlusOffset"));
+
+    RuntimeProfile empty_query_profile("lance_fts_empty_query");
+    auto empty_query_params = make_full_text_search_params("", 4, 0);
+    LanceTableReader empty_query_reader;
+    const auto empty_query_status = init_reader(&empty_query_reader, columns, &state,
+                                                &empty_query_profile, &empty_query_params);
+    EXPECT_FALSE(empty_query_status.ok());
+    EXPECT_NE(empty_query_status.to_string().find("non-empty query"), std::string::npos);
+
+    RuntimeProfile coverage_profile("lance_fts_invalid_coverage");
+    auto invalid_coverage_params =
+            make_full_text_search_params("lance", 4, 0, static_cast<TFtsCoverageMode::type>(99));
+    LanceTableReader coverage_reader;
+    const auto coverage_status = init_reader(&coverage_reader, columns, &state, &coverage_profile,
+                                             &invalid_coverage_params);
+    EXPECT_FALSE(coverage_status.ok());
+    EXPECT_NE(coverage_status.to_string().find("STRICT or INDEX_ONLY"), std::string::npos);
+
+    const Columns wrong_score_columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("_score", TYPE_DOUBLE, true),
+    };
+    RuntimeProfile score_profile("lance_fts_invalid_score_type");
+    auto score_params = make_full_text_search_params("lance", 4, 0);
+    LanceTableReader score_reader;
+    const auto score_status =
+            init_reader(&score_reader, wrong_score_columns, &state, &score_profile, &score_params);
+    EXPECT_FALSE(score_status.ok());
+    EXPECT_NE(score_status.to_string().find("must have Doris FLOAT type"), std::string::npos);
+}
+
+std::vector<std::pair<int64_t, float>> read_full_text_search_rows(LanceTableReader* reader,
+                                                                  Block* block) {
+    std::vector<std::pair<int64_t, float>> rows;
+    bool eos = false;
+    while (!eos) {
+        EXPECT_TRUE(reader->get_block(block, &eos).ok());
+        if (eos) {
+            continue;
+        }
+        const auto& row_ids = assert_cast<const ColumnInt64&>(*block->get_by_position(0).column);
+        const auto& scores = assert_cast<const ColumnNullable&>(*block->get_by_position(1).column);
+        const auto& score_values = assert_cast<const ColumnFloat32&>(scores.get_nested_column());
+        for (size_t row = 0; row < block->rows(); ++row) {
+            EXPECT_EQ(0, scores.get_null_map_data()[row]);
+            rows.emplace_back(row_ids.get_data()[row], score_values.get_data()[row]);
+        }
+    }
+    return rows;
+}
+
+TEST(LanceTableReaderFullTextSearchTest, SearchesIndexedSnapshotWithOptionalScoreProjection) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/fts_indexed.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+    auto range = make_full_text_search_range(dataset_uri, fixture, "body_fts");
+
+    const Columns scored_columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("_score", TYPE_FLOAT, true),
+    };
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile scored_profile("lance_fts_indexed_fixture");
+    auto scored_params = make_full_text_search_params("lance", 4, 0);
+    LanceTableReader scored_reader;
+    ASSERT_TRUE(init_reader(&scored_reader, scored_columns, &state, &scored_profile, &scored_params)
+                        .ok());
+    ASSERT_TRUE(prepare_range(&scored_reader, range).ok());
+    Block scored_block;
+    add_output_columns(&scored_block, scored_columns);
+    const auto scored_rows = read_full_text_search_rows(&scored_reader, &scored_block);
+    ASSERT_EQ(4U, scored_rows.size());
+    EXPECT_EQ((std::vector<int64_t> {3, 2, 1, 7}),
+              (std::vector<int64_t> {scored_rows[0].first, scored_rows[1].first,
+                                     scored_rows[2].first, scored_rows[3].first}));
+    for (size_t index = 0; index < scored_rows.size(); ++index) {
+        EXPECT_GT(scored_rows[index].second, 0.0F);
+        if (index > 0) {
+            EXPECT_GT(scored_rows[index - 1].second, scored_rows[index].second);
+        }
+    }
+    EXPECT_TRUE(scored_reader.close().ok());
+
+    // Lance returns _score for ordering even when Doris does not materialize it. The reader must
+    // ignore that generated column while still rejecting any unexpected _rowid output.
+    const Columns row_id_columns {projected_column("row_id", TYPE_BIGINT, false)};
+    RuntimeProfile row_id_profile("lance_fts_without_score_projection_fixture");
+    auto row_id_params = make_full_text_search_params("lance", 2, 0);
+    LanceTableReader row_id_reader;
+    ASSERT_TRUE(init_reader(&row_id_reader, row_id_columns, &state, &row_id_profile, &row_id_params)
+                        .ok());
+    ASSERT_TRUE(prepare_range(&row_id_reader, range).ok());
+    Block row_id_block;
+    add_output_columns(&row_id_block, row_id_columns);
+    std::vector<int64_t> row_ids;
+    bool eos = false;
+    while (!eos) {
+        ASSERT_TRUE(row_id_reader.get_block(&row_id_block, &eos).ok());
+        if (!eos) {
+            const auto& values =
+                    assert_cast<const ColumnInt64&>(*row_id_block.get_by_position(0).column);
+            row_ids.insert(row_ids.end(), values.get_data().begin(), values.get_data().end());
+        }
+    }
+    EXPECT_EQ((std::vector<int64_t> {3, 2}), row_ids);
+    EXPECT_TRUE(row_id_reader.close().ok());
 }
 
 TEST(LanceTableReaderVectorSearchTest, RejectsMalformedIndexSegmentUuid) {

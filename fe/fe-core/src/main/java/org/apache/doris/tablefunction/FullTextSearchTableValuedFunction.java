@@ -24,6 +24,7 @@ import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TFtsCoverageMode;
 import org.apache.doris.thrift.TFullTextSearchParams;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -74,7 +75,8 @@ public class FullTextSearchTableValuedFunction extends LanceExternalSearchTableV
                 common, fieldId, searchRequest, SCORE_COLUMN, "full-text search");
     }
 
-    private static Field findStringField(LanceTableMetadata metadata, String column)
+    @VisibleForTesting
+    static Field findStringField(LanceTableMetadata metadata, String column)
             throws AnalysisException {
         Field match = null;
         for (Field field : metadata.getSchema().getFields()) {
@@ -98,7 +100,8 @@ public class FullTextSearchTableValuedFunction extends LanceExternalSearchTableV
         return match;
     }
 
-    private static TFtsCoverageMode parseCoverageMode(String value) throws AnalysisException {
+    @VisibleForTesting
+    static TFtsCoverageMode parseCoverageMode(String value) throws AnalysisException {
         switch (value.trim().toLowerCase(Locale.ROOT)) {
             case "strict":
                 return TFtsCoverageMode.STRICT;

@@ -29,6 +29,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
+#include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vbloom_predicate.h"

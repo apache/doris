@@ -1298,10 +1298,10 @@ index f8158d9..0fe31c4 100644
          // A non-zero sentinel proves the arm returns `$errval` verbatim.
 diff --git a/src/fts_query.rs b/src/fts_query.rs
 new file mode 100644
-index 0000000..cd194c7
+index 0000000..e85ed99
 --- /dev/null
 +++ b/src/fts_query.rs
-@@ -0,0 +1,324 @@
+@@ -0,0 +1,326 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -1358,6 +1358,7 @@ index 0000000..cd194c7
 +    pub(crate) query: FullTextSearchQuery,
 +    pub(crate) segments: Vec<IndexMetadata>,
 +    pub(crate) scorer: Arc<MemBM25Scorer>,
++    pub(crate) has_unindexed_fragments: bool,
 +}
 +
 +impl FtsQueryContextInner {
@@ -1520,6 +1521,7 @@ index 0000000..cd194c7
 +        query,
 +        segments,
 +        scorer,
++        has_unindexed_fragments: !unindexed_fragment_ids.is_empty(),
 +    })
 +}
 +
@@ -1855,10 +1857,10 @@ index ed9cfe1..4d54641 100644
  pub use index_model::*;
  pub use index_segment::*;
 diff --git a/src/scanner.rs b/src/scanner.rs
-index ef9d290..7110111 100644
+index ef9d290..f60f0c5 100644
 --- a/src/scanner.rs
 +++ b/src/scanner.rs
-@@ -6,28 +6,37 @@
+@@ -6,28 +6,34 @@
  use std::ffi::{c_char, c_void};
  use std::pin::Pin;
  use std::ptr;
@@ -1868,8 +1870,7 @@ index ef9d290..7110111 100644
  use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
  
  use arrow::ffi_stream::FFI_ArrowArrayStream;
--use arrow_schema::SchemaRef;
-+use arrow_schema::{Schema as ArrowSchema, SchemaRef};
+ use arrow_schema::SchemaRef;
 +use datafusion::physical_plan::ExecutionPlan;
  use futures::{FutureExt, Stream, StreamExt};
  use lance::Dataset;
@@ -1878,9 +1879,6 @@ index ef9d290..7110111 100644
  };
 +use lance::io::exec::fts::MatchQueryExec;
  use lance_core::Result;
-+use lance_datafusion::exec::{LanceExecutionOptions, get_session_context};
-+use lance_datafusion::planner::Planner;
-+use lance_datafusion::substrait::parse_substrait;
  use lance_index::scalar::FullTextSearchQuery;
  use lance_io::stream::RecordBatchStream;
 +use lance_table::format::IndexMetadata;
@@ -1900,7 +1898,7 @@ index ef9d290..7110111 100644
  };
  use crate::helpers;
  use crate::runtime::{RT, block_on};
-@@ -50,6 +59,7 @@ pub struct LanceScanner {
+@@ -50,6 +56,7 @@ pub struct LanceScanner {
      columns: Option<Vec<String>>,
      filter: Option<String>,
      substrait_filter: Option<Vec<u8>>,
@@ -1908,7 +1906,7 @@ index ef9d290..7110111 100644
      limit: Option<i64>,
      offset: Option<i64>,
      batch_size: Option<usize>,
-@@ -64,13 +74,20 @@ pub struct LanceScanner {
+@@ -64,13 +71,20 @@ pub struct LanceScanner {
      use_index: Option<bool>,
      prefilter: bool,
      fts_query: Option<FullTextSearchQuery>,
@@ -1930,7 +1928,7 @@ index ef9d290..7110111 100644
      scan_statistics_callback: Option<ExecutionStatsCallback>,
      scan_started: AtomicBool,
      // Materialized on first iteration call
-@@ -111,6 +128,7 @@ impl LanceScanner {
+@@ -111,6 +125,7 @@ impl LanceScanner {
              columns: None,
              filter: None,
              substrait_filter: None,
@@ -1938,7 +1936,7 @@ index ef9d290..7110111 100644
              limit: None,
              offset: None,
              batch_size: None,
-@@ -125,7 +143,10 @@ impl LanceScanner {
+@@ -125,7 +140,10 @@ impl LanceScanner {
              use_index: None,
              prefilter: false,
              fts_query: None,
@@ -1949,7 +1947,7 @@ index ef9d290..7110111 100644
              scan_statistics_callback: None,
              scan_started: AtomicBool::new(false),
              stream: None,
-@@ -161,86 +182,58 @@ impl LanceScanner {
+@@ -161,86 +179,91 @@ impl LanceScanner {
          Ok(())
      }
  
@@ -1980,13 +1978,35 @@ index ef9d290..7110111 100644
 -            return Err(lance_core::Error::invalid_input_source(
 -                "index_segments requires nearest() to be configured".into(),
 -            ));
--        }
++    /// Restrict an INDEX_ONLY prepared FTS scan to fragments covered by the
++    /// selected committed segments.  This is deliberately separate from
++    /// `fast_search`: that option is scanner-wide, changes unrelated scalar
++    /// index fallback behavior, and also forces `_rowid` into the output.
++    fn apply_prepared_fts_fragment_filter(
++        &self,
++        scanner: &mut lance::dataset::scanner::Scanner,
++        context: &FtsQueryContextInner,
++        segments: &[IndexMetadata],
++    ) -> Result<()> {
++        if !context.has_unindexed_fragments {
++            return Ok(());
+         }
 -        // Lance validates fragment-scoped nearest searches when nearest() is
 -        // configured. Such searches are supported when the fragment scan is
 -        // the input to a prefilter, so this flag must be set first.
 -        if self.prefilter {
 -            scanner.prefilter(true);
--        }
++
++        let mut selected_fragment_ids = std::collections::HashSet::new();
++        for segment in segments {
++            let fragment_bitmap = segment.fragment_bitmap.as_ref().ok_or_else(|| {
++                lance_core::Error::internal(format!(
++                    "prepared FTS segment {} lost its validated fragment coverage",
++                    segment.uuid
++                ))
++            })?;
++            selected_fragment_ids.extend(fragment_bitmap.iter());
+         }
 -        if let Some(n) = &self.nearest {
 -            scanner.nearest(&n.column, n.query.as_ref(), n.k as usize)?;
 -            if let Some(np) = self.nprobes {
@@ -2006,44 +2026,54 @@ index ef9d290..7110111 100644
 -            }
 -            if let Some(segments) = &self.index_segments {
 -                scanner.with_index_segments(segments.clone())?;
+-            }
++
++        let selected_fragments = self
++            .dataset
++            .get_fragments()
++            .into_iter()
++            .filter(|fragment| {
++                u32::try_from(fragment.id())
++                    .is_ok_and(|fragment_id| selected_fragment_ids.contains(&fragment_id))
++            })
++            .map(|fragment| fragment.metadata().clone())
++            .collect();
++        scanner.with_fragments(selected_fragments);
++        Ok(())
++    }
++
 +    fn apply_filter(&self, scanner: &mut lance::dataset::scanner::Scanner) -> Result<()> {
-+        if self.additional_sql_filters.is_empty() {
-+            if let Some(substrait) = &self.substrait_filter {
-+                scanner.filter_substrait(substrait)?;
-+            } else if let Some(sql) = &self.filter {
-+                scanner.filter(sql)?;
-             }
-+            return Ok(());
++        if let Some(substrait) = &self.substrait_filter {
++            scanner.filter_substrait(substrait)?;
++        } else if let Some(sql) = &self.filter {
++            scanner.filter(sql)?;
          }
 -        if let Some(fts) = &self.fts_query {
 -            scanner.full_text_search(fts.clone())?;
--        }
++
++        if self.additional_sql_filters.is_empty() {
++            return Ok(());
+         }
 -        if let Some(callback) = &self.scan_statistics_callback {
 -            scanner.scan_stats_callback(callback.clone());
 +
-+        let schema = Arc::new(ArrowSchema::from(self.dataset.schema()));
-+        let planner = Planner::new(Arc::clone(&schema));
-+        let mut combined = if let Some(substrait) = &self.substrait_filter {
-+            let context = get_session_context(&LanceExecutionOptions::default());
-+            Some(
-+                parse_substrait(substrait, schema, &context.state())
-+                    .now_or_never()
-+                    .expect("Substrait filter parsing must complete synchronously")?,
-+            )
-+        } else if let Some(sql) = &self.filter {
-+            Some(planner.parse_filter(sql)?)
-+        } else {
-+            None
-+        };
++        // Let Lance resolve every SQL expression against the scanner's full
++        // filterable schema. Besides stored columns, this includes metadata
++        // columns and query-generated columns such as _distance and _score.
++        let mut combined = scanner.get_expr_filter()?;
 +        for sql in &self.additional_sql_filters {
-+            let sql = planner.parse_filter(sql)?;
++            let mut additional_scanner = scanner.clone();
++            additional_scanner.filter(sql)?;
++            let additional = additional_scanner
++                .get_expr_filter()?
++                .expect("additional SQL filter exists");
 +            combined = Some(match combined {
-+                Some(existing) => existing.and(sql),
-+                None => sql,
++                Some(existing) => existing.and(additional),
++                None => additional,
 +            });
          }
 -        let stream = block_on(scanner.try_into_stream())?;
-+        scanner.filter_expr(planner.optimize_expr(combined.expect("additional filter exists"))?);
++        scanner.filter_expr(combined.expect("additional SQL filter exists"));
 +        Ok(())
 +    }
 +
@@ -2070,11 +2100,10 @@ index ef9d290..7110111 100644
 -        } else if let Some(filter) = &self.filter {
 -            scanner.filter(filter)?;
 -        }
-+        self.apply_filter(&mut scanner)?;
          if self.limit.is_some() || self.offset.is_some() {
              scanner.limit(self.limit, self.offset)?;
          }
-@@ -256,6 +249,16 @@ impl LanceScanner {
+@@ -256,6 +279,16 @@ impl LanceScanner {
                  "index_segments requires nearest() to be configured".into(),
              ));
          }
@@ -2091,18 +2120,15 @@ index ef9d290..7110111 100644
          // nearest() checks the current prefilter setting before accepting a
          // fragment-scoped search. Enable it before installing the query.
          if self.prefilter {
-@@ -285,11 +288,141 @@ impl LanceScanner {
+@@ -285,11 +318,139 @@ impl LanceScanner {
          if let Some(fts) = &self.fts_query {
              scanner.full_text_search(fts.clone())?;
          }
 +        let distributed_fts = if let Some(context) = &self.fts_context {
 +            context.validate_dataset_identity(&self.dataset)?;
 +            let segments = select_fts_segments(context, self.fts_index_segments.as_deref())?;
++            self.apply_prepared_fts_fragment_filter(&mut scanner, context, &segments)?;
 +            scanner.full_text_search(context.query.clone())?;
-+            // Both STRICT and INDEX_ONLY context scans must use only the
-+            // committed segments pinned in the context. In STRICT mode all
-+            // current fragments were already proven covered during prepare.
-+            scanner.fast_search();
 +            Some(PreparedFtsExecution {
 +                context: Arc::clone(context),
 +                segments,
@@ -2112,6 +2138,7 @@ index ef9d290..7110111 100644
 +        } else {
 +            None
 +        };
++        self.apply_filter(&mut scanner)?;
          if let Some(callback) = &self.scan_statistics_callback {
              scanner.scan_stats_callback(callback.clone());
          }
@@ -2234,7 +2261,7 @@ index ef9d290..7110111 100644
  }
  
  /// Type of a dynamically named scan metric.
-@@ -442,6 +575,26 @@ macro_rules! scanner_poison_check {
+@@ -442,6 +603,26 @@ macro_rules! scanner_poison_check {
      };
  }
  
@@ -2261,7 +2288,7 @@ index ef9d290..7110111 100644
  // ---------------------------------------------------------------------------
  // Scanner lifecycle + builder
  // ---------------------------------------------------------------------------
-@@ -486,7 +639,7 @@ unsafe fn scanner_new_inner(
+@@ -486,7 +667,7 @@ unsafe fn scanner_new_inner(
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn lance_scanner_set_limit(scanner: *mut LanceScanner, limit: i64) -> i32 {
      scanner_poison_check!(scanner, -1);
@@ -2270,7 +2297,7 @@ index ef9d290..7110111 100644
  }
  
  unsafe fn scanner_set_limit_inner(scanner: *mut LanceScanner, limit: i64) -> Result<i32> {
-@@ -504,7 +657,9 @@ unsafe fn scanner_set_limit_inner(scanner: *mut LanceScanner, limit: i64) -> Res
+@@ -504,7 +685,9 @@ unsafe fn scanner_set_limit_inner(scanner: *mut LanceScanner, limit: i64) -> Res
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn lance_scanner_set_offset(scanner: *mut LanceScanner, offset: i64) -> i32 {
      scanner_poison_check!(scanner, -1);
@@ -2281,7 +2308,7 @@ index ef9d290..7110111 100644
  }
  
  unsafe fn scanner_set_offset_inner(scanner: *mut LanceScanner, offset: i64) -> Result<i32> {
-@@ -525,10 +680,9 @@ pub unsafe extern "C" fn lance_scanner_set_batch_size(
+@@ -525,10 +708,9 @@ pub unsafe extern "C" fn lance_scanner_set_batch_size(
      batch_size: i64,
  ) -> i32 {
      scanner_poison_check!(scanner, -1);
@@ -2295,7 +2322,7 @@ index ef9d290..7110111 100644
  }
  
  unsafe fn scanner_set_batch_size_inner(scanner: *mut LanceScanner, batch_size: i64) -> Result<i32> {
-@@ -549,7 +703,9 @@ pub unsafe extern "C" fn lance_scanner_with_row_id(
+@@ -549,7 +731,9 @@ pub unsafe extern "C" fn lance_scanner_with_row_id(
      enable: bool,
  ) -> i32 {
      scanner_poison_check!(scanner, -1);
@@ -2306,7 +2333,7 @@ index ef9d290..7110111 100644
  }
  
  unsafe fn scanner_with_row_id_inner(scanner: *mut LanceScanner, enable: bool) -> Result<i32> {
-@@ -574,10 +730,9 @@ pub unsafe extern "C" fn lance_scanner_set_fragment_ids(
+@@ -574,10 +758,9 @@ pub unsafe extern "C" fn lance_scanner_set_fragment_ids(
      len: usize,
  ) -> i32 {
      scanner_poison_check!(scanner, -1);
@@ -2320,7 +2347,7 @@ index ef9d290..7110111 100644
  }
  
  unsafe fn scanner_set_fragment_ids_inner(
-@@ -631,10 +786,9 @@ pub unsafe extern "C" fn lance_scanner_set_substrait_filter(
+@@ -631,10 +814,9 @@ pub unsafe extern "C" fn lance_scanner_set_substrait_filter(
      len: usize,
  ) -> i32 {
      scanner_poison_check!(scanner, -1);
@@ -2334,7 +2361,7 @@ index ef9d290..7110111 100644
  }
  
  unsafe fn scanner_set_substrait_filter_inner(
-@@ -663,6 +817,50 @@ unsafe fn scanner_set_substrait_filter_inner(
+@@ -663,6 +845,50 @@ unsafe fn scanner_set_substrait_filter_inner(
      Ok(0)
  }
  
@@ -2385,7 +2412,7 @@ index ef9d290..7110111 100644
  /// Register a callback that receives execution statistics after the scan stream
  /// is fully consumed to EOF.
  ///
-@@ -693,10 +891,9 @@ pub unsafe extern "C" fn lance_scanner_set_statistics_callback(
+@@ -693,10 +919,9 @@ pub unsafe extern "C" fn lance_scanner_set_statistics_callback(
      callback_ctx: *mut c_void,
  ) -> i32 {
      scanner_poison_check!(scanner, -1);
@@ -2399,7 +2426,7 @@ index ef9d290..7110111 100644
  }
  
  unsafe fn scanner_set_statistics_callback_inner(
-@@ -734,6 +931,12 @@ unsafe fn scanner_set_statistics_callback_inner(
+@@ -734,6 +959,12 @@ unsafe fn scanner_set_statistics_callback_inner(
  
  /// Close and free a scanner handle.
  ///
@@ -2412,7 +2439,7 @@ index ef9d290..7110111 100644
  /// Best-effort (issue #61): this drops a possibly-live
  /// `DatasetRecordBatchStream`, the highest-risk `Drop` in this crate. A
  /// panic raised while dropping the handle is caught and logged rather than
-@@ -743,7 +946,9 @@ unsafe fn scanner_set_statistics_callback_inner(
+@@ -743,7 +974,9 @@ unsafe fn scanner_set_statistics_callback_inner(
  pub unsafe extern "C" fn lance_scanner_close(scanner: *mut LanceScanner) {
      if !scanner.is_null() {
          swallow_unwind("lance_scanner_close", || unsafe {
@@ -2423,7 +2450,7 @@ index ef9d290..7110111 100644
          });
      }
  }
-@@ -770,27 +975,30 @@ pub unsafe extern "C" fn lance_scanner_to_arrow_stream(
+@@ -770,27 +1003,30 @@ pub unsafe extern "C" fn lance_scanner_to_arrow_stream(
      scanner: *mut LanceScanner,
      out: *mut FFI_ArrowArrayStream,
  ) -> i32 {
@@ -2469,7 +2496,7 @@ index ef9d290..7110111 100644
          Err(payload) => {
              poisoned.store(true, Ordering::SeqCst);
              set_last_error(
-@@ -848,14 +1056,18 @@ pub unsafe extern "C" fn lance_scanner_next(
+@@ -848,14 +1084,18 @@ pub unsafe extern "C" fn lance_scanner_next(
      scanner: *mut LanceScanner,
      out: *mut *mut LanceBatch,
  ) -> i32 {
@@ -2493,7 +2520,7 @@ index ef9d290..7110111 100644
      let s = unsafe { &mut *scanner };
      let poisoned = s.poison_flag();
      match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
-@@ -919,16 +1131,22 @@ unsafe fn scanner_next_inner(s: &mut LanceScanner, out: *mut *mut LanceBatch) ->
+@@ -919,16 +1159,22 @@ unsafe fn scanner_next_inner(s: &mut LanceScanner, out: *mut *mut LanceBatch) ->
  /// Start an async scan. The callback is invoked on a dedicated dispatcher thread
  /// when the ArrowArrayStream is ready.
  ///
@@ -2521,7 +2548,7 @@ index ef9d290..7110111 100644
  /// A panic anywhere in call-time setup (validation, scanner building,
  /// runtime access, task spawn) is caught by the entry guard below and still
  /// reported through the callback: `(ctx, -1, NULL)` with `LANCE_ERR_PANIC`,
-@@ -939,9 +1157,13 @@ unsafe fn scanner_next_inner(s: &mut LanceScanner, out: *mut *mut LanceBatch) ->
+@@ -939,9 +1185,13 @@ unsafe fn scanner_next_inner(s: &mut LanceScanner, out: *mut *mut LanceBatch) ->
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn lance_scanner_scan_async(
      scanner: *const LanceScanner,
@@ -2536,7 +2563,7 @@ index ef9d290..7110111 100644
      unsafe {
          scan_async_guarded(scanner, callback, callback_ctx, |s, cb, ctx| {
              scan_async_setup(s, cb, ctx)
-@@ -1148,6 +1370,22 @@ unsafe fn scan_async_setup(
+@@ -1148,6 +1398,22 @@ unsafe fn scan_async_setup(
      });
  }
  
@@ -2559,7 +2586,7 @@ index ef9d290..7110111 100644
  // ---------------------------------------------------------------------------
  // Poll-based iteration (for cooperative async runtimes)
  // ---------------------------------------------------------------------------
-@@ -1155,9 +1393,13 @@ unsafe fn scan_async_setup(
+@@ -1155,9 +1421,13 @@ unsafe fn scan_async_setup(
  /// Poll for the next batch without blocking.
  ///
  /// - If data is already buffered, returns `LANCE_POLL_READY` immediately.
@@ -2574,7 +2601,7 @@ index ef9d290..7110111 100644
  ///
  /// The stream is lazily materialized on the first poll call (which will typically
  /// return PENDING while the stream opens).
-@@ -1168,18 +1410,26 @@ unsafe fn scan_async_setup(
+@@ -1168,18 +1438,26 @@ unsafe fn scan_async_setup(
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn lance_scanner_poll_next(
      scanner: *mut LanceScanner,
@@ -2607,7 +2634,7 @@ index ef9d290..7110111 100644
      let s = unsafe { &mut *scanner };
      let poisoned = s.poison_flag();
      match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
-@@ -1220,13 +1470,13 @@ unsafe fn scanner_poll_next_inner(
+@@ -1220,13 +1498,13 @@ unsafe fn scanner_poll_next_inner(
          return LancePollStatus::Error;
      }
  
@@ -2624,7 +2651,7 @@ index ef9d290..7110111 100644
      // Enter the Tokio runtime context so internal I/O futures can access
      // the reactor. Without this, polling from a non-Tokio thread panics.
      let _guard = RT.enter();
-@@ -1264,39 +1514,66 @@ unsafe fn scanner_poll_next_inner(
+@@ -1264,39 +1542,66 @@ unsafe fn scanner_poll_next_inner(
  struct CWakerContext {
      waker_fn: LanceWaker,
      ctx: *mut c_void,
@@ -2703,7 +2730,7 @@ index ef9d290..7110111 100644
              };
          },
      );
-@@ -1304,6 +1581,99 @@ fn make_raw_waker(waker_fn: LanceWaker, ctx: *mut c_void) -> RawWaker {
+@@ -1304,6 +1609,99 @@ fn make_raw_waker(waker_fn: LanceWaker, ctx: *mut c_void) -> RawWaker {
      RawWaker::new(data, &VTABLE)
  }
  
@@ -2803,7 +2830,7 @@ index ef9d290..7110111 100644
  // ---------------------------------------------------------------------------
  // Vector search (Phase 2): setter knobs
  // ---------------------------------------------------------------------------
-@@ -1313,7 +1683,8 @@ macro_rules! scanner_set_u32 {
+@@ -1313,7 +1711,8 @@ macro_rules! scanner_set_u32 {
          #[unsafe(no_mangle)]
          pub unsafe extern "C" fn $name(scanner: *mut LanceScanner, value: u32) -> i32 {
              scanner_poison_check!(scanner, -1);
@@ -2813,7 +2840,7 @@ index ef9d290..7110111 100644
                  (|| -> Result<i32> {
                      if scanner.is_null() {
                          return Err(lance_core::Error::invalid_input_source(
-@@ -1324,8 +1695,7 @@ macro_rules! scanner_set_u32 {
+@@ -1324,8 +1723,7 @@ macro_rules! scanner_set_u32 {
                          (*scanner).$field = Some(value);
                      }
                      Ok(0)
@@ -2823,7 +2850,7 @@ index ef9d290..7110111 100644
              )
          }
      };
-@@ -1338,7 +1708,9 @@ scanner_set_u32!(lance_scanner_set_ef, ef);
+@@ -1338,7 +1736,9 @@ scanner_set_u32!(lance_scanner_set_ef, ef);
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn lance_scanner_set_metric(scanner: *mut LanceScanner, metric: i32) -> i32 {
      scanner_poison_check!(scanner, -1);
@@ -2834,7 +2861,7 @@ index ef9d290..7110111 100644
  }
  
  unsafe fn scanner_set_metric_inner(scanner: *mut LanceScanner, metric: i32) -> Result<i32> {
-@@ -1370,7 +1742,9 @@ pub unsafe extern "C" fn lance_scanner_set_use_index(
+@@ -1370,7 +1770,9 @@ pub unsafe extern "C" fn lance_scanner_set_use_index(
      enable: bool,
  ) -> i32 {
      scanner_poison_check!(scanner, -1);
@@ -2845,7 +2872,7 @@ index ef9d290..7110111 100644
  }
  
  unsafe fn scanner_set_use_index_inner(scanner: *mut LanceScanner, enable: bool) -> Result<i32> {
-@@ -1391,7 +1765,9 @@ pub unsafe extern "C" fn lance_scanner_set_prefilter(
+@@ -1391,7 +1793,9 @@ pub unsafe extern "C" fn lance_scanner_set_prefilter(
      enable: bool,
  ) -> i32 {
      scanner_poison_check!(scanner, -1);
@@ -2856,7 +2883,7 @@ index ef9d290..7110111 100644
  }
  
  unsafe fn scanner_set_prefilter_inner(scanner: *mut LanceScanner, enable: bool) -> Result<i32> {
-@@ -1424,10 +1800,9 @@ pub unsafe extern "C" fn lance_scanner_set_index_segments(
+@@ -1424,10 +1828,9 @@ pub unsafe extern "C" fn lance_scanner_set_index_segments(
      len: usize,
  ) -> i32 {
      scanner_poison_check!(scanner, -1);
@@ -2870,7 +2897,7 @@ index ef9d290..7110111 100644
  }
  
  unsafe fn scanner_set_index_segments_inner(
-@@ -1485,10 +1860,9 @@ pub unsafe extern "C" fn lance_scanner_nearest(
+@@ -1485,10 +1888,9 @@ pub unsafe extern "C" fn lance_scanner_nearest(
      k: u32,
  ) -> i32 {
      scanner_poison_check!(scanner, -1);
@@ -2884,7 +2911,7 @@ index ef9d290..7110111 100644
  }
  
  unsafe fn scanner_nearest_inner(
-@@ -1510,9 +1884,9 @@ unsafe fn scanner_nearest_inner(
+@@ -1510,9 +1912,9 @@ unsafe fn scanner_nearest_inner(
          ));
      }
      let s = unsafe { &mut *scanner };
@@ -2896,7 +2923,7 @@ index ef9d290..7110111 100644
          ));
      }
      let column_str = unsafe { helpers::parse_c_string(column)? }.unwrap();
-@@ -1586,10 +1960,9 @@ pub unsafe extern "C" fn lance_scanner_full_text_search(
+@@ -1586,10 +1988,9 @@ pub unsafe extern "C" fn lance_scanner_full_text_search(
      max_fuzzy_distance: u32,
  ) -> i32 {
      scanner_poison_check!(scanner, -1);
@@ -2910,7 +2937,7 @@ index ef9d290..7110111 100644
  }
  
  unsafe fn fts_inner(
-@@ -1611,6 +1984,11 @@ unsafe fn fts_inner(
+@@ -1611,6 +2012,11 @@ unsafe fn fts_inner(
              "cannot call full_text_search after nearest; they are mutually exclusive".into(),
          ));
      }
@@ -2922,7 +2949,7 @@ index ef9d290..7110111 100644
  
      let query_str = unsafe { helpers::parse_c_string(query)? }
          .unwrap()
-@@ -1633,13 +2011,89 @@ unsafe fn fts_inner(
+@@ -1633,13 +2039,89 @@ unsafe fn fts_inner(
      Ok(0)
  }
  
@@ -3013,7 +3040,7 @@ index ef9d290..7110111 100644
  
      use arrow_array::{Int32Array, RecordBatch, StringArray};
      use arrow_schema::{DataType, Field, Schema};
-@@ -1706,6 +2160,198 @@ mod tests {
+@@ -1706,6 +2188,198 @@ mod tests {
  
      unsafe extern "C" fn noop_waker(_ctx: *mut c_void) {}
  
@@ -3212,7 +3239,7 @@ index ef9d290..7110111 100644
      #[test]
      fn poisoned_scanner_rejects_setters_with_panic_code() {
          let (_tmp, uri) = create_test_dataset();
-@@ -1745,12 +2391,17 @@ mod tests {
+@@ -1745,12 +2419,17 @@ mod tests {
          let (dataset, scanner) = open_dataset_and_scanner(&uri);
          poison(scanner);
  
@@ -3231,7 +3258,7 @@ index ef9d290..7110111 100644
          unsafe {
              lance_scanner_close(scanner);
              lance_dataset_close(dataset);
-@@ -1763,13 +2414,20 @@ mod tests {
+@@ -1763,13 +2442,20 @@ mod tests {
          let (dataset, scanner) = open_dataset_and_scanner(&uri);
          poison(scanner);
  
@@ -3255,7 +3282,7 @@ index ef9d290..7110111 100644
          unsafe {
              lance_scanner_close(scanner);
              lance_dataset_close(dataset);
-@@ -1809,7 +2467,7 @@ mod tests {
+@@ -1809,7 +2495,7 @@ mod tests {
          let (dataset, scanner) = open_dataset_and_scanner(&uri);
          poison(scanner);
  
@@ -3945,7 +3972,7 @@ index f4f418e..d785082 100644
 +    }
  }
 diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
-index daa7425..17dc6c6 100644
+index daa7425..f83b004 100644
 --- a/tests/c_api_test.rs
 +++ b/tests/c_api_test.rs
 @@ -993,7 +993,7 @@ fn test_scanner_scan_async() {
@@ -4057,7 +4084,7 @@ index daa7425..17dc6c6 100644
  #[test]
  fn test_index_segment_metadata_parse_rejects_malformed_and_dangerous_input() {
      use prost::Message;
-@@ -5543,6 +5600,431 @@ fn test_fts_fuzzy() {
+@@ -5543,6 +5600,509 @@ fn test_fts_fuzzy() {
      unsafe { lance_dataset_close(ds) };
  }
  
@@ -4141,6 +4168,84 @@ index daa7425..17dc6c6 100644
 +            .map(|segment| *segment.uuid.as_bytes())
 +            .collect()
 +    })
++}
++
++#[test]
++fn test_prepared_fts_row_id_output_is_explicit() {
++    let (_tmp, uri) = create_test_dataset();
++    let uri_c = c_str(&uri);
++    let column = c_str("name");
++    let query = c_str("alice");
++    let inverted_params = c_str(r#"{"base_tokenizer":"simple","language":"English"}"#);
++
++    let dataset = unsafe { lance_dataset_open(uri_c.as_ptr(), ptr::null(), 0) };
++    assert_eq!(
++        unsafe {
++            lance_dataset_create_scalar_index(
++                dataset,
++                column.as_ptr(),
++                ptr::null(),
++                LanceScalarIndexType::Inverted as i32,
++                inverted_params.as_ptr(),
++                false,
++            )
++        },
++        0
++    );
++    let context = unsafe {
++        lance_dataset_prepare_fts_query(
++            dataset,
++            column.as_ptr(),
++            query.as_ptr(),
++            0,
++            LanceFtsCoverageMode::Strict as i32,
++        )
++    };
++    assert!(!context.is_null(), "{}", unsafe {
++        std::ffi::CStr::from_ptr(lance_last_error_message()).to_string_lossy()
++    });
++
++    let id = c_str("id");
++    let columns = [id.as_ptr(), ptr::null()];
++    let scan_schema = |with_row_id: bool| {
++        let scanner = unsafe { lance_scanner_new(dataset, columns.as_ptr(), ptr::null()) };
++        assert!(!scanner.is_null());
++        if with_row_id {
++            assert_eq!(unsafe { lance_scanner_with_row_id(scanner, true) }, 0);
++        }
++        assert_eq!(
++            unsafe { lance_scanner_set_fts_query_context(scanner, context) },
++            0
++        );
++        let mut stream = FFI_ArrowArrayStream::empty();
++        assert_eq!(
++            unsafe { lance_scanner_to_arrow_stream(scanner, &mut stream) },
++            0,
++            "{}",
++            unsafe { std::ffi::CStr::from_ptr(lance_last_error_message()).to_string_lossy() }
++        );
++        let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut stream).unwrap() };
++        let schema = reader.schema();
++        let rows: usize = reader.map(|batch| batch.unwrap().num_rows()).sum();
++        assert!(rows > 0);
++        unsafe { lance_scanner_close(scanner) };
++        schema
++    };
++
++    let without_row_id = scan_schema(false);
++    assert_eq!(without_row_id.fields().len(), 2);
++    assert!(without_row_id.field_with_name("id").is_ok());
++    assert!(without_row_id.field_with_name("_score").is_ok());
++    assert!(without_row_id.field_with_name("_rowid").is_err());
++
++    let with_row_id = scan_schema(true);
++    assert_eq!(with_row_id.fields().len(), 3);
++    assert!(with_row_id.field_with_name("id").is_ok());
++    assert!(with_row_id.field_with_name("_score").is_ok());
++    assert!(with_row_id.field_with_name("_rowid").is_ok());
++
++    unsafe { lance_fts_query_context_close(context) };
++    unsafe { lance_dataset_close(dataset) };
 +}
 +
 +#[test]
@@ -4489,7 +4594,7 @@ index daa7425..17dc6c6 100644
  #[test]
  fn test_nearest_after_fts_is_rejected() {
      let (_tmp, uri) = create_vector_dataset(64, 8);
-@@ -6418,18 +6900,17 @@ fn test_scanner_with_substrait_filter() {
+@@ -6418,18 +6978,17 @@ fn test_scanner_with_substrait_filter() {
  
  #[test]
  fn test_scanner_substrait_filter_overrides_sql_filter() {
@@ -4510,7 +4615,7 @@ index daa7425..17dc6c6 100644
      let bytes = substrait_id_gt_3();
      let rc = unsafe { lance_scanner_set_substrait_filter(scanner, bytes.as_ptr(), bytes.len()) };
      assert_eq!(rc, 0);
-@@ -6446,6 +6927,81 @@ fn test_scanner_substrait_filter_overrides_sql_filter() {
+@@ -6446,6 +7005,210 @@ fn test_scanner_substrait_filter_overrides_sql_filter() {
      unsafe { lance_dataset_close(ds) };
  }
  
@@ -4545,6 +4650,135 @@ index daa7425..17dc6c6 100644
 +    let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut ffi_stream) }.unwrap();
 +    let total_rows: usize = reader.map(|r| r.unwrap().num_rows()).sum();
 +    assert_eq!(total_rows, 1, "id > 3 AND id < 6 AND id < 5 matches id=4");
++
++    unsafe { lance_scanner_close(scanner) };
++    unsafe { lance_dataset_close(ds) };
++}
++
++#[test]
++fn test_scanner_additional_sql_filter_preserves_metadata_primary_filter() {
++    let (_tmp, uri) = create_test_dataset();
++    let c_uri = c_str(&uri);
++    let ds = unsafe { lance_dataset_open(c_uri.as_ptr(), ptr::null(), 0) };
++    assert!(!ds.is_null());
++
++    let primary = c_str(
++        "_rowid IS NOT NULL AND _rowaddr IS NOT NULL \
++         AND _row_created_at_version IS NOT NULL \
++         AND _row_last_updated_at_version IS NOT NULL",
++    );
++    let scanner = unsafe { lance_scanner_new(ds, ptr::null(), primary.as_ptr()) };
++    assert!(!scanner.is_null());
++
++    let additional = c_str("id > 3");
++    assert_eq!(
++        unsafe { lance_scanner_additional_sql_filter(scanner, additional.as_ptr()) },
++        0
++    );
++
++    let mut ffi_stream = FFI_ArrowArrayStream::empty();
++    assert_eq!(
++        unsafe { lance_scanner_to_arrow_stream(scanner, &mut ffi_stream) },
++        0
++    );
++    let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut ffi_stream) }.unwrap();
++    let total_rows: usize = reader.map(|batch| batch.unwrap().num_rows()).sum();
++    assert_eq!(total_rows, 2, "metadata predicate AND id > 3");
++
++    unsafe { lance_scanner_close(scanner) };
++    unsafe { lance_dataset_close(ds) };
++}
++
++#[test]
++fn test_scanner_additional_sql_filter_preserves_distance_primary_filter() {
++    let (_tmp, uri) = create_vector_dataset(16, 8);
++    let c_uri = c_str(&uri);
++    let ds = unsafe { lance_dataset_open(c_uri.as_ptr(), ptr::null(), 0) };
++    assert!(!ds.is_null());
++
++    let primary = c_str("_distance IS NOT NULL");
++    let scanner = unsafe { lance_scanner_new(ds, ptr::null(), primary.as_ptr()) };
++    assert!(!scanner.is_null());
++    let query = [0.0_f32; 8];
++    let column = c_str("embedding");
++    assert_eq!(
++        unsafe {
++            lance_scanner_nearest(
++                scanner,
++                column.as_ptr(),
++                query.as_ptr().cast(),
++                query.len(),
++                LanceDataType::Float32 as i32,
++                16,
++            )
++        },
++        0
++    );
++    let additional = c_str("id < 3");
++    assert_eq!(
++        unsafe { lance_scanner_additional_sql_filter(scanner, additional.as_ptr()) },
++        0
++    );
++
++    let mut ffi_stream = FFI_ArrowArrayStream::empty();
++    assert_eq!(
++        unsafe { lance_scanner_to_arrow_stream(scanner, &mut ffi_stream) },
++        0
++    );
++    let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut ffi_stream) }.unwrap();
++    let total_rows: usize = reader.map(|batch| batch.unwrap().num_rows()).sum();
++    assert_eq!(total_rows, 3, "_distance predicate AND id < 3");
++
++    unsafe { lance_scanner_close(scanner) };
++    unsafe { lance_dataset_close(ds) };
++}
++
++#[test]
++fn test_scanner_additional_sql_filter_preserves_score_primary_filter() {
++    let (_tmp, uri) = create_test_dataset();
++    let c_uri = c_str(&uri);
++    let ds = unsafe { lance_dataset_open(c_uri.as_ptr(), ptr::null(), 0) };
++    assert!(!ds.is_null());
++
++    let column = c_str("name");
++    let inverted_params = c_str(r#"{"base_tokenizer":"simple","language":"English"}"#);
++    assert_eq!(
++        unsafe {
++            lance_dataset_create_scalar_index(
++                ds,
++                column.as_ptr(),
++                ptr::null(),
++                LanceScalarIndexType::Inverted as i32,
++                inverted_params.as_ptr(),
++                false,
++            )
++        },
++        0
++    );
++
++    let primary = c_str("_score IS NOT NULL");
++    let scanner = unsafe { lance_scanner_new(ds, ptr::null(), primary.as_ptr()) };
++    assert!(!scanner.is_null());
++    let query = c_str("alice");
++    let columns = [column.as_ptr(), ptr::null()];
++    assert_eq!(
++        unsafe { lance_scanner_full_text_search(scanner, query.as_ptr(), columns.as_ptr(), 0) },
++        0
++    );
++    let additional = c_str("id >= 1");
++    assert_eq!(
++        unsafe { lance_scanner_additional_sql_filter(scanner, additional.as_ptr()) },
++        0
++    );
++
++    let mut ffi_stream = FFI_ArrowArrayStream::empty();
++    assert_eq!(
++        unsafe { lance_scanner_to_arrow_stream(scanner, &mut ffi_stream) },
++        0
++    );
++    let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut ffi_stream) }.unwrap();
++    let total_rows: usize = reader.map(|batch| batch.unwrap().num_rows()).sum();
++    assert_eq!(total_rows, 1, "_score predicate AND id >= 1");
 +
 +    unsafe { lance_scanner_close(scanner) };
 +    unsafe { lance_dataset_close(ds) };
@@ -4592,7 +4826,7 @@ index daa7425..17dc6c6 100644
  #[test]
  fn test_scanner_set_substrait_filter_invalid_inputs() {
      let (_tmp, uri) = create_test_dataset();
-@@ -10388,8 +10944,8 @@ fn test_add_columns_nulls_released_schema_rejected() {
+@@ -10388,8 +11151,8 @@ fn test_add_columns_nulls_released_schema_rejected() {
  #[test]
  fn test_add_columns_nulls_non_utf8_format_rejected() {
      // A non-NULL but non-UTF-8 top-level `format` must be rejected at the FFI
