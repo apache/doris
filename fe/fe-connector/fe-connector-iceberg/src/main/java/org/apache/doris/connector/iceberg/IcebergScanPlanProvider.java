@@ -153,7 +153,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
     // FIX-M3 streaming (file-count) batch gate — keys byte-identical to fe-core SessionVariable.
     private static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
-    private static final String ENABLE_EXTERNAL_SCAN_TASK_REUSE = "enable_external_scan_task_reuse";
     static final String SCAN_REUSE_NAMESPACE = "iceberg.scan-reuse";
     private static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
     private static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
@@ -437,7 +436,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
         IcebergTableHandle icebergHandle = (IcebergTableHandle) request.getTableHandle();
         try {
-            if (!isExternalScanTaskReuseEnabled(session)) {
+            // The reuse key deliberately omits projected columns because they do not change Iceberg split
+            // planning. Reader compatibility still depends on whether metadata columns are requested, so
+            // validate every call before a cached range list can be returned.
+            validateMetadataColumnReader(session, request.getColumns());
+            if (session == null || !session.isExternalScanTaskReuseEnabled()) {
                 return planScanInternal(session, icebergHandle, request.getColumns(),
                         request.getFilter(), request.isCountPushdown());
             }
@@ -477,11 +480,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
             throw e;
         }
-    }
-
-    private static boolean isExternalScanTaskReuseEnabled(ConnectorSession session) {
-        return session != null && "true".equalsIgnoreCase(
-                session.getSessionProperties().get(ENABLE_EXTERNAL_SCAN_TASK_REUSE));
     }
 
     /**
@@ -743,7 +741,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter,
             boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
-        validateMetadataColumnReader(session, columns);
         if (iceHandle.isResolvedEmptySnapshot() && !isSnapshotIndependentSystemTable(iceHandle)) {
             // Iceberg has no snapshot id that can represent "before the first commit". Returning no ranges is
             // the read-side MVCC fence; otherwise a refreshed Table would turn -1 into "latest" and expose a

@@ -515,6 +515,30 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(1, first.size());
     }
 
+    @Test
+    public void statementReuseStillValidatesMetadataColumnReader() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider = providerOver(table);
+        ConnectorSession session = new FakeScanSession("UTC", Map.of(
+                "enable_external_scan_task_reuse", "true",
+                "force_jni_scanner", "true"))
+                .withScope(new TestStatementScope());
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+
+        provider.planScan(session, ConnectorScanRequest.builder(handle,
+                Collections.singletonList(new IcebergColumnHandle("id", 1))).build());
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planScan(session, ConnectorScanRequest.builder(handle,
+                        Collections.singletonList(new IcebergColumnHandle("_file", -1))).build()));
+        Assertions.assertEquals(
+                "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC reader; "
+                        + "actual reader is JNI",
+                ex.getMessage());
+    }
+
     private static ConnectorExpression equalIdFilter(long value) {
         return new ConnectorComparison(ConnectorComparison.Operator.EQ,
                 new ConnectorColumnRef("id", ConnectorType.of("INT")),
