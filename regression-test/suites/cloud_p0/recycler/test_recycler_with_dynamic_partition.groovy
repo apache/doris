@@ -17,6 +17,8 @@
 import java.text.SimpleDateFormat;
 
 suite("test_recycler_with_dynamic_partition") {
+    enableRecyclerCaseTimeout()
+
     def token = "greedisgood9999"
     def instanceId = context.config.instanceId;
     def cloudUniqueId = context.config.cloudUniqueId
