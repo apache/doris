@@ -80,8 +80,8 @@ exercise_semantic_fingerprints() {
     fingerprint_from_fixture "${first_fixture}" paimon first_paimon
     [[ "${first_arrow}" == "${ARROW_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT}" ]] ||
         fail "the Arrow legacy marker migration target is stale"
-    [[ "${first_paimon}" != "${PAIMON_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT}" ]] ||
-        fail "the dual-prefix Paimon build unexpectedly accepts the legacy root-prefix marker"
+    [[ "${first_paimon}" == "${PAIMON_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT}" ]] ||
+        fail "the Paimon legacy marker migration target is stale"
     fingerprint_from_fixture "${second_fixture}" arrow second_arrow
     fingerprint_from_fixture "${second_fixture}" paimon second_paimon
     [[ "${first_arrow}" == "${second_arrow}" ]] ||
@@ -155,25 +155,16 @@ create_archive() {
 
 arrow_source="arrow-apache-arrow-24.0.0"
 arrow_archive="apache-arrow-24.0.0.tar.gz"
-arrow_17_source="arrow-apache-arrow-17.0.0"
-arrow_17_archive="apache-arrow-17.0.0.tar.gz"
 paimon_source="doris-thirdparty-paimon-cpp-0a4f4e2"
-paimon_17_source="${paimon_source}-arrow-17"
 paimon_archive="paimon-cpp-0a4f4e2.tar.gz"
 
 create_archive "${arrow_source}" "${arrow_archive}" arrow
-create_archive "${arrow_17_source}" "${arrow_17_archive}" arrow17
 create_archive "${paimon_source}" "${paimon_archive}" paimon
 
 arrow_patches=(
     apache-arrow-24.0.0-paimon.patch
     apache-arrow-24.0.0-force-write-int96-timestamps.patch
     apache-arrow-24.0.0-lzo.patch
-)
-arrow_17_patches=(
-    apache-arrow-17.0.0-paimon.patch
-    apache-arrow-17.0.0-force-write-int96-timestamps.patch
-    apache-arrow-17.0.0-lzo.patch
 )
 paimon_patches=(
     paimon-cpp-buildutils-static-deps.patch
@@ -183,22 +174,16 @@ paimon_patches=(
 
 for index in 0 1 2; do
     create_patch "${harness}/patches/${arrow_patches[${index}]}" "arrow-$((index + 1)).txt"
-    create_patch "${harness}/patches/${arrow_17_patches[${index}]}" "arrow17-$((index + 1)).txt"
     create_patch "${harness}/patches/${paimon_patches[${index}]}" "paimon-$((index + 1)).txt"
 done
 
 arrow_md5="$(md5sum "${harness}/src/${arrow_archive}" | awk '{print $1}')"
-arrow_17_md5="$(md5sum "${harness}/src/${arrow_17_archive}" | awk '{print $1}')"
 paimon_md5="$(md5sum "${harness}/src/${paimon_archive}" | awk '{print $1}')"
 {
     printf 'TP_SOURCE_DIR="%s"\n' "${harness}/src"
     printf 'TP_INSTALL_DIR="%s"\n' "${harness}/installed"
     printf 'TP_PATCH_DIR="%s"\n' "${harness}/patches"
-    printf '%s\n' 'TP_ARCHIVES=(ARROW_17 ARROW PAIMON_CPP_17 PAIMON_CPP)'
-    printf 'ARROW_17_NAME="%s"\n' "${arrow_17_archive}"
-    printf 'ARROW_17_SOURCE="%s"\n' "${arrow_17_source}"
-    printf 'ARROW_17_MD5SUM="%s"\n' "${arrow_17_md5}"
-    printf '%s\n' 'ARROW_17_DOWNLOAD="unused"'
+    printf '%s\n' 'TP_ARCHIVES=(ARROW PAIMON_CPP)'
     printf 'ARROW_NAME="%s"\n' "${arrow_archive}"
     printf 'ARROW_SOURCE="%s"\n' "${arrow_source}"
     printf 'ARROW_MD5SUM="%s"\n' "${arrow_md5}"
@@ -207,13 +192,7 @@ paimon_md5="$(md5sum "${harness}/src/${paimon_archive}" | awk '{print $1}')"
     printf 'PAIMON_CPP_SOURCE="%s"\n' "${paimon_source}"
     printf 'PAIMON_CPP_MD5SUM="%s"\n' "${paimon_md5}"
     printf '%s\n' 'PAIMON_CPP_DOWNLOAD="unused"'
-    printf 'PAIMON_CPP_17_NAME="%s"\n' "${paimon_archive}"
-    printf 'PAIMON_CPP_17_ARCHIVE_SOURCE="%s"\n' "${paimon_source}"
-    printf 'PAIMON_CPP_17_SOURCE="%s"\n' "${paimon_17_source}"
-    printf 'PAIMON_CPP_17_MD5SUM="%s"\n' "${paimon_md5}"
-    printf '%s\n' 'PAIMON_CPP_17_DOWNLOAD="unused"'
     printf '%s\n' 'arrow_paimon_build_fingerprint() { printf "%s\n" test-fingerprint; }'
-    printf '%s\n' 'arrow_paimon_17_build_fingerprint() { printf "%s\n" test-17-fingerprint; }'
 } >"${harness}/vars.sh"
 
 exercise_interrupted_patch_set() {
@@ -259,34 +238,6 @@ exercise_interrupted_patch_set ARROW "${arrow_source}" "${arrow_archive}" arrow 
 exercise_interrupted_patch_set PAIMON_CPP "${paimon_source}" "${paimon_archive}" paimon \
     "${paimon_patches[@]}"
 
-exercise_legacy_source_isolation() {
-    local index
-
-    touch "${harness}/src/${arrow_source}/current-arrow-sentinel"
-    TP_DIR="${harness}" DORIS_HOME="${tmpdir}" \
-        bash "${harness}/download-thirdparty.sh" ARROW_17 >/dev/null
-    for index in 1 2 3; do
-        [[ "$(<"${harness}/src/${arrow_17_source}/arrow17-${index}.txt")" == "patched" ]] ||
-            fail "Arrow 17 patch ${index} was not applied"
-    done
-    [[ -f "${harness}/src/${arrow_source}/current-arrow-sentinel" ]] ||
-        fail "extracting Arrow 17 modified the Arrow 24 source"
-
-    touch "${harness}/src/${paimon_source}/current-paimon-sentinel"
-    TP_DIR="${harness}" DORIS_HOME="${tmpdir}" \
-        bash "${harness}/download-thirdparty.sh" PAIMON_CPP_17 >/dev/null
-    [[ "$(<"${harness}/src/${paimon_17_source}/paimon-1.txt")" == "patched" ]] ||
-        fail "Paimon Arrow 17 static dependency patch was not applied"
-    for index in 2 3; do
-        [[ "$(<"${harness}/src/${paimon_17_source}/paimon-${index}.txt")" == "original" ]] ||
-            fail "Paimon Arrow 17 received an Arrow 24-only patch"
-    done
-    [[ -f "${harness}/src/${paimon_source}/current-paimon-sentinel" ]] ||
-        fail "extracting Paimon for Arrow 17 modified the Arrow 24 source"
-}
-
-exercise_legacy_source_isolation
-
 exercise_generic_recovery_dispatch() {
     local generic="${tmpdir}/generic-recovery"
     local thirdparty_dir="${generic}/thirdparty"
@@ -303,8 +254,6 @@ exercise_generic_recovery_dispatch() {
     local clean
     local package1
     local package2
-    local package3
-    local package4
     local extra
 
     mkdir -p "${thirdparty_dir}/installed/lib/hadoop_hdfs_3_4/native" \
@@ -358,18 +307,6 @@ exercise_generic_recovery_dispatch() {
             fail "${non_native_target} invoked the native Arrow/Paimon builder"
     done
 
-    rm -f "${args_file}"
-    if DORIS_THIRDPARTY="${external_thirdparty_dir}" \
-        bash "${generic}/build.sh" --cloud >"${output_file}" 2>&1; then
-        fail "--cloud did not reach the generated-source sentinel"
-    else
-        status=$?
-    fi
-    [[ "${status}" -eq "${non_native_status}" ]] ||
-        fail "--cloud incorrectly required the BE Arrow/Paimon stack"
-    [[ ! -e "${args_file}" ]] ||
-        fail "--cloud invoked the native Arrow/Paimon builder"
-
     if DORIS_THIRDPARTY="${thirdparty_dir}" RECOVERY_ARGS_FILE="${args_file}" \
         bash "${generic}/build.sh" --fe --clean >"${output_file}" 2>&1; then
         fail "--fe --clean did not reach the generated-source sentinel"
@@ -381,32 +318,6 @@ exercise_generic_recovery_dispatch() {
     [[ ! -e "${args_file}" ]] ||
         fail "--fe --clean invoked the native Arrow/Paimon builder"
 
-    rm -f "${args_file}"
-    if DORIS_THIRDPARTY="${thirdparty_dir}" RECOVERY_ARGS_FILE="${args_file}" \
-        bash "${generic}/build.sh" --compile-bench >"${output_file}" 2>&1; then
-        fail "standalone --compile-bench skipped stale-prebuilt recovery"
-    else
-        status=$?
-    fi
-    [[ "${status}" -eq 73 ]] ||
-        fail "standalone --compile-bench failed before invoking its builder"
-    read -r flag parallel package1 package2 package3 package4 extra <"${args_file}"
-    [[ "${flag}" == "-j" && "${parallel}" =~ ^[0-9]+$ &&
-        "${package1}" == "arrow_17" && "${package2}" == "paimon_cpp_17" &&
-        "${package3}" == "arrow" && "${package4}" == "paimon_cpp" && -z "${extra}" ]] ||
-        fail "standalone --compile-bench dispatched the wrong build package set"
-
-    rm -f "${args_file}"
-    if ARROW_HOME="${generic}/explicit-arrow" PAIMON_HOME="${generic}/explicit-paimon" \
-        DORIS_THIRDPARTY="${thirdparty_dir}" RECOVERY_ARGS_FILE="${args_file}" \
-        bash "${generic}/build.sh" --be >"${output_file}" 2>&1; then
-        fail "build.sh accepted unsupported explicit Arrow/Paimon prefixes"
-    fi
-    grep -Fq "only supports the Arrow/Paimon stack selected from DORIS_THIRDPARTY" \
-        "${output_file}" || fail "build.sh did not explain its supported Arrow/Paimon selection"
-    [[ ! -e "${args_file}" ]] ||
-        fail "an unsupported explicit Arrow/Paimon selection invoked the builder"
-
     if DORIS_THIRDPARTY="${thirdparty_dir}" RECOVERY_ARGS_FILE="${args_file}" \
         bash "${generic}/build.sh" --be >"${output_file}" 2>&1; then
         fail "generic stale-prebuilt recovery did not invoke the focused builder"
@@ -414,10 +325,9 @@ exercise_generic_recovery_dispatch() {
         status=$?
     fi
     [[ "${status}" -eq 73 ]] || fail "generic recovery failed before invoking its builder"
-    read -r flag parallel package1 package2 package3 package4 extra <"${args_file}"
+    read -r flag parallel package1 package2 extra <"${args_file}"
     [[ "${flag}" == "-j" && "${parallel}" =~ ^[0-9]+$ &&
-        "${package1}" == "arrow_17" && "${package2}" == "paimon_cpp_17" &&
-        "${package3}" == "arrow" && "${package4}" == "paimon_cpp" && -z "${extra}" ]] ||
+        "${package1}" == "arrow" && "${package2}" == "paimon_cpp" && -z "${extra}" ]] ||
         fail "generic recovery dispatched the wrong build package set"
 
     if DORIS_THIRDPARTY="${thirdparty_dir}" RECOVERY_ARGS_FILE="${args_file}" \
@@ -427,10 +337,9 @@ exercise_generic_recovery_dispatch() {
         status=$?
     fi
     [[ "${status}" -eq 73 ]] || fail "generic clean recovery failed before invoking its builder"
-    read -r flag parallel clean package1 package2 package3 package4 extra <"${args_file}"
+    read -r flag parallel clean package1 package2 extra <"${args_file}"
     [[ "${flag}" == "-j" && "${parallel}" =~ ^[0-9]+$ && "${clean}" == "--clean" &&
-        "${package1}" == "arrow_17" && "${package2}" == "paimon_cpp_17" &&
-        "${package3}" == "arrow" && "${package4}" == "paimon_cpp" && -z "${extra}" ]] ||
+        "${package1}" == "arrow" && "${package2}" == "paimon_cpp" && -z "${extra}" ]] ||
         fail "generic clean recovery dispatched the wrong build package set"
 
     if DORIS_THIRDPARTY="${thirdparty_dir}" RECOVERY_ARGS_FILE="${args_file}" \
@@ -469,24 +378,18 @@ exercise_generic_recovery_dispatch
 # A Paimon-only build may publish only its own fingerprint. It must not make a
 # stale Arrow installation pass the shared prebuilt validation.
 prebuilt="${tmpdir}/prebuilt"
-selected_prebuilt="$(arrow_install_dir "${prebuilt}")"
-mkdir -p "${selected_prebuilt}/include/arrow/util" "${selected_prebuilt}/lib64"
+mkdir -p "${prebuilt}/include/arrow/util" "${prebuilt}/lib64"
 printf '#define ARROW_VERSION_STRING "%s"\n' "${ARROW_VERSION}" \
-    >"${selected_prebuilt}/include/arrow/util/config.h"
+    >"${prebuilt}/include/arrow/util/config.h"
 for library in "${ARROW_PAIMON_REQUIRED_LIBRARIES[@]}"; do
-    touch "${selected_prebuilt}/lib64/${library}"
+    touch "${prebuilt}/lib64/${library}"
 done
 
 prepare_arrow_paimon_download_packages "${ARROW_PAIMON_BUILD_PACKAGES[@]}"
 [[ "${ARROW_PAIMON_BUILD_PACKAGES[*]}" == "arrow paimon_cpp" ]] ||
     fail "focused recovery dispatches a bundled source package as a build target"
-[[ "${ARROW_PAIMON_SHARED_BUILD_PACKAGES[*]}" == "arrow_17 paimon_cpp_17 arrow paimon_cpp" ]] ||
-    fail "shared recovery does not cover both installed Arrow/Paimon stacks"
 [[ "${ARROW_PAIMON_DOWNLOAD_PACKAGES[*]}" == "arrow paimon_cpp xsimd brotli" ]] ||
     fail "focused recovery does not download the complete Arrow source closure"
-prepare_arrow_paimon_download_packages arrow_17 paimon_cpp_17
-[[ "${ARROW_PAIMON_DOWNLOAD_PACKAGES[*]}" == "arrow_17 paimon_cpp_17 xsimd_17 brotli" ]] ||
-    fail "Arrow 17 build does not download its independent source closure"
 
 # A legacy prebuilt may have the old combined marker but no component markers.
 # Generic build.sh consumers must reject it before importing Arrow Compute.
@@ -496,20 +399,11 @@ if arrow_paimon_prebuilt_valid "${prebuilt}" >/dev/null 2>&1; then
 fi
 
 printf '%s\n' "${ARROW_LEGACY_BUILD_FINGERPRINTS[0]}" \
-    >"${selected_prebuilt}/arrow-build-fingerprint.txt"
+    >"${prebuilt}/arrow-build-fingerprint.txt"
 printf '%s\n' "${PAIMON_LEGACY_BUILD_FINGERPRINTS[0]}" \
-    >"${selected_prebuilt}/paimon-build-fingerprint.txt"
-arrow_prebuilt_valid "${prebuilt}" ||
-    fail "the unchanged Arrow artifacts were rejected during fingerprint migration"
-if paimon_prebuilt_valid "${prebuilt}" >/dev/null 2>&1; then
-    fail "the root-prefix Paimon marker certified the dual-prefix Paimon build"
-fi
-if arrow_paimon_prebuilt_valid "${prebuilt}" >/dev/null 2>&1; then
-    fail "the shared prebuilt accepted a stale Paimon marker"
-fi
-publish_paimon_prebuilt_marker "${prebuilt}"
+    >"${prebuilt}/paimon-build-fingerprint.txt"
 arrow_paimon_prebuilt_valid "${prebuilt}" ||
-    fail "the migrated Arrow and Paimon component markers were rejected"
+    fail "the complete shared prebuilt was rejected during fingerprint migration"
 if (
     ARROW_BUILD_SCHEMA_VERSION="${ARROW_BUILD_SCHEMA_VERSION}-changed"
     arrow_prebuilt_valid "${prebuilt}"
@@ -525,13 +419,13 @@ fi
 
 publish_arrow_prebuilt_marker "${prebuilt}"
 publish_paimon_prebuilt_marker "${prebuilt}"
-rm "${selected_prebuilt}/lib64/libarrow_compute.a"
+rm "${prebuilt}/lib64/libarrow_compute.a"
 if arrow_paimon_prebuilt_valid "${prebuilt}" >/dev/null 2>&1; then
     fail "prebuilt validation accepted a missing Arrow Compute archive"
 fi
-touch "${selected_prebuilt}/lib64/libarrow_compute.a"
+touch "${prebuilt}/lib64/libarrow_compute.a"
 
-printf '%s\n' stale-arrow >"${selected_prebuilt}/arrow-build-fingerprint.txt"
+printf '%s\n' stale-arrow >"${prebuilt}/arrow-build-fingerprint.txt"
 if arrow_paimon_prebuilt_valid "${prebuilt}" >/dev/null 2>&1; then
     fail "Paimon-only marker update certified a stale Arrow build"
 fi
@@ -557,132 +451,5 @@ fi
 publish_arrow_prebuilt_marker "${prebuilt}"
 arrow_paimon_prebuilt_valid "${prebuilt}" ||
     fail "republished component markers were rejected"
-select_arrow_paimon_rebuild_packages "${prebuilt}" >/dev/null 2>&1
-[[ "${ARROW_PAIMON_REBUILD_PACKAGES[*]}" == "arrow_17 paimon_cpp_17" ]] ||
-    fail "recovery did not select only the missing Arrow 17 stack"
-
-# The legacy stack remains at the unversioned prefix and is validated
-# independently. Rebuilding or invalidating either stack must not affect the
-# other branch's artifacts or fingerprints.
-mkdir -p "${prebuilt}/include/arrow/util" "${prebuilt}/lib64"
-printf '#define ARROW_VERSION_STRING "%s"\n' "${ARROW_17_VERSION}" \
-    >"${prebuilt}/include/arrow/util/config.h"
-for library in "${ARROW_17_REQUIRED_LIBRARIES[@]}" "${PAIMON_REQUIRED_LIBRARIES[@]}"; do
-    touch "${prebuilt}/lib64/${library}"
-done
-publish_arrow_17_prebuilt_marker "${prebuilt}"
-publish_paimon_17_prebuilt_marker "${prebuilt}"
-arrow_paimon_17_prebuilt_valid "${prebuilt}" ||
-    fail "matching Arrow 17 and Paimon artifacts were rejected"
-arrow_paimon_prebuilt_valid "${prebuilt}" ||
-    fail "publishing the Arrow 17 stack invalidated Arrow 24"
-shared_arrow_paimon_prebuilt_valid "${prebuilt}" ||
-    fail "matching shared Arrow/Paimon stacks were rejected"
-select_arrow_paimon_rebuild_packages "${prebuilt}"
-[[ "${#ARROW_PAIMON_REBUILD_PACKAGES[@]}" -eq 0 ]] ||
-    fail "recovery rebuilt an already valid shared stack"
-
-invalidate_arrow_prebuilt_marker "${prebuilt}"
-arrow_paimon_17_prebuilt_valid "${prebuilt}" ||
-    fail "invalidating Arrow 24 affected the Arrow 17 stack"
-select_arrow_paimon_rebuild_packages "${prebuilt}" >/dev/null 2>&1
-[[ "${ARROW_PAIMON_REBUILD_PACKAGES[*]}" == "arrow paimon_cpp" ]] ||
-    fail "recovery did not isolate an invalid Arrow 24 stack"
-publish_arrow_prebuilt_marker "${prebuilt}"
-
-invalidate_arrow_17_prebuilt_marker "${prebuilt}"
-arrow_paimon_prebuilt_valid "${prebuilt}" ||
-    fail "invalidating Arrow 17 affected the Arrow 24 stack"
-select_arrow_paimon_rebuild_packages "${prebuilt}" >/dev/null 2>&1
-[[ "${ARROW_PAIMON_REBUILD_PACKAGES[*]}" == "arrow_17 paimon_cpp_17" ]] ||
-    fail "recovery did not isolate an invalid Arrow 17 stack"
-publish_arrow_17_prebuilt_marker "${prebuilt}"
-arrow_paimon_17_prebuilt_valid "${prebuilt}" ||
-    fail "republished Arrow 17 component markers were rejected"
-
-# Preparing a root-prefix Arrow downgrade removes Paimon first. An interrupted
-# Arrow 17 build therefore cannot expose a root Arrow 17/Paimon 24 mixture to an
-# unchanged branch-4.1 consumer.
-migration_prefix="${tmpdir}/interrupted-arrow-17-migration"
-migration_selected_prefix="$(arrow_install_dir "${migration_prefix}")"
-mkdir -p \
-    "${migration_prefix}/include/arrow" \
-    "${migration_prefix}/include/parquet" \
-    "${migration_prefix}/include/paimon" \
-    "${migration_prefix}/include/unrelated" \
-    "${migration_prefix}/lib64" \
-    "${migration_selected_prefix}"
-for library in "${ARROW_REQUIRED_LIBRARIES[@]}" "${PAIMON_REQUIRED_LIBRARIES[@]}"; do
-    touch "${migration_prefix}/lib64/${library}"
-done
-touch \
-    "${migration_prefix}/arrow-build-fingerprint.txt" \
-    "${migration_prefix}/paimon-build-fingerprint.txt" \
-    "${migration_prefix}/arrow-paimon-build-fingerprint.txt" \
-    "${migration_prefix}/arrow-17-build-fingerprint.txt" \
-    "${migration_prefix}/paimon-arrow-17-build-fingerprint.txt" \
-    "${migration_prefix}/arrow-paimon-17-build-fingerprint.txt" \
-    "${migration_prefix}/include/unrelated/sentinel" \
-    "${migration_selected_prefix}/sentinel"
-
-prepare_arrow_17_install_prefix "${migration_prefix}"
-[[ ! -e "${migration_prefix}/include/arrow" &&
-    ! -e "${migration_prefix}/include/parquet" &&
-    ! -e "${migration_prefix}/include/paimon" &&
-    ! -e "${migration_prefix}/lib64/libarrow.a" &&
-    ! -e "${migration_prefix}/lib64/libpaimon.a" &&
-    ! -e "${migration_prefix}/arrow-build-fingerprint.txt" &&
-    ! -e "${migration_prefix}/paimon-build-fingerprint.txt" &&
-    ! -e "${migration_prefix}/arrow-17-build-fingerprint.txt" &&
-    ! -e "${migration_prefix}/paimon-arrow-17-build-fingerprint.txt" ]] ||
-    fail "an interrupted Arrow 17 migration left a mixed root-prefix stack"
-[[ -e "${migration_prefix}/include/unrelated/sentinel" &&
-    -e "${migration_selected_prefix}/sentinel" ]] ||
-    fail "preparing the Arrow 17 migration removed another stack's artifacts"
-
-# Reinstalling one stack cleans only files owned by that stack. In particular,
-# a downgrade of the legacy prefix must remove Arrow 24-only artifacts without
-# deleting Paimon or unrelated thirdparty files.
-cleanup_prefix="${tmpdir}/cleanup-prefix"
-mkdir -p \
-    "${cleanup_prefix}/include/arrow" \
-    "${cleanup_prefix}/include/parquet" \
-    "${cleanup_prefix}/include/paimon" \
-    "${cleanup_prefix}/include/unrelated" \
-    "${cleanup_prefix}/lib64/cmake/ArrowCompute" \
-    "${cleanup_prefix}/lib64/cmake/Paimon" \
-    "${cleanup_prefix}/lib64/pkgconfig" \
-    "${cleanup_prefix}/share/arrow" \
-    "${cleanup_prefix}/share/doc/arrow"
-touch \
-    "${cleanup_prefix}/lib64/libarrow_compute.a" \
-    "${cleanup_prefix}/lib64/libparquet.a" \
-    "${cleanup_prefix}/lib64/libpaimon.a" \
-    "${cleanup_prefix}/lib64/libfmt_paimon.a" \
-    "${cleanup_prefix}/lib64/libunrelated.a" \
-    "${cleanup_prefix}/lib64/pkgconfig/arrow-compute.pc" \
-    "${cleanup_prefix}/include/unrelated/sentinel"
-
-clean_arrow_artifacts_in "${cleanup_prefix}"
-[[ ! -e "${cleanup_prefix}/include/arrow" &&
-    ! -e "${cleanup_prefix}/include/parquet" &&
-    ! -e "${cleanup_prefix}/lib64/libarrow_compute.a" &&
-    ! -e "${cleanup_prefix}/lib64/cmake/ArrowCompute" &&
-    ! -e "${cleanup_prefix}/lib64/pkgconfig/arrow-compute.pc" ]] ||
-    fail "Arrow cleanup left stale artifacts in the selected prefix"
-[[ -e "${cleanup_prefix}/include/paimon" &&
-    -e "${cleanup_prefix}/lib64/libpaimon.a" &&
-    -e "${cleanup_prefix}/include/unrelated/sentinel" ]] ||
-    fail "Arrow cleanup removed another package's artifacts"
-
-clean_paimon_artifacts_in "${cleanup_prefix}"
-[[ ! -e "${cleanup_prefix}/include/paimon" &&
-    ! -e "${cleanup_prefix}/lib64/libpaimon.a" &&
-    ! -e "${cleanup_prefix}/lib64/libfmt_paimon.a" &&
-    ! -e "${cleanup_prefix}/lib64/cmake/Paimon" ]] ||
-    fail "Paimon cleanup left stale artifacts in the selected prefix"
-[[ -e "${cleanup_prefix}/lib64/libunrelated.a" &&
-    -e "${cleanup_prefix}/include/unrelated/sentinel" ]] ||
-    fail "Paimon cleanup removed another package's artifacts"
 
 echo "PASS"
