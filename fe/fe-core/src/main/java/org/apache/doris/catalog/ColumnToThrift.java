@@ -65,6 +65,9 @@ public class ColumnToThrift {
         tColumn.setIsOnUpdateCurrentTimestamp(column.hasOnUpdateDefaultValue());
         tColumn.setDefaultValue(
                 column.getRealDefaultValue() == null ? column.getDefaultValue() : column.getRealDefaultValue());
+        if (column.getDefaultValueExprDef() != null) {
+            tColumn.setDefaultValueExpr(column.getDefaultValue());
+        }
         tColumn.setVisible(column.isVisible());
         toChildrenThrift(column, tColumn);
 

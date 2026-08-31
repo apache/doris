@@ -440,6 +440,9 @@ message ColumnPB {
     // Number of buckets used to store doc map in variant doc mode.
     optional int32 variant_doc_hash_shard_count = 33 [default = 64];
     optional bool variant_enable_nested_group = 34 [default = false];
+    // The original default expression for new writes. default_value remains the fixed
+    // backfill literal when this column was added by schema change.
+    optional bytes default_value_expr = 35;
 }
 
 // Dictionary of Schema info, to reduce TabletSchemaCloudPB fdb kv size

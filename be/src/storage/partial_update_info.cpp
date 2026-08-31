@@ -269,12 +269,13 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
     for (unsigned int cur_cid : missing_cids) {
         const auto& column = tablet_schema.column(cur_cid);
         if (column.has_default_value()) {
+            const auto& default_value_expr = column.default_value_for_partial_update();
+            const auto default_value_expr_lower = to_lower(default_value_expr);
             std::string default_value;
             if (UNLIKELY((column.type() == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 ||
                           column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ) &&
-                         to_lower(column.default_value()).find(to_lower("CURRENT_TIMESTAMP")) !=
-                                 std::string::npos)) {
-                auto pos = to_lower(column.default_value()).find('(');
+                         default_value_expr_lower.find("current_timestamp") != std::string::npos)) {
+                auto pos = default_value_expr_lower.find('(');
                 if (pos == std::string::npos) {
                     DateV2Value<DateTimeV2ValueType> dtv;
                     dtv.from_unixtime(timestamp_ms / 1000, timezone);
@@ -283,7 +284,7 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                         default_value += timezone;
                     }
                 } else {
-                    int precision = std::stoi(column.default_value().substr(pos + 1));
+                    int precision = std::stoi(default_value_expr.substr(pos + 1));
                     DateV2Value<DateTimeV2ValueType> dtv;
                     dtv.from_unixtime(timestamp_ms / 1000, nano_seconds, timezone, precision);
                     default_value = dtv.to_string();
@@ -292,18 +293,18 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                     }
                 }
             } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_DATEV2 &&
-                                to_lower(column.default_value()).find(to_lower("CURRENT_DATE")) !=
+                                default_value_expr_lower.find("current_date") !=
                                         std::string::npos)) {
                 DateV2Value<DateV2ValueType> dv;
                 dv.from_unixtime(timestamp_ms / 1000, timezone);
                 default_value = dv.to_string();
             } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_BITMAP &&
-                                to_lower(column.default_value()).find(to_lower("BITMAP_EMPTY")) !=
+                                default_value_expr_lower.find("bitmap_empty") !=
                                         std::string::npos)) {
                 BitmapValue v = BitmapValue {};
                 default_value = v.to_string();
             } else {
-                default_value = column.default_value();
+                default_value = default_value_expr;
             }
             default_values.emplace_back(default_value);
         } else {

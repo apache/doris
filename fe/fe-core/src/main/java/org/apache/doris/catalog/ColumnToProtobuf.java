@@ -77,6 +77,9 @@ public class ColumnToProtobuf {
         if (column.getDefaultValue() != null) {
             builder.setDefaultValue(ByteString.copyFrom(column.getDefaultValue().getBytes()));
         }
+        if (column.getDefaultValueExprDef() != null) {
+            builder.setDefaultValueExpr(ByteString.copyFrom(column.getDefaultValue().getBytes()));
+        }
         builder.setPrecision(column.getPrecision());
         builder.setFrac(column.getScale());
 
