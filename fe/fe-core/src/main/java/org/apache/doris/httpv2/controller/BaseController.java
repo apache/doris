@@ -340,8 +340,11 @@ public class BaseController {
             throws UnauthorizedException {
         ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
         if (!parseAuthInfo(request, authInfo)) {
-            LOG.info("parse auth info failed, Authorization header {}, url {}",
-                    request.getHeader("Authorization"), request.getRequestURI());
+            // Never log the Authorization header itself: it carries base64(user:password),
+            // which is trivially decodable. Only record whether it was absent or malformed.
+            LOG.info("parse auth info failed, Authorization header is {}, url {}",
+                    Strings.isNullOrEmpty(request.getHeader("Authorization")) ? "absent" : "malformed",
+                    request.getRequestURI());
             throw new UnauthorizedException("Need auth information.");
         }
         if (LOG.isDebugEnabled()) {
