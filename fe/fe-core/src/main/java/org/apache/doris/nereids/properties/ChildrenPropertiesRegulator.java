@@ -315,7 +315,14 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 int backEndNum = Math.max(1, connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
                 String clusterName = connectContext.getSessionVariable().resolveCloudClusterName(connectContext);
                 int paraNum = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum(clusterName));
-                return totalBucketNum < backEndNum * paraNum * 0.8;
+                // <= 0 disables the downgrade entirely, so a test or a tuning session can keep
+                // bucket shuffle (the anchored side needs no re-shuffle) regardless of how many
+                // instances the cluster has.
+                double downgradeRatio = connectContext.getSessionVariable().getBucketShuffleDowngradeRatio();
+                if (downgradeRatio <= 0) {
+                    return false;
+                }
+                return totalBucketNum < backEndNum * paraNum * downgradeRatio;
             }
         }
     }
