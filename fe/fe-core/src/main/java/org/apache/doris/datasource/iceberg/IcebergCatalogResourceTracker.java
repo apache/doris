@@ -19,11 +19,15 @@ package org.apache.doris.datasource.iceberg;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Keeps one catalog generation alive while tables loaded through it still have owners or borrowers. */
+/** Keeps one catalog generation alive while operations, loaded tables, or borrowers still use it. */
 public final class IcebergCatalogResourceTracker {
     private Generation current = new Generation();
 
     public synchronized LoadGuard beginLoad() {
+        return beginOperation();
+    }
+
+    public synchronized LoadGuard beginOperation() {
         current.retain();
         return new LoadGuard(current);
     }

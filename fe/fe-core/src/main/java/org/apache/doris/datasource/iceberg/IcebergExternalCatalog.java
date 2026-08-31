@@ -27,8 +27,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalObjectLog;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.metacache.CacheSpec;
@@ -199,6 +201,23 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
                 resourceTracker.beginLoad());
     }
 
+    synchronized IcebergCatalogResourceTracker.LoadGuard beginCatalogOperation(IcebergMetadataOps expectedOps) {
+        makeSureInitialized();
+        if (metadataOps != expectedOps) {
+            throw new IllegalStateException("Iceberg catalog runtime changed before the operation started");
+        }
+        return resourceTracker.beginOperation();
+    }
+
+    synchronized ExternalDatabase<? extends ExternalTable> getDbForCatalogOperation(
+            IcebergMetadataOps expectedOps, String dbName) {
+        makeSureInitialized();
+        if (metadataOps != expectedOps) {
+            throw new IllegalStateException("Iceberg catalog runtime changed before database resolution");
+        }
+        return getDbNullable(dbName);
+    }
+
     public String getIcebergCatalogType() {
         makeSureInitialized();
         return icebergCatalogType;
@@ -289,7 +308,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         }
 
         Table loadTable(String dbName, String tableName) throws Exception {
-            return authenticator.execute(() -> ops.loadTable(dbName, tableName));
+            return authenticator.execute(() -> ops.loadTableWithinCatalogGeneration(dbName, tableName));
         }
 
         String getCatalogType() {
