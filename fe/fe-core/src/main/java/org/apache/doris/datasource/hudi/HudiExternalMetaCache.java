@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hudi;
 
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -29,6 +30,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
+import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 
@@ -111,14 +113,67 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
         return metaClientEntry.get(nameMapping.getCtlId()).get(HudiMetaClientCacheKey.of(nameMapping));
     }
 
-    public HudiFsViewCacheValue.Lease getFsView(NameMapping nameMapping) {
+    public synchronized FsViewGeneration captureFsViewGeneration(long catalogId) {
+        return new FsViewGeneration(catalogId, fsViewEntry.get(catalogId));
+    }
+
+    private HudiFsViewCacheValue.Lease getFsView(
+            FsViewGeneration generation, NameMapping nameMapping, ExecutionAuthenticator authenticator) {
         HudiFsViewCacheKey key = HudiFsViewCacheKey.of(nameMapping);
         while (true) {
-            HudiFsViewCacheValue value = fsViewEntry.get(nameMapping.getCtlId()).get(key);
-            HudiFsViewCacheValue.Lease lease = value.tryAcquire();
-            if (lease != null) {
-                return lease;
+            synchronized (this) {
+                if (fsViewEntry.getIfInitialized(generation.catalogId) != generation.entry) {
+                    throw new IllegalStateException(
+                            "Hudi catalog runtime changed before filesystem-view acquisition");
+                }
             }
+            HudiFsViewCacheValue value = generation.entry.get(key);
+            HudiFsViewCacheValue.Lease lease;
+            boolean staleGeneration;
+            synchronized (this) {
+                staleGeneration = fsViewEntry.getIfInitialized(generation.catalogId) != generation.entry;
+                lease = staleGeneration ? null : value.tryAcquire();
+            }
+            if (staleGeneration) {
+                value.evict();
+                throw new IllegalStateException(
+                        "Hudi catalog runtime changed before filesystem-view acquisition");
+            }
+            if (lease == null) {
+                continue;
+            }
+            try {
+                // The lease pins the exact view after the cache-generation handoff, so reset may
+                // retire the entry while remote timeline I/O runs outside every lifecycle monitor.
+                authenticator.execute(() -> {
+                    lease.get().sync();
+                    return null;
+                });
+                return lease;
+            } catch (Exception e) {
+                lease.close();
+                if (e instanceof RuntimeException) {
+                    throw (RuntimeException) e;
+                }
+                throw new RuntimeException("Failed to synchronize Hudi filesystem view", e);
+            }
+        }
+    }
+
+    /** A reference to one exact catalog cache generation. */
+    public final class FsViewGeneration {
+        private final long catalogId;
+        private final MetaCacheEntry<HudiFsViewCacheKey, HudiFsViewCacheValue> entry;
+
+        private FsViewGeneration(long catalogId,
+                MetaCacheEntry<HudiFsViewCacheKey, HudiFsViewCacheValue> entry) {
+            this.catalogId = catalogId;
+            this.entry = entry;
+        }
+
+        public HudiFsViewCacheValue.Lease getFsView(
+                NameMapping nameMapping, ExecutionAuthenticator authenticator) {
+            return HudiExternalMetaCache.this.getFsView(this, nameMapping, authenticator);
         }
     }
 
@@ -153,7 +208,7 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
                 HudiPartitionCacheKey.of(table.getOrBuildNameMapping(), lastTimestamp, useHiveSyncPartition));
     }
 
-    private HudiFsViewCacheValue createFsView(HudiFsViewCacheKey key) {
+    protected HudiFsViewCacheValue createFsView(HudiFsViewCacheKey key) {
         HoodieTableMetaClient tableMetaClient = metaClientEntry.get(key.getNameMapping().getCtlId())
                 .get(HudiMetaClientCacheKey.of(key.getNameMapping()));
         HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder().build();

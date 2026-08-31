@@ -44,6 +44,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
@@ -256,6 +257,7 @@ public class IcebergMetadataOpTest {
     public void testCreateDatabaseWithPropertiesForSupportedCatalogs() throws Exception {
         List<String> supportedCatalogTypes = Arrays.asList(
                 IcebergExternalCatalog.ICEBERG_HMS,
+                IcebergExternalCatalog.ICEBERG_HMS.toUpperCase(Locale.ROOT),
                 IcebergExternalCatalog.ICEBERG_JDBC,
                 IcebergExternalCatalog.ICEBERG_GLUE);
         for (String catalogType : supportedCatalogTypes) {
@@ -281,6 +283,7 @@ public class IcebergMetadataOpTest {
     public void testCreateDatabaseWithLocationForSupportedCatalogs() throws Exception {
         List<String> supportedCatalogTypes = Arrays.asList(
                 IcebergExternalCatalog.ICEBERG_HMS,
+                IcebergExternalCatalog.ICEBERG_HMS.toUpperCase(Locale.ROOT),
                 IcebergExternalCatalog.ICEBERG_GLUE);
         for (String catalogType : supportedCatalogTypes) {
             String dbName = catalogType + "_location_db";
