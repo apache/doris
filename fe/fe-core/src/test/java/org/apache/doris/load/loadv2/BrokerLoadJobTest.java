@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableProperty;
@@ -29,19 +30,28 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.SqlStatementMasker;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
 import org.apache.doris.nereids.load.NereidsLoadingTaskPlanner;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.task.MasterTaskExecutor;
@@ -58,6 +68,7 @@ import com.google.common.collect.Sets;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -145,6 +156,109 @@ public class BrokerLoadJobTest {
         BrokerLoadJob unknownMode = GsonUtils.GSON.fromJson(
                 serialized.replace("\"m\":\"PREFER\"", "\"m\":\"FUTURE\""), BrokerLoadJob.class);
         Assert.assertEquals(BackendSelection.Mode.DEFAULT, unknownMode.getLoadBackendSelectionHint().getMode());
+    }
+
+    @Test
+    public void testProfileSummaryMasksS3Credentials() {
+        String accessKey = "profile-test-access-key";
+        String secretKey = "profile-test-secret-key";
+        String loadSql = "LOAD LABEL profile_mask_test("
+                + " DATA INFILE(\"s3://bucket/path\")"
+                + " INTO TABLE target_table"
+                + ") WITH S3("
+                + " \"provider\" = \"S3\","
+                + " \"AWS_ENDPOINT\" = \"s3.test\","
+                + " \"AWS_ACCESS_KEY\" = \"" + accessKey + "\","
+                + " \"AWS_SECRET_KEY\" = \"" + secretKey + "\","
+                + " \"AWS_REGION\" = \"test-region\""
+                + ")";
+        String maskedSql = "LOAD LABEL profile_mask_test("
+                + " DATA INFILE(\"s3://bucket/path\")"
+                + " INTO TABLE target_table"
+                + ") WITH S3(\"provider\" = \"S3\")";
+        BrokerLoadJob job = new BrokerLoadJob();
+        Deencapsulation.setField(job, "id", 1L);
+        Deencapsulation.setField(job, "dbId", 2L);
+        Deencapsulation.setField(job, "originStmt", new OriginStatement(loadSql, 0));
+
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(catalog.getDb(2L)).thenReturn(Optional.empty());
+
+            Map<String, String> missingMaskedSqlSummary =
+                    Deencapsulation.invoke(job, "getSummaryInfo", true);
+            Assert.assertEquals(SqlStatementMasker.MASKED_STATEMENT,
+                    missingMaskedSqlSummary.get(SummaryProfile.SQL_STATEMENT));
+
+            job.setMaskedProfileSql(maskedSql);
+            Map<String, String> summary = Deencapsulation.invoke(job, "getSummaryInfo", true);
+            String profileSql = summary.get(SummaryProfile.SQL_STATEMENT);
+
+            Assert.assertEquals(maskedSql, profileSql);
+            Assert.assertFalse(profileSql.contains(accessKey));
+            Assert.assertFalse(profileSql.contains(secretKey));
+            Assert.assertTrue(profileSql.contains("\"provider\" = \"S3\""));
+            Assert.assertEquals(loadSql, job.getOriginStmt().originStmt);
+        }
+    }
+
+    @Test
+    public void testFromLoadCommandCachesMaskedProfileSql() throws Exception {
+        String accessKey = "profile-wiring-access-key";
+        String secretKey = "profile-wiring-secret-key";
+        String loadSql = "LOAD LABEL profile_mask_test("
+                + " DATA INFILE(\"s3://bucket/path\")"
+                + " INTO TABLE target_table"
+                + ") WITH S3("
+                + " \"AWS_ACCESS_KEY\" = \"" + accessKey + "\","
+                + " \"AWS_SECRET_KEY\" = \"" + secretKey + "\")";
+        String maskedSql = "LOAD LABEL profile_mask_test("
+                + " DATA INFILE(\"s3://bucket/path\")"
+                + " INTO TABLE target_table"
+                + ") WITH S3()";
+
+        LoadCommand command = Mockito.mock(LoadCommand.class);
+        LabelNameInfo label = Mockito.mock(LabelNameInfo.class);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        SessionVariable sessionVariable = Mockito.mock(SessionVariable.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        EnvFactory envFactory = Mockito.mock(EnvFactory.class);
+        BrokerLoadJob job = Mockito.mock(BrokerLoadJob.class);
+
+        Mockito.when(command.getLabel()).thenReturn(label);
+        Mockito.when(label.getDb()).thenReturn("test_db");
+        Mockito.when(label.getLabel()).thenReturn("profile_mask_test");
+        Mockito.when(command.getEtlJobType()).thenReturn(EtlJobType.BROKER);
+        Mockito.when(command.geneEncryptionSQL(loadSql)).thenReturn(maskedSql);
+        Mockito.when(executor.getOriginStmt()).thenReturn(new OriginStatement(loadSql, 0));
+        Mockito.when(context.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(sessionVariable.enableProfile()).thenReturn(true);
+        Mockito.when(catalog.getDbOrDdlException("test_db")).thenReturn(database);
+        Mockito.when(envFactory.createBrokerLoadJob(Mockito.anyLong(), Mockito.anyString(), Mockito.any(),
+                Mockito.any(), Mockito.any())).thenReturn(job);
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<EnvFactory> envFactoryMockedStatic = Mockito.mockStatic(EnvFactory.class);
+                MockedStatic<BackendSelectionManager> selectionManagerMockedStatic =
+                        Mockito.mockStatic(BackendSelectionManager.class)) {
+            envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            envFactoryMockedStatic.when(EnvFactory::getInstance).thenReturn(envFactory);
+            selectionManagerMockedStatic.when(() -> BackendSelectionManager.captureLoadSelection(context))
+                    .thenReturn(null);
+
+            Assert.assertSame(job, BulkLoadJob.fromLoadCommand(command, executor, context));
+
+            ArgumentCaptor<String> maskedSqlCaptor = ArgumentCaptor.forClass(String.class);
+            Mockito.verify(job).setMaskedProfileSql(maskedSqlCaptor.capture());
+            Assert.assertEquals(maskedSql, maskedSqlCaptor.getValue());
+            Assert.assertFalse(maskedSqlCaptor.getValue().contains(accessKey));
+            Assert.assertFalse(maskedSqlCaptor.getValue().contains(secretKey));
+        }
     }
 
     @Test

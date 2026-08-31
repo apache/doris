@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
@@ -24,9 +25,13 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
@@ -49,6 +54,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class StmtExecutorTest extends TestWithFeService {
@@ -577,6 +583,45 @@ public class StmtExecutorTest extends TestWithFeService {
         Method getStmtForLoggingBeforeParse = StmtExecutor.class.getDeclaredMethod("getStmtForLoggingBeforeParse");
         getStmtForLoggingBeforeParse.setAccessible(true);
         Assertions.assertEquals(MASKED_STMT_FALLBACK, getStmtForLoggingBeforeParse.invoke(executor));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testLoadCommandDoesNotGenerateStmtProfileAndSummaryIsMasked() throws Exception {
+        useDatabase("testDb");
+        String accessKey = "profile-test-access-key";
+        String secretKey = "profile-test-secret-key";
+        String loadSql = "LOAD LABEL profile_mask_test("
+                + " DATA INFILE(\"s3://bucket/path\")"
+                + " INTO TABLE target_table"
+                + ") WITH S3("
+                + " \"provider\" = \"S3\","
+                + " \"AWS_ENDPOINT\" = \"s3.test\","
+                + " \"AWS_ACCESS_KEY\" = \"" + accessKey + "\","
+                + " \"AWS_SECRET_KEY\" = \"" + secretKey + "\","
+                + " \"AWS_REGION\" = \"test-region\""
+                + ")";
+
+        StatementBase parsedStmt = new NereidsParser().parseSQL(loadSql).get(0);
+        Assertions.assertInstanceOf(LogicalPlanAdapter.class, parsedStmt);
+        Assertions.assertInstanceOf(LoadCommand.class,
+                ((LogicalPlanAdapter) parsedStmt).getLogicalPlan());
+        parsedStmt.setOrigStmt(new OriginStatement(loadSql, 0));
+        StmtExecutor executor = new StmtExecutor(connectContext, parsedStmt);
+
+        Assertions.assertFalse(executor.isProfileSafeStmt());
+
+        connectContext.setQueryId(new TUniqueId(1L, 2L));
+        connectContext.setStartTime();
+        Method getSummaryInfo = StmtExecutor.class.getDeclaredMethod("getSummaryInfo", boolean.class);
+        getSummaryInfo.setAccessible(true);
+        Map<String, String> summary = (Map<String, String>) getSummaryInfo.invoke(executor, false);
+        String profileSql = summary.get(SummaryProfile.SQL_STATEMENT);
+
+        Assertions.assertFalse(profileSql.contains(accessKey));
+        Assertions.assertFalse(profileSql.contains(secretKey));
+        Assertions.assertTrue(profileSql.contains("\"provider\" = \"S3\""));
+        Assertions.assertEquals(loadSql, executor.getOriginStmtInString());
     }
 
     private void createResource(String sql) throws Exception {
