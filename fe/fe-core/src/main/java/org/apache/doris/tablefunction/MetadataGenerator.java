@@ -876,7 +876,16 @@ public class MetadataGenerator {
                         continue;
                     }
                     String inlineViewDef = ((View) table).getInlineViewDef();
-                    Map<List<String>, TableIf> tablesMap = PlanUtils.tableCollect(inlineViewDef, ctx);
+                    Map<List<String>, TableIf> tablesMap;
+                    try {
+                        tablesMap = PlanUtils.tableCollect(inlineViewDef, ctx);
+                    } catch (Exception e) {
+                        // A view may reference tables that no longer exist (dangling view).
+                        // Skip it so the whole metadata query does not fail.
+                        LOG.warn("Failed to collect base tables of view {} in database {}, skip it. exception: {}",
+                                tableName, dbName, e);
+                        continue;
+                    }
                     for (Map.Entry<List<String>, TableIf> info : tablesMap.entrySet()) {
                         List<String> fullName = info.getKey();
                         TableIf tbl = info.getValue();
