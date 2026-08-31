@@ -29,8 +29,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -60,11 +60,11 @@ public class TaskProcessorTest {
         connectContext.setThreadLocalInfo();
         try {
             Deencapsulation.invoke(taskProcessor, "closeTaskContext");
-            Assert.fail("closeTaskContext should propagate the close failure");
+            Assertions.fail("closeTaskContext should propagate the close failure");
         } catch (RuntimeException e) {
-            Assert.assertEquals("injected close failure", e.getMessage());
+            Assertions.assertEquals("injected close failure", e.getMessage());
         } finally {
-            Assert.assertNull(ConnectContext.get());
+            Assertions.assertNull(ConnectContext.get());
             taskProcessor.shutdown();
         }
     }
@@ -82,8 +82,8 @@ public class TaskProcessorTest {
                 DebugUtil.printId(queryId), callbackCount::incrementAndGet);
         try {
             Deencapsulation.invoke(taskProcessor, "closeTaskContext");
-            Assert.assertEquals(1, callbackCount.get());
-            Assert.assertNull(ConnectContext.get());
+            Assertions.assertEquals(1, callbackCount.get());
+            Assertions.assertNull(ConnectContext.get());
         } finally {
             QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
             ConnectContext.remove();
@@ -117,18 +117,18 @@ public class TaskProcessorTest {
 
                 Deencapsulation.invoke(task, "closeExecutionContext", executionContext);
 
-                Assert.assertSame(executionContext, ConnectContext.get());
+                Assertions.assertSame(executionContext, ConnectContext.get());
             }
-            Assert.assertEquals(2, callbackCount.get());
-            Assert.assertEquals(2, closeCount.get());
+            Assertions.assertEquals(2, callbackCount.get());
+            Assertions.assertEquals(2, closeCount.get());
 
             ConnectContext lastExecutionContext = ConnectContext.get();
             Deencapsulation.invoke(task, "closeExecutionContext", taskContext);
-            Assert.assertSame(lastExecutionContext, ConnectContext.get());
-            Assert.assertEquals(3, closeCount.get());
+            Assertions.assertSame(lastExecutionContext, ConnectContext.get());
+            Assertions.assertEquals(3, closeCount.get());
 
             Deencapsulation.invoke(task, "closeExecutionContext", new ConnectContext());
-            Assert.assertSame(lastExecutionContext, ConnectContext.get());
+            Assertions.assertSame(lastExecutionContext, ConnectContext.get());
         } finally {
             taskStatementContext.close();
             ConnectContext.remove();
@@ -159,22 +159,22 @@ public class TaskProcessorTest {
             }
             externalTask.setStatus(TaskStatus.PENDING);
             externalTask.setTaskId(1L);
-            Assert.assertTrue(taskProcessor.addTask(externalTask));
-            Assert.assertTrue(scopeInstalled.await(10, TimeUnit.SECONDS));
+            Assertions.assertTrue(taskProcessor.addTask(externalTask));
+            Assertions.assertTrue(scopeInstalled.await(10, TimeUnit.SECONDS));
 
             AbstractTask nextTask = new InsertTask("next-task", null, null, null) {
                 @Override
                 public void runTask() {
-                    Assert.assertNull(ConnectContext.get());
+                    Assertions.assertNull(ConnectContext.get());
                     workerReused.countDown();
                 }
             };
             nextTask.setStatus(TaskStatus.PENDING);
             nextTask.setTaskId(2L);
-            Assert.assertTrue(taskProcessor.addTask(nextTask));
+            Assertions.assertTrue(taskProcessor.addTask(nextTask));
 
-            Assert.assertTrue(workerReused.await(10, TimeUnit.SECONDS));
-            Assert.assertEquals(1, closeCount.get());
+            Assertions.assertTrue(workerReused.await(10, TimeUnit.SECONDS));
+            Assertions.assertEquals(1, closeCount.get());
         } finally {
             taskProcessor.shutdown();
         }
