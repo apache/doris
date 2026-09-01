@@ -53,6 +53,9 @@ enum SegmentsOverlapPB {
     OVERLAP_UNKNOWN = 0;    // this enum is added since Doris v0.11, so previous rowset's segment is unknown
     OVERLAPPING = 1;
     NONOVERLAPPING = 2;
+    // Segments are non-overlapping within each group, but groups may overlap with each other.
+    // The group layout is described by RowsetMetaPB.segment_group_sizes.
+    NONOVERLAPPING_WITHIN_GROUP = 3;
 }
 
 message KeyBoundsPB {
@@ -144,6 +147,10 @@ message RowsetMetaPB {
     // [rowset_min_key, rowset_max_key] entry instead of per-segment bounds.
     // Only applies to non-MOW rowsets to reduce meta size on cloud FDB.
     optional bool segments_key_bounds_aggregated = 57;
+
+    // Valid only when segments_overlap_pb is NONOVERLAPPING_WITHIN_GROUP.
+    // Each value is the number of consecutive output segments in one non-overlapping group.
+    repeated int32 segment_group_sizes = 59;
 
     // For cloud
     // for data recycling
@@ -253,6 +260,10 @@ message RowsetMetaCloudPB {
     // [rowset_min_key, rowset_max_key] entry instead of per-segment bounds.
     // Only applies to non-MOW rowsets to reduce meta size on cloud FDB.
     optional bool segments_key_bounds_aggregated = 57;
+
+    // Valid only when segments_overlap_pb is NONOVERLAPPING_WITHIN_GROUP.
+    // Each value is the number of consecutive output segments in one non-overlapping group.
+    repeated int32 segment_group_sizes = 59;
 
     // cloud
     // the field is a vector, rename it
