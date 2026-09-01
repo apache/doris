@@ -321,6 +321,7 @@ public class FEOpExecutor {
                                         + "`query_timeout`/`insert_timeout`")
                         .put(TTransportException.END_OF_FILE, "EOF")
                         .put(TTransportException.CORRUPTED_DATA, "Corrupted data")
+                        .put(TTransportException.MESSAGE_SIZE_LIMIT, "Message size exceeds limit")
                         .build();
 
         private final String msg;

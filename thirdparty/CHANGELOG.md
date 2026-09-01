@@ -2,6 +2,10 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20260824
+
+- Modified: thrift 0.16.0 -> 0.24.0
+
 ## 20260819
 
 - Added: `installed/include/hadoop_hdfs` and `installed/lib/hadoop_hdfs` are symlinks to
@@ -27,10 +31,6 @@ This file contains version of the third-party dependency libraries in the build-
 ## 20260816
 
 - Modified: hadoop-libs 3.4.2.3 -> 3.4.2.4
-
-## 20260814
-
-- Modified: hadoop-libs 3.4.2.2 -> 3.4.2.3
 
 ## 20260206
 

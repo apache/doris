@@ -304,7 +304,7 @@ under the License.
         <open-json.version>1.8</open-json.version>
         <junit.version>5.14.1</junit.version>
         <hikaricp.version>6.0.0</hikaricp.version>
-        <thrift.version>0.16.0</thrift.version>
+        <thrift.version>0.24.0</thrift.version>
         <tomcat-embed.version>9.0.104</tomcat-embed.version>
         <log4j2.version>2.25.4</log4j2.version>
         <log4j-1.2.version>2.25.4</log4j-1.2.version>
