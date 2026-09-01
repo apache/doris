@@ -76,6 +76,35 @@ public class OlapTableTest {
         Assert.assertEquals(132L, stats.getIndexLength());
     }
 
+    @Test
+    public void testPartitionTopologyVersionChangesWithPartitionIdSet() {
+        OlapTable olapTable = new OlapTable();
+        olapTable.setPartitionInfo(new SinglePartitionInfo());
+
+        long version = olapTable.getPartitionTopologyVersion();
+        addPartitionForTopologyVersionTest(olapTable, 1L, "p1");
+        Assert.assertEquals(version + 1, olapTable.getPartitionTopologyVersion());
+
+        version = olapTable.getPartitionTopologyVersion();
+        olapTable.replacePartition(newPartitionForTopologyVersionTest(2L, "p1"), new RecyclePartitionParam());
+        Assert.assertEquals(version + 1, olapTable.getPartitionTopologyVersion());
+
+        version = olapTable.getPartitionTopologyVersion();
+        olapTable.dropPartitionAndReserveTablet("p1");
+        Assert.assertEquals(version + 1, olapTable.getPartitionTopologyVersion());
+    }
+
+    private void addPartitionForTopologyVersionTest(OlapTable olapTable, long partitionId, String partitionName) {
+        olapTable.getPartitionInfo().addPartition(partitionId, new DataProperty(TStorageMedium.HDD),
+                new ReplicaAllocation((short) 1), false, true);
+        olapTable.addPartition(newPartitionForTopologyVersionTest(partitionId, partitionName));
+    }
+
+    private Partition newPartitionForTopologyVersionTest(long partitionId, String partitionName) {
+        MaterializedIndex index = new MaterializedIndex(partitionId, MaterializedIndex.IndexState.NORMAL);
+        return new Partition(partitionId, partitionName, index, new RandomDistributionInfo(1));
+    }
+
     private Replica mockReplica(Replica.ReplicaState state, long dataSize, long localSegmentSize,
             long remoteSegmentSize, long localIndexSize, long remoteIndexSize) {
         Replica replica = Mockito.mock(Replica.class);
