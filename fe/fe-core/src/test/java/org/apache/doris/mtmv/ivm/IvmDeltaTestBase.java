@@ -34,6 +34,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
@@ -196,10 +197,19 @@ abstract class IvmDeltaTestBase {
             db = new Database(10_000L, "test_db");
             Env.getCurrentEnv().unprotectCreateDb(db);
         }
+        // Register the base table so the stream can resolve it by id (see TableStreamBaseTableInfo).
+        // Mock table ids are reused across tests, so replace any stale object registered under the id.
+        TableIf registered = db.getTableNullable(baseTable.getId());
+        if (registered == null || registered != baseTable) {
+            if (registered != null) {
+                db.unregisterTable(baseTable.getId());
+            }
+            db.registerTable(baseTable);
+        }
         String streamName = IvmUtil.streamName(mvId, baseTable.getFullQualifiers());
         db.unregisterTable(streamName);
         OlapTableStream stream = new OlapTableStream(baseTable.getId() + 10_000L + mvId,
-                streamName, baseTable.getFullSchema(), baseTable);
+                streamName, baseTable);
         db.registerTable(stream);
         Env.getCurrentEnv().getTableStreamManager().addTableStream(stream);
         return stream;
