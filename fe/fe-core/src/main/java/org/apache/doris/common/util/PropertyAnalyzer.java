@@ -223,6 +223,12 @@ public class PropertyAnalyzer {
      * partitions (by partition value). This is a lossy computation window used only
      * by the IVM incremental refresh path: COMPLETE refresh (initial load, fallback,
      * manual REFRESH COMPLETE) always covers the full table and stays authoritative.
+     *
+     * <p>When the window of a table is enlarged (N becomes larger) or removed, partitions
+     * that were previously ignored by the lossy window come back into the refresh range.
+     * Their stream backlog was skipped, so the ALTER marks the MV as requiring a complete
+     * baseline rebuild: the next refresh (AUTO) performs a full refresh, and a strict
+     * manual INCREMENTAL refresh is rejected until then.
      */
     public static final String PROPERTIES_IVM_PARTITION_WINDOW_LIMIT =
             "ivm_partition_window_limit";

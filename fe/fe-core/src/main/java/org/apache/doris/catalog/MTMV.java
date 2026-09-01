@@ -341,14 +341,28 @@ public class MTMV extends OlapTable {
             Set<TableNameInfo> oldExcludedTriggerTables = containsExcludedTriggerTables
                     ? parseExcludedTriggerTables()
                     : Sets.newHashSet();
+            // Enlarging or removing ivm_partition_window_limit brings previously lossy
+            // partitions back into the refresh range. Their stream backlog was skipped by
+            // the windowed refreshes, so a strict incremental refresh would wrongly judge
+            // "all partitions are synced" and return SUCCESS with stale data. Force the
+            // next refresh to rebuild a complete baseline instead.
+            boolean containsPartitionWindowLimit = mvProperties.containsKey(
+                    PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT);
+            Map<TableNameInfo, Integer> oldWindowLimits = containsPartitionWindowLimit
+                    ? MTMVPropertyUtil.getIvmPartitionWindowLimit(this.mvProperties)
+                    : Maps.newHashMap();
             this.mvProperties.putAll(mvProperties);
+            // Both excluded_trigger_tables changes and window limit enlargement/removal
+            // change the refresh baseline semantics: partitions previously skipped become
+            // refreshable again, and their stream backlog was not applied. Invalidate the
+            // snapshots (once) and require a complete baseline rebuild so the next refresh
+            // covers the new range instead of wrongly judging "all partitions are synced".
+            boolean invalidateRefreshSnapshot = false;
+            boolean requireCompleteBaselineRebuild = false;
             if (containsExcludedTriggerTables) {
                 Set<TableNameInfo> newExcludedTriggerTables = parseExcludedTriggerTables();
                 if (!oldExcludedTriggerTables.equals(newExcludedTriggerTables)) {
-                    // excluded_trigger_tables changes the refresh baseline semantics. Invalidate the old
-                    // snapshots so the next AUTO refresh rebuilds a complete baseline with the new rules.
-                    this.schemaChangeVersion++;
-                    this.refreshSnapshot = new MTMVRefreshSnapshot();
+                    invalidateRefreshSnapshot = true;
                     if (ivmInfo != null && ivmInfo.isEnableIvm()
                             && relation != null && relation.getBaseTables() != null) {
                         for (BaseTableInfo baseTableInfo : relation.getBaseTables()) {
@@ -356,12 +370,37 @@ public class MTMV extends OlapTable {
                                     baseTableInfo.getDbName(), baseTableInfo.getTableName());
                             if (MTMVPartitionUtil.isTableExcluded(oldExcludedTriggerTables, baseTableName)
                                     && !MTMVPartitionUtil.isTableExcluded(newExcludedTriggerTables, baseTableName)) {
-                                ivmInfo.requireCompleteBaselineRebuild();
+                                requireCompleteBaselineRebuild = true;
                                 break;
                             }
                         }
                     }
                 }
+            }
+            if (containsPartitionWindowLimit && ivmInfo != null && ivmInfo.isEnableIvm()
+                    && relation != null && relation.getBaseTables() != null) {
+                Map<TableNameInfo, Integer> newWindowLimits =
+                        MTMVPropertyUtil.getIvmPartitionWindowLimit(this.mvProperties);
+                for (BaseTableInfo baseTableInfo : relation.getBaseTables()) {
+                    TableNameInfo baseTableName = new TableNameInfo(baseTableInfo.getCtlName(),
+                            baseTableInfo.getDbName(), baseTableInfo.getTableName());
+                    int oldLimit = MTMVPropertyUtil.getPartitionWindowLimit(oldWindowLimits, baseTableName);
+                    if (oldLimit == -1) {
+                        continue;
+                    }
+                    int newLimit = MTMVPropertyUtil.getPartitionWindowLimit(newWindowLimits, baseTableName);
+                    if (newLimit == -1 || newLimit > oldLimit) {
+                        requireCompleteBaselineRebuild = true;
+                        break;
+                    }
+                }
+            }
+            if (invalidateRefreshSnapshot || requireCompleteBaselineRebuild) {
+                this.schemaChangeVersion++;
+                this.refreshSnapshot = new MTMVRefreshSnapshot();
+            }
+            if (requireCompleteBaselineRebuild) {
+                ivmInfo.requireCompleteBaselineRebuild();
             }
             if (isReplay) {
                 return;
