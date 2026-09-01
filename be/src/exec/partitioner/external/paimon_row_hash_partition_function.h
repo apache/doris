@@ -19,7 +19,6 @@
 #include "exec/partitioner/partitioner.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Shared expression lifecycle and BinaryRow hashing for Paimon routing functions.
 class PaimonRowHashPartitionFunction : public PartitionFunction {
@@ -45,5 +44,4 @@ protected:
     VExprContextSPtrs _field_expr_ctxs;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -26,7 +26,6 @@
 #include "exec/partitioner/external/external_partition_function_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 namespace {
 Status logical_partition_count(uint32_t writer_count,
@@ -138,5 +137,4 @@ Status ExternalTableSinkHashPartitioner::clone(RuntimeState* state,
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

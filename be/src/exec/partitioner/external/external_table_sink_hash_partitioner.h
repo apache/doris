@@ -26,7 +26,6 @@
 #include "exec/partitioner/writer_assigner.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Computes external sink logical partitions and maps them to Doris exchange channels.
 // Optional partition transforms are evaluated transiently and never appended to the sink row.
@@ -53,5 +52,4 @@ private:
     mutable std::vector<HashValType> _channel_ids;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

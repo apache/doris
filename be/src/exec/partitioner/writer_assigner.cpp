@@ -19,7 +19,6 @@
 #include "exec/connector/skewed_partition_rebalancer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 namespace {
 Status validate_assignment_input(const std::vector<uint32_t>& partition_ids,
@@ -134,5 +133,4 @@ int64_t scale_writer_threshold_by_task(int64_t value, int task_num) {
     return scaled == 0 ? value : scaled;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

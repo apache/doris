@@ -24,7 +24,6 @@
 #include "exec/partitioner/partitioner.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Validates connector-specific routing metadata and creates the matching logical partition
 // function. Writer assignment remains the responsibility of ExternalTableSinkHashPartitioner.
@@ -34,5 +33,4 @@ Status create_external_partition_function(const TExternalTableSinkHashPartitionI
                                           const std::vector<TExpr>& partition_exprs,
                                           std::unique_ptr<PartitionFunction>* partition_function);
 
-#include "common/compile_check_end.h"
 } // namespace doris
