@@ -53,7 +53,6 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.PartitionField;
@@ -252,31 +251,8 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         if (isValidRelatedTableCached) {
             return isValidRelatedTable;
         }
-        isValidRelatedTable = false;
-        Set<String> allFields = Sets.newHashSet();
-        for (PartitionSpec spec : table.specs().values()) {
-            if (spec == null) {
-                isValidRelatedTableCached = true;
-                return false;
-            }
-            List<PartitionField> fields = spec.fields();
-            if (fields.size() != 1) {
-                isValidRelatedTableCached = true;
-                return false;
-            }
-            PartitionField partitionField = spec.fields().get(0);
-            String transformName = partitionField.transform().toString();
-            if (!IcebergUtils.YEAR.equals(transformName)
-                    && !IcebergUtils.MONTH.equals(transformName)
-                    && !IcebergUtils.DAY.equals(transformName)
-                    && !IcebergUtils.HOUR.equals(transformName)) {
-                isValidRelatedTableCached = true;
-                return false;
-            }
-            allFields.add(table.schema().findColumnName(partitionField.sourceId()));
-        }
+        isValidRelatedTable = IcebergUtils.isValidRelatedTable(table);
         isValidRelatedTableCached = true;
-        isValidRelatedTable = allFields.size() == 1;
         return isValidRelatedTable;
     }
 
