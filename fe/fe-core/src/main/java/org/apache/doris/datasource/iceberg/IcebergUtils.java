@@ -261,6 +261,36 @@ public class IcebergUtils {
 
     private static final Pattern SNAPSHOT_ID = Pattern.compile("\\d+");
 
+    /**
+     * Check whether a concrete Iceberg table generation can be used as an MTMV related table.
+     *
+     * <p>This method deliberately has no Doris-table-level cache. Callers that retain an Iceberg
+     * {@link Table} across a catalog refresh must classify that exact generation instead of
+     * reusing a result computed for another generation.
+     */
+    public static boolean isValidRelatedTable(Table table) {
+        Set<String> allFields = Sets.newHashSet();
+        for (PartitionSpec spec : table.specs().values()) {
+            if (spec == null) {
+                return false;
+            }
+            List<PartitionField> fields = spec.fields();
+            if (fields.size() != 1) {
+                return false;
+            }
+            PartitionField partitionField = fields.get(0);
+            String transformName = partitionField.transform().toString();
+            if (!YEAR.equals(transformName)
+                    && !MONTH.equals(transformName)
+                    && !DAY.equals(transformName)
+                    && !HOUR.equals(transformName)) {
+                return false;
+            }
+            allFields.add(table.schema().findColumnName(partitionField.sourceId()));
+        }
+        return allFields.size() == 1;
+    }
+
     public static boolean hasIcebergCatalogFormatVersion(Map<String, String> catalogProperties) {
         return catalogProperties.containsKey(CatalogProperties.TABLE_OVERRIDE_PREFIX + TableProperties.FORMAT_VERSION)
                 || catalogProperties.containsKey(CatalogProperties.TABLE_DEFAULT_PREFIX

@@ -334,9 +334,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         return execute(lease.getAuthenticator(), () -> loadSnapshotProjection(
                 dorisTable, table, table, IcebergSnapshotCacheValue.retainCurrentSnapshotJson(table),
                 true, lease.getAuthenticator(), lease.isEnableMappingVarbinary(),
-                lease.isEnableMappingTimestampTz(),
-                dorisTable instanceof IcebergExternalTable
-                        ? ((IcebergExternalTable) dorisTable).isValidRelatedTable(table) : null)
+                lease.isEnableMappingTimestampTz())
                 .bindCapturedAuthenticator(lease.getAuthenticator())
                 .bindRuntimeContext(lease.getRuntimeContext())
                 .bindSchemaMappingOptions(lease.isEnableMappingVarbinary(),
@@ -1028,27 +1026,17 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
             String retainedCurrentSnapshotJson, boolean isolateForQueries,
             ExecutionAuthenticator authenticator,
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
-        return loadSnapshotProjection(dorisTable, projectionTable, retainedTable,
-                retainedCurrentSnapshotJson, isolateForQueries, authenticator,
-                enableMappingVarbinary, enableMappingTimestampTz, null);
-    }
-
-    private IcebergSnapshotCacheValue loadSnapshotProjection(
-            ExternalTable dorisTable, Table projectionTable, Table retainedTable,
-            String retainedCurrentSnapshotJson, boolean isolateForQueries,
-            ExecutionAuthenticator authenticator,
-            boolean enableMappingVarbinary, boolean enableMappingTimestampTz,
-            @Nullable Boolean validRelatedTableOverride) {
         if (!(dorisTable instanceof MTMVRelatedTableIf)) {
             throw new RuntimeException(String.format("Table %s.%s is not a valid MTMV related table.",
                     dorisTable.getDbName(), dorisTable.getName()));
         }
         try {
-            MTMVRelatedTableIf table = (MTMVRelatedTableIf) dorisTable;
             IcebergSnapshot latestIcebergSnapshot = IcebergUtils.getLatestIcebergSnapshot(projectionTable);
             IcebergPartitionInfo icebergPartitionInfo;
-            boolean validRelatedTable = validRelatedTableOverride == null
-                    ? table.isValidRelatedTable() : validRelatedTableOverride;
+            // The projection and its partition eligibility must be classified from the same
+            // retained table generation. The no-argument method performs another cache lookup,
+            // which can cross a concurrent refresh/reset boundary.
+            boolean validRelatedTable = IcebergUtils.isValidRelatedTable(projectionTable);
             if (!validRelatedTable) {
                 icebergPartitionInfo = IcebergPartitionInfo.empty();
             } else {

@@ -97,7 +97,12 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
             long t0 = System.currentTimeMillis();
             doBeforeCommit();
             long t1 = System.currentTimeMillis();
-            if (table instanceof ExternalTable) {
+            if (transactionType() == TransactionType.ICEBERG) {
+                // IcebergTransaction already executes the remote commit through the authenticator
+                // captured by its writable generation. Looking up the live catalog authenticator
+                // here can fail after reset and strand the retained transaction generation.
+                transactionManager.commit(txnId);
+            } else if (table instanceof ExternalTable) {
                 try {
                     ExternalTable externalTable = (ExternalTable) table;
                     externalTable.getCatalog().getExecutionAuthenticator().execute(() -> {
@@ -169,7 +174,16 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
         String finalErrorMsg = InsertUtils.getFinalErrorMsg(t.getMessage(), firstErrorMsgPart, urlPart);
         ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, finalErrorMsg);
 
-        if (table instanceof ExternalTable) {
+        if (transactionType() == TransactionType.ICEBERG) {
+            // Iceberg rollback only clears transaction-local state and releases the generation
+            // lease retained by IcebergTransaction. It must remain possible after catalog reset,
+            // when the mutable catalog authenticator is intentionally unavailable.
+            try {
+                transactionManager.rollback(txnId);
+            } catch (Exception e) {
+                LOG.warn("errors when abort txn. {} for table: {}", txnId, table.getName(), e);
+            }
+        } else if (table instanceof ExternalTable) {
             try {
                 ExternalTable externalTable = (ExternalTable) table;
                 externalTable.getCatalog().getExecutionAuthenticator().execute(() -> {
