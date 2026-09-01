@@ -19,7 +19,6 @@
 
 #include "common/cast_set.h"
 #include "common/exception.h"
-#include "common/logging.h"
 #include "common/status.h"
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
@@ -139,10 +138,8 @@ Status IcebergInsertPartitionFunction::open(RuntimeState* state) {
                                                                field.transform);
                 field.transformer = PartitionColumnTransforms::create(partition_field, source_type);
             } catch (const doris::Exception& e) {
-                LOG(WARNING) << "Merge partitioning fallback to RR: " << e.what();
-                _fallback_to_random = true;
-                _partition_fields.clear();
-                break;
+                return Status::NotSupported("Unsupported Iceberg partition transform: {}",
+                                            e.what());
             }
         }
     }
@@ -152,9 +149,6 @@ Status IcebergInsertPartitionFunction::open(RuntimeState* state) {
 Status IcebergInsertPartitionFunction::get_partitions(RuntimeState* /*state*/, Block* block,
                                                       size_t partition_count,
                                                       std::vector<HashValType>& partitions) const {
-    if (_fallback_to_random) {
-        return Status::InternalError("Merge partitioning fallback to random");
-    }
     if (partition_count == 0) {
         return Status::InternalError("Partition count is zero");
     }
@@ -193,7 +187,6 @@ Status IcebergInsertPartitionFunction::clone(RuntimeState* state,
             new_function->_partition_fields.emplace_back(std::move(field));
         }
     }
-    new_function->_fallback_to_random = _fallback_to_random;
     return Status::OK();
 }
 
