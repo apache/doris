@@ -80,6 +80,20 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
                 + "distributed by random buckets 1\n"
                 + "properties('replication_num' = '1')\n"
                 + "as select id, value from test.ivm_base;");
+        createTable("create table test.ivm_base_uniq (\n"
+                + "  id int,\n"
+                + "  name varchar(20),\n"
+                + "  value int\n"
+                + ") unique key(id, name)\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties('replication_num' = '1', 'binlog.enable' = 'true',"
+                + " 'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true',"
+                + " 'enable_unique_key_merge_on_write' = 'true');");
+        createMvByNereids("create materialized view test.ivm_mv_uniq\n"
+                + "build deferred refresh incremental on manual\n"
+                + "distributed by random buckets 1\n"
+                + "properties('replication_num' = '1')\n"
+                + "as select id, name, value from test.ivm_base_uniq;");
     }
 
     @Test
@@ -160,9 +174,12 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
 
     @Test
     void testPlannerKeepsIvmRowIdAsLargeIntInSinkTupleAndOutputExprs() throws Exception {
-        MTMV mtmv = getMtmv("ivm_mv");
+        // ivm_base_uniq is a MOW UNIQUE_KEYS table with two key columns, so the IVM row-id is the
+        // LARGEINT MurmurHash3_128 of the keys (a single eligible key would become the row-id
+        // directly, without hashing); the DUP_KEYS variant below pins the BIGINT lsn row-id.
+        MTMV mtmv = getMtmv("ivm_mv_uniq");
         UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
-        StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv");
+        StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv_uniq");
         statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
         TestNereidsPlanner planner = new TestNereidsPlanner(statementContext);
         PhysicalPlan physicalPlan = planner.planWithLock(command.getLogicalQuery(), PhysicalProperties.ANY);
@@ -185,6 +202,38 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
                 sink.getTupleDescriptor().getSlots().get(0).getType().getPrimitiveType());
         Assertions.assertFalse(sinkOutputExprs.isEmpty());
         Assertions.assertEquals(PrimitiveType.LARGEINT,
+                sinkOutputExprs.get(0).getType().getPrimitiveType());
+    }
+
+    @Test
+    void testPlannerKeepsIvmRowIdAsBigIntInSinkTupleAndOutputExprs() throws Exception {
+        // ivm_base is a DUP_KEYS table with row binlog, so the IVM row-id is the row-binlog lsn
+        // (BIGINT) instead of the LARGEINT hash used for tables without a deterministic key.
+        MTMV mtmv = getMtmv("ivm_mv");
+        UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
+        StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv");
+        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
+        TestNereidsPlanner planner = new TestNereidsPlanner(statementContext);
+        PhysicalPlan physicalPlan = planner.planWithLock(command.getLogicalQuery(), PhysicalProperties.ANY);
+        PlanTranslatorContext translatorContext = new PlanTranslatorContext(planner.getCascadesContext());
+        new PhysicalPlanTranslator(translatorContext).translatePlan(physicalPlan);
+        List<PlanFragment> fragments = translatorContext.getPlanFragments();
+
+        Assertions.assertNotNull(fragments);
+        Assertions.assertFalse(fragments.isEmpty());
+        PlanFragment sinkFragment = findSinkFragment(fragments);
+        OlapTableSink sink = (OlapTableSink) sinkFragment.getSink();
+        PlanFragment tabletSinkExprFragment = findTabletSinkExprFragment(fragments);
+        List<Expr> sinkOutputExprs = tabletSinkExprFragment == null
+                ? sinkFragment.getOutputExprs()
+                : tabletSinkExprFragment.getOutputExprs();
+
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL,
+                sink.getTupleDescriptor().getSlots().get(0).getColumn().getName());
+        Assertions.assertEquals(PrimitiveType.BIGINT,
+                sink.getTupleDescriptor().getSlots().get(0).getType().getPrimitiveType());
+        Assertions.assertFalse(sinkOutputExprs.isEmpty());
+        Assertions.assertEquals(PrimitiveType.BIGINT,
                 sinkOutputExprs.get(0).getType().getPrimitiveType());
     }
 

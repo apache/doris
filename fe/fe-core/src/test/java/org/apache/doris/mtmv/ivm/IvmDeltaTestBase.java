@@ -198,14 +198,18 @@ abstract class IvmDeltaTestBase {
             Env.getCurrentEnv().unprotectCreateDb(db);
         }
         // Register the base table so the stream can resolve it by id (see TableStreamBaseTableInfo).
-        // Mock table ids are reused across tests, so replace any stale object registered under the id.
+        // Mock table ids and names are both reused across tests, sometimes with a different id for
+        // the same name; Database.registerTable refuses same-name registration, so drop any stale
+        // object registered under the id or under the name before registering.
         TableIf registered = db.getTableNullable(baseTable.getId());
-        if (registered == null || registered != baseTable) {
-            if (registered != null) {
-                db.unregisterTable(baseTable.getId());
-            }
-            db.registerTable(baseTable);
+        if (registered != null && registered != baseTable) {
+            db.unregisterTable(baseTable.getId());
         }
+        TableIf sameName = db.getTableNullable(baseTable.getName());
+        if (sameName != null && sameName != baseTable) {
+            db.unregisterTable(sameName.getId());
+        }
+        db.registerTable(baseTable);
         String streamName = IvmUtil.streamName(mvId, baseTable.getFullQualifiers());
         db.unregisterTable(streamName);
         OlapTableStream stream = new OlapTableStream(baseTable.getId() + 10_000L + mvId,

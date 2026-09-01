@@ -59,6 +59,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
 
@@ -69,21 +70,23 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         }
 
         private Optional<IvmDeltaRewriteResult> exposeRewritePlanOptional(Plan plan, IvmIncrRefreshContext ctx) {
-            Map<OlapTable, OlapTableStream> streams = new HashMap<>();
-            plan.collectToList(LogicalOlapScan.class::isInstance).forEach(node -> {
-                LogicalOlapScan scan = (LogicalOlapScan) node;
-                if (!(scan instanceof LogicalOlapTableStreamScan)) {
-                    OlapTable table = (OlapTable) scan.getTable();
-                    OlapTableStream stream = getRegisteredStream(table, 0L);
-                    if (stream != null) {
-                        streams.put(table, stream);
+            return runWithIvmRewriteContext(ctx, () -> {
+                Map<OlapTable, OlapTableStream> streams = new HashMap<>();
+                plan.collectToList(LogicalOlapScan.class::isInstance).forEach(node -> {
+                    LogicalOlapScan scan = (LogicalOlapScan) node;
+                    if (!(scan instanceof LogicalOlapTableStreamScan)) {
+                        OlapTable table = (OlapTable) scan.getTable();
+                        OlapTableStream stream = getRegisteredStream(table, 0L);
+                        if (stream != null) {
+                            streams.put(table, stream);
+                        }
                     }
-                }
+                });
+                IvmDeltaRewriteVisitor visitor = new IvmDeltaRewriteVisitor(
+                        new IvmLinearDeltaHandler(), new IvmJoinDeltaHandler(), new IvmAggDeltaHandler(),
+                        new IvmDeltaRewriteState(streams, true, 0, BigIntType.INSTANCE, ImmutableMap.of()));
+                return visitor.rewritePlan(plan, ctx);
             });
-            IvmDeltaRewriteVisitor visitor = new IvmDeltaRewriteVisitor(
-                    new IvmLinearDeltaHandler(), new IvmJoinDeltaHandler(), new IvmAggDeltaHandler(),
-                    new IvmDeltaRewriteState(streams, true, 0, BigIntType.INSTANCE, ImmutableMap.of()));
-            return visitor.rewritePlan(plan, ctx);
         }
     }
 
@@ -103,6 +106,21 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
 
     private IvmIncrRefreshContext newRefreshContext(Plan plan, IvmRewriteResult rewriteResult) {
         return new IvmIncrRefreshContext(buildMtmvFromPlan(plan.getOutput()), new ConnectContext(), rewriteResult, false);
+    }
+
+    /**
+     * Runs the action under a thread-local ConnectContext whose StatementContext carries the IVM
+     * rewrite context, mirroring production incremental refresh. Snapshot stream scans only expose
+     * the hidden {@code __DORIS_ROW_LSN_COL__} under such a context.
+     */
+    private <T> T runWithIvmRewriteContext(IvmIncrRefreshContext ctx, Supplier<T> action) {
+        ensureStatementContext(ctx.getConnectContext());
+        ctx.getConnectContext().setThreadLocalInfo();
+        try {
+            return action.get();
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test
@@ -177,9 +195,9 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
                 rowIdProject(buildScanForTable(1012, "t1012")));
         IvmRewriteResult rewriteResult = deterministicRewriteResult(normalizedPlan);
         IvmIncrRefreshContext ctx = newRefreshContext(normalizedPlan, rewriteResult);
-
-        Plan mergedPlan = new IvmDeltaRewriter().generateIncrRefreshPlan(normalizedPlan, rewriteResult,
-                IvmRewriteContext.incremental(ctx.getMtmv(), true), ctx.getConnectContext());
+        Plan mergedPlan = runWithIvmRewriteContext(ctx, () -> new IvmDeltaRewriter().generateIncrRefreshPlan(
+                normalizedPlan, rewriteResult,
+                IvmRewriteContext.incremental(ctx.getMtmv(), true), ctx.getConnectContext()));
         LogicalUnion union = findOnlyUnion(mergedPlan);
 
         Assertions.assertEquals(2, union.children().size());
