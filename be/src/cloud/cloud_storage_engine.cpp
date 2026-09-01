@@ -166,8 +166,8 @@ struct VaultCreateFSVisitor {
     // TODO(ByteYue): Make sure enable_java_support is on
     Status operator()(const cloud::HdfsVaultInfo& vault) const {
         auto hdfs_params = io::to_hdfs_params(vault);
-        auto fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id,
-                                                       nullptr, vault.prefix()));
+        auto fs = DORIS_TRY(
+                io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id, vault.prefix()));
         put_storage_resource(id, {std::move(fs), path_format}, 0);
         LOG_INFO("successfully create hdfs vault, vault id {}", id);
         return Status::OK();
@@ -196,9 +196,8 @@ struct RefreshFSVaultVisitor {
 
     Status operator()(const cloud::HdfsVaultInfo& vault) const {
         auto hdfs_params = io::to_hdfs_params(vault);
-        auto hdfs_fs =
-                DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id, nullptr,
-                                                     vault.has_prefix() ? vault.prefix() : ""));
+        auto hdfs_fs = DORIS_TRY(io::HdfsFileSystem::create(
+                hdfs_params, hdfs_params.fs_name, id, vault.has_prefix() ? vault.prefix() : ""));
         auto hdfs = std::static_pointer_cast<io::HdfsFileSystem>(hdfs_fs);
         put_storage_resource(id, {std::move(hdfs), path_format}, 0);
         return Status::OK();

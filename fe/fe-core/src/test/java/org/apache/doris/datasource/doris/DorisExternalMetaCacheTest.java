@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.doris;
 
-import org.apache.doris.datasource.metacache.MetaCacheEntry;
+import org.apache.doris.connector.cache.MetaCache;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.Assert;
@@ -37,7 +37,7 @@ public class DorisExternalMetaCacheTest {
             long catalogId = 1L;
             cache.initCatalog(catalogId, Collections.emptyMap());
 
-            MetaCacheEntry<String, ImmutableMap<Long, org.apache.doris.system.Backend>> backendsEntry = cache.entry(
+            MetaCache<String, ImmutableMap<Long, org.apache.doris.system.Backend>> backendsEntry = cache.entry(
                     catalogId,
                     DorisExternalMetaCache.ENTRY_BACKENDS,
                     String.class,
