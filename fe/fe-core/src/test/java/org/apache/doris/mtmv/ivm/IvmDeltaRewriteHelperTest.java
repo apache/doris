@@ -153,23 +153,29 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
 
     @Test
     void testRemapScanOutputForPreSnapshotPreservesExprId() throws Exception {
-        LogicalOlapScan scan = buildScanForTable(1, "t_pre");
-        OlapTableStream stream = (OlapTableStream) Env.getCurrentInternalCatalog()
-                .getDbOrAnalysisException("test_db")
-                .getTableOrAnalysisException(IvmUtil.streamName(0L, scan.getTable().getFullQualifiers()));
+        ConnectContext connectContext = newConnectContext();
+        connectContext.setThreadLocalInfo();
+        try {
+            LogicalOlapScan scan = buildScanForTable(1, "t_pre");
+            OlapTableStream stream = (OlapTableStream) Env.getCurrentInternalCatalog()
+                    .getDbOrAnalysisException("test_db")
+                    .getTableOrAnalysisException(IvmUtil.streamName(0L, scan.getTable().getFullQualifiers()));
 
-        LogicalPlan preSnapshot = (LogicalPlan) scan.withPreSnapshot(Optional.of(stream));
-        LogicalPlan remapped = helper.remapOlapScanToPlan(scan, preSnapshot);
+            LogicalPlan preSnapshot = (LogicalPlan) scan.withPreSnapshot(Optional.of(stream));
+            LogicalPlan remapped = helper.remapOlapScanToPlan(scan, preSnapshot);
 
-        Assertions.assertInstanceOf(LogicalProject.class, remapped);
-        Assertions.assertInstanceOf(LogicalOlapTableStreamScan.class, remapped.child(0));
-        LogicalOlapTableStreamScan snapshotChild = (LogicalOlapTableStreamScan) remapped.child(0);
-        Assertions.assertTrue(snapshotChild.isSnapshot());
-        Assertions.assertFalse(snapshotChild.isIncremental());
-        Assertions.assertFalse(snapshotChild.isReset());
-        for (int i = 0; i < scan.getOutput().size(); i++) {
-            Assertions.assertEquals(scan.getOutput().get(i).getExprId(), remapped.getOutput().get(i).getExprId());
-            Assertions.assertEquals(scan.getOutput().get(i).getName(), remapped.getOutput().get(i).getName());
+            Assertions.assertInstanceOf(LogicalProject.class, remapped);
+            Assertions.assertInstanceOf(LogicalOlapTableStreamScan.class, remapped.child(0));
+            LogicalOlapTableStreamScan snapshotChild = (LogicalOlapTableStreamScan) remapped.child(0);
+            Assertions.assertTrue(snapshotChild.isSnapshot());
+            Assertions.assertFalse(snapshotChild.isIncremental());
+            Assertions.assertFalse(snapshotChild.isReset());
+            for (int i = 0; i < scan.getOutput().size(); i++) {
+                Assertions.assertEquals(scan.getOutput().get(i).getExprId(), remapped.getOutput().get(i).getExprId());
+                Assertions.assertEquals(scan.getOutput().get(i).getName(), remapped.getOutput().get(i).getName());
+            }
+        } finally {
+            ConnectContext.remove();
         }
     }
 
@@ -266,8 +272,7 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
         try {
             LogicalOlapScan olapScan = buildScanWithHiddenColumns();
             OlapTable baseTable = olapScan.getTable();
-            OlapTableStream stream = new OlapTableStream(10_008L, "hidden_column_stream",
-                    baseTable.getFullSchema(), baseTable);
+            OlapTableStream stream = new OlapTableStream(10_008L, "hidden_column_stream", baseTable);
             LogicalOlapTableStreamScan streamScan = new LogicalOlapTableStreamScan(
                     new RelationId(100), new OlapTableStreamWrapper(stream, baseTable, ImmutableList.of()),
                     ImmutableList.of("test_db"),
