@@ -1,3 +1,28 @@
+--- a/cpp/src/parquet/CMakeLists.txt
++++ b/cpp/src/parquet/CMakeLists.txt
+@@ -116,6 +116,12 @@ endfunction()
+ # Link libraries setup
+ 
+ # TODO(wesm): Handling of ABI/SO version
++find_path(LZO_INCLUDE_DIR NAMES lzo/lzo1x.h REQUIRED)
++find_library(LZO_LIBRARY NAMES lzo2 lzo REQUIRED)
++# The LZO page reader is a Doris patch. It is not an upstream Arrow
++# compression dependency, so declare its include and link requirements here.
++include_directories(SYSTEM "${LZO_INCLUDE_DIR}")
++link_libraries("${LZO_LIBRARY}")
+ 
+ if(ARROW_BUILD_STATIC)
+   set(PARQUET_STATIC_LINK_LIBS arrow_static)
+--- a/cpp/vcpkg.json
++++ b/cpp/vcpkg.json
+@@ -43,6 +43,7 @@
+     "grpc",
+     "gtest",
+     "lz4",
++    "lzo",
+     "openssl",
+     "orc",
+     "protobuf",
 --- a/cpp/src/parquet/column_reader.cc
 +++ b/cpp/src/parquet/column_reader.cc
 @@ -29,6 +29,8 @@
