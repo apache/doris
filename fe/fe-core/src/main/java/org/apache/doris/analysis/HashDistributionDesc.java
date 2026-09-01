@@ -144,6 +144,9 @@ public class HashDistributionDesc extends DistributionDesc {
 
     @Override
     public DistributionDescriptor toDistributionDescriptor() {
-        return new DistributionDescriptor(true, this.autoBucket, this.numBucket, this.distributionColumnNames);
+        DistributionDescriptor descriptor
+                = new DistributionDescriptor(true, this.autoBucket, this.numBucket, this.distributionColumnNames);
+        descriptor.updateHashType(hashType);
+        return descriptor;
     }
 }

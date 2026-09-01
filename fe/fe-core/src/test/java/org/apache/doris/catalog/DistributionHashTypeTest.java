@@ -117,6 +117,9 @@ public class DistributionHashTypeTest {
             Assert.assertTrue(desc instanceof HashDistributionDesc);
             HashDistributionInfo rebuilt = (HashDistributionInfo) desc.toDistributionInfo(columns);
             Assert.assertEquals(type, rebuilt.getHashType());
+            HashDistributionInfo descriptorRoundTrip = (HashDistributionInfo) desc.toDistributionDescriptor()
+                    .translateToCatalogStyle().toDistributionInfo(columns);
+            Assert.assertEquals(type, descriptorRoundTrip.getHashType());
         }
     }
 

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -144,6 +145,9 @@ public class DistributionSpecHash extends DistributionSpec {
     }
 
     static DistributionSpecHash merge(DistributionSpecHash left, DistributionSpecHash right, ShuffleType shuffleType) {
+        Preconditions.checkState(left.hashType == right.hashType,
+                "can not merge distribution specs with different hash types: %s vs %s",
+                left.hashType, right.hashType);
         List<ExprId> orderedShuffledColumns = left.getOrderedShuffledColumns();
         ImmutableList.Builder<Set<ExprId>> equivalenceExprIds
                 = ImmutableList.builderWithExpectedSize(orderedShuffledColumns.size());

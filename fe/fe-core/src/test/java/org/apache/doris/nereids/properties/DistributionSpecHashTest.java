@@ -56,7 +56,8 @@ public class DistributionSpecHashTest {
                 -1L,
                 Sets.newHashSet(0L),
                 Lists.newArrayList(Sets.newHashSet(e1, e4), Sets.newHashSet(e2, e5), Sets.newHashSet(e3, e6)),
-                map
+                map,
+                HashType.IDENTITY
         );
 
         // retain middle slot only (original index 1): map renumbered to 0 in the new spec
@@ -68,6 +69,7 @@ public class DistributionSpecHashTest {
         expectedMiddle.put(e2, 0);
         expectedMiddle.put(e5, 0);
         Assertions.assertEquals(expectedMiddle, middleOnly.getExprIdToEquivalenceSet());
+        Assertions.assertEquals(HashType.IDENTITY, middleOnly.getHashType());
     }
 
     @Test
@@ -387,6 +389,13 @@ public class DistributionSpecHashTest {
 
         Assertions.assertFalse(bucketed1.satisfy(bucketed2));
         Assertions.assertFalse(bucketed2.satisfy(bucketed1));
+    }
+
+    @Test
+    public void testMergeRejectsDifferentHashTypes() {
+        DistributionSpecHash crc32 = naturalSpec(HashType.CRC32);
+        DistributionSpecHash identity = naturalSpec(HashType.IDENTITY);
+        Assertions.assertThrows(IllegalStateException.class, () -> DistributionSpecHash.merge(crc32, identity));
     }
 
     // Two NATURAL specs identical except for hashType must be unequal and hash differently, so the
