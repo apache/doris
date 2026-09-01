@@ -111,8 +111,7 @@ public class MysqlSerializerVarbinaryTest {
         Assertions.assertEquals(33, charset); // utf8_general_ci
         off += 2;
         long displayLen = leUInt4(out, off);
-        // current implementation defaults to 255 for non numeric/time types if not special-cased
-        Assertions.assertEquals(255L, displayLen);
+        Assertions.assertEquals(10L, displayLen);
         off += 4; // type
         off += 1;
         int flags = leUInt2(out, off);
