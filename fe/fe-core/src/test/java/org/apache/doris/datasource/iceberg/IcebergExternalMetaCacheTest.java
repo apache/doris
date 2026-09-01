@@ -23,6 +23,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.metacache.EstimatorCalibrationAssertions;
@@ -45,6 +46,7 @@ import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.PartitionData;
+import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
@@ -77,6 +79,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -657,11 +660,10 @@ public class IcebergExternalMetaCacheTest {
     }
 
     @Test
-    public void testSnapshotPartitionLoadUsesCapturedAuthenticator() throws Exception {
+    public void testSnapshotPartitionLoadUsesCapturedAuthenticatorAndProjectionGeneration() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
         IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
-        Mockito.when(dorisTable.isValidRelatedTable()).thenReturn(true);
         Table projectionTable = Mockito.mock(Table.class);
         Snapshot snapshot = Mockito.mock(Snapshot.class);
         Schema schema = Mockito.mock(Schema.class);
@@ -683,6 +685,8 @@ public class IcebergExternalMetaCacheTest {
                     .thenReturn(IcebergPartitionInfo.empty());
             icebergUtils.when(() -> IcebergUtils.getNameMapping(projectionTable))
                     .thenReturn(Optional.empty());
+            icebergUtils.when(() -> IcebergUtils.isValidRelatedTable(projectionTable))
+                    .thenReturn(true);
             icebergUtils.clearInvocations();
 
             loader.invoke(cache, dorisTable, projectionTable, projectionTable,
@@ -690,6 +694,52 @@ public class IcebergExternalMetaCacheTest {
 
             icebergUtils.verify(() -> IcebergUtils.loadPartitionInfo(
                     dorisTable, projectionTable, 11L, 3L, capturedAuthenticator, true, false));
+            icebergUtils.verify(() -> IcebergUtils.isValidRelatedTable(projectionTable));
+            Mockito.verify(dorisTable, Mockito.never()).isValidRelatedTable();
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testHmsSnapshotProjectionIgnoresRelatedTableCacheFromAnotherGeneration() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
+        HMSExternalTable dorisTable = Mockito.mock(HMSExternalTable.class);
+        Mockito.when(dorisTable.isValidRelatedTable()).thenReturn(true);
+        Table projectionTable = Mockito.mock(Table.class);
+        PartitionSpec projectionSpec = Mockito.mock(PartitionSpec.class);
+        Mockito.when(projectionSpec.fields()).thenReturn(Arrays.asList(
+                Mockito.mock(PartitionField.class), Mockito.mock(PartitionField.class)));
+        Mockito.when(projectionTable.specs()).thenReturn(Collections.singletonMap(1, projectionSpec));
+        Snapshot snapshot = Mockito.mock(Snapshot.class);
+        Schema schema = Mockito.mock(Schema.class);
+        Mockito.when(projectionTable.currentSnapshot()).thenReturn(snapshot);
+        Mockito.when(snapshot.snapshotId()).thenReturn(11L);
+        Mockito.when(projectionTable.schema()).thenReturn(schema);
+        Mockito.when(schema.schemaId()).thenReturn(3);
+        ExecutionAuthenticator capturedAuthenticator = new ExecutionAuthenticator() {
+        };
+        Method loader = IcebergExternalMetaCache.class.getDeclaredMethod(
+                "loadSnapshotProjection", ExternalTable.class, Table.class, Table.class,
+                String.class, boolean.class, ExecutionAuthenticator.class,
+                boolean.class, boolean.class);
+        loader.setAccessible(true);
+        try (MockedStatic<IcebergUtils> icebergUtils = Mockito.mockStatic(
+                IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            icebergUtils.when(() -> IcebergUtils.getNameMapping(projectionTable))
+                    .thenReturn(Optional.empty());
+            icebergUtils.clearInvocations();
+
+            loader.invoke(cache, dorisTable, projectionTable, projectionTable,
+                    null, false, capturedAuthenticator, true, false);
+
+            icebergUtils.verify(() -> IcebergUtils.isValidRelatedTable(projectionTable));
+            icebergUtils.verify(() -> IcebergUtils.loadPartitionInfo(
+                    dorisTable, projectionTable, 11L, 3L, capturedAuthenticator, true, false),
+                    Mockito.never());
+            Mockito.verify(dorisTable, Mockito.never()).isValidRelatedTable();
         } finally {
             cache.close();
             executor.shutdownNow();
