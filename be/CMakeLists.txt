@@ -901,7 +901,14 @@ endif()
 # NOTE(amos): This should come before -lc -lm to interpose symbols correctly.
 if (GLIBC_COMPATIBILITY)
     add_subdirectory(${SRC_DIR}/glibc-compatibility)
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} glibc-compatibility-explicit glibc-compatibility)
+    # Keep lance_c here instead of COMMON_THIRDPARTY: placing its required libm there
+    # would resolve -lm symbol before Doris compatibility is scanned, preventing
+    # the linker from selecting Doris' optimized implementations.
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        glibc-compatibility-explicit
+        glibc-compatibility
+        -lm
+        lance_c)
 endif()
 
 if (NOT OS_MACOSX)
