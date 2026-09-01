@@ -154,4 +154,23 @@ TEST_F(PaimonRustReaderTest, InitReaderFailsWithoutTableName) {
     EXPECT_NE(status.to_string().find("missing table_name"), std::string::npos) << status;
 }
 
+TEST_F(PaimonRustReaderTest, InitReaderFailsWithoutSchemaJson) {
+    auto range = _build_range_with_split();
+    range.table_format_params.paimon_params.__isset.paimon_table = true;
+    range.table_format_params.paimon_params.paimon_table =
+            "file:///tmp/doris_paimon_rust_ut_missing/db.db/tbl";
+    range.table_format_params.paimon_params.__isset.db_name = true;
+    range.table_format_params.paimon_params.db_name = "db";
+    range.table_format_params.paimon_params.__isset.table_name = true;
+    range.table_format_params.paimon_params.table_name = "tbl";
+    // paimon_table_schema_json intentionally left unset.
+
+    PaimonRustReader reader(_file_slot_descs, _runtime_state.get(), &_profile, range, nullptr);
+    auto status = reader.init_reader();
+
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("missing paimon_table_schema_json"), std::string::npos)
+            << status;
+}
+
 } // namespace doris

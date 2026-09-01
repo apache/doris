@@ -58,8 +58,6 @@ constexpr const char* VALUE_KIND_FIELD = "_VALUE_KIND";
     };                                                              \
     using type##_ptr = std::unique_ptr<paimon_##type, type##_deleter>
 
-PAIMON_OWNED(catalog, paimon_catalog_free);
-PAIMON_OWNED(identifier, paimon_identifier_free);
 PAIMON_OWNED(table, paimon_table_free);
 PAIMON_OWNED(read_builder, paimon_read_builder_free);
 PAIMON_OWNED(plan, paimon_plan_free);
@@ -112,7 +110,7 @@ std::string consume_error(paimon_error* err) {
     return "code=" + std::to_string(owned->code) + ", msg=" + msg;
 }
 
-// Render catalog options for diagnostics. Values of sensitive keys (secret /
+// Render storage options for diagnostics. Values of sensitive keys (secret /
 // password / token / access key) are masked so credentials never hit the log.
 std::string format_options(const std::map<std::string, std::string>& options) {
     std::string out;
@@ -136,11 +134,11 @@ std::string format_options(const std::map<std::string, std::string>& options) {
 } // namespace
 
 // Long-lived paimon-rust handles. Order of members matters: destruction runs
-// in reverse declaration order, and the table depends on the catalog, the
-// read_builder on the table, and so on down to the record batch reader. So the
-// catalog MUST be declared first (destroyed last) and the reader last.
+// in reverse declaration order, and the read_builder depends on the table, the
+// plan on nothing here but conceptually on the read pipeline, and so on down
+// to the record batch reader. So the table MUST be declared first (destroyed
+// last) and the reader last.
 struct PaimonRustReader::PaimonHandles {
-    catalog_ptr catalog;
     table_ptr table;
     read_builder_ptr read_builder;
     plan_ptr plan;
@@ -299,8 +297,10 @@ Status PaimonRustReader::_open_table_and_build_reader() {
     std::string split_bytes;
     RETURN_IF_ERROR(_decode_split_bytes(&split_bytes));
 
-    // 2. Resolve identifier and warehouse (paimon catalog convention: the
-    // table root is `<warehouse>/<db>.db/<table>`).
+    // 2. Resolve identifier + table_path + FE-supplied TableSchema JSON. With
+    // paimon_table_from_schema_json we no longer derive `warehouse` from the
+    // path shape and no longer create a catalog; FE ships the resolved schema
+    // JSON directly.
     auto table_path_opt = _resolve_table_path();
     if (!table_path_opt.has_value()) {
         return Status::InternalError(
@@ -309,33 +309,30 @@ Status PaimonRustReader::_open_table_and_build_reader() {
     auto db_name_opt = _resolve_db_name();
     if (!db_name_opt.has_value()) {
         return Status::InternalError(
-                "paimon-rust missing db_name; cannot open paimon table via catalog");
+                "paimon-rust missing db_name; cannot open paimon table via schema json");
     }
     auto table_name_opt = _resolve_table_name();
     if (!table_name_opt.has_value()) {
         return Status::InternalError(
-                "paimon-rust missing table_name; cannot open paimon table via catalog");
+                "paimon-rust missing table_name; cannot open paimon table via schema json");
+    }
+    auto schema_json_opt = _resolve_table_schema_json();
+    if (!schema_json_opt.has_value()) {
+        return Status::InternalError(
+                "paimon-rust missing paimon_table_schema_json; cannot open paimon table via "
+                "schema json");
     }
     const std::string& table_path = table_path_opt.value();
     const std::string& db_name = db_name_opt.value();
     const std::string& table_name = table_name_opt.value();
+    const std::string& schema_json = schema_json_opt.value();
+    auto branch_opt = _resolve_branch();
 
-    auto warehouse_opt = _derive_warehouse(table_path, db_name, table_name);
-    if (!warehouse_opt.has_value()) {
-        return Status::InternalError(
-                "paimon-rust cannot derive warehouse from table_path='{}' (expected suffix "
-                "'/{}.db/{}')",
-                table_path, db_name, table_name);
-    }
-
-    // 3. Assemble catalog options: warehouse + optional storage credentials
-    // from properties/paimon_options/hadoop_conf. Default to metastore=filesystem
-    // for path-based paimon layouts.
+    // 3. Assemble storage options: FE-supplied paimon options + hadoop_conf +
+    // OSS/S3 → AWS_* translations. These feed FileIO only (per
+    // paimon_table_from_schema_json contract); they are NOT merged into the
+    // supplied table schema.
     auto options = _build_options();
-    options["warehouse"] = warehouse_opt.value();
-    if (options.find("metastore") == options.end()) {
-        options["metastore"] = "filesystem";
-    }
 
     std::vector<paimon_option> c_options;
     c_options.reserve(options.size());
@@ -343,38 +340,27 @@ Status PaimonRustReader::_open_table_and_build_reader() {
         c_options.push_back(paimon_option {kv.first.c_str(), kv.second.c_str()});
     }
 
-    LOG(INFO) << "paimon-rust opening table via catalog: db=" << db_name
-              << " table=" << table_name << " warehouse=" << options["warehouse"]
-              << " options=[" << format_options(options) << "]";
+    LOG(INFO) << "paimon-rust opening table via schema json: db=" << db_name
+              << " table=" << table_name << " path=" << table_path
+              << " branch=" << (branch_opt.has_value() ? branch_opt.value() : "main")
+              << " storage_options=[" << format_options(options) << "]";
 
-    // 4. Create catalog.
-    paimon_result_catalog_new cat_res =
-            paimon_catalog_create(c_options.data(), c_options.size());
-    if (cat_res.error != nullptr) {
-        return Status::InternalError("paimon-rust catalog_create failed: {}; options=[{}]",
-                                     consume_error(cat_res.error), format_options(options));
-    }
-    _handles->catalog.reset(cat_res.catalog);
-
-    // 5. Build identifier and look up the table.
-    paimon_result_identifier_new id_res =
-            paimon_identifier_new(db_name.c_str(), table_name.c_str());
-    if (id_res.error != nullptr) {
-        return Status::InternalError("paimon-rust identifier_new failed: {}",
-                                     consume_error(id_res.error));
-    }
-    identifier_ptr identifier(id_res.identifier);
-
-    paimon_result_get_table tbl_res =
-            paimon_catalog_get_table(_handles->catalog.get(), identifier.get());
+    // 4. Build the table directly from the FE-supplied schema JSON. The Rust
+    // side rejects null / empty branch, so we default to paimon's canonical
+    // "main" sentinel when FE did not set paimon_branch (i.e. the table is on
+    // the main branch — matches upstream Identifier.DEFAULT_MAIN_BRANCH).
+    const std::string& branch_str = branch_opt.has_value() ? branch_opt.value() : "main";
+    paimon_result_get_table tbl_res = paimon_table_from_schema_json(
+            table_path.c_str(), schema_json.c_str(), db_name.c_str(), table_name.c_str(),
+            branch_str.c_str(), c_options.empty() ? nullptr : c_options.data(), c_options.size());
     if (tbl_res.error != nullptr) {
         return Status::InternalError(
-                "paimon-rust get_table failed: db={} table={} err={}", db_name, table_name,
-                consume_error(tbl_res.error));
+                "paimon-rust table_from_schema_json failed: db={} table={} err={}", db_name,
+                table_name, consume_error(tbl_res.error));
     }
     _handles->table.reset(tbl_res.table);
 
-    // 6. Build the read pipeline: read_builder -> case-insensitive -> projection.
+    // 5. Build the read pipeline: read_builder -> case-insensitive -> projection.
     paimon_result_read_builder rb_res = paimon_table_new_read_builder(_handles->table.get());
     if (rb_res.error != nullptr) {
         return Status::InternalError("paimon-rust new read builder failed: {}",
@@ -406,7 +392,7 @@ Status PaimonRustReader::_open_table_and_build_reader() {
     // Convert the FE push-down conjuncts into a paimon-rust filter and apply it.
     RETURN_IF_ERROR(_apply_predicate());
 
-    // 7. Deserialize the FE-planned split into a one-split plan, so this
+    // 6. Deserialize the FE-planned split into a one-split plan, so this
     // scanner reads exactly the split it was assigned rather than replanning
     // the whole table. The wire form is identical to what paimon-cpp consumes
     // (`paimon::table::DataSplit::serialize`).
@@ -424,7 +410,7 @@ Status PaimonRustReader::_open_table_and_build_reader() {
         return Status::OK();
     }
 
-    // 8. Open the arrow stream over the plan.
+    // 7. Open the arrow stream over the plan.
     paimon_result_new_read read_res = paimon_read_builder_new_read(_handles->read_builder.get());
     if (read_res.error != nullptr) {
         return Status::InternalError("paimon-rust new read failed: {}",
@@ -506,28 +492,25 @@ std::optional<std::string> PaimonRustReader::_resolve_table_name() const {
     return std::nullopt;
 }
 
-std::optional<std::string> PaimonRustReader::_derive_warehouse(std::string_view table_path,
-                                                               std::string_view db_name,
-                                                               std::string_view table_name) {
-    // paimon convention: <warehouse>/<db>.db/<table>[/]
-    // Strip a trailing slash first so both forms work.
-    while (!table_path.empty() && table_path.back() == '/') {
-        table_path.remove_suffix(1);
+std::optional<std::string> PaimonRustReader::_resolve_table_schema_json() const {
+    if (_range.__isset.table_format_params && _range.table_format_params.__isset.paimon_params &&
+        _range.table_format_params.paimon_params.__isset.paimon_table_schema_json &&
+        !_range.table_format_params.paimon_params.paimon_table_schema_json.empty()) {
+        return _range.table_format_params.paimon_params.paimon_table_schema_json;
     }
-    // Suffix should end with `/<db>.db/<table>`.
-    std::string suffix;
-    suffix.reserve(db_name.size() + 4 + table_name.size() + 1);
-    suffix.append("/");
-    suffix.append(db_name);
-    suffix.append(".db/");
-    suffix.append(table_name);
-    if (table_path.size() <= suffix.size()) {
-        return std::nullopt;
+    return std::nullopt;
+}
+
+std::optional<std::string> PaimonRustReader::_resolve_branch() const {
+    // FE only sets paimon_branch when the branch is not `main` (matches
+    // upstream paimon commit 742da63: null-if-DEFAULT_MAIN_BRANCH). Unset here
+    // means main-branch semantics — pass nullptr to paimon_table_from_schema_json.
+    if (_range.__isset.table_format_params && _range.table_format_params.__isset.paimon_params &&
+        _range.table_format_params.paimon_params.__isset.paimon_branch &&
+        !_range.table_format_params.paimon_params.paimon_branch.empty()) {
+        return _range.table_format_params.paimon_params.paimon_branch;
     }
-    if (table_path.substr(table_path.size() - suffix.size()) != suffix) {
-        return std::nullopt;
-    }
-    return std::string(table_path.substr(0, table_path.size() - suffix.size()));
+    return std::nullopt;
 }
 
 std::vector<std::string> PaimonRustReader::_build_read_columns() const {

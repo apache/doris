@@ -66,6 +66,7 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.schema.TableSchema;
@@ -416,7 +417,16 @@ public class PaimonScanNode extends FileQueryScanNode {
             // paimon-cpp and paimon-rust both consume Paimon native binary serialization,
             // which only supports DataSplit. Any other split type falls back to JNI.
             boolean nativeSplit = split instanceof DataSplit;
-            if (sessionVariable.isEnablePaimonRustReader() && nativeSplit) {
+            // paimon-rust additionally requires a FileStoreTable: BE opens the table
+            // via paimon_table_from_schema_json, which needs the resolved TableSchema
+            // that only FileStoreTable exposes via schema(). If the table is not a
+            // FileStoreTable (e.g. a sys table backed by DataSplit), we cannot ship a
+            // schema JSON, so fall back to CPP / JNI rather than sending an incomplete
+            // PAIMON_RUST request that BE would reject.
+            Table paimonTable = source.getPaimonTable();
+            boolean canUseRust = sessionVariable.isEnablePaimonRustReader() && nativeSplit
+                    && paimonTable instanceof FileStoreTable;
+            if (canUseRust) {
                 fileDesc.setReaderType(TPaimonReaderType.PAIMON_RUST);
                 fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));
             } else if (sessionVariable.isEnablePaimonCppReader() && nativeSplit) {
@@ -433,10 +443,24 @@ public class PaimonScanNode extends FileQueryScanNode {
             if (tableLocation != null) {
                 fileDesc.setPaimonTable(tableLocation);
             }
-            // paimon-rust reader needs db/table to open the table through the catalog.
-            if (sessionVariable.isEnablePaimonRustReader()) {
-                fileDesc.setDbName(source.getExternalTable().getDbName());
-                fileDesc.setTableName(source.getExternalTable().getName());
+            // paimon-rust reader opens tables via paimon_table_from_schema_json:
+            // ship db/table + resolved TableSchema JSON + non-default branch.
+            if (canUseRust) {
+                ExternalTable extTable = source.getExternalTable();
+                fileDesc.setDbName(extTable.getDbName());
+                fileDesc.setTableName(extTable.getName());
+
+                // No catalog / warehouse needed. FE ships the resolved TableSchema JSON
+                // and the branch (null-if-main; matches upstream paimon commit 742da63)
+                // so BE can skip a schema-file round trip. The FileStoreTable cast is
+                // safe here because canUseRust gates on it above.
+                TableSchema tableSchema = ((FileStoreTable) paimonTable).schema();
+                fileDesc.setPaimonTableSchemaJson(PaimonUtil.encodeTableSchemaToJson(tableSchema));
+
+                String branch = CoreOptions.branch(tableSchema.options());
+                if (!Identifier.DEFAULT_MAIN_BRANCH.equals(branch)) {
+                    fileDesc.setPaimonBranch(branch);
+                }
             }
             rangeDesc.setSelfSplitWeight(paimonSplit.getSelfSplitWeight());
         } else {

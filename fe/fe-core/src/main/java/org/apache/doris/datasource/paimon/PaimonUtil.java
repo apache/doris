@@ -83,6 +83,7 @@ import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.utils.DateTimeUtils;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.apache.paimon.utils.InternalRowPartitionComputer;
+import org.apache.paimon.utils.JsonSerdeUtil;
 import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.PartitionPathUtils;
 import org.apache.paimon.utils.Projection;
@@ -732,6 +733,19 @@ public class PaimonUtil {
             return Base64.getEncoder().encodeToString(bytes);
         } catch (IOException e) {
             throw new RuntimeException("Failed to serialize DataSplit using Paimon native format", e);
+        }
+    }
+
+    /**
+     * Serialize a paimon {@link TableSchema} to JSON via Paimon's registered
+     * serde. Output is identical to an on-disk schema/schema-N file and is
+     * consumed by the paimon-rust BE reader through paimon_table_from_schema_json.
+     */
+    public static String encodeTableSchemaToJson(TableSchema tableSchema) {
+        try {
+            return JsonSerdeUtil.toJson(tableSchema);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize paimon TableSchema to JSON", e);
         }
     }
 
