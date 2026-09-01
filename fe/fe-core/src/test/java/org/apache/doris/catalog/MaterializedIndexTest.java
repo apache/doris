@@ -143,6 +143,18 @@ public class MaterializedIndexTest {
     }
 
     @Test
+    public void testPartitionMetaChecksumChangesOnDistributionHashType() {
+        MaterializedIndex baseIndex = new MaterializedIndex(1L, IndexState.NORMAL);
+        HashDistributionInfo distributionInfo = new HashDistributionInfo(
+                3, List.of(new Column("k1", PrimitiveType.INT)));
+        Partition partition = new Partition(1L, "p1", baseIndex, distributionInfo);
+        String crc32Checksum = partition.getMetaChecksum();
+
+        distributionInfo.setHashType(HashDistributionInfo.HashType.IDENTITY);
+        Assert.assertNotEquals(crc32Checksum, partition.getMetaChecksum());
+    }
+
+    @Test
     public void testPartitionMetaChecksumChangesOnReplicaQueryFields() {
         // Build a partition with one tablet/replica.
         MaterializedIndex baseIndex = new MaterializedIndex(1L, IndexState.NORMAL);

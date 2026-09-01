@@ -215,6 +215,21 @@ public class DistributionHashTypeTest {
         Assert.assertEquals(2, info.getDistributionColumns().size());
     }
 
+    @Test
+    public void testTableSignatureConsidersHashType() {
+        Column key = new Column("id", PrimitiveType.INT, true);
+        HashDistributionInfo distributionInfo = new HashDistributionInfo(8, Lists.newArrayList(key));
+        OlapTable table = new OlapTable(1L, "t", Lists.newArrayList(key), KeysType.DUP_KEYS,
+                new SinglePartitionInfo(), distributionInfo);
+        table.addPartition(new Partition(2L, "p", new MaterializedIndex(3L,
+                MaterializedIndex.IndexState.NORMAL), distributionInfo));
+
+        String crc32Signature = table.getSignature(1, Lists.newArrayList("p"));
+        distributionInfo.setHashType(HashType.IDENTITY);
+        String identitySignature = table.getSignature(1, Lists.newArrayList("p"));
+        Assert.assertNotEquals(crc32Signature, identitySignature);
+    }
+
     // ------------------------------------------------------------------
     // ColocateGroupSchema: hashType participates in colocate compatibility and metadata
     // ------------------------------------------------------------------
@@ -276,29 +291,26 @@ public class DistributionHashTypeTest {
 
     @Test
     public void testReadFieldsBeforeVersion141FallsBackToCrc32() throws Exception {
-        // Metadata streams written before VERSION_141 have no trailing hashType token. Simulate an
-        // old reader (journal version < 141) so readFields must skip that read and fall back to
-        // CRC32 to keep legacy colocate groups on their historical bucket layout.
-        MetaContext writeContext = new MetaContext();
-        writeContext.setMetaVersion(FeMetaVersion.VERSION_141);
-        writeContext.setThreadLocalInfo();
-        byte[] bytes;
-        try {
-            ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            schemaWith(HashType.CRC32).write(new DataOutputStream(bos));
-            bytes = bos.toByteArray();
-        } finally {
-            MetaContext.remove();
+        // Build the exact legacy stream, which ended after ReplicaAllocation and had no hash type.
+        ColocateGroupSchema original = schemaWith(HashType.CRC32);
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        DataOutputStream out = new DataOutputStream(bos);
+        original.getGroupId().write(out);
+        out.writeInt(original.getDistributionColTypes().size());
+        for (Type type : original.getDistributionColTypes()) {
+            ColumnType.write(out, type);
         }
-        // Now read with an old journal version: readFields must NOT consume any hashType token and
-        // returns CRC32 regardless of what trailing bytes exist.
+        out.writeInt(original.getBucketsNum());
+        original.getReplicaAlloc().write(out);
+
         MetaContext readContext = new MetaContext();
         readContext.setMetaVersion(FeMetaVersion.VERSION_140);
         readContext.setThreadLocalInfo();
         try {
-            ColocateGroupSchema restored
-                    = ColocateGroupSchema.read(new DataInputStream(new ByteArrayInputStream(bytes)));
+            ByteArrayInputStream input = new ByteArrayInputStream(bos.toByteArray());
+            ColocateGroupSchema restored = ColocateGroupSchema.read(new DataInputStream(input));
             Assert.assertEquals(HashType.CRC32, restored.getHashType());
+            Assert.assertEquals(0, input.available());
         } finally {
             MetaContext.remove();
         }
