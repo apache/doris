@@ -168,10 +168,12 @@ suite("test_mow_compaction_agg_and_remove_pre_delete_bitmap", "nonConcurrent") {
 
     GetDebugPoint().clearDebugPointsForAllBEs()
     get_be_param("tablet_rowset_stale_sweep_time_sec")
+    get_be_param("compaction_promotion_version_count")
     get_be_param("enable_agg_and_remove_pre_rowsets_delete_bitmap")
 
     try {
         set_be_param("tablet_rowset_stale_sweep_time_sec", "0")
+        set_be_param("compaction_promotion_version_count", "5")
         set_be_param("enable_agg_and_remove_pre_rowsets_delete_bitmap", "true") // solution 2
 
         def testTable = "test_mow_compaction"
@@ -330,6 +332,7 @@ suite("test_mow_compaction_agg_and_remove_pre_delete_bitmap", "nonConcurrent") {
         logger.info("local_dm 2.2: " + local_dm)
     } finally {
         reset_be_param("tablet_rowset_stale_sweep_time_sec")
+        reset_be_param("compaction_promotion_version_count")
         reset_be_param("enable_agg_and_remove_pre_rowsets_delete_bitmap")
         GetDebugPoint().clearDebugPointsForAllBEs()
     }

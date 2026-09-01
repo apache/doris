@@ -1239,7 +1239,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy,
 }
 
 TEST_F(TestSizeBasedCumulativeCompactionPolicy,
-       update_cumulative_point_does_not_promote_small_mow_rowset_by_version_count) {
+       update_cumulative_point_does_not_promote_small_mow_rowset_with_default_version_limit) {
     _tablet_meta->set_enable_unique_key_merge_on_write(true);
     TabletSharedPtr tablet(
             new Tablet(_engine, _tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));

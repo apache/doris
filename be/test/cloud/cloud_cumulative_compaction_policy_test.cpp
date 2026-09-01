@@ -213,7 +213,7 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, new_cumulative_point) {
 }
 
 TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
-       new_cumulative_point_does_not_promote_small_mow_rowset_by_version_count) {
+       new_cumulative_point_does_not_promote_small_mow_rowset_with_default_version_limit) {
     CloudTablet tablet(_engine, _tablet_meta);
     tablet._tablet_meta->_enable_unique_key_merge_on_write = true;
     tablet._base_size = kGiB;

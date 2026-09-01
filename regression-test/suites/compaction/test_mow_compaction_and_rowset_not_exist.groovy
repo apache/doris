@@ -202,7 +202,9 @@ suite("test_mow_compaction_and_rowset_not_exist", "nonConcurrent") {
     }
 
     GetDebugPoint().clearDebugPointsForAllBEs()
+    get_be_param("compaction_promotion_version_count")
     get_be_param("tablet_rowset_stale_sweep_time_sec")
+    set_be_param("compaction_promotion_version_count", "5")
     set_be_param("tablet_rowset_stale_sweep_time_sec", "0")
 
     try {
@@ -319,6 +321,7 @@ suite("test_mow_compaction_and_rowset_not_exist", "nonConcurrent") {
         // check ms update_delete_bitmap log contains skip
         // check recycler checker abnormal_rowsets_num=0
     } finally {
+        reset_be_param("compaction_promotion_version_count")
         reset_be_param("tablet_rowset_stale_sweep_time_sec")
         GetDebugPoint().clearDebugPointsForAllBEs()
     }

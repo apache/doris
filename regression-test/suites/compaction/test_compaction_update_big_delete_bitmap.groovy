@@ -175,8 +175,10 @@ suite("test_compaction_update_big_delete_bitmap", "nonConcurrent") {
 
     try {
         // store the original value
+        get_be_param("compaction_promotion_version_count")
         get_be_param("cumulative_compaction_max_deltas")
         get_be_param("cumulative_compaction_min_deltas")
+        set_be_param("compaction_promotion_version_count", "5")
         set_be_param("cumulative_compaction_max_deltas", "3")
         set_be_param("cumulative_compaction_min_deltas", "2")
 
@@ -233,6 +235,7 @@ suite("test_compaction_update_big_delete_bitmap", "nonConcurrent") {
         }
 
     } finally {
+        reset_be_param("compaction_promotion_version_count")
         reset_be_param("cumulative_compaction_max_deltas")
         reset_be_param("cumulative_compaction_min_deltas")
         GetDebugPoint().disableDebugPointForAllBEs("CloudMetaMgr::test_update_big_delete_bitmap")

@@ -523,6 +523,12 @@ DEFINE_mDouble(compaction_promotion_ratio, "0.05");
 // rowset will be not given to base compaction. The unit is m byte.
 DEFINE_mInt64(compaction_promotion_min_size_mbytes, "128");
 
+// When output rowset of cumulative compaction total version count (end_version - start_version)
+// exceed this config count, the rowset will be moved to base compaction.
+// NOTE: this config only works for unique key merge-on-write tables. The default maximum value
+// disables version-count-based promotion while retaining the option to enable it when needed.
+DEFINE_mInt64(compaction_promotion_version_count, "9223372036854775807");
+
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
 DEFINE_mInt64(compaction_min_size_mbytes, "64");

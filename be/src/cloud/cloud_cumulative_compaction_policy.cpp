@@ -324,10 +324,19 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::new_cumulative_point(
             return cumu_point;
         }
     });
+    // for MoW table, if there's too many versions, the delete bitmap will grow to
+    // a very big size, which may cause the tablet meta too big and the `save_meta`
+    // operation too slow.
+    // if the rowset should not promotion according to it's disk size, we should also
+    // consider it's version count here.
+    bool satisfy_promotion_version = tablet->enable_unique_key_merge_on_write() &&
+                                     output_rowset->end_version() - output_rowset->start_version() >
+                                             config::compaction_promotion_version_count;
     // if rowsets have delete version, move to the last directly.
     // if rowsets have no delete version, check output_rowset total disk size satisfies promotion size.
     return (last_delete_version.first != -1 ||
-            output_rowset->total_disk_size() >= cloud_promotion_size(tablet))
+            output_rowset->total_disk_size() >= cloud_promotion_size(tablet) ||
+            satisfy_promotion_version)
                    ? output_rowset->end_version() + 1
                    : last_cumulative_point;
 }
