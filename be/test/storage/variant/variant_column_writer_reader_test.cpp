@@ -52,6 +52,8 @@
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_factory.h"
+#include "storage/rowset/rowset_reader.h"
+#include "storage/schema.h"
 #include "storage/segment/column_meta_accessor.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
@@ -1255,6 +1257,37 @@ protected:
             readers.push_back(std::move(reader));
         }
         return readers;
+    }
+
+    Status read_rowset_variant_rows(const RowsetSharedPtr& rowset,
+                                    std::vector<std::string>* rows) const {
+        DORIS_CHECK(rowset != nullptr);
+        DORIS_CHECK(rows != nullptr);
+        RowsetReaderSharedPtr reader;
+        RETURN_IF_ERROR(rowset->create_reader(&reader));
+
+        RowsetReaderContext reader_context;
+        reader_context.tablet_schema = _tablet_schema;
+        reader_context.need_ordered_result = false;
+        auto read_schema = std::make_shared<ReadSchema>(
+                project_columns_by_ordinal(_tablet_schema->columns(), std::vector<ColumnId> {0}));
+        reader_context.read_schema = read_schema;
+        RETURN_IF_ERROR(reader->init(&reader_context));
+
+        rows->clear();
+        while (true) {
+            Block block = read_schema->create_read_block();
+            Status status = reader->next_batch(&block);
+            if (status.is<ErrorCode::END_OF_FILE>()) {
+                return Status::OK();
+            }
+            RETURN_IF_ERROR(status);
+            const auto& variant =
+                    assert_cast<const ColumnVariantV2&>(*block.get_by_position(0).column);
+            for (size_t row = 0; row < block.rows(); ++row) {
+                rows->push_back(variant_v2_json_at(variant, row));
+            }
+        }
     }
 
     Status append_json_batch(ColumnWriter* writer, const std::vector<std::string>& jsons) {
@@ -8333,6 +8366,111 @@ TEST_F(VariantColumnWriterReaderTest, test_compaction_nokey_variant_uid0) {
     RowsetSharedPtr output_rowset;
     ASSERT_TRUE(output_writer->build(output_rowset).ok());
     ASSERT_EQ(output_rowset->num_rows(), 4);
+}
+
+TEST_F(VariantColumnWriterReaderTest, legacy_v1_segment_compaction_preserves_full_variant) {
+    init_variant_tablet(11200, 2);
+
+    constexpr std::string_view FIXTURE =
+            "./be/test/storage/test_data/variant/legacy_v1_compaction/segment_0.dat";
+    RowsetId legacy_rowset_id;
+    legacy_rowset_id.init(12002);
+    const std::string legacy_segment_path =
+            local_segment_path(_tablet->tablet_path(), legacy_rowset_id.to_string(), 0);
+    Status status =
+            io::global_local_filesystem()->copy_path(std::string(FIXTURE), legacy_segment_path);
+    ASSERT_TRUE(status.ok()) << status;
+
+    int64_t legacy_segment_size = 0;
+    status = io::global_local_filesystem()->file_size(legacy_segment_path, &legacy_segment_size);
+    ASSERT_TRUE(status.ok()) << status;
+    auto legacy_meta = std::make_shared<RowsetMeta>();
+    legacy_meta->set_rowset_id(legacy_rowset_id);
+    legacy_meta->set_rowset_type(BETA_ROWSET);
+    legacy_meta->set_rowset_state(VISIBLE);
+    legacy_meta->set_tablet_id(_tablet->tablet_id());
+    legacy_meta->set_tablet_schema_hash(_tablet->schema_hash());
+    legacy_meta->set_tablet_uid(_tablet->tablet_uid());
+    legacy_meta->set_version(Version(2, 2));
+    legacy_meta->set_segments_overlap(NONOVERLAPPING);
+    legacy_meta->set_num_segments(1);
+    legacy_meta->set_num_rows(8);
+    legacy_meta->set_tablet_schema(_tablet_schema);
+    legacy_meta->add_segments_file_size({static_cast<size_t>(legacy_segment_size)});
+    legacy_meta->set_total_disk_size(legacy_segment_size);
+    legacy_meta->set_data_disk_size(legacy_segment_size);
+    legacy_meta->set_index_disk_size(0);
+
+    RowsetSharedPtr legacy_rowset;
+    ASSERT_TRUE(RowsetFactory::create_rowset(_tablet_schema, _tablet->tablet_path(), legacy_meta,
+                                             &legacy_rowset)
+                        .ok());
+    const std::vector<std::string> expected_legacy_rows {
+            R"({"arr":[1,2],"cold_a":"x","hot":1})",
+            R"({"arr":[3,null],"cold_b":true,"hot":2})",
+            R"({"cold_c":{"x":1},"hot":3})",
+            "7",
+            "[8,9]",
+            "{}",
+            "{}",
+            "{}",
+    };
+    std::vector<std::string> actual_legacy_rows;
+    status = read_rowset_variant_rows(legacy_rowset, &actual_legacy_rows);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(actual_legacy_rows, expected_legacy_rows);
+
+    const std::vector<std::string> v2_rows {
+            R"({"extra":4,"v2":"object"})",
+            "11",
+            "[12,13]",
+            R"("tail")",
+    };
+    auto v2_rowset = create_variant_rowset({v2_rows}, 3);
+    std::vector<RowsetSharedPtr> input_rowsets {legacy_rowset, v2_rowset};
+    auto input_readers = create_rowset_readers(input_rowsets);
+
+    auto compaction_schema = std::make_shared<TabletSchema>(*_tablet_schema);
+    status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(input_rowsets,
+                                                                                 compaction_schema);
+    ASSERT_TRUE(status.ok()) << status;
+
+    RowsetWriterContext context;
+    RowsetId output_rowset_id;
+    output_rowset_id.init(12004);
+    context.rowset_id = output_rowset_id;
+    context.rowset_type = BETA_ROWSET;
+    context.data_dir = _data_dir.get();
+    context.rowset_state = VISIBLE;
+    context.tablet_schema = compaction_schema;
+    context.tablet_path = _tablet->tablet_path();
+    context.tablet_id = _tablet->tablet_id();
+    context.tablet = _tablet;
+    context.version = Version(2, 3);
+    context.segments_overlap = NONOVERLAPPING;
+    context.write_type = DataWriteType::TYPE_COMPACTION;
+    auto writer_result = RowsetFactory::create_rowset_writer(*_engine_ref, context, true);
+    ASSERT_TRUE(writer_result.has_value()) << writer_result.error();
+    auto output_writer = std::move(writer_result).value();
+
+    Merger::Statistics statistics;
+    status = Merger::vertical_merge_rowsets(_tablet, ReaderType::READER_CUMULATIVE_COMPACTION,
+                                            *compaction_schema, input_readers, output_writer.get(),
+                                            10000, 2, &statistics);
+    ASSERT_TRUE(status.ok()) << status;
+
+    RowsetSharedPtr output_rowset;
+    ASSERT_TRUE(output_writer->build(output_rowset).ok());
+    ASSERT_EQ(output_rowset->num_rows(), expected_legacy_rows.size() + v2_rows.size());
+
+    std::vector<std::string> actual_rows;
+    status = read_rowset_variant_rows(output_rowset, &actual_rows);
+    ASSERT_TRUE(status.ok()) << status;
+    std::vector<std::string> expected_rows = expected_legacy_rows;
+    expected_rows.insert(expected_rows.end(), v2_rows.begin(), v2_rows.end());
+    std::ranges::sort(actual_rows);
+    std::ranges::sort(expected_rows);
+    EXPECT_EQ(actual_rows, expected_rows);
 }
 
 } // namespace doris

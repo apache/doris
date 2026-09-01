@@ -20,11 +20,6 @@ import org.awaitility.Awaitility
 
 suite("test_compaction_variant") {
     def variantV2Function = "parse_to_variant"
-    // ColumnVariantV2 casts the nested array [[[1]]] to NULL instead of [NULL]. This changes the
-    // pre-compaction result set, so this case cannot share the V1 expectation yet.
-    if (true) {
-        return
-    }
 
     try {
         String backend_id;
@@ -60,8 +55,7 @@ suite("test_compaction_variant") {
                 )
                 ${key_type} KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
-                properties("replication_num" = "1", "disable_auto_compaction" = "true",
-                           "deprecated_variant_enable_flatten_nested" = "false");
+                properties("replication_num" = "1", "disable_auto_compaction" = "true");
             """
         }
 
@@ -75,7 +69,7 @@ suite("test_compaction_variant") {
             create_table.call(tableName, "1", key_types[i])
             def insert = {
                 sql """insert into ${tableName} values (1,  ${variantV2Function}('{"x" : [1]}')),(13,  ${variantV2Function}('{"a" : 1}'));"""
-                sql """insert into ${tableName} values (2,  ${variantV2Function}('{"a" : "1"}')),(14,  ${variantV2Function}('{"a" : [[[1]]]}'));"""
+                sql """insert into ${tableName} values (2,  ${variantV2Function}('{"a" : "1"}')),(14,  ${variantV2Function}('{"a" : [1, 2, 3]}'));"""
                 sql """insert into ${tableName} values (3,  ${variantV2Function}('{"x" : [3]}')),(15,  ${variantV2Function}('{"a" : 1}'))"""
                 sql """insert into ${tableName} values (4,  ${variantV2Function}('{"y": 1}')),(16,  ${variantV2Function}('{"a" : "1223"}'));"""
                 sql """insert into ${tableName} values (5,  ${variantV2Function}('{"z" : 2.0}')),(17,  ${variantV2Function}('{"a" : [1]}'));"""
@@ -89,7 +83,7 @@ suite("test_compaction_variant") {
             }
             insert.call();
             insert.call();
-            qt_sql_1 "SELECT k, cast(v as json) FROM ${tableName} ORDER BY k, cast(v as string); "
+            qt_before_compaction_full_variant "SELECT k, cast(v as json) FROM ${tableName} ORDER BY k, cast(v as string); "
             qt_sql_2 "select k, cast(v['a'] as array<int>) from  ${tableName} where  size(cast(v['a'] as array<int>)) > 0 order by k"
             qt_sql_3 "select k, v['a'], cast(v['b'] as string) from  ${tableName} where  length(cast(v['b'] as string)) > 4 order  by k"
             qt_sql_5 "select cast(v['b'] as string), cast(v['b']['c'] as string) from  ${tableName} where cast(v['b'] as string) != 'null' or cast(v['b'] as string) != '{}' order by k desc, 1, 2 limit 10;"
@@ -114,10 +108,10 @@ suite("test_compaction_variant") {
                 }
             }
             // assert (rowCount < 8)
-            qt_sql_11 "SELECT k, cast(v as json) FROM ${tableName} ORDER BY k, cast(v as string); "
+            qt_after_compaction_full_variant "SELECT k, cast(v as json) FROM ${tableName} ORDER BY k, cast(v as string); "
             qt_sql_22 "select k, cast(v['a'] as array<int>) from  ${tableName} where  size(cast(v['a'] as array<int>)) > 0 order by k"
             qt_sql_33 "select k, v['a'], cast(v['b'] as string) from  ${tableName} where  length(cast(v['b'] as string)) > 4 order  by k"
-            qt_sql_55 "select cast(v['b'] as string), cast(v['b']['c'] as string) from  ${tableName} where cast(v['b'] as string) != 'null' and cast(v['b'] as string) != '{}' order by k desc limit 10;"
+            qt_sql_55 "select cast(v['b'] as string), cast(v['b']['c'] as string) from  ${tableName} where cast(v['b'] as string) != 'null' or cast(v['b'] as string) != '{}' order by k desc, 1, 2 limit 10;"
         }
 
     } finally {
