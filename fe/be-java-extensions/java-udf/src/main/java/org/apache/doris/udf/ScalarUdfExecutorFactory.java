@@ -44,6 +44,6 @@ public class ScalarUdfExecutorFactory implements UdfExecutorFactory {
      */
     @Override
     public void invalidate(long functionId, String functionSignature) {
-        UdfClassCacheRegistry.invalidate(UdfClassCacheRegistry.cacheKey(functionId, functionSignature));
+        UdfClassCacheRegistry.invalidate(functionId, functionSignature);
     }
 }

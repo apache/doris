@@ -74,4 +74,61 @@ public class UdfClassCacheRegistryTest {
         Assertions.assertNotEquals(UdfClassCacheRegistry.cacheKey(7L, "f(INT)"),
                 UdfClassCacheRegistry.cacheKey(0L, "id=7"));
     }
+
+    /**
+     * Dropping one function by id leaves a same-signature function - a re-created one, or a same-named one
+     * in another database - untouched. The case #67046 added to the cache this replaced.
+     */
+    @Test
+    public void droppingByIdLeavesASameSignatureFunctionAlone() {
+        String signature = "recreated_function(INT)";
+        String oldKey = UdfClassCacheRegistry.cacheKey(10001L, signature);
+        String newKey = UdfClassCacheRegistry.cacheKey(10002L, signature);
+        UdfClassCache oldCache = new UdfClassCache();
+        UdfClassCache newCache = new UdfClassCache();
+        try {
+            Assertions.assertSame(oldCache, UdfClassCacheRegistry.publish(oldKey, signature, oldCache));
+            Assertions.assertSame(newCache, UdfClassCacheRegistry.publish(newKey, signature, newCache));
+
+            UdfClassCacheRegistry.invalidate(10001L, signature);
+
+            Assertions.assertNull(UdfClassCacheRegistry.get(oldKey));
+            Assertions.assertSame(newCache, UdfClassCacheRegistry.get(newKey));
+        } finally {
+            UdfClassCacheRegistry.invalidate(10001L, signature);
+            UdfClassCacheRegistry.invalidate(10002L, signature);
+        }
+    }
+
+    /**
+     * An FE from before {@code TCleanUDFCacheReq.function_id} drops by signature alone. That must still reach
+     * entries that were filed by id - every one of that signature, and nothing else. The other case #67046
+     * added, kept because a BE is upgraded before the FEs that talk to it.
+     */
+    @Test
+    public void droppingWithoutAnIdReleasesEveryFunctionOfThatSignature() {
+        String signature = "legacy_function(INT)";
+        String otherSignature = "other_function(INT)";
+        String firstKey = UdfClassCacheRegistry.cacheKey(10003L, signature);
+        String secondKey = UdfClassCacheRegistry.cacheKey(10004L, signature);
+        String idLessKey = UdfClassCacheRegistry.cacheKey(0L, signature);
+        String otherKey = UdfClassCacheRegistry.cacheKey(10005L, otherSignature);
+        UdfClassCache otherCache = new UdfClassCache();
+        try {
+            UdfClassCacheRegistry.publish(firstKey, signature, new UdfClassCache());
+            UdfClassCacheRegistry.publish(secondKey, signature, new UdfClassCache());
+            UdfClassCacheRegistry.publish(idLessKey, signature, new UdfClassCache());
+            UdfClassCacheRegistry.publish(otherKey, otherSignature, otherCache);
+
+            UdfClassCacheRegistry.invalidate(0L, signature);
+
+            Assertions.assertNull(UdfClassCacheRegistry.get(firstKey));
+            Assertions.assertNull(UdfClassCacheRegistry.get(secondKey));
+            Assertions.assertNull(UdfClassCacheRegistry.get(idLessKey));
+            Assertions.assertSame(otherCache, UdfClassCacheRegistry.get(otherKey));
+        } finally {
+            UdfClassCacheRegistry.invalidate(0L, signature);
+            UdfClassCacheRegistry.invalidate(0L, otherSignature);
+        }
+    }
 }

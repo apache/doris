@@ -42,7 +42,24 @@ final class UdfClassCacheRegistry {
 
     private static final Logger LOG = LoggerFactory.getLogger(UdfClassCacheRegistry.class);
 
-    private static final Map<String, UdfClassCache> CACHES = new ConcurrentHashMap<>();
+    /**
+     * One function's compiled classes, together with the signature FE sent when it asked for them.
+     *
+     * <p>The signature rides along rather than being folded into the key because an FE from before
+     * {@code TCleanUDFCacheReq.function_id} (#60630) identifies a dropped function by nothing else -
+     * see {@link #invalidate}.
+     */
+    private static final class Entry {
+        private final String functionSignature;
+        private final UdfClassCache cache;
+
+        private Entry(String functionSignature, UdfClassCache cache) {
+            this.functionSignature = functionSignature;
+            this.cache = cache;
+        }
+    }
+
+    private static final Map<String, Entry> CACHES = new ConcurrentHashMap<>();
 
     private UdfClassCacheRegistry() {
     }
@@ -69,7 +86,8 @@ final class UdfClassCacheRegistry {
 
     /** What is cached under this key, or null. A miss is ordinary; see {@link #publish}. */
     static UdfClassCache get(String functionKey) {
-        return CACHES.get(functionKey);
+        Entry entry = CACHES.get(functionKey);
+        return entry == null ? null : entry.cache;
     }
 
     /**
@@ -80,12 +98,14 @@ final class UdfClassCacheRegistry {
      * own cache closed here - it has not been handed to any executor yet, so closing its loader
      * cannot affect anyone - and must switch to the returned one.
      *
+     * @param functionKey       where the entry lives, from {@link #cacheKey}
+     * @param functionSignature the signature FE sent alongside, kept for {@link #invalidate}
      * @return the cache actually held after this call: {@code cache} if it won, otherwise the
      *         already published one, which the caller must use instead
      */
-    static UdfClassCache publish(String functionKey, UdfClassCache cache) {
-        LOG.info("Cache UDF for: {}", functionKey);
-        UdfClassCache existing = CACHES.putIfAbsent(functionKey, cache);
+    static UdfClassCache publish(String functionKey, String functionSignature, UdfClassCache cache) {
+        LOG.info("Cache UDF for: {} ({})", functionKey, functionSignature);
+        Entry existing = CACHES.putIfAbsent(functionKey, new Entry(functionSignature, cache));
         if (existing == null) {
             return cache;
         }
@@ -94,26 +114,54 @@ final class UdfClassCacheRegistry {
         } catch (Exception e) {
             LOG.warn("Failed to close redundant UdfClassCache for " + functionKey, e);
         }
-        return existing;
+        return existing.cache;
     }
 
     /**
      * Drops what was cached for one function, because it has been dropped.
      *
+     * <p>By id when FE sent one, which every FE since {@code TCleanUDFCacheReq.function_id}
+     * (#60630) does. An FE older than that names the dropped function by its signature alone,
+     * while the entries were filed by id, so such a request releases every entry cached under that
+     * signature - two same-named functions in different databases go together, which is exactly
+     * what that FE always did - and the id-less key too, should a function ever have been cached
+     * without an id.
+     *
+     * <p>A miss is ordinary: DROP FUNCTION is broadcast to every plugin, and most functions were
+     * never loaded statically in the first place.
+     *
      * <p>The loader is closed immediately. A query still holding this cache will fail with
      * NoClassDefFoundError on its next lazy class resolution, which is the accepted meaning of DROP
      * FUNCTION: the function is gone and queries against it are expected to fail.
      */
-    static void invalidate(String functionKey) {
-        UdfClassCache removed = CACHES.remove(functionKey);
-        if (removed == null) {
-            // Ordinary: DROP FUNCTION is broadcast to every plugin, and most functions were never
-            // loaded statically in the first place.
+    static void invalidate(long functionId, String functionSignature) {
+        if (functionId > 0) {
+            String functionKey = cacheKey(functionId, functionSignature);
+            Entry entry = CACHES.get(functionKey);
+            if (entry != null) {
+                release(functionKey, entry);
+            }
             return;
         }
-        LOG.info("Dropping cached UDF for: {}", functionKey);
+        for (Map.Entry<String, Entry> e : CACHES.entrySet()) {
+            if (e.getValue().functionSignature.equals(functionSignature)) {
+                release(e.getKey(), e.getValue());
+            }
+        }
+    }
+
+    /**
+     * Removes exactly {@code entry} from under {@code functionKey} and closes it. The two-argument
+     * remove is what makes this safe against a concurrent {@link #publish} of the same key: only
+     * the entry that was matched gets closed, never one that replaced it in the meantime.
+     */
+    private static void release(String functionKey, Entry entry) {
+        if (!CACHES.remove(functionKey, entry)) {
+            return;
+        }
+        LOG.info("Dropping cached UDF for: {} ({})", functionKey, entry.functionSignature);
         try {
-            removed.close();
+            entry.cache.close();
         } catch (Exception e) {
             LOG.warn("Failed to close UdfClassCache for " + functionKey, e);
         }
