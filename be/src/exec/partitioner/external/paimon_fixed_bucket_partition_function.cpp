@@ -20,7 +20,6 @@
 #include "exec/partitioner/external/paimon_native_row_hash.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 PaimonFixedBucketPartitionFunction::PaimonFixedBucketPartitionFunction(
         HashValType partition_count, TPaimonFixedBucketInfo fixed_bucket_info)
@@ -82,5 +81,4 @@ Status PaimonFixedBucketPartitionFunction::clone(
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

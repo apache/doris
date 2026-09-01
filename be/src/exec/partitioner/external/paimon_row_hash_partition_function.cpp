@@ -24,7 +24,6 @@
 #include "exec/partitioner/external/paimon_native_row_hash.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 namespace {
 bool is_supported_type(PrimitiveType type) {
@@ -216,5 +215,4 @@ Status PaimonRowHashPartitionFunction::_clone_expr_ctxs(RuntimeState* state,
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris
