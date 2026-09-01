@@ -38,15 +38,23 @@ struct LanceScanner;
 
 namespace arrow {
 class Array;
+class Field;
 class RecordBatch;
 class Schema;
 } // namespace arrow
 
 namespace doris::format::lance {
 
-// Convert every top-level field without discarding unsupported columns. Malformed schemas still
-// return an error and leave both output vectors unchanged. DataTypeNothing is the local sentinel
-// for a valid Arrow field whose logical type Doris does not support.
+#ifdef BE_TEST
+// Exposes Lance Arrow normalization for allocation-sensitive unit tests.
+Status normalize_lance_arrow_array_for_test(const std::shared_ptr<arrow::Field>& field,
+                                            const std::shared_ptr<arrow::Array>& array,
+                                            std::shared_ptr<arrow::Array>* normalized);
+#endif
+
+// Converts a Lance dataset schema without discarding unsupported columns. Blob logical fields are
+// advertised as the descriptor struct returned by scans. Malformed schemas still return an error
+// and leave both output vectors unchanged; DataTypeNothing marks unsupported logical types.
 Status convert_arrow_schema_to_doris(const std::shared_ptr<arrow::Schema>& arrow_schema,
                                      std::vector<std::string>* column_names,
                                      std::vector<DataTypePtr>* column_types);

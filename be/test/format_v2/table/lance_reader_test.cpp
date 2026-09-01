@@ -900,6 +900,21 @@ std::pair<size_t, size_t> map_range(const ColumnMap& map, size_t row) {
             static_cast<size_t>(offsets[row])};
 }
 
+// Verifies the Doris type advertised for a Lance Blob v2 descriptor.
+void expect_blob_v2_descriptor_type(const DataTypePtr& type) {
+    ASSERT_NE(nullptr, type);
+    ASSERT_EQ(TYPE_STRUCT, type->get_primitive_type());
+    const auto& blob_struct = assert_cast<const DataTypeStruct&>(*remove_nullable(type));
+    ASSERT_EQ(5, blob_struct.get_elements().size());
+    EXPECT_EQ((Strings {"kind", "position", "size", "blob_id", "blob_uri"}),
+              blob_struct.get_element_names());
+    EXPECT_EQ(TYPE_SMALLINT, blob_struct.get_element(0)->get_primitive_type());
+    EXPECT_EQ(TYPE_LARGEINT, blob_struct.get_element(1)->get_primitive_type());
+    EXPECT_EQ(TYPE_LARGEINT, blob_struct.get_element(2)->get_primitive_type());
+    EXPECT_EQ(TYPE_BIGINT, blob_struct.get_element(3)->get_primitive_type());
+    EXPECT_EQ(TYPE_STRING, blob_struct.get_element(4)->get_primitive_type());
+}
+
 } // namespace
 
 TEST(LanceTableReaderSchemaTest, FetchesSchemaWithoutFragmentIdsOrScanInitialization) {
@@ -952,11 +967,10 @@ TEST(LanceTableReaderSchemaTest, MapsAdditionalTypesAndPreservesUnknownExtension
             arrow::field("item", arrow::fixed_size_binary(2))->WithMetadata(
                     bfloat16_extension_metadata);
     const auto blob_type = arrow::struct_({
-            arrow::field("kind", arrow::uint8(), false),
+            arrow::field("data", arrow::large_binary()),
+            arrow::field("uri", arrow::utf8()),
             arrow::field("position", arrow::uint64(), false),
             arrow::field("size", arrow::uint64(), false),
-            arrow::field("blob_id", arrow::uint32(), false),
-            arrow::field("blob_uri", arrow::utf8(), false),
     });
     const auto arrow_schema = arrow::schema({
             arrow::field("row_id", arrow::int64()),
@@ -987,17 +1001,7 @@ TEST(LanceTableReaderSchemaTest, MapsAdditionalTypesAndPreservesUnknownExtension
     EXPECT_TRUE(column_types[1]->is_null_literal());
     EXPECT_EQ(TYPE_BIGINT, column_types[2]->get_primitive_type());
     EXPECT_EQ(TYPE_JSONB, column_types[3]->get_primitive_type());
-    ASSERT_EQ(TYPE_STRUCT, column_types[4]->get_primitive_type());
-    const auto& blob_struct =
-            assert_cast<const DataTypeStruct&>(*remove_nullable(column_types[4]));
-    ASSERT_EQ(5, blob_struct.get_elements().size());
-    EXPECT_EQ((Strings {"kind", "position", "size", "blob_id", "blob_uri"}),
-              blob_struct.get_element_names());
-    EXPECT_EQ(TYPE_SMALLINT, blob_struct.get_element(0)->get_primitive_type());
-    EXPECT_EQ(TYPE_LARGEINT, blob_struct.get_element(1)->get_primitive_type());
-    EXPECT_EQ(TYPE_LARGEINT, blob_struct.get_element(2)->get_primitive_type());
-    EXPECT_EQ(TYPE_BIGINT, blob_struct.get_element(3)->get_primitive_type());
-    EXPECT_EQ(TYPE_STRING, blob_struct.get_element(4)->get_primitive_type());
+    expect_blob_v2_descriptor_type(column_types[4]);
     ASSERT_EQ(TYPE_ARRAY, column_types[5]->get_primitive_type());
     const auto& bfloat16_array =
             assert_cast<const DataTypeArray&>(*remove_nullable(column_types[5]));
@@ -1005,6 +1009,34 @@ TEST(LanceTableReaderSchemaTest, MapsAdditionalTypesAndPreservesUnknownExtension
     EXPECT_EQ(INVALID_TYPE, column_types[6]->get_primitive_type());
     EXPECT_EQ(INVALID_TYPE, column_types[7]->get_primitive_type());
     EXPECT_EQ(TYPE_STRING, column_types[8]->get_primitive_type());
+}
+
+// Verifies both logical Blob v2 dataset layouts advertise the scanner descriptor type.
+TEST(LanceTableReaderSchemaTest, MapsBlobLogicalLayoutsToDescriptor) {
+    const auto blob_extension_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.blob.v2"});
+    const auto minimal_blob = arrow::struct_({
+            arrow::field("data", arrow::large_binary()),
+            arrow::field("uri", arrow::utf8()),
+    });
+    const auto ranged_blob = arrow::struct_({
+            arrow::field("data", arrow::large_binary()),
+            arrow::field("uri", arrow::utf8()),
+            arrow::field("position", arrow::uint64()),
+            arrow::field("size", arrow::uint64()),
+    });
+    const auto arrow_schema = arrow::schema({
+            arrow::field("minimal_blob", minimal_blob)->WithMetadata(blob_extension_metadata),
+            arrow::field("ranged_blob", ranged_blob)->WithMetadata(blob_extension_metadata),
+    });
+
+    std::vector<std::string> column_names;
+    std::vector<DataTypePtr> column_types;
+    ASSERT_TRUE(convert_arrow_schema_to_doris(arrow_schema, &column_names, &column_types).ok());
+    EXPECT_EQ((std::vector<std::string> {"minimal_blob", "ranged_blob"}), column_names);
+    ASSERT_EQ(2, column_types.size());
+    expect_blob_v2_descriptor_type(column_types[0]);
+    expect_blob_v2_descriptor_type(column_types[1]);
 }
 
 // Verifies malformed storage for known extensions remains unsupported.
@@ -1148,18 +1180,67 @@ TEST(LanceTableReaderTypeTest, ReadsAdditionalArrowAndLanceTypes) {
     EXPECT_TRUE(reader.close().ok());
 }
 
+// Verifies ordinary nested columns bypass Arrow reconstruction when no BFloat16 exists.
+TEST(LanceTableReaderTypeTest, KeepsOrdinaryNestedArrayUnchangedDuringNormalization) {
+    const auto nested_type = arrow::struct_({
+            arrow::field("items",
+                         arrow::list(arrow::field(
+                                 "item", arrow::struct_({arrow::field("value", arrow::int64())})))),
+            arrow::field("metadata", arrow::struct_({arrow::field("name", arrow::utf8()),
+                                                     arrow::field("enabled", arrow::boolean())})),
+    });
+    const auto field = arrow::field("ordinary_nested", nested_type);
+    auto array_result = arrow::MakeArrayOfNull(nested_type, 3);
+    ASSERT_TRUE(array_result.ok()) << array_result.status().ToString();
+    const auto array = std::move(array_result).ValueUnsafe();
+
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(field, array, &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(array.get(), normalized.get());
+}
+
+// Verifies scan batches reject the dataset's logical Blob layout instead of treating it as data.
+TEST(LanceTableReaderTypeTest, RejectsLogicalBlobLayoutDuringScanNormalization) {
+    const auto blob_extension_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.blob.v2"});
+    const auto logical_type = arrow::struct_({
+            arrow::field("data", arrow::large_binary()),
+            arrow::field("uri", arrow::utf8()),
+    });
+    const auto field = arrow::field("blob", logical_type)->WithMetadata(blob_extension_metadata);
+    auto array_result = arrow::MakeArrayOfNull(logical_type, 1);
+    ASSERT_TRUE(array_result.ok()) << array_result.status().ToString();
+    const auto array = std::move(array_result).ValueUnsafe();
+
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(field, array, &normalized);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("unexpected descriptor layout"), std::string::npos);
+}
+
 // Verifies the additional types through the full scan path.
 TEST(LanceTableReaderTypeTest, ReadsAdditionalTypesFromCompatibilityFixture) {
     const std::filesystem::path dataset_uri =
             "./docker/thirdparties/docker-compose/iceberg/scripts/preinstalled_data/lance/"
             "all_types.lance";
-    const auto bfloat16_array_type = make_nullable(
-            std::make_shared<DataTypeArray>(nullable_type(TYPE_FLOAT)));
-    const auto blob_type = make_nullable(std::make_shared<DataTypeStruct>(
-            DataTypes {nullable_type(TYPE_SMALLINT), nullable_type(TYPE_LARGEINT),
-                       nullable_type(TYPE_LARGEINT), nullable_type(TYPE_BIGINT),
-                       nullable_type(TYPE_STRING)},
-            Strings {"kind", "position", "size", "blob_id", "blob_uri"}));
+    TFileScanRangeParams scan_params;
+    std::vector<std::string> schema_names;
+    std::vector<DataTypePtr> schema_types;
+    LanceTableReader schema_reader;
+    ASSERT_TRUE(schema_reader
+                        .fetch_schema(make_latest_lance_range(dataset_uri), scan_params,
+                                      &schema_names, &schema_types)
+                        .ok());
+    const auto blob_name = std::find(schema_names.begin(), schema_names.end(), "blob_col");
+    ASSERT_NE(schema_names.end(), blob_name);
+    const auto blob_index = static_cast<size_t>(std::distance(schema_names.begin(), blob_name));
+    ASSERT_LT(blob_index, schema_types.size());
+    const auto blob_type = schema_types[blob_index];
+    expect_blob_v2_descriptor_type(blob_type);
+
+    const auto bfloat16_array_type =
+            make_nullable(std::make_shared<DataTypeArray>(nullable_type(TYPE_FLOAT)));
     const Columns columns {
             projected_column("row_id", TYPE_BIGINT, false),
             projected_column("null_col", nullable_type(TYPE_NULL)),
@@ -1177,7 +1258,6 @@ TEST(LanceTableReaderTypeTest, ReadsAdditionalTypesFromCompatibilityFixture) {
     RuntimeState state(query_globals);
     state.set_query_options(query_options);
     RuntimeProfile profile("lance_additional_types_fixture");
-    TFileScanRangeParams scan_params;
     LanceTableReader reader;
     ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
     ASSERT_TRUE(prepare_range(&reader, make_latest_lance_range(dataset_uri)).ok());

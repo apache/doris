@@ -77,10 +77,64 @@ enum class LanceExtensionKind {
     BLOB_V2,
 };
 
+enum class LanceSchemaView {
+    DATASET,
+    SCAN,
+};
+
+// Checks one Arrow child field against the expected name and physical type.
+bool arrow_field_matches(const std::shared_ptr<arrow::Field>& field, std::string_view name,
+                         arrow::Type::type type) {
+    return field->name() == name && field->type()->id() == type;
+}
+
+// Returns the fixed Blob v2 descriptor type emitted by Lance scans.
+std::shared_ptr<arrow::DataType> blob_v2_descriptor_type() {
+    static const auto type = arrow::struct_({
+            arrow::field("kind", arrow::uint8(), false),
+            arrow::field("position", arrow::uint64(), false),
+            arrow::field("size", arrow::uint64(), false),
+            arrow::field("blob_id", arrow::uint32(), false),
+            arrow::field("blob_uri", arrow::utf8(), false),
+    });
+    return type;
+}
+
+// Checks the logical Blob v2 layout exported by lance_dataset_schema().
+bool is_blob_v2_logical_type(const std::shared_ptr<arrow::DataType>& type) {
+    if (type->id() != arrow::Type::STRUCT) {
+        return false;
+    }
+    const auto& fields = type->fields();
+    const bool minimal_layout = fields.size() == 2 &&
+                                arrow_field_matches(fields[0], "data", arrow::Type::LARGE_BINARY) &&
+                                arrow_field_matches(fields[1], "uri", arrow::Type::STRING);
+    const bool ranged_layout = fields.size() == 4 &&
+                               arrow_field_matches(fields[0], "data", arrow::Type::LARGE_BINARY) &&
+                               arrow_field_matches(fields[1], "uri", arrow::Type::STRING) &&
+                               arrow_field_matches(fields[2], "position", arrow::Type::UINT64) &&
+                               arrow_field_matches(fields[3], "size", arrow::Type::UINT64);
+    return minimal_layout || ranged_layout;
+}
+
+// Checks the physical Blob v2 descriptor layout returned by a Lance scanner.
+bool is_blob_v2_descriptor_type(const std::shared_ptr<arrow::DataType>& type) {
+    if (type->id() != arrow::Type::STRUCT) {
+        return false;
+    }
+    const auto& fields = type->fields();
+    return fields.size() == 5 && arrow_field_matches(fields[0], "kind", arrow::Type::UINT8) &&
+           arrow_field_matches(fields[1], "position", arrow::Type::UINT64) &&
+           arrow_field_matches(fields[2], "size", arrow::Type::UINT64) &&
+           arrow_field_matches(fields[3], "blob_id", arrow::Type::UINT32) &&
+           arrow_field_matches(fields[4], "blob_uri", arrow::Type::STRING);
+}
+
 // Extracts and validates extension names from metadata and registered types.
 Status get_lance_extension(const std::shared_ptr<arrow::Field>& field,
                            LanceExtensionKind* extension_kind,
-                           std::shared_ptr<arrow::DataType>* storage_type) {
+                           std::shared_ptr<arrow::DataType>* storage_type,
+                           LanceSchemaView schema_view) {
     DORIS_CHECK(field != nullptr);
     DORIS_CHECK(extension_kind != nullptr);
     DORIS_CHECK(storage_type != nullptr);
@@ -144,6 +198,20 @@ Status get_lance_extension(const std::shared_ptr<arrow::Field>& field,
         return Status::OK();
     }
     if (*extension_name == LANCE_BLOB_V2_EXTENSION) {
+        if (schema_view == LanceSchemaView::DATASET) {
+            if (is_blob_v2_logical_type(*storage_type)) {
+                // Dataset schemas expose the write-side Blob view. Advertise the descriptor that
+                // the scanner will actually return so local TVF planning matches execution.
+                *storage_type = blob_v2_descriptor_type();
+            } else if (!is_blob_v2_descriptor_type(*storage_type)) {
+                return Status::NotSupported(
+                        "Lance Blob v2 extension for field '{}' has unexpected dataset layout: {}",
+                        field->name(), (*storage_type)->ToString());
+            }
+            *extension_kind = LanceExtensionKind::BLOB_V2;
+            return Status::OK();
+        }
+
         // A materialized LARGE_BINARY payload means the scanner was forced into
         // BlobHandling::AllBinary. Reject it: Doris only exposes the descriptor and never pulls
         // the (potentially multi-gigabyte) Blob content into memory.
@@ -159,20 +227,9 @@ Status get_lance_extension(const std::shared_ptr<arrow::Field>& field,
                     "got {}",
                     field->name(), (*storage_type)->ToString());
         }
-        const auto& fields = (*storage_type)->fields();
-        const auto field_matches = [](const std::shared_ptr<arrow::Field>& child,
-                                      std::string_view name, arrow::Type::type type) {
-            return child->name() == name && child->type()->id() == type;
-        };
         // lance-c returns the Blob v2 descriptor as this fixed 5-field struct (Lance
         // BLOB_V2_DESC_FIELDS): where a Blob lives and how large it is, never its bytes.
-        const bool descriptor_layout = fields.size() == 5 &&
-                                       field_matches(fields[0], "kind", arrow::Type::UINT8) &&
-                                       field_matches(fields[1], "position", arrow::Type::UINT64) &&
-                                       field_matches(fields[2], "size", arrow::Type::UINT64) &&
-                                       field_matches(fields[3], "blob_id", arrow::Type::UINT32) &&
-                                       field_matches(fields[4], "blob_uri", arrow::Type::STRING);
-        if (!descriptor_layout) {
+        if (!is_blob_v2_descriptor_type(*storage_type)) {
             return Status::NotSupported(
                     "Lance Blob v2 extension for field '{}' has unexpected descriptor layout: {}",
                     field->name(), (*storage_type)->ToString());
@@ -182,6 +239,27 @@ Status get_lance_extension(const std::shared_ptr<arrow::Field>& field,
     }
     return Status::NotSupported("unsupported Lance Arrow extension type '{}' for field '{}'",
                                 *extension_name, field->name());
+}
+
+// Determines whether a field subtree contains BFloat16 values or extension arrays to normalize.
+Status field_requires_lance_normalization(const std::shared_ptr<arrow::Field>& field,
+                                          bool* requires_normalization) {
+    DORIS_CHECK(field != nullptr);
+    DORIS_CHECK(requires_normalization != nullptr);
+
+    LanceExtensionKind extension_kind;
+    std::shared_ptr<arrow::DataType> storage_type;
+    RETURN_IF_ERROR(
+            get_lance_extension(field, &extension_kind, &storage_type, LanceSchemaView::SCAN));
+    bool required = extension_kind == LanceExtensionKind::BFLOAT16 ||
+                    field->type()->id() == arrow::Type::EXTENSION;
+    for (const auto& child : storage_type->fields()) {
+        bool child_required = false;
+        RETURN_IF_ERROR(field_requires_lance_normalization(child, &child_required));
+        required |= child_required;
+    }
+    *requires_normalization = required;
+    return Status::OK();
 }
 
 // Widens little-endian Lance BFloat16 values to Arrow Float32 without precision loss.
@@ -236,7 +314,8 @@ Status normalize_lance_arrow_array(const std::shared_ptr<arrow::Field>& field,
 
     LanceExtensionKind extension_kind;
     std::shared_ptr<arrow::DataType> storage_type;
-    RETURN_IF_ERROR(get_lance_extension(field, &extension_kind, &storage_type));
+    RETURN_IF_ERROR(
+            get_lance_extension(field, &extension_kind, &storage_type, LanceSchemaView::SCAN));
 
     auto storage_array = array;
     if (array->type_id() == arrow::Type::EXTENSION) {
@@ -268,20 +347,30 @@ Status normalize_lance_arrow_array(const std::shared_ptr<arrow::Field>& field,
                 field->name(), child_fields.size(), child_data.size());
     }
 
-    auto normalized_data = storage_array->data()->Copy();
     arrow::FieldVector normalized_fields;
-    normalized_fields.reserve(child_fields.size());
-    bool changed = false;
+    std::shared_ptr<arrow::ArrayData> normalized_data;
     for (size_t child_idx = 0; child_idx < child_fields.size(); ++child_idx) {
+        bool child_requires_normalization = false;
+        RETURN_IF_ERROR(field_requires_lance_normalization(child_fields[child_idx],
+                                                           &child_requires_normalization));
+        if (!child_requires_normalization) {
+            continue;
+        }
         auto child_array = arrow::MakeArray(child_data[child_idx]);
         std::shared_ptr<arrow::Array> normalized_child;
         RETURN_IF_ERROR(normalize_lance_arrow_array(child_fields[child_idx], child_array,
                                                     &normalized_child));
-        changed |= normalized_child.get() != child_array.get();
+        if (normalized_child.get() == child_array.get()) {
+            continue;
+        }
+        if (normalized_data == nullptr) {
+            normalized_data = storage_array->data()->Copy();
+            normalized_fields = child_fields;
+        }
         normalized_data->child_data[child_idx] = normalized_child->data();
-        normalized_fields.emplace_back(child_fields[child_idx]->WithType(normalized_child->type()));
+        normalized_fields[child_idx] = child_fields[child_idx]->WithType(normalized_child->type());
     }
-    if (!changed) {
+    if (normalized_data == nullptr) {
         *normalized = std::move(storage_array);
         return Status::OK();
     }
@@ -349,7 +438,8 @@ int arrow_time_precision(arrow::TimeUnit::type unit) {
 
 // Maps an Arrow field to a Doris type, allowing Doris NULL only at the top level.
 Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
-                                 DataTypePtr* doris_type, bool allow_null) {
+                                 DataTypePtr* doris_type, bool allow_null,
+                                 LanceSchemaView schema_view) {
     const auto nullable_primitive = [&](PrimitiveType type, int precision = 0, int scale = 0,
                                         int len = -1) {
         *doris_type =
@@ -359,7 +449,7 @@ Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
 
     LanceExtensionKind extension_kind;
     std::shared_ptr<arrow::DataType> arrow_type;
-    RETURN_IF_ERROR(get_lance_extension(field, &extension_kind, &arrow_type));
+    RETURN_IF_ERROR(get_lance_extension(field, &extension_kind, &arrow_type, schema_view));
     switch (extension_kind) {
     case LanceExtensionKind::JSON:
         return nullable_primitive(TYPE_JSONB);
@@ -452,7 +542,8 @@ Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
     case arrow::Type::FIXED_SIZE_LIST: {
         const auto list = std::static_pointer_cast<arrow::BaseListType>(arrow_type);
         DataTypePtr value_type;
-        RETURN_IF_ERROR(arrow_field_to_doris_type(list->value_field(), &value_type, false));
+        RETURN_IF_ERROR(
+                arrow_field_to_doris_type(list->value_field(), &value_type, false, schema_view));
         *doris_type = make_nullable(std::make_shared<DataTypeArray>(value_type));
         return Status::OK();
     }
@@ -460,8 +551,9 @@ Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
         const auto map = std::static_pointer_cast<arrow::MapType>(arrow_type);
         DataTypePtr key_type;
         DataTypePtr item_type;
-        RETURN_IF_ERROR(arrow_field_to_doris_type(map->key_field(), &key_type, false));
-        RETURN_IF_ERROR(arrow_field_to_doris_type(map->item_field(), &item_type, false));
+        RETURN_IF_ERROR(arrow_field_to_doris_type(map->key_field(), &key_type, false, schema_view));
+        RETURN_IF_ERROR(
+                arrow_field_to_doris_type(map->item_field(), &item_type, false, schema_view));
         *doris_type = make_nullable(std::make_shared<DataTypeMap>(key_type, item_type));
         return Status::OK();
     }
@@ -473,7 +565,7 @@ Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
         field_names.reserve(struct_type->num_fields());
         for (const auto& child : struct_type->fields()) {
             DataTypePtr field_type;
-            RETURN_IF_ERROR(arrow_field_to_doris_type(child, &field_type, false));
+            RETURN_IF_ERROR(arrow_field_to_doris_type(child, &field_type, false, schema_view));
             field_types.emplace_back(std::move(field_type));
             field_names.emplace_back(child->name());
         }
@@ -486,6 +578,15 @@ Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
 }
 
 } // namespace
+
+#ifdef BE_TEST
+// Exposes Lance Arrow normalization for allocation-sensitive unit tests.
+Status normalize_lance_arrow_array_for_test(const std::shared_ptr<arrow::Field>& field,
+                                            const std::shared_ptr<arrow::Array>& array,
+                                            std::shared_ptr<arrow::Array>* normalized) {
+    return normalize_lance_arrow_array(field, array, normalized);
+}
+#endif
 
 Status convert_arrow_schema_to_doris(const std::shared_ptr<arrow::Schema>& arrow_schema,
                                      std::vector<std::string>* column_names,
@@ -505,7 +606,8 @@ Status convert_arrow_schema_to_doris(const std::shared_ptr<arrow::Schema>& arrow
             return Status::InvalidArgument("duplicate Lance schema column: {}", field->name());
         }
         DataTypePtr doris_type;
-        const auto type_status = arrow_field_to_doris_type(field, &doris_type, true);
+        const auto type_status =
+                arrow_field_to_doris_type(field, &doris_type, true, LanceSchemaView::DATASET);
         if (type_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) {
             parsed_types.emplace_back(std::make_shared<DataTypeNothing>());
         } else {
