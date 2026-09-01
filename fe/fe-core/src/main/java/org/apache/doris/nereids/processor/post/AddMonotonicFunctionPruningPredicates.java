@@ -80,13 +80,13 @@ public class AddMonotonicFunctionPruningPredicates extends PlanPostProcessor {
             return table instanceof PluginDrivenExternalTable
                     && ((PluginDrivenExternalTable) table).supportsStoragePredicatePruning();
         }
-        if (!(plan instanceof PhysicalTVFRelation)) {
-            return false;
+        if (plan instanceof PhysicalTVFRelation) {
+            // Do not call getCatalogFunction() here: constructing an external-file TVF may list remote
+            // files. Match the already-bound Nereids function type without adding post-processing I/O.
+            TableValuedFunction function = ((PhysicalTVFRelation) plan).getFunction();
+            return function instanceof File || function instanceof Hdfs || function instanceof Http
+                    || function instanceof Local || function instanceof S3;
         }
-        // Do not call getCatalogFunction() here: constructing an external-file TVF may list remote
-        // files. Match the already-bound Nereids function type without adding post-processing I/O.
-        TableValuedFunction function = ((PhysicalTVFRelation) plan).getFunction();
-        return function instanceof File || function instanceof Hdfs || function instanceof Http
-                || function instanceof Local || function instanceof S3;
+        return false;
     }
 }

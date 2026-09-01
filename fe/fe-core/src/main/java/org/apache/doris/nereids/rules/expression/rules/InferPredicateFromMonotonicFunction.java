@@ -193,14 +193,16 @@ public final class InferPredicateFromMonotonicFunction {
         if (!prefix.isPresent()) {
             return Optional.empty();
         }
+        Expression source = prefix.get().source;
+        BigDecimal length = prefix.get().length;
 
         ComparisonPredicate inferred;
         if (comparison instanceof GreaterThan || comparison instanceof GreaterThanEqual) {
-            inferred = (ComparisonPredicate) comparison.withChildren(prefix.get().source, comparison.right());
+            inferred = (ComparisonPredicate) comparison.withChildren(source, comparison.right());
         } else if (comparison instanceof EqualTo) {
-            Expression lower = inferredPredicate(new GreaterThanEqual(prefix.get().source, comparison.right()));
+            Expression lower = inferredPredicate(new GreaterThanEqual(source, comparison.right()));
             String value = ((StringLikeLiteral) comparison.right()).getStringValue();
-            if (BigDecimal.valueOf(value.codePointCount(0, value.length())).compareTo(prefix.get().length) > 0) {
+            if (BigDecimal.valueOf(value.codePointCount(0, value.length())).compareTo(length) > 0) {
                 return Optional.of(lower);
             }
             Optional<String> successor = prefixSuccessor(value);
@@ -208,7 +210,7 @@ public final class InferPredicateFromMonotonicFunction {
                 return Optional.of(lower);
             }
             Expression upper = inferredPredicate(
-                    new LessThan(prefix.get().source, new VarcharLiteral(successor.get())));
+                    new LessThan(source, new VarcharLiteral(successor.get())));
             return Optional.of(ExpressionUtils.and(ImmutableList.of(lower, upper)));
         } else {
             return Optional.empty();
@@ -252,12 +254,15 @@ public final class InferPredicateFromMonotonicFunction {
     // byte comparison; retaining only the lower bound is safe in those cases.
     private static Optional<String> prefixSuccessor(String value) {
         byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        // Java bytes are signed, so 0xFF masks them to unsigned values. ASCII occupies 0x00 through
+        // 0x7F, making 0x80 the first non-ASCII byte.
         for (byte valueByte : bytes) {
             if ((valueByte & 0xFF) >= 0x80) {
                 return Optional.empty();
             }
         }
         int index = bytes.length - 1;
+        // Carry past trailing 0x7F bytes because incrementing one would produce non-ASCII 0x80.
         while (index >= 0 && (bytes[index] & 0xFF) == 0x7F) {
             index--;
         }
@@ -533,6 +538,8 @@ public final class InferPredicateFromMonotonicFunction {
         return coerced;
     }
 
+    // The source Slot and fixed prefix length extracted from substring(source, 1, length) or
+    // left(source, length). The length counts characters, not bytes.
     private static final class PrefixInfo {
         private final Expression source;
         private final BigDecimal length;

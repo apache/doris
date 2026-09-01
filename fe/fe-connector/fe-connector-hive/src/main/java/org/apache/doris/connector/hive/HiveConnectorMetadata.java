@@ -517,7 +517,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             // An iceberg/hudi-on-HMS table's schema is built by the embedded sibling connector, but fe-core's
             // PluginDrivenExternalTable.hasCapability only ever reads the CATALOG connector (this HIVE
             // connector), never the sibling — so a per-table capability the sibling declares connector-wide
-            // (auto-analyze / Top-N lazy / nested-column prune) would be lost for the embedded table. Reflect the
+            // (auto-analyze / Top-N lazy / nested-column prune / storage predicate pruning) would be lost for
+            // the embedded table. Reflect the
             // SIBLING_INHERITABLE_CAPABILITIES subset of the owning sibling's connector-wide set onto the
             // delegated schema as a per-table marker so it survives delegation (mirrors Trino table-redirection,
             // where the redirected-to connector's capabilities govern the table). Only the subset fe-core
@@ -609,6 +610,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                     ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE,
                     ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
                     ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
+                    ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING,
                     ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE));
 
     /**
@@ -618,7 +620,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * {@code PluginDrivenExternalTable.hasCapability} resolves a table-scoped capability from the CATALOG
      * (hive) connector-wide set OR the table's own set, and NEVER consults the sibling connector directly, so
      * without this reflection an iceberg-on-HMS table would silently lose every such capability the iceberg
-     * sibling declares connector-wide (auto-analyze / Top-N lazy / nested-column prune / nested column DDL).
+     * sibling declares connector-wide (auto-analyze / Top-N lazy / nested-column prune / storage predicate
+     * pruning / nested column DDL).
      * Returns the sibling schema unchanged when nothing is inherited and the sibling declared nothing itself
      * (e.g. a hudi sibling, which declares no capabilities at all).
      */

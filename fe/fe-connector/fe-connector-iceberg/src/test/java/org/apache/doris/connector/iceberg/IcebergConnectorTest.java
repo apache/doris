@@ -232,6 +232,16 @@ public class IcebergConnectorTest {
     }
 
     @Test
+    public void declaresStoragePredicatePruningCapability() {
+        // Native Iceberg data scans use the Parquet/ORC readers that consume inferred bare-column ranges for
+        // min/max pruning. Without this opt-in, every standalone Iceberg PhysicalFileScan skips the inference.
+        IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        Assertions.assertTrue(connector.getCapabilities()
+                        .contains(ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING),
+                "iceberg data scans must expose storage predicate pruning to the generic planner gate");
+    }
+
+    @Test
     public void declaresNestedColumnPruneCapability() {
         // WHY: legacy IcebergExternalTable returns true from LogicalFileScan.supportPruneNestedColumn and the
         // SlotTypeReplacer rewrites the nested access path to iceberg field-ids. Post-cutover the generic
