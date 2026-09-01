@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -99,6 +100,16 @@ class PrimaryExpressionAstTest extends ParserTestBase {
 
         Assertions.assertInstanceOf(Subtract.class, expression);
         Assertions.assertInstanceOf(Subtract.class, expression.child(0));
+    }
+
+    @Test
+    void preservesSimpleCasePlaceholderOrder() {
+        List<Integer> placeholderIds = parser.parseMultiple("SELECT CASE ? WHEN ? THEN ? ELSE ? END").get(0).second
+                .getPlaceholders().stream()
+                .map(placeholder -> placeholder.getPlaceholderId().asInt())
+                .collect(ImmutableList.toImmutableList());
+
+        Assertions.assertEquals(List.of(0, 1, 2, 3), placeholderIds);
     }
 
     @Test
