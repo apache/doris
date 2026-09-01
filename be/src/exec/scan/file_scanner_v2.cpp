@@ -197,11 +197,7 @@ bool is_wal_format(TFileFormatType::type format_type) {
 
 bool is_legacy_virtual_slot(const std::string& column_name) {
     return column_name.starts_with(BeConsts::GLOBAL_ROWID_COL) ||
-           iequal(column_name, BeConsts::ICEBERG_ROWID_COL) ||
-           iequal(column_name, BeConsts::ICEBERG_FILE_PATH_COL) ||
-           iequal(column_name, BeConsts::ICEBERG_ROW_POSITION_COL) ||
-           iequal(column_name, BeConsts::PAIMON_FILE_PATH_COL) ||
-           iequal(column_name, BeConsts::PAIMON_ROW_POSITION_COL);
+           iequal(column_name, BeConsts::ICEBERG_ROWID_COL);
 }
 
 bool is_partition_slot(const TFileScanSlotInfo& slot_info, const std::string& column_name) {
