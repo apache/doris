@@ -20,6 +20,7 @@ package org.apache.doris.datasource.iceberg.rewrite;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Status;
+import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache.WritableTableLease;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
@@ -61,21 +62,24 @@ public class RewriteGroupTask implements TransientTaskExecutor {
     private final long transactionId;
     private final IcebergExternalTable dorisTable;
     private final MvccSnapshot targetSnapshot;
+    private final WritableTableLease writableTableLease;
     private final ConnectContext connectContext;
     private final long targetFileSizeBytes;
     private final RewriteResultCallback resultCallback;
     private final Long taskId;
     private final AtomicBoolean isCanceled;
     private final AtomicBoolean isFinished;
+    private final AtomicBoolean executionClaimed;
     private final int availableBeCount;
 
     // for canceling the task
-    private StmtExecutor stmtExecutor;
+    private volatile StmtExecutor stmtExecutor;
 
     public RewriteGroupTask(RewriteDataGroup group,
             long transactionId,
             IcebergExternalTable dorisTable,
             MvccSnapshot targetSnapshot,
+            WritableTableLease writableTableLease,
             ConnectContext connectContext,
             long targetFileSizeBytes,
             int availableBeCount,
@@ -84,6 +88,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         this.transactionId = transactionId;
         this.dorisTable = dorisTable;
         this.targetSnapshot = targetSnapshot;
+        this.writableTableLease = writableTableLease;
         this.connectContext = connectContext;
         this.targetFileSizeBytes = targetFileSizeBytes;
         this.availableBeCount = availableBeCount;
@@ -91,6 +96,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         this.taskId = UUID.randomUUID().getMostSignificantBits();
         this.isCanceled = new AtomicBoolean(false);
         this.isFinished = new AtomicBoolean(false);
+        this.executionClaimed = new AtomicBoolean(false);
     }
 
     // Tests that only exercise scheduling strategy do not create an Iceberg metadata snapshot.
@@ -101,7 +107,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
             long targetFileSizeBytes,
             int availableBeCount,
             RewriteResultCallback resultCallback) {
-        this(group, transactionId, dorisTable, null, connectContext, targetFileSizeBytes,
+        this(group, transactionId, dorisTable, null, null, connectContext, targetFileSizeBytes,
                 availableBeCount, resultCallback);
     }
 
@@ -115,18 +121,16 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         LOG.debug("[Rewrite Task] taskId: {} starting execution for group with {} tasks",
                 taskId, group.getTaskCount());
 
-        if (isCanceled.get()) {
-            LOG.debug("[Rewrite Task] taskId: {} was already canceled before execution", taskId);
-            throw new JobException("Rewrite task has been canceled, task id: " + taskId);
-        }
-
-        if (isFinished.get()) {
-            LOG.debug("[Rewrite Task] taskId: {} was already finished", taskId);
+        if (!executionClaimed.compareAndSet(false, true)) {
+            LOG.debug("[Rewrite Task] taskId: {} was canceled before execution", taskId);
             return;
         }
 
         ConnectContext taskConnectContext = null;
         try {
+            if (isCanceled.get()) {
+                throw new JobException("Rewrite task has been canceled, task id: " + taskId);
+            }
             // Step 1: Create and customize a new ConnectContext for this task
             taskConnectContext = buildConnectContext();
             // Set target file size for Iceberg write
@@ -168,6 +172,9 @@ public class RewriteGroupTask implements TransientTaskExecutor {
             } finally {
                 ConnectContext.remove();
                 isFinished.set(true);
+                if (writableTableLease != null) {
+                    writableTableLease.close();
+                }
             }
         }
     }
@@ -180,6 +187,17 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         }
 
         isCanceled.set(true);
+        if (executionClaimed.compareAndSet(false, true)) {
+            JobException error = new JobException("Rewrite task has been canceled, task id: " + taskId);
+            if (resultCallback != null) {
+                resultCallback.onTaskFailed(taskId, error);
+            }
+            isFinished.set(true);
+            if (writableTableLease != null) {
+                writableTableLease.close();
+            }
+            return;
+        }
         if (stmtExecutor != null) {
             stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "rewrite task cancelled"));
         }
@@ -194,6 +212,9 @@ public class RewriteGroupTask implements TransientTaskExecutor {
             StatementBase taskParsedStmt) throws Exception {
         // Step 1: Create stmt executor
         stmtExecutor = new StmtExecutor(taskConnectContext, taskParsedStmt);
+        if (isCanceled.get()) {
+            throw new JobException("Rewrite task has been canceled, task id: " + taskId);
+        }
 
         // Step 2: Create insert executor
         AbstractInsertExecutor insertExecutor = taskLogicalPlan.initPlan(taskConnectContext, stmtExecutor);

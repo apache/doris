@@ -48,6 +48,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
+import org.apache.doris.datasource.iceberg.IcebergRuntimeContext;
 import org.apache.doris.datasource.iceberg.IcebergSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
@@ -196,6 +197,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private boolean isPartitionedTable;
     private int formatVersion;
     private ExecutionAuthenticator preExecutionAuthenticator;
+    private IcebergRuntimeContext runtimeContext;
     private TableScan icebergTableScan;
     private Schema querySchema;
     // Store PropertiesMap, including vended credentials or static credentials
@@ -307,12 +309,16 @@ public class IcebergScanNode extends FileQueryScanNode {
                 // These tables are always readable regardless of format version
                 formatVersion = MIN_DELETE_FILE_SUPPORT_VERSION;
             }
-            preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
-            storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
-                    source.getCatalog().getCatalogProperty().getMetastoreProperties(),
-                    source.getCatalog().getCatalogProperty().getStoragePropertiesMap(),
-                    icebergTable
-            );
+            if (runtimeContext == null) {
+                preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
+                storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
+                        source.getCatalog().getCatalogProperty().getMetastoreProperties(),
+                        source.getCatalog().getCatalogProperty().getStoragePropertiesMap(), icebergTable);
+            } else {
+                preExecutionAuthenticator = runtimeContext.getAuthenticator();
+                storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
+                        runtimeContext.getMetastoreProperties(), runtimeContext.getStorageProperties(), icebergTable);
+            }
             storagePropertiesMap = IcebergUtils.selectEffectiveStorageProperties(storagePropertiesMap);
             backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
         } finally {
@@ -1754,7 +1760,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             this.pushdownIcebergPredicates.add(predicate.toString());
         }
 
-        icebergTableScan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
+        icebergTableScan = scan.planWith(getPlanningExecutor());
 
         return icebergTableScan;
     }
@@ -1766,18 +1772,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                     ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
             Optional<Table> frozenTable = cacheValue.getIcebergTable();
             if (frozenTable.isPresent()) {
-                // Planning the frozen generation (regular relations and snapshot-selectable
-                // system tables alike) uses the catalog's current authenticator, storage state
-                // and pre-authenticated executor. Those are only coherent with the retained
-                // frozen operations/FileIO while the catalog still serves the generation this
-                // statement pinned; after a credential/storage ALTER the statement must fail and
-                // be retried. Count-mode values retain no frozen handle and plan the live table,
-                // so they are not fenced; values without a captured context resolve nothing here.
-                if (cacheValue.getCapturedAuthenticator() != null) {
-                    cacheValue.ensurePlannableUnder(
-                            source.getCatalog().getExecutionAuthenticator(),
-                            source.getTargetTable().getName());
-                }
+                runtimeContext = cacheValue.getRuntimeContext();
                 Table frozenBaseTable = frozenTable.get();
                 if (isSystemTable && source.getTargetTable() instanceof IcebergSysExternalTable) {
                     IcebergSysExternalTable systemTable = (IcebergSysExternalTable) source.getTargetTable();
@@ -1797,6 +1792,12 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
         return currentTable;
+    }
+
+    private java.util.concurrent.ExecutorService getPlanningExecutor() {
+        return runtimeContext == null
+                ? source.getCatalog().getThreadPoolWithPreAuth()
+                : runtimeContext.getPlanningExecutor();
     }
 
     @VisibleForTesting
@@ -2701,7 +2702,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         long startTime = System.currentTimeMillis();
-        scan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
+        scan = scan.planWith(getPlanningExecutor());
         BatchScan plannedScan = scan;
         try {
             positionDeleteTasks = getOrPlanPositionDeleteTasks(plannedScan, () -> {
