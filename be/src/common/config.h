@@ -1485,6 +1485,8 @@ DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
 DECLARE_mInt64(snii_postings_workspace_bytes);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
+// The kuromoji (Japanese) analyzer
+DECLARE_mBool(enable_kuromoji_analyzer);
 DECLARE_Int32(inverted_index_read_buffer_size);
 // tree depth for bkd index
 DECLARE_Int32(max_depth_in_bkd_tree);
