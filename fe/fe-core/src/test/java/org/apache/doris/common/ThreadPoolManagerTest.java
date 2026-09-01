@@ -20,9 +20,48 @@ package org.apache.doris.common;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 public class ThreadPoolManagerTest {
+
+    @Test
+    public void testBlockedPolicySkipsCancelledTask() {
+        LinkedBlockingQueue<Runnable> queue = new LinkedBlockingQueue<>(1);
+        Runnable queued = () -> { };
+        queue.add(queued);
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, queue);
+        FutureTask<Void> cancelled = new FutureTask<>(() -> null);
+        cancelled.cancel(false);
+
+        new ThreadPoolManager.BlockedPolicy("test", 10).rejectedExecution(cancelled, executor);
+
+        Assert.assertEquals(1, queue.size());
+        Assert.assertSame(queued, queue.peek());
+        executor.shutdownNow();
+    }
+
+    @Test
+    public void testBlockedPolicyRestoresInterrupt() {
+        LinkedBlockingQueue<Runnable> queue = new LinkedBlockingQueue<>(1);
+        queue.add(() -> { });
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, queue);
+        FutureTask<Void> task = new FutureTask<>(() -> null);
+        ThreadPoolManager.BlockedPolicy blockedPolicy = new ThreadPoolManager.BlockedPolicy("test", 10);
+
+        try {
+            Thread.currentThread().interrupt();
+            Assert.assertThrows(RejectedExecutionException.class,
+                    () -> blockedPolicy.rejectedExecution(task, executor));
+            Assert.assertTrue(Thread.currentThread().isInterrupted());
+        } finally {
+            Thread.interrupted();
+            executor.shutdownNow();
+        }
+    }
 
     @Test
     public void testNormal() throws InterruptedException {
