@@ -64,24 +64,27 @@ PhysicalResultSink
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF3 i_item_sk->ss_item_sk
+----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF3 d_date_sk->ss_sold_date_sk
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->ss_sold_date_sk
+--------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->ss_item_sk
+----------------------------------hashAgg[GLOBAL]
+------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------hashAgg[LOCAL]
+----------------------------------------PhysicalProject
+------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF3
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF3
+------------------------------------PhysicalOlapScan[item]
+------------------------------PhysicalProject
+--------------------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF1 d_date->d_date
 ----------------------------------PhysicalProject
-------------------------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF1 d_date->d_date
+------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF1
+----------------------------------PhysicalProject
+------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_week_seq = date_dim.d_week_seq)) otherCondition=() build RFs:RF0 d_week_seq->d_week_seq
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF1
---------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_week_seq = date_dim.d_week_seq)) otherCondition=() build RFs:RF0 d_week_seq->d_week_seq
+----------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF0
+--------------------------------------PhysicalAssertNumRows
+----------------------------------------PhysicalDistribute[DistributionSpecGather]
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF0
-------------------------------------------PhysicalAssertNumRows
---------------------------------------------PhysicalDistribute[DistributionSpecGather]
-----------------------------------------------PhysicalProject
-------------------------------------------------filter((date_dim.d_date = '2001-03-24'))
---------------------------------------------------PhysicalOlapScan[date_dim]
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[item]
+--------------------------------------------filter((date_dim.d_date = '2001-03-24'))
+----------------------------------------------PhysicalOlapScan[date_dim]
 

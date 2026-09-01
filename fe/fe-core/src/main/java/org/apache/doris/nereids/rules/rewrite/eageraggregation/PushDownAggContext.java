@@ -132,15 +132,15 @@ public class PushDownAggContext {
         return isPassThroughJoinOrUnion;
     }
 
-    public boolean aggFuncAndGroupKeyAllEmpty() {
+    private boolean aggFuncAndGroupKeyAllEmpty() {
         return aggFunctions.isEmpty() && groupKeys.isEmpty();
     }
 
-    public boolean hasVolatileFunctions() {
+    private boolean hasVolatileFunctions() {
         return containsVolatileFunction(aggFunctions) || containsVolatileFunction(groupKeys);
     }
 
-    public static boolean containsVolatileFunction(List<? extends Expression> expressions) {
+    private static boolean containsVolatileFunction(List<? extends Expression> expressions) {
         return expressions.stream().anyMatch(Expression::containsVolatileExpression);
     }
 
@@ -194,6 +194,11 @@ public class PushDownAggContext {
 
     public boolean needOutputCount() {
         return needOutputCount;
+    }
+
+    // Before passing this Context to the child, its validity must be verified by calling the isValid function.
+    public boolean isValid() {
+        return !aggFuncAndGroupKeyAllEmpty() && !hasVolatileFunctions();
     }
 
     @Override
