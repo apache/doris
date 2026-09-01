@@ -67,6 +67,10 @@ The optional `benchmark` profile builds a self-contained JMH jar without adding 
 mvn -Pbenchmark -pl fe-sql-parser-benchmark -am package -DskipTests
 java -jar fe-sql-parser-benchmark/target/doris-fe-sql-parser-benchmarks.jar \
   '.*StringLiteralBenchmark.*' -prof gc -rf json -rff /tmp/string-literal-benchmark.json
+
+# Run the primary-expression end-to-end and pre-tokenized parser benchmarks
+java -jar fe-sql-parser-benchmark/target/doris-fe-sql-parser-benchmarks.jar \
+  '.*PrimaryExpressionBenchmark.*' -prof gc -rf json -rff /tmp/primary-expression-benchmark.json
 ```
 
 Use the same JDK, corpus parameters, JMH arguments, and machine state for baseline and candidate runs. Run the same baseline artifact twice before comparing a change; the raw JSON and artifact hash should be retained with the result summary.
