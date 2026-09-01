@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.LambdaBindingSpec;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
@@ -31,6 +32,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public interface FunctionHelper {
     /**
@@ -64,6 +66,11 @@ public interface FunctionHelper {
      */
     default ScalarFunc scalar(Class<? extends ScalarFunction> functionClass, String... functionNames) {
         return new ScalarFunc(functionClass, functionNames);
+    }
+
+    default ScalarFunc lambdaScalar(Class<? extends ScalarFunction> functionClass,
+            LambdaBindingSpec lambdaBindingSpec, String... functionNames) {
+        return new ScalarFunc(functionClass, lambdaBindingSpec, functionNames);
     }
 
     default AggregateFunc agg(Class<? extends AggregateFunction> functionClass) {
@@ -104,17 +111,27 @@ public interface FunctionHelper {
         public final List<FunctionBuilder> functionBuilders;
 
         public NamedFunc(Class<? extends T> functionClass, String... names) {
+            this(functionClass, Optional.empty(), names);
+        }
+
+        public NamedFunc(Class<? extends T> functionClass,
+                Optional<LambdaBindingSpec> lambdaBindingSpec, String... names) {
             this.functionClass = functionClass;
             this.names = Arrays.stream(names)
                     .map(String::toLowerCase)
                     .collect(ImmutableList.toImmutableList());
-            this.functionBuilders = BuiltinFunctionBuilder.resolve(functionClass);
+            this.functionBuilders = BuiltinFunctionBuilder.resolve(functionClass, lambdaBindingSpec);
         }
     }
 
     class ScalarFunc extends NamedFunc<ScalarFunction> {
         public ScalarFunc(Class<? extends ScalarFunction> functionClass, String... names) {
             super(functionClass, names);
+        }
+
+        public ScalarFunc(Class<? extends ScalarFunction> functionClass,
+                LambdaBindingSpec lambdaBindingSpec, String... names) {
+            super(functionClass, Optional.of(lambdaBindingSpec), names);
         }
     }
 

@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapEntries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapValues;
@@ -403,6 +404,26 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         }
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_VALUES);
         return continueCollectAccessPath(mapValues.getArgument(0), context);
+    }
+
+    @Override
+    public Void visitMapEntries(MapEntries mapEntries, CollectorContext context) {
+        LinkedList<String> path = context.accessPathBuilder.accessPath;
+        if (path.size() >= 2 && AccessPathInfo.ACCESS_ALL.equals(path.get(0))) {
+            String entryField = path.get(1);
+            if ("key".equalsIgnoreCase(entryField) || "value".equalsIgnoreCase(entryField)) {
+                CollectorContext mapContext = new CollectorContext(
+                        context.statementContext, context.bottomFilter);
+                mapContext.accessPathBuilder.accessPath.addAll(path.subList(2, path.size()));
+                mapContext.accessPathBuilder.addPrefix("key".equalsIgnoreCase(entryField)
+                        ? AccessPathInfo.ACCESS_MAP_KEYS : AccessPathInfo.ACCESS_MAP_VALUES);
+                return continueCollectAccessPath(mapEntries.getArgument(0), mapContext);
+            }
+        }
+        if (path.isEmpty()) {
+            context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
+        }
+        return continueCollectAccessPath(mapEntries.getArgument(0), context);
     }
 
     private static boolean isUnderIsNull(List<String> suffixPath) {

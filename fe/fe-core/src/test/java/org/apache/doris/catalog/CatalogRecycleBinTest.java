@@ -27,6 +27,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -477,12 +478,15 @@ public class CatalogRecycleBinTest extends TestWithFeService {
                 new DataProperty(TStorageMedium.HDD),
                 new ReplicaAllocation((short) 3),
                 false,
-                false
+                false,
+                TInvertedIndexFileStorageFormat.SNII
         );
 
         recycleBin.recoverPartition(CatalogTestUtil.testDbId1, olapTable, CatalogTestUtil.testPartition1, -1, null);
         Assertions.assertFalse(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, CatalogTestUtil.testPartitionId1));
         Assertions.assertNotNull(olapTable.getPartition(CatalogTestUtil.testPartition1));
+        Assertions.assertEquals(TInvertedIndexFileStorageFormat.SNII, olapTable.getPartitionInfo()
+                .getInvertedIndexFileStorageFormat(CatalogTestUtil.testPartitionId1));
     }
 
     @Test

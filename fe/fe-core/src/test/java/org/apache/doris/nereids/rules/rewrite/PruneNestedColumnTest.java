@@ -486,8 +486,31 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
         assertColumn("select array_map(m -> array_map(x -> element_at(map_values(m)[0], 'a'), [1]), "
                         + "element_at(s, 'data')) from tbl",
+                        "struct<data:array<map<int,struct<a:int>>>>",
+                ImmutableList.of(path("s", "data", "*", "VALUES", "a")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select array_map(m -> array_map(x -> element_at(map_values(m)[0], 'a'), [1]), "
+                        + "element_at(s, 'data')) from tbl",
                 "struct<data:array<map<int,struct<a:int>>>>",
                 ImmutableList.of(path("s", "data", "*", "VALUES", "a")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testPruneMapEntryLambda() throws Exception {
+        assertColumn("select map_exists((k, v) -> element_at(v, 'a') > 0, "
+                        + "element_at(s, 'data')[1]) from tbl",
+                "struct<data:array<map<int,struct<a:int>>>>",
+                ImmutableList.of(path("s", "data", "*", "VALUES", "a")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select map_all((k, v) -> k > 0, element_at(s, 'data')[1]) from tbl",
+                "struct<data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "data", "*", "KEYS")),
                 ImmutableList.of()
         );
     }

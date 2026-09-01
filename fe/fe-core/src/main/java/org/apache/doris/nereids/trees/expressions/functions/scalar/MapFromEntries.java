@@ -48,7 +48,11 @@ public class MapFromEntries extends ScalarFunction
         super("map_from_entries", entries);
     }
 
-    private MapFromEntries(ScalarFunctionParams functionParams) {
+    protected MapFromEntries(String name, Expression entries) {
+        super(name, entries);
+    }
+
+    protected MapFromEntries(ScalarFunctionParams functionParams) {
         super(functionParams);
     }
 
