@@ -63,7 +63,9 @@ void ResultBufferMgr::stop() {
     }
     std::vector<TUniqueId> remaining_ids;
     {
-        std::shared_lock<std::shared_mutex> rlock(_buffer_map_lock);
+        std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
+        // Closing the registration gate under the map lock keeps the shutdown snapshot complete.
+        _stopping = true;
         remaining_ids.reserve(_buffer_map.size());
         for (const auto& item : _buffer_map) {
             remaining_ids.emplace_back(item.first);
@@ -89,6 +91,9 @@ Status ResultBufferMgr::create_sender(const TUniqueId& unique_id, int buffer_siz
                                       std::shared_ptr<arrow::Schema> schema) {
     {
         std::shared_lock<std::shared_mutex> rlock(_buffer_map_lock);
+        if (_stopping) {
+            return Status::Cancelled("ResultBufferMgr is stopping");
+        }
         auto iter = _buffer_map.find(unique_id);
 
         if (_buffer_map.end() != iter) {
@@ -108,6 +113,9 @@ Status ResultBufferMgr::create_sender(const TUniqueId& unique_id, int buffer_siz
 
     {
         std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
+        if (_stopping) {
+            return Status::Cancelled("ResultBufferMgr is stopping");
+        }
         _buffer_map.insert(std::make_pair(unique_id, control_block));
         // ResultBlockBufferBase should destroy after max_timeout
         // for exceed max_timeout FE will return timeout to client

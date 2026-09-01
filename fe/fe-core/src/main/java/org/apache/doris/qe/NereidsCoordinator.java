@@ -549,6 +549,12 @@ public class NereidsCoordinator extends Coordinator {
         return coordinatorContext.asQueryProcessor().getResultReceivers();
     }
 
+    @Override
+    protected long getOutfileTimeoutDeadline() {
+        // Nereids owns its deadline in CoordinatorContext instead of the legacy Coordinator field.
+        return coordinatorContext.timeoutDeadline.get();
+    }
+
     private void setForBroker(
             CoordinatorContext coordinatorContext, PipelineDistributedPlan topPlan) throws AnalysisException {
         DataSink dataSink = coordinatorContext.dataSink;

@@ -24,12 +24,14 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
+import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.thrift.TQueryOptions;
@@ -48,7 +50,9 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class StmtExecutorTest extends TestWithFeService {
@@ -110,6 +114,43 @@ public class StmtExecutorTest extends TestWithFeService {
         Mockito.verify(coord).close();
         // ... and despite it failing, the query registration was still released (no leak).
         Assert.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
+    }
+
+    @Test
+    public void testLegacyOutfileSkipsAtomicFinalizationRpc() throws Exception {
+        CoordInterface coordinator = Mockito.mock(CoordInterface.class);
+
+        StmtExecutor.finishOutfileTransaction(false, coordinator, () -> Assert.fail("unexpected marker"));
+
+        Mockito.verifyNoInteractions(coordinator);
+    }
+
+    @Test
+    public void testAtomicOutfilePublishesMarkerAfterAllCommits() throws Exception {
+        CoordInterface coordinator = Mockito.mock(CoordInterface.class);
+        List<String> operations = new ArrayList<>();
+        Mockito.doAnswer(invocation -> {
+            operations.add(((InternalService.POutfileWriteOperation) invocation.getArgument(0)).name());
+            return null;
+        }).when(coordinator).finishOutfile(Mockito.any());
+
+        StmtExecutor.finishOutfileTransaction(true, coordinator, () -> operations.add("MARKER"));
+
+        Assertions.assertEquals(List.of("OUTFILE_PREPARE", "OUTFILE_COMMIT", "MARKER"), operations);
+    }
+
+    @Test
+    public void testAtomicOutfileDoesNotPublishMarkerAfterCommitFailure() throws Exception {
+        CoordInterface coordinator = Mockito.mock(CoordInterface.class);
+        Mockito.doThrow(new UserException("injected commit failure")).when(coordinator)
+                .finishOutfile(InternalService.POutfileWriteOperation.OUTFILE_COMMIT);
+        AtomicBoolean markerPublished = new AtomicBoolean(false);
+
+        Assertions.assertThrows(UserException.class,
+                () -> StmtExecutor.finishOutfileTransaction(true, coordinator,
+                        () -> markerPublished.set(true)));
+
+        Assertions.assertFalse(markerPublished.get());
     }
 
     @Test

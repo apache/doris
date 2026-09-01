@@ -167,7 +167,10 @@ void cleanup_expired_outfile_marker_states(std::chrono::steady_clock::time_point
         }
     }
     for (auto it = outfile_marker_states.begin(); it != outfile_marker_states.end();) {
-        if (now - it->second.updated_at >= OUTFILE_MARKER_TOMBSTONE_TTL) {
+        // A failed marker delete retains the only in-process rollback fence and ownership record.
+        // Expire state only after the owned path has been deleted successfully.
+        if (it->second.owned_path.empty() &&
+            now - it->second.updated_at >= OUTFILE_MARKER_TOMBSTONE_TTL) {
             it = outfile_marker_states.erase(it);
         } else {
             ++it;

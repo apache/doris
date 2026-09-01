@@ -1465,6 +1465,10 @@ public class Coordinator implements CoordInterface {
         return receivers;
     }
 
+    protected long getOutfileTimeoutDeadline() {
+        return timeoutDeadline;
+    }
+
     @Override
     public void finishOutfile(InternalService.POutfileWriteOperation operation) throws Exception {
         Map<TNetworkAddress, InternalService.POutfileWriteFinishedRequest.Builder> requests = new HashMap<>();
@@ -1484,7 +1488,7 @@ public class Coordinator implements CoordInterface {
         long timeoutMs = operation == InternalService.POutfileWriteOperation.OUTFILE_ABORT
                 ? Math.max(1, Math.min(Config.remote_fragment_exec_timeout_ms, OUTFILE_CLEANUP_TIMEOUT_MS))
                 : Math.max(1, Math.min(Config.remote_fragment_exec_timeout_ms,
-                        timeoutDeadline - System.currentTimeMillis()));
+                        getOutfileTimeoutDeadline() - System.currentTimeMillis()));
         Map<TNetworkAddress, Future<InternalService.POutfileWriteFinishedResult>> futures = new HashMap<>();
         Exception firstFailure = null;
         for (Entry<TNetworkAddress, InternalService.POutfileWriteFinishedRequest.Builder> entry

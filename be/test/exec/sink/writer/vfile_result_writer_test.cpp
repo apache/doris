@@ -21,10 +21,13 @@
 
 #include <filesystem>
 
+#include "exec/operator/result_sink_operator.h"
 #include "format/transformer/vorc_transformer.h"
 #include "format/transformer/vparquet_transformer.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/local_file_writer.h"
+#include "runtime/runtime_state.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -129,6 +132,36 @@ TEST(VFileResultWriterTest, AbortedFormatStreamsDoNotCloseRawWriter) {
         output_stream.abort();
     }
     EXPECT_EQ(orc_writer.close_count, 0);
+}
+
+TEST(VFileResultWriterTest, LocalOutfilePreservesSynchronousClose) {
+    const auto directory =
+            std::filesystem::temp_directory_path() / "doris_vfile_result_writer_sync_close";
+    const auto path = directory / "part.csv";
+    std::filesystem::remove_all(directory);
+    std::filesystem::create_directories(directory);
+
+    TResultFileSinkOptions thrift_options;
+    thrift_options.file_path = directory.string() + "/";
+    thrift_options.file_format = TFileFormatType::FORMAT_CSV_PLAIN;
+    thrift_options.file_suffix = "csv";
+    thrift_options.with_bom = false;
+    ResultFileOptions file_options(thrift_options);
+    RuntimeState state;
+    VExprContextSPtrs output_exprs;
+    VFileResultWriter writer(TDataSink {}, output_exprs, nullptr, nullptr);
+    writer._state = &state;
+    writer._file_opts = &file_options;
+    writer._storage_type = TStorageBackendType::LOCAL;
+
+    ASSERT_TRUE(writer._create_file_writer(path.string()).ok());
+    const auto* local_writer =
+            dynamic_cast<const io::LocalFileWriter*>(writer._file_writer_impl.get());
+    ASSERT_NE(local_writer, nullptr);
+    EXPECT_TRUE(local_writer->_sync_data);
+
+    ASSERT_FALSE(writer.close(Status::Cancelled("test cleanup")).ok());
+    std::filesystem::remove_all(directory);
 }
 
 } // namespace doris

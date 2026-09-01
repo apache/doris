@@ -80,6 +80,7 @@ public:
 private:
     FRIEND_TEST(VFileResultWriterTest, FailedCloseRemovesClosedOutputFile);
     FRIEND_TEST(VFileResultWriterTest, FailedCloseRemovesOnlyOwnedOutputFiles);
+    FRIEND_TEST(VFileResultWriterTest, LocalOutfilePreservesSynchronousClose);
 
     Status _write_file(const Block& block);
 

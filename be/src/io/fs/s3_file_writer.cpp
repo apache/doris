@@ -538,10 +538,12 @@ Status S3FileWriter::_complete() {
         return {resp.status.code, std::move(resp.status.msg)};
     }
 
+    // CompleteMultipartUpload publishes the object and consumes the upload ID. A later HEAD
+    // failure must be cleaned up as an object, not retried as an already-finished multipart upload.
+    _multipart_upload_completed = true;
     RETURN_IF_ERROR(check_after_upload(client.get(), resp, _obj_storage_path_opts, _bytes_appended,
                                        "complete_multipart"));
 
-    _multipart_upload_completed = true;
     s3_file_created_total << 1;
     return Status::OK();
 }

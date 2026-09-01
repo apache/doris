@@ -115,6 +115,41 @@ TEST_F(ResultBufferMgrTest, cancel_no_block) {
     EXPECT_FALSE(buffer_mgr.cancel(query_id, Status::InternalError("")));
 }
 
+TEST_F(ResultBufferMgrTest, RejectsNewSenderAfterStop) {
+    ResultBufferMgr buffer_mgr;
+    buffer_mgr.stop();
+
+    TUniqueId query_id;
+    query_id.lo = 10;
+    query_id.hi = 100;
+    std::shared_ptr<ResultBlockBufferBase> control_block;
+
+    EXPECT_FALSE(buffer_mgr.create_sender(query_id, 1024, &control_block, &_state, false).ok());
+    EXPECT_EQ(control_block, nullptr);
+}
+
+TEST_F(ResultBufferMgrTest, LateOutfileCleanupRetriesAfterCancellation) {
+    ResultBufferMgr buffer_mgr;
+    TUniqueId query_id;
+    query_id.lo = 11;
+    query_id.hi = 101;
+
+    std::shared_ptr<ResultBlockBufferBase> control_block;
+    ASSERT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block, &_state, false).ok());
+    ASSERT_TRUE(buffer_mgr.cancel(query_id, Status::Cancelled("injected cancellation")));
+
+    int cleanup_attempts = 0;
+    EXPECT_TRUE(control_block
+                        ->add_outfile_cleanup([&] {
+                            ++cleanup_attempts;
+                            return cleanup_attempts == 1
+                                           ? Status::IOError("injected transient cleanup failure")
+                                           : Status::OK();
+                        })
+                        .ok());
+    EXPECT_EQ(cleanup_attempts, 2);
+}
+
 TEST_F(ResultBufferMgrTest, OutfileAbortCleansRegisteredAndLateFiles) {
     ResultBufferMgr buffer_mgr;
     TUniqueId query_id;

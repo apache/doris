@@ -90,6 +90,7 @@ private:
     std::shared_mutex _buffer_map_lock;
     // buffer block map
     BufferMap _buffer_map;
+    bool _stopping = false;
 
     // lock for timeout map
     std::mutex _timeout_lock;

@@ -145,11 +145,15 @@ Status ResultBlockBuffer<ResultCtxType>::add_outfile_cleanup(OutfileCleanup clea
         return Status::OK();
     }
     if (run_cleanup) {
-        Status status = cleanup();
-        if (!status.ok()) {
-            std::lock_guard<std::mutex> l(_lock);
-            _outfile_cleanups.emplace_back(std::move(cleanup));
+        Status status;
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            status = cleanup();
+            if (status.ok()) {
+                return status;
+            }
         }
+        // Cancellation removed this buffer from the manager, so bounded inline retries are the
+        // last live-query owner for a cleanup registered after that point.
         return status;
     }
     return Status::OK();

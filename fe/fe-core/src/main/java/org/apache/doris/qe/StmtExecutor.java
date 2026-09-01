@@ -1611,22 +1611,24 @@ public class StmtExecutor {
             }
             if (isOutfileQuery) {
                 if (atomicOutfile) {
-                    coordBase.finishOutfile(InternalService.POutfileWriteOperation.OUTFILE_PREPARE);
+                    if (!Strings.isNullOrEmpty(outFileClause.getSuccessFileName())) {
+                        outfileMarkerBackend = selectOutfileSuccessBackend();
+                        // Establish rollback intent before entering the fallible finalization sequence:
+                        // a lost marker response must still trigger a conservative marker deletion.
+                        outfileMarkerMayExist = true;
+                    }
                 }
-                if (atomicOutfile && !Strings.isNullOrEmpty(outFileClause.getSuccessFileName())) {
-                    outfileMarkerBackend = selectOutfileSuccessBackend();
-                    // The create response may be lost after the marker is durable, so rollback must
-                    // conservatively delete it whenever this call does not complete successfully.
-                    outfileMarkerMayExist = true;
-                    outfileWriteSuccess(outFileClause, outfileMarkerBackend,
-                            InternalService.POutfileSuccessOperation.OUTFILE_MARKER_CREATE);
-                }
-                // This also carries the legacy success acknowledgement needed by old BEs during
-                // rolling upgrades; atomic-capable BEs interpret it as the global COMMIT phase.
-                coordBase.finishOutfile(InternalService.POutfileWriteOperation.OUTFILE_COMMIT);
-                outfileCommitted = true;
-                outfileMarkerMayExist = false;
+                OutFileClause finalOutFileClause = outFileClause;
+                TNetworkAddress finalMarkerBackend = outfileMarkerBackend;
+                finishOutfileTransaction(atomicOutfile, coordBase, () -> {
+                    if (finalMarkerBackend != null) {
+                        outfileWriteSuccess(finalOutFileClause, finalMarkerBackend,
+                                InternalService.POutfileSuccessOperation.OUTFILE_MARKER_CREATE);
+                    }
+                });
                 if (atomicOutfile) {
+                    outfileCommitted = true;
+                    outfileMarkerMayExist = false;
                     if (!isSendFields) {
                         sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
                         isSendFields = true;
@@ -1720,6 +1722,23 @@ public class StmtExecutor {
                 coordBase.close();
             }
         }
+    }
+
+    @FunctionalInterface
+    interface OutfileMarkerPublisher {
+        void publish() throws Exception;
+    }
+
+    static void finishOutfileTransaction(boolean atomicOutfile, CoordInterface coordBase,
+            OutfileMarkerPublisher markerPublisher) throws Exception {
+        if (!atomicOutfile) {
+            return;
+        }
+        coordBase.finishOutfile(InternalService.POutfileWriteOperation.OUTFILE_PREPARE);
+        // COMMIT acknowledgements remain compensatable until the marker is published, so any
+        // receiver or marker failure can still roll the distributed OUTFILE back as one unit.
+        coordBase.finishOutfile(InternalService.POutfileWriteOperation.OUTFILE_COMMIT);
+        markerPublisher.publish();
     }
 
     private void abortOutfile(CoordInterface coordBase, boolean atomicOutfile) {

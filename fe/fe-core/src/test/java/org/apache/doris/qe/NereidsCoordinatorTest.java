@@ -30,6 +30,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.UUID;
 
 public class NereidsCoordinatorTest extends TestWithFeService {
@@ -59,6 +60,18 @@ public class NereidsCoordinatorTest extends TestWithFeService {
                 .createCoordinator(connectContext, planner, null);
         int scanRangeNum = coordinator.getScanRangeNum();
         Assertions.assertEquals(0, scanRangeNum);
+    }
+
+    @Test
+    public void testOutfileFinalizationUsesNereidsDeadline() throws Exception {
+        NereidsPlanner planner = plan("select * from test.tbl");
+        NereidsCoordinator coordinator = (NereidsCoordinator) EnvFactory.getInstance()
+                .createCoordinator(connectContext, planner, null);
+        Field legacyDeadline = Coordinator.class.getDeclaredField("timeoutDeadline");
+        legacyDeadline.setAccessible(true);
+        Assertions.assertEquals(0L, legacyDeadline.getLong(coordinator));
+
+        Assertions.assertTrue(coordinator.getOutfileTimeoutDeadline() > System.currentTimeMillis());
     }
 
     @Test

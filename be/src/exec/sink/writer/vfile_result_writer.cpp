@@ -179,7 +179,11 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
     // Create/open can publish a path before returning an error, so claim deterministic ownership
     // first. A separate filesystem preserves Broker's existing per-path endpoint selection.
     _created_files.emplace_back(_file_system, file_name);
-    const io::FileWriterOptions options {.write_file_cache = false, .sync_file_data = false};
+    // Local OUTFILE historically synced successful closes; preserve that durability while remote
+    // writers keep the existing no-sync option to avoid redundant flushes.
+    const io::FileWriterOptions options {
+            .write_file_cache = false,
+            .sync_file_data = _storage_type == TStorageBackendType::LOCAL};
     RETURN_IF_ERROR(_file_system->create_file(file_name, &_file_writer_impl, &options));
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
