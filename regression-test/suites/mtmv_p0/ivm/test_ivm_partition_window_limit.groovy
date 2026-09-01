@@ -95,10 +95,12 @@ suite("test_ivm_partition_window_limit") {
     waitingMTMVTaskFinishedByMvName("test_ivm_pw_mv")
     order_qt_pw_shrunk_window """SELECT dt, k1, v FROM test_ivm_pw_mv ORDER BY dt"""
 
-    // Remove the window: p1's accumulated binlog is replayed and catches up (11 -> 12).
+    // Remove the window: a strict INCREMENTAL would now be rejected (baseline rebuild
+    // pending, see test_ivm_partition_window_remove), so the AUTO refresh rebuilds a
+    // complete baseline and p1's accumulated binlog is replayed (11 -> 12).
     sql """ALTER MATERIALIZED VIEW test_ivm_pw_mv SET ("ivm_partition_window_limit" = "");"""
     sql """INSERT INTO test_ivm_pw_s VALUES ("2026-01-01", 1, 12);"""
-    sql """REFRESH MATERIALIZED VIEW test_ivm_pw_mv INCREMENTAL"""
+    sql """REFRESH MATERIALIZED VIEW test_ivm_pw_mv AUTO"""
     waitingMTMVTaskFinishedByMvName("test_ivm_pw_mv")
     order_qt_pw_window_removed_catchup """SELECT dt, k1, v FROM test_ivm_pw_mv ORDER BY dt"""
 
