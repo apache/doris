@@ -266,26 +266,31 @@ class UniqueTest extends TestWithFeService {
         Assertions.assertTrue(plan.getLogicalProperties()
                 .getTrait().isUniqueAndNotNull(plan.getOutput().get(1)));
 
+        // Even though the hash key (uni.name) is not unique, the join output is still unique on
+        // {agg.id, uni.id} because both inputs are unique on their respective ids
+        // (union propagation: U_L ∪ U_R is unique).
         plan = PlanChecker.from(connectContext)
                 .analyze("select uni.id, agg.id from agg inner join uni "
                         + "on agg.id = uni.name")
                 .rewrite()
                 .getPlan();
-        Assertions.assertFalse(plan.getLogicalProperties()
+        Assertions.assertTrue(plan.getLogicalProperties()
                 .getTrait().isUnique(plan.getOutputSet()));
+        // Non-equal join condition: union propagation does not depend on hash equi conjuncts.
         plan = PlanChecker.from(connectContext)
                 .analyze("select uni.id, agg.id from agg inner join uni "
                         + "on agg.id < uni.id")
                 .rewrite()
                 .getPlan();
-        Assertions.assertFalse(plan.getLogicalProperties()
+        Assertions.assertTrue(plan.getLogicalProperties()
                 .getTrait().isUnique(plan.getOutputSet()));
+        // Disjunctive condition: still unique on {agg.id, uni.id} by union propagation.
         plan = PlanChecker.from(connectContext)
                 .analyze("select uni.id, agg.id from agg inner join uni "
                         + "on agg.id = uni.id or agg.name > uni.name")
                 .rewrite()
                 .getPlan();
-        Assertions.assertFalse(plan.getLogicalProperties()
+        Assertions.assertTrue(plan.getLogicalProperties()
                 .getTrait().isUnique(plan.getOutputSet()));
         plan = PlanChecker.from(connectContext)
                 .analyze("select uni.id, agg.id from agg inner join uni "
@@ -296,6 +301,81 @@ class UniqueTest extends TestWithFeService {
                 .getTrait().isUniqueAndNotNull(plan.getOutput().get(0)));
         Assertions.assertTrue(plan.getLogicalProperties()
                 .getTrait().isUniqueAndNotNull(plan.getOutput().get(1)));
+    }
+
+    @Test
+    void testJoinUniqueUnionPropagation() {
+        // INNER: union propagation { agg.id } ∪ { uni.id } -> output unique on {agg.id, uni.id}
+        // even when hash key (uni.name) is not unique on its side
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("select agg.id, uni.id from agg inner join uni on agg.id = uni.name")
+                .rewrite()
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getTrait().isUnique(plan.getOutputSet()));
+
+        // CROSS: union propagation does not depend on equi conjuncts
+        plan = PlanChecker.from(connectContext)
+                .analyze("select agg.id, uni.id from agg cross join uni")
+                .rewrite()
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getTrait().isUnique(plan.getOutputSet()));
+
+        // LEFT OUTER: union propagation also applies (NULL distinct in unique-set semantics)
+        plan = PlanChecker.from(connectContext)
+                .analyze("select agg.id, uni.id from agg left outer join uni on agg.id = uni.name")
+                .rewrite()
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getTrait().isUnique(plan.getOutputSet()));
+
+        // RIGHT OUTER
+        plan = PlanChecker.from(connectContext)
+                .analyze("select agg.id, uni.id from agg right outer join uni on agg.id = uni.name")
+                .rewrite()
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getTrait().isUnique(plan.getOutputSet()));
+
+        // FULL OUTER
+        plan = PlanChecker.from(connectContext)
+                .analyze("select agg.id, uni.id from agg full outer join uni on agg.id = uni.name")
+                .rewrite()
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getTrait().isUnique(plan.getOutputSet()));
+
+        // Equal-set canonicalization: agg.id = uni.id, output {agg.id} alone should be unique
+        // because { agg.id, uni.id } gets canonicalized via the equal set so a single
+        // representative slot in the output identifies the row.
+        plan = PlanChecker.from(connectContext)
+                .analyze("select t1.id2, t1.name,t2.name from (select distinct id2,name from agg) t1 inner join (select distinct id2,name from uni) t2 on t1.id2 = t2.id2")
+                .rewrite()
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getTrait().isUnique(plan.getOutputSet()));
+        plan = PlanChecker.from(connectContext)
+                .analyze("select t2.id2, t1.name,t2.name,t3.name from (select distinct id2,name from agg) t1 inner join (select distinct id2,name from uni) t2 on t1.id2 = t2.id2 inner join (select distinct id2,name from uni) t3 on t2.id2=t3.id2")
+                .rewrite()
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getTrait().isUnique(plan.getOutputSet()));
+        plan = PlanChecker.from(connectContext)
+                .analyze("select t3.id2,t2.id2, t1.name,t2.name from (select distinct id2,name from agg) t1 inner join (select distinct id2,name from uni) t2 on t1.id2 = t2.id2 inner join (select distinct id2,name from uni) t3 on t2.name=t3.name")
+                .rewrite()
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getTrait().isUnique(plan.getOutputSet()));
+
+        // Negative: when output drops both join keys and lacks any unique combination
+        // covering both sides, it must NOT be considered unique.
+        plan = PlanChecker.from(connectContext)
+                .analyze("select agg.name, uni.name from agg inner join uni on agg.id = uni.id")
+                .rewrite()
+                .getPlan();
+        Assertions.assertFalse(plan.getLogicalProperties()
+                .getTrait().isUnique(plan.getOutputSet()));
     }
 
     @Test
