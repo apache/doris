@@ -283,4 +283,7 @@ private:
     std::vector<TExpr> _partition_exprs;
 };
 
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class StatefulOperatorX<StreamingAggLocalState>;
+
 } // namespace doris

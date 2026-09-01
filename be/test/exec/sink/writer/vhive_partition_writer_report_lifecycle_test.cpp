@@ -36,58 +36,64 @@ namespace {
 
 class RecordingObjStorageClient final : public io::ObjStorageClient {
 public:
-    io::ObjectStorageUploadResponse create_multipart_upload(
-            const io::ObjectStoragePathOptions&) override {
-        return {.resp = io::ObjectStorageResponse::OK(), .upload_id = "upload-id"};
+    io::ObjStorageUploadResult create_multipart_upload(const io::ObjStoragePath&) override {
+        return {.resp = io::ObjStorageResponse::OK(), .upload_id = "upload-id"};
     }
 
-    io::ObjectStorageResponse put_object(const io::ObjectStoragePathOptions&,
-                                         std::string_view) override {
-        return io::ObjectStorageResponse::OK();
+    io::ObjStorageResponse put_object(const io::ObjStoragePath&, std::string_view) override {
+        return io::ObjStorageResponse::OK();
     }
 
-    io::ObjectStorageUploadResponse upload_part(const io::ObjectStoragePathOptions&,
-                                                std::string_view, int) override {
-        return {.resp = io::ObjectStorageResponse::OK(), .etag = "etag"};
+    io::ObjStorageUploadResult upload_part(const io::ObjStoragePath&, const std::string&,
+                                           std::string_view, int) override {
+        return {.resp = io::ObjStorageResponse::OK(), .etag = "etag"};
     }
 
-    io::ObjectStorageResponse complete_multipart_upload(
-            const io::ObjectStoragePathOptions&,
-            const std::vector<io::ObjectCompleteMultiPart>&) override {
-        return io::ObjectStorageResponse::OK();
+    io::ObjStorageResponse complete_multipart_upload(
+            const io::ObjStoragePath&, const std::string&,
+            const std::vector<io::ObjStorageCompletedPart>&) override {
+        return io::ObjStorageResponse::OK();
     }
 
-    io::ObjectStorageHeadResponse head_object(const io::ObjectStoragePathOptions&) override {
-        return {.resp = io::ObjectStorageResponse::OK(), .file_size = 0};
+    io::ObjStorageHeadResult head_object(const io::ObjStoragePath&) override {
+        return {.resp = io::ObjStorageResponse::OK(), .file_size = 0};
     }
 
-    io::ObjectStorageResponse get_object(const io::ObjectStoragePathOptions&, void*, size_t, size_t,
-                                         size_t*) override {
-        return io::ObjectStorageResponse::OK();
+    io::ObjStorageResponse get_object(const io::ObjStoragePath&, void*, size_t, size_t,
+                                      size_t*) override {
+        return io::ObjStorageResponse::OK();
     }
 
-    io::ObjectStorageResponse list_objects(const io::ObjectStoragePathOptions&,
-                                           std::vector<io::FileInfo>*) override {
-        return io::ObjectStorageResponse::OK();
+    io::ObjStorageResponse delete_objects(const io::ObjStoragePath&,
+                                          std::vector<std::string>) override {
+        return io::ObjStorageResponse::OK();
     }
 
-    io::ObjectStorageResponse delete_objects(const io::ObjectStoragePathOptions&,
-                                             std::vector<std::string>) override {
-        return io::ObjectStorageResponse::OK();
+    io::ObjStorageResponse delete_object(const io::ObjStoragePath&) override {
+        return io::ObjStorageResponse::OK();
     }
 
-    io::ObjectStorageResponse delete_object(const io::ObjectStoragePathOptions&) override {
-        return io::ObjectStorageResponse::OK();
+    io::ObjStorageCapabilities capabilities() const override { return {}; }
+
+    std::string generate_presigned_url(const io::ObjStoragePath&, int64_t) override { return {}; }
+
+    io::ObjStorageResponse get_lifecycle(const std::string&, int64_t*) override {
+        return io::ObjStorageResponse::OK();
     }
 
-    io::ObjectStorageResponse delete_objects_recursively(
-            const io::ObjectStoragePathOptions&) override {
-        return io::ObjectStorageResponse::OK();
+    io::ObjStorageResponse check_versioning(const std::string&) override {
+        return io::ObjStorageResponse::OK();
     }
 
-    std::string generate_presigned_url(const io::ObjectStoragePathOptions&, int64_t,
-                                       const S3ClientConf&) override {
-        return {};
+    io::ObjStorageResponse abort_multipart_upload(const io::ObjStoragePath&,
+                                                  const std::string&) override {
+        return io::ObjStorageResponse::OK();
+    }
+
+protected:
+    io::ObjStorageListPageResult list_objects_page(const io::ObjStoragePath&,
+                                                   std::string_view) override {
+        return {.resp = io::ObjStorageResponse::OK()};
     }
 };
 
@@ -105,7 +111,8 @@ public:
 std::unique_ptr<VHivePartitionWriter> create_closed_hive_writer(
         RuntimeState* state, const VExprContextSPtrs& output_exprs,
         const std::shared_ptr<RecordingObjStorageClient>& client,
-        io::ObjStorageType provider = io::ObjStorageType::AWS, std::string staged_block_id = {}) {
+        io::ObjStorageProvider provider = io::ObjStorageProvider::AWS,
+        std::string staged_block_id = {}) {
     THiveTableSink hive_sink;
     TDataSink sink;
     sink.__set_type(TDataSinkType::HIVE_TABLE_SINK);
@@ -128,7 +135,7 @@ std::unique_ptr<VHivePartitionWriter> create_closed_hive_writer(
     io::FileWriterOptions options {.used_by_s3_committer = true};
     auto file_writer =
             std::make_unique<io::S3FileWriter>(holder, "bucket", "table/part.parquet", &options);
-    file_writer->_obj_storage_path_opts.upload_id = "upload-id";
+    file_writer->_upload_id = "upload-id";
     if (!staged_block_id.empty()) {
         file_writer->_completed_parts.push_back(
                 {.part_num = 1, .etag = std::move(staged_block_id)});
@@ -198,8 +205,8 @@ TEST(VHivePartitionWriterReportLifecycleTest, AzureFinalReportCarriesExactBlockI
     MockRuntimeState state;
     VExprContextSPtrs output_exprs;
     auto client = std::make_shared<RecordingObjStorageClient>();
-    auto writer = create_closed_hive_writer(&state, output_exprs, client, io::ObjStorageType::AZURE,
-                                            "exact-block-id");
+    auto writer = create_closed_hive_writer(&state, output_exprs, client,
+                                            io::ObjStorageProvider::AZURE, "exact-block-id");
     auto context = create_fragment_context(TUniqueId());
     auto final_request = report_request(&state, true);
     TReportExecStatusParams final_params;

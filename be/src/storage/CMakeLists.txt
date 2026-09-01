@@ -55,10 +55,6 @@ pch_reuse(Storage)
 #   FORMAT_*_ADD_JSON_NODE, RETURN_IF_ERROR_) must not leak into unity siblings
 # - the three heaviest template-instantiation TUs (predicate creators) which
 #   would dominate any batch they join
-# - compaction/collection_statistics.cpp: its test compiles it a second time
-#   by #including the .cpp; the test object must shadow a never-pulled archive
-#   member, but a unity batch is pulled in for its siblings and the linker
-#   sees a duplicate definition
 set(STORAGE_UNITY_SKIP
     ${CMAKE_CURRENT_SOURCE_DIR}/index/inverted/inverted_index_compound_reader.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/index/inverted/inverted_index_fs_directory.cpp
@@ -69,8 +65,7 @@ set(STORAGE_UNITY_SKIP
     ${CMAKE_CURRENT_SOURCE_DIR}/task/engine_clone_task.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/predicate/predicate_creator_comparison.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/predicate/predicate_creator_in_list_in.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/predicate/predicate_creator_in_list_not_in.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/compaction/collection_statistics.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/predicate/predicate_creator_in_list_not_in.cpp)
 if (ENABLE_VARIANT_NESTED_GROUP)
     # Out-of-tree module sources swapped into this target: unity hygiene
     # unaudited, keep them individual.

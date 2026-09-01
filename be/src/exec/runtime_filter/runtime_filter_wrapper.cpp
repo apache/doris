@@ -18,9 +18,11 @@
 #include "exec/runtime_filter/runtime_filter_wrapper.h"
 
 #include "core/data_type/define_primitive_type.h"
+#include "core/string_ref.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
+#include "util/hash_util.hpp"
 
 namespace doris {
 RuntimeFilterWrapper::RuntimeFilterWrapper(const RuntimeFilterParams* params)
@@ -124,6 +126,7 @@ bool RuntimeFilterWrapper::build_bf_by_runtime_size() const {
 }
 
 Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
+    DORIS_CHECK(!_bucket_prune_hashes_started.load());
     if (_state == State::DISABLED) {
         return Status::OK();
     }
@@ -613,6 +616,52 @@ bool RuntimeFilterWrapper::contain_null() const {
         return _minmax_func->contain_null();
     }
     return false;
+}
+
+std::shared_ptr<const std::vector<uint32_t>>
+RuntimeFilterWrapper::get_or_compute_bucket_prune_hashes(const DataTypePtr& target_type) const {
+    DORIS_CHECK(_state.load() == State::READY);
+    DORIS_CHECK(_hybrid_set != nullptr);
+    DORIS_CHECK(target_type != nullptr);
+    PrimitiveType primitive_type = target_type->get_primitive_type();
+    DORIS_CHECK_EQ(primitive_type, _column_return_type);
+
+    std::call_once(_bucket_prune_hashes_once, [&] {
+        _bucket_prune_hashes_started.store(true);
+        // Materialize the exact-set values into a column so bucket pruning uses the
+        // column's type-specific CRC implementation. This intentionally makes a
+        // temporary copy of variable-length values. runtime_filter_max_in_num bounds
+        // the number of copied values, but not their total byte size; we accept this
+        // transient memory cost to avoid maintaining a separate per-type hash path.
+        MutableColumnPtr column = target_type->create_column();
+        auto* iter = _hybrid_set->begin();
+        while (iter->has_next()) {
+            const void* value = iter->get_value();
+            DORIS_CHECK(value != nullptr);
+            if (is_string_type(primitive_type)) {
+                const auto* string_value = reinterpret_cast<const StringRef*>(value);
+                column->insert_data(string_value->data, string_value->size);
+            } else {
+                // ColumnVector::insert_data ignores length for fixed-length values.
+                column->insert_data(reinterpret_cast<const char*>(value), 0);
+            }
+            iter->next();
+        }
+
+        auto hashes = std::make_shared<std::vector<uint32_t>>(column->size(), 0);
+        if (!hashes->empty()) {
+            column->update_crcs_with_value(hashes->data(), primitive_type,
+                                           static_cast<uint32_t>(column->size()));
+        }
+        if (_hybrid_set->contain_null()) {
+            // Keep one shared vector for nullable and non-nullable targets. A non-nullable
+            // target may retain this extra bucket, but can never lose matching rows.
+            hashes->push_back(HashUtil::zlib_crc_hash_null(0));
+        }
+        _bucket_prune_hashes = std::move(hashes);
+    });
+    DORIS_CHECK(_bucket_prune_hashes != nullptr);
+    return _bucket_prune_hashes;
 }
 
 std::string RuntimeFilterWrapper::debug_string() const {

@@ -93,8 +93,12 @@ public final class IcebergTypeMapping {
                     fieldIds.add(f.fieldId());
                 }
                 return ConnectorType.structOf(names, types, nullable, comments).withChildrenFieldIds(fieldIds);
+            case VARIANT:
+                // Iceberg owns the Parquet Variant physical encoding, so expose an execution-only
+                // VariantV2 carrier without changing persisted Doris table metadata semantics.
+                return ConnectorType.of("VARIANT_COMPUTE_V2");
             default:
-                // Any non-primitive iceberg type Doris cannot represent (VARIANT today; future non-primitive
+                // Any future non-primitive iceberg type Doris cannot represent
                 // typeIds) degrades to UNSUPPORTED: the table still LOADS and only this column is
                 // present-but-unqueryable. This DIVERGES from legacy fe-core (IcebergUtils.icebergTypeToDorisType
                 // threw IllegalArgumentException at schema-load, failing the whole table). Graceful degradation

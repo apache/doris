@@ -93,30 +93,61 @@ public abstract class BaseTableStream extends Table {
     @SerializedName("sr")
     private String staleReason = "N/A";
 
-    protected volatile TableIf baseTable;
-
     // for persist
     public BaseTableStream() {
         super(TableType.STREAM);
     }
 
-    public BaseTableStream(long id, String streamName, List<Column> fullSchema, TableIf baseTable) {
-        super(id, streamName, TableType.STREAM, fullSchema);
+    public BaseTableStream(long id, String streamName, TableIf baseTable) {
+        super(id, streamName, TableType.STREAM, null);
         this.baseTableInfo = new TableStreamBaseTableInfo(baseTable);
-        this.baseTable = baseTable;
         this.disabled = false;
         this.stale = false;
     }
 
-    public BaseTableStream(String streamName, List<Column> fullSchema, TableIf baseTable) {
-        this(-1, streamName, fullSchema, baseTable);
+    public BaseTableStream(String streamName, TableIf baseTable) {
+        this(-1, streamName, baseTable);
     }
 
     public TableIf getBaseTableNullable() {
-        if (baseTable == null) {
-            baseTable = baseTableInfo.getTableNullable();
+        return  baseTableInfo.getTableNullable();
+    }
+
+    // Dynamically generate the stream schema from the base table so that base table schema
+    // changes are reflected automatically. The returned list is immutable, allowing schema
+    // reading interfaces below to return it directly without extra copies.
+    protected abstract List<Column> generateDynamicSchema();
+
+    @Override
+    public List<Column> getFullSchema() {
+        return generateDynamicSchema();
+    }
+
+    @Override
+    public List<Column> getBaseSchema(boolean full) {
+        List<Column> schema = generateDynamicSchema();
+        if (full) {
+            return schema;
         }
-        return baseTable;
+        return schema.stream().filter(Column::isVisible).collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public List<Column> getColumns() {
+        return generateDynamicSchema();
+    }
+
+    @Override
+    public Column getColumn(String colName) {
+        if (colName == null) {
+            return null;
+        }
+        for (Column column : generateDynamicSchema()) {
+            if (column.getName().equalsIgnoreCase(colName)) {
+                return column;
+            }
+        }
+        return null;
     }
 
     public void setProperties(Map<String, String> properties) throws org.apache.doris.common.AnalysisException {

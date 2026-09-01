@@ -530,6 +530,7 @@ Status GroupRowsetBuilder::init() {
     RETURN_IF_ERROR(RowsetFactory::create_empty_group_rowset_writer(&group_writer));
     group_writer->set_data_writer(_txn_rs_builder->rowset_writer());
     group_writer->set_row_binlog_writer(_row_binlog_rowset_builder->rowset_writer());
+    RETURN_IF_ERROR(group_writer->init(_txn_rs_builder->rowset_writer()->context()));
 
     {
         const auto& data_ctx = _txn_rs_builder->rowset_writer()->context();

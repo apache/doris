@@ -133,8 +133,8 @@ private:
 // `OperatorXBase::parsed_partition_boundaries()`. The owner (ScanLocalStateBase)
 // passes the parsed object into `prune_by_runtime_filters` on each call.
 //
-// Thread safety: `is_partition_pruned()` is safe to call concurrently with
-// `prune_by_runtime_filters()` via an internal shared_mutex.
+// Thread safety: pruning updates and lookups are safe to call concurrently via
+// an internal shared_mutex.
 class RuntimeFilterPartitionPruner {
 public:
     RuntimeFilterPartitionPruner() = default;

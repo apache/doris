@@ -85,6 +85,7 @@ Usage: $0 <options>
     ENABLE_DYNAMIC_ARCH         If set ENABLE_DYNAMIC_ARCH=ON, it will enable dynamic CPU detection in OpenBLAS. Default is ON. Can also use --enable-dynamic-arch flag.
     ARM_MARCH                   Specify the ARM architecture instruction set. Default is armv8-a+crc.
     STRIP_DEBUG_INFO            If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
+    DORIS_DEV_DEBUG_INFO        Debug info level for the BE: 'line-tables' compiles with -gline-tables-only for faster dev builds (clang only; keeps line tables for stack traces, drops variable-level DWARF), 'full' is the full debug info. Default is 'full' here; run-be-ut.sh defaults to 'line-tables'.
     DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hadoop-hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
     DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
@@ -356,6 +357,7 @@ else
             ;;
         --index-tool)
             BUILD_INDEX_TOOL='ON'
+            BUILD_BE=1
             shift
             ;;
         --benchmark)
@@ -470,6 +472,18 @@ if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
 
+# Normalize compile-bench before dependency selection. The mode is a BE build,
+# even when --compile-bench is the only command-line target.
+if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
+    BUILD_BE=1
+    BUILD_FE=0
+    BUILD_CLOUD=0
+    BUILD_HIVE_UDF=0
+    BUILD_BE_JAVA_EXTENSIONS=0
+    BUILD_BE_CDC_CLIENT=0
+    OUTPUT_BE_BINARY=0
+fi
+
 if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && ${BUILD_CLOUD} -eq 0 ]]; then
     clean_gensrc
     clean_be
@@ -481,7 +495,7 @@ fi
 if [[ "${TARGET_SYSTEM}" == 'Darwin' ]]; then
     LAST_THIRDPARTY_LIB='libbrotlienc.a'
 else
-    LAST_THIRDPARTY_LIB='hadoop_hdfs/native/libhdfs.a'
+    LAST_THIRDPARTY_LIB='hadoop_hdfs_3_4/native/libhdfs.a'
 fi
 
 # The final-library sentinel only proves that some third-party build completed. It cannot
@@ -489,10 +503,25 @@ fi
 # shellcheck source=thirdparty/arrow-paimon-vars.sh
 . "${DORIS_HOME}/thirdparty/arrow-paimon-vars.sh"
 NEED_ARROW_PAIMON_THIRDPARTY=false
-if [[ "${BUILD_BE}" -eq 1 || "${BUILD_CLOUD}" -eq 1 ||
-    "${BUILD_META_TOOL}" == "ON" || "${BUILD_FILE_CACHE_MICROBENCH_TOOL}" == "ON" ||
+if [[ "${BUILD_BE}" -eq 1 || "${BUILD_META_TOOL}" == "ON" ||
+    "${BUILD_FILE_CACHE_MICROBENCH_TOOL}" == "ON" ||
     "${BUILD_INDEX_TOOL}" == "ON" ]]; then
     NEED_ARROW_PAIMON_THIRDPARTY=true
+fi
+
+if [[ "${NEED_ARROW_PAIMON_THIRDPARTY}" == "true" ]]; then
+    DEFAULT_ARROW_PAIMON_HOME="${DORIS_THIRDPARTY}/installed/${ARROW_INSTALL_SUBDIR}"
+    SELECTED_ARROW_HOME="${ARROW_HOME:-${DEFAULT_ARROW_PAIMON_HOME}}"
+    SELECTED_PAIMON_HOME="${PAIMON_HOME:-${SELECTED_ARROW_HOME}}"
+    if [[ "${SELECTED_ARROW_HOME}" != "${DEFAULT_ARROW_PAIMON_HOME}" ||
+        "${SELECTED_PAIMON_HOME}" != "${DEFAULT_ARROW_PAIMON_HOME}" ]]; then
+        echo "build.sh only supports the Arrow/Paimon stack selected from DORIS_THIRDPARTY." >&2
+        echo "Expected ARROW_HOME=${DEFAULT_ARROW_PAIMON_HOME} and PAIMON_HOME=${DEFAULT_ARROW_PAIMON_HOME}." >&2
+        echo "Unset ARROW_HOME and PAIMON_HOME, or point DORIS_THIRDPARTY at the matching thirdparty tree." >&2
+        exit 1
+    fi
+    export ARROW_HOME="${DEFAULT_ARROW_PAIMON_HOME}"
+    export PAIMON_HOME="${DEFAULT_ARROW_PAIMON_HOME}"
 fi
 
 rebuild_thirdparty_libraries() {
@@ -524,7 +553,7 @@ rebuild_thirdparty_libraries() {
         build_args+=(--clean)
     fi
     bash "${build_script}" "${build_args[@]}" "$@"
-    if ! arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
+    if ! shared_arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
         echo "Rebuilt Arrow/Paimon artifacts do not match this checkout's selected inputs." >&2
         exit 1
     fi
@@ -533,10 +562,12 @@ rebuild_thirdparty_libraries() {
 if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
     echo "Thirdparty libraries need to be build ..."
     rebuild_thirdparty_libraries true
-elif [[ "${NEED_ARROW_PAIMON_THIRDPARTY}" == "true" ]] &&
-    ! arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
-    echo "Arrow/Paimon thirdparty libraries need to be rebuilt ..."
-    rebuild_thirdparty_libraries false "${ARROW_PAIMON_BUILD_PACKAGES[@]}"
+elif [[ "${NEED_ARROW_PAIMON_THIRDPARTY}" == "true" ]]; then
+    select_arrow_paimon_rebuild_packages "${DORIS_THIRDPARTY}/installed"
+    if [[ "${#ARROW_PAIMON_REBUILD_PACKAGES[@]}" -gt 0 ]]; then
+        echo "Arrow/Paimon thirdparty libraries need to be rebuilt ..."
+        rebuild_thirdparty_libraries false "${ARROW_PAIMON_REBUILD_PACKAGES[@]}"
+    fi
 fi
 
 update_submodule() {
@@ -726,16 +757,6 @@ for ((i = 0; i < ${#CLOUD_EXTRA_FEATURE_KEYS[@]}; i++)); do
 done
 
 if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
-    # BE compile benchmark mode: measure a cold, cache-free BE C++ build.
-    # Everything that is not the BE C++ build would only add noise, so force
-    # a BE-only build regardless of the other options.
-    BUILD_BE=1
-    BUILD_FE=0
-    BUILD_CLOUD=0
-    BUILD_HIVE_UDF=0
-    BUILD_BE_JAVA_EXTENSIONS=0
-    BUILD_BE_CDC_CLIENT=0
-    OUTPUT_BE_BINARY=0
     # shellcheck source=build-support/compile-bench/bench-lib.sh
     . "${DORIS_HOME}/build-support/compile-bench/bench-lib.sh"
     compile_bench_init "${DORIS_HOME}"
@@ -761,6 +782,7 @@ echo "Get params:
     USE_AVX2                            -- ${USE_AVX2}
     USE_LIBCPP                          -- ${USE_LIBCPP}
     STRIP_DEBUG_INFO                    -- ${STRIP_DEBUG_INFO}
+    DORIS_DEV_DEBUG_INFO                -- ${DORIS_DEV_DEBUG_INFO}
     USE_JEMALLOC                        -- ${USE_JEMALLOC}
     USE_BTHREAD_SCANNER                 -- ${USE_BTHREAD_SCANNER}
     ENABLE_INJECTION_POINT              -- ${ENABLE_INJECTION_POINT}
@@ -942,6 +964,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DBUILD_FILE_CACHE_MICROBENCH_TOOL="${BUILD_FILE_CACHE_MICROBENCH_TOOL}" \
         -DBUILD_INDEX_TOOL="${BUILD_INDEX_TOOL}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
+        -DDORIS_DEV_DEBUG_INFO="${DORIS_DEV_DEBUG_INFO}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
         -DENABLE_UNITY_BUILD="${ENABLE_UNITY_BUILD:-ON}" \
@@ -1041,8 +1064,9 @@ function build_ui() {
         ui_dist="${CUSTOM_UI_DIST}"
     else
         cd "${DORIS_HOME}/ui"
-        "${NPM}" cache clean --force
-        "${NPM}" install --legacy-peer-deps
+        # ci, not install: the shipped bundle must come from the committed lockfile so that
+        # the same source tree always produces the same static/ payload.
+        "${NPM}" ci --legacy-peer-deps
         "${NPM}" run build
     fi
     echo "ui dist: ${ui_dist}"
@@ -1140,6 +1164,8 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/conf/ldap.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/mysql_ssl_default_certificate" "${DORIS_OUTPUT}/fe/"/
     rm -rf "${DORIS_OUTPUT}/fe/lib"/*
+    # The offline minidump runner is gone; drop it from reused output trees too.
+    rm -rf "${DORIS_OUTPUT}/fe/minidump"
     unzip -q -o "${DORIS_HOME}/fe/fe-core/target/doris-fe-lib.zip" -d "${DORIS_OUTPUT}/fe/lib"
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     for extra_module_path in "${FE_EXTRA_MODULE_PATHS[@]}"; do
@@ -1164,7 +1190,6 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
     bash "${DORIS_HOME}/post-build.sh" --fe --output "${DORIS_OUTPUT}"
 
-    cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/fe/webroot/static"/

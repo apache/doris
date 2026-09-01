@@ -31,4 +31,16 @@ public:
     std::string_view name() const override { return "FixedPartialUpdateFill"; }
 };
 
+// Flexible partial update (UPDATE_FLEXIBLE_COLUMNS): the input is full-width
+// with a skip bitmap marking each row's missing cells. Aggregate duplicate keys
+// inside the block (the row set may shrink, even to empty), probe each key, and
+// fill the missing cells from history or defaults. Delete-bitmap marks are
+// written right away inside apply(); probe counters land in
+// ctx.partial_update_stats.
+class FlexiblePartialUpdateFillStage : public BlockTransform {
+public:
+    Status apply(TransformExecContext& ctx, Block* block) const override;
+    std::string_view name() const override { return "FlexiblePartialUpdateFill"; }
+};
+
 } // namespace doris::segment_v2

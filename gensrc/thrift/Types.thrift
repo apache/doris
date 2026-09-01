@@ -130,7 +130,8 @@ enum TInvertedIndexFileStorageFormat {
     DEFAULT = 0, // Default format, unspecified storage method.
     V1 = 1,      // Index per idx: Each index is stored separately based on its identifier.
     V2 = 2,      // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
-    V3 = 3       // Position and dictionary compression
+    V3 = 3,      // Position and dictionary compression
+    SNII = 4     // SNII native inverted index storage format
 }
 
 struct TScalarType {
@@ -766,6 +767,9 @@ enum TMetadataType {
   PAIMON = 12,
   PARQUET = 13,
   STREAMS = 14,
+  // Also assigned on branch-4.1 for Lance physical index entries inspection.
+  // Keep the value aligned across maintained branches. Do not renumber.
+  LANCE_INDEX_ENTRIES = 15,
 }
 
 // deprecated

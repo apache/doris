@@ -334,6 +334,15 @@ public:
 
     EncryptionAlgorithmPB encryption_algorithm() const { return _encryption_algorithm; }
 
+    bool has_inverted_index_storage_format() const {
+        return _inverted_index_storage_format.has_value();
+    }
+
+    InvertedIndexStorageFormatPB inverted_index_storage_format() const {
+        return _inverted_index_storage_format.value_or(
+                _schema->get_inverted_index_storage_format());
+    }
+
 private:
     Status _save_meta(DataDir* data_dir);
     void _check_mow_rowset_cache_version_size(size_t rowset_cache_version_size);
@@ -403,6 +412,9 @@ private:
     // Persisted storage format for this tablet (e.g. V2, V3). Used to derive
     // schema-level defaults such as external ColumnMeta usage.
     TStorageFormat::type _storage_format = TStorageFormat::V2;
+    // The schema KV is shared by (index_id, schema_version). Keep the tablet's
+    // immutable file format outside that shared identity.
+    std::optional<InvertedIndexStorageFormatPB> _inverted_index_storage_format;
 
     mutable std::shared_mutex _meta_lock;
 };
@@ -447,6 +459,7 @@ public:
     using SegmentId = uint32_t;
     using Version = uint64_t;
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
+    using RowsetIdWithSegmentIds = std::pair<RowsetId, std::vector<SegmentId>>;
     std::map<BitmapKey, roaring::Roaring> delete_bitmap; // Ordered map
     constexpr static inline uint32_t INVALID_SEGMENT_ID = std::numeric_limits<uint32_t>::max() - 1;
     constexpr static inline uint32_t ROWSET_SENTINEL_MARK =
@@ -566,7 +579,7 @@ public:
      */
     void subset(const BitmapKey& start, const BitmapKey& end,
                 DeleteBitmap* subset_delete_map) const;
-    void subset(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids, int64_t start_version,
+    void subset(const std::vector<RowsetIdWithSegmentIds>& rowsets, int64_t start_version,
                 int64_t end_version, DeleteBitmap* subset_delete_map) const;
 
     /**
@@ -574,9 +587,8 @@ public:
      * with given version range [start_version, end_version] and agg to end_version,
      * then merge to subset_delete_map
      */
-    void subset_and_agg(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids,
-                        int64_t start_version, int64_t end_version,
-                        DeleteBitmap* subset_delete_map) const;
+    void subset_and_agg(const std::vector<RowsetIdWithSegmentIds>& rowsets, int64_t start_version,
+                        int64_t end_version, DeleteBitmap* subset_delete_map) const;
 
     /**
      * Gets count of delete_bitmap with given range [start, end)

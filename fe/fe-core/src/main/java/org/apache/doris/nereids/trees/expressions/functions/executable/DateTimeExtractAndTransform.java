@@ -1092,12 +1092,14 @@ public class DateTimeExtractAndTransform {
 
     @ExecFunction(name = "from_second")
     public static Expression fromSecond(BigIntLiteral second) {
-        return fromMicroSecond(second.getValue() * 1000 * 1000, FromSecond.RESULT_SCALE);
+        return fromMicroSecond(toMicroSecond(second.getValue(), 1000L * 1000L, "from_second"),
+                FromSecond.RESULT_SCALE);
     }
 
     @ExecFunction(name = "from_millisecond")
     public static Expression fromMilliSecond(BigIntLiteral milliSecond) {
-        return fromMicroSecond(milliSecond.getValue() * 1000, FromMillisecond.RESULT_SCALE);
+        return fromMicroSecond(toMicroSecond(milliSecond.getValue(), 1000L, "from_millisecond"),
+                FromMillisecond.RESULT_SCALE);
     }
 
     @ExecFunction(name = "from_microsecond")
@@ -1115,6 +1117,23 @@ public class DateTimeExtractAndTransform {
         return new DateTimeV2Literal(DateTimeV2Type.of(scale), dateTime.getYear(),
                 dateTime.getMonthValue(), dateTime.getDayOfMonth(), dateTime.getHour(),
                 dateTime.getMinute(), dateTime.getSecond(), dateTime.getNano() / 1000);
+    }
+
+    /**
+     * Widens {@code value} to microseconds without letting the multiplication wrap.
+     *
+     * <p>The range check lives in {@link #fromMicroSecond(long, int)}, which runs after the
+     * widening, so a product that overflows long can land back inside the accepted range: a
+     * literal argument then folds to a bogus datetime instead of being reported as out of range.
+     * The BE divides rather than multiplies and rejects the same argument, so only constant
+     * folding on the FE was affected.
+     */
+    private static long toMicroSecond(long value, long ratio, String functionName) {
+        try {
+            return Math.multiplyExact(value, ratio);
+        } catch (ArithmeticException e) {
+            throw new AnalysisException("Operation " + functionName + " of " + value + " out of range");
+        }
     }
 
     @ExecFunction(name = "microseconds_diff")

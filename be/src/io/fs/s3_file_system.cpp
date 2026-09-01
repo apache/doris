@@ -35,16 +35,16 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/obj-client/obj_storage_client.h"
+#include "cpp/obj-client/s3_common.h"
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/remote_file_system.h"
-#include "io/fs/s3_common.h"
 #include "io/fs/s3_file_reader.h"
 #include "io/fs/s3_file_writer.h"
-#include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/s3_uri.h"
@@ -76,11 +76,7 @@ ObjClientHolder::ObjClientHolder(S3ClientConf conf) : _conf(std::move(conf)) {}
 ObjClientHolder::~ObjClientHolder() = default;
 
 Status ObjClientHolder::init() {
-    _client = S3ClientFactory::instance().create(_conf);
-    if (!_client) {
-        return Status::InvalidArgument("failed to init s3 client with conf {}", _conf.to_string());
-    }
-
+    _client = DORIS_TRY(S3ClientFactory::instance().create(_conf));
     return Status::OK();
 }
 
@@ -111,10 +107,7 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
         }
     }
 
-    auto client = S3ClientFactory::instance().create(reset_conf);
-    if (!client) {
-        return Status::InvalidArgument("failed to init s3 client with conf {}", conf.to_string());
-    }
+    auto client = DORIS_TRY(S3ClientFactory::instance().create(reset_conf));
 
     LOG(WARNING) << "reset s3 client with new conf: " << conf.to_string();
 
@@ -233,11 +226,12 @@ Status S3FileSystem::delete_directory_impl(const Path& dir) {
         prefix.push_back('/');
     }
 
-    auto resp = client->delete_objects_recursively({
+    ObjStoragePath delete_path {
             .path = full_s3_path(prefix),
             .bucket = _bucket,
             .prefix = prefix,
-    });
+    };
+    auto resp = delete_objects_recursively(std::move(client), delete_path);
     return {resp.status.code, std::move(resp.status.msg)};
 }
 
@@ -309,16 +303,21 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<File
         prefix.push_back('/');
     }
 
-    // clang-format off
-    auto resp = client->list_objects( {.bucket = _bucket, .prefix = prefix,}, files);
-    // clang-format on
-    if (resp.status.code == ErrorCode::OK) {
-        for (auto&& file : *files) {
-            file.file_name.erase(0, prefix.size());
-        }
+    std::vector<ObjectMeta> objects;
+    auto resp = client->list_objects({.bucket = _bucket, .prefix = prefix}, &objects);
+    if (!resp.ok()) {
+        files->clear();
+        return {resp.status.code, std::move(resp.status.msg)};
+    }
+    files->reserve(files->size() + objects.size());
+    for (auto& obj : objects) {
+        obj.key.erase(0, prefix.size());
+        bool is_dir = obj.key.empty() || obj.key.back() == '/';
+        files->emplace_back(FileInfo {
+                .file_name = std::move(obj.key), .file_size = obj.size, .is_file = !is_dir});
     }
 
-    return {resp.status.code, std::move(resp.status.msg)};
+    return Status::OK();
 }
 
 Status S3FileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
@@ -453,12 +452,18 @@ std::string S3FileSystem::generate_presigned_url(const Path& path, int64_t expir
         new_s3_conf.endpoint.erase(
                 _client->s3_client_conf().endpoint.size() - OSS_PRIVATE_ENDPOINT_SUFFIX.size(),
                 LEN_OF_OSS_PRIVATE_SUFFIX);
-        client = S3ClientFactory::instance().create(new_s3_conf);
+        auto client_result = S3ClientFactory::instance().create(new_s3_conf);
+        if (!client_result) {
+            LOG(WARNING) << "failed to create S3 client for presigned URL: "
+                         << client_result.error();
+            return {};
+        }
+        client = std::move(client_result).value();
     } else {
         client = _client->get();
     }
-    return client->generate_presigned_url({.bucket = _bucket, .key = key}, expiration_secs,
-                                          _client->s3_client_conf());
+    return client->generate_presigned_url({.bucket = _bucket, .key = key, .prefix = ""},
+                                          expiration_secs);
 }
 
 } // namespace doris::io

@@ -671,11 +671,24 @@ bool VectorizedFnCall::is_deterministic() const {
 }
 
 bool VectorizedFnCall::is_safe_to_execute_on_selected_rows() const {
-    static const std::set<std::string> TOTAL_PREDICATE_FUNCTIONS = {
-            "eq", "ne", "lt", "le", "gt", "ge", "in", "not_in", "is_null_pred", "is_not_null_pred"};
+    static const std::set<std::string> TOTAL_PREDICATE_FUNCTIONS = {"eq",
+                                                                    "eq_for_null",
+                                                                    "ne",
+                                                                    "lt",
+                                                                    "le",
+                                                                    "gt",
+                                                                    "ge",
+                                                                    "in",
+                                                                    "not_in",
+                                                                    "is_null_pred",
+                                                                    "is_not_null_pred",
+                                                                    "element_at",
+                                                                    "struct_element"};
     // Selected-row execution may hide data-dependent errors in rows rejected by an earlier
     // predicate. Keep function calls unsafe by default and opt in only operations that are total
-    // for their input domain; child checks then reject expressions such as gt(mod(x, -1), 0).
+    // for their input domain. Accessors return NULL for absent elements, so admitting them keeps
+    // nested metadata predicates reachable without crossing an error-producing child such as
+    // gt(mod(x, -1), 0).
     return TOTAL_PREDICATE_FUNCTIONS.contains(_function_name) &&
            VExpr::is_safe_to_execute_on_selected_rows();
 }
@@ -887,8 +900,7 @@ void VectorizedFnCall::prepare_ann_range_search(
 
 Status VectorizedFnCall::evaluate_ann_range_search(
         const segment_v2::AnnRangeSearchRuntime& range_search_runtime,
-        const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
-        const std::vector<ColumnId>& idx_to_cid,
+        const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
         size_t rows_of_segment, roaring::Roaring& row_bitmap,
         segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
@@ -902,17 +914,12 @@ Status VectorizedFnCall::evaluate_ann_range_search(
                               range_search_runtime.to_string());
     size_t origin_num = row_bitmap.cardinality();
 
-    const auto idx_in_block = range_search_runtime.src_col_idx;
-    DCHECK_LT(idx_in_block, idx_to_cid.size())
-            << "idx_in_block: " << idx_in_block << ", idx_to_cid.size(): " << idx_to_cid.size();
-
-    ColumnId src_col_cid = idx_to_cid[idx_in_block];
-    DCHECK(src_col_cid < cid_to_index_iterators.size());
-    segment_v2::IndexIterator* index_iterator = cid_to_index_iterators[src_col_cid].get();
+    const auto src_col_idx = range_search_runtime.src_col_idx;
+    DCHECK_LT(src_col_idx, index_iterators.size());
+    segment_v2::IndexIterator* index_iterator = index_iterators[src_col_idx].get();
     if (index_iterator == nullptr) {
         VLOG_DEBUG << "ANN range search skipped: "
-                   << fmt::format("No index iterator for column cid {}", src_col_cid);
-        ;
+                   << fmt::format("No index iterator for column {}", src_col_idx);
         return Status::OK();
     }
 
@@ -920,15 +927,15 @@ Status VectorizedFnCall::evaluate_ann_range_search(
             dynamic_cast<segment_v2::AnnIndexIterator*>(index_iterator);
     if (ann_index_iterator == nullptr) {
         VLOG_DEBUG << "ANN range search skipped: "
-                   << fmt::format("Column cid {} has no ANN index iterator", src_col_cid);
+                   << fmt::format("Column {} has no ANN index iterator", src_col_idx);
         return Status::OK();
     }
     DCHECK(ann_index_iterator->get_reader(AnnIndexReaderType::ANN) != nullptr)
-            << "Ann index iterator should have reader. Column cid: " << src_col_cid;
+            << "Ann index iterator should have reader. Column: " << src_col_idx;
     std::shared_ptr<AnnIndexReader> ann_index_reader = std::dynamic_pointer_cast<AnnIndexReader>(
             ann_index_iterator->get_reader(segment_v2::AnnIndexReaderType::ANN));
     DCHECK(ann_index_reader != nullptr)
-            << "Ann index reader should not be null. Column cid: " << src_col_cid;
+            << "Ann index reader should not be null. Column: " << src_col_idx;
     // Check if metrics type is match.
     if (ann_index_reader->get_metric_type() != range_search_runtime.metric_type) {
         VLOG_DEBUG << "ANN range search skipped: "
@@ -966,7 +973,7 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         SCOPED_TIMER(&(stats->load_index_costs_ns));
         if (!ann_index_iterator->try_load_index()) {
             VLOG_DEBUG << "ANN range search skipped: "
-                       << fmt::format("Failed to load ANN index for column cid {}", src_col_cid);
+                       << fmt::format("Failed to load ANN index for column {}", src_col_idx);
             ann_index_stats.fall_back_brute_force_cnt += 1;
             return Status::OK();
         }
@@ -1005,10 +1012,10 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         // Typical situation: range search and operator is LE or LT.
         if (result.distance != nullptr) {
             DCHECK(result.row_ids != nullptr);
-            ColumnId dst_col_cid = idx_to_cid[range_search_runtime.dst_col_idx];
-            DCHECK(dst_col_cid < column_iterators.size());
-            DCHECK(column_iterators[dst_col_cid] != nullptr);
-            segment_v2::ColumnIterator* column_iterator = column_iterators[dst_col_cid].get();
+            const auto dst_col_idx = cast_set<size_t>(range_search_runtime.dst_col_idx);
+            DCHECK_LT(dst_col_idx, column_iterators.size());
+            DCHECK(column_iterators[dst_col_idx] != nullptr);
+            segment_v2::ColumnIterator* column_iterator = column_iterators[dst_col_idx].get();
             DCHECK(column_iterator != nullptr);
             segment_v2::VirtualColumnIterator* virtual_column_iterator =
                     dynamic_cast<segment_v2::VirtualColumnIterator*>(column_iterator);

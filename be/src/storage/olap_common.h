@@ -38,21 +38,20 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/exception.h"
+#include "core/extended_types.h"
 #include "io/io_common.h"
+#include "storage/field_type.h"
 #include "storage/index/inverted/inverted_index_stats.h"
+#include "storage/index/snii/snii_query_stats.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset_fwd.h"
+#include "storage/rowset_id.h"
 #include "util/hash_util.hpp"
 #include "util/time.h"
 #include "util/uid_util.h"
 
 namespace doris {
-static constexpr int64_t MAX_ROWSET_ID = 1L << 56;
-static constexpr int64_t LOW_56_BITS = 0x00ffffffffffffff;
-
 using SchemaHash = int32_t;
-using int128_t = __int128;
-using uint128_t = unsigned __int128;
 
 using TabletUid = UniqueId;
 
@@ -128,54 +127,9 @@ struct TabletSize {
     size_t tablet_size;
 };
 
-// Storage-engine cell types, used by TabletColumn / KeyCoder and the
-// data_type traits chain. When adding a new value, also extend CppTypeTraits,
-// FieldTypeTraits and the field_type_size() switch in storage/types.h. Decide how it maps to
-// PrimitiveType and explicitly define its behavior in primitive_type_to_storage_field_type() and
-// storage_field_type_to_primitive_type(), either by providing a mapping or by throwing.
-enum class FieldType {
-    OLAP_FIELD_TYPE_TINYINT = 1, // MYSQL_TYPE_TINY
-    OLAP_FIELD_TYPE_UNSIGNED_TINYINT = 2,
-    OLAP_FIELD_TYPE_SMALLINT = 3, // MYSQL_TYPE_SHORT
-    OLAP_FIELD_TYPE_UNSIGNED_SMALLINT = 4,
-    OLAP_FIELD_TYPE_INT = 5, // MYSQL_TYPE_LONG
-    OLAP_FIELD_TYPE_UNSIGNED_INT = 6,
-    OLAP_FIELD_TYPE_BIGINT = 7, // MYSQL_TYPE_LONGLONG
-    OLAP_FIELD_TYPE_UNSIGNED_BIGINT = 8,
-    OLAP_FIELD_TYPE_LARGEINT = 9,
-    OLAP_FIELD_TYPE_FLOAT = 10,  // MYSQL_TYPE_FLOAT
-    OLAP_FIELD_TYPE_DOUBLE = 11, // MYSQL_TYPE_DOUBLE
-    OLAP_FIELD_TYPE_DISCRETE_DOUBLE = 12,
-    OLAP_FIELD_TYPE_CHAR = 13,     // MYSQL_TYPE_STRING
-    OLAP_FIELD_TYPE_DATE = 14,     // MySQL_TYPE_NEWDATE
-    OLAP_FIELD_TYPE_DATETIME = 15, // MySQL_TYPE_DATETIME
-    OLAP_FIELD_TYPE_DECIMAL = 16,  // DECIMAL, using different store format against MySQL
-    OLAP_FIELD_TYPE_VARCHAR = 17,
-
-    OLAP_FIELD_TYPE_STRUCT = 18,  // Struct
-    OLAP_FIELD_TYPE_ARRAY = 19,   // ARRAY
-    OLAP_FIELD_TYPE_MAP = 20,     // Map
-    OLAP_FIELD_TYPE_UNKNOWN = 21, // UNKNOW OLAP_FIELD_TYPE_STRING
-    OLAP_FIELD_TYPE_NONE = 22,
-    OLAP_FIELD_TYPE_HLL = 23,
-    OLAP_FIELD_TYPE_BOOL = 24,
-    OLAP_FIELD_TYPE_BITMAP = 25,
-    OLAP_FIELD_TYPE_STRING = 26,
-    OLAP_FIELD_TYPE_QUANTILE_STATE = 27,
-    OLAP_FIELD_TYPE_DATEV2 = 28,
-    OLAP_FIELD_TYPE_DATETIMEV2 = 29,
-    OLAP_FIELD_TYPE_TIMEV2 = 30,
-    OLAP_FIELD_TYPE_DECIMAL32 = 31,
-    OLAP_FIELD_TYPE_DECIMAL64 = 32,
-    OLAP_FIELD_TYPE_DECIMAL128I = 33,
-    OLAP_FIELD_TYPE_JSONB = 34,
-    OLAP_FIELD_TYPE_VARIANT = 35,
-    OLAP_FIELD_TYPE_AGG_STATE = 36,
-    OLAP_FIELD_TYPE_DECIMAL256 = 37,
-    OLAP_FIELD_TYPE_IPV4 = 38,
-    OLAP_FIELD_TYPE_IPV6 = 39,
-    OLAP_FIELD_TYPE_TIMESTAMPTZ = 40,
-};
+// FieldType moved to storage/field_type.h (included above) so that
+// data-type headers can name storage cell types without pulling in the
+// whole of olap_common.h.
 
 // Define all aggregation methods supported by TabletColumn
 // Note that in practice, not all types can use all the following aggregation methods
@@ -202,46 +156,6 @@ enum class PushType {
     PUSH_FOR_LOAD_DELETE = 3, // not used any more
     PUSH_NORMAL_V2 = 4,       // for spark load
 };
-
-constexpr bool field_is_slice_type(const FieldType& field_type) {
-    return field_type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
-           field_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
-           field_type == FieldType::OLAP_FIELD_TYPE_STRING;
-}
-
-constexpr bool field_is_decimal_type(const FieldType& field_type) {
-    return field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL32 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256;
-}
-
-constexpr bool field_is_numeric_type(const FieldType& field_type) {
-    return field_type == FieldType::OLAP_FIELD_TYPE_INT ||
-           field_type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT ||
-           field_type == FieldType::OLAP_FIELD_TYPE_BIGINT ||
-           field_type == FieldType::OLAP_FIELD_TYPE_SMALLINT ||
-           field_type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_TINYINT ||
-           field_type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_SMALLINT ||
-           field_type == FieldType::OLAP_FIELD_TYPE_TINYINT ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DOUBLE ||
-           field_type == FieldType::OLAP_FIELD_TYPE_FLOAT ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DATE ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DATEV2 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DATETIME ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ ||
-           field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL32 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_BOOL ||
-           field_type == FieldType::OLAP_FIELD_TYPE_IPV4 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_IPV6;
-}
 
 // <start_version_id, end_version_id>, such as <100, 110>
 //using Version = std::pair<TupleVersion, TupleVersion>;
@@ -400,6 +314,8 @@ struct OlapReaderStatistics {
     int64_t inverted_index_query_timer = 0;
     int64_t inverted_index_query_cache_hit = 0;
     int64_t inverted_index_query_cache_miss = 0;
+    int64_t inverted_index_query_cache_lookup = 0;
+    int64_t inverted_index_query_cache_insert = 0;
     int64_t inverted_index_query_null_bitmap_timer = 0;
     int64_t inverted_index_query_bitmap_copy_timer = 0;
     int64_t inverted_index_searcher_open_timer = 0;
@@ -409,8 +325,13 @@ struct OlapReaderStatistics {
     int64_t inverted_index_searcher_cache_hit = 0;
     int64_t inverted_index_searcher_cache_miss = 0;
     int64_t inverted_index_downgrade_count = 0;
+    // Pushed-down conjuncts skipped (never index-evaluated) because the row
+    // bitmap was already empty when their turn came.
+    int64_t inverted_index_conjuncts_short_circuited = 0;
     int64_t inverted_index_analyzer_timer = 0;
     int64_t inverted_index_lookup_timer = 0;
+    // See snii_query_stats.h: one field here instead of one per SNII counter.
+    snii::SniiQueryStats snii_stats;
     InvertedIndexStatistics inverted_index_stats;
 
     int64_t ann_index_load_ns = 0;
@@ -464,7 +385,6 @@ struct OlapReaderStatistics {
 
     int64_t tablet_reader_init_timer_ns = 0;
     int64_t tablet_reader_capture_rs_readers_timer_ns = 0;
-    int64_t tablet_reader_init_return_columns_timer_ns = 0;
     int64_t tablet_reader_init_keys_param_timer_ns = 0;
     int64_t tablet_reader_init_orderby_keys_param_timer_ns = 0;
     int64_t tablet_reader_init_conditions_param_timer_ns = 0;
@@ -479,7 +399,7 @@ struct OlapReaderStatistics {
     int64_t rowset_reader_load_segments_timer_ns = 0;
 
     int64_t segment_iterator_init_timer_ns = 0;
-    int64_t segment_iterator_init_return_column_iterators_timer_ns = 0;
+    int64_t segment_iterator_init_column_iterators_timer_ns = 0;
     int64_t segment_iterator_init_index_iterators_timer_ns = 0;
     int64_t segment_iterator_init_segment_prefetchers_timer_ns = 0;
 
@@ -505,92 +425,9 @@ using UniqueIdSet = std::set<uint32_t>;
 // Column unique Id -> column id map
 using UniqueIdToColumnIdMap = std::map<ColumnId, ColumnId>;
 
-// 8 bit rowset id version
-// 56 bit, inc number from 1
-// 128 bit backend uid, it is a uuid bit, id version
-struct RowsetId {
-    int8_t version = 0;
-    int64_t hi = 0;
-    int64_t mi = 0;
-    int64_t lo = 0;
-
-    void init(std::string_view rowset_id_str) {
-        // for new rowsetid its a 48 hex string
-        // if the len < 48, then it is an old format rowset id
-        if (rowset_id_str.length() < 48) [[unlikely]] {
-            int64_t high;
-            auto [_, ec] = std::from_chars(rowset_id_str.data(),
-                                           rowset_id_str.data() + rowset_id_str.length(), high);
-            if (ec != std::errc {}) [[unlikely]] {
-                if (config::force_regenerate_rowsetid_on_start_error) {
-                    LOG(WARNING) << "failed to init rowset id: " << rowset_id_str;
-                    high = MAX_ROWSET_ID - 1;
-                } else {
-                    throw Exception(
-                            Status::FatalError("failed to init rowset id: {}", rowset_id_str));
-                }
-            }
-            init(1, high, 0, 0);
-        } else {
-            int64_t high = 0;
-            int64_t middle = 0;
-            int64_t low = 0;
-            from_hex(&high, rowset_id_str.substr(0, 16));
-            from_hex(&middle, rowset_id_str.substr(16, 16));
-            from_hex(&low, rowset_id_str.substr(32, 16));
-            init(high >> 56, high & LOW_56_BITS, middle, low);
-        }
-    }
-
-    // to compatible with old version
-    void init(int64_t rowset_id) { init(1, rowset_id, 0, 0); }
-
-    void init(int64_t id_version, int64_t high, int64_t middle, int64_t low) {
-        version = cast_set<int8_t>(id_version);
-        if (UNLIKELY(high >= MAX_ROWSET_ID)) {
-            throw Exception(Status::FatalError("inc rowsetid is too large:{}", high));
-        }
-        hi = (id_version << 56) + (high & LOW_56_BITS);
-        mi = middle;
-        lo = low;
-    }
-
-    std::string to_string() const {
-        if (version < 2) {
-            return std::to_string(hi & LOW_56_BITS);
-        } else {
-            char buf[48];
-            to_hex(hi, buf);
-            to_hex(mi, buf + 16);
-            to_hex(lo, buf + 32);
-            return {buf, 48};
-        }
-    }
-
-    // std::unordered_map need this api
-    bool operator==(const RowsetId& rhs) const {
-        return hi == rhs.hi && mi == rhs.mi && lo == rhs.lo;
-    }
-
-    bool operator!=(const RowsetId& rhs) const {
-        return hi != rhs.hi || mi != rhs.mi || lo != rhs.lo;
-    }
-
-    bool operator<(const RowsetId& rhs) const {
-        if (hi != rhs.hi) {
-            return hi < rhs.hi;
-        } else if (mi != rhs.mi) {
-            return mi < rhs.mi;
-        } else {
-            return lo < rhs.lo;
-        }
-    }
-
-    friend std::ostream& operator<<(std::ostream& out, const RowsetId& rowset_id) {
-        out << rowset_id.to_string();
-        return out;
-    }
-};
+// RowsetId moved to storage/rowset_id.h (included above): core/column/column.h
+// needs the complete type, and this way it gets it without the rest of
+// olap_common.h.
 
 using RowsetIdUnorderedSet = std::unordered_set<RowsetId>;
 
@@ -654,18 +491,3 @@ struct VersionWithTime {
     }
 };
 } // namespace doris
-
-// This intended to be a "good" hash function.  It may change from time to time.
-template <>
-struct std::hash<doris::RowsetId> {
-    size_t operator()(const doris::RowsetId& rowset_id) const {
-        size_t seed = 0;
-        seed = doris::HashUtil::xxHash64WithSeed((const char*)&rowset_id.hi, sizeof(rowset_id.hi),
-                                                 seed);
-        seed = doris::HashUtil::xxHash64WithSeed((const char*)&rowset_id.mi, sizeof(rowset_id.mi),
-                                                 seed);
-        seed = doris::HashUtil::xxHash64WithSeed((const char*)&rowset_id.lo, sizeof(rowset_id.lo),
-                                                 seed);
-        return seed;
-    }
-};

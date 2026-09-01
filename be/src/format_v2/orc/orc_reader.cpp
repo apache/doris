@@ -1404,7 +1404,9 @@ Status OrcReader::_configure_row_reader_projection() {
 }
 
 Status OrcReader::_init_search_argument_from_local_filters() {
-    if (!_state->enable_filter_by_min_max || _request->conjuncts.empty()) {
+    const size_t safe_count =
+            std::min(_request->metadata_pruning_safe_conjunct_count, _request->conjuncts.size());
+    if (!_state->enable_filter_by_min_max || safe_count == 0) {
         return Status::OK();
     }
 
@@ -1412,7 +1414,10 @@ Status OrcReader::_init_search_argument_from_local_filters() {
         auto builder = ::orc::SearchArgumentFactory::newBuilder();
         bool has_pushdown = false;
         builder->startAnd();
-        for (const auto& conjunct : _request->conjuncts) {
+        // ORC may omit unsupported expressions from a SARG, so a later predicate must not cross
+        // an earlier error-preserving barrier.
+        for (size_t i = 0; i < safe_count; ++i) {
+            const auto& conjunct = _request->conjuncts[i];
             if (conjunct == nullptr) {
                 continue;
             }
@@ -1746,6 +1751,8 @@ void OrcReader::_skip_condition_cache_false_granules(size_t* rows, bool* eof) {
     }
     if (target_row > _state->condition_cache_next_row) {
         DORIS_CHECK(target_row <= file_total_rows);
+        DBUG_EXECUTE_IF("OrcReader._skip_condition_cache_false_granules.before_seek_to_row",
+                        DBUG_RUN_CALLBACK());
         _state->row_reader->seekToRow(target_row);
         if (_io_ctx != nullptr) {
             _io_ctx->condition_cache_filtered_rows += target_row - _state->condition_cache_next_row;
@@ -1934,11 +1941,13 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
 
     bool has_next = false;
     while (true) {
-        _skip_condition_cache_false_granules(rows, eof);
-        if (*eof) {
-            return Status::OK();
-        }
         try {
+            // Condition-cache seeks can perform I/O, so keep them in the same cancellation
+            // boundary as next().
+            _skip_condition_cache_false_granules(rows, eof);
+            if (*eof) {
+                return Status::OK();
+            }
             _state->orc_lazy_selection_valid = false;
             _state->orc_lazy_selected_rows.clear();
             _state->orc_lazy_input_rows = 0;

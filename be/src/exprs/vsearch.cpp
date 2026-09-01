@@ -73,7 +73,7 @@ Status collect_slot_search_input(const VSearchExpr& expr, const VSlotRef& slot_r
 
     bundle->field_name_to_column_id[field_name] = column_index;
 
-    auto* iterator = index_context->get_inverted_index_iterator_by_column_id(column_index);
+    auto* iterator = index_context->get_inverted_index_iterator(column_index);
     if (iterator == nullptr) {
         // For example, `data.items.message` has its own SlotRef in the scan schema. The
         // storage layer may inherit index metadata from `data`, but it still constructs a
@@ -89,8 +89,7 @@ Status collect_slot_search_input(const VSearchExpr& expr, const VSlotRef& slot_r
         return Status::OK();
     }
 
-    const auto* storage_name_type =
-            index_context->get_storage_name_and_type_by_column_id(column_index);
+    const auto* storage_name_type = index_context->get_storage_name_and_type(column_index);
     if (storage_name_type == nullptr) {
         return Status::InternalError("storage_name_type not found for column {} in {}",
                                      column_index, expr.expr_name());
@@ -166,6 +165,24 @@ Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
     return Status::OK();
 }
 
+bool search_status_allows_row_fallback(const Status& status) {
+    DORIS_CHECK(!status.ok());
+    return status.is<ErrorCode::INVERTED_INDEX_BYPASS>() ||
+           status.is<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>() ||
+           status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>() ||
+           status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>() ||
+           status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+}
+
+Status prevent_search_row_fallback(Status status) {
+    DORIS_CHECK(!status.ok());
+    if (!search_status_allows_row_fallback(status)) {
+        return status;
+    }
+    return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+            "SEARCH cannot fall back to row execution: {}", status.to_string());
+}
+
 } // namespace
 
 VSearchExpr::VSearchExpr(const TExprNode& node) : VExpr(node) {
@@ -202,7 +219,7 @@ Status VSearchExpr::execute_column_impl(VExprContext* context, const Block* bloc
 
 Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
     if (_search_param.original_dsl.empty()) {
-        return Status::InvalidArgument("search DSL is empty");
+        return prevent_search_row_fallback(Status::InvalidArgument("search DSL is empty"));
     }
 
     auto index_context = context->get_index_context();
@@ -212,7 +229,9 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
     }
 
     SearchInputBundle bundle;
-    RETURN_IF_ERROR(collect_search_inputs(*this, context, &bundle));
+    if (auto status = collect_search_inputs(*this, context, &bundle); !status.ok()) {
+        return prevent_search_row_fallback(std::move(status));
+    }
 
     VLOG_DEBUG << "VSearchExpr: bundle.iterators.size()=" << bundle.iterators.size();
 
@@ -242,7 +261,7 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
 
     if (!status.ok()) {
         LOG(WARNING) << "VSearchExpr: Function evaluation failed: " << status.to_string();
-        return status;
+        return prevent_search_row_fallback(std::move(status));
     }
 
     index_context->set_index_result_for_expr(this, result_bitmap);

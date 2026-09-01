@@ -335,7 +335,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                     newestTargetTableIf.readUnlock();
                     continue;
                 }
-                if (!insertExecutor.isEmptyInsert()) {
+                if (insertExecutor.requiresTransaction()) {
                     insertExecutor.beginTransaction();
                     insertExecutor.finalizeSink(
                             buildResult.planner.getFragments().get(0), buildResult.dataSink,
@@ -357,10 +357,20 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             // so we need to set this here
             insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
             stmtExecutor.setCoord(insertExecutor.getCoordinator());
+            if (needsExternalDmlAuditBarrier(insertExecutor)) {
+                // The resolved executor is the invariant that distinguishes an external write;
+                // logical sink roots are rewritten and are not a stable audit classification.
+                stmtExecutor.setExternalDmlAuditCoordinator(insertExecutor.getCoordinator());
+            }
             return insertExecutor;
         }
         LOG.warn("insert plan failed {} times. query id is {}.", retryTimes, DebugUtil.printId(ctx.queryId()));
         throw new AnalysisException("Insert plan failed. Could not get target table lock.");
+    }
+
+    static boolean needsExternalDmlAuditBarrier(AbstractInsertExecutor insertExecutor) {
+        return insertExecutor instanceof BaseExternalTableInsertExecutor
+                || insertExecutor instanceof RemoteOlapInsertExecutor;
     }
 
     /**
@@ -678,8 +688,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
     private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
         AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
-        // if the insert stmt data source is empty, directly return, no need to be executed.
-        if (insertExecutor.isEmptyInsert()) {
+        // An empty Table Stream read still needs to commit its offset update atomically.
+        if (!insertExecutor.requiresTransaction()) {
             return;
         }
         if (insertExecutorListener != null) {
@@ -687,10 +697,6 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         }
         insertExecutor.executeSingleInsert(executor);
         LineageUtils.submitLineageEventIfNeeded(executor, lineagePlan, getLogicalQuery(), getClass());
-    }
-
-    public boolean isExternalTableSink() {
-        return !(getLogicalQuery() instanceof UnboundTableSink);
     }
 
     /**

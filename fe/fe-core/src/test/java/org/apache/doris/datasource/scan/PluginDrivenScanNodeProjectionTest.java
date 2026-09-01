@@ -21,6 +21,8 @@ import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 
 import com.google.common.collect.ImmutableList;
@@ -59,5 +61,41 @@ public class PluginDrivenScanNodeProjectionTest {
 
         Assertions.assertSame(handle, PluginDrivenScanNode.withProjectedFieldIds(handle, slot));
         Assertions.assertEquals(ImmutableSet.of(10, 11), observed.get());
+    }
+
+    @Test
+    public void numericVariantSelectorsAreNotReportedAsSchemaFieldIds() {
+        AtomicReference<Set<Integer>> observed = new AtomicReference<>();
+        ConnectorColumnHandle handle = recordingHandle(observed);
+        SlotDescriptor slot = new SlotDescriptor(new SlotId(2), new TupleId(2));
+        Column column = new Column("payload", new VariantType(), true);
+        column.setUniqueId(10);
+        slot.setColumn(column);
+        slot.setAllAccessPaths(ImmutableList.of(
+                ColumnAccessPath.data(ImmutableList.of("10", "arr", "0")),
+                ColumnAccessPath.data(ImmutableList.of("10", "1"))));
+
+        Assertions.assertSame(handle, PluginDrivenScanNode.withProjectedFieldIds(handle, slot));
+        Assertions.assertEquals(ImmutableSet.of(10), observed.get());
+    }
+
+    private static ConnectorColumnHandle recordingHandle(AtomicReference<Set<Integer>> observed) {
+        return new ConnectorColumnHandle() {
+            @Override
+            public ConnectorColumnHandle withProjectedFieldIds(Set<Integer> projectedFieldIds) {
+                observed.set(projectedFieldIds);
+                return this;
+            }
+
+            @Override
+            public int hashCode() {
+                return 1;
+            }
+
+            @Override
+            public boolean equals(Object other) {
+                return this == other;
+            }
+        };
     }
 }

@@ -277,13 +277,15 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
             joinType = JoinType.INNER_JOIN;
         }
 
-        return new LogicalJoin<>(joinType,
+        LogicalJoin<Plan, Plan> rewrittenJoin = new LogicalJoin<>(joinType,
                 newHashJoinConjuncts,
                 newOtherJoinConjuncts,
                 join.getMarkJoinConjuncts(),
                 join.getDistributeHint(),
                 join.getMarkJoinSlotReference(),
                 join.children(), join.getJoinReorderContext());
+        Plan eliminatedJoin = EliminateJoinCondition.eliminateJoinCondition(rewrittenJoin);
+        return eliminatedJoin == null ? rewrittenJoin : eliminatedJoin;
     }
 
     @Override

@@ -159,6 +159,32 @@ endif()
 set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed")
 message(STATUS "THIRDPARTY_DIR is ${THIRDPARTY_DIR}")
 
+# Build-hygiene gates: seconds-level, zero-build-dependency text checks that
+# keep the backend's compile-time invariants from regressing (header layering
+# rules and budgets, extern-template pairing, unity-skip coverage for
+# test-included sources). Running them at configure time makes a violation a
+# build error on every path that builds the BE -- CI, build.sh, the UT build --
+# with no separate wiring, and it fails in the first seconds instead of
+# somewhere inside a long compile. Every failure message carries the mechanism
+# and the fix path; see build-support/check-build-hygiene.sh.
+option(ENABLE_BUILD_HYGIENE "Run the build-hygiene gates at configure time" ON)
+message(STATUS "ENABLE_BUILD_HYGIENE is ${ENABLE_BUILD_HYGIENE}")
+if (ENABLE_BUILD_HYGIENE)
+    execute_process(
+        COMMAND bash "${BASE_DIR}/../build-support/check-build-hygiene.sh"
+        ERROR_VARIABLE BUILD_HYGIENE_ERRORS
+        RESULT_VARIABLE BUILD_HYGIENE_RESULT
+    )
+    if (NOT BUILD_HYGIENE_RESULT EQUAL 0)
+        message(FATAL_ERROR
+            "build-hygiene gates failed (exit ${BUILD_HYGIENE_RESULT}):\n"
+            "${BUILD_HYGIENE_ERRORS}"
+            "Fix the violation (each message ends with its fix path), or "
+            "configure with -DENABLE_BUILD_HYGIENE=OFF to bypass in an "
+            "emergency.")
+    endif()
+endif()
+
 option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 message(STATUS "make test: ${MAKE_TEST}")
 option(BUILD_BENCHMARK "ON for make google benchmark or OFF for not" OFF)
@@ -174,7 +200,6 @@ option(BUILD_FILE_CACHE_LRU_TOOL "ON for building file cache lru tool or OFF for
 message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
 
 option(ENABLE_PAIMON_CPP "Enable Paimon C++ integration" ON)
-set(PAIMON_HOME "" CACHE PATH "Paimon install prefix")
 option(ENABLE_TDE "Enable TDE feature module" OFF)
 set(TDE_MODULE_DIR "" CACHE STRING "TDE feature module directory under be/src")
 option(ENABLE_TLS "Enable TLS feature module" OFF)
@@ -196,8 +221,31 @@ endif()
 if (DEFINED ENV{ENABLE_PAIMON_CPP})
     set(ENABLE_PAIMON_CPP "$ENV{ENABLE_PAIMON_CPP}" CACHE BOOL "" FORCE)
 endif()
-if (DEFINED ENV{PAIMON_HOME} AND NOT PAIMON_HOME)
-    set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "" FORCE)
+
+# Refresh automatic selections on every configure so a reused CMake cache
+# follows the current DORIS_THIRDPARTY. Environment overrides are explicit and
+# likewise replace any earlier automatic or explicit cache value.
+if (DEFINED ENV{ARROW_HOME})
+    set(ARROW_HOME "$ENV{ARROW_HOME}" CACHE PATH "Selected Arrow install prefix" FORCE)
+else()
+    set(ARROW_HOME "${THIRDPARTY_DIR}/arrow-24.0.0" CACHE PATH
+        "Selected Arrow install prefix" FORCE)
+endif()
+if (DEFINED ENV{PAIMON_HOME})
+    set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "Selected Paimon install prefix" FORCE)
+else()
+    set(PAIMON_HOME "${ARROW_HOME}" CACHE PATH "Selected Paimon install prefix" FORCE)
+endif()
+
+if (NOT EXISTS "${ARROW_HOME}/include/arrow/util/config.h")
+    message(FATAL_ERROR "Selected Arrow installation is incomplete: ${ARROW_HOME}")
+endif()
+message(STATUS "ARROW_HOME is ${ARROW_HOME}")
+if (ENABLE_PAIMON_CPP AND NOT EXISTS "${PAIMON_HOME}/include/paimon")
+    message(FATAL_ERROR "Selected Paimon installation is incomplete: ${PAIMON_HOME}")
+endif()
+if (ENABLE_PAIMON_CPP)
+    message(STATUS "PAIMON_HOME is ${PAIMON_HOME}")
 endif()
 
 set(CMAKE_SKIP_RPATH TRUE)
@@ -372,6 +420,21 @@ add_compile_options(-g
                     -fstrict-aliasing
                     -fno-omit-frame-pointer
                     $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>)
+
+# Faster dev compiles: DORIS_DEV_DEBUG_INFO=line-tables keeps only the line
+# tables (enough for stack traces and perf) instead of full debug info; 'full'
+# asks for the default full DWARF explicitly, which is what run-be-ut.sh needs
+# to be overridable with, since UT builds default to line-tables.
+# It must be appended after the -g/-gdwarf-5 above: clang lets the last debug-info
+# flag win, and this keeps the default command line unchanged.
+if ("${DORIS_DEV_DEBUG_INFO}" STREQUAL "line-tables")
+    if (NOT COMPILER_CLANG)
+        message(FATAL_ERROR "DORIS_DEV_DEBUG_INFO=line-tables requires clang")
+    endif()
+    add_compile_options(-gline-tables-only)
+elseif (NOT "${DORIS_DEV_DEBUG_INFO}" STREQUAL "" AND NOT "${DORIS_DEV_DEBUG_INFO}" STREQUAL "full")
+    message(FATAL_ERROR "Unknown DORIS_DEV_DEBUG_INFO value: ${DORIS_DEV_DEBUG_INFO} (supported: line-tables, full)")
+endif()
 
 add_compile_options(-Wno-unused-parameter
                     -Wno-sign-compare)
@@ -556,6 +619,12 @@ include_directories(
 )
 
 include_directories(
+    BEFORE SYSTEM
+    ${ARROW_HOME}/include
+    ${PAIMON_HOME}/include
+)
+
+include_directories(
     SYSTEM
     ${COMMON_SRC_DIR}
     ${GENSRC_DIR}/
@@ -700,10 +769,10 @@ endif()
 
 set(PAIMON_FACTORY_REGISTRY_LIBS)
 if (ENABLE_PAIMON_CPP)
-    # Plan B: Doris Arrow is now built with COMPUTE/DATASET/ACERO/FILESYSTEM,
-    # so arrow, arrow_compute, arrow_dataset, arrow_acero are all in COMMON_THIRDPARTY via
-    # thirdparty.cmake.  paimon-cpp reuses the same Arrow (no paimon_deps).
-    # No dual-stack selection needed — single Arrow for everything.
+    # The Arrow selected for this BE build includes COMPUTE/DATASET/ACERO/FILESYSTEM,
+    # so arrow, arrow_compute, arrow_dataset, arrow_acero are all in COMMON_THIRDPARTY
+    # via thirdparty.cmake. Paimon uses this same selected Arrow (no paimon_deps);
+    # the legacy Arrow 17 stack remains installed only for pre-upgrade branch-4.1 consumers.
 
     # paimon_parquet_file_format depends on Arrow Dataset symbols.
     # Force-link it with --whole-archive so its factory registration runs.
@@ -1033,6 +1102,7 @@ endif()
 option(BUILD_FILE_CACHE_MICROBENCH_TOOL "Build file cache mirobench Tool" OFF)
 if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
     add_subdirectory(${SRC_DIR}/io/tools)
+    add_subdirectory(${SRC_DIR}/io/cache/benchmark)
     install(FILES
         ${BASE_DIR}/../bin/start_file_cache_microbench.sh
         PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE

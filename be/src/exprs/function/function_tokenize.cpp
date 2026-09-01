@@ -187,7 +187,7 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             try {
                 analyzer_holder =
                         doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(
-                                &config);
+                                &config, AnalysisPurpose::kPlainQuery);
             } catch (CLuceneError& e) {
                 return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                         "inverted index create analyzer failed: {}", e.what());

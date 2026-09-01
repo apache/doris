@@ -43,6 +43,7 @@ public:
     ParallelScannerBuilder(OlapScanLocalState* parent,
                            const std::vector<TabletWithVersion>& tablets,
                            std::vector<TabletReadSource>& read_sources,
+                           const std::vector<std::unique_ptr<TPaloScanRange>>& scan_ranges,
                            const std::shared_ptr<RuntimeProfile>& profile,
                            const std::vector<OlapScanRange*>& key_ranges, RuntimeState* state,
                            int64_t limit, bool is_dup_mow_key, bool is_preaggregation)
@@ -54,7 +55,14 @@ public:
               _is_preaggregation(is_preaggregation),
               _tablets(tablets.cbegin(), tablets.cend()),
               _key_ranges(key_ranges.cbegin(), key_ranges.cend()),
-              _read_sources(read_sources) {}
+              _scan_ranges(scan_ranges),
+              _read_sources(read_sources) {
+        DORIS_CHECK_EQ(_tablets.size(), scan_ranges.size());
+        for (size_t i = 0; i < _tablets.size(); ++i) {
+            DORIS_CHECK(scan_ranges[i] != nullptr);
+            DORIS_CHECK_EQ(_tablets[i].tablet->tablet_id(), scan_ranges[i]->tablet_id);
+        }
+    }
 
     Status build_scanners(std::list<ScannerSPtr>& scanners);
 
@@ -76,6 +84,7 @@ private:
 
     std::shared_ptr<OlapScanner> _build_scanner(BaseTabletSPtr tablet, int64_t version,
                                                 const std::vector<OlapScanRange*>& key_ranges,
+                                                const TPaloScanRange& scan_range,
                                                 TabletReadSource&& read_source,
                                                 io::FileCacheStatistics&& initial_file_cache_stats);
 
@@ -111,6 +120,7 @@ private:
     bool _is_preaggregation;
     std::vector<TabletWithVersion> _tablets;
     std::vector<OlapScanRange*> _key_ranges;
+    const std::vector<std::unique_ptr<TPaloScanRange>>& _scan_ranges;
     std::unordered_map<int64_t, TabletReadSource> _all_read_sources;
     std::vector<TabletReadSource>& _read_sources;
 };

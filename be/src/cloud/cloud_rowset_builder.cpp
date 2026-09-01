@@ -23,6 +23,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "io/fs/file_system.h"
 #include "storage/rowset/group_rowset_writer.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_writer_context.h"
@@ -138,6 +139,7 @@ Status CloudGroupRowsetBuilder::init() {
     RETURN_IF_ERROR(RowsetFactory::create_empty_group_rowset_writer(&group_writer));
     group_writer->set_data_writer(_data_builder->rowset_writer());
     group_writer->set_row_binlog_writer(_row_binlog_builder->rowset_writer());
+    RETURN_IF_ERROR(group_writer->init(_data_builder->rowset_writer()->context()));
 
     {
         const auto& data_ctx = _data_builder->rowset_writer()->context();
@@ -234,6 +236,13 @@ CloudTablet* CloudRowsetBuilder::cloud_tablet() {
 
 const RowsetMetaSharedPtr& CloudRowsetBuilder::rowset_meta() {
     return _rowset_writer->rowset_meta();
+}
+
+bool CloudRowsetBuilder::is_s3_storage() const {
+    if (_rowset_writer == nullptr) {
+        return false;
+    }
+    return _rowset_writer->context().fs()->type() == io::FileSystemType::S3;
 }
 
 Status CloudRowsetBuilder::commit_rowset(const std::string& job_id, int64_t table_id) {

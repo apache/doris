@@ -36,11 +36,16 @@
 #include "runtime/workload_group/workload_group.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
+#include "util/defer_op.h"
 #include "util/pretty_printer.h"
 
 namespace doris {
 
 namespace {
+
+void fetch_callback(bthread::CountdownEvent* counter) {
+    Defer defer([&] { counter->signal(); });
+}
 
 constexpr const char* TOPN_LAZY_MAT_PHASE2_PER_BACKEND =
         "TopNLazyMaterializationSecondPhasePerBackend";
@@ -563,7 +568,8 @@ Status MaterializationOperator::init(const doris::TPlanNode& tnode, doris::Runti
 
 Status MaterializationOperator::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
-    RETURN_IF_ERROR(VExpr::prepare(_rowid_exprs, state, _child->row_desc()));
+    RETURN_IF_ERROR(
+            VExpr::prepare(_rowid_exprs, state, _child->operator_row_desc_after_projection()));
     RETURN_IF_ERROR(VExpr::open(_rowid_exprs, state));
     return Status::OK();
 }

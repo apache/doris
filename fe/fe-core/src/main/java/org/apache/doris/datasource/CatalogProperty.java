@@ -199,7 +199,9 @@ public class CatalogProperty {
                                         throw new IllegalStateException(
                                                 "Duplicate storage type: " + a.getType());
                                     }, LinkedHashMap::new));
-                    local = new StorageBindings(ordered, byType);
+                    // Consumers share the published map without locking, so prevent caller-specific
+                    // mutations from changing the catalog-wide snapshot after publication.
+                    local = new StorageBindings(ordered, Collections.unmodifiableMap(byType));
                     this.storageBindings = local;
                 }
             }

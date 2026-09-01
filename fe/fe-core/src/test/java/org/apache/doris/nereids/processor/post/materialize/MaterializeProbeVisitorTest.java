@@ -61,6 +61,19 @@ public class MaterializeProbeVisitorTest {
     }
 
     @Test
+    public void testOlapScanRejectsSequenceMapTable() {
+        SlotReference baseSlot = new SlotReference("a", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockBaseOlapScan(baseSlot);
+        Mockito.when(scan.getTable().hasColumnSeqMapping()).thenReturn(true);
+
+        MaterializeProbeVisitor.ProbeContext context = new MaterializeProbeVisitor.ProbeContext(baseSlot);
+        Optional<MaterializeSource> source =
+                new MaterializeProbeVisitor().visitPhysicalOlapScan(scan, context);
+
+        Assertions.assertFalse(source.isPresent());
+    }
+
+    @Test
     public void testOlapScanUsesRelationSlotWithAccessPaths() {
         SlotReference contextSlot = new SlotReference("a", IntegerType.INSTANCE);
         SlotReference relationSlot = contextSlot.withAccessPaths(
