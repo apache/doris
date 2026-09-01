@@ -101,6 +101,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -543,7 +544,7 @@ public class HudiScanNode extends HiveScanNode {
 
     private void getPartitionsSplits(List<HivePartition> partitions, List<Split> splits) {
         Executor executor = Env.getCurrentEnv().getExtMetaCacheMgr().getFileListingExecutor();
-        ListingFsViewOwner createdOwner = new ListingFsViewOwner(fsViewLease);
+        ListingFsViewOwner createdOwner = new ListingFsViewOwner(fsViewLease, executor);
         ListingFsViewOwner owner = createdOwner;
         ConnectContext connectContext = ConnectContext.get();
         StatementContext statementContext = connectContext == null ? null : connectContext.getStatementContext();
@@ -576,12 +577,12 @@ public class HudiScanNode extends HiveScanNode {
                     throwable.compareAndSet(null, t);
                 }
             }, () -> { });
-            owner.track(task);
             try {
-                executor.execute(task);
+                if (!owner.submit(task)) {
+                    break;
+                }
             } catch (RuntimeException e) {
                 submissionFailure = e;
-                task.cancelBeforeStart();
                 break;
             }
         }
@@ -878,6 +879,7 @@ public class HudiScanNode extends HiveScanNode {
     @VisibleForTesting
     static class ListingFsViewOwner implements Closeable {
         private final HudiFsViewCacheValue.Lease lease;
+        private final Executor executor;
         private final AtomicInteger pendingTasks = new AtomicInteger(1);
         private final AtomicBoolean submissionFinished = new AtomicBoolean();
         private final AtomicBoolean stopping = new AtomicBoolean();
@@ -885,19 +887,39 @@ public class HudiScanNode extends HiveScanNode {
         private final CompletableFuture<Void> tasksFinished = new CompletableFuture<>();
         private final CompletableFuture<Void> cancelled = new CompletableFuture<>();
 
-        ListingFsViewOwner(HudiFsViewCacheValue.Lease lease) {
+        ListingFsViewOwner(HudiFsViewCacheValue.Lease lease, Executor executor) {
             this.lease = lease;
+            this.executor = executor;
         }
 
-        void track(TerminalTask task) {
+        boolean submit(TerminalTask task) {
             pendingTasks.incrementAndGet();
             task.setOwnerDone(() -> {
                 tasks.remove(task);
                 taskDone();
             });
             tasks.add(task);
-            if (stopping.get()) {
-                task.requestStop();
+            try {
+                if (stopping.get()) {
+                    stopTask(task);
+                    return false;
+                }
+                executor.execute(task);
+                if (stopping.get()) {
+                    stopTask(task);
+                    return false;
+                }
+                return true;
+            } catch (RuntimeException e) {
+                stopTask(task);
+                throw e;
+            }
+        }
+
+        private void stopTask(TerminalTask task) {
+            task.requestStop();
+            if (executor instanceof ThreadPoolExecutor) {
+                ((ThreadPoolExecutor) executor).remove(task);
             }
         }
 
@@ -945,7 +967,7 @@ public class HudiScanNode extends HiveScanNode {
                 // done() synchronously and may complete terminal accounting on this thread.
                 // awaitCompletion must still observe cancellation rather than return partial splits.
                 cancelled.complete(null);
-                tasks.forEach(TerminalTask::requestStop);
+                tasks.forEach(this::stopTask);
             }
         }
     }
