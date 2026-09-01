@@ -332,7 +332,11 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         }
         // If the query top plan output expressions can be produced by the rewritten aggregate directly,
         // return the aggregate, otherwise compute them by a project above the rewritten aggregate.
-        boolean needTopProject = false;
+        // Note the query top plan output may be a strict matching prefix of the rewritten aggregate output
+        // (e.g. `select k1 from t group by k1, k2`), in which case the redundant aggregate outputs must be
+        // projected away. Otherwise the rewritten plan output count differs from the query and the candidate
+        // is rejected by MaterializedViewUtils.normalizeExpressions, so a valid sync MV is silently not used.
+        boolean needTopProject = topProjectExpressions.size() != finalOutputExpressions.size();
         for (int i = 0; i < topProjectExpressions.size(); i++) {
             if (i >= finalOutputExpressions.size()
                     || !topProjectExpressions.get(i).toSlot().equals(finalOutputExpressions.get(i).toSlot())) {
