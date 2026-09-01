@@ -790,11 +790,17 @@ struct DataDistribution {
     DataDistribution(TLocalPartitionType::type type) : distribution_type(type) {}
     DataDistribution(TLocalPartitionType::type type, const std::vector<TExpr>& partition_exprs_)
             : distribution_type(type), partition_exprs(partition_exprs_) {}
+    DataDistribution(TLocalPartitionType::type type, const std::vector<TExpr>& partition_exprs_,
+                     TDistributionHashType::type distribution_hash_type_)
+            : distribution_type(type),
+              partition_exprs(partition_exprs_),
+              distribution_hash_type(distribution_hash_type_) {}
     DataDistribution(const DataDistribution& other) = default;
     bool need_local_exchange() const { return distribution_type != TLocalPartitionType::NOOP; }
     DataDistribution& operator=(const DataDistribution& other) = default;
     TLocalPartitionType::type distribution_type;
     std::vector<TExpr> partition_exprs;
+    TDistributionHashType::type distribution_hash_type = TDistributionHashType::CRC32;
 };
 
 class ExchangerBase;

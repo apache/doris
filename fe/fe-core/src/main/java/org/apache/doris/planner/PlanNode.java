@@ -31,6 +31,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.TreeNode;
@@ -1150,6 +1151,26 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         List<Expr> distributeExprs = getLocalExchangeDistributeExprs(childIndex, selfOrInheritedShuffled);
         PlanNode leNode = createLocalExchange(translatorContext, childOutput.first, preferType, distributeExprs);
         return Pair.of(leNode, preferType);
+    }
+
+    /**
+     * Return the effective storage hash type when this subtree has one unambiguous bucket layout.
+     * Unary nodes preserve their child's layout; multi-input nodes preserve it only when every
+     * child reports the same layout.
+     */
+    public HashDistributionInfo.HashType getStorageDistributionHashType() {
+        HashDistributionInfo.HashType hashType = null;
+        for (PlanNode child : children) {
+            HashDistributionInfo.HashType childHashType = child.getStorageDistributionHashType();
+            if (childHashType == null) {
+                return null;
+            }
+            if (hashType != null && hashType != childHashType) {
+                return null;
+            }
+            hashType = childHashType;
+        }
+        return hashType;
     }
 
     /**

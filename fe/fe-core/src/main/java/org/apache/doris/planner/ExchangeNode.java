@@ -88,6 +88,11 @@ public class ExchangeNode extends PlanNode {
         return distributionHashType;
     }
 
+    @Override
+    public HashDistributionInfo.HashType getStorageDistributionHashType() {
+        return distributionHashType;
+    }
+
     public void setDistributionHashType(HashDistributionInfo.HashType distributionHashType) {
         this.distributionHashType = distributionHashType == null
                 ? HashDistributionInfo.HashType.CRC32

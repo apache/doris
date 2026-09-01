@@ -368,6 +368,14 @@ public class OlapScanNode extends ScanNode {
         return olapTable;
     }
 
+    @Override
+    public HashDistributionInfo.HashType getStorageDistributionHashType() {
+        DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+        return distributionInfo instanceof HashDistributionInfo
+                ? ((HashDistributionInfo) distributionInfo).getHashType()
+                : null;
+    }
+
     public String getTableNameInPlan() {
         return tableNameInPlan;
     }

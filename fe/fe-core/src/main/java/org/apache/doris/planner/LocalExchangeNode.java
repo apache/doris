@@ -60,10 +60,11 @@ public class LocalExchangeNode extends PlanNode {
         this.children.add(inputNode);
         this.exchangeType = exchangeType;
         this.fragment = inputNode.getFragment();
-        // For bucket-shuffle, the local exchange must reshuffle with the same storage hash as the
-        // upstream ExchangeNode's bucket-shuffle distribution.
-        if (inputNode instanceof ExchangeNode) {
-            this.distributionHashType = ((ExchangeNode) inputNode).getDistributionHashType();
+        // Preserve the effective storage layout through passthrough/unary nodes as well as direct
+        // ExchangeNode and OlapScanNode children.
+        HashDistributionInfo.HashType childHashType = inputNode.getStorageDistributionHashType();
+        if (childHashType != null) {
+            this.distributionHashType = childHashType;
         }
 
         List<Expr> hashExprs = distributeExprs;
@@ -109,6 +110,11 @@ public class LocalExchangeNode extends PlanNode {
         if (exchangeType == LocalExchangeType.BUCKET_HASH_SHUFFLE) {
             msg.local_exchange_node.setDistributionHashType(DataPartition.toTHashType(distributionHashType));
         }
+    }
+
+    @Override
+    public HashDistributionInfo.HashType getStorageDistributionHashType() {
+        return distributionHashType;
     }
 
     private List<Expr> distributeExprLists() {

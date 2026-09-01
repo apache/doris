@@ -73,8 +73,10 @@ public:
     using Base = DataSinkOperatorX<LocalExchangeSinkLocalState>;
     LocalExchangeSinkOperatorX(int sink_id, int dest_id, int num_partitions,
                                const std::vector<TExpr>& texprs,
-                               const std::map<int, int>& bucket_seq_to_instance_idx)
+                               const std::map<int, int>& bucket_seq_to_instance_idx,
+                               TDistributionHashType::type distribution_hash_type)
             : Base(sink_id, dest_id, dest_id),
+              _distribution_hash_type(distribution_hash_type),
               _num_partitions(num_partitions),
               _texprs(texprs),
               _partitioned_exprs_num(texprs.size()),

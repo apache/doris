@@ -64,6 +64,10 @@ struct TPlanFragment {
   8: optional i64 initial_reservation_total_claims
 
   9: optional QueryCache.TQueryCacheParam query_cache_param
+
+  // Effective storage bucketing hash used by BE-native bucket local exchanges. If absent, legacy
+  // fragments use CRC32.
+  10: optional Types.TDistributionHashType distribution_hash_type = Types.TDistributionHashType.CRC32
 }
 
 // location information for a single scan range

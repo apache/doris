@@ -31,6 +31,7 @@ import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.FunctionName;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
@@ -40,6 +41,7 @@ import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TDistributionHashType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanNode;
@@ -57,6 +59,25 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class LocalShuffleNodeCoverageTest {
     private static final AtomicInteger NEXT_ID = new AtomicInteger(1);
+
+    @Test
+    public void testIdentityHashTypePropagatesThroughLocalExchangeAndFragment() {
+        TrackingPlanNode identityChild = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
+            @Override
+            public HashDistributionInfo.HashType getStorageDistributionHashType() {
+                return HashDistributionInfo.HashType.IDENTITY;
+            }
+        };
+        LocalExchangeNode passthrough = new LocalExchangeNode(nextPlanNodeId(), identityChild,
+                LocalExchangeType.PASSTHROUGH, null);
+        LocalExchangeNode bucket = new LocalExchangeNode(nextPlanNodeId(), passthrough,
+                LocalExchangeType.BUCKET_HASH_SHUFFLE, Collections.emptyList());
+        Assertions.assertEquals(HashDistributionInfo.HashType.IDENTITY,
+                bucket.getStorageDistributionHashType());
+
+        PlanFragment fragment = new PlanFragment(new PlanFragmentId(1), bucket, DataPartition.UNPARTITIONED);
+        Assertions.assertEquals(TDistributionHashType.IDENTITY, fragment.toThrift().getDistributionHashType());
+    }
 
     @Test
     public void testRequireSpecificAutoRequireHashPreservesSpecificHash() {
