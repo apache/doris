@@ -101,7 +101,7 @@ struct DebugPoint {
     std::any callback;
 
     template <typename T>
-    T param(const std::string& key, T default_value = T()) {
+    T param(const std::string& key, T default_value = T()) const {
         auto it = params.find(key);
         if (it == params.end()) {
             return default_value;
@@ -137,8 +137,15 @@ struct DebugPoint {
 
 class DebugPoints {
 public:
+    using DebugPointPredicate = std::function<bool(const DebugPoint&)>;
+
     bool is_enable(const std::string& name);
     std::shared_ptr<DebugPoint> get_debug_point(const std::string& name);
+    // Inspect a debug point without consuming its execute limit.
+    std::shared_ptr<DebugPoint> peek_debug_point(const std::string& name);
+    // A nonmatching access does not consume the debug point's execute limit.
+    std::shared_ptr<DebugPoint> get_debug_point_if(const std::string& name,
+                                                   const DebugPointPredicate& predicate);
     void remove(const std::string& name);
     void clear();
 
@@ -185,6 +192,11 @@ private:
     DebugPoints();
 
     using DebugPointMap = std::map<std::string, std::shared_ptr<DebugPoint>>;
+
+    std::shared_ptr<DebugPoint> get_debug_point_impl(const std::string& name,
+                                                     const DebugPointPredicate* predicate);
+    void remove_if_same(const std::string& name,
+                        const std::shared_ptr<DebugPoint>& expected_debug_point);
 
     // handler(new_debug_points)
     void update(std::function<void(DebugPointMap&)>&& handler);

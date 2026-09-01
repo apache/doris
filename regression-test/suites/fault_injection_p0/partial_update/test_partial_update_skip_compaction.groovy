@@ -18,10 +18,16 @@
 import org.junit.Assert
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
+import org.apache.doris.regression.util.DebugPoint
+import org.apache.doris.regression.util.NodeType
 
 suite("test_partial_update_skip_compaction", "nonConcurrent") {
 
     def table1 = "test_partial_update_skip_compaction"
+    def cloudSpinWaitPoint = "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait"
+    def cloudBlockPoint = "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block"
+    def beSpinWaitPoint = "EnginePublishVersionTask::execute.enable_spin_wait"
+    def beBlockPoint = "EnginePublishVersionTask::execute.block"
     sql "DROP TABLE IF EXISTS ${table1} FORCE;"
     sql """ CREATE TABLE IF NOT EXISTS ${table1} (
             `k1` int NOT NULL,
@@ -45,6 +51,12 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
     def tabletStat = sql_return_maparray("show tablets from ${table1};").get(0)
     def tabletBackendId = tabletStat.BackendId
     def tabletId = tabletStat.TabletId
+    def partitionStat = sql_return_maparray("show partitions from ${table1};").get(0)
+    def partitionIdText = partitionStat.PartitionId?.toString()
+    Assert.assertNotNull("SHOW PARTITIONS must return PartitionId", partitionIdText)
+    Assert.assertTrue("PartitionId must be numeric", partitionIdText ==~ /[0-9]+/)
+    def partitionId = Long.parseLong(partitionIdText)
+    def publishToken = "test_partial_update_skip_compaction"
     def tabletBackend;
     for (def be : beNodes) {
         if (be.BackendId == tabletBackendId) {
@@ -90,34 +102,53 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
 
     def enable_publish_spin_wait = {
         if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
+            GetDebugPoint().enableDebugPointForAllFEs(cloudSpinWaitPoint,
+                    [token: "${publishToken}", execute: "1"])
         } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
+            DebugPoint.enableDebugPoint(tabletBackend.Host, tabletBackend.HttpPort as int, NodeType.BE,
+                    beSpinWaitPoint,
+                    [partition_id: "${partitionId}", token: "${publishToken}", execute: "1"])
         }
     }
 
     def disable_publish_spin_wait = {
         if (isCloudMode()) {
-            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
+            GetDebugPoint().disableDebugPointForAllFEs(cloudSpinWaitPoint)
         } else {
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
+            DebugPoint.disableDebugPoint(tabletBackend.Host, tabletBackend.HttpPort as int, NodeType.BE,
+                    beSpinWaitPoint)
         }
     }
 
-    def enable_block_in_publish = {
+    def enable_block_in_publish = { passToken ->
         if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
+            GetDebugPoint().enableDebugPointForAllFEs(cloudBlockPoint,
+                    [pass_token: "${passToken}"])
         } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
+            DebugPoint.enableDebugPoint(tabletBackend.Host, tabletBackend.HttpPort as int, NodeType.BE,
+                    beBlockPoint, [pass_token: "${passToken}"])
         }
     }
 
     def disable_block_in_publish = {
         if (isCloudMode()) {
-            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
+            GetDebugPoint().disableDebugPointForAllFEs(cloudBlockPoint)
         } else {
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
+            DebugPoint.disableDebugPoint(tabletBackend.Host, tabletBackend.HttpPort as int, NodeType.BE,
+                    beBlockPoint)
         }
+    }
+
+    def wait_publish_spin_hit = {
+        Awaitility.await().atMost(30, TimeUnit.SECONDS).pollInterval(100, TimeUnit.MILLISECONDS).until(
+            {
+                if (isCloudMode()) {
+                    return GetDebugPoint().isDebugPointHitOnAnyFE(cloudSpinWaitPoint)
+                }
+                return DebugPoint.isDebugPointHit(tabletBackend.Host, tabletBackend.HttpPort as int,
+                        NodeType.BE, beSpinWaitPoint)
+            }
+        )
     }
 
     try {
@@ -126,14 +157,15 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
 
         // block the partial update in publish phase
         enable_publish_spin_wait()
-        enable_block_in_publish()
+        enable_block_in_publish("blocked")
         def t1 = Thread.start {
             sql "set enable_unique_key_partial_update=true;"
             sql "sync;"
             sql "insert into ${table1}(k1,c1,c2) values(1,999,999),(2,888,888),(3,777,777);"
         }
 
-        Thread.sleep(500)
+        // Do not start compaction until the target publish has entered the spin wait.
+        wait_publish_spin_hit()
 
         // trigger full compaction on tablet
         logger.info("trigger compaction on another BE ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}")
@@ -165,8 +197,20 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
         })
 
         // let the partial update load publish
-        disable_block_in_publish()
+        enable_block_in_publish(publishToken)
         t1.join()
+        disable_publish_spin_wait()
+        disable_block_in_publish()
+
+        Awaitility.await().atMost(30, TimeUnit.SECONDS).pollInterval(100, TimeUnit.MILLISECONDS).until(
+            {
+                def updatedRows = sql """ select count(*) from ${table1}
+                        where (k1 = 1 and c1 = 999 and c2 = 999 and c3 = 1 and c4 = 1)
+                           or (k1 = 2 and c1 = 888 and c2 = 888 and c3 = 2 and c4 = 2)
+                           or (k1 = 3 and c1 = 777 and c2 = 777 and c3 = 3 and c4 = 3); """
+                return (updatedRows[0][0] as int) == 3
+            }
+        )
 
         order_qt_sql "select * from ${table1};"
 
