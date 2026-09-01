@@ -3063,10 +3063,12 @@ public:
 // json_extract_string / jsonb_extract_string over a raw VARCHAR/STRING column carrying JSON text.
 // The path is parsed with the authoritative JsonbPath grammar so invalid paths raise the same error
 // as the JSON-typed route. Paths whose legs are all plain object members or non-negative array
-// indices take a fast simdjson at_pointer navigation that reparses only the extracted slice; the
-// root path, wildcards, [last], negative indices, and any at_pointer miss fall back to the exact
-// Cast(JsonbExtract(...) AS String) route (full parse + JsonbPath findValue + format), so the result
-// matches that route for every JsonbPath-supported form.
+// indices take a fast simdjson on-demand traversal that walks the legs one by one, dispatching by
+// JsonbPath leg TYPE (a MEMBER leg requires an object, an ARRAY leg requires an array) rather than
+// by the runtime container, and reparses only the extracted slice. The root path, wildcards,
+// [last], negative indices, and ANY traversal miss (type mismatch, missing key, out-of-range index)
+// fall back to the exact Cast(JsonbExtract(...) AS String) route (full parse + JsonbPath findValue +
+// format), which reproduces the index==0-on-non-array self quirk and NULL/error semantics exactly.
 class FunctionJsonExtractStringFromVarchar : public IFunction {
 public:
     static constexpr auto name = "jsonb_extract_string";
@@ -3144,7 +3146,6 @@ public:
 private:
     struct PreparedPath {
         JsonbPath path;
-        std::string pointer;
         bool simple = false;
     };
 
@@ -3164,13 +3165,15 @@ private:
             return Status::InvalidArgument("Json path error: Invalid Json Path for value: {}",
                                            std::string_view(path_ref.data, path_ref.size));
         }
-        out.simple = build_pointer_if_simple(out.path, out.pointer);
+        out.simple = is_simple_path(out.path);
         return Status::OK();
     }
 
-    // true only when the whole path can be navigated by JSON Pointer: no wildcard, no [last], no
-    // negative index, at least one leg. The root path returns false and takes the JSONB fallback.
-    static bool build_pointer_if_simple(const JsonbPath& jpath, std::string& pointer) {
+    // true only when the leg-by-leg fast traversal can reproduce JsonbPath exactly: no wildcard, no
+    // [last], no negative index, at least one leg. The root path returns false and takes the JSONB
+    // fallback. The traversal still verifies each leg's container type at runtime and falls back on
+    // any mismatch, so this only gates which paths are eligible to attempt the fast route.
+    static bool is_simple_path(const JsonbPath& jpath) {
         if (jpath.is_wildcard() || jpath.is_supper_wildcard()) {
             return false;
         }
@@ -3184,29 +3187,11 @@ private:
                 if (leg->array_index < 0) {
                     return false;
                 }
-                pointer.push_back('/');
-                pointer.append(std::to_string(leg->array_index));
-            } else if (leg->type == MEMBER_CODE) {
-                pointer.push_back('/');
-                append_pointer_token(pointer, leg->leg_ptr, leg->leg_len);
-            } else {
+            } else if (leg->type != MEMBER_CODE) {
                 return false;
             }
         }
         return true;
-    }
-
-    static void append_pointer_token(std::string& out, const char* key, unsigned int len) {
-        for (unsigned int i = 0; i < len; ++i) {
-            char c = key[i];
-            if (c == '~') {
-                out.append("~0");
-            } else if (c == '/') {
-                out.append("~1");
-            } else {
-                out.push_back(c);
-            }
-        }
     }
 
     static void extract_one(simdjson::ondemand::parser& parser, JsonbWriter& writer,
@@ -3217,30 +3202,50 @@ private:
             StringOP::push_null_string(row_idx, res_data, res_offsets, res_null_map);
             return;
         }
-        if (prepared.simple && try_pointer_extract(parser, writer, json_ref, prepared.pointer,
-                                                   row_idx, res_data, res_offsets, res_null_map)) {
+        if (prepared.simple && try_leg_navigate(parser, writer, json_ref, prepared.path, row_idx,
+                                                res_data, res_offsets, res_null_map)) {
             return;
         }
         jsonb_fallback(writer, json_ref, prepared.path, row_idx, res_data, res_offsets,
                        res_null_map);
     }
 
-    // Fast path: navigate with simdjson at_pointer. Returns false (so the caller falls back to the
-    // exact JSONB route) on any miss, type mismatch, or parse error, which keeps the result correct
-    // for escaped document keys and the "index a scalar" quirk that only JsonbPath::findValue knows.
-    static bool try_pointer_extract(simdjson::ondemand::parser& parser, JsonbWriter& writer,
-                                    const StringRef& json_ref, const std::string& pointer,
-                                    size_t row_idx, ColumnString::Chars& res_data,
-                                    ColumnString::Offsets& res_offsets, NullMap& res_null_map) {
+    // Fast path: walk the document leg by leg with simdjson on-demand, dispatching by JsonbPath leg
+    // TYPE. A MEMBER leg calls find_field_unordered (an object op) and an ARRAY leg calls get_array
+    // + at (an array op), so a leg whose container type does not match returns INCORRECT_TYPE and we
+    // fall back. Any miss (type mismatch, missing key, out-of-range index, scalar-root document, or
+    // parse error) returns false so the caller uses the authoritative JsonbPath::findValue fallback,
+    // which reproduces the index==0-on-non-array self quirk, escaped-key matching, and NULL exactly.
+    static bool try_leg_navigate(simdjson::ondemand::parser& parser, JsonbWriter& writer,
+                                 const StringRef& json_ref, const JsonbPath& jpath, size_t row_idx,
+                                 ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
+                                 NullMap& res_null_map) {
         try {
             simdjson::padded_string json_str {json_ref.data, json_ref.size};
             simdjson::ondemand::document doc = parser.iterate(json_str);
-            simdjson::ondemand::value target;
-            if (doc.at_pointer(pointer).get(target)) {
+            simdjson::ondemand::value current;
+            if (doc.get_value().get(current)) {
                 return false;
             }
+            size_t leg_count = jpath.get_leg_vector_size();
+            for (size_t i = 0; i < leg_count; ++i) {
+                const leg_info* leg = jpath.get_leg_from_leg_vector(i);
+                simdjson::ondemand::value next;
+                if (leg->type == MEMBER_CODE) {
+                    if (current.find_field_unordered(std::string_view(leg->leg_ptr, leg->leg_len))
+                                .get(next)) {
+                        return false;
+                    }
+                } else {
+                    simdjson::ondemand::array arr;
+                    if (current.get_array().get(arr) || arr.at(leg->array_index).get(next)) {
+                        return false;
+                    }
+                }
+                current = next;
+            }
             std::string_view raw;
-            if (simdjson::to_json_string(target).get(raw)) {
+            if (simdjson::to_json_string(current).get(raw)) {
                 return false;
             }
             if (!JsonbParser::parse(raw.data(), raw.size(), writer).ok()) {
@@ -3297,7 +3302,7 @@ private:
         }
         if (value->isString()) {
             const auto* str_val = value->unpack<JsonbStringVal>();
-            StringOP::push_value_string(std::string_view(str_val->getBlob(), str_val->length()),
+            StringOP::push_value_string(std::string_view(str_val->getBlob(), str_val->getBlobLen()),
                                         row_idx, res_data, res_offsets);
             return;
         }

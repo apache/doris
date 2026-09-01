@@ -1147,6 +1147,19 @@ TEST(FunctionJsonbTEST, JsonExtractStringFromVarcharTest) {
             {{STRING(R"({"k":5})"), STRING("$.k[0]")}, STRING("5")},
     };
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    // JsonbPath dispatches leg navigation by leg SYNTAX, not by the runtime container. An ARRAY leg
+    // [i] requires an array (with the index==0-on-non-array self quirk that returns the value
+    // itself), and a MEMBER leg .k requires an object. These must match the JSONB route, not a JSON
+    // Pointer that would index/key by whatever the container happens to be. Trailing-NUL string
+    // parity checks getBlobLen() rather than a strnlen-style length. Values are the JSONB-route output.
+    data_set = {
+            {{STRING(R"({"1":"b"})"), STRING("$[1]")}, Null()},
+            {{STRING(R"({"0":"a"})"), STRING("$[0]")}, STRING(R"({"0":"a"})")},
+            {{STRING("[10,20]"), STRING("$.0")}, Null()},
+            {{STRING(R"({"k":"ab\u0000"})"), STRING("$.k")}, std::string("ab\000", 3)},
+    };
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 
 // A path that JsonbPath rejects must raise INVALID_ARGUMENT, matching the JSON-typed route, rather
