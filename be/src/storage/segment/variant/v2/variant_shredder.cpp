@@ -275,15 +275,9 @@ struct VariantShredder::Impl {
                     storage_type = DataTypeFactory::instance().create_data_type(info.column);
                 }
             }
-            if (builder->non_null_rows() == 0) {
-                if (!is_typed_path || options.typed_paths_to_sparse) {
-                    continue;
-                }
-                RETURN_IF_ERROR(builder->convert_to(storage_type));
-            } else {
-                RETURN_IF_ERROR(builder->convert_to(
-                        normalize_variant_path_integer_widths(builder->type())));
-            }
+            DORIS_CHECK_GT(builder->non_null_rows(), 0);
+            RETURN_IF_ERROR(
+                    builder->convert_to(normalize_variant_path_integer_widths(builder->type())));
             if (builder->non_null_rows() != 0 &&
                 variant_path_type_contains_nothing(builder->type()) &&
                 (storage_type == nullptr || variant_path_type_contains_nothing(storage_type))) {

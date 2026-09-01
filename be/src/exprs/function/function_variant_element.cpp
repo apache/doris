@@ -26,6 +26,7 @@
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/string_ref.h"
@@ -136,8 +137,19 @@ public:
     }
 };
 
+class FunctionVariantElementByInteger final : public FunctionVariantElement {
+public:
+    static constexpr auto name = FunctionVariantElement::name;
+    static FunctionPtr create() { return std::make_shared<FunctionVariantElementByInteger>(); }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return {std::make_shared<DataTypeVariant>(), std::make_shared<DataTypeInt64>()};
+    }
+};
+
 void register_function_variant_element(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionVariantElement>();
+    factory.register_function<FunctionVariantElementByInteger>();
 }
 
 } // namespace doris

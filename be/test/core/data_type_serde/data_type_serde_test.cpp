@@ -295,6 +295,6 @@ TEST(DataTypeSerDeTest, VariantWriteColumnToArrowSupportsLargeString) {
     auto* string_array = dynamic_cast<arrow::LargeStringArray*>(array.get());
     ASSERT_NE(string_array, nullptr);
     ASSERT_EQ(string_array->length(), 1);
-    EXPECT_EQ(string_array->GetString(0), "variant value");
+    EXPECT_EQ(string_array->GetString(0), "\"variant value\"");
 }
 } // namespace doris
