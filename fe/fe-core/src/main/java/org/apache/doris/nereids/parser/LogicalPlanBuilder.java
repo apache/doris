@@ -5610,12 +5610,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean isAggFunction = ctx.AGGREGATE() != null;
         boolean isTableFunction = ctx.TABLES() != null;
         FunctionName function = visitFunctionIdentifier(ctx.functionIdentifier());
-        FunctionArgTypesInfo functionArgTypesInfo;
-        if (ctx.functionArguments() != null) {
-            functionArgTypesInfo = visitFunctionArguments(ctx.functionArguments());
-        } else {
-            functionArgTypesInfo = new FunctionArgTypesInfo(new ArrayList<>(), false);
-        }
+        List<DataType> argTypes = ctx.dataTypeList() == null
+                ? new ArrayList<>() : visitDataTypeList(ctx.dataTypeList());
+        FunctionArgTypesInfo functionArgTypesInfo = new FunctionArgTypesInfo(argTypes, false);
         DataType returnType = typedVisit(ctx.returnType);
         returnType = returnType.conversion();
         DataType intermediateType = ctx.intermediateType != null ? typedVisit(ctx.intermediateType) : null;
@@ -5636,12 +5633,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         SetType statementScope = visitStatementScope(ctx.statementScope());
         boolean ifNotExists = ctx.EXISTS() != null;
         FunctionName function = visitFunctionIdentifier(ctx.functionIdentifier());
-        FunctionArgTypesInfo functionArgTypesInfo;
-        if (ctx.functionArguments() != null) {
-            functionArgTypesInfo = visitFunctionArguments(ctx.functionArguments());
-        } else {
-            functionArgTypesInfo = new FunctionArgTypesInfo(new ArrayList<>(), false);
-        }
+        List<DataType> argTypes = ctx.dataTypeList() == null
+                ? new ArrayList<>() : visitDataTypeList(ctx.dataTypeList());
+        FunctionArgTypesInfo functionArgTypesInfo = new FunctionArgTypesInfo(argTypes, false);
         List<String> parameters = ctx.parameters != null ? visitIdentifierSeq(ctx.parameters) : new ArrayList<>();
         Expression originFunction = getExpression(ctx.expression());
         return new CreateFunctionCommand(statementScope, ifNotExists, false, true, false,

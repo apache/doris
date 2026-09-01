@@ -965,14 +965,23 @@ public class NereidsParserTest extends ParserTestBase {
     @Test
     public void testCreateFunction() {
         NereidsParser nereidsParser = new NereidsParser();
-        String sql = "create session tables function func_a (int, ...) returns boolean properties('k'='v')";
-        nereidsParser.parseSingle(sql);
+        nereidsParser.parseSingle(
+                "create session tables function func_a(int) returns boolean properties('k'='v')");
+        nereidsParser.parseSingle("create local aggregate function func_a(int) returns boolean "
+                + "intermediate varchar properties('k'='v')");
+        nereidsParser.parseSingle("create alias function func_a(int) with parameter(id) as abs(id)");
 
-        sql = "create local aggregate function func_a (int, ...) returns boolean intermediate varchar properties('k'='v')";
-        nereidsParser.parseSingle(sql);
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle(
+                "create function func_a(int, ...) returns boolean properties('k'='v')"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle(
+                "create aggregate function func_a(int, ...) returns boolean properties('k'='v')"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle(
+                "create tables function func_a(int, ...) returns boolean properties('k'='v')"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle(
+                "create alias function func_a(int, ...) with parameter(id) as abs(id)"));
 
-        sql = "create alias function func_a (int) with parameter(id) as abs(id)";
-        nereidsParser.parseSingle(sql);
+        nereidsParser.parseSingle("drop function func_a(int, ...)");
+        nereidsParser.parseSingle("show create function func_a(int, ...)");
     }
 
     @Test

@@ -385,12 +385,12 @@ createStatement
     | CREATE ENCRYPTKEY (IF NOT EXISTS)? multipartIdentifier AS STRING_LITERAL  #createEncryptkey
     | CREATE statementScope?
             (TABLES | AGGREGATE)? FUNCTION (IF NOT EXISTS)?
-            functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
+            functionIdentifier LEFT_PAREN dataTypeList? RIGHT_PAREN
             RETURNS returnType=dataType (INTERMEDIATE intermediateType=dataType)?
             properties=propertyClause?
             (AS functionCode=dollarQuotedString)?                                   #createUserDefineFunction
     | CREATE statementScope? ALIAS FUNCTION (IF NOT EXISTS)?
-            functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
+            functionIdentifier LEFT_PAREN dataTypeList? RIGHT_PAREN
             WITH PARAMETER LEFT_PAREN parameters=identifierSeq? RIGHT_PAREN
             AS expression                                                           #createAliasFunction
     | CREATE USER (IF NOT EXISTS)? grantUserIdentify
