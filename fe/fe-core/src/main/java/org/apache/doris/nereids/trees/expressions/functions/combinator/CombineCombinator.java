@@ -33,11 +33,9 @@ import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.NotSupportAggState;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctionParams;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctionParams;
-import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
@@ -48,73 +46,77 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * AggState combinator state
+ * Aggregate inputs into the nested function's serialized state.
  */
-public class StateCombinator extends ScalarFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable, Combinator, RollUpTrait {
+public class CombineCombinator extends AggregateFunction
+        implements ExplicitlyCastableSignature, AlwaysNotNullable, Combinator, RollUpTrait {
 
     private final AggregateFunction nested;
     private final AggStateType returnType;
 
-    /**
-     * constructor of StateCombinator
-     */
-    public StateCombinator(List<Expression> arguments, AggregateFunction nested) {
-        super(nested.getName() + AggCombinerFunctionBuilder.STATE_SUFFIX, arguments);
-        if (nested instanceof NotSupportAggState) {
-            throw new AnalysisException("Aggregate function does not support AggState: " + nested.getName());
-        }
-        for (Expression arg : arguments) {
-            if (arg instanceof OrderExpression) {
-                throw new AnalysisException(String
-                        .format("%s_state doesn't support order by expression", nested.getName()));
-            }
-        }
-
+    /** Constructor of CombineCombinator. */
+    public CombineCombinator(List<Expression> arguments, AggregateFunction nested) {
+        super(nested.getName() + AggCombinerFunctionBuilder.COMBINE_SUFFIX, arguments);
+        checkArguments(arguments, nested);
         this.nested = Objects.requireNonNull(nested, "nested can not be null");
-        this.returnType = new AggStateType(nested.getName(),
-                arguments.stream().map(ExpressionTrait::getDataType).collect(ImmutableList.toImmutableList()),
-                arguments.stream().map(ExpressionTrait::nullable).collect(ImmutableList.toImmutableList()),
-                BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(nested.getName()));
+        this.returnType = createReturnType(arguments, nested);
     }
 
-    private StateCombinator(ScalarFunctionParams functionParams, AggregateFunction nested) {
+    private CombineCombinator(AggregateFunctionParams functionParams, AggregateFunction nested) {
         super(functionParams);
-        for (Expression arg : functionParams.arguments) {
-            if (arg instanceof OrderExpression) {
-                throw new AnalysisException(String
-                        .format("%s_state doesn't support order by expression", nested.getName()));
-            }
-        }
-
+        checkArguments(functionParams.arguments, nested);
         this.nested = Objects.requireNonNull(nested, "nested can not be null");
-        this.returnType = new AggStateType(nested.getName(),
-                functionParams.arguments.stream()
-                        .map(ExpressionTrait::getDataType).collect(ImmutableList.toImmutableList()),
-                functionParams.arguments.stream()
-                        .map(ExpressionTrait::nullable).collect(ImmutableList.toImmutableList()),
-                BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(nested.getName()));
+        this.returnType = createReturnType(functionParams.arguments, nested);
     }
 
-    public static StateCombinator create(AggregateFunction nested) {
-        return new StateCombinator(nested.getArguments(), nested);
+    private static void checkArguments(List<Expression> arguments, AggregateFunction nested) {
+        if (arguments.isEmpty()) {
+            throw new AnalysisException(String.format(
+                    "%s_combine requires at least one argument", nested.getName()));
+        }
+        for (Expression argument : arguments) {
+            if (argument instanceof OrderExpression) {
+                throw new AnalysisException(String.format(
+                        "%s_combine doesn't support order by expression", nested.getName()));
+            }
+        }
+    }
+
+    private static AggStateType createReturnType(List<Expression> arguments, AggregateFunction nested) {
+        // The raw arguments determine the nested signature. Retargeting this state through a loose
+        // AggState cast would make FE metadata disagree with the state produced by the aggregate.
+        return new AggStateType(nested.getName(),
+                arguments.stream().map(ExpressionTrait::getDataType)
+                        .collect(ImmutableList.toImmutableList()),
+                arguments.stream().map(ExpressionTrait::nullable)
+                        .collect(ImmutableList.toImmutableList()),
+                BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(nested.getName()),
+                false);
     }
 
     @Override
-    public StateCombinator withChildren(List<Expression> children) {
-        return new StateCombinator(getFunctionParams(children), nested);
+    public CombineCombinator withChildren(List<Expression> children) {
+        return new CombineCombinator(getFunctionParams(children), nested);
+    }
+
+    @Override
+    public AggregateFunction withDistinctAndChildren(boolean distinct, List<Expression> children) {
+        if (distinct) {
+            throw new AnalysisException(getName() + " doesn't support DISTINCT");
+        }
+        return new CombineCombinator(getFunctionParams(false, children), nested);
     }
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return nested.getSignatures().stream().map(sig -> {
-            return sig.withReturnType(returnType);
-        }).collect(ImmutableList.toImmutableList());
+        return nested.getSignatures().stream()
+                .map(signature -> signature.withReturnType(returnType))
+                .collect(ImmutableList.toImmutableList());
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitStateCombinator(this, context);
+        return visitor.visitCombineCombinator(this, context);
     }
 
     @Override
@@ -128,10 +130,19 @@ public class StateCombinator extends ScalarFunction
     }
 
     @Override
+    public boolean supportAggregatePhase(AggregatePhase aggregatePhase) {
+        return nested.supportAggregatePhase(aggregatePhase);
+    }
+
+    @Override
+    protected List<DataType> intermediateTypes() {
+        return nested.getIntermediateTypes().getIntermediateTypes();
+    }
+
+    @Override
     public Function constructRollUp(Expression param, Expression... varParams) {
         String nestedName = AggCombinerFunctionBuilder.getNestedName(getName());
         FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
-        // state combinator roll up result should be union combinator
         String combinatorName = nestedName + AggCombinerFunctionBuilder.UNION_SUFFIX;
         FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(combinatorName, param);
         Pair<? extends Expression, ? extends BoundFunction> targetExpressionPair =
