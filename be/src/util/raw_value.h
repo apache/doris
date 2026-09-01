@@ -49,7 +49,7 @@ public:
 };
 
 inline uint32_t RawValue::identity_hash(const void* v, size_t len, const PrimitiveType& type,
-                                         uint32_t seed, uint32_t mod) {
+                                        uint32_t seed, uint32_t mod) {
     DCHECK_GT(mod, 0);
     auto append_little_endian = [&seed, mod](const void* value, size_t size) {
         const auto* bytes = reinterpret_cast<const uint8_t*>(value);

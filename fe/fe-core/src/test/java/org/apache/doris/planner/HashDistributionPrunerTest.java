@@ -24,8 +24,10 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.VarBinaryLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HashDistributionInfo.HashType;
 import org.apache.doris.catalog.LocalTablet;
@@ -212,7 +214,17 @@ public class HashDistributionPrunerTest {
     }
 
     @Test
-    public void testIdentityPruneWithIpCanonicalBytes() throws Exception {
+    public void testIdentityNullCanonicalBytes() {
+        PartitionKey nullKey = new PartitionKey();
+        nullKey.pushColumn(new NullLiteral(), PrimitiveType.INT);
+        Assert.assertEquals(0, nullKey.getIdentityHashValue(257));
+
+        nullKey.pushColumn(new StringLiteral("A"), PrimitiveType.VARCHAR);
+        Assert.assertEquals(65, nullKey.getIdentityHashValue(257));
+    }
+
+    @Test
+    public void testIdentityPruneWithIpAndVarBinaryCanonicalBytes() throws Exception {
         PartitionKey ipv4 = new PartitionKey();
         ipv4.pushColumn(new IPv4Literal("1.2.3.4"), PrimitiveType.IPV4);
         Assert.assertEquals(2, ipv4.getIdentityHashValue(257));
@@ -220,6 +232,10 @@ public class HashDistributionPrunerTest {
         PartitionKey ipv6 = new PartitionKey();
         ipv6.pushColumn(new IPv6Literal("::1"), PrimitiveType.IPV6);
         Assert.assertEquals(1, ipv6.getIdentityHashValue(257));
+
+        PartitionKey varBinary = new PartitionKey();
+        varBinary.pushColumn(new VarBinaryLiteral(new byte[] {(byte) 0xff, 0}), PrimitiveType.VARBINARY);
+        Assert.assertEquals(255, varBinary.getIdentityHashValue(257));
     }
 
     private void assertIdentityBucket(List<Long> tabletIds, List<Column> columns, String colName, Expr value,

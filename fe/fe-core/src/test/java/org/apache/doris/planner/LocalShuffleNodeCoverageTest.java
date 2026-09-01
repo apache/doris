@@ -74,6 +74,8 @@ public class LocalShuffleNodeCoverageTest {
                 LocalExchangeType.BUCKET_HASH_SHUFFLE, Collections.emptyList());
         Assertions.assertEquals(HashDistributionInfo.HashType.IDENTITY,
                 bucket.getStorageDistributionHashType());
+        Assertions.assertEquals(TDistributionHashType.IDENTITY,
+                bucket.treeToThrift().getNodes().get(0).getLocalExchangeNode().getDistributionHashType());
 
         PlanFragment fragment = new PlanFragment(new PlanFragmentId(1), bucket, DataPartition.UNPARTITIONED);
         Assertions.assertEquals(TDistributionHashType.IDENTITY, fragment.toThrift().getDistributionHashType());

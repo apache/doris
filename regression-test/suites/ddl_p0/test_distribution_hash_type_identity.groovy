@@ -72,6 +72,48 @@ suite("test_distribution_hash_type_identity") {
         );
     """
 
+    sql "DROP TABLE IF EXISTS test_dist_hash_nullable"
+    sql """
+        CREATE TABLE `test_dist_hash_nullable` (
+            `name` VARCHAR(32) NULL,
+            `v` INT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`name`)
+        DISTRIBUTED BY HASH(`name`) BUCKETS 8
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "distribution_hash_type" = "identity"
+        );
+    """
+
+    sql "DROP TABLE IF EXISTS test_dist_hash_ipv4"
+    sql """
+        CREATE TABLE `test_dist_hash_ipv4` (
+            `addr` IPV4 NOT NULL,
+            `v` INT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`addr`)
+        DISTRIBUTED BY HASH(`addr`) BUCKETS 8
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "distribution_hash_type" = "identity"
+        );
+    """
+
+    sql "DROP TABLE IF EXISTS test_dist_hash_ipv6"
+    sql """
+        CREATE TABLE `test_dist_hash_ipv6` (
+            `addr` IPV6 NOT NULL,
+            `v` INT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`addr`)
+        DISTRIBUTED BY HASH(`addr`) BUCKETS 8
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "distribution_hash_type" = "identity"
+        );
+    """
+
     sql "DROP TABLE IF EXISTS test_dist_hash_multi_col"
     sql """
         CREATE TABLE `test_dist_hash_multi_col` (
@@ -81,6 +123,22 @@ suite("test_distribution_hash_type_identity") {
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`, `name`)
         DISTRIBUTED BY HASH(`id`, `name`) BUCKETS 10
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "distribution_hash_type" = "identity"
+        );
+    """
+
+    sql "DROP TABLE IF EXISTS test_dist_hash_typed_multi"
+    sql """
+        CREATE TABLE `test_dist_hash_typed_multi` (
+            `d` DATE NOT NULL,
+            `dt` DATETIMEV2(6) NOT NULL,
+            `amount` DECIMAL(18, 2) NOT NULL,
+            `v` INT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`d`, `dt`)
+        DISTRIBUTED BY HASH(`d`, `dt`, `amount`) BUCKETS 10
         PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
             "distribution_hash_type" = "identity"
@@ -163,38 +221,48 @@ suite("test_distribution_hash_type_identity") {
     sql """ INSERT INTO test_dist_hash_identity VALUES
                 (0, 100), (1, 101), (7, 107), (8, 108), (513, 613), (-1, 200), (1024, 300) """
 
-    assertEquals(7, sql("SELECT COUNT(*) FROM test_dist_hash_identity")[0][0] as int)
+    qt_identity_count "SELECT COUNT(*) FROM test_dist_hash_identity"
 
-    // equality queries drive single-bucket pruning; every inserted key must be locatable.
-    [0L, 1L, 7L, 8L, 513L, -1L, 1024L].each { key ->
-        def rows = sql("SELECT id FROM test_dist_hash_identity WHERE id = ${key}")
-        assertEquals(1, rows.size(), "equality pruning lost row id=${key}".toString())
-        assertEquals(key, rows[0][0] as long)
-    }
+    // Each equality query drives single-bucket pruning.
+    qt_identity_eq_0 "SELECT id FROM test_dist_hash_identity WHERE id = 0"
+    qt_identity_eq_1 "SELECT id FROM test_dist_hash_identity WHERE id = 1"
+    qt_identity_eq_7 "SELECT id FROM test_dist_hash_identity WHERE id = 7"
+    qt_identity_eq_8 "SELECT id FROM test_dist_hash_identity WHERE id = 8"
+    qt_identity_eq_513 "SELECT id FROM test_dist_hash_identity WHERE id = 513"
+    qt_identity_eq_negative_1 "SELECT id FROM test_dist_hash_identity WHERE id = -1"
+    qt_identity_eq_1024 "SELECT id FROM test_dist_hash_identity WHERE id = 1024"
 
-    // IN-list pruning must return all three matching keys.
-    def inRows = sql("SELECT id FROM test_dist_hash_identity WHERE id IN (7, 8, 1024) ORDER BY id")
-    assertEquals(3, inRows.size())
-    assertEquals([7L, 8L, 1024L], inRows.collect { it[0] as long })
+    order_qt_identity_in "SELECT id FROM test_dist_hash_identity WHERE id IN (7, 8, 1024)"
 
     // Non-integer and multi-column identity layouts must use the same canonical bytes in BE
     // writes, FE tablet pruning, and bucket shuffle.
     sql "INSERT INTO test_dist_hash_string VALUES ('alpha', 1), ('beta', 2)"
-    def stringRows = sql("SELECT name, v FROM test_dist_hash_string WHERE name = 'beta'")
-    assertEquals(1, stringRows.size())
-    assertEquals("beta", stringRows[0][0].toString())
-    assertEquals(2, stringRows[0][1] as int)
+    qt_identity_string "SELECT name, v FROM test_dist_hash_string WHERE name = 'beta'"
+
+    sql "INSERT INTO test_dist_hash_nullable VALUES (NULL, 9), ('x', 10)"
+    qt_identity_null "SELECT v FROM test_dist_hash_nullable WHERE name <=> NULL"
+
+    sql "INSERT INTO test_dist_hash_ipv4 VALUES (to_ipv4('1.2.3.4'), 4), (to_ipv4('10.0.0.1'), 10)"
+    qt_identity_ipv4 "SELECT v FROM test_dist_hash_ipv4 WHERE addr = to_ipv4('1.2.3.4')"
+
+    sql "INSERT INTO test_dist_hash_ipv6 VALUES (to_ipv6('::1'), 1), (to_ipv6('2001:db8::1'), 6)"
+    qt_identity_ipv6 "SELECT v FROM test_dist_hash_ipv6 WHERE addr = to_ipv6('::1')"
 
     sql """ INSERT INTO test_dist_hash_multi_col VALUES
                 (1, 'A', 10), (1, 'B', 11), (-1, 'A', 12), (2, 'BC', 13) """
-    def multiRows = sql("""
+    order_qt_identity_multi """
         SELECT id, name, v FROM test_dist_hash_multi_col
         WHERE id = -1 AND name = 'A'
-    """)
-    assertEquals(1, multiRows.size())
-    assertEquals(-1, multiRows[0][0] as int)
-    assertEquals("A", multiRows[0][1].toString())
-    assertEquals(12, multiRows[0][2] as int)
+    """
+
+    sql """ INSERT INTO test_dist_hash_typed_multi VALUES
+                ('2026-01-02', '2026-01-02 03:04:05.123456', 123.45, 7) """
+    qt_identity_typed """
+        SELECT v FROM test_dist_hash_typed_multi
+        WHERE d = '2026-01-02'
+          AND dt = '2026-01-02 03:04:05.123456'
+          AND amount = 123.45
+    """
 
     // ---------------------------------------------------------------------
     // 5. bucket data distribution: identity spreads rows evenly, crc32 does not.
@@ -245,18 +313,10 @@ suite("test_distribution_hash_type_identity") {
     sql "INSERT INTO test_dist_hash_identity VALUES ${bucketInsert}"
 
     // sanity: both tables received all 80 rows with 10 rows per id (no rows dropped on write).
-    [
-        "test_dist_hash_default",
-        "test_dist_hash_identity",
-    ].each { tbl ->
-        assertEquals(80,
-                sql("SELECT COUNT(*) FROM ${tbl}")[0][0] as int, "row total mismatch for ${tbl}".toString())
-        def perId = sql("SELECT id, COUNT(*) FROM ${tbl} GROUP BY id ORDER BY id")
-        assertEquals(8, perId.size())
-        perId.each { r ->
-            assertEquals(10L, r[1] as long, "id=${r[0]} in ${tbl} must have 10 rows".toString())
-        }
-    }
+    qt_crc32_row_count "SELECT COUNT(*) FROM test_dist_hash_default"
+    qt_identity_row_count "SELECT COUNT(*) FROM test_dist_hash_identity"
+    order_qt_crc32_rows_per_id "SELECT id, COUNT(*) FROM test_dist_hash_default GROUP BY id"
+    order_qt_identity_rows_per_id "SELECT id, COUNT(*) FROM test_dist_hash_identity GROUP BY id"
 
     // crc32: at least one bucket is empty and at least one bucket is overloaded (>10 rows),
     // because crc32(id)%8 collides ids 3 and 8 and skips one bucket for ids 1..8.
@@ -305,10 +365,8 @@ suite("test_distribution_hash_type_identity") {
     sql """ INSERT INTO test_dist_hash_identity_part VALUES (5, 5), (513, 5), (5, 15), (513, 15) """
     // rows in the newly added partition p2 (dt=15) must be found by equality pruning too;
     // if the new partition fell back to crc32, BE/FE hash mismatch would drop these rows.
-    def p2Rows = sql("SELECT id FROM test_dist_hash_identity_part WHERE dt = 15 AND id = 513")
-    assertEquals(1, p2Rows.size(), "ADD PARTITION did not inherit identity: row lost in p2")
-    assertEquals(513L, p2Rows[0][0] as long)
-    assertEquals(4, sql("SELECT COUNT(*) FROM test_dist_hash_identity_part")[0][0] as int)
+    qt_identity_added_partition "SELECT id FROM test_dist_hash_identity_part WHERE dt = 15 AND id = 513"
+    qt_identity_partition_count "SELECT COUNT(*) FROM test_dist_hash_identity_part"
 
     // ---------------------------------------------------------------------
     // 7. colocate join: two identity tables in the same colocate group join with no reshuffle.
@@ -329,10 +387,8 @@ suite("test_distribution_hash_type_identity") {
         contains "HAS_COLO_PLAN_NODE: true"
     }
 
-    def coloJoin = sql("""SELECT a.id FROM test_dist_hash_colo_id1 a
-                            JOIN test_dist_hash_colo_id2 b ON a.id = b.id ORDER BY a.id""")
-    // intersection of the two inserted key sets: {1, 7, 8, 1024}
-    assertEquals([1L, 7L, 8L, 1024L], coloJoin.collect { it[0] as long })
+    order_qt_identity_colocate_join """SELECT a.id FROM test_dist_hash_colo_id1 a
+                                           JOIN test_dist_hash_colo_id2 b ON a.id = b.id"""
 
     // a crc32 table joining an identity table must NOT colocate (different hash functions).
     sql "DROP TABLE IF EXISTS test_dist_hash_join_crc32"
@@ -349,9 +405,12 @@ suite("test_distribution_hash_type_identity") {
     sql "INSERT INTO test_dist_hash_join_crc32 VALUES (1), (7), (8), (1024)"
     explain {
         sql("""SELECT a.id FROM test_dist_hash_colo_id1 a
-                 JOIN test_dist_hash_join_crc32 b ON a.id = b.id""")
+                 JOIN [shuffle] test_dist_hash_join_crc32 b ON a.id = b.id""")
         contains "HAS_COLO_PLAN_NODE: false"
+        contains "INNER JOIN(PARTITIONED)"
     }
+    order_qt_mixed_hash_join """SELECT a.id FROM test_dist_hash_colo_id1 a
+                                    JOIN [shuffle] test_dist_hash_join_crc32 b ON a.id = b.id"""
 
     // ---------------------------------------------------------------------
     // 8. bucket-shuffle join: an identity table joins a table with a different bucket count.
@@ -362,6 +421,9 @@ suite("test_distribution_hash_type_identity") {
     sql "set enable_nereids_planner=true"
     sql "set enable_bucket_shuffle_join = true"
     sql "set bucket_shuffle_downgrade_ratio = 0"
+
+    // Exercise BE-native local-exchange planning; fragment metadata must preserve IDENTITY.
+    sql "set enable_local_shuffle_planner = false"
 
     sql "DROP TABLE IF EXISTS test_dist_hash_bs_left"
     sql "DROP TABLE IF EXISTS test_dist_hash_bs_right"
@@ -402,14 +464,14 @@ suite("test_distribution_hash_type_identity") {
         contains "INNER JOIN(BUCKET_SHUFFLE)"
     }
 
-    def bsJoin = sql("""SELECT l.id, l.v, r.w FROM test_dist_hash_bs_left l
-                          JOIN test_dist_hash_bs_right r ON l.id = r.id ORDER BY l.id""")
-    // intersection of keys: {-8, -1, 7, 8, 513, 1024}; verify identity reshuffle keeps every match.
-    assertEquals([-8L, -1L, 7L, 8L, 513L, 1024L], bsJoin.collect { it[0] as long })
-    // spot-check a paired value to prove rows are joined correctly, not just counted.
-    def pair513 = bsJoin.find { (it[0] as long) == 513L }
-    assertEquals(4, pair513[1] as int)
-    assertEquals(40, pair513[2] as int)
+    order_qt_identity_bucket_shuffle_native """SELECT l.id, l.v, r.w FROM test_dist_hash_bs_left l
+                                                   JOIN [shuffle] test_dist_hash_bs_right r ON l.id = r.id"""
+
+    // Exercise the FE-planned local exchange path with the same bucket-shuffle query.
+    sql "set enable_local_shuffle_planner = true"
+    order_qt_identity_bucket_shuffle_fe """SELECT l.id, l.v, r.w FROM test_dist_hash_bs_left l
+                                               JOIN [shuffle] test_dist_hash_bs_right r ON l.id = r.id"""
+    sql "set enable_local_shuffle_planner = false"
 
     // Multi-column mixed-type identity bucket shuffle follows the same composition as storage.
     sql "DROP TABLE IF EXISTS test_dist_hash_bs_multi_right"
@@ -436,12 +498,48 @@ suite("test_distribution_hash_type_identity") {
         contains "INNER JOIN(BUCKET_SHUFFLE)"
     }
 
-    def multiBsJoin = sql("""SELECT l.id, l.name, l.v, r.w
-                                FROM test_dist_hash_multi_col l
-                                JOIN test_dist_hash_bs_multi_right r
-                                ON l.id = r.id AND l.name = r.name
-                                ORDER BY l.id, l.name""")
-    assertEquals(3, multiBsJoin.size())
-    assertEquals([-1, 1, 2], multiBsJoin.collect { it[0] as int })
-    assertEquals(["A", "A", "BC"], multiBsJoin.collect { it[1].toString() })
+    order_qt_identity_multi_bucket_shuffle """SELECT l.id, l.name, l.v, r.w
+                                                   FROM test_dist_hash_multi_col l
+                                                   JOIN [shuffle] test_dist_hash_bs_multi_right r
+                                                   ON l.id = r.id AND l.name = r.name"""
+
+    sql "DROP TABLE IF EXISTS test_dist_hash_nullable_right"
+    sql """
+        CREATE TABLE `test_dist_hash_nullable_right` (
+            `name` VARCHAR(32) NULL,
+            `w` INT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`name`)
+        DISTRIBUTED BY HASH(`name`) BUCKETS 7
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "distribution_hash_type" = "identity"
+        );
+    """
+    sql "INSERT INTO test_dist_hash_nullable_right VALUES (NULL, 90), ('x', 100)"
+    explain {
+        sql("""SELECT l.v, r.w FROM test_dist_hash_nullable l
+                 JOIN [shuffle] test_dist_hash_nullable_right r ON l.name <=> r.name""")
+        contains "INNER JOIN(BUCKET_SHUFFLE)"
+    }
+    order_qt_identity_nullable_bucket_shuffle """SELECT l.v, r.w FROM test_dist_hash_nullable l
+                                                      JOIN [shuffle] test_dist_hash_nullable_right r
+                                                      ON l.name <=> r.name"""
+
+    // A set operation that preserves an identity storage layout must expose IDENTITY to its parent.
+    def setOperationJoinSql = """
+        SELECT u.id, u.name, u.v, r.w
+        FROM (
+            SELECT id, name, v FROM test_dist_hash_multi_col WHERE id <= 1
+            UNION ALL
+            SELECT id, name, v FROM test_dist_hash_multi_col WHERE id = 2
+        ) u
+        JOIN [shuffle] test_dist_hash_bs_multi_right r
+          ON u.id = r.id AND u.name = r.name
+    """
+    explain {
+        sql(setOperationJoinSql)
+        contains "INNER JOIN(BUCKET_SHUFFLE)"
+    }
+    order_qt_identity_set_operation_join "${setOperationJoinSql}"
 }

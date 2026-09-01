@@ -90,8 +90,8 @@ void IdentityHashPartitioner::_do_hash(const ColumnPtr& column, HashValType* __r
     const PrimitiveType type = _partition_expr_ctxs[idx]->root()->data_type()->get_primitive_type();
     for (size_t row = 0; row < column->size(); ++row) {
         auto val = column->get_data_at(row);
-        result[row] = RawValue::identity_hash(val.data, val.size, type, result[row],
-                                              _partition_count);
+        result[row] =
+                RawValue::identity_hash(val.data, val.size, type, result[row], _partition_count);
     }
 }
 
