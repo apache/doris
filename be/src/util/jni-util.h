@@ -606,6 +606,9 @@ public:
 
     bool uninitialized() const { return _obj == nullptr; }
 
+    // Access the JNI handle without changing ownership.
+    jobject get() const { return _obj; }
+
     void reset(JNIEnv* env) {
         if (_obj == nullptr) {
             return;
