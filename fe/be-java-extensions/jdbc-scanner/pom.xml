@@ -74,12 +74,6 @@ under the License.
             <artifactId>gson</artifactId>
         </dependency>
 
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
-
         <!--
           Logging: everything this plugin logs, its own classes and HikariCP alike, has to reach
           the one file BE's plugin runtime configures - log/jni.log, written through

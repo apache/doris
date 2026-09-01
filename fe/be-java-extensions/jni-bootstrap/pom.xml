@@ -49,11 +49,6 @@ under the License.
             <artifactId>jni-spi</artifactId>
             <version>${project.version}</version>
         </dependency>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
 
         <!--
           Test scope, and it stays test scope: statusJson() writes JSON by hand precisely so that
