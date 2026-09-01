@@ -343,8 +343,8 @@ public class ThriftHmsClientWriteAcidTest {
         HmsPartitionBatchStats stats = failure.getPartitionBatchStats();
         Assertions.assertNotNull(stats);
         Assertions.assertEquals(3, stats.getRequestedItems());
-        Assertions.assertEquals(2, stats.getRpcAttempts());
-        Assertions.assertEquals(3, stats.getRpcItems());
+        Assertions.assertEquals(2, stats.getTransportInvocations());
+        Assertions.assertEquals(3, stats.getTransportItems());
         Assertions.assertEquals(2, stats.getLargestBatchSize());
         Assertions.assertEquals(1, stats.getSmallestBatchSize());
         Assertions.assertEquals(0, stats.getFallbackCount());

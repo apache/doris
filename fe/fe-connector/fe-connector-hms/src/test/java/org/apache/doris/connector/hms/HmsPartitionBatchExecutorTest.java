@@ -93,13 +93,13 @@ public class HmsPartitionBatchExecutorTest {
 
         Assertions.assertEquals(5, result.getPartitions().size());
         Assertions.assertEquals(5, stats.getRequestedItems());
-        Assertions.assertEquals(4, stats.getRpcAttempts());
-        Assertions.assertEquals(9, stats.getRpcItems());
+        Assertions.assertEquals(4, stats.getTransportInvocations());
+        Assertions.assertEquals(9, stats.getTransportItems());
         Assertions.assertEquals(4, stats.getLargestBatchSize());
         Assertions.assertEquals(1, stats.getSmallestBatchSize());
         Assertions.assertEquals(1, stats.getFallbackCount());
-        Assertions.assertTrue(stats.getLogicalElapsedNanos() >= stats.getRpcElapsedNanos());
-        Assertions.assertTrue(stats.getRpcElapsedNanos() >= stats.getMaxRpcElapsedNanos());
+        Assertions.assertTrue(stats.getLogicalElapsedNanos() >= stats.getTransportElapsedNanos());
+        Assertions.assertTrue(stats.getTransportElapsedNanos() >= stats.getMaxTransportElapsedNanos());
     }
 
     @Test
@@ -114,16 +114,16 @@ public class HmsPartitionBatchExecutorTest {
                 HmsClientException.class, () -> executor.execute(request(names(2))));
         Assertions.assertEquals(Arrays.asList(2, 1), attempts);
         Assertions.assertTrue(failure.getMessage().contains("failedBatchSize=1"));
-        Assertions.assertTrue(failure.getMessage().contains("attempts=2"));
+        Assertions.assertTrue(failure.getMessage().contains("transportInvocations=2"));
         HmsPartitionBatchStats stats = failure.getPartitionBatchStats();
         Assertions.assertNotNull(stats);
         Assertions.assertEquals(2, stats.getRequestedItems());
-        Assertions.assertEquals(2, stats.getRpcAttempts());
-        Assertions.assertEquals(3, stats.getRpcItems());
+        Assertions.assertEquals(2, stats.getTransportInvocations());
+        Assertions.assertEquals(3, stats.getTransportItems());
         Assertions.assertEquals(2, stats.getLargestBatchSize());
         Assertions.assertEquals(1, stats.getSmallestBatchSize());
         Assertions.assertEquals(1, stats.getFallbackCount());
-        Assertions.assertTrue(stats.getLogicalElapsedNanos() >= stats.getRpcElapsedNanos());
+        Assertions.assertTrue(stats.getLogicalElapsedNanos() >= stats.getTransportElapsedNanos());
     }
 
     @Test
@@ -140,8 +140,8 @@ public class HmsPartitionBatchExecutorTest {
         HmsPartitionBatchStats stats = failure.getPartitionBatchStats();
         Assertions.assertNotNull(stats);
         Assertions.assertEquals(8, stats.getRequestedItems());
-        Assertions.assertEquals(1, stats.getRpcAttempts());
-        Assertions.assertEquals(8, stats.getRpcItems());
+        Assertions.assertEquals(1, stats.getTransportInvocations());
+        Assertions.assertEquals(8, stats.getTransportItems());
         Assertions.assertEquals(8, stats.getLargestBatchSize());
         Assertions.assertEquals(8, stats.getSmallestBatchSize());
         Assertions.assertEquals(0, stats.getFallbackCount());

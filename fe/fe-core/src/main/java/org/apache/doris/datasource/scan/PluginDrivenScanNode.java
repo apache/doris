@@ -1107,9 +1107,21 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return;
         }
         ConnectorMetadata metadata = metadata();
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         ConnectorFilterConstraint constraint = buildFilterConstraint(conjuncts);
-        Optional<FilterApplicationResult<ConnectorTableHandle>> result =
-                metadata.applyFilter(connectorSession, currentHandle, constraint);
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result;
+        try {
+            result = metadata.applyFilter(connectorSession, currentHandle, constraint);
+        } catch (RuntimeException failure) {
+            if (scanProvider != null) {
+                try {
+                    collectAndAppendConnectorScanProfiles(scanProvider);
+                } catch (RuntimeException profileFailure) {
+                    failure.addSuppressed(profileFailure);
+                }
+            }
+            throw failure;
+        }
         if (result.isPresent()) {
             FilterApplicationResult<ConnectorTableHandle> filterResult = result.get();
             currentHandle = filterResult.getHandle();

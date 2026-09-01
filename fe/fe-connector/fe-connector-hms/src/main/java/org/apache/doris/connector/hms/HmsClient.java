@@ -175,8 +175,8 @@ public interface HmsClient extends Closeable {
     }
 
     /**
-     * Returns partition objects together with physical batching statistics. Implementations that do not expose
-     * transport details retain the regular result and report a logical-only event.
+     * Returns partition objects together with transport-invocation batching statistics. Implementations that do not
+     * expose transport details retain the regular result and report a logical-only event.
      */
     default HmsPartitionBatchResult getPartitionsWithStats(String dbName, String tableName,
             List<String> partNames) {
@@ -190,7 +190,7 @@ public interface HmsClient extends Closeable {
     }
 
     /**
-     * Returns the requested partitions that still exist together with physical batching statistics.
+     * Returns the requested partitions that still exist together with transport-invocation batching statistics.
      * Implementations that do not expose transport details retain the omission-tolerant result and report a
      * logical-only event.
      */

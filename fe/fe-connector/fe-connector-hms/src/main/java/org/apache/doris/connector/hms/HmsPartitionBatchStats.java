@@ -24,25 +24,25 @@ public final class HmsPartitionBatchStats implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private final int requestedItems;
-    private final int rpcAttempts;
-    private final long rpcItems;
+    private final int transportInvocations;
+    private final long transportItems;
     private final int largestBatchSize;
     private final int smallestBatchSize;
     private final int fallbackCount;
     private final long logicalElapsedNanos;
-    private final long rpcElapsedNanos;
-    private final long maxRpcElapsedNanos;
+    private final long transportElapsedNanos;
+    private final long maxTransportElapsedNanos;
 
     private HmsPartitionBatchStats(Builder builder) {
         this.requestedItems = builder.requestedItems;
-        this.rpcAttempts = builder.rpcAttempts;
-        this.rpcItems = builder.rpcItems;
+        this.transportInvocations = builder.transportInvocations;
+        this.transportItems = builder.transportItems;
         this.largestBatchSize = builder.largestBatchSize;
         this.smallestBatchSize = builder.smallestBatchSize;
         this.fallbackCount = builder.fallbackCount;
         this.logicalElapsedNanos = builder.logicalElapsedNanos;
-        this.rpcElapsedNanos = builder.rpcElapsedNanos;
-        this.maxRpcElapsedNanos = builder.maxRpcElapsedNanos;
+        this.transportElapsedNanos = builder.transportElapsedNanos;
+        this.maxTransportElapsedNanos = builder.maxTransportElapsedNanos;
     }
 
     public static Builder builder() {
@@ -53,12 +53,12 @@ public final class HmsPartitionBatchStats implements Serializable {
         return requestedItems;
     }
 
-    public int getRpcAttempts() {
-        return rpcAttempts;
+    public int getTransportInvocations() {
+        return transportInvocations;
     }
 
-    public long getRpcItems() {
-        return rpcItems;
+    public long getTransportItems() {
+        return transportItems;
     }
 
     public int getLargestBatchSize() {
@@ -77,39 +77,39 @@ public final class HmsPartitionBatchStats implements Serializable {
         return logicalElapsedNanos;
     }
 
-    public long getRpcElapsedNanos() {
-        return rpcElapsedNanos;
+    public long getTransportElapsedNanos() {
+        return transportElapsedNanos;
     }
 
-    public long getMaxRpcElapsedNanos() {
-        return maxRpcElapsedNanos;
+    public long getMaxTransportElapsedNanos() {
+        return maxTransportElapsedNanos;
     }
 
-    /** Keeps physical-attempt statistics while replacing the outer logical-request dimensions. */
+    /** Keeps transport-invocation statistics while replacing the outer logical-request dimensions. */
     public HmsPartitionBatchStats forLogicalRequest(int logicalRequestedItems, long logicalElapsed) {
         return builder()
                 .requestedItems(logicalRequestedItems)
-                .rpcAttempts(rpcAttempts)
-                .rpcItems(rpcItems)
+                .transportInvocations(transportInvocations)
+                .transportItems(transportItems)
                 .largestBatchSize(largestBatchSize)
                 .smallestBatchSize(smallestBatchSize)
                 .fallbackCount(fallbackCount)
                 .logicalElapsedNanos(logicalElapsed)
-                .rpcElapsedNanos(rpcElapsedNanos)
-                .maxRpcElapsedNanos(maxRpcElapsedNanos)
+                .transportElapsedNanos(transportElapsedNanos)
+                .maxTransportElapsedNanos(maxTransportElapsedNanos)
                 .build();
     }
 
     public static final class Builder {
         private int requestedItems;
-        private int rpcAttempts;
-        private long rpcItems;
+        private int transportInvocations;
+        private long transportItems;
         private int largestBatchSize;
         private int smallestBatchSize;
         private int fallbackCount;
         private long logicalElapsedNanos;
-        private long rpcElapsedNanos;
-        private long maxRpcElapsedNanos;
+        private long transportElapsedNanos;
+        private long maxTransportElapsedNanos;
 
         private Builder() {
         }
@@ -119,13 +119,13 @@ public final class HmsPartitionBatchStats implements Serializable {
             return this;
         }
 
-        public Builder rpcAttempts(int rpcAttempts) {
-            this.rpcAttempts = rpcAttempts;
+        public Builder transportInvocations(int transportInvocations) {
+            this.transportInvocations = transportInvocations;
             return this;
         }
 
-        public Builder rpcItems(long rpcItems) {
-            this.rpcItems = rpcItems;
+        public Builder transportItems(long transportItems) {
+            this.transportItems = transportItems;
             return this;
         }
 
@@ -149,13 +149,13 @@ public final class HmsPartitionBatchStats implements Serializable {
             return this;
         }
 
-        public Builder rpcElapsedNanos(long rpcElapsedNanos) {
-            this.rpcElapsedNanos = rpcElapsedNanos;
+        public Builder transportElapsedNanos(long transportElapsedNanos) {
+            this.transportElapsedNanos = transportElapsedNanos;
             return this;
         }
 
-        public Builder maxRpcElapsedNanos(long maxRpcElapsedNanos) {
-            this.maxRpcElapsedNanos = maxRpcElapsedNanos;
+        public Builder maxTransportElapsedNanos(long maxTransportElapsedNanos) {
+            this.maxTransportElapsedNanos = maxTransportElapsedNanos;
             return this;
         }
 

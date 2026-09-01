@@ -182,7 +182,8 @@ public class PluginDrivenScanNodeScanProfileTest {
                 new PluginDrivenScanNode.SubmittedTaskFinalizer(() -> {
                     finalizations.incrementAndGet();
                     PluginDrivenScanNode.writeScanProfilesInto(summary, Collections.singletonList(
-                            profile("Connector Metadata Access", "partial batch scan", "RpcAttempts", "1")));
+                            profile("Connector Metadata Access", "partial batch scan",
+                                    "TransportInvocations", "1")));
                 });
 
         finalizer.taskSubmitted();

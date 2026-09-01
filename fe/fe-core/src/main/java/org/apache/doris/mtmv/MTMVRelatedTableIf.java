@@ -88,13 +88,18 @@ public interface MTMVRelatedTableIf extends TableIf {
 
     /**
      * Loads partition snapshots in bulk when the table supports it. The compatibility default retains the
-     * original one-at-a-time behavior; plugin-driven external tables override it to reach connector batching.
+     * original one-at-a-time behavior while retaining failures by partition name in the refresh context;
+     * plugin-driven external tables override it to reach connector batching.
      */
     default Map<String, MTMVSnapshotIf> getPartitionSnapshots(Set<String> partitionNames,
             MTMVRefreshContext context, Optional<MvccSnapshot> snapshot) throws AnalysisException {
         Map<String, MTMVSnapshotIf> snapshots = new LinkedHashMap<>();
         for (String partitionName : partitionNames) {
-            snapshots.put(partitionName, getPartitionSnapshot(partitionName, context, snapshot));
+            try {
+                snapshots.put(partitionName, getPartitionSnapshot(partitionName, context, snapshot));
+            } catch (AnalysisException e) {
+                context.recordPartitionSnapshotFailure(this, partitionName, e);
+            }
         }
         return snapshots;
     }

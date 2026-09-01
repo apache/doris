@@ -25,6 +25,7 @@ import org.apache.doris.connector.hms.HmsPartitionBatchStats;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
@@ -44,6 +45,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Tests the two connector-local batch-mode overrides {@link HiveScanPlanProvider} adds so a large partitioned
@@ -193,8 +195,8 @@ public class HiveScanBatchModeTest {
         Assertions.assertEquals("2", profile.getMetrics().get("LogicalRequests"));
         Assertions.assertEquals("0", profile.getMetrics().get("FailedRequests"));
         Assertions.assertEquals("3", profile.getMetrics().get("RequestedItems"));
-        Assertions.assertEquals("2", profile.getMetrics().get("RpcAttempts"));
-        Assertions.assertEquals("3", profile.getMetrics().get("RpcItems"));
+        Assertions.assertEquals("2", profile.getMetrics().get("TransportInvocations"));
+        Assertions.assertEquals("3", profile.getMetrics().get("TransportItems"));
         Assertions.assertEquals("2", profile.getMetrics().get("LargestBatchSize"));
         Assertions.assertEquals("1", profile.getMetrics().get("SmallestBatchSize"));
         Assertions.assertTrue(provider.collectScanProfiles(session).isEmpty());
@@ -204,15 +206,15 @@ public class HiveScanBatchModeTest {
     public void firstFailedPartitionRequestIsExposedForSynchronousAndBatchPlanning() {
         assertFailedPartitionProfile(false, HmsPartitionBatchStats.builder()
                 .requestedItems(2)
-                .rpcAttempts(1)
-                .rpcItems(2)
+                .transportInvocations(1)
+                .transportItems(2)
                 .largestBatchSize(2)
                 .smallestBatchSize(2)
                 .build());
         assertFailedPartitionProfile(true, HmsPartitionBatchStats.builder()
                 .requestedItems(2)
-                .rpcAttempts(1)
-                .rpcItems(2)
+                .transportInvocations(1)
+                .transportItems(2)
                 .largestBatchSize(2)
                 .smallestBatchSize(2)
                 .build());
@@ -222,8 +224,8 @@ public class HiveScanBatchModeTest {
     public void exhaustedFallbackIsExposedForSynchronousAndBatchPlanning() {
         HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
                 .requestedItems(2)
-                .rpcAttempts(2)
-                .rpcItems(3)
+                .transportInvocations(2)
+                .transportItems(3)
                 .largestBatchSize(2)
                 .smallestBatchSize(1)
                 .fallbackCount(1)
@@ -259,9 +261,10 @@ public class HiveScanBatchModeTest {
         Assertions.assertEquals("1", profile.getMetrics().get("FailedRequests"));
         Assertions.assertEquals(String.valueOf(stats.getRequestedItems()),
                 profile.getMetrics().get("RequestedItems"));
-        Assertions.assertEquals(String.valueOf(stats.getRpcAttempts()),
-                profile.getMetrics().get("RpcAttempts"));
-        Assertions.assertEquals(String.valueOf(stats.getRpcItems()), profile.getMetrics().get("RpcItems"));
+        Assertions.assertEquals(String.valueOf(stats.getTransportInvocations()),
+                profile.getMetrics().get("TransportInvocations"));
+        Assertions.assertEquals(String.valueOf(stats.getTransportItems()),
+                profile.getMetrics().get("TransportItems"));
         Assertions.assertEquals(String.valueOf(stats.getFallbackCount()), profile.getMetrics().get("Fallbacks"));
     }
 
@@ -270,8 +273,8 @@ public class HiveScanBatchModeTest {
         HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
         HmsPartitionBatchStats pruningStats = HmsPartitionBatchStats.builder()
                 .requestedItems(3)
-                .rpcAttempts(1)
-                .rpcItems(3)
+                .transportInvocations(1)
+                .transportItems(3)
                 .largestBatchSize(3)
                 .smallestBatchSize(3)
                 .build();
@@ -291,8 +294,8 @@ public class HiveScanBatchModeTest {
         ConnectorScanProfile profile = provider.collectScanProfiles(session).get(0);
         Assertions.assertEquals("2", profile.getMetrics().get("LogicalRequests"));
         Assertions.assertEquals("4", profile.getMetrics().get("RequestedItems"));
-        Assertions.assertEquals("2", profile.getMetrics().get("RpcAttempts"));
-        Assertions.assertEquals("4", profile.getMetrics().get("RpcItems"));
+        Assertions.assertEquals("2", profile.getMetrics().get("TransportInvocations"));
+        Assertions.assertEquals("4", profile.getMetrics().get("TransportItems"));
         Assertions.assertEquals("3", profile.getMetrics().get("LargestBatchSize"));
         Assertions.assertEquals("1", profile.getMetrics().get("SmallestBatchSize"));
     }
@@ -302,8 +305,8 @@ public class HiveScanBatchModeTest {
         HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
         HmsPartitionBatchStats pruningStats = HmsPartitionBatchStats.builder()
                 .requestedItems(3)
-                .rpcAttempts(1)
-                .rpcItems(3)
+                .transportInvocations(1)
+                .transportItems(3)
                 .largestBatchSize(3)
                 .smallestBatchSize(3)
                 .build();
@@ -326,7 +329,27 @@ public class HiveScanBatchModeTest {
         ConnectorScanProfile profile = selectedProvider.collectScanProfiles(session).get(0);
         Assertions.assertEquals("1", profile.getMetrics().get("LogicalRequests"));
         Assertions.assertEquals("3", profile.getMetrics().get("RequestedItems"));
-        Assertions.assertEquals("1", profile.getMetrics().get("RpcAttempts"));
+        Assertions.assertEquals("1", profile.getMetrics().get("TransportInvocations"));
+    }
+
+    @Test
+    public void predicatePruningFailureProfileTransfersThroughTheStatementScope() {
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
+        FakeSession session = new FakeSession();
+        HmsPartitionBatchStats failedStats = HmsPartitionBatchStats.builder()
+                .requestedItems(3)
+                .transportInvocations(2)
+                .transportItems(4)
+                .fallbackCount(1)
+                .build();
+
+        HiveScanPlanProvider.recordPruningFailure(session, "db", "t", failedStats);
+
+        ConnectorScanProfile profile = provider.collectScanProfiles(session).get(0);
+        Assertions.assertEquals("1", profile.getMetrics().get("LogicalRequests"));
+        Assertions.assertEquals("1", profile.getMetrics().get("FailedRequests"));
+        Assertions.assertEquals("2", profile.getMetrics().get("TransportInvocations"));
+        Assertions.assertTrue(provider.collectScanProfiles(session).isEmpty());
     }
 
     // ===== object-store native read (FIX-hive-s3a: scheme normalization + canonical creds) =====
@@ -561,8 +584,8 @@ public class HiveScanBatchModeTest {
             List<HmsPartitionInfo> partitions = getPartitions(dbName, tableName, partNames);
             HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
                     .requestedItems(partNames.size())
-                    .rpcAttempts(1)
-                    .rpcItems(partNames.size())
+                    .transportInvocations(1)
+                    .transportItems(partNames.size())
                     .largestBatchSize(partNames.size())
                     .smallestBatchSize(partNames.size())
                     .build();
@@ -583,8 +606,8 @@ public class HiveScanBatchModeTest {
             }
             HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
                     .requestedItems(partNames.size())
-                    .rpcAttempts(1)
-                    .rpcItems(partNames.size())
+                    .transportInvocations(1)
+                    .transportItems(partNames.size())
                     .largestBatchSize(partNames.size())
                     .smallestBatchSize(partNames.size())
                     .build();
@@ -641,6 +664,15 @@ public class HiveScanBatchModeTest {
 
     /** Minimal {@link ConnectorSession} (no split-size override, empty session properties). */
     private static final class FakeSession implements ConnectorSession {
+        private final Map<String, Object> statementMemos = new HashMap<>();
+        private final ConnectorStatementScope statementScope = new ConnectorStatementScope() {
+            @Override
+            @SuppressWarnings("unchecked")
+            public <T> T computeIfAbsent(String key, Supplier<T> loader) {
+                return (T) statementMemos.computeIfAbsent(key, ignored -> loader.get());
+            }
+        };
+
         @Override
         public String getQueryId() {
             return "q";
@@ -679,6 +711,11 @@ public class HiveScanBatchModeTest {
         @Override
         public Map<String, String> getCatalogProperties() {
             return Collections.emptyMap();
+        }
+
+        @Override
+        public ConnectorStatementScope getStatementScope() {
+            return statementScope;
         }
     }
 }

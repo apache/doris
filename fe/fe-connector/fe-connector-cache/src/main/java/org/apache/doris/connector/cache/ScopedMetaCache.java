@@ -420,6 +420,18 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         }
     }
 
+    boolean isBulkLoadCurrent(BulkLoadHandle handle, K key) {
+        Objects.requireNonNull(handle, "handle can not be null");
+        Objects.requireNonNull(key, "key can not be null");
+        checkOpen();
+        handle.checkOwner(this);
+        if (!effectiveEnabled) {
+            return false;
+        }
+        return bulkInvalidationGate.readBoolean(() -> isBulkKeyCurrent(handle, key)
+                && handle.scopeLease.commitIfPublicationCurrent(handle.scopePublicationState, () -> true));
+    }
+
     public CacheMetrics metrics() {
         return bulkInvalidationGate.read(() -> new CacheMetrics(
                     data.estimatedSize(),

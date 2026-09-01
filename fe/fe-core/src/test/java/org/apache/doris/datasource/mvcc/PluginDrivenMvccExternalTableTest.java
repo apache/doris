@@ -223,6 +223,22 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testGetPartitionSnapshotsReturnsPresentSubsetWhenOnePartitionVanished()
+            throws AnalysisException {
+        Fixture f = Fixture.partitioned();
+        flagPinLastModified(f);
+        Set<String> names = new LinkedHashSet<>(Arrays.asList("dt=2024-01-01", "dt=2024-02-02"));
+        Mockito.when(f.metadata.getPartitionsFreshnessMillis(
+                Mockito.any(), Mockito.any(), Mockito.anyList())).thenReturn(
+                        Collections.singletonMap("dt=2024-02-02", TS_2024_02_02));
+
+        Map<String, MTMVSnapshotIf> snapshots =
+                f.table.getPartitionSnapshots(names, null, Optional.empty());
+
+        Assertions.assertEquals(Collections.singleton("dt=2024-02-02"), snapshots.keySet());
+    }
+
+    @Test
     public void testGetPartitionSnapshotLastModifiedMissingStillThrows() {
         // Existence is validated against the materialized partition set BEFORE the on-demand fetch, so even a
         // last-modified connector raises AnalysisException for an unknown partition (parity legacy

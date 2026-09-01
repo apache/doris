@@ -166,12 +166,36 @@ public class MTMVRefreshContextBatchTest {
     }
 
     @Test
-    public void rejectsIncompleteOrUnexpectedBulkResults() throws AnalysisException {
+    public void defersMissingBulkResultsToThePartitionThatConsumesThem() throws AnalysisException {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        MTMVRelatedTableIf table = Mockito.mock(MTMVRelatedTableIf.class);
+        MTMVRefreshSnapshot refreshSnapshot = Mockito.mock(MTMVRefreshSnapshot.class);
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> mappings = new LinkedHashMap<>();
+        mappings.put("bad", Collections.singletonMap(table, Collections.singleton("missing")));
+        mappings.put("good", Collections.singletonMap(table, Collections.singleton("present")));
+        configureContext(mtmv, table, refreshSnapshot, mappings);
+        MTMVRefreshContext context = MTMVRefreshContext.buildContext(mtmv, Collections.emptyMap());
+        Mockito.when(table.getPartitionSnapshots(Mockito.anySet(), Mockito.same(context), Mockito.any()))
+                .thenReturn(Collections.singletonMap("present", new MTMVTimestampSnapshot(1L)));
+
+        PreparedPartitionSnapshots prepared = context.preparePartitionSnapshots(mappings.keySet());
+
+        Assertions.assertNotNull(prepared.get(table, "present"));
+        AnalysisException failure = Assertions.assertThrows(AnalysisException.class,
+                () -> prepared.get(table, "missing"));
+        Assertions.assertTrue(failure.getMessage().contains("can not find partition: missing"));
+        context.preparePartitionSnapshots(mappings.keySet());
+        Mockito.verify(table, Mockito.times(1))
+                .getPartitionSnapshots(Mockito.anySet(), Mockito.same(context), Mockito.any());
+    }
+
+    @Test
+    public void rejectsUnexpectedBulkResults() throws AnalysisException {
         MTMV mtmv = Mockito.mock(MTMV.class);
         MTMVRelatedTableIf table = Mockito.mock(MTMVRelatedTableIf.class);
         MTMVRefreshSnapshot refreshSnapshot = Mockito.mock(MTMVRefreshSnapshot.class);
         Map<String, Map<MTMVRelatedTableIf, Set<String>>> mappings = Collections.singletonMap(
-                "mv", Collections.singletonMap(table, Collections.singleton("missing")));
+                "mv", Collections.singletonMap(table, Collections.singleton("requested")));
         configureContext(mtmv, table, refreshSnapshot, mappings);
         MTMVRefreshContext context = MTMVRefreshContext.buildContext(mtmv, Collections.emptyMap());
         Mockito.when(table.getPartitionSnapshots(Mockito.anySet(), Mockito.same(context), Mockito.any()))
@@ -223,6 +247,23 @@ public class MTMVRefreshContextBatchTest {
         Assertions.assertEquals(Arrays.asList("p1", "p2"), new ArrayList<>(snapshots.keySet()));
         Mockito.verify(table, Mockito.times(2))
                 .getPartitionSnapshot(Mockito.anyString(), Mockito.same(context), Mockito.any());
+    }
+
+    @Test
+    public void defaultBulkAdapterDefersPerPartitionFailures() throws AnalysisException {
+        MTMVRelatedTableIf table = Mockito.mock(MTMVRelatedTableIf.class, Mockito.CALLS_REAL_METHODS);
+        MTMVRefreshContext context = Mockito.mock(MTMVRefreshContext.class);
+        Mockito.when(table.getPartitionSnapshot(Mockito.eq("missing"), Mockito.same(context), Mockito.any()))
+                .thenThrow(new AnalysisException("missing snapshot"));
+        Mockito.when(table.getPartitionSnapshot(Mockito.eq("present"), Mockito.same(context), Mockito.any()))
+                .thenReturn(new MTMVTimestampSnapshot(1L));
+
+        Map<String, MTMVSnapshotIf> snapshots = table.getPartitionSnapshots(
+                new LinkedHashSet<>(Arrays.asList("missing", "present")), context, Optional.empty());
+
+        Assertions.assertEquals(Collections.singleton("present"), snapshots.keySet());
+        Mockito.verify(context).recordPartitionSnapshotFailure(
+                Mockito.same(table), Mockito.eq("missing"), Mockito.any(AnalysisException.class));
     }
 
     private static void configureContext(MTMV mtmv, MTMVRelatedTableIf table,

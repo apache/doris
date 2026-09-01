@@ -1183,9 +1183,18 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             return Optional.empty();
         }
 
-        HmsPartitionBatchResult pruningResult = matchedPartNames.isEmpty()
-                ? null : hmsClient.getExistingPartitionsWithStats(
-                        hiveHandle.getDbName(), hiveHandle.getTableName(), matchedPartNames);
+        HmsPartitionBatchResult pruningResult;
+        try {
+            pruningResult = matchedPartNames.isEmpty()
+                    ? null : hmsClient.getExistingPartitionsWithStats(
+                            hiveHandle.getDbName(), hiveHandle.getTableName(), matchedPartNames);
+        } catch (HmsClientException e) {
+            if (e.getPartitionBatchStats() != null) {
+                HiveScanPlanProvider.recordPruningFailure(
+                        session, hiveHandle.getDbName(), hiveHandle.getTableName(), e.getPartitionBatchStats());
+            }
+            throw e;
+        }
         List<HmsPartitionInfo> prunedPartitions = pruningResult == null
                 ? Collections.emptyList() : pruningResult.getPartitions();
 

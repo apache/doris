@@ -803,29 +803,27 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     public Map<String, MTMVSnapshotIf> getPartitionSnapshots(Set<String> partitionNames,
             MTMVRefreshContext context, Optional<MvccSnapshot> snapshot) throws AnalysisException {
         PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
-        for (String partitionName : partitionNames) {
-            if (!pin.getNameToLastModifiedMillis().containsKey(partitionName)) {
-                throw new AnalysisException("can not find partition: " + partitionName);
-            }
-        }
-
         Map<String, MTMVSnapshotIf> snapshots = new LinkedHashMap<>();
         if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
-            Map<String, Long> freshness = queryPartitionFreshnessMillis(new ArrayList<>(partitionNames));
+            List<String> existingPartitionNames = partitionNames.stream()
+                    .filter(pin.getNameToLastModifiedMillis()::containsKey)
+                    .collect(Collectors.toList());
+            Map<String, Long> freshness = queryPartitionFreshnessMillis(existingPartitionNames);
             for (String partitionName : partitionNames) {
                 Long value = freshness.get(partitionName);
-                if (value == null) {
-                    throw new AnalysisException("can not find partition: " + partitionName);
+                if (value != null) {
+                    snapshots.put(partitionName, new MTMVTimestampSnapshot(value));
                 }
-                snapshots.put(partitionName, new MTMVTimestampSnapshot(value));
             }
             return snapshots;
         }
 
         for (String partitionName : partitionNames) {
-            long value = pin.getNameToLastModifiedMillis().get(partitionName);
-            snapshots.put(partitionName, pin.isSnapshotIdFreshness()
-                    ? new MTMVSnapshotIdSnapshot(value) : new MTMVTimestampSnapshot(value));
+            Long value = pin.getNameToLastModifiedMillis().get(partitionName);
+            if (value != null) {
+                snapshots.put(partitionName, pin.isSnapshotIdFreshness()
+                        ? new MTMVSnapshotIdSnapshot(value) : new MTMVTimestampSnapshot(value));
+            }
         }
         return snapshots;
     }

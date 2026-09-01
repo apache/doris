@@ -144,6 +144,12 @@ public final class MetaCache<K, V> {
             return owner.delegate.publish(delegate, nonNullKey, owner.definition.scope(nonNullKey), value);
         }
 
+        /** Returns whether this load is still current for {@code key}, without publishing a value. */
+        public boolean isCurrent(K key) {
+            K nonNullKey = Objects.requireNonNull(key, "key can not be null");
+            return owner.delegate.isBulkLoadCurrent(delegate, nonNullKey);
+        }
+
         @Override
         public void close() {
             delegate.close();

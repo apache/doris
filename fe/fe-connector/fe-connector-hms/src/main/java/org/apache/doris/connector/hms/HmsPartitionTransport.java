@@ -19,7 +19,7 @@ package org.apache.doris.connector.hms;
 
 import java.util.List;
 
-/** Leaf transport contract: one invocation performs one getPartitionsByNames RPC. */
+/** Leaf transport contract: one invocation enters the configured getPartitionsByNames transport once. */
 @FunctionalInterface
 interface HmsPartitionTransport {
     List<HmsPartitionInfo> getPartitionsByNames(

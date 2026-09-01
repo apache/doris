@@ -44,6 +44,9 @@ public class MTMVRefreshContext {
     // The value is loaded/cached on the first fetch
     private Map<BaseTableInfo, MTMVSnapshotIf> baseTableSnapshotCache = Maps.newHashMap();
     private final Map<MTMVRelatedTableIf, Map<String, MTMVSnapshotIf>> partitionSnapshotCache = Maps.newHashMap();
+    private final Map<MTMVRelatedTableIf, Set<String>> missingPartitionSnapshotCache = Maps.newHashMap();
+    private final Map<MTMVRelatedTableIf, Map<String, AnalysisException>> partitionSnapshotFailureCache =
+            Maps.newHashMap();
     private final Function<MTMVRelatedTableIf, Optional<MvccSnapshot>> snapshotResolver;
 
     public MTMVRefreshContext(MTMV mtmv) {
@@ -120,20 +123,31 @@ public class MTMVRefreshContext {
     private void loadSnapshots(MTMVRelatedTableIf table, Set<String> partitionNames) throws AnalysisException {
         Map<String, MTMVSnapshotIf> cached = partitionSnapshotCache.computeIfAbsent(
                 table, ignored -> new LinkedHashMap<>());
+        Set<String> knownMissing = missingPartitionSnapshotCache.computeIfAbsent(
+                table, ignored -> new LinkedHashSet<>());
         Set<String> missing = new LinkedHashSet<>(partitionNames);
         missing.removeAll(cached.keySet());
+        missing.removeAll(knownMissing);
         if (missing.isEmpty()) {
             return;
         }
         Map<String, MTMVSnapshotIf> loaded = table.getPartitionSnapshots(
                 missing, this, snapshotResolver.apply(table));
         if (loaded == null || loaded.containsKey(null) || loaded.containsValue(null)
-                || !missing.equals(loaded.keySet())) {
+                || !missing.containsAll(loaded.keySet())) {
             throw new AnalysisException("Invalid partition snapshot result for table " + table.getName()
                     + ": requestedCount=" + missing.size() + ", returnedCount="
                     + (loaded == null ? "null" : loaded.size()));
         }
         cached.putAll(loaded);
+        missing.removeAll(loaded.keySet());
+        knownMissing.addAll(missing);
+    }
+
+    void recordPartitionSnapshotFailure(
+            MTMVRelatedTableIf table, String partitionName, AnalysisException failure) {
+        partitionSnapshotFailureCache.computeIfAbsent(table, ignored -> new LinkedHashMap<>())
+                .put(partitionName, failure);
     }
 
     public static MTMVRefreshContext buildContext(MTMV mtmv, Map<List<String>, Set<String>> queryUsedPartitions)
@@ -167,11 +181,19 @@ public class MTMVRefreshContext {
 
         public MTMVSnapshotIf get(MTMVRelatedTableIf table, String partitionName) throws AnalysisException {
             Map<String, MTMVSnapshotIf> snapshots = context.partitionSnapshotCache.get(table);
-            if (snapshots == null || !snapshots.containsKey(partitionName)) {
-                throw new AnalysisException("Partition snapshot was not prepared: table=" + table.getName()
-                        + ", partition=" + partitionName);
+            if (snapshots != null && snapshots.containsKey(partitionName)) {
+                return snapshots.get(partitionName);
             }
-            return snapshots.get(partitionName);
+            Map<String, AnalysisException> failures = context.partitionSnapshotFailureCache.get(table);
+            if (failures != null && failures.containsKey(partitionName)) {
+                throw failures.get(partitionName);
+            }
+            Set<String> missing = context.missingPartitionSnapshotCache.get(table);
+            if (missing != null && missing.contains(partitionName)) {
+                throw new AnalysisException("can not find partition: " + partitionName);
+            }
+            throw new AnalysisException("Partition snapshot was not prepared: table=" + table.getName()
+                    + ", partition=" + partitionName);
         }
     }
 

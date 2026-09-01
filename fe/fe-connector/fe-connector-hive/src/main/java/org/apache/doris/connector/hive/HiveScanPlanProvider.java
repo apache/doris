@@ -362,7 +362,22 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
 
     @Override
     public List<ConnectorScanProfile> collectScanProfiles(ConnectorSession session) {
-        return partitionBatchProfile.drain();
+        List<ConnectorScanProfile> profiles = new ArrayList<>(partitionBatchProfile.drain());
+        profiles.addAll(statementPruningFailureProfile(session).drain());
+        return profiles;
+    }
+
+    static void recordPruningFailure(ConnectorSession session, String dbName, String tableName,
+            HmsPartitionBatchStats stats) {
+        statementPruningFailureProfile(session).recordFailure(dbName, tableName, stats);
+    }
+
+    private static PartitionBatchProfile statementPruningFailureProfile(ConnectorSession session) {
+        if (session == null) {
+            return new PartitionBatchProfile();
+        }
+        String key = "hive.partition_batch_failures:" + session.getCatalogId() + ":" + session.getQueryId();
+        return session.getStatementScope().computeIfAbsent(key, PartitionBatchProfile::new);
     }
 
     /** Encodes each delete-delta as {@code "dir|file1,file2"} for {@link HiveScanRange.Builder#acidInfo}. */
@@ -768,14 +783,14 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         private int logicalRequests;
         private int failedRequests;
         private long requestedItems;
-        private long rpcAttempts;
-        private long rpcItems;
+        private long transportInvocations;
+        private long transportItems;
         private int largestBatchSize;
         private int smallestBatchSize;
         private long fallbacks;
         private long logicalElapsedNanos;
-        private long rpcElapsedNanos;
-        private long maxRpcElapsedNanos;
+        private long transportElapsedNanos;
+        private long maxTransportElapsedNanos;
         private boolean initialRequestRecorded;
 
         synchronized void recordOnce(String dbName, String tableName, HmsPartitionBatchStats stats) {
@@ -789,8 +804,8 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             tableLabel = dbName + "." + tableName;
             logicalRequests++;
             requestedItems += stats.getRequestedItems();
-            rpcAttempts += stats.getRpcAttempts();
-            rpcItems += stats.getRpcItems();
+            transportInvocations += stats.getTransportInvocations();
+            transportItems += stats.getTransportItems();
             largestBatchSize = Math.max(largestBatchSize, stats.getLargestBatchSize());
             if (stats.getSmallestBatchSize() > 0) {
                 smallestBatchSize = smallestBatchSize == 0
@@ -799,8 +814,9 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             }
             fallbacks += stats.getFallbackCount();
             logicalElapsedNanos += stats.getLogicalElapsedNanos();
-            rpcElapsedNanos += stats.getRpcElapsedNanos();
-            maxRpcElapsedNanos = Math.max(maxRpcElapsedNanos, stats.getMaxRpcElapsedNanos());
+            transportElapsedNanos += stats.getTransportElapsedNanos();
+            maxTransportElapsedNanos = Math.max(
+                    maxTransportElapsedNanos, stats.getMaxTransportElapsedNanos());
         }
 
         synchronized void recordFailure(String dbName, String tableName, HmsPartitionBatchStats stats) {
@@ -816,28 +832,28 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             metrics.put("LogicalRequests", String.valueOf(logicalRequests));
             metrics.put("FailedRequests", String.valueOf(failedRequests));
             metrics.put("RequestedItems", String.valueOf(requestedItems));
-            metrics.put("RpcAttempts", String.valueOf(rpcAttempts));
-            metrics.put("RpcItems", String.valueOf(rpcItems));
+            metrics.put("TransportInvocations", String.valueOf(transportInvocations));
+            metrics.put("TransportItems", String.valueOf(transportItems));
             metrics.put("LargestBatchSize", String.valueOf(largestBatchSize));
             metrics.put("SmallestBatchSize", String.valueOf(smallestBatchSize));
             metrics.put("Fallbacks", String.valueOf(fallbacks));
             metrics.put("LogicalElapsedTime", formatNanos(logicalElapsedNanos));
-            metrics.put("RpcElapsedTime", formatNanos(rpcElapsedNanos));
-            metrics.put("MaxRpcElapsedTime", formatNanos(maxRpcElapsedNanos));
+            metrics.put("TransportElapsedTime", formatNanos(transportElapsedNanos));
+            metrics.put("MaxTransportElapsedTime", formatNanos(maxTransportElapsedNanos));
             ConnectorScanProfile profile = new ConnectorScanProfile(
                     "Connector Metadata Access", "hms.get_partitions_by_names [QUERY] (" + tableLabel + ")",
                     metrics);
             logicalRequests = 0;
             failedRequests = 0;
             requestedItems = 0;
-            rpcAttempts = 0;
-            rpcItems = 0;
+            transportInvocations = 0;
+            transportItems = 0;
             largestBatchSize = 0;
             smallestBatchSize = 0;
             fallbacks = 0;
             logicalElapsedNanos = 0;
-            rpcElapsedNanos = 0;
-            maxRpcElapsedNanos = 0;
+            transportElapsedNanos = 0;
+            maxTransportElapsedNanos = 0;
             initialRequestRecorded = false;
             return Collections.singletonList(profile);
         }

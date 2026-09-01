@@ -85,11 +85,11 @@ final class HmsPartitionBatchExecutor {
         List<HmsPartitionInfo> result = new ArrayList<>(partitions.size());
         int offset = 0;
         int effectiveBatchSize = maxBatchSize;
-        int attempts = 0;
+        int transportInvocations = 0;
         int fallbackCount = 0;
-        long rpcItems = 0;
-        long rpcElapsedNanos = 0;
-        long maxRpcElapsedNanos = 0;
+        long transportItems = 0;
+        long transportElapsedNanos = 0;
+        long maxTransportElapsedNanos = 0;
         int largestBatchSize = 0;
         int smallestBatchSize = Integer.MAX_VALUE;
         while (offset < partitions.size()) {
@@ -100,11 +100,11 @@ final class HmsPartitionBatchExecutor {
             for (HmsPartitionIdentity.ParsedPartitionName partition : batch) {
                 batchNames.add(partition.getName());
             }
-            attempts++;
-            rpcItems += batchSize;
+            transportInvocations++;
+            transportItems += batchSize;
             largestBatchSize = Math.max(largestBatchSize, batchSize);
             smallestBatchSize = Math.min(smallestBatchSize, batchSize);
-            long rpcStartNanos = System.nanoTime();
+            long transportStartNanos = System.nanoTime();
             HmsClientException terminalFailure = null;
             try {
                 List<HmsPartitionInfo> returned = transport.getPartitionsByNames(
@@ -114,7 +114,7 @@ final class HmsPartitionBatchExecutor {
             } catch (RemoteCallException e) {
                 if (batchSize <= minBatchSize || !failureClassifier.isDegradable(e)) {
                     terminalFailure = finalBatchFailure(request, offset, batchSize, effectiveBatchSize,
-                            attempts, fallbackCount, e);
+                            transportInvocations, fallbackCount, e);
                 } else {
                     effectiveBatchSize = Math.max(minBatchSize, batchSize / 2);
                     fallbackCount++;
@@ -127,38 +127,39 @@ final class HmsPartitionBatchExecutor {
                 terminalFailure = new HmsClientException(
                         "Unexpected checked failure fetching HMS partitions", e);
             } finally {
-                long elapsedNanos = System.nanoTime() - rpcStartNanos;
-                rpcElapsedNanos += elapsedNanos;
-                maxRpcElapsedNanos = Math.max(maxRpcElapsedNanos, elapsedNanos);
+                long elapsedNanos = System.nanoTime() - transportStartNanos;
+                transportElapsedNanos += elapsedNanos;
+                maxTransportElapsedNanos = Math.max(maxTransportElapsedNanos, elapsedNanos);
             }
             if (terminalFailure != null) {
                 throw terminalFailure.withPartitionBatchStats(buildStats(
-                        partitions.size(), attempts, rpcItems, largestBatchSize, smallestBatchSize,
+                        partitions.size(), transportInvocations, transportItems,
+                        largestBatchSize, smallestBatchSize,
                         fallbackCount, System.nanoTime() - logicalStartNanos,
-                        rpcElapsedNanos, maxRpcElapsedNanos));
+                        transportElapsedNanos, maxTransportElapsedNanos));
             }
         }
         HmsPartitionBatchStats stats = buildStats(
-                partitions.size(), attempts, rpcItems, largestBatchSize, smallestBatchSize,
+                partitions.size(), transportInvocations, transportItems, largestBatchSize, smallestBatchSize,
                 fallbackCount, System.nanoTime() - logicalStartNanos,
-                rpcElapsedNanos, maxRpcElapsedNanos);
+                transportElapsedNanos, maxTransportElapsedNanos);
         return new HmsPartitionBatchResult(result, stats);
     }
 
     private static HmsPartitionBatchStats buildStats(
-            int requestedItems, int attempts, long rpcItems, int largestBatchSize,
+            int requestedItems, int invocations, long transportItems, int largestBatchSize,
             int smallestBatchSize, int fallbackCount, long logicalElapsedNanos,
-            long rpcElapsedNanos, long maxRpcElapsedNanos) {
+            long transportElapsedNanos, long maxTransportElapsedNanos) {
         return HmsPartitionBatchStats.builder()
                 .requestedItems(requestedItems)
-                .rpcAttempts(attempts)
-                .rpcItems(rpcItems)
+                .transportInvocations(invocations)
+                .transportItems(transportItems)
                 .largestBatchSize(largestBatchSize)
                 .smallestBatchSize(smallestBatchSize)
                 .fallbackCount(fallbackCount)
                 .logicalElapsedNanos(logicalElapsedNanos)
-                .rpcElapsedNanos(rpcElapsedNanos)
-                .maxRpcElapsedNanos(maxRpcElapsedNanos)
+                .transportElapsedNanos(transportElapsedNanos)
+                .maxTransportElapsedNanos(maxTransportElapsedNanos)
                 .build();
     }
 
@@ -230,14 +231,15 @@ final class HmsPartitionBatchExecutor {
     }
 
     private HmsClientException finalBatchFailure(HmsPartitionRequest request, int offset,
-            int failedBatchSize, int effectiveBatchSize, int attempts, int fallbackCount,
+            int failedBatchSize, int effectiveBatchSize, int transportInvocations, int fallbackCount,
             RemoteCallException failure) {
         return new HmsClientException(String.format(
                 "HMS partition batch request failed: db=%s, table=%s, requested=%d, offset=%d, "
-                        + "failedBatchSize=%d, effectiveBatchSize=%d, minBatchSize=%d, attempts=%d, "
+                        + "failedBatchSize=%d, effectiveBatchSize=%d, minBatchSize=%d, "
+                        + "transportInvocations=%d, "
                         + "fallbacks=%d: %s",
                 request.getDbName(), request.getTableName(), request.getPartitions().size(), offset,
-                failedBatchSize, effectiveBatchSize, minBatchSize, attempts, fallbackCount,
+                failedBatchSize, effectiveBatchSize, minBatchSize, transportInvocations, fallbackCount,
                 failure.getMessage()), failure);
     }
 

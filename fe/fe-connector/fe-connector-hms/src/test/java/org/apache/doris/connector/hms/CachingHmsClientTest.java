@@ -36,6 +36,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Tests {@link CachingHmsClient}: the caching decorator over an {@link HmsClient}.
@@ -255,20 +256,20 @@ public class CachingHmsClientTest {
         HmsPartitionBatchStats cold = cache.getPartitionsWithStats(
                 "db", "t", Arrays.asList("p=1", "p=2")).getStats();
         Assertions.assertEquals(2, cold.getRequestedItems());
-        Assertions.assertEquals(1, cold.getRpcAttempts());
-        Assertions.assertEquals(2, cold.getRpcItems());
+        Assertions.assertEquals(1, cold.getTransportInvocations());
+        Assertions.assertEquals(2, cold.getTransportItems());
 
         HmsPartitionBatchStats hit = cache.getPartitionsWithStats(
                 "db", "t", Collections.singletonList("p=1")).getStats();
         Assertions.assertEquals(1, hit.getRequestedItems());
-        Assertions.assertEquals(0, hit.getRpcAttempts());
-        Assertions.assertEquals(0, hit.getRpcItems());
+        Assertions.assertEquals(0, hit.getTransportInvocations());
+        Assertions.assertEquals(0, hit.getTransportItems());
 
         HmsPartitionBatchStats mixed = cache.getPartitionsWithStats(
                 "db", "t", Arrays.asList("p=1", "p=3")).getStats();
         Assertions.assertEquals(2, mixed.getRequestedItems());
-        Assertions.assertEquals(1, mixed.getRpcAttempts());
-        Assertions.assertEquals(1, mixed.getRpcItems());
+        Assertions.assertEquals(1, mixed.getTransportInvocations());
+        Assertions.assertEquals(1, mixed.getTransportItems());
     }
 
     @Test
@@ -278,8 +279,8 @@ public class CachingHmsClientTest {
         cache.getPartitions("db", "t", Collections.singletonList("p=1"));
         delegate.getPartitionsError = new HmsClientException("failed", HmsPartitionBatchStats.builder()
                 .requestedItems(1)
-                .rpcAttempts(1)
-                .rpcItems(1)
+                .transportInvocations(1)
+                .transportItems(1)
                 .largestBatchSize(1)
                 .smallestBatchSize(1)
                 .build());
@@ -289,8 +290,8 @@ public class CachingHmsClientTest {
 
         Assertions.assertSame(delegate.getPartitionsError, failure);
         Assertions.assertEquals(2, failure.getPartitionBatchStats().getRequestedItems());
-        Assertions.assertEquals(1, failure.getPartitionBatchStats().getRpcAttempts());
-        Assertions.assertEquals(1, failure.getPartitionBatchStats().getRpcItems());
+        Assertions.assertEquals(1, failure.getPartitionBatchStats().getTransportInvocations());
+        Assertions.assertEquals(1, failure.getPartitionBatchStats().getTransportItems());
     }
 
     @Test
@@ -339,8 +340,8 @@ public class CachingHmsClientTest {
         Assertions.assertEquals(Arrays.asList("1", "3"), result.getPartitions().stream()
                 .map(partition -> partition.getValues().get(0)).collect(java.util.stream.Collectors.toList()));
         Assertions.assertEquals(3, result.getStats().getRequestedItems());
-        Assertions.assertEquals(1, result.getStats().getRpcAttempts());
-        Assertions.assertEquals(3, result.getStats().getRpcItems());
+        Assertions.assertEquals(1, result.getStats().getTransportInvocations());
+        Assertions.assertEquals(3, result.getStats().getTransportItems());
     }
 
     @Test
@@ -423,6 +424,142 @@ public class CachingHmsClientTest {
             executor.shutdownNow();
             cache.close();
             owner.close();
+        }
+    }
+
+    @Test
+    public void concurrentColdPartitionRequestsShareOneBulkLoadEvenWhenEntriesEvict() throws Exception {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CountDownLatch loadEntered = new CountDownLatch(1);
+        CountDownLatch releaseLoad = new CountDownLatch(1);
+        CountDownLatch waiterRegistered = new CountDownLatch(1);
+        AtomicInteger registrations = new AtomicInteger();
+        CachingHmsClient cache = new CachingHmsClient(new CatalogMetaCache(), delegate,
+                props("meta.cache.hive.partition.capacity", "1")) {
+            @Override
+            void afterPartitionLoadRegistrationForTest() {
+                if (registrations.incrementAndGet() == 2) {
+                    waiterRegistered.countDown();
+                }
+            }
+        };
+        delegate.onGetPartitions = () -> {
+            loadEntered.countDown();
+            try {
+                Assertions.assertTrue(releaseLoad.await(10, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(e);
+            }
+        };
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<List<HmsPartitionInfo>> owner = executor.submit(
+                    () -> cache.getPartitions("db", "t", Arrays.asList("p=1", "p=2")));
+            Assertions.assertTrue(loadEntered.await(10, TimeUnit.SECONDS));
+            Future<List<HmsPartitionInfo>> waiter = executor.submit(
+                    () -> cache.getPartitions("db", "t", Arrays.asList("p=1", "p=2")));
+            Assertions.assertTrue(waiterRegistered.await(10, TimeUnit.SECONDS));
+
+            releaseLoad.countDown();
+
+            Assertions.assertEquals(2, owner.get(10, TimeUnit.SECONDS).size());
+            Assertions.assertEquals(2, waiter.get(10, TimeUnit.SECONDS).size());
+            Assertions.assertEquals(1, delegate.getPartitionsCalls,
+                    "the waiter must consume the current in-flight result even after capacity eviction");
+            Assertions.assertEquals(0, cache.inFlightPartitionLoadCountForTest());
+        } finally {
+            releaseLoad.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void partiallyOverlappingColdRequestsOnlyLoadUnownedPartitions() throws Exception {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
+        CountDownLatch firstLoadEntered = new CountDownLatch(1);
+        CountDownLatch bothLoadsEntered = new CountDownLatch(2);
+        CountDownLatch releaseLoads = new CountDownLatch(1);
+        delegate.onGetPartitions = () -> {
+            firstLoadEntered.countDown();
+            bothLoadsEntered.countDown();
+            try {
+                Assertions.assertTrue(releaseLoads.await(10, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(e);
+            }
+        };
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<List<HmsPartitionInfo>> first = executor.submit(
+                    () -> cache.getPartitions("db", "t", Arrays.asList("p=1", "p=2")));
+            Assertions.assertTrue(firstLoadEntered.await(10, TimeUnit.SECONDS));
+            Future<List<HmsPartitionInfo>> second = executor.submit(
+                    () -> cache.getPartitions("db", "t", Arrays.asList("p=2", "p=3")));
+            Assertions.assertTrue(bothLoadsEntered.await(10, TimeUnit.SECONDS));
+
+            releaseLoads.countDown();
+
+            Assertions.assertEquals(2, first.get(10, TimeUnit.SECONDS).size());
+            Assertions.assertEquals(2, second.get(10, TimeUnit.SECONDS).size());
+            Assertions.assertTrue(delegate.getPartitionsArgs.contains(Arrays.asList("p=1", "p=2")));
+            Assertions.assertTrue(delegate.getPartitionsArgs.contains(Collections.singletonList("p=3")));
+            Assertions.assertEquals(2, delegate.getPartitionsArgs.size());
+        } finally {
+            releaseLoads.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void waiterRetriesWhenInvalidationRacesTheOwnedBulkLoad() throws Exception {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CatalogMetaCache owner = new CatalogMetaCache();
+        CountDownLatch firstLoadEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirstLoad = new CountDownLatch(1);
+        CountDownLatch waiterRegistered = new CountDownLatch(1);
+        AtomicInteger registrations = new AtomicInteger();
+        AtomicInteger loads = new AtomicInteger();
+        CachingHmsClient cache = new CachingHmsClient(owner, delegate, Collections.emptyMap()) {
+            @Override
+            void afterPartitionLoadRegistrationForTest() {
+                if (registrations.incrementAndGet() == 2) {
+                    waiterRegistered.countDown();
+                }
+            }
+        };
+        delegate.onGetPartitions = () -> {
+            if (loads.incrementAndGet() == 1) {
+                firstLoadEntered.countDown();
+                try {
+                    Assertions.assertTrue(releaseFirstLoad.await(10, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(e);
+                }
+            }
+        };
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<List<HmsPartitionInfo>> first = executor.submit(
+                    () -> cache.getPartitions("db", "t", Collections.singletonList("p=1")));
+            Assertions.assertTrue(firstLoadEntered.await(10, TimeUnit.SECONDS));
+            Future<List<HmsPartitionInfo>> second = executor.submit(
+                    () -> cache.getPartitions("db", "t", Collections.singletonList("p=1")));
+            Assertions.assertTrue(waiterRegistered.await(10, TimeUnit.SECONDS));
+
+            owner.invalidateTable("db", "t");
+            releaseFirstLoad.countDown();
+
+            Assertions.assertEquals(1, first.get(10, TimeUnit.SECONDS).size());
+            Assertions.assertEquals(1, second.get(10, TimeUnit.SECONDS).size());
+            Assertions.assertEquals(2, delegate.getPartitionsArgs.size(),
+                    "the invalidated waiter must start a new load instead of consuming stale in-flight data");
+        } finally {
+            releaseFirstLoad.countDown();
+            executor.shutdownNow();
         }
     }
 
@@ -700,6 +837,7 @@ public class CachingHmsClientTest {
         // The partition-name list the decorator actually asked the delegate for on the LAST getPartitions call
         // (so a test can assert the decorator fetches only the MISSES, not the whole requested list).
         List<String> lastGetPartitionsArg;
+        final List<List<String>> getPartitionsArgs = Collections.synchronizedList(new ArrayList<>());
         // Optional hook fired INSIDE getPartitions (after counting, before returning) to model a concurrent
         // mutation (e.g. a REFRESH flush) racing the in-flight cold-cache RPC.
         Runnable onGetPartitions;
@@ -723,6 +861,7 @@ public class CachingHmsClientTest {
         public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
             getPartitionsCalls++;
             lastGetPartitionsArg = new ArrayList<>(partNames);
+            getPartitionsArgs.add(new ArrayList<>(partNames));
             if (onGetPartitions != null) {
                 onGetPartitions.run();
             }
@@ -750,8 +889,8 @@ public class CachingHmsClientTest {
             List<HmsPartitionInfo> partitions = getPartitions(dbName, tableName, partNames);
             HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
                     .requestedItems(partNames.size())
-                    .rpcAttempts(1)
-                    .rpcItems(partNames.size())
+                    .transportInvocations(1)
+                    .transportItems(partNames.size())
                     .largestBatchSize(partNames.size())
                     .smallestBatchSize(partNames.size())
                     .logicalElapsedNanos(System.nanoTime() - startNanos)
