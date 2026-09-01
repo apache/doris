@@ -27,6 +27,22 @@
 #include "util/string_search.hpp"
 
 namespace doris {
+namespace {
+
+int32_t find_ipv6_host_end(const StringRef& host) {
+    if (host.size == 0 || host.data[0] != '[') {
+        return -1;
+    }
+    for (int32_t i = 1; i < host.size; ++i) {
+        if (host.data[i] == ']') {
+            return i;
+        }
+    }
+    return -1;
+}
+
+} // namespace
+
 const StringRef UrlParser::_s_url_authority("AUTHORITY", 9);
 const StringRef UrlParser::_s_url_file("FILE", 4);
 const StringRef UrlParser::_s_url_host("HOST", 4);
@@ -115,6 +131,11 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
         }
 
         StringRef host_start = protocol_end.substring(start_pos);
+        int32_t ipv6_host_end = find_ipv6_host_end(host_start);
+        if (ipv6_host_end >= 0) {
+            *result = host_start.substring(0, ipv6_host_end + 1);
+            break;
+        }
         // Find first '?'.
         int32_t query_start_pos = _s_question_search.search(&host_start);
         if (query_start_pos > 0) {
@@ -194,6 +215,14 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
         StringRef host_start = protocol_end.substring(start_pos);
         // Find ':' to strip out port.
         int32_t end_pos = _s_colon_search.search(&host_start);
+        if (host_start.size > 0 && host_start.data[0] == '[') {
+            end_pos = find_ipv6_host_end(host_start);
+            if (end_pos < 0 || end_pos + 1 >= host_start.size ||
+                host_start.data[end_pos + 1] != ':') {
+                return false;
+            }
+            end_pos += 1;
+        }
         //no port found
         if (end_pos < 0) {
             return false;

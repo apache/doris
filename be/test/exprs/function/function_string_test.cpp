@@ -2671,7 +2671,16 @@ TEST(function_string_test, function_parse_url_test) {
                           "https://www.facebook.com/aa/bb?returnpage=https://www.facebook.com/"),
                   std::string("HosT")},
                  std::string("www.facebook.com")},
-                {{std::string("http://www.baidu.com"), std::string("FILE")}, {std::string("")}}};
+                {{std::string("http://www.baidu.com"), std::string("FILE")}, {std::string("")}},
+                {{std::string("http://[2001:db8::1]:8080/a"), std::string("HOST")},
+                 {std::string("[2001:db8::1]")}},
+                {{std::string("http://[2001:db8::1]:8080/a"), std::string("PORT")},
+                 {std::string("8080")}},
+                {{std::string("http://user:pw@[2001:db8::1]:8080/a"), std::string("HOST")},
+                 {std::string("[2001:db8::1]")}},
+                {{std::string("http://user:pw@[2001:db8::1]:8080/a"), std::string("PORT")},
+                 {std::string("8080")}},
+                {{std::string("http://[2001:db8::1]/a"), std::string("PORT")}, {Null()}}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
