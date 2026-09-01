@@ -55,12 +55,6 @@ under the License.
             <scope>provided</scope>
         </dependency>
 
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
-
         <!--
           The fe parent pom declares slf4j and three log4j artifacts as compile dependencies of
           EVERY module, so a plugin that leaves them alone ships log4j-core in its own directory

@@ -48,12 +48,6 @@ under the License.
     </properties>
 
     <dependencies>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
-
         <!--
           Narrowed to test scope for the same reason as in jni-spi: the fe parent pom declares
           these for every module, and a child cannot drop an inherited dependency. See that pom

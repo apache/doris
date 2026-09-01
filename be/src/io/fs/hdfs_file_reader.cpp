@@ -160,5 +160,4 @@ Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* byte
     return Status::OK();
 }
 
-
 } // namespace doris::io

@@ -51,11 +51,6 @@ under the License.
         <!--
           Nothing here may ever gain a non-test scope. See the enforcer rule below.
         -->
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
 
         <!--
           The fe parent pom declares slf4j and three log4j artifacts as compile dependencies of

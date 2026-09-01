@@ -46,6 +46,15 @@ under the License.
 
     <artifactId>be-java-extensions</artifactId>
     <packaging>pom</packaging>
+
+    <!--
+      No module below declares a JUnit dependency, and none should. The fe parent pom already puts
+      junit-jupiter-engine, junit-jupiter-params, junit-vintage-engine and junit-platform-launcher
+      on the test classpath of EVERY module, so both JUnit 5 and JUnit 4 tests compile here without
+      a per-module entry. Adding one is not merely redundant: it also fails the Dependency License
+      Review workflow, which resolves no allow-listed SPDX license for org.junit.jupiter:junit-jupiter
+      and resolves junit:junit to EPL-1.0, which that workflow's allow-list does not carry.
+    -->
     <properties>
         <doris.home>${basedir}/../../</doris.home>
         <fe_ut_parallel>1</fe_ut_parallel>
