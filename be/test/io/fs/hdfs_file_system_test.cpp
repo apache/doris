@@ -161,8 +161,7 @@ TEST(HdfsFileSystemTest, Write) {
 TEST(HdfsFileSystemTest, CreateFailsWhenJavaSupportDisabled) {
     config::enable_java_support = false;
     std::map<std::string, std::string> properties;
-    auto res =
-            io::HdfsFileSystem::create(properties, "hdfs://namenode:8020", "test_id", nullptr, "/");
+    auto res = io::HdfsFileSystem::create(properties, "hdfs://namenode:8020", "test_id", "/");
     EXPECT_FALSE(res.has_value());
     config::enable_java_support = true;
 }
@@ -170,7 +169,7 @@ TEST(HdfsFileSystemTest, CreateFailsWhenJavaSupportDisabled) {
 // open_file_internal returns IOError when _fs_handler is null.
 TEST(HdfsFileSystemTest, OpenFileFailsWithoutHandler) {
     THdfsParams params;
-    io::HdfsFileSystem fs(params, "hdfs://namenode:8020", "test_id", nullptr, "/");
+    io::HdfsFileSystem fs(params, "hdfs://namenode:8020", "test_id", "/");
     io::FileReaderSPtr reader;
     auto st = fs.open_file_internal("/test/file.parquet", &reader, io::FileReaderOptions::DEFAULT);
     ASSERT_FALSE(st.ok());
@@ -180,7 +179,7 @@ TEST(HdfsFileSystemTest, OpenFileFailsWithoutHandler) {
 // file_size_impl returns IOError when _fs_handler is null.
 TEST(HdfsFileSystemTest, FileSizeFailsWithoutHandler) {
     THdfsParams params;
-    io::HdfsFileSystem fs(params, "hdfs://namenode:8020", "test_id", nullptr, "/");
+    io::HdfsFileSystem fs(params, "hdfs://namenode:8020", "test_id", "/");
     int64_t file_size = 0;
     auto st = fs.file_size_impl("/test/file.parquet", &file_size);
     ASSERT_FALSE(st.ok());
@@ -190,7 +189,7 @@ TEST(HdfsFileSystemTest, FileSizeFailsWithoutHandler) {
 // exists_impl returns IOError when _fs_handler is null.
 TEST(HdfsFileSystemTest, ExistsFailsWithoutHandler) {
     THdfsParams params;
-    io::HdfsFileSystem fs(params, "hdfs://namenode:8020", "test_id", nullptr, "/");
+    io::HdfsFileSystem fs(params, "hdfs://namenode:8020", "test_id", "/");
     bool exists = false;
     auto st = fs.exists_impl("/test/file.parquet", &exists);
     ASSERT_FALSE(st.ok());
@@ -200,7 +199,7 @@ TEST(HdfsFileSystemTest, ExistsFailsWithoutHandler) {
 // create_directory_impl returns IOError when _fs_handler is null.
 TEST(HdfsFileSystemTest, CreateDirectoryFailsWithoutHandler) {
     THdfsParams params;
-    io::HdfsFileSystem fs(params, "hdfs://namenode:8020", "test_id", nullptr, "/");
+    io::HdfsFileSystem fs(params, "hdfs://namenode:8020", "test_id", "/");
     auto st = fs.create_directory_impl("/test/dir", false);
     ASSERT_FALSE(st.ok());
     EXPECT_EQ(st.code(), TStatusCode::IO_ERROR);
@@ -209,7 +208,7 @@ TEST(HdfsFileSystemTest, CreateDirectoryFailsWithoutHandler) {
 // rename_impl returns IOError when _fs_handler is null.
 TEST(HdfsFileSystemTest, RenameFailsWithoutHandler) {
     THdfsParams params;
-    io::HdfsFileSystem fs(params, "hdfs://namenode:8020", "test_id", nullptr, "/");
+    io::HdfsFileSystem fs(params, "hdfs://namenode:8020", "test_id", "/");
     auto st = fs.rename_impl("/test/old.parquet", "/test/new.parquet");
     ASSERT_FALSE(st.ok());
     EXPECT_EQ(st.code(), TStatusCode::IO_ERROR);
