@@ -79,7 +79,11 @@ suite("test_paimon_file_metadata_columns", "p0,external") {
             create database if not exists paimon.db1;
             drop table if exists paimon.db1.${crossFileTable};
             create table paimon.db1.${crossFileTable} (id int, payload string)
-                using paimon tblproperties ('bucket'='1', 'file.format'='parquet');
+                using paimon tblproperties (
+                    'bucket'='1',
+                    'bucket-key'='id',
+                    'file.format'='parquet'
+                );
             insert into paimon.db1.${crossFileTable} values
                 (1, 'first-1'), (2, 'first-2'), (3, 'first-3');
             insert into paimon.db1.${crossFileTable} values
