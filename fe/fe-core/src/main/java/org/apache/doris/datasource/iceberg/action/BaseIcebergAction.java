@@ -19,6 +19,7 @@ package org.apache.doris.datasource.iceberg.action;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache.WritableTableLease;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.commands.execute.BaseExecuteAction;
 
 import org.apache.iceberg.Table;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -78,9 +80,29 @@ public abstract class BaseIcebergAction extends BaseExecuteAction {
         // Default implementation does nothing.
     }
 
-    protected final Table getWritableIcebergTable(TableIf table) {
-        // The expected ops fences lazy table acquisition to the authenticator generation selected at dispatch.
-        return IcebergUtils.getWritableIcebergTable((IcebergExternalTable) table, metadataOps);
+    @Override
+    protected final List<String> executeAction(TableIf table) throws UserException {
+        try (WritableTableLease lease = IcebergUtils.acquireWritableIcebergTable(
+                (IcebergExternalTable) table, metadataOps)) {
+            return lease.getAuthenticator().execute(
+                    () -> executeIcebergAction(table, lease));
+        } catch (UserException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new UserException("Failed to execute Iceberg action: " + e.getMessage(), e);
+        }
+    }
+
+    /** Override when an action needs to pass the exact writable generation into nested work. */
+    protected List<String> executeIcebergAction(TableIf table, WritableTableLease lease)
+            throws UserException {
+        return executeIcebergAction(table, lease.getTable());
+    }
+
+    /** Execute an action while the writable table's exact catalog generation remains retained. */
+    protected List<String> executeIcebergAction(TableIf table, Table icebergTable)
+            throws UserException {
+        throw new UnsupportedOperationException("Iceberg action must implement an execution hook");
     }
 
 }
