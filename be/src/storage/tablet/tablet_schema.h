@@ -233,9 +233,6 @@ public:
         _variant.max_subcolumns_count = variant_max_subcolumns_count;
     }
 
-    bool variant_is_v2() const { return _variant_is_v2; }
-    void set_variant_is_v2(bool is_v2) { _variant_is_v2 = is_v2; }
-
     PatternTypePB pattern_type() const { return _pattern_type; }
 
     bool variant_enable_typed_paths_to_sparse() const {
@@ -331,7 +328,6 @@ private:
     PatternTypePB _pattern_type = PatternTypePB::MATCH_NAME_GLOB;
 
     VariantParams _variant;
-    bool _variant_is_v2 = true;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);

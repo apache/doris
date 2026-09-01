@@ -912,7 +912,6 @@ TEST(ColumnVariantV2Test, FieldRoundTripOwnsEncodedAndTypedRows) {
     Field encoded_field_value = (*encoded)[0];
     ASSERT_EQ(encoded_field_value.get_type(), TYPE_VARIANT);
     const VariantField& owned = encoded_field_value.get<TYPE_VARIANT>();
-    EXPECT_FALSE(owned.is_legacy());
     EXPECT_EQ(as_view(owned.bytes()), raw);
 
     encoded->clear();
@@ -938,8 +937,6 @@ TEST(ColumnVariantV2Test, FieldRoundTripOwnsEncodedAndTypedRows) {
     ASSERT_EQ(sql_null_destination->size(), 1);
     EXPECT_TRUE(sql_null_destination->get_value_ref(0).is_null());
 
-    Field legacy = Field::create_field<TYPE_VARIANT>(VariantMap {});
-    EXPECT_THROW(typed_destination->insert(legacy), Exception);
     EXPECT_THROW(typed->get(typed->size(), encoded_field_value), Exception);
 }
 

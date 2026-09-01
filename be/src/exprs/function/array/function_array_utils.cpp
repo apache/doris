@@ -27,7 +27,6 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
-#include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
 
 namespace doris {
 
@@ -52,31 +51,6 @@ bool extract_column_array_info(const IColumn& src, ColumnArrayExecutionData& dat
     if (const auto* nullable = check_and_get_column<ColumnNullable>(data.nested_col.get())) {
         data.nested_nullmap_data = nullable->get_null_map_data().data();
         data.nested_col = nullable->get_nested_column_ptr();
-    }
-    if (data.output_as_variant &&
-        data.nested_type->get_primitive_type() != PrimitiveType::TYPE_VARIANT) {
-        ColumnPtr variant;
-        const auto nulls = data.nested_nullmap_data == nullptr
-                                   ? CastWrapper::variant_v2_internal::ForcedNulls {}
-                                   : CastWrapper::variant_v2_internal::ForcedNulls {
-                                             data.nested_nullmap_data, data.nested_col->size()};
-        Status status;
-        if (data.nested_type->get_primitive_type() == PrimitiveType::TYPE_JSONB) {
-            status = CastWrapper::variant_v2_internal::cast_jsonb_to_variant(
-                    data.nested_col, data.nested_col->size(), nulls, &variant);
-        } else if (data.nested_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
-            status = CastWrapper::variant_v2_internal::cast_array_to_variant(
-                    data.nested_col, data.nested_type, data.nested_col->size(), nulls, &variant);
-        } else if (CastWrapper::variant_v2_internal::is_supported_scalar_source(data.nested_type)) {
-            status = CastWrapper::variant_v2_internal::cast_scalar_to_variant(
-                    data.nested_col, data.nested_type, data.nested_col->size(), nulls, &variant);
-        } else {
-            return false;
-        }
-        if (!status.ok()) {
-            return false;
-        }
-        data.nested_col = std::move(variant);
     }
     return true;
 }

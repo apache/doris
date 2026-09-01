@@ -1270,18 +1270,8 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
         return_columns.resize(_tablet_schema->num_columns());
         std::iota(return_columns.begin(), return_columns.end(), 0);
     }
-    TabletSchemaSPtr tablet_schema = _tablet_schema;
-    if (options.use_variant_v2) {
-        tablet_schema = std::make_shared<TabletSchema>(*_tablet_schema);
-        for (int32_t column_id = 0; column_id < tablet_schema->num_columns(); ++column_id) {
-            auto& column = tablet_schema->mutable_column(column_id);
-            if (column.is_variant_type()) {
-                column.set_variant_is_v2(true);
-            }
-        }
-    }
     auto read_schema = std::make_shared<ReadSchema>(
-            project_columns_by_ordinal(tablet_schema->columns(), return_columns));
+            project_columns_by_ordinal(_tablet_schema->columns(), return_columns));
     // Test specs express predicate columns as tablet cids; the read path wants
     // ordinals into the read schema, so rebase them here (the role TabletReader
     // plays for real queries). Predicate columns must be read columns.
@@ -1313,7 +1303,7 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
 
         RowsetReaderContext context;
         context.reader_type = options.reader_type;
-        context.tablet_schema = tablet_schema;
+        context.tablet_schema = _tablet_schema;
         context.need_ordered_result = options.need_ordered_result;
         context.read_schema = read_schema;
         context.predicates = &predicates;
@@ -1334,10 +1324,10 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
             }
             RETURN_RESULT_IF_ERROR(status);
             if (options.collect_string_values) {
-                collect_string_values_from_block(*tablet_schema, return_columns, block, &result);
+                collect_string_values_from_block(*_tablet_schema, return_columns, block, &result);
             }
             if (options.collect_variant_values) {
-                collect_variant_values_from_block(*tablet_schema, return_columns, block, &result);
+                collect_variant_values_from_block(*_tablet_schema, return_columns, block, &result);
             }
             result.rows_read += block.rows();
         }

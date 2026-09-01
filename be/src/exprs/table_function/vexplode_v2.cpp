@@ -66,9 +66,6 @@ Status VExplodeV2TableFunction::_process_init_variant(Block* block, int value_co
         RETURN_IF_ERROR(CastWrapper::variant_v2_internal::cast_variant_to_array(
                 nullptr, *variant_v2, target_type, variant_v2->size(), outer_nulls, &array_column));
         _array_columns[children_column_idx] = std::move(array_column);
-        auto& detail = _multi_detail[children_column_idx];
-        detail.output_as_variant = true;
-        detail.nested_type = make_nullable(std::move(variant_type));
         _variant_v2_outputs[children_column_idx] = true;
         _has_variant_v2_output = true;
         return Status::OK();

@@ -1072,10 +1072,6 @@ void ColumnVariantV2::insert(const Field& field) {
         value = &null_value;
     } else if (field.get_type() == TYPE_VARIANT) {
         value = &field.get<TYPE_VARIANT>();
-        if (value->is_legacy()) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "ColumnVariantV2 cannot insert a legacy VariantMap Field");
-        }
     } else {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "ColumnVariantV2 only accepts Variant or NULL Field values, got {}",
