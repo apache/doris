@@ -145,7 +145,13 @@ public class IPv6Literal extends LiteralExpr {
 
     @Override
     public ByteBuffer getHashValue(PrimitiveType type) {
-        return ByteBuffer.wrap(parseAddress(value).toByteArray());
+        byte[] networkOrder = parseAddress(value).toByteArray();
+        ByteBuffer buffer = ByteBuffer.allocate(networkOrder.length);
+        for (int i = networkOrder.length - 1; i >= 0; i--) {
+            buffer.put(networkOrder[i]);
+        }
+        buffer.flip();
+        return buffer;
     }
 
     public String getValue() {

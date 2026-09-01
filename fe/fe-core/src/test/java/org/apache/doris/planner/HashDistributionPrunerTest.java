@@ -215,11 +215,11 @@ public class HashDistributionPrunerTest {
     public void testIdentityPruneWithIpCanonicalBytes() throws Exception {
         PartitionKey ipv4 = new PartitionKey();
         ipv4.pushColumn(new IPv4Literal("1.2.3.4"), PrimitiveType.IPV4);
-        Assert.assertEquals(255, ipv4.getIdentityHashValue(257));
+        Assert.assertEquals(2, ipv4.getIdentityHashValue(257));
 
         PartitionKey ipv6 = new PartitionKey();
         ipv6.pushColumn(new IPv6Literal("::1"), PrimitiveType.IPV6);
-        Assert.assertEquals(256, ipv6.getIdentityHashValue(257));
+        Assert.assertEquals(1, ipv6.getIdentityHashValue(257));
     }
 
     private void assertIdentityBucket(List<Long> tabletIds, List<Column> columns, String colName, Expr value,

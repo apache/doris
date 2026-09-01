@@ -24,6 +24,8 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/value/ipv4_value.h"
+#include "core/value/ipv6_value.h"
 #include "exec/partitioner/partitioner.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
@@ -91,7 +93,7 @@ protected:
 
     template <typename Partitioner>
     std::vector<PartitionerBase::HashValType> run(int partition_count, Block block,
-                                                   std::vector<TExpr> exprs) {
+                                                  std::vector<TExpr> exprs) {
         Partitioner partitioner(partition_count);
         EXPECT_TRUE(partitioner.init(exprs).ok());
         EXPECT_TRUE(partitioner.prepare(&_state, *_row_desc).ok());
@@ -129,8 +131,8 @@ TEST_F(IdentityPartitionerTest, ChannelIsValueModBucketCount) {
 // Canonical two's-complement bytes are unsigned, so negative values need no special branch.
 TEST_F(IdentityPartitionerTest, NegativeValueUsesUnsignedBytes) {
     constexpr int n = 10;
-    auto channels = run<IdentityHashPartitioner>(
-            n, ColumnHelper::create_block<DataTypeInt32>({-1, -8}));
+    auto channels =
+            run<IdentityHashPartitioner>(n, ColumnHelper::create_block<DataTypeInt32>({-1, -8}));
     ASSERT_EQ(2u, channels.size());
     EXPECT_EQ(5u, channels[0]); // UINT32_MAX % 10
     EXPECT_EQ(8u, channels[1]); // (UINT32_MAX - 7) % 10
@@ -141,8 +143,8 @@ TEST_F(IdentityPartitionerTest, SupportsMultipleTypedColumns) {
     auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2});
     auto strings = ColumnHelper::create_block<DataTypeString>({"A", "BC"});
     block.insert(strings.get_by_position(0));
-    auto channels = run<IdentityHashPartitioner>(
-            n, std::move(block), {make_int_slot_ref(), make_string_slot_ref()});
+    auto channels = run<IdentityHashPartitioner>(n, std::move(block),
+                                                 {make_int_slot_ref(), make_string_slot_ref()});
     ASSERT_EQ(2u, channels.size());
     EXPECT_EQ(64u, channels[0]); // (1 * 256 + 'A') % 257
     // unsigned_le("BC") = 0x4342; append it after uint32_le(2).
@@ -183,12 +185,13 @@ TEST_F(IdentityPartitionerTest, Crc32DiffersFromIdentity) {
 
 TEST(IdentityHashTest, IpCanonicalBytes) {
     constexpr uint32_t n = 257;
-    const uint8_t ipv4[] = {1, 2, 3, 4};
-    EXPECT_EQ(255u, RawValue::identity_hash(ipv4, sizeof(ipv4), TYPE_IPV4, 0, n));
+    IPv4 ipv4 = 0;
+    ASSERT_TRUE(IPv4Value::from_string(ipv4, "1.2.3.4"));
+    EXPECT_EQ(2u, RawValue::identity_hash(&ipv4, sizeof(ipv4), TYPE_IPV4, 0, n));
 
-    uint8_t ipv6[16] = {};
-    ipv6[15] = 1;
-    EXPECT_EQ(256u, RawValue::identity_hash(ipv6, sizeof(ipv6), TYPE_IPV6, 0, n));
+    IPv6 ipv6 = 0;
+    ASSERT_TRUE(IPv6Value::from_string(ipv6, "::1"));
+    EXPECT_EQ(1u, RawValue::identity_hash(&ipv6, sizeof(ipv6), TYPE_IPV6, 0, n));
 }
 
 } // namespace doris

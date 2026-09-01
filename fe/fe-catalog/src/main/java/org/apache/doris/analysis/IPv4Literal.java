@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import com.google.gson.annotations.SerializedName;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 public class IPv4Literal extends LiteralExpr {
 
@@ -164,10 +165,8 @@ public class IPv4Literal extends LiteralExpr {
 
     @Override
     public ByteBuffer getHashValue(PrimitiveType type) {
-        ByteBuffer buffer = ByteBuffer.allocate(Integer.BYTES);
-        for (int shift = 24; shift >= 0; shift -= 8) {
-            buffer.put((byte) (value >> shift));
-        }
+        ByteBuffer buffer = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.LITTLE_ENDIAN);
+        buffer.putInt((int) value);
         buffer.flip();
         return buffer;
     }
