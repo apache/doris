@@ -43,16 +43,18 @@ namespace doris {
 class Block;
 
 // Reads Paimon data on BE by calling into the paimon-rust C bindings
-// (libpaimon_c) through the catalog-based read pipeline:
+// (libpaimon_c) through the schema-json read pipeline:
 //
-//   catalog_create(warehouse) -> catalog_get_table(db, table)
+//   paimon_table_from_schema_json(table_path, schema_json, db, table, branch, storage_options)
 //     -> read_builder -> projection -> filter
 //     -> plan_from_split_bytes(FE split) -> read -> arrow record batch stream
 //
-// The FE-planned split bytes are deserialized directly into a one-split plan
-// via `paimon_plan_from_split_bytes` (wire form is identical to the one
-// paimon-cpp consumes), so each scanner reads exactly the split assigned to
-// it rather than re-planning the whole table.
+// FE ships the resolved paimon TableSchema JSON on TPaimonFileDesc so BE does
+// not need to reach the catalog / re-load schema files. The FE-planned split
+// bytes are deserialized directly into a one-split plan via
+// `paimon_plan_from_split_bytes` (wire form is identical to the one paimon-cpp
+// consumes), so each scanner reads exactly the split assigned to it rather
+// than re-planning the whole table.
 class PaimonRustReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(PaimonRustReader);
 
@@ -82,17 +84,16 @@ private:
     struct PaimonHandles;
 
     Status _init_paimon_reader();
-    // Open the table via the catalog and build the scan plan + arrow reader.
+    // Open the table via paimon_table_from_schema_json and build the scan plan
+    // + arrow reader.
     Status _open_table_and_build_reader();
     std::optional<std::string> _resolve_table_path() const;
     std::optional<std::string> _resolve_db_name() const;
     std::optional<std::string> _resolve_table_name() const;
-    // Derive `warehouse` from the table root path by stripping the trailing
-    // `/<db>.db/<table>` segments (paimon catalog convention). Returns nullopt
-    // when the path shape is unexpected.
-    static std::optional<std::string> _derive_warehouse(std::string_view table_path,
-                                                        std::string_view db_name,
-                                                        std::string_view table_name);
+    std::optional<std::string> _resolve_table_schema_json() const;
+    // Non-default branch name (unset means main branch, matching upstream
+    // paimon commit 742da63: null-if-DEFAULT_MAIN_BRANCH).
+    std::optional<std::string> _resolve_branch() const;
     // Base64-decode the FE-planned split into the raw serialized DataSplit bytes.
     // Kept even though the community API cannot deserialize them yet, so we
     // fail fast on missing / malformed splits without any filesystem IO.
