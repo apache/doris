@@ -261,22 +261,24 @@ Status VariantColumnReader::_create_hierarchical_reader(
     // `_subcolumns_meta_info` against concurrent writers.
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
 
-    // Node contains column with children columns or has correspoding sparse columns
-    // Create reader with hirachical data.
+    // Node contains column with children columns or has corresponding sparse columns.
+    // ROOT_ONLY deliberately leaves the binary reader absent so flat-leaf compaction does not
+    // reconstruct extracted or sparse values that are moved by their own column groups.
     std::unique_ptr<SubstreamIterator> sparse_iter;
-    ColumnIteratorUPtr iter;
-    // if read from subcolumns, but the binary column reader is multiple doc value,
-    // use dummy binary column reader to insert default values to binary column.
-    if (read_type == HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE &&
-        _binary_column_reader->get_type() == BinaryColumnType::MULTIPLE_DOC_VALUE) {
-        DummyBinaryColumnReader dummy_binary_column_reader;
-        RETURN_IF_ERROR(dummy_binary_column_reader.new_binary_column_iterator(&iter));
-    } else {
-        RETURN_IF_ERROR(_binary_column_reader->new_binary_column_iterator(&iter));
+    if (read_type != HierarchicalDataIterator::ReadType::ROOT_ONLY) {
+        ColumnIteratorUPtr iter;
+        // if read from subcolumns, but the binary column reader is multiple doc value,
+        // use dummy binary column reader to insert default values to binary column.
+        if (read_type == HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE &&
+            _binary_column_reader->get_type() == BinaryColumnType::MULTIPLE_DOC_VALUE) {
+            DummyBinaryColumnReader dummy_binary_column_reader;
+            RETURN_IF_ERROR(dummy_binary_column_reader.new_binary_column_iterator(&iter));
+        } else {
+            RETURN_IF_ERROR(_binary_column_reader->new_binary_column_iterator(&iter));
+        }
+        sparse_iter = std::make_unique<SubstreamIterator>(
+                variant_util::create_variant_binary_column(), std::move(iter), nullptr);
     }
-
-    sparse_iter = std::make_unique<SubstreamIterator>(variant_util::create_variant_binary_column(),
-                                                      std::move(iter), nullptr);
     if (node == nullptr) {
         node = _subcolumns_meta_info->find_exact(path);
     }
@@ -497,7 +499,7 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
         }
 
         if (relative_path.empty()) {
-            plan->kind = ReadKind::HIERARCHICAL;
+            plan->kind = ReadKind::ROOT_ONLY;
             plan->type = create_variant_storage_type(target_col);
             plan->relative_path = relative_path;
             plan->root = _subcolumns_meta_info->find_exact(relative_path);
@@ -1006,6 +1008,14 @@ Status VariantColumnReader::_create_iterator_from_plan(
         const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache,
         PathToBinaryColumnCache* binary_column_cache_ptr) {
     switch (plan.kind) {
+    case ReadKind::ROOT_ONLY: {
+        int32_t col_uid = target_col.unique_id() >= 0 ? target_col.unique_id()
+                                                      : target_col.parent_unique_id();
+        RETURN_IF_ERROR(_create_hierarchical_reader(
+                iterator, col_uid, plan.relative_path, plan.node, plan.root, column_reader_cache,
+                opt->stats, HierarchicalDataIterator::ReadType::ROOT_ONLY, &opt->io_ctx));
+        return _maybe_wrap_root_merge_iterator(iterator, plan, opt);
+    }
     case ReadKind::HIERARCHICAL: {
         // HIERARCHICAL reconstructs the requested object from extracted subcolumns plus sparse
         // state. Reading root `v` through this branch may therefore read regular children such as

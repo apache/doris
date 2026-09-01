@@ -309,6 +309,7 @@ private:
     // does not create any concrete ColumnIterator.
     enum class ReadKind {
         HIERARCHICAL,       // hierarchical merge (root + subcolumns + sparse)
+        ROOT_ONLY,          // root sidecar only for flat-leaf compaction
         HIERARCHICAL_DOC,   // hierarchical merge (root + doc)
         LEAF,               // direct leaf reader
         BINARY_EXTRACT,     // extract single path from sparse column
