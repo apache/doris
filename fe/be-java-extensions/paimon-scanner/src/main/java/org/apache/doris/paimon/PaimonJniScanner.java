@@ -39,8 +39,11 @@ import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableRead;
 import org.apache.paimon.table.system.SystemTableLoader;
+import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
+import org.apache.paimon.types.VariantType;
 import org.apache.paimon.utils.ChainTableUtils;
 import org.apache.paimon.utils.StringUtils;
 import org.slf4j.Logger;
@@ -58,6 +61,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
@@ -79,6 +83,7 @@ public class PaimonJniScanner extends JniScanner {
     private static final String ASYNC_READER_THREAD_NAME_PREFIX = "paimon-reader-async-thread";
     private static final String FILE_READER_ASYNC_THRESHOLD = "file-reader-async-threshold";
     private static final String SERIALIZED_TABLE = "serialized_table";
+    private static final String VARIANT_ACCESS_PATH_PREFIX = "variant_access_path.";
     private static final int MAX_MANIFEST_PARALLELISM = 256;
     static final String DORIS_MANIFEST_PARALLELISM_CAP =
             "doris.scan.manifest.parallelism-cap";
@@ -101,6 +106,8 @@ public class PaimonJniScanner extends JniScanner {
     private final String paimonSplit;
     private final String paimonPredicate;
     private final String tableCacheKey;
+    private final String timeZone;
+    private final List<List<List<String>>> variantAccessPathsByColumn;
     private Table table;
     private PaimonTableCache.TableCacheEntry tableCacheEntry;
     private RecordReader<InternalRow> reader;
@@ -109,6 +116,7 @@ public class PaimonJniScanner extends JniScanner {
     private final PaimonColumnValue columnValue = new PaimonColumnValue();
     private List<String> paimonAllFieldNames;
     private List<DataType> paimonDataTypeList;
+    private List<PaimonVariantProjection> variantProjections;
     private RecordReader.RecordIterator<InternalRow> recordIterator = null;
     private final ClassLoader classLoader;
     private PreExecutionAuthenticator preExecutionAuthenticator;
@@ -144,8 +152,9 @@ public class PaimonJniScanner extends JniScanner {
         tableCacheKey = params.get("serialized_table_cache_key");
         Preconditions.checkState(tableCacheKey != null && !tableCacheKey.isEmpty(),
                 "Missing required Paimon scanner parameter: serialized_table_cache_key");
-        String timeZone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
+        timeZone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
         columnValue.setTimeZone(timeZone);
+        variantAccessPathsByColumn = variantAccessPathsByColumn(params, requiredFields.length);
         initTableInfo(columnTypes, requiredFields, batchSize);
         hadoopOptionParams = params.entrySet().stream()
                 .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
@@ -194,11 +203,35 @@ public class PaimonJniScanner extends JniScanner {
                             fields.length, paimonAllFieldNames.size()));
         }
         int[] projected = getProjected();
-        readBuilder.withProjection(projected);
+        List<DataField> readFields = new ArrayList<>(projected.length);
+        variantProjections = new ArrayList<>(projected.length);
+        boolean hasReadTypeProjection = false;
+        for (int outputIndex = 0; outputIndex < projected.length; outputIndex++) {
+            DataField tableField = table.rowType().getFields().get(projected[outputIndex]);
+            PaimonVariantProjection projection = tableField.type() instanceof VariantType
+                    ? PaimonVariantProjection.create(
+                            variantAccessPathsByColumn.get(outputIndex), timeZone)
+                    : null;
+            variantProjections.add(projection);
+            if (projection == null) {
+                DataType projectedType = PaimonReadTypeProjection.project(
+                        tableField.type(), types[outputIndex]);
+                hasReadTypeProjection |= !projectedType.equals(tableField.type());
+                readFields.add(tableField.newType(projectedType));
+            } else {
+                hasReadTypeProjection = true;
+                readFields.add(tableField.newType(
+                        projection.readType().copy(tableField.type().isNullable())));
+            }
+        }
+        if (hasReadTypeProjection) {
+            readBuilder.withReadType(new RowType(readFields));
+        } else {
+            readBuilder.withProjection(projected);
+        }
         readBuilder.withFilter(getPredicates());
         reader = newReadWithOptionalIOManager(readBuilder).executeFilter().createReader(getSplit());
-        paimonDataTypeList =
-                Arrays.stream(projected).mapToObj(i -> table.rowType().getTypeAt(i)).collect(Collectors.toList());
+        paimonDataTypeList = readFields.stream().map(DataField::type).collect(Collectors.toList());
     }
 
     private TableRead newReadWithOptionalIOManager(ReadBuilder readBuilder) throws IOException {
@@ -406,7 +439,8 @@ public class PaimonJniScanner extends JniScanner {
                     rows++;
                     columnValue.setOffsetRow(record);
                     for (int i = 0; i < fields.length; i++) {
-                        columnValue.setIdx(i, types[i], paimonDataTypeList.get(i));
+                        columnValue.setIdx(
+                                i, types[i], paimonDataTypeList.get(i), variantProjections.get(i));
                         appendData(i, columnValue);
                     }
                     if (rows >= batchSize) {
@@ -544,14 +578,14 @@ public class PaimonJniScanner extends JniScanner {
         }
         // Each identifier is encoded independently, so delimiters in quoted identifiers cannot
         // change field cardinality. The legacy parameter remains the rolling-upgrade fallback.
-        return decodeSchemaValues(encodedFields);
+        return decodeStringList(encodedFields);
     }
 
     static String[] requiredTypes(Map<String, String> params) {
         String encodedTypes = params.get("columns_types_base64");
         return encodedTypes == null
                 ? splitParam(params.get("columns_types"), "#")
-                : decodeSchemaValues(encodedTypes);
+                : decodeStringList(encodedTypes);
     }
 
     private static boolean usesEncodedSchema(Map<String, String> params) {
@@ -564,7 +598,7 @@ public class PaimonJniScanner extends JniScanner {
         return hasFields;
     }
 
-    private static String[] decodeSchemaValues(String encodedValues) {
+    private static String[] decodeStringList(String encodedValues) {
         if (encodedValues.isEmpty()) {
             return new String[0];
         }
@@ -576,6 +610,24 @@ public class PaimonJniScanner extends JniScanner {
                     return new String(Base64.getDecoder().decode(encoded.substring(1)), StandardCharsets.UTF_8);
                 })
                 .toArray(String[]::new);
+    }
+
+    static List<List<List<String>>> variantAccessPathsByColumn(
+            Map<String, String> params, int requiredFieldCount) {
+        List<List<List<String>>> result = new ArrayList<>(requiredFieldCount);
+        for (int columnIndex = 0; columnIndex < requiredFieldCount; columnIndex++) {
+            List<List<String>> columnPaths = new ArrayList<>();
+            for (int pathIndex = 0; ; pathIndex++) {
+                String encodedPath = params.get(
+                        VARIANT_ACCESS_PATH_PREFIX + columnIndex + "." + pathIndex);
+                if (encodedPath == null) {
+                    break;
+                }
+                columnPaths.add(Arrays.asList(decodeStringList(encodedPath)));
+            }
+            result.add(columnPaths);
+        }
+        return result;
     }
 
     static int countThreadsByNamePrefix(String threadNamePrefix) {
