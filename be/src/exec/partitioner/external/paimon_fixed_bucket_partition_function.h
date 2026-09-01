@@ -22,7 +22,6 @@
 #include "exec/partitioner/external/paimon_row_hash_partition_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Stateless native implementation of Paimon FixedBucketWriteSelector for the
 // explicitly supported primitive routing types.
@@ -40,5 +39,4 @@ private:
     TPaimonFixedBucketInfo _fixed_bucket_info;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

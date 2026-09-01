@@ -21,7 +21,6 @@
 #include "format/transformer/iceberg_partition_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 namespace {
 bool has_partition_transform_metadata(const TExternalTableSinkHashPartitionInfo& info) {
@@ -122,5 +121,4 @@ Status create_external_partition_function(const TExternalTableSinkHashPartitionI
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -28,7 +28,6 @@ class SkewedPartitionRebalancer;
 }
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Maps logical partitions computed by a PartitionFunction to Doris exchange channels.
 class WriterAssigner {
@@ -79,5 +78,4 @@ private:
 // behavior for very small values.
 int64_t scale_writer_threshold_by_task(int64_t value, int task_num);
 
-#include "common/compile_check_end.h"
 } // namespace doris
