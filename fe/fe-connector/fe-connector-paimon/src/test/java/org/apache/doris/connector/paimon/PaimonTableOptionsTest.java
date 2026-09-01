@@ -29,7 +29,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.lang.reflect.Proxy;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -271,6 +273,33 @@ public class PaimonTableOptionsTest {
             Assertions.assertSame(catalog.getTable(id).getClass(), table.getClass());
             Assertions.assertFalse(table.options().containsKey("file-reader-async-threshold"));
         }
+    }
+
+    @Test
+    public void catalogOpsInvalidatesPaimonCacheBeforeReload() throws Exception {
+        List<String> calls = new ArrayList<>();
+        Table loaded = (Table) Proxy.newProxyInstance(
+                Table.class.getClassLoader(), new Class<?>[] {Table.class},
+                (proxy, method, args) -> null);
+        Catalog catalog = (Catalog) Proxy.newProxyInstance(
+                Catalog.class.getClassLoader(), new Class<?>[] {Catalog.class},
+                (proxy, method, args) -> {
+                    if ("invalidateTable".equals(method.getName())) {
+                        calls.add("invalidate");
+                        return null;
+                    }
+                    if ("getTable".equals(method.getName())) {
+                        calls.add("get");
+                        return loaded;
+                    }
+                    return null;
+                });
+
+        Table actual = new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog)
+                .getTable(Identifier.create("db", "t"));
+
+        Assertions.assertSame(loaded, actual);
+        Assertions.assertEquals(java.util.Arrays.asList("invalidate", "get"), calls);
     }
 
     @Test
