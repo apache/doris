@@ -37,6 +37,6 @@ public class AggregateUdfExecutorFactory implements UdfExecutorFactory {
     /** See {@link ScalarUdfExecutorFactory#invalidate}: one cache, reached from either factory. */
     @Override
     public void invalidate(long functionId, String functionSignature) {
-        UdfClassCacheRegistry.invalidate(UdfClassCacheRegistry.cacheKey(functionId, functionSignature));
+        UdfClassCacheRegistry.invalidate(functionId, functionSignature);
     }
 }
