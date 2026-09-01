@@ -38,8 +38,10 @@ class MemTableMemoryLimiter;
 class Block;
 class GroupRowsetWriter;
 class OlapTableSchemaParam;
-struct RowsetWriterContext;
 class RowsetWriter;
+namespace segment_v2 {
+class SegmentAllocatedLsnMap;
+}
 class SystemMetrics;
 class WorkloadGroup;
 
@@ -64,7 +66,8 @@ struct SharedMemtable {
     std::once_flag block_once;
     Status block_status;
     std::shared_ptr<Block> block;
-    RowsetWriterContext* rowset_ctx = nullptr;
+    // Group flush tasks can outlive FlushToken and its RowsetWriterContext.
+    std::shared_ptr<segment_v2::SegmentAllocatedLsnMap> allocated_lsn_map;
     bool has_allocated_lsns = false;
 
     std::atomic<int> finished_sub_task_count {0};

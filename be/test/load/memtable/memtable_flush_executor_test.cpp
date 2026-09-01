@@ -26,8 +26,10 @@
 
 #include <atomic>
 #include <chrono>
+#include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "common/config.h"
 #include "exec/sink/autoinc_buffer.h"
@@ -38,6 +40,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
+#include "storage/binlog.h"
 #include "storage/options.h"
 #include "storage/rowset/group_rowset_writer.h"
 #include "storage/rowset/rowset_writer.h"
@@ -518,6 +521,60 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushToken) {
 
         drop_tablet(ctx.request);
     }
+}
+
+TEST_F(MemTableFlushExecutorGroupFlushTest,
+       TestSharedMemtableKeepsAllocatedLsnMapAliveAfterWriterContextDestruction) {
+    SCOPED_INIT_THREAD_CONTEXT();
+
+    GroupFlushTestContext ctx;
+    prepare_group_flush_test_context(10004, 270068376, {4000, 4001}, &ctx);
+
+    auto shared_memtable = std::make_shared<SharedMemtable>();
+    shared_memtable->memtable = ctx.memtable;
+    shared_memtable->segment_id = 0;
+    shared_memtable->block = std::make_shared<Block>();
+    shared_memtable->has_allocated_lsns = true;
+
+    std::weak_ptr<segment_v2::SegmentAllocatedLsnMap> weak_lsn_map;
+    {
+        std::atomic<int> data_flush_cnt = 0;
+        std::atomic<int> binlog_flush_cnt = 0;
+        auto data_writer = std::make_shared<MockRowsetWriter>(&data_flush_cnt);
+        auto binlog_writer = std::make_shared<MockRowsetWriter>(&binlog_flush_cnt);
+        std::shared_ptr<GroupRowsetWriter> group_writer;
+        ASSERT_TRUE(
+                create_group_rowset_writer(ctx, 4, data_writer, binlog_writer, &group_writer).ok());
+
+        auto allocated_lsn_map = group_writer->context().allocated_lsn_map;
+        ASSERT_NE(allocated_lsn_map, nullptr);
+        allocated_lsn_map->insert_segment_allocated_lsns(shared_memtable->segment_id,
+                                                         ctx.memtable->allocated_lsns());
+        weak_lsn_map = allocated_lsn_map;
+        shared_memtable->allocated_lsn_map = std::move(allocated_lsn_map);
+
+        // FlushToken owns the GroupRowsetWriter and its context, while a queued group flush task
+        // can retain SharedMemtable until after FlushToken destruction.
+        group_writer.reset();
+        data_writer.reset();
+        binlog_writer.reset();
+    }
+
+    ASSERT_FALSE(weak_lsn_map.expired());
+    auto allocated_lsn_map = weak_lsn_map.lock();
+    ASSERT_NE(allocated_lsn_map, nullptr);
+
+    shared_memtable.reset();
+
+    auto replacement_lsns =
+            std::make_shared<const std::vector<int64_t>>(std::vector<int64_t> {4002, 4003});
+    allocated_lsn_map->insert_segment_allocated_lsns(0, replacement_lsns);
+    auto stored_lsns = allocated_lsn_map->get_segment_allocated_lsns(0);
+    ASSERT_EQ(2, stored_lsns->size());
+    EXPECT_EQ(4002, (*stored_lsns)[0]);
+    EXPECT_EQ(4003, (*stored_lsns)[1]);
+
+    drop_tablet(ctx.request);
 }
 
 TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushTokenPartialSuccess) {
