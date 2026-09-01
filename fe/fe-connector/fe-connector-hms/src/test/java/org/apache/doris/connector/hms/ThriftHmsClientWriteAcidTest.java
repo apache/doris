@@ -295,6 +295,62 @@ public class ThriftHmsClientWriteAcidTest {
     }
 
     @Test
+    public void testUnpooledExactPartitionCloseFailureCarriesCompletedStats() {
+        RecordingClient fake = partitionEchoClient().failCloseTimes(1);
+        Map<String, String> properties = new HashMap<>();
+        properties.put(HmsClientConfig.PARTITION_BATCH_SIZE_KEY, "2");
+        ThriftHmsClient client = newClient(fake, properties);
+
+        HmsClientException failure = Assertions.assertThrows(HmsClientException.class,
+                () -> client.getPartitionsWithStats("db", "t", names("p", 3)));
+
+        assertCompletedCloseFailure(failure);
+        Assertions.assertEquals(1, fake.closeCalls);
+    }
+
+    @Test
+    public void testUnpooledExistingPartitionCloseFailureCarriesCompletedStats() {
+        RecordingClient fake = partitionEchoClient().failCloseTimes(1);
+        Map<String, String> properties = new HashMap<>();
+        properties.put(HmsClientConfig.PARTITION_BATCH_SIZE_KEY, "2");
+        ThriftHmsClient client = newClient(fake, properties);
+
+        HmsClientException failure = Assertions.assertThrows(HmsClientException.class,
+                () -> client.getExistingPartitionsWithStats("db", "t", names("p", 3)));
+
+        assertCompletedCloseFailure(failure);
+        Assertions.assertEquals(1, fake.closeCalls);
+    }
+
+    private static RecordingClient partitionEchoClient() {
+        return new RecordingClient().answer("getPartitionsByNames", args -> {
+            @SuppressWarnings("unchecked")
+            List<String> partitionNames = (List<String>) args[2];
+            List<Partition> partitions = new ArrayList<>(partitionNames.size());
+            for (String partitionName : partitionNames) {
+                Partition partition = new Partition();
+                partition.setValues(HmsPartitionIdentity.fromName(partitionName));
+                partitions.add(partition);
+            }
+            return partitions;
+        });
+    }
+
+    private static void assertCompletedCloseFailure(HmsClientException failure) {
+        Assertions.assertEquals(
+                "Failed to close unpooled HMS client after partition batch completed", failure.getMessage());
+        Assertions.assertEquals("injected close failure", failure.getCause().getMessage());
+        HmsPartitionBatchStats stats = failure.getPartitionBatchStats();
+        Assertions.assertNotNull(stats);
+        Assertions.assertEquals(3, stats.getRequestedItems());
+        Assertions.assertEquals(2, stats.getRpcAttempts());
+        Assertions.assertEquals(3, stats.getRpcItems());
+        Assertions.assertEquals(2, stats.getLargestBatchSize());
+        Assertions.assertEquals(1, stats.getSmallestBatchSize());
+        Assertions.assertEquals(0, stats.getFallbackCount());
+    }
+
+    @Test
     public void testUpdateTableStatisticsRebuildsParamsAndAlters() {
         RecordingClient fake = new RecordingClient();
         Table origin = new Table();

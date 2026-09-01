@@ -258,9 +258,7 @@ public class ThriftHmsClient implements HmsClient {
         if (clientPool != null) {
             return newPartitionBatchExecutor(this::getPartitionsByNames).executeExistingWithStats(request);
         }
-        try (UnpooledPartitionTransport transport = new UnpooledPartitionTransport()) {
-            return newPartitionBatchExecutor(transport).executeExistingWithStats(request);
-        }
+        return executeUnpooledPartitionBatch(request, true);
     }
 
     @Override
@@ -270,8 +268,25 @@ public class ThriftHmsClient implements HmsClient {
         if (clientPool != null) {
             return newPartitionBatchExecutor(this::getPartitionsByNames).executeWithStats(request);
         }
+        return executeUnpooledPartitionBatch(request, false);
+    }
+
+    private HmsPartitionBatchResult executeUnpooledPartitionBatch(
+            HmsPartitionRequest request, boolean allowMissing) {
+        HmsPartitionBatchResult completed = null;
         try (UnpooledPartitionTransport transport = new UnpooledPartitionTransport()) {
-            return newPartitionBatchExecutor(transport).executeWithStats(request);
+            HmsPartitionBatchExecutor executor = newPartitionBatchExecutor(transport);
+            completed = allowMissing
+                    ? executor.executeExistingWithStats(request)
+                    : executor.executeWithStats(request);
+            return completed;
+        } catch (RuntimeException e) {
+            if (completed == null) {
+                throw e;
+            }
+            throw new HmsClientException(
+                    "Failed to close unpooled HMS client after partition batch completed", e)
+                    .withPartitionBatchStats(completed.getStats());
         }
     }
 
