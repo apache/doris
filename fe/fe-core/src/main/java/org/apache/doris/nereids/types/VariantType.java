@@ -305,4 +305,34 @@ public class VariantType extends PrimitiveType {
         return enableNestedGroup;
     }
 
+    /** Whether this is a legacy Variant leaf rather than the connector compute V2 carrier. */
+    public static boolean isLegacyVariant(DataType dataType) {
+        return dataType instanceof VariantType
+                && !(dataType instanceof ConnectorComputeVariantType);
+    }
+
+    /** Whether the Variant V2 execution kernel can convert this source type. */
+    public static boolean isSupportedComputeV2CastSource(DataType dataType) {
+        if (dataType.isNullType() || dataType.isJsonType()) {
+            return true;
+        }
+        if (dataType instanceof VariantType) {
+            return dataType instanceof ConnectorComputeVariantType;
+        }
+        if (dataType instanceof ArrayType) {
+            return isSupportedComputeV2CastSource(((ArrayType) dataType).getItemType());
+        }
+        if (dataType instanceof DecimalV3Type) {
+            return ((DecimalV3Type) dataType).getPrecision()
+                    <= DecimalV3Type.MAX_DECIMAL128_PRECISION;
+        }
+        return dataType.isBooleanType()
+                || dataType.isIntegralType()
+                || dataType.isFloatLikeType()
+                || dataType.isDecimalV2Type()
+                || dataType.isDateLikeType()
+                || dataType.isStringLikeType()
+                || dataType.isIPType();
+    }
+
 }
