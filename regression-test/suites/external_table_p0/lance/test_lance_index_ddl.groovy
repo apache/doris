@@ -106,6 +106,18 @@ suite("test_lance_index_ddl", "p0,external") {
             exception "DROP INDEX is not supported for Lance catalog tables"
         }
 
+        // An empty backquoted index name is a blank name, not an unsupported operation.
+        test {
+            sql """CREATE INDEX `` ON `${filesystemCatalog}`.`doris`.`vs_ivf_pq_f32` (embedding) USING ANN
+                   PROPERTIES("index_type"="IVF_PQ", "num_partitions"="256", "num_sub_vectors"="16")"""
+            exception "index name cannot be empty"
+        }
+
+        test {
+            sql """DROP INDEX `` ON `${filesystemCatalog}`.`doris`.`vs_ivf_pq_f32`"""
+            exception "index name cannot be empty"
+        }
+
         // ALTER TABLE ADD/DROP INDEX keeps the generic external-table rejection.
         test {
             sql """ALTER TABLE `${filesystemCatalog}`.`doris`.`vs_ivf_pq_f32` ADD INDEX idx (category) USING INVERTED"""
