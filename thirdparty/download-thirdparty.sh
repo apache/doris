@@ -774,18 +774,13 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
     echo "Finished patching ${PAIMON_CPP_SOURCE}"
 fi
 
-# Apply Doris lance-c patches in dependency order.
+# Apply Doris lance-c patches.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
-    if [[ "${LANCE_C_SOURCE}" == "lance-c-0.1.7" ]]; then
+    if [[ "${LANCE_C_SOURCE}" == "lance-c-0.1.8" ]]; then
         cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p1 <"${TP_PATCH_DIR}/lance-c-0.1.7-pr-64.patch"
+            patch -p1 <"${TP_PATCH_DIR}/lance-c-0.1.8-pr-69.patch"
             touch "${PATCHED_MARK}"
-        fi
-        lance_runtime_filter_mark="patched_mark_runtime_filter"
-        if [[ ! -f "${lance_runtime_filter_mark}" ]]; then
-            patch -p1 <"${TP_PATCH_DIR}/lance-c-0.1.7-runtime-filter.patch"
-            touch "${lance_runtime_filter_mark}"
         fi
         cd -
     fi
