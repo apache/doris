@@ -1498,6 +1498,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Set<String> bfColumns;
         String partitionName = singlePartitionDesc.getPartitionName();
         BinlogConfig binlogConfig;
+        TInvertedIndexFileStorageFormat partitionInvertedIndexFileStorageFormat;
 
         // check
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
@@ -1680,6 +1681,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             // get BinlogConfig
             binlogConfig = new BinlogConfig(olapTable.getBinlogConfig());
+            partitionInvertedIndexFileStorageFormat = olapTable.getPartitionInvertedIndexFileStorageFormat();
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         } finally {
@@ -1766,6 +1768,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 boolean metaChanged = false;
                 if (olapTable.getIndexIdToMeta(true).size() != indexIdToMeta.size()) {
                     metaChanged = true;
+                } else if (olapTable.getPartitionInvertedIndexFileStorageFormat()
+                        != partitionInvertedIndexFileStorageFormat) {
+                    metaChanged = true;
                 } else {
                     // compare schemaHash
                     for (Map.Entry<Long, MaterializedIndexMeta> entry
@@ -1813,6 +1818,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // update partition info
                 partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId, isTempPartition);
                 partitionInfoUpdated = true;
+                partitionInfo.setInvertedIndexFileStorageFormat(partitionId,
+                        partitionInvertedIndexFileStorageFormat);
 
                 // log
                 PartitionPersistInfo info = null;
@@ -1820,17 +1827,20 @@ public class InternalCatalog implements CatalogIf<Database> {
                     info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
                         partitionInfo.getItem(partitionId).getItems(), ListPartitionItem.DUMMY_ITEM, dataProperty,
                         partitionInfo.getReplicaAllocation(partitionId), partitionInfo.getIsInMemory(partitionId),
-                        isTempPartition, partitionInfo.getIsMutable(partitionId));
+                        isTempPartition, partitionInfo.getIsMutable(partitionId),
+                        partitionInvertedIndexFileStorageFormat);
                 } else if (partitionInfo.getType() == PartitionType.LIST) {
                     info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
                         RangePartitionItem.DUMMY_RANGE, partitionInfo.getItem(partitionId), dataProperty,
                         partitionInfo.getReplicaAllocation(partitionId), partitionInfo.getIsInMemory(partitionId),
-                        isTempPartition, partitionInfo.getIsMutable(partitionId));
+                        isTempPartition, partitionInfo.getIsMutable(partitionId),
+                        partitionInvertedIndexFileStorageFormat);
                 } else {
                     info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
                         RangePartitionItem.DUMMY_RANGE, ListPartitionItem.DUMMY_ITEM, dataProperty,
                         partitionInfo.getReplicaAllocation(partitionId), partitionInfo.getIsInMemory(partitionId),
-                        isTempPartition, partitionInfo.getIsMutable(partitionId));
+                        isTempPartition, partitionInfo.getIsMutable(partitionId),
+                        partitionInvertedIndexFileStorageFormat);
                 }
 
                 if (!isCreateTable) {
@@ -1979,6 +1989,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             partitionInfo.unprotectHandleNewSinglePartitionDesc(partition.getId(), info.isTempPartition(),
                     partitionItem, info.getDataProperty(), info.getReplicaAlloc(), info.isInMemory(), info.isMutable());
+            if (info.getInvertedIndexFileStorageFormat() != null) {
+                partitionInfo.setInvertedIndexFileStorageFormat(partition.getId(),
+                        info.getInvertedIndexFileStorageFormat());
+            }
 
             // add to inverted index
             TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
@@ -2670,6 +2684,17 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setInvertedIndexFileStorageFormat(invertedIndexFileStorageFormat);
 
+        TInvertedIndexFileStorageFormat partitionInvertedIndexFileStorageFormat;
+        try {
+            partitionInvertedIndexFileStorageFormat =
+                    PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        if (partitionInvertedIndexFileStorageFormat != null) {
+            olapTable.setPartitionInvertedIndexFileStorageFormat(partitionInvertedIndexFileStorageFormat);
+        }
+
         // get compression type
         TCompressionType compressionType = TCompressionType.LZ4;
         try {
@@ -3190,6 +3215,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                         binlogConfigForTask,
                         partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified());
                 olapTable.addPartition(partition);
+                partitionInfo.setInvertedIndexFileStorageFormat(partitionId,
+                        olapTable.getPartitionInvertedIndexFileStorageFormat());
                 afterCreatePartitions(db.getId(), olapTable.getId(), olapTable.getPartitionIds(),
                         olapTable.getIndexIdList(true),
                         true /* isCreateTable */, true /* isBatchCommit */, olapTable);
@@ -3282,6 +3309,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             binlogConfigForTask,
                             dataProperty.isStorageMediumSpecified());
                     olapTable.addPartition(partition);
+                    partitionInfo.setInvertedIndexFileStorageFormat(partition.getId(),
+                            olapTable.getPartitionInvertedIndexFileStorageFormat());
                     olapTable.getPartitionInfo().getDataProperty(partition.getId())
                         .setStoragePolicy(partionStoragePolicy);
                 }
@@ -3759,6 +3788,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             // rollup index may be added or dropped, and schema may be changed during creating partition operation.
             boolean metaChanged = false;
             if (olapTable.getIndexNameToId().size() != copiedTbl.getIndexNameToId().size()) {
+                metaChanged = true;
+            } else if (olapTable.getPartitionInvertedIndexFileStorageFormat()
+                    != copiedTbl.getPartitionInvertedIndexFileStorageFormat()) {
                 metaChanged = true;
             } else {
                 // compare schemaHash
