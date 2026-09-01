@@ -63,6 +63,8 @@ public class IcebergSnapshotCacheValue {
      */
     @Nullable
     private transient volatile ExecutionAuthenticator capturedAuthenticator;
+    @Nullable
+    private transient volatile IcebergRuntimeContext runtimeContext;
     private transient volatile boolean enableMappingVarbinary;
     private transient volatile boolean enableMappingTimestampTz;
 
@@ -138,6 +140,11 @@ public class IcebergSnapshotCacheValue {
         return this;
     }
 
+    public IcebergSnapshotCacheValue bindRuntimeContext(@Nullable IcebergRuntimeContext runtimeContext) {
+        this.runtimeContext = runtimeContext;
+        return this;
+    }
+
     public IcebergSnapshotCacheValue bindSchemaMappingOptions(
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         this.enableMappingVarbinary = enableMappingVarbinary;
@@ -148,6 +155,11 @@ public class IcebergSnapshotCacheValue {
     @Nullable
     public ExecutionAuthenticator getCapturedAuthenticator() {
         return capturedAuthenticator;
+    }
+
+    @Nullable
+    public IcebergRuntimeContext getRuntimeContext() {
+        return runtimeContext;
     }
 
     public boolean isEnableMappingVarbinary() {
@@ -176,6 +188,10 @@ public class IcebergSnapshotCacheValue {
 
     public Optional<Map<Integer, List<String>>> getNameMapping() {
         return nameMapping;
+    }
+
+    IcebergSnapshotCacheValue withoutRetainedTable() {
+        return new IcebergSnapshotCacheValue(partitionInfo, snapshot, nameMapping);
     }
 
     public Optional<Table> getIcebergTable() {

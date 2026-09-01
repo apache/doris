@@ -897,8 +897,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 return getHiveColumnStats(colName);
             case ICEBERG:
                 if (GlobalVariable.enableFetchIcebergStats) {
-                    return StatisticsUtil.getIcebergColumnStats(colName,
-                            IcebergUtils.getIcebergTable(this));
+                    return IcebergUtils.withIcebergTable(this,
+                            table -> StatisticsUtil.getIcebergColumnStats(colName, table));
                 } else {
                     break;
                 }

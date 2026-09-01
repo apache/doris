@@ -25,7 +25,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
@@ -86,9 +85,7 @@ public class IcebergSetCurrentSnapshotAction extends BaseIcebergAction {
     }
 
     @Override
-    protected List<String> executeAction(TableIf table) throws UserException {
-        Table icebergTable = ((IcebergExternalTable) table).getWritableIcebergTable();
-
+    protected List<String> executeIcebergAction(TableIf table, Table icebergTable) throws UserException {
         Snapshot previousSnapshot = icebergTable.currentSnapshot();
         Long previousSnapshotId = previousSnapshot != null ? previousSnapshot.snapshotId() : null;
 

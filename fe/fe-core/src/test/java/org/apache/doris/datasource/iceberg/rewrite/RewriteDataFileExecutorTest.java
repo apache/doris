@@ -21,11 +21,14 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
+import org.apache.doris.scheduler.manager.TransientTaskManager;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+
+import java.util.Collections;
 
 class RewriteDataFileExecutorTest {
 
@@ -45,6 +48,28 @@ class RewriteDataFileExecutorTest {
             InOrder inOrder = Mockito.inOrder(transaction, cacheMgr);
             inOrder.verify(transaction).commit();
             inOrder.verify(cacheMgr).invalidateTableCache(table);
+        }
+    }
+
+    @Test
+    void testCancelRemovesTableBearingTaskFromManager() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        TransientTaskManager taskManager = Mockito.mock(TransientTaskManager.class);
+        RewriteGroupTask task = Mockito.mock(RewriteGroupTask.class);
+        Mockito.when(task.getId()).thenReturn(7L);
+        RewriteDataFileExecutor.RewriteResultCollector collector =
+                new RewriteDataFileExecutor.RewriteResultCollector(
+                        1, Collections.singletonList(task));
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getTransientTaskManager()).thenReturn(taskManager);
+
+            collector.cancelAllTasks();
+
+            InOrder inOrder = Mockito.inOrder(taskManager, task);
+            inOrder.verify(taskManager).removeMemoryTask(7L);
+            inOrder.verify(task).cancel();
         }
     }
 }

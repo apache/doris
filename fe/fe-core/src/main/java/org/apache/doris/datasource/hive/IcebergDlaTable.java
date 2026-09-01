@@ -114,17 +114,19 @@ public class IcebergDlaTable extends HMSDlaTable {
         if (isValidRelatedTableCached) {
             return isValidRelatedTable;
         }
-        isValidRelatedTable = false;
+        isValidRelatedTable = IcebergUtils.withIcebergTable(hmsTable, this::isValidRelatedTable);
+        isValidRelatedTableCached = true;
+        return isValidRelatedTable;
+    }
+
+    private boolean isValidRelatedTable(Table table) {
         Set<String> allFields = Sets.newHashSet();
-        Table table = IcebergUtils.getIcebergTable(hmsTable);
         for (PartitionSpec spec : table.specs().values()) {
             if (spec == null) {
-                isValidRelatedTableCached = true;
                 return false;
             }
             List<PartitionField> fields = spec.fields();
             if (fields.size() != 1) {
-                isValidRelatedTableCached = true;
                 return false;
             }
             PartitionField partitionField = spec.fields().get(0);
@@ -133,13 +135,10 @@ public class IcebergDlaTable extends HMSDlaTable {
                     && !IcebergUtils.MONTH.equals(transformName)
                     && !IcebergUtils.DAY.equals(transformName)
                     && !IcebergUtils.HOUR.equals(transformName)) {
-                isValidRelatedTableCached = true;
                 return false;
             }
             allFields.add(table.schema().findColumnName(partitionField.sourceId()));
         }
-        isValidRelatedTableCached = true;
-        isValidRelatedTable = allFields.size() == 1;
-        return isValidRelatedTable;
+        return allFields.size() == 1;
     }
 }

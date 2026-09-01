@@ -96,11 +96,20 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     /** Captures the authentication context and generation used by one Hudi scan. */
-    public synchronized HudiScanRuntimeContext getHudiScanRuntimeContext() {
-        makeSureInitialized();
-        HudiExternalMetaCache hudiCache = Env.getCurrentEnv().getExtMetaCacheMgr().hudi(getId());
-        return new HudiScanRuntimeContext(runtimeGeneration.get(), executionAuthenticator,
-                hudiCache.captureFsViewGeneration(getId()));
+    public HudiScanRuntimeContext getHudiScanRuntimeContext() {
+        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        return cacheMgr.withCatalogLifecycleLock(getId(), () -> {
+            long generation;
+            ExecutionAuthenticator authenticator;
+            synchronized (this) {
+                makeSureInitialized();
+                generation = runtimeGeneration.get();
+                authenticator = executionAuthenticator;
+            }
+            HudiExternalMetaCache hudiCache = cacheMgr.hudi(getId());
+            return new HudiScanRuntimeContext(generation, authenticator,
+                    hudiCache.captureFsViewGeneration(getId()));
+        });
     }
 
     @Override
@@ -349,9 +358,14 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public synchronized void resetToUninitialized(boolean invalidCache) {
+    public void resetToUninitialized(boolean invalidCache) {
         ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
-        resetCatalogRuntime(cacheMgr, invalidCache);
+        cacheMgr.withCatalogLifecycleLock(getId(), () -> {
+            synchronized (this) {
+                resetCatalogRuntime(cacheMgr, invalidCache);
+            }
+            return null;
+        });
     }
 
     private void resetCatalogRuntime(ExternalMetaCacheMgr cacheMgr, boolean invalidCache) {

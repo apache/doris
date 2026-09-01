@@ -49,6 +49,8 @@ public class IcebergTableCacheValue {
     // counterpart for the concurrent catalog-reset rationale.
     @Nullable
     private volatile org.apache.doris.common.security.authentication.ExecutionAuthenticator authenticator;
+    @Nullable
+    private volatile IcebergRuntimeContext runtimeContext;
     private volatile boolean enableMappingVarbinary;
     private volatile boolean enableMappingTimestampTz;
     private String retainedCurrentSnapshotJson;
@@ -140,6 +142,10 @@ public class IcebergTableCacheValue {
         this.authenticator = authenticator;
     }
 
+    void bindRuntimeContext(IcebergRuntimeContext runtimeContext) {
+        this.runtimeContext = runtimeContext;
+    }
+
     void bindSchemaMappingOptions(boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         this.enableMappingVarbinary = enableMappingVarbinary;
         this.enableMappingTimestampTz = enableMappingTimestampTz;
@@ -163,6 +169,11 @@ public class IcebergTableCacheValue {
     @Nullable
     org.apache.doris.common.security.authentication.ExecutionAuthenticator getAuthenticator() {
         return authenticator;
+    }
+
+    @Nullable
+    IcebergRuntimeContext getRuntimeContext() {
+        return runtimeContext;
     }
 
     boolean isEnableMappingVarbinary() {

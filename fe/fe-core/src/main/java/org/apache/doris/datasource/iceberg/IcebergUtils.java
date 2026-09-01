@@ -1146,18 +1146,30 @@ public class IcebergUtils {
         return icebergExternalMetaCache(dorisTable).getQueryScopedIcebergTable(dorisTable);
     }
 
-    public static Table getWritableIcebergTable(ExternalTable dorisTable) {
+    @VisibleForTesting
+    static Table getWritableIcebergTable(ExternalTable dorisTable) {
         return icebergExternalMetaCache(dorisTable).getWritableIcebergTable(dorisTable);
     }
 
     /** Writable acquisition anchored to the caller's retained catalog generation. */
-    public static Table getWritableIcebergTable(ExternalTable dorisTable, IcebergMetadataOps expectedOps) {
+    @VisibleForTesting
+    static Table getWritableIcebergTable(ExternalTable dorisTable, IcebergMetadataOps expectedOps) {
         return icebergExternalMetaCache(dorisTable).getWritableIcebergTable(dorisTable, expectedOps);
     }
 
-    static IcebergExternalMetaCache.WritableTableLease acquireWritableIcebergTable(
+    public static IcebergExternalMetaCache.WritableTableLease acquireWritableIcebergTable(
+            ExternalTable dorisTable) {
+        return icebergExternalMetaCache(dorisTable).acquireWritableIcebergTable(dorisTable);
+    }
+
+    public static IcebergExternalMetaCache.WritableTableLease acquireWritableIcebergTable(
             ExternalTable dorisTable, IcebergMetadataOps expectedOps) {
         return icebergExternalMetaCache(dorisTable).acquireWritableIcebergTable(dorisTable, expectedOps);
+    }
+
+    public static IcebergSnapshotCacheValue getSnapshotForWritableLease(
+            ExternalTable dorisTable, IcebergExternalMetaCache.WritableTableLease lease) {
+        return icebergExternalMetaCache(dorisTable).getSnapshotForWritableLease(dorisTable, lease);
     }
 
     public static ThreadPoolExecutor getIcebergTableExecutor(ExternalTable dorisTable) {
@@ -1165,7 +1177,7 @@ public class IcebergUtils {
     }
 
     /** The action must return derived metadata rather than retain the supplied table. */
-    static <T> T withIcebergTable(ExternalTable dorisTable, Function<Table, T> action) {
+    public static <T> T withIcebergTable(ExternalTable dorisTable, Function<Table, T> action) {
         return icebergExternalMetaCache(dorisTable).withIcebergTable(dorisTable, action);
     }
 
@@ -2278,7 +2290,7 @@ public class IcebergUtils {
     /**
      * An explicit VERSION/TIME or branch/tag relation retains its query-scoped table exactly like
      * a latest projection retains the frozen generation, so the value must carry the generation's
-     * captured execution context for the planning-time fence in IcebergScanNode.
+     * captured execution context so planning never mixes this generation with live catalog state.
      */
     static IcebergSnapshotCacheValue newExplicitSnapshotValue(
             IcebergTableQueryInfo info, Table queryScopedTable, IcebergTableCacheValue generation) {
@@ -2287,6 +2299,7 @@ public class IcebergUtils {
                 new IcebergSnapshot(info.getSnapshotId(), info.getSchemaId()),
                 getNameMapping(queryScopedTable), queryScopedTable)
                 .bindCapturedAuthenticator(generation.getAuthenticator())
+                .bindRuntimeContext(generation.getRuntimeContext())
                 .bindSchemaMappingOptions(generation.isEnableMappingVarbinary(),
                         generation.isEnableMappingTimestampTz());
     }
