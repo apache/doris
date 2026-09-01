@@ -18,6 +18,8 @@
 package org.apache.doris.connector.hms;
 
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -33,19 +35,55 @@ public final class HmsClientConfig {
     /** Property key: HMS Thrift URI (e.g. "thrift://host:9083"). */
     public static final String HMS_URI_KEY = "hive.metastore.uris";
 
-    /** Property key: metastore type — "hms" (default), "dlf", or "glue". */
+    /** Property key: metastore type — "hms" (the default, and the only routable value). */
     public static final String METASTORE_TYPE_KEY = "hive.metastore.type";
 
     /** Standard HMS (Thrift). */
     public static final String METASTORE_TYPE_HMS = "hms";
 
-    /** Alibaba Cloud DLF. */
-    public static final String METASTORE_TYPE_DLF = "dlf";
+    /**
+     * Metastore types that have been REMOVED and are no longer routable, mapped to what each one was.
+     *
+     * <p>Retained only so each removal can be recognised and rejected explicitly. The dispatch in
+     * {@link ThriftHmsClient#getMetastoreClientClassName} ends in a plain-HMS fallback, so a removed value that
+     * is merely absent from the dispatch silently connects somewhere the user never configured.
+     */
+    private static final Map<String, String> REMOVED_METASTORE_TYPES;
 
-    /** AWS Glue Data Catalog. */
-    public static final String METASTORE_TYPE_GLUE = "glue";
+    static {
+        Map<String, String> removed = new HashMap<>();
+        removed.put("glue", "AWS Glue as an HMS thrift metastore");
+        removed.put("dlf", "Alibaba Cloud DLF 1.0 as an HMS thrift metastore");
+        REMOVED_METASTORE_TYPES = Collections.unmodifiableMap(removed);
+    }
+
+    /**
+     * Returns the rejection message when {@code properties} selects a metastore type that has been removed,
+     * else null.
+     *
+     * <p>Callers throw their own exception type rather than this returning a throw: property validation must
+     * raise {@link IllegalArgumentException} (the only type the catalog layer unwraps into a clean DdlException),
+     * while the lazy client path raises DorisConnectorException like its neighbours.
+     *
+     * <p>Must be checked BEFORE the HMS URI requirement — a glue/dlf catalog carries no
+     * {@code hive.metastore.uris}, so the URI check would otherwise shadow this with an error that never mentions
+     * the removed type.
+     */
+    public static String removedMetastoreTypeError(Map<String, String> properties) {
+        String type = properties.get(METASTORE_TYPE_KEY);
+        if (type == null) {
+            return null;
+        }
+        String removed = REMOVED_METASTORE_TYPES.get(type.toLowerCase(Locale.ROOT));
+        if (removed == null) {
+            return null;
+        }
+        return METASTORE_TYPE_KEY + " = " + type.toLowerCase(Locale.ROOT) + " is no longer supported: "
+                + removed + " has been removed. Supported types: " + METASTORE_TYPE_HMS + ".";
+    }
 
     private final Map<String, String> properties;
+    private final String confResources;
     private final int poolSize;
 
     /**
@@ -55,7 +93,15 @@ public final class HmsClientConfig {
      * @param poolSize   max pool connections; 0 means no pooling
      */
     public HmsClientConfig(Map<String, String> properties, int poolSize) {
+        this("", properties, poolSize);
+    }
+
+    /**
+     * Creates a client configuration with external Hive configuration resources layered below the overrides.
+     */
+    public HmsClientConfig(String confResources, Map<String, String> properties, int poolSize) {
         this.properties = Objects.requireNonNull(properties, "properties");
+        this.confResources = confResources;
         if (poolSize < 0) {
             throw new IllegalArgumentException("poolSize must be >= 0, got " + poolSize);
         }
@@ -64,6 +110,10 @@ public final class HmsClientConfig {
 
     public Map<String, String> getProperties() {
         return Collections.unmodifiableMap(properties);
+    }
+
+    public String getConfResources() {
+        return confResources;
     }
 
     public int getPoolSize() {

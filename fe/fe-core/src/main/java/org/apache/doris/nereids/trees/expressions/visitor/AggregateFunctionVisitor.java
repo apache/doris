@@ -71,6 +71,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmap
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Percentile;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileReservoir;
@@ -100,6 +101,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
 import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnelV2;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
@@ -331,6 +333,10 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitNullableAggregateFunction(percentileApprox, context);
     }
 
+    default R visitPercentileApproxArray(PercentileApproxArray percentileApproxArray, C context) {
+        return visitAggregateFunction(percentileApproxArray, context);
+    }
+
     default R visitPercentileArray(PercentileArray percentileArray, C context) {
         return visitAggregateFunction(percentileArray, context);
     }
@@ -440,6 +446,10 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitMergeCombinator(MergeCombinator combinator, C context) {
+        return visitAggregateFunction(combinator, context);
+    }
+
+    default R visitCombineCombinator(CombineCombinator combinator, C context) {
         return visitAggregateFunction(combinator, context);
     }
 

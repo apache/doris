@@ -37,6 +37,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "storage/olap_define.h"
 #include "storage/options.h"
@@ -249,6 +250,9 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
             [&engine](auto&& task) {
                 return make_cloud_committed_rs_visible_callback(engine, task);
             });
+
+    _workers[TTaskType::CLEAN_UDF_CACHE] = std::make_unique<TaskWorkerPool>(
+            "CLEAN_UDF_CACHE", 1, [](auto&& task) { return clean_udf_cache_callback(task); });
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_TASK", _cluster_info, config::report_task_interval_seconds,

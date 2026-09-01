@@ -50,6 +50,7 @@
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "load/delta_writer/delta_writer.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "storage/olap_common.h"
@@ -365,7 +366,7 @@ static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t rep
     ASSERT_EQ(Status::OK(), st);
     st = delta_writer->build_rowset();
     ASSERT_EQ(Status::OK(), st);
-    st = delta_writer->commit_txn(PSlaveTabletNodes());
+    st = delta_writer->commit_txn();
     ASSERT_EQ(Status::OK(), st);
 
     // publish version success

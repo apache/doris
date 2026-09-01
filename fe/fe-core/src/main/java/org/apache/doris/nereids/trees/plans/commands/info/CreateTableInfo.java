@@ -26,6 +26,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
@@ -46,13 +47,10 @@ import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
-import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -144,6 +142,12 @@ public class CreateTableInfo {
     private List<IndexDefinition> indexes;
     private List<String> ctasColumns;
     private String engineName;
+    /**
+     * Whether the target catalog is the internal one. This is the only engine-shaped question analysis still
+     * asks: the internal catalog creates olap tables, whose validation lives here, while every other catalog
+     * validates its own tables inside its connector. Set by {@link #resolveTargetCatalog()} before any use.
+     */
+    private boolean targetIsInternalCatalog;
     private KeysType keysType;
     private List<RollupDefinition> rollups;
     private Map<String, String> extProperties;
@@ -298,6 +302,14 @@ public class CreateTableInfo {
         return sortOrderFields;
     }
 
+    private boolean isEffectiveRowBinlogEnabled() {
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+        BinlogConfig binlogConfig = db == null
+                ? BinlogConfig.fromProperties(properties)
+                : db.getBinlogConfigsForCreateTable(properties).second;
+        return binlogConfig.isEnableForStreaming();
+    }
+
     public void setRollups(List<RollupDefinition> rollups) {
         this.rollups = rollups;
     }
@@ -375,28 +387,6 @@ public class CreateTableInfo {
         return ImmutableList.of(tableName);
     }
 
-    private void checkEngineWithCatalog() {
-        if (engineName.equals(ENGINE_OLAP)) {
-            if (!ctlName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-                throw new AnalysisException("Cannot create olap table out of internal catalog."
-                    + " Make sure 'engine' type is specified when use the catalog: " + ctlName);
-            }
-        }
-        if (Strings.isNullOrEmpty(ctlName)) {
-            return;
-        }
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
-        if (catalog instanceof HMSExternalCatalog && !engineName.equals(ENGINE_HIVE)) {
-            throw new AnalysisException("Hms type catalog can only use `hive` engine.");
-        } else if (catalog instanceof IcebergExternalCatalog && !engineName.equals(ENGINE_ICEBERG)) {
-            throw new AnalysisException("Iceberg type catalog can only use `iceberg` engine.");
-        } else if (catalog instanceof PaimonExternalCatalog && !engineName.equals(ENGINE_PAIMON)) {
-            throw new AnalysisException("Paimon type catalog can only use `paimon` engine.");
-        } else if (catalog instanceof MaxComputeExternalCatalog && !engineName.equals(ENGINE_MAXCOMPUTE)) {
-            throw new AnalysisException("MaxCompute type catalog can only use `maxcompute` engine.");
-        }
-    }
-
     /**
      * analyze create table info
      */
@@ -414,8 +404,7 @@ public class CreateTableInfo {
                 ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
             }
         }
-        paddingEngineName(ctlName, ctx);
-        checkEngineName();
+        resolveTargetCatalog();
 
         // not allow auto bucket with auto list partition
         if (partitionTableInfo != null
@@ -428,7 +417,7 @@ public class CreateTableInfo {
             properties = Maps.newHashMap();
         }
 
-        if (engineName.equalsIgnoreCase(ENGINE_OLAP)) {
+        if (targetIsInternalCatalog) {
             if (distribution == null) {
                 distribution = new DistributionDescriptor(false, true, FeConstants.default_bucket_num, null);
             }
@@ -441,8 +430,6 @@ public class CreateTableInfo {
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
-
-        checkEngineWithCatalog();
 
         // analyze table name
         if (Strings.isNullOrEmpty(dbName)) {
@@ -505,7 +492,7 @@ public class CreateTableInfo {
             }
         });
 
-        if (engineName.equalsIgnoreCase(ENGINE_OLAP)) {
+        if (targetIsInternalCatalog) {
             boolean enableDuplicateWithoutKeysByDefault = false;
             properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(ctlName, dbName, properties);
 
@@ -611,6 +598,7 @@ public class CreateTableInfo {
 
             try {
                 if (Config.random_add_order_by_keys_for_mow && isEnableMergeOnWrite && sortOrderFields.isEmpty()
+                        && !isEffectiveRowBinlogEnabled()
                         && PropertyAnalyzer.analyzeUseLightSchemaChange(new HashMap<>(properties))) {
                     // exclude columns whose data type can not be order key, see {@link ColumnDefinition#validate}
                     List<ColumnDefinition> orderKeysCandidates = columns.stream().filter(c -> {
@@ -748,7 +736,7 @@ public class CreateTableInfo {
             // validate partition
             partitionTableInfo.extractPartitionColumns();
             partitionTableInfo.validatePartitionInfo(
-                    engineName, columns, columnMap, properties, ctx, isEnableMergeOnWrite, isExternal);
+                    columnMap, properties, ctx, isEnableMergeOnWrite, isExternal);
 
             // validate distribution descriptor
             distribution.updateCols(columns.get(0).getName());
@@ -783,89 +771,78 @@ public class CreateTableInfo {
                 rollup.validate();
             }
         } else {
-            // mysql, broker and hive do not need key desc
+            // An external table has no Doris key model to declare.
             if (keysType != null) {
                 throw new AnalysisException(
-                        "Create " + engineName + " table should not contain keys desc");
+                        "Create table in catalog '" + ctlName + "' should not contain keys desc");
             }
 
             if (!rollups.isEmpty()) {
-                throw new AnalysisException(engineName + " catalog doesn't support rollup tables.");
+                throw new AnalysisException("Catalog '" + ctlName + "' doesn't support rollup tables.");
             }
 
-            if (engineName.equalsIgnoreCase(ENGINE_ICEBERG) && distribution != null) {
-                throw new AnalysisException(
-                    "Iceberg doesn't support 'DISTRIBUTE BY', "
-                        + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
-            } else if (engineName.equalsIgnoreCase(ENGINE_PAIMON) && distribution != null) {
-                throw new AnalysisException(
-                    "Paimon doesn't support 'DISTRIBUTE BY', "
-                        + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
-            }
-
-            if (engineName.equalsIgnoreCase(ENGINE_ICEBERG)) {
-                validateIcebergRowLineageColumns();
-            }
-
-            // Validate Iceberg sort order columns
+            // DISTRIBUTE BY / write sort order / NOT NULL columns / hive external partition rules are per-source
+            // DDL constraints; each is now enforced by the target connector inside its own createTable (mirroring
+            // MaxComputeConnectorMetadata.validateColumns). fe-core only gates the write sort-order clause
+            // generically: a connector accepts ORDER BY only when it declares SUPPORTS_SORT_ORDER (iceberg today),
+            // and that connector then validates the sort columns. Any other target (paimon/hive/maxcompute, and
+            // every internal-catalog engine) is rejected here.
             if (sortOrderFields != null && !sortOrderFields.isEmpty()) {
-                if (!engineName.equalsIgnoreCase(ENGINE_ICEBERG)) {
+                CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
+                // hasConnectorCapability forces the catalog to initialize, which is acceptable here: the user
+                // asked for a clause only one connector supports, so a catalog that cannot even be reached
+                // owes them the initialization error rather than a clause-support answer.
+                boolean supportsSortOrder = catalog instanceof PluginDrivenExternalCatalog
+                        && ((PluginDrivenExternalCatalog) catalog)
+                                .hasConnectorCapability(ConnectorCapability.SUPPORTS_SORT_ORDER);
+                if (!supportsSortOrder) {
                     throw new AnalysisException(
-                        "Only Iceberg catalog supports sort order, but current catalog is: " + engineName);
+                            "Sort order (ORDER BY) is not supported by catalog '" + ctlName + "'.");
                 }
-                validateIcebergSortOrder(columnMap);
             }
 
             for (ColumnDefinition columnDef : columns) {
-                if (!columnDef.isNullable()
-                        && engineName.equalsIgnoreCase(ENGINE_HIVE)) {
-                    throw new AnalysisException(engineName + " catalog doesn't support column with 'NOT NULL'.");
-                }
                 columnDef.setIsKey(true);
             }
-            // TODO: support iceberg partition check
-            if (engineName.equalsIgnoreCase(ENGINE_HIVE)) {
-                partitionTableInfo.validatePartitionInfo(
-                        engineName, columns, columnMap, properties, ctx, false, true);
-            }
         }
-        // validate column
-        try {
-            if (!engineName.equals(ENGINE_ELASTICSEARCH) && columns.isEmpty()) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_MUST_HAVE_COLUMNS);
-            }
-        } catch (Exception e) {
-            throw new AnalysisException(e.getMessage(), e.getCause());
-        }
-
         final boolean finalEnableMergeOnWrite = isEnableMergeOnWrite;
         Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         keysSet.addAll(keys);
         Set<String> orderKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         orderKeySet.addAll(sortOrderFields.stream().map(SortFieldInfo::getColumnName).collect(Collectors.toSet()));
-        columns.forEach(c -> c.validate(engineName.equals(ENGINE_OLAP), keysSet, orderKeySet, finalEnableMergeOnWrite,
+        columns.forEach(c -> c.validate(targetIsInternalCatalog, keysSet, orderKeySet, finalEnableMergeOnWrite,
                 keysType));
+
+        try {
+            invertedIndexFileStorageFormat =
+                    PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(new HashMap<>(properties));
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
 
         // validate index
         if (!indexes.isEmpty()) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-            try {
-                invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
-                        new HashMap<>(properties));
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage(), e.getCause());
+            if (invertedIndexFileStorageFormat == null) {
+                try {
+                    invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
+                            new HashMap<>(properties));
+                } catch (Exception e) {
+                    throw new AnalysisException(e.getMessage(), e.getCause());
+                }
             }
 
             for (IndexDefinition indexDef : indexes) {
                 indexDef.validate();
-                if (!engineName.equalsIgnoreCase(ENGINE_OLAP)) {
+                if (!targetIsInternalCatalog) {
                     throw new AnalysisException(
                             "index only support in olap engine at current version.");
                 }
                 if (indexDef.getIndexType() == IndexType.ANN) {
                     if (invertedIndexFileStorageFormat != null
                             && invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
-                        throw new AnalysisException("ANN index is not supported in index format V1");
+                        throw new AnalysisException("ANN index is not supported in index format "
+                                + invertedIndexFileStorageFormat);
                     }
                 }
                 for (String indexColName : indexDef.getColumnNames()) {
@@ -896,7 +873,7 @@ public class CreateTableInfo {
         generatedColumnCheck(ctx);
         analyzeEngine();
 
-        if (engineName.equalsIgnoreCase(ENGINE_OLAP)) {
+        if (targetIsInternalCatalog) {
             Env env = Env.getCurrentEnv();
             if (ctx != null && env != null && partitionTableInfo != null
                     && !partitionTableInfo.getPartitionList().isEmpty()) {
@@ -909,27 +886,52 @@ public class CreateTableInfo {
         }
     }
 
-    private void paddingEngineName(String ctlName, ConnectContext ctx) {
+    /**
+     * Resolves the target catalog and settles everything the statement used to derive from the engine name.
+     *
+     * <p>{@code ENGINE=} predates catalogs and is optional. The engine keeps no table of which name belongs to
+     * which data source: an explicitly written name is handed to the target catalog, which alone knows whether
+     * it is its own ({@link CatalogIf#validateCreateTableEngine}). An omitted clause is always legal.</p>
+     *
+     * <p>Only the internal catalog still needs a name downstream — {@code InternalCatalog.createTable}
+     * dispatches on it — so it keeps being padded with {@code olap}. An external target simply carries no
+     * engine name: nothing past analysis reads one (the connector request is built from columns, partitioning,
+     * bucketing and properties), which is why the engine can stop inventing one.</p>
+     */
+    private void resolveTargetCatalog() {
         Preconditions.checkArgument(!Strings.isNullOrEmpty(ctlName));
-        if (Strings.isNullOrEmpty(engineName)) {
-            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
-            if (catalog == null) {
-                throw new AnalysisException("Unknown catalog: " + ctlName);
-            }
+        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
+        if (catalog == null) {
+            throw new AnalysisException("Unknown catalog: " + ctlName);
+        }
+        targetIsInternalCatalog = catalog.isInternalCatalog();
 
-            if (catalog instanceof InternalCatalog) {
-                engineName = ENGINE_OLAP;
-            } else if (catalog instanceof HMSExternalCatalog) {
-                engineName = ENGINE_HIVE;
-            } else if (catalog instanceof IcebergExternalCatalog) {
-                engineName = ENGINE_ICEBERG;
-            } else if (catalog instanceof PaimonExternalCatalog) {
-                engineName = ENGINE_PAIMON;
-            } else if (catalog instanceof MaxComputeExternalCatalog) {
-                engineName = ENGINE_MAXCOMPUTE;
-            } else {
-                throw new AnalysisException("Current catalog does not support create table: " + ctlName);
+        if (!Strings.isNullOrEmpty(engineName)) {
+            try {
+                catalog.validateCreateTableEngine(engineName);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                // The catalog family throws the checked AnalysisException; analysis here reports the unchecked
+                // one. Only the type is adapted -- getDetailMessage() is the catalog's own wording without the
+                // "errCode = N, detailMessage = " envelope that family adds, so the user sees it verbatim.
+                throw new AnalysisException(e.getDetailMessage(), e);
             }
+        } else if (targetIsInternalCatalog) {
+            engineName = ENGINE_OLAP;
+        }
+
+        // EXTERNAL is legacy syntax that only ever meant "not an olap table". It used to be forced on by the
+        // engine-name whitelist; derive it from the target instead, and keep rejecting it where it contradicts
+        // the target. It is not cosmetic: it relaxes partition validation for tables Doris does not own.
+        if (isExternal && targetIsInternalCatalog) {
+            throw new AnalysisException("Do not support external table with engine name = olap");
+        }
+        isExternal = !targetIsInternalCatalog;
+
+        if (isTemp && !targetIsInternalCatalog) {
+            throw new AnalysisException("Do not support temporary table in catalog: " + ctlName);
+        }
+        if (isTemp && !rollups.isEmpty()) {
+            throw new AnalysisException("Do not support temporary table with rollup ");
         }
     }
 
@@ -939,52 +941,15 @@ public class CreateTableInfo {
     public void validateCreateTableAsSelect(List<String> qualifierTableName, List<ColumnDefinition> columns,
                                             ConnectContext ctx) {
         String catalogName = qualifierTableName.get(0);
-        paddingEngineName(catalogName, ctx);
+        this.ctlName = catalogName;
+        resolveTargetCatalog();
         this.columns = Utils.copyRequiredMutableList(columns);
         // bucket num is hard coded 10 to be consistent with legacy planner
-        if (engineName.equals(ENGINE_OLAP) && this.distribution == null) {
-            if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-                throw new AnalysisException("Cannot create olap table out of internal catalog."
-                        + " Make sure 'engine' type is specified when use the catalog: " + catalogName);
-            }
+        if (targetIsInternalCatalog && this.distribution == null) {
             this.distribution = new DistributionDescriptor(true, false, 10,
                     Lists.newArrayList(columns.get(0).getName()));
         }
         validate(ctx);
-    }
-
-    private void checkEngineName() {
-        if (engineName.equals(ENGINE_MYSQL) || engineName.equals(ENGINE_ODBC) || engineName.equals(ENGINE_BROKER)
-                || engineName.equals(ENGINE_ELASTICSEARCH) || engineName.equals(ENGINE_HIVE)
-                || engineName.equals(ENGINE_ICEBERG) || engineName.equals(ENGINE_JDBC)
-                || engineName.equals(ENGINE_PAIMON) || engineName.equals(ENGINE_MAXCOMPUTE)) {
-            if (!isExternal) {
-                // this is for compatibility
-                isExternal = true;
-            }
-        } else {
-            if (isExternal) {
-                throw new AnalysisException(
-                        "Do not support external table with engine name = olap");
-            } else if (!engineName.equals(ENGINE_OLAP)) {
-                throw new AnalysisException(
-                        "Do not support table with engine name = " + engineName);
-            }
-        }
-
-        if (isTemp && !engineName.equals(ENGINE_OLAP)) {
-            throw new AnalysisException("Do not support temporary table with engine name = " + engineName);
-        }
-        if (isTemp && !rollups.isEmpty()) {
-            throw new AnalysisException("Do not support temporary table with rollup ");
-        }
-
-        if ((engineName.equals(ENGINE_ODBC)
-                || engineName.equals(ENGINE_MYSQL) || engineName.equals(ENGINE_BROKER))) {
-            throw new AnalysisException("odbc, mysql and broker table is no longer supported."
-                    + " For odbc and mysql external table, use jdbc table or jdbc catalog instead."
-                    + " For broker table, use table valued function instead.");
-        }
     }
 
     /**
@@ -1122,34 +1087,6 @@ public class CreateTableInfo {
     }
 
     /**
-     * Validate that Iceberg v3 tables do not define row lineage reserved columns.
-     */
-    public void validateIcebergRowLineageColumns(int formatVersion) {
-        if (formatVersion < IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION) {
-            return;
-        }
-        for (ColumnDefinition columnDef : columns) {
-            if (IcebergUtils.isIcebergRowLineageColumn(columnDef.getName())) {
-                throw new AnalysisException("Cannot create Iceberg v" + formatVersion
-                        + " table with reserved row lineage column: " + columnDef.getName());
-            }
-        }
-    }
-
-    private void validateIcebergRowLineageColumns() {
-        validateIcebergRowLineageColumns(getEffectiveIcebergFormatVersion());
-    }
-
-    private int getEffectiveIcebergFormatVersion() {
-        CatalogIf catalog = Strings.isNullOrEmpty(ctlName) ? null
-                : Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
-        if (catalog instanceof IcebergExternalCatalog) {
-            return IcebergUtils.getEffectiveIcebergFormatVersion(properties, catalog.getProperties());
-        }
-        return IcebergUtils.getEffectiveIcebergFormatVersion(properties, Collections.emptyMap());
-    }
-
-    /**
      * analyzeEngine
      */
     public void analyzeEngine() {
@@ -1157,23 +1094,6 @@ public class CreateTableInfo {
         this.distributionDesc =
             distribution != null ? distribution.translateToCatalogStyle() : null;
 
-        if (engineName.equals(ENGINE_ELASTICSEARCH)) {
-            if (distributionDesc != null) {
-                throw new AnalysisException("could not support distribution clause");
-            }
-        } else if (!engineName.equals(ENGINE_OLAP)) {
-            if (!engineName.equals(ENGINE_HIVE) && !engineName.equals(ENGINE_MAXCOMPUTE)
-                    && distributionDesc != null) {
-                throw new AnalysisException("Create " + engineName
-                    + " table should not contain distribution desc");
-            }
-            if (!engineName.equals(ENGINE_HIVE) && !engineName.equals(ENGINE_ICEBERG)
-                    && !engineName.equals(ENGINE_PAIMON) && !engineName.equals(ENGINE_MAXCOMPUTE)
-                    && partitionDesc != null) {
-                throw new AnalysisException("Create " + engineName
-                    + " table should not contain partition desc");
-            }
-        }
     }
 
     public void setIsExternal(boolean isExternal) {
@@ -1187,7 +1107,7 @@ public class CreateTableInfo {
                 throw new AnalysisException("The generated columns can be key columns, "
                         + "or value columns of replace and replace_if_not_null aggregation type.");
             }
-            if (column.getGeneratedColumnDesc().isPresent() && !engineName.equalsIgnoreCase("olap")) {
+            if (column.getGeneratedColumnDesc().isPresent() && !targetIsInternalCatalog) {
                 throw new AnalysisException("Tables can only have generated columns if the olap engine is used");
             }
         }
@@ -1568,7 +1488,9 @@ public class CreateTableInfo {
             }
         }
         sb.append("\n)");
-        sb.append(" ENGINE = ").append(engineName.toLowerCase());
+        if (!Strings.isNullOrEmpty(engineName)) {
+            sb.append(" ENGINE = ").append(engineName.toLowerCase());
+        }
 
         if (keys != null) {
             sb.append("\n").append(getKeysDesc().toSql());
@@ -1609,7 +1531,7 @@ public class CreateTableInfo {
         }
 
         if (extProperties != null && !extProperties.isEmpty()) {
-            sb.append("\n").append(engineName.toUpperCase()).append(" PROPERTIES (");
+            sb.append("\n").append(Strings.nullToEmpty(engineName).toUpperCase()).append(" PROPERTIES (");
             sb.append(new DatasourcePrintableMap<>(extProperties, " = ", true, true, true));
             sb.append(")");
         }
@@ -1722,51 +1644,17 @@ public class CreateTableInfo {
     }
 
     /**
-     * Validate sort order for Iceberg table
+     * Add hidden columns required by row binlog.
      */
-    private void validateIcebergSortOrder(Map<String, ColumnDefinition> columnMap) {
-        if (sortOrderFields == null || sortOrderFields.isEmpty()) {
+    public void createRowBinlogHiddenColumnsIfNecessary(BinlogConfig binlogConfig) {
+        if (!binlogConfig.isRowFormat()) {
             return;
         }
-
-        // Check if sort order columns exist
-        for (SortFieldInfo sortField : sortOrderFields) {
-            String sortCol = sortField.getColumnName();
-            if (!columnMap.containsKey(sortCol)) {
-                throw new AnalysisException("Sort order column '" + sortCol + "' does not exist in table");
-            }
-
-            ColumnDefinition col = columnMap.get(sortCol);
-            DataType type = col.getType();
-
-            // Check if data type supports sorting
-            if (type.isOnlyMetricType()) {
-                throw new AnalysisException("Sort order column '" + sortCol
-                        + "' has unsupported type: " + type);
-            }
-        }
-
-        // Check for duplicate sort order columns
-        Set<String> sortColSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        for (SortFieldInfo sortField : sortOrderFields) {
-            String sortCol = sortField.getColumnName();
-            if (!sortColSet.add(sortCol)) {
-                throw new AnalysisException("Duplicate sort order column: " + sortCol);
-            }
-        }
-    }
-
-    /**
-     * check if add Commit TSO Column
-     */
-    public void createCommitTSOColumnIfNecessary(BinlogConfig binlogConfig) {
-        // __DORIS_COMMIT_TSO_COL__ injection for time-travel:
-        // only on dup / mow tables with row binlog enabled (binlog.enable=true && binlog.format=ROW).
-        if (keysType.equals(KeysType.DUP_KEYS)
-                || (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite)) {
-            if (binlogConfig.isRowFormat()) {
-                columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
-            }
+        if (keysType.equals(KeysType.DUP_KEYS)) {
+            columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
+            columns.add(ColumnDefinition.newRowLsnColumnDefinition(AggregateType.NONE));
+        } else if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
+            columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
         }
     }
 }

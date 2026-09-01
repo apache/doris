@@ -28,9 +28,11 @@
 #include <type_traits>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/stats.h"
 #include "cpp/sync_point.h"
 #include "meta-service/delete_bitmap_lock_white_list.h"
+#include "meta-service/meta_service_helper.h"
 #include "meta-service/txn_lazy_committer.h"
 #include "meta-store/txn_kv.h"
 #include "rate-limiter/rate_limiter.h"
@@ -160,6 +162,11 @@ public:
     void get_version(::google::protobuf::RpcController* controller,
                      const GetVersionRequest* request, GetVersionResponse* response,
                      ::google::protobuf::Closure* done) override;
+
+    void get_table_stream_offset(::google::protobuf::RpcController* controller,
+                                 const GetTableStreamOffsetRequest* request,
+                                 GetTableStreamOffsetResponse* response,
+                                 ::google::protobuf::Closure* done) override;
 
     void batch_get_version(::google::protobuf::RpcController* controller,
                            const GetVersionRequest* request, GetVersionResponse* response,
@@ -428,6 +435,9 @@ public:
                           const CompactSnapshotRequest* request, CompactSnapshotResponse* response,
                           ::google::protobuf::Closure* done) override;
 
+    std::pair<MetaServiceCode, std::string> check_instance_recycle_completed(
+            const std::string& instance_id, bool& finished, std::string& reason);
+
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
@@ -512,6 +522,10 @@ private:
                                    const std::vector<int64_t>& partition_ids,
                                    PartitionResponse* response, MetaServiceCode& code,
                                    std::string& msg, KVStats& stats);
+    void commit_table_stream_partition_internal(Transaction* txn, const PartitionRequest* request,
+                                                const std::string& instance_id,
+                                                const std::vector<int64_t>& partition_ids,
+                                                MetaServiceCode& code, std::string& msg);
 
     // Wait for all pending transactions before returning, and bump up the version to the latest.
     std::pair<MetaServiceCode, std::string> wait_for_pending_txns(const std::string& instance_id,
@@ -631,6 +645,14 @@ public:
                      const GetVersionRequest* request, GetVersionResponse* response,
                      ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_version, controller, request, response, done);
+    }
+
+    void get_table_stream_offset(::google::protobuf::RpcController* controller,
+                                 const GetTableStreamOffsetRequest* request,
+                                 GetTableStreamOffsetResponse* response,
+                                 ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::get_table_stream_offset, controller, request, response,
+                  done);
     }
 
     void create_tablets(::google::protobuf::RpcController* controller,
@@ -1034,6 +1056,11 @@ private:
 
         using namespace std::chrono;
         brpc::ClosureGuard done_guard(done);
+
+        DORIS_CLOUD_DEFER {
+            auto* status = resp->mutable_status();
+            set_response_code(status, status->code(), status->msg());
+        };
 
         // life span of this defer MUST be longer than `done`
         std::unique_ptr<int, std::function<void(int*)>> defer_injection(

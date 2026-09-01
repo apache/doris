@@ -36,6 +36,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "runtime/exec_env.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_headers.h"
 #include "service/http/http_status.h"
@@ -44,7 +45,6 @@
 
 namespace doris {
 
-const std::string TABLET_ID = "tablet_id";
 const std::string GET_FOOTER = "get_footer";
 
 CheckEncryptionAction::CheckEncryptionAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
@@ -78,7 +78,7 @@ Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet) {
         if (rs->num_segments() == 0) {
             return;
         }
-        auto maybe_seg_path = rs->segment_path(0);
+        auto maybe_seg_path = rs->segment(0).path();
         if (!maybe_seg_path) {
             st = std::move(maybe_seg_path.error());
             return;
@@ -129,7 +129,7 @@ Result<std::string> get_last_encrypt_footer(const BaseTabletSPtr& tablet) {
     if (rs->num_segments() == 0) {
         return "{}";
     }
-    auto maybe_seg_path = rs->segment_path(0);
+    auto maybe_seg_path = rs->segment(0).path();
     if (!maybe_seg_path) {
         return ResultError(maybe_seg_path.error());
     }

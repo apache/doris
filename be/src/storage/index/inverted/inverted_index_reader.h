@@ -226,13 +226,19 @@ public:
                          const Field& query_value, InvertedIndexQueryType query_type,
                          std::shared_ptr<roaring::Roaring>& bit_map,
                          const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) = 0;
+    virtual Status query_with_null_bitmap(const IndexQueryContextPtr& context,
+                                          const std::string& column_name, const Field& query_value,
+                                          InvertedIndexQueryType query_type,
+                                          std::shared_ptr<roaring::Roaring>& bit_map,
+                                          InvertedIndexQueryCacheHandle* null_bitmap_cache_handle,
+                                          const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr);
     virtual Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
                              const Field& query_value, InvertedIndexQueryType query_type,
                              size_t* count) = 0;
 
-    Status read_null_bitmap(const IndexQueryContextPtr& context,
-                            InvertedIndexQueryCacheHandle* cache_handle,
-                            lucene::store::Directory* dir = nullptr);
+    virtual Status read_null_bitmap(const IndexQueryContextPtr& context,
+                                    InvertedIndexQueryCacheHandle* cache_handle,
+                                    lucene::store::Directory* dir = nullptr);
 
     virtual InvertedIndexReaderType type() = 0;
 
@@ -249,7 +255,11 @@ public:
     bool handle_query_cache(const IndexQueryContextPtr& context, InvertedIndexQueryCache* cache,
                             const InvertedIndexQueryCache::CacheKey& cache_key,
                             InvertedIndexQueryCacheHandle* cache_handler,
-                            std::shared_ptr<roaring::Roaring>& bit_map);
+                            std::shared_ptr<roaring::Roaring>& bit_map, bool enabled = true);
+    void insert_query_cache(const IndexQueryContextPtr& context, InvertedIndexQueryCache* cache,
+                            const InvertedIndexQueryCache::CacheKey& cache_key,
+                            std::shared_ptr<roaring::Roaring> bit_map,
+                            InvertedIndexQueryCacheHandle* cache_handler, bool enabled = true);
 
     virtual Status handle_searcher_cache(const IndexQueryContextPtr& context,
                                          InvertedIndexCacheHandle* inverted_index_cache_handle);
@@ -335,7 +345,6 @@ public:
     std::string query_min;
     std::string query_max;
 
-public:
     InvertedIndexVisitor(const void* io_ctx, lucene::util::bkd::bkd_reader* r,
                          roaring::Roaring* hits, bool only_count = false);
     ~InvertedIndexVisitor() override = default;

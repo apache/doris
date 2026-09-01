@@ -200,6 +200,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         Assert.assertEquals(DecimalV2Type.SYSTEM_DEFAULT, dataType);
 
         Config.enable_decimal_conversion = originalEnableDecimalConversion;
+
     }
 
     @Test

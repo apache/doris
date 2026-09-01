@@ -130,6 +130,9 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT = "inverted_index_storage_format";
 
+    public static final String PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT =
+            "partition.inverted_index_storage_format";
+
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
     public static final String PROPERTIES_FILE_CACHE_TTL_SECONDS = "file_cache_ttl_seconds";
@@ -270,6 +273,7 @@ public class PropertyAnalyzer {
     // compaction policy
     public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
     public static final String TIME_SERIES_COMPACTION_POLICY = "time_series";
+    public static final String BINLOG_COMPACTION_POLICY = "binlog";
     public static final long TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE = 1024;
     public static final long TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE = 1000;
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
@@ -1249,32 +1253,61 @@ public class PropertyAnalyzer {
             invertedIndexFileStorageFormat = properties.get(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
             properties.remove(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
         } else {
-            if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
-                return TInvertedIndexFileStorageFormat.V1;
-            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
+            if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
                 return TInvertedIndexFileStorageFormat.V2;
+            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("SNII")) {
+                return TInvertedIndexFileStorageFormat.SNII;
             } else {
                 return TInvertedIndexFileStorageFormat.V3;
             }
         }
 
         if (invertedIndexFileStorageFormat.equalsIgnoreCase("v1")) {
-            return TInvertedIndexFileStorageFormat.V1;
+            throw new AnalysisException(
+                    "Inverted index V1 is deprecated and no longer allowed for new index creation."
+                            + " Please use inverted index V2.");
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v2")) {
             return TInvertedIndexFileStorageFormat.V2;
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v3")) {
             return TInvertedIndexFileStorageFormat.V3;
+        } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("snii")) {
+            return TInvertedIndexFileStorageFormat.SNII;
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("default")) {
-            if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
-                return TInvertedIndexFileStorageFormat.V1;
-            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
+            if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
                 return TInvertedIndexFileStorageFormat.V2;
+            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("SNII")) {
+                return TInvertedIndexFileStorageFormat.SNII;
             } else {
                 return TInvertedIndexFileStorageFormat.V3;
             }
         } else {
             throw new AnalysisException("unknown inverted index storage format: " + invertedIndexFileStorageFormat);
         }
+    }
+
+    public static TInvertedIndexFileStorageFormat analyzePartitionInvertedIndexFileStorageFormat(
+            Map<String, String> properties) throws AnalysisException {
+        if (properties == null || !properties.containsKey(PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
+            return null;
+        }
+        if (!Config.isCloudMode()) {
+            throw new AnalysisException("partition.inverted_index_storage_format is only supported in cloud mode");
+        }
+        if (!Config.enable_partition_inverted_index_storage_format_rollout) {
+            properties.remove(PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT);
+            LOG.info("Ignore {} because partition inverted index storage format rollout is disabled",
+                    PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT);
+            return null;
+        }
+
+        Map<String, String> formatProperties = new HashMap<>();
+        formatProperties.put(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT,
+                properties.remove(PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT));
+        TInvertedIndexFileStorageFormat format = analyzeInvertedIndexFileStorageFormat(formatProperties);
+        if (format == TInvertedIndexFileStorageFormat.V1) {
+            throw new AnalysisException("partition inverted index storage format only supports V2, V3 and SNII");
+        }
+        return format;
     }
 
     // analyze common boolean properties, such as "in_memory" = "false"

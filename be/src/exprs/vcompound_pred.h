@@ -44,6 +44,15 @@ inline std::string compound_operator_to_string(TExprOpcode::type op) {
     }
 }
 
+inline bool inverted_index_status_allows_row_fallback(const Status& status) {
+    DORIS_CHECK(!status.ok());
+    return status.is<ErrorCode::INVERTED_INDEX_BYPASS>() ||
+           status.is<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>() ||
+           status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>() ||
+           status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>() ||
+           status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+}
+
 class VCompoundPred : public VectorizedFnCall {
     ENABLE_FACTORY_CREATOR(VCompoundPred);
 
@@ -64,6 +73,66 @@ public:
         DORIS_CHECK(cloned_expr != nullptr);
         *cloned_expr = VCompoundPred::create_shared(clone_texpr_node());
         return Status::OK();
+    }
+
+    bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                         int column_id) const override {
+        return !_children.empty() &&
+               (_op == TExprOpcode::COMPOUND_AND || _op == TExprOpcode::COMPOUND_OR) &&
+               std::ranges::all_of(_children, [&](const VExprSPtr& child) {
+                   return child->can_execute_on_raw_fixed_values(data_type, column_id);
+               });
+    }
+
+    Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values, size_t value_width,
+                                       const DataTypePtr& data_type, int column_id,
+                                       uint8_t* matches) const override {
+        if (!can_execute_on_raw_fixed_values(data_type, column_id)) {
+            return Status::NotSupported("Compound predicate cannot evaluate raw fixed values");
+        }
+        return _execute_raw_compound(
+                num_values, matches, [&](const VExprSPtr& child, uint8_t* child_matches) {
+                    return child->execute_on_raw_fixed_values(values, num_values, value_width,
+                                                              data_type, column_id, child_matches);
+                });
+    }
+
+    bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                          int column_id) const override {
+        return !_children.empty() &&
+               (_op == TExprOpcode::COMPOUND_AND || _op == TExprOpcode::COMPOUND_OR) &&
+               std::ranges::all_of(_children, [&](const VExprSPtr& child) {
+                   return child->can_execute_on_raw_binary_values(data_type, column_id);
+               });
+    }
+
+    Status execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                        const DataTypePtr& data_type, int column_id,
+                                        uint8_t* matches) const override {
+        if (!can_execute_on_raw_binary_values(data_type, column_id)) {
+            return Status::NotSupported("Compound predicate cannot evaluate raw binary values");
+        }
+        return _execute_raw_compound(
+                num_values, matches, [&](const VExprSPtr& child, uint8_t* child_matches) {
+                    return child->execute_on_raw_binary_values(values, num_values, data_type,
+                                                               column_id, child_matches);
+                });
+    }
+
+    bool raw_predicate_result_for_null() const override {
+        if (_op != TExprOpcode::COMPOUND_AND && _op != TExprOpcode::COMPOUND_OR) {
+            // A Boolean keep bit cannot distinguish FALSE from UNKNOWN, so negating a child's
+            // collapsed result is not SQL-correct. NOT remains residual and rejects NULL here.
+            return false;
+        }
+        if (_op == TExprOpcode::COMPOUND_AND) {
+            return std::ranges::all_of(_children, [](const VExprSPtr& child) {
+                return child->raw_predicate_result_for_null();
+            });
+        }
+        return std::ranges::any_of(_children, [](const VExprSPtr& child) {
+            return child->raw_predicate_result_for_null();
+        });
     }
 
     bool can_evaluate_zonemap_filter() const override {
@@ -212,6 +281,9 @@ public:
                     !st.ok()) {
                     LOG(ERROR) << "expr:" << child->expr_name()
                                << " evaluate_inverted_index error:" << st.to_string();
+                    if (!inverted_index_status_allows_row_fallback(st)) {
+                        return st;
+                    }
                     all_pass = false;
                     continue;
                 }
@@ -241,6 +313,9 @@ public:
                     !st.ok()) {
                     LOG(ERROR) << "expr:" << child->expr_name()
                                << " evaluate_inverted_index error:" << st.to_string();
+                    if (!inverted_index_status_allows_row_fallback(st)) {
+                        return st;
+                    }
                     all_pass = false;
                     continue;
                 }
@@ -484,6 +559,49 @@ public:
     }
 
 private:
+    template <typename ExecuteChild>
+    Status _execute_raw_compound(size_t num_values, uint8_t* matches,
+                                 ExecuteChild&& execute_child) const {
+        if (_op == TExprOpcode::COMPOUND_AND) {
+            for (const auto& child : _children) {
+                RETURN_IF_ERROR(execute_child(child, matches));
+            }
+            return Status::OK();
+        }
+
+        // Each execution context owns its expression tree. Retaining masks on the OR node avoids
+        // N+1 row-sized allocations for every decoder fragment, while nested OR nodes keep
+        // independent buffers and therefore cannot overwrite their parent's in-flight state.
+        _raw_combined_scratch.resize(num_values);
+        std::ranges::fill(_raw_combined_scratch, 0);
+        for (const auto& child : _children) {
+            // resize_fill() initializes only newly appended bytes; explicitly reset a reused mask
+            // so matches from an earlier page fragment cannot leak into this OR evaluation.
+            _raw_child_scratch.resize(num_values);
+            std::ranges::fill(_raw_child_scratch, 1);
+            RETURN_IF_ERROR(execute_child(child, _raw_child_scratch.data()));
+            for (size_t row = 0; row < num_values; ++row) {
+                _raw_combined_scratch[row] |= _raw_child_scratch[row];
+            }
+        }
+        // Raw kernels receive an existing selection mask, so composition must preserve rows that
+        // an earlier conjunct already rejected instead of replacing the caller's mask.
+        for (size_t row = 0; row < num_values; ++row) {
+            matches[row] &= _raw_combined_scratch[row];
+        }
+        constexpr size_t MAX_RETAINED_RAW_MASK_BYTES = 1UL << 20;
+        if (_raw_combined_scratch.capacity() > MAX_RETAINED_RAW_MASK_BYTES) {
+            IColumn::Filter().swap(_raw_combined_scratch);
+        }
+        if (_raw_child_scratch.capacity() > MAX_RETAINED_RAW_MASK_BYTES) {
+            IColumn::Filter().swap(_raw_child_scratch);
+        }
+        return Status::OK();
+    }
+
+    mutable IColumn::Filter _raw_combined_scratch;
+    mutable IColumn::Filter _raw_child_scratch;
+
     static inline constexpr uint8_t apply_and_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
         // (<> && false) is false, (true && NULL) is NULL
         return (l_null & r_null) | (r_null & (l_null ^ a)) | (l_null & (r_null ^ b));

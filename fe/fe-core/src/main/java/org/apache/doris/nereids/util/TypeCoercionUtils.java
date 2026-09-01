@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -173,6 +174,14 @@ public class TypeCoercionUtils {
         );
     }
 
+    /** Whether a successful cast can add NULL to a common complex-type layout in the current mode. */
+    public static boolean castMayProduceNull(DataType sourceType, DataType targetType) {
+        // Strict casts fail the statement on invalid input instead of returning NULL, so widening a
+        // required Struct child must not make it nullable merely because the loose cast can fail.
+        return !SessionVariable.enableStrictCast()
+                && Cast.castNullable(false, sourceType, targetType);
+    }
+
     /**
      * Return Optional.empty() if we cannot do implicit cast.
      */
@@ -201,12 +210,18 @@ public class TypeCoercionUtils {
                 Optional<DataType> newDataType = implicitCast(inputFields.get(i).getDataType(),
                         expectedFields.get(i).getDataType());
                 if (newDataType.isPresent()) {
-                    newFields.add(inputFields.get(i).withDataType(newDataType.get()));
+                    // The struct layout must also admit NULLs introduced by a fallible child cast.
+                    boolean nullable = inputFields.get(i).isNullable() || expectedFields.get(i).isNullable()
+                            || castMayProduceNull(inputFields.get(i).getDataType(), newDataType.get());
+                    newFields.add(inputFields.get(i).withDataTypeAndNullable(newDataType.get(), nullable));
                 } else {
                     return Optional.empty();
                 }
             }
             return Optional.of(new StructType(newFields));
+        } else if (input instanceof VariantType && expected instanceof JsonType) {
+            // JSON functions require users to make this representation change explicit.
+            return Optional.empty();
         } else if (input instanceof VariantType && (expected.isNumericType() || expected.isStringLikeType())) {
             // variant could implicit cast to numric types and string like types
             return Optional.of(expected);
@@ -446,7 +461,8 @@ public class TypeCoercionUtils {
                 return false;
             }
             for (int i = 0; i < inputFields.size(); i++) {
-                if (!matchesType(inputFields.get(i).getDataType(), targetFields.get(i).getDataType())) {
+                if (inputFields.get(i).isNullable() != targetFields.get(i).isNullable()
+                        || !matchesType(inputFields.get(i).getDataType(), targetFields.get(i).getDataType())) {
                     return false;
                 }
             }
@@ -517,9 +533,13 @@ public class TypeCoercionUtils {
         return CheckCast.checkWithLooseAggState(input, target, SessionVariable.enableStrictCast());
     }
 
+    /** Check whether input can be cast to target and report an actionable analysis error. */
     public static void checkCanCastTo(DataType input, DataType target) {
         if (canCastTo(input, target)) {
             return;
+        }
+        if (CheckCast.requiresExactAggStateMatch(input, target)) {
+            throw new AnalysisException(CheckCast.exactAggStateMatchError(input, target));
         }
         throw new AnalysisException("can not cast from origin type " + input + " to target type=" + target);
     }
@@ -1104,6 +1124,8 @@ public class TypeCoercionUtils {
             return Optional.of(right);
         } else if (right instanceof NullType) {
             return Optional.of(left);
+        } else if (left instanceof VariantType && right instanceof VariantType) {
+            return findCommonVariantType((VariantType) left, (VariantType) right);
         } else if (left instanceof VariantType) {
             return Optional.of(replaceSpecifiedType(replaceDecimalV3WithTarget(replaceSpecifiedType(
                             replaceSpecifiedType(replaceSpecifiedType(replaceCharacterToString(right),
@@ -1162,7 +1184,11 @@ public class TypeCoercionUtils {
                         leftFields.get(i).getDataType(), rightFields.get(i).getDataType(),
                         overflowToDouble, stringIsHighPriority);
                 if (newDataType.isPresent()) {
-                    newFields.add(leftFields.get(i).withDataType(newDataType.get()));
+                    // The common layout must admit NULLs produced while either child is cast to it.
+                    boolean nullable = leftFields.get(i).isNullable() || rightFields.get(i).isNullable()
+                            || castMayProduceNull(leftFields.get(i).getDataType(), newDataType.get())
+                            || castMayProduceNull(rightFields.get(i).getDataType(), newDataType.get());
+                    newFields.add(leftFields.get(i).withDataTypeAndNullable(newDataType.get(), nullable));
                 } else {
                     return Optional.empty();
                 }
@@ -1170,6 +1196,10 @@ public class TypeCoercionUtils {
             return Optional.of(new StructType(newFields));
         }
         return Optional.empty();
+    }
+
+    private static Optional<DataType> findCommonVariantType(VariantType left, VariantType right) {
+        return left.equals(right) ? Optional.of(left) : Optional.empty();
     }
 
     private static Optional<DataType> findWiderPrimitiveTypeForTwo(
@@ -1280,6 +1310,19 @@ public class TypeCoercionUtils {
         Expression left = comparisonPredicate.left();
         Expression right = comparisonPredicate.right();
 
+        boolean leftIsVariant = left.getDataType().isVariantType();
+        boolean rightIsVariant = right.getDataType().isVariantType();
+        boolean isDirectVariantSubpathScalarComparison = leftIsVariant != rightIsVariant
+                && ((leftIsVariant && left instanceof ElementAt)
+                        || (rightIsVariant && right instanceof ElementAt));
+        if ((leftIsVariant || rightIsVariant)
+                && !isDirectVariantSubpathScalarComparison) {
+            DataType variantDataType = leftIsVariant
+                    ? left.getDataType() : right.getDataType();
+            throw new AnalysisException("data type " + variantDataType
+                    + " could not used in ComparisonPredicate " + comparisonPredicate.toSql()
+                    + ". " + VariantType.UNSUPPORTED_ORDERING_COMPARISON_MESSAGE);
+        }
         // TODO: remove this restriction after supporting varbinary comparison in BE
         if (left.getDataType().isVarBinaryType() || right.getDataType().isVarBinaryType()) {
             throw new AnalysisException("data type varbinary "
@@ -1660,7 +1703,11 @@ public class TypeCoercionUtils {
                 Optional<DataType> newDataType = findWiderTypeForTwoForComparison(leftFields.get(i).getDataType(),
                         rightFields.get(i).getDataType(), intStringToString);
                 if (newDataType.isPresent()) {
-                    newFields.add(leftFields.get(i).withDataType(newDataType.get()));
+                    // The common layout must admit NULLs produced while either child is cast to it.
+                    boolean nullable = leftFields.get(i).isNullable() || rightFields.get(i).isNullable()
+                            || castMayProduceNull(leftFields.get(i).getDataType(), newDataType.get())
+                            || castMayProduceNull(rightFields.get(i).getDataType(), newDataType.get());
+                    newFields.add(leftFields.get(i).withDataTypeAndNullable(newDataType.get(), nullable));
                 } else {
                     return Optional.empty();
                 }
@@ -1905,7 +1952,12 @@ public class TypeCoercionUtils {
                 Optional<DataType> newDataType = findWiderTypeForTwoForCaseWhen(leftFields.get(i).getDataType(),
                         rightFields.get(i).getDataType());
                 if (newDataType.isPresent()) {
-                    newFields.add(leftFields.get(i).withDataType(newDataType.get()));
+                    // Legacy CASE must admit both declared NULLs and NULLs introduced by either
+                    // arm's cast, independent of the order in which arms are reduced.
+                    boolean nullable = leftFields.get(i).isNullable() || rightFields.get(i).isNullable()
+                            || castMayProduceNull(leftFields.get(i).getDataType(), newDataType.get())
+                            || castMayProduceNull(rightFields.get(i).getDataType(), newDataType.get());
+                    newFields.add(leftFields.get(i).withDataTypeAndNullable(newDataType.get(), nullable));
                 } else {
                     return Optional.empty();
                 }
@@ -1934,6 +1986,10 @@ public class TypeCoercionUtils {
         }
         if (t2.isNullType()) {
             return Optional.of(t1);
+        }
+
+        if (t1 instanceof VariantType && t2 instanceof VariantType) {
+            return findCommonVariantType((VariantType) t1, (VariantType) t2);
         }
 
         // objectType only support compare with itself, so return empty here.

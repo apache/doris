@@ -1346,6 +1346,8 @@ Eclipse Public License - v2.0 -- licenses/LICENSE-EPL-2.0.txt
     * Jakarta WebSocket - Server API:
         - jakarta.websocket:jakarta.websocket-api:1.1.2 (https://projects.eclipse.org/projects/ee4j.websocket)
     ### The following components use multiple licenses and we choose EPLv2
+    * elkjs:
+        - npm:elkjs:0.12.0 (https://github.com/kieler/elkjs)
     * javax.inject:1 as OSGi bundle:
         - org.glassfish.hk2.external:jakarta.inject:2.6.1 (https://github.com/eclipse-ee4j/glassfish-hk2/external/jakarta.inject)
     * Jakarta Servlet:
@@ -1463,6 +1465,9 @@ The Apache Software License, Version 2.0
     * brpc: 1.1.0
     * rocksdb: 5.14.2
     * arrow: 7.0.0
+    * arrow-adbc: 1.12.0
+        - source: https://github.com/apache/arrow-adbc
+        - only the driver manager (C++) is linked into the BE binary
     * S2: 0.10.0
     * croaringbitmap: 0.4.0
     * Abseil LTS 20220623
@@ -1527,3 +1532,5 @@ Other dependencies:
     * FlameGraph -- licenses/LICENSE-CDDL-1.0.txt
     * icu 75.1 -- licenses/LICENSE-icu.txt
     * pugixml 1.15 -- licenses/LICENSE-pugixml.txt
+    * darts-clone (double-array trie, compiled into the kuromoji dictionary) -- licenses/LICENSE-darts-clone.txt
+    * mecab-ipadic (IPADIC) 2.7.0-20250920 (Japanese dictionary data shipped under be/dict/kuromoji) -- licenses/LICENSE-ipadic.txt

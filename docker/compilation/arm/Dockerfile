@@ -15,17 +15,20 @@
 # specific language governing permissions and limitations
 # under the License.
 
-FROM centos:7 AS builder
+FROM almalinux:8 AS builder
 
 # install epel repo for ccache
-RUN yum install epel-release -y && yum clean all && yum makecache
+RUN dnf install -y dnf-plugins-core epel-release \
+    && dnf config-manager --set-enabled powertools \
+    && dnf clean all \
+    && dnf makecache
 
 # install dependencies
-RUN yum install -y byacc patch automake libtool perf vim make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux \
+RUN dnf install -y byacc patch automake libtool perf vim make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux \
     ccache wget git python2 bison java-11-openjdk-devel java-1.8.0-openjdk-devel
 
 # clean cache
-RUN yum clean all
+RUN dnf clean all
 
 # install maven 3.9.9
 RUN mkdir -p /usr/share/maven /usr/share/maven/ref && \
@@ -35,11 +38,13 @@ RUN mkdir -p /usr/share/maven /usr/share/maven/ref && \
     ln -s /usr/share/maven/bin/mvn /usr/bin/mvn
 
 # install nodejs
-RUN wget https://nodejs.org/dist/v16.3.0/node-v16.3.0-linux-arm64.tar.xz \
-    -q -O /tmp/node-v16.3.0-linux-arm64.tar.xz \
-    && cd /tmp/ && tar -xf node-v16.3.0-linux-arm64.tar.xz \
-    && cp -r node-v16.3.0-linux-arm64/* /usr/local/ \
-    && rm /tmp/node-v16.3.0-linux-arm64.tar.xz && rm -rf node-v16.3.0-linux-arm64
+ARG NODEJS_VERSION=22.12.0
+RUN wget https://nodejs.org/dist/v${NODEJS_VERSION}/node-v${NODEJS_VERSION}-linux-arm64.tar.xz \
+    -q -O /tmp/node-v${NODEJS_VERSION}-linux-arm64.tar.xz \
+    && cd /tmp/ && tar -xf node-v${NODEJS_VERSION}-linux-arm64.tar.xz \
+    && cp -r node-v${NODEJS_VERSION}-linux-arm64/* /usr/local/ \
+    && rm /tmp/node-v${NODEJS_VERSION}-linux-arm64.tar.xz \
+    && rm -rf node-v${NODEJS_VERSION}-linux-arm64
 
 # install ldb-toolchain
 RUN wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh \
@@ -47,10 +52,21 @@ RUN wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/
     && sh /tmp/ldb_toolchain_gen.aarch64.sh /var/local/ldb-toolchain/ \
     && rm /tmp/ldb_toolchain_gen.aarch64.sh
 
+# Arrow 24 requires CMake 3.25 or newer. The bundled ldb toolchain only
+# provides CMake 3.22, so install and select a compatible native build.
+ARG CMAKE_VERSION=3.25.3
+ARG CMAKE_BASE_URL=https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}
+RUN wget ${CMAKE_BASE_URL}/cmake-${CMAKE_VERSION}-Linux-aarch64.sh \
+    -q -O /tmp/cmake-install.sh \
+    && chmod u+x /tmp/cmake-install.sh \
+    && /tmp/cmake-install.sh --skip-license --prefix=/usr --exclude-subdir \
+    && rm /tmp/cmake-install.sh
+
 # there is a repo which is included all of thirdparty
 ENV REPOSITORY_URL="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/" \
     DEFAULT_DIR="/var/local" \
     JAVA_HOME="/usr/lib/jvm/java-11" \
+    CUSTOM_CMAKE="/usr/bin/cmake" \
     PATH="/var/local/ldb-toolchain/bin/:$PATH"
 
 # disable auto enable ccache
@@ -76,6 +92,7 @@ ENV JAVA_HOME="/usr/lib/jvm/java-11" \
     MAVEN_HOME="/usr/share/maven" \
     REPOSITORY_URL="" \
     DEFAULT_DIR="/var/local" \
+    CUSTOM_CMAKE="/usr/bin/cmake" \
     PATH="/var/local/ldb-toolchain/bin/:/var/local/thirdparty/installed/bin/:$PATH" \
     DORIS_THIRDPARTY="/var/local/thirdparty"
 WORKDIR /root

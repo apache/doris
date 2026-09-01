@@ -27,65 +27,32 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
-import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.utframe.UtFrameUtils;
+import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Map;
-import java.util.UUID;
 
-public class AlterJobV2Test {
-    // use a unique dir so that it won't be conflict with other unit test which
-    // may also start a Mocked Frontend
-    private static String runningDir = "fe/mocked/AlterJobV2Test/" + UUID.randomUUID().toString() + "/";
+public class AlterJobV2Test extends TestWithFeService {
 
-    private static ConnectContext connectContext;
-
-    @BeforeClass
-    public static void beforeClass() throws Exception {
+    @Override
+    protected void beforeCreatingConnectContext() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 1000;
         FeConstants.runningUnitTest = true;
+    }
 
-        UtFrameUtils.createDorisCluster(runningDir);
-
-        // create connect context
-        connectContext = UtFrameUtils.createDefaultCtx();
-        // create database
-        String createDbStmtStr = "create database test;";
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
-        if (logicalPlan instanceof CreateDatabaseCommand) {
-            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
-        }
-
+    @Override
+    protected void runBeforeAll() throws Exception {
+        createDatabase("test");
         createTable("CREATE TABLE test.schema_change_test(k1 int, k2 int, k3 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
     }
 
-    @AfterClass
-    public static void tearDown() {
-        UtFrameUtils.cleanDorisFeDir(runningDir);
-    }
-
-    private static void createTable(String sql) throws Exception {
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan parsed = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        if (parsed instanceof CreateTableCommand) {
-            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
-        }
-    }
-
-    private static void alterTable(String sql) throws Exception {
+    private void alterTable(String sql) throws Exception {
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan parsed = nereidsParser.parseSingle(sql);
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
@@ -94,7 +61,7 @@ public class AlterJobV2Test {
         }
     }
 
-    private static void createMaterializedView(String sql) throws Exception {
+    private void createMaterializedView(String sql) throws Exception {
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan parsed = nereidsParser.parseSingle(sql);
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
@@ -110,7 +77,7 @@ public class AlterJobV2Test {
         alterTable(alterStmtStr, connectContext);
         // 2. check alter job
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
-        Assert.assertEquals(1, alterJobs.size());
+        Assertions.assertEquals(1, alterJobs.size());
         waitAlterJobDone(alterJobs);
     }
 
@@ -121,7 +88,7 @@ public class AlterJobV2Test {
                 Thread.sleep(1000);
             }
             System.out.println("alter job " + alterJobV2.getDbId() + " is done. state: " + alterJobV2.getJobState());
-            Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
+            Assertions.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
 
             Database db =
                     Env.getCurrentInternalCatalog().getDbOrMetaException(alterJobV2.getDbId());

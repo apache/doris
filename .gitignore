@@ -25,6 +25,10 @@ dependency-reduced-pom.xml
 yarn.lock
 ut_dir
 package-lock.json
+# The Web UI lockfile is an exception to the rule above: ui/dist is built into
+# doris-fe.jar and shipped, so the exact dependency set has to be recorded in the
+# source tree for the binary release to be reproducible from it.
+!ui/package-lock.json
 __pycache__
 
 # ignore all sub `/bin` and `/build` directory
@@ -99,6 +103,7 @@ fe/fe-core/src/main/java/org/apache/parquet
 be/build*/
 be/cmake-build*/
 be/ut_build*/
+be/compile-bench-results/
 be/src/gen_cpp/*.[cc, cpp, h]
 be/src/gen_cpp/opcode
 be/tags
@@ -149,5 +154,10 @@ docker/runtime/be/resource/apache-doris/
 compile_commands.json
 .github
 
+# generated kuromoji dictionary binaries
+/be/dict/kuromoji/*.bin
+
 .worktrees/
 .worktree_initialized
+
+plan-doc/

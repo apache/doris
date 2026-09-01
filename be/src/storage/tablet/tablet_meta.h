@@ -119,7 +119,7 @@ public:
                TEncryptionAlgorithm::type tde_algorithm = TEncryptionAlgorithm::PLAINTEXT,
                TStorageFormat::type storage_format = TStorageFormat::V2,
                int32_t vertical_compaction_num_columns_per_group = 5,
-               const TTabletSchema* row_binlog_schema = nullptr);
+               TTabletRole::type tablet_role = TTabletRole::TABLET_ROLE_DATA);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -174,8 +174,6 @@ public:
     size_t tablet_local_size() const;
     // Remote disk space occupied by tablet.
     size_t tablet_remote_size() const;
-    size_t binlog_size() const;
-
     size_t tablet_local_index_size() const;
     size_t tablet_local_segment_size() const;
     size_t tablet_remote_index_size() const;
@@ -183,7 +181,6 @@ public:
 
     size_t version_count() const;
     size_t stale_version_count() const;
-    size_t binlog_file_num() const;
     size_t version_count_cross_with_range(const Version& range) const;
     Version max_version() const;
 
@@ -207,13 +204,8 @@ public:
     void modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
                          const std::vector<RowsetMetaSharedPtr>& to_delete,
                          bool same_version = false);
-    void modify_row_binlog_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
-                                    const std::vector<RowsetMetaSharedPtr>& to_delete);
     void revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
-    void revise_row_binlog_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
     void revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap);
-    // Revise delete vector used by binlog<row> rowsets.
-    void revise_binlog_delvec_unlocked(const DeleteBitmap& binlog_delvec);
 
     const RowsetMetaMapContainer& all_stale_rs_metas() const;
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
@@ -267,9 +259,6 @@ public:
     DeleteBitmapPtr delete_bitmap_ptr() { return _delete_bitmap; }
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
 
-    DeleteBitmapPtr binlog_delvec_ptr() { return _binlog_delvec; }
-    DeleteBitmap& binlog_delvec() { return *_binlog_delvec; }
-
     void remove_rowset_delete_bitmap(const RowsetId& rowset_id, const Version& version);
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
@@ -283,12 +272,11 @@ public:
     void set_binlog_config(BinlogConfig binlog_config) {
         _binlog_config = std::move(binlog_config);
     }
-
-    const TabletSchemaSPtr& row_binlog_schema() const { return _row_binlog_schema; }
-    int32_t row_binlog_schema_hash() const { return _row_binlog_schema_hash; }
-    const RowsetMetaMapContainer& all_row_binlog_rs_metas() const;
-    RowsetMetaSharedPtr acquire_row_binlog_rs_meta_by_version(const Version& version) const;
-    Status add_row_binlog_rs_meta(const RowsetMetaSharedPtr& rs_meta);
+    TabletRolePB tablet_role() const { return _tablet_role; }
+    bool is_row_binlog_tablet() const {
+        return _tablet_role == TabletRolePB::TABLET_ROLE_ROW_BINLOG;
+    }
+    void set_tablet_role(TabletRolePB tablet_role) { _tablet_role = tablet_role; }
 
     void set_compaction_policy(std::string compaction_policy) {
         _compaction_policy = compaction_policy;
@@ -346,6 +334,15 @@ public:
 
     EncryptionAlgorithmPB encryption_algorithm() const { return _encryption_algorithm; }
 
+    bool has_inverted_index_storage_format() const {
+        return _inverted_index_storage_format.has_value();
+    }
+
+    InvertedIndexStorageFormatPB inverted_index_storage_format() const {
+        return _inverted_index_storage_format.value_or(
+                _schema->get_inverted_index_storage_format());
+    }
+
 private:
     Status _save_meta(DataDir* data_dir);
     void _check_mow_rowset_cache_version_size(size_t rowset_cache_version_size);
@@ -391,14 +388,10 @@ private:
     // query performance significantly.
     bool _enable_unique_key_merge_on_write = false;
     std::shared_ptr<DeleteBitmap> _delete_bitmap;
-    std::shared_ptr<DeleteBitmap> _binlog_delvec;
-
-    int32_t _row_binlog_schema_hash = 0;
-    TabletSchemaSPtr _row_binlog_schema;
-    RowsetMetaMapContainer _row_binlog_rs_metas;
 
     // binlog config
     BinlogConfig _binlog_config {};
+    TabletRolePB _tablet_role = TabletRolePB::TABLET_ROLE_DATA;
 
     // meta for compaction
     std::string _compaction_policy;
@@ -419,6 +412,9 @@ private:
     // Persisted storage format for this tablet (e.g. V2, V3). Used to derive
     // schema-level defaults such as external ColumnMeta usage.
     TStorageFormat::type _storage_format = TStorageFormat::V2;
+    // The schema KV is shared by (index_id, schema_version). Keep the tablet's
+    // immutable file format outside that shared identity.
+    std::optional<InvertedIndexStorageFormatPB> _inverted_index_storage_format;
 
     mutable std::shared_mutex _meta_lock;
 };
@@ -463,6 +459,7 @@ public:
     using SegmentId = uint32_t;
     using Version = uint64_t;
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
+    using RowsetIdWithSegmentIds = std::pair<RowsetId, std::vector<SegmentId>>;
     std::map<BitmapKey, roaring::Roaring> delete_bitmap; // Ordered map
     constexpr static inline uint32_t INVALID_SEGMENT_ID = std::numeric_limits<uint32_t>::max() - 1;
     constexpr static inline uint32_t ROWSET_SENTINEL_MARK =
@@ -582,7 +579,7 @@ public:
      */
     void subset(const BitmapKey& start, const BitmapKey& end,
                 DeleteBitmap* subset_delete_map) const;
-    void subset(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids, int64_t start_version,
+    void subset(const std::vector<RowsetIdWithSegmentIds>& rowsets, int64_t start_version,
                 int64_t end_version, DeleteBitmap* subset_delete_map) const;
 
     /**
@@ -590,9 +587,8 @@ public:
      * with given version range [start_version, end_version] and agg to end_version,
      * then merge to subset_delete_map
      */
-    void subset_and_agg(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids,
-                        int64_t start_version, int64_t end_version,
-                        DeleteBitmap* subset_delete_map) const;
+    void subset_and_agg(const std::vector<RowsetIdWithSegmentIds>& rowsets, int64_t start_version,
+                        int64_t end_version, DeleteBitmap* subset_delete_map) const;
 
     /**
      * Gets count of delete_bitmap with given range [start, end)
@@ -751,8 +747,6 @@ inline size_t TabletMeta::tablet_local_size() const {
             total_size += rs->total_disk_size();
         }
     }
-    // if we need to split data and binlog or not
-    total_size += binlog_size();
     return total_size;
 }
 
@@ -761,16 +755,6 @@ inline size_t TabletMeta::tablet_remote_size() const {
     for (const auto& [_, rs] : _rs_metas) {
         if (!rs->is_local()) {
             total_size += rs->total_disk_size();
-        }
-    }
-    return total_size;
-}
-
-inline size_t TabletMeta::binlog_size() const {
-    size_t total_size = 0;
-    for (auto& [_, rs] : _row_binlog_rs_metas) {
-        if (rs->is_local()) {
-            total_size += rs->data_disk_size();
         }
     }
     return total_size;
@@ -824,10 +808,6 @@ inline size_t TabletMeta::stale_version_count() const {
     return _rs_metas.size();
 }
 
-inline size_t TabletMeta::binlog_file_num() const {
-    return _row_binlog_rs_metas.size();
-}
-
 inline TabletState TabletMeta::tablet_state() const {
     return _tablet_state;
 }
@@ -864,10 +844,6 @@ inline const RowsetMetaMapContainer& TabletMeta::all_stale_rs_metas() const {
     return _stale_rs_metas;
 }
 
-inline const RowsetMetaMapContainer& TabletMeta::all_row_binlog_rs_metas() const {
-    return _row_binlog_rs_metas;
-}
-
 inline bool TabletMeta::all_beta() const {
     for (const auto& [_, rs] : _rs_metas) {
         if (rs->rowset_type() != RowsetTypePB::BETA_ROWSET) {
@@ -875,11 +851,6 @@ inline bool TabletMeta::all_beta() const {
         }
     }
     for (const auto& [_, rs] : _stale_rs_metas) {
-        if (rs->rowset_type() != RowsetTypePB::BETA_ROWSET) {
-            return false;
-        }
-    }
-    for (const auto& [_, rs] : _row_binlog_rs_metas) {
         if (rs->rowset_type() != RowsetTypePB::BETA_ROWSET) {
             return false;
         }

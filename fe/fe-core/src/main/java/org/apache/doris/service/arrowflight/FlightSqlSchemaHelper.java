@@ -33,7 +33,6 @@ import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TListTableStatusResult;
 import org.apache.doris.thrift.TTableStatus;
 
-import org.apache.arrow.adapter.jdbc.JdbcToArrowUtils;
 import org.apache.arrow.flight.sql.FlightSqlColumnMetadata;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandGetDbSchemas;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandGetTables;
@@ -92,8 +91,7 @@ public class FlightSqlSchemaHelper {
      * Ref: `convert_to_arrow_type` in be/src/util/arrow/row_batch.cpp.
      * which is consistent with the type of Arrow data returned by Doris Arrow Flight Sql query.
      */
-    private static ArrowType getArrowType(PrimitiveType primitiveType, Integer precision, Integer scale,
-            String timeZone) {
+    private static ArrowType getArrowType(PrimitiveType primitiveType, Integer precision, Integer scale) {
         switch (primitiveType) {
             case BOOLEAN:
                 return new ArrowType.Bool();
@@ -121,14 +119,18 @@ public class FlightSqlSchemaHelper {
             case VARIANT:
                 return new ArrowType.Utf8();
             case DATEV2:
-                return new ArrowType.Date(DateUnit.MILLISECOND);
+                // DAY, not MILLISECOND: BE writes a DATEV2 column as arrow::Date32Type (a day number),
+                // so a MILLISECOND unit here describes the metadata as date64 while the data that
+                // follows is date32. A client that trusts this schema -- one reading through the ADBC
+                // Flight SQL driver does -- then types the column as a datetime and fails the read.
+                return new ArrowType.Date(DateUnit.DAY);
             case DATETIMEV2:
                 if (scale > 3) {
-                    return new ArrowType.Timestamp(TimeUnit.MICROSECOND, timeZone);
+                    return new ArrowType.Timestamp(TimeUnit.MICROSECOND, null);
                 } else if (scale > 0) {
-                    return new ArrowType.Timestamp(TimeUnit.MILLISECOND, timeZone);
+                    return new ArrowType.Timestamp(TimeUnit.MILLISECOND, null);
                 } else {
-                    return new ArrowType.Timestamp(TimeUnit.SECOND, timeZone);
+                    return new ArrowType.Timestamp(TimeUnit.SECOND, null);
                 }
             case TIMESTAMPTZ:
                 if (scale > 3) {
@@ -165,9 +167,7 @@ public class FlightSqlSchemaHelper {
         PrimitiveType primitiveType = PrimitiveType.fromThrift(desc.getColumnType());
         Integer precision = desc.isSetColumnPrecision() ? desc.getColumnPrecision() : null;
         Integer scale = desc.isSetColumnScale() ? desc.getColumnScale() : null;
-        // TODO there is no timezone in TColumnDesc, so use current timezone.
-        String timeZone = JdbcToArrowUtils.getUtcCalendar().getTimeZone().getID();
-        return getArrowType(primitiveType, precision, scale, timeZone);
+        return getArrowType(primitiveType, precision, scale);
     }
 
     private static Map<String, String> createFlightSqlColumnMetadata(final String dbName, final String tableName,
@@ -285,39 +285,78 @@ public class FlightSqlSchemaHelper {
             Integer tableOffset = describeTablesResult.getTablesOffset().get(tableIndex);
             for (; columnIndex < tableOffset; columnIndex++) {
                 TColumnDef columnDef = describeTablesResult.getColumns().get(columnIndex);
-                TColumnDesc columnDesc = columnDef.getColumnDesc();
-                final ArrowType columnArrowType = columnDescToArrowType(columnDesc);
-
-                List<Field> columnArrowTypeChildren;
-                // Arrow complex types may require children fields for parsing the schema on C++
-                switch (columnArrowType.getTypeID()) {
-                    case List:
-                    case LargeList:
-                    case FixedSizeList:
-                        columnArrowTypeChildren = Collections.singletonList(
-                                Field.notNullable(BaseRepeatedValueVector.DATA_VECTOR_NAME,
-                                        ZeroVector.INSTANCE.getField().getType()));
-                        break;
-                    case Map:
-                        columnArrowTypeChildren = Collections.singletonList(
-                                Field.notNullable(MapVector.DATA_VECTOR_NAME, new ArrowType.List()));
-                        break;
-                    case Struct:
-                        columnArrowTypeChildren = Collections.emptyList();
-                        break;
-                    default:
-                        columnArrowTypeChildren = null;
-                        break;
-                }
-
-                final Field field = new Field(columnDesc.getColumnName(),
-                        new FieldType(columnDesc.isIsAllowNull(), columnArrowType, null,
-                                createFlightSqlColumnMetadata(dbName, tableName, columnDesc)), columnArrowTypeChildren);
-                fields.add(field);
+                fields.add(buildField(dbName, tableName, columnDef.getColumnDesc()));
             }
             tableToFields.put(tableName, fields);
         }
         return tableToFields;
+    }
+
+    /** One column, with its nested types described down to the leaves. */
+    private static Field buildField(String dbName, String tableName, TColumnDesc desc) {
+        ArrowType arrowType = columnDescToArrowType(desc);
+        return new Field(desc.getColumnName(),
+                new FieldType(desc.isIsAllowNull(), arrowType, null,
+                        createFlightSqlColumnMetadata(dbName, tableName, desc)),
+                arrowChildren(dbName, tableName, desc, arrowType));
+    }
+
+    /**
+     * The Arrow children of a complex column, built from the descriptor's own children.
+     *
+     * <p>These are not decoration. An Arrow ARRAY/MAP/STRUCT type carries its element types in its
+     * children and nowhere else, so a placeholder child says the column is an array OF NOTHING --
+     * and BE emits the real element type in the data ({@code convert_to_arrow_type}: ListType(item),
+     * MapType(key, value), StructType(fields)), which leaves the schema describing one thing and the
+     * batch carrying another. A client that types its columns from this schema (one reading through
+     * the ADBC Flight SQL driver does) then rejects the column outright.
+     *
+     * <p>{@code describeTables} already reports the tree -- {@code Column.createChildrenColumn} names
+     * an array's element "item" and a map's pair "key"/"value", which is what Arrow calls them too.
+     * When it reports none, the old placeholders are kept rather than an empty child list: a source
+     * that cannot describe its nested types is no worse off than before.
+     */
+    private static List<Field> arrowChildren(String dbName, String tableName, TColumnDesc desc,
+            ArrowType arrowType) {
+        List<TColumnDesc> children = desc.isSetChildren() ? desc.getChildren() : Collections.emptyList();
+        switch (arrowType.getTypeID()) {
+            case List:
+            case LargeList:
+            case FixedSizeList:
+                if (children.size() != 1) {
+                    return Collections.singletonList(
+                            Field.notNullable(BaseRepeatedValueVector.DATA_VECTOR_NAME,
+                                    ZeroVector.INSTANCE.getField().getType()));
+                }
+                return Collections.singletonList(buildField(dbName, tableName, children.get(0)));
+            case Map:
+                // Arrow spells a map as list<entries: struct<key, value>>, with the entries struct and
+                // the key both non-nullable -- the descriptor's key nullability is not carried over,
+                // because an Arrow map with a nullable key is not a valid schema.
+                if (children.size() != 2) {
+                    return Collections.singletonList(
+                            Field.notNullable(MapVector.DATA_VECTOR_NAME, new ArrowType.List()));
+                }
+                Field key = buildField(dbName, tableName, children.get(0));
+                Field value = buildField(dbName, tableName, children.get(1));
+                Field entries = new Field(MapVector.DATA_VECTOR_NAME,
+                        new FieldType(false, new ArrowType.Struct(), null),
+                        Arrays.asList(new Field(key.getName(),
+                                        new FieldType(false, key.getType(), null), key.getChildren()),
+                                value));
+                return Collections.singletonList(entries);
+            case Struct:
+                if (children.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                List<Field> structFields = new ArrayList<>(children.size());
+                for (TColumnDesc child : children) {
+                    structFields.add(buildField(dbName, tableName, child));
+                }
+                return structFields;
+            default:
+                return null;
+        }
     }
 
     /**

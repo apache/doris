@@ -67,6 +67,32 @@ public class BaseController {
         checkWithCookie(request, response, true);
     }
 
+    /**
+     * Authenticate browser-facing UI APIs with the existing opaque session cookie.
+     * Basic Authorization is deliberately not accepted on this boundary.
+     */
+    public SessionValue requireCookieSession(HttpServletRequest request, HttpServletResponse response) {
+        if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
+            throw new UnauthorizedException("Cookie authentication is required");
+        }
+
+        List<String> sessionIds = getCookieValues(request, PALO_SESSION_ID, response);
+        SessionValue sessionValue = HttpAuthManager.getInstance().getSessionValue(sessionIds);
+        if (sessionValue == null) {
+            throw new UnauthorizedException("Cookie is invalid");
+        }
+
+        if (Config.isCloudMode() && !sessionValue.currentUser.isRootUser()
+                && ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus()
+                == Cloud.InstanceInfoPB.Status.OVERDUE) {
+            throw new UnauthorizedException("The warehouse is overdue!");
+        }
+
+        updateCookieAge(request, PALO_SESSION_ID, PALO_SESSION_EXPIRED_TIME, response);
+        setConnectContext(request, sessionValue);
+        return sessionValue;
+    }
+
     public ActionAuthorizationInfo checkWithCookie(HttpServletRequest request,
             HttpServletResponse response, boolean checkAuth) {
         // First we check if the request has Authorization header.
@@ -75,6 +101,9 @@ public class BaseController {
             // If has Authorization header, check auth info
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
             UserIdentity currentUser = checkPassword(authInfo, request);
+            // Callers do privilege checks on the returned authInfo, so the resolved identity must be
+            // carried back out. Leaving it null makes every such check throw NPE.
+            authInfo.userIdentity = currentUser;
 
             if (Config.isCloudMode() && checkAuth) {
                 checkInstanceOverdue(currentUser);
@@ -117,6 +146,7 @@ public class BaseController {
         cookie.setMaxAge(PALO_SESSION_EXPIRED_TIME);
         cookie.setPath("/");
         cookie.setHttpOnly(true);
+        cookie.setAttribute("SameSite", "Lax");
         response.addCookie(cookie);
         if (LOG.isDebugEnabled()) {
             LOG.debug("add session cookie: {} {}", PALO_SESSION_ID, key);
@@ -152,6 +182,16 @@ public class BaseController {
 
         updateCookieAge(request, PALO_SESSION_ID, PALO_SESSION_EXPIRED_TIME, response);
 
+        setConnectContext(request, sessionValue);
+        ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
+        authInfo.fullUserName = sessionValue.currentUser.getQualifiedUser();
+        authInfo.remoteIp = request.getRemoteHost();
+        authInfo.password = sessionValue.password;
+        authInfo.userIdentity = sessionValue.currentUser;
+        return authInfo;
+    }
+
+    private void setConnectContext(HttpServletRequest request, SessionValue sessionValue) {
         ConnectContext ctx = new ConnectContext();
         ctx.setRemoteIP(request.getRemoteHost());
         ctx.setCurrentUserIdentity(sessionValue.currentUser);
@@ -161,11 +201,6 @@ public class BaseController {
             LOG.debug("check cookie success for user: {}, thread: {}",
                     sessionValue.currentUser, Thread.currentThread().getId());
         }
-        ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
-        authInfo.fullUserName = sessionValue.currentUser.getQualifiedUser();
-        authInfo.remoteIp = request.getRemoteHost();
-        authInfo.password = sessionValue.password;
-        return authInfo;
     }
 
     public List<String> getCookieValues(HttpServletRequest request, String cookieName, HttpServletResponse response) {
@@ -189,6 +224,7 @@ public class BaseController {
                 cookie.setMaxAge(age);
                 cookie.setPath("/");
                 cookie.setHttpOnly(true);
+                cookie.setAttribute("SameSite", "Lax");
                 if (Config.enable_https) {
                     cookie.setSecure(true);
                 } else {
@@ -212,6 +248,27 @@ public class BaseController {
             sb.append("user: ").append(fullUserName).append(", remote ip: ").append(remoteIp);
             sb.append(", password: ").append("********").append(", cluster: ").append(cluster);
             return sb.toString();
+        }
+    }
+
+    /**
+     * The overdue-warehouse fence for handlers that call checkWithCookie(.., false).
+     *
+     * checkWithCookie's `checkAuth` flag gates two unrelated things at once: the global
+     * ADMIN_OR_NODE requirement and, in cloud mode, the overdue check. A handler that passes false
+     * is saying "I do my own, narrower authorization" -- it is not saying "serve this from an
+     * overdue warehouse". Such a handler calls this to get the fence back without the ADMIN
+     * requirement.
+     *
+     * This is deliberately opt-in per handler rather than unconditional inside checkWithCookie:
+     * /api/query also passes false, but it hands the statement to a real JDBC session that
+     * enforces the overdue state itself and reports it as a common error. Moving that rejection
+     * up to this layer would silently change that endpoint's response from COMMON_ERROR to
+     * UNAUTHORIZED.
+     */
+    protected void checkInstanceOverdueIfCloud(UserIdentity currentUser) {
+        if (Config.isCloudMode()) {
+            checkInstanceOverdue(currentUser);
         }
     }
 
@@ -283,8 +340,11 @@ public class BaseController {
             throws UnauthorizedException {
         ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
         if (!parseAuthInfo(request, authInfo)) {
-            LOG.info("parse auth info failed, Authorization header {}, url {}",
-                    request.getHeader("Authorization"), request.getRequestURI());
+            // Never log the Authorization header itself: it carries base64(user:password),
+            // which is trivially decodable. Only record whether it was absent or malformed.
+            LOG.info("parse auth info failed, Authorization header is {}, url {}",
+                    Strings.isNullOrEmpty(request.getHeader("Authorization")) ? "absent" : "malformed",
+                    request.getRequestURI());
             throw new UnauthorizedException("Need auth information.");
         }
         if (LOG.isDebugEnabled()) {

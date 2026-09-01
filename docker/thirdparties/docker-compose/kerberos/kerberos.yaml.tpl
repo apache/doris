@@ -33,11 +33,17 @@ services:
     <<: *kerberos-service
     container_name: doris-${CONTAINER_UID}-kerberos1
     hostname: hadoop-master
+    # auxlib/sql/paimon_data are mounted on kerberos1 only: test_paimon_hms_catalog
+    # is the sole consumer and it talks to this metastore (9583). Leaving kerberos2
+    # untouched keeps the second container as light as it was.
     volumes:
       - ./conf/kerberos1:/opt/doris/conf:ro
       - ./conf/kerberos1/krb5.conf:/etc/krb5.conf:ro
       - ./data/kerberos1:/data
       - ./two-kerberos-hives:/keytabs
+      - ./auxlib:/opt/doris/auxlib:ro
+      - ./sql:/opt/doris/sql:ro
+      - ./paimon_data:/opt/doris/paimon_data:ro
     env_file:
       - ./hadoop-hive-1.env
 

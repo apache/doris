@@ -83,6 +83,11 @@ public:
         DCHECK(_s_initialized);
         return _s_mem_limit.load(std::memory_order_relaxed);
     }
+#ifdef BE_TEST
+    static void set_mem_limit_for_test(int64_t mem_limit) {
+        _s_mem_limit.store(mem_limit, std::memory_order_relaxed);
+    }
+#endif
     static inline std::string mem_limit_str() {
         DCHECK(_s_initialized);
         return PrettyPrinter::print(_s_mem_limit.load(std::memory_order_relaxed), TUnit::BYTES);

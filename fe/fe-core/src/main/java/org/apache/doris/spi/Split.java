@@ -17,7 +17,7 @@
 
 package org.apache.doris.spi;
 
-import org.apache.doris.datasource.SplitWeight;
+import org.apache.doris.datasource.split.SplitWeight;
 
 import java.util.List;
 

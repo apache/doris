@@ -22,7 +22,11 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.rpc.RpcException;
 
+import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.SettableFuture;
+import com.google.protobuf.DescriptorProtos;
+import com.google.protobuf.Descriptors;
+import com.google.protobuf.DynamicMessage;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -31,6 +35,7 @@ import org.mockito.Mockito;
 
 import java.util.Map;
 import java.util.Queue;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class MetaServiceProxyTest {
@@ -40,6 +45,7 @@ public class MetaServiceProxyTest {
     private long originReconnectIntervalMs;
     private long originRetryCnt;
     private boolean originRateLimitEnabled;
+    private boolean originRateLimitDryRun;
     private int originRateLimitDefaultQpsPerCore;
     private String originRateLimitQpsPerCoreConfig;
     private int originRateLimitBurstSeconds;
@@ -51,6 +57,7 @@ public class MetaServiceProxyTest {
         originReconnectIntervalMs = Config.meta_service_rpc_reconnect_interval_ms;
         originRetryCnt = Config.meta_service_rpc_retry_cnt;
         originRateLimitEnabled = Config.meta_service_rpc_rate_limit_enabled;
+        originRateLimitDryRun = Config.meta_service_rpc_rate_limit_dry_run;
         originRateLimitDefaultQpsPerCore = Config.meta_service_rpc_rate_limit_default_qps_per_core;
         originRateLimitQpsPerCoreConfig = Config.meta_service_rpc_rate_limit_qps_per_core_config;
         originRateLimitBurstSeconds = Config.meta_service_rpc_rate_limit_burst_seconds;
@@ -60,6 +67,7 @@ public class MetaServiceProxyTest {
         Config.meta_service_rpc_reconnect_interval_ms = 0;
         Config.meta_service_rpc_retry_cnt = 1;
         Config.meta_service_rpc_rate_limit_enabled = false;
+        Config.meta_service_rpc_rate_limit_dry_run = false;
         Config.meta_service_rpc_rate_limit_default_qps_per_core = 10;
         Config.meta_service_rpc_rate_limit_qps_per_core_config = "";
         Config.meta_service_rpc_rate_limit_burst_seconds = 1;
@@ -73,6 +81,7 @@ public class MetaServiceProxyTest {
         Config.meta_service_rpc_reconnect_interval_ms = originReconnectIntervalMs;
         Config.meta_service_rpc_retry_cnt = originRetryCnt;
         Config.meta_service_rpc_rate_limit_enabled = originRateLimitEnabled;
+        Config.meta_service_rpc_rate_limit_dry_run = originRateLimitDryRun;
         Config.meta_service_rpc_rate_limit_default_qps_per_core = originRateLimitDefaultQpsPerCore;
         Config.meta_service_rpc_rate_limit_qps_per_core_config = originRateLimitQpsPerCoreConfig;
         Config.meta_service_rpc_rate_limit_burst_seconds = originRateLimitBurstSeconds;
@@ -190,11 +199,15 @@ public class MetaServiceProxyTest {
         serviceMap.put(Config.meta_service_endpoint, client);
 
         MetaServiceProxy.MetaServiceClientWrapper wrapper = Deencapsulation.getField(proxy, "w");
-        Cloud.GetVersionResponse tooBusyResponse = Cloud.GetVersionResponse.newBuilder()
-                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                        .setCode(Cloud.MetaServiceCode.MS_TOO_BUSY)
-                        .setMsg("server is overloaded"))
-                .build();
+        Cloud.GetVersionResponse tooBusyResponse = Deencapsulation.invoke(
+                MetaServiceClient.class,
+                "restoreActualCode",
+                Cloud.GetVersionResponse.newBuilder()
+                        .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                .setCode(Cloud.MetaServiceCode.KV_TXN_CONFLICT)
+                                .setActualCode(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber())
+                                .setMsg("server is overloaded"))
+                        .build());
         Cloud.GetVersionResponse okResponse = Cloud.GetVersionResponse.newBuilder()
                 .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
                         .setCode(Cloud.MetaServiceCode.OK))
@@ -207,6 +220,157 @@ public class MetaServiceProxyTest {
         Assert.assertEquals(Cloud.MetaServiceCode.OK, result.getStatus().getCode());
         Assert.assertEquals(2, callCount.get());
         Mockito.verify(client, Mockito.never()).shutdown(Mockito.anyBoolean());
+    }
+
+    @Test
+    public void testGetInstancePrefersKnownActualCode() throws RpcException {
+        Cloud.MetaServiceResponseStatus status = callGetInstanceWithStatus(
+                Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(Cloud.MetaServiceCode.KV_TXN_CONFLICT)
+                        .setActualCode(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber())
+                        .build());
+
+        Assert.assertEquals(Cloud.MetaServiceCode.MS_TOO_BUSY, status.getCode());
+        Assert.assertEquals(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber(), status.getActualCode());
+    }
+
+    @Test
+    public void testGetInstanceUsesKnownActualCodeWithoutFallback() throws RpcException {
+        Cloud.MetaServiceResponseStatus status = callGetInstanceWithStatus(
+                Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setActualCode(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber())
+                        .build());
+
+        Assert.assertEquals(Cloud.MetaServiceCode.MS_TOO_BUSY, status.getCode());
+    }
+
+    @Test
+    public void testGetInstanceKeepsLegacyCodeForUnknownActualCode() throws RpcException {
+        Cloud.MetaServiceResponseStatus status = callGetInstanceWithStatus(
+                Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(Cloud.MetaServiceCode.KV_TXN_CONFLICT)
+                        .setActualCode(Integer.MAX_VALUE)
+                        .build());
+
+        Assert.assertEquals(Cloud.MetaServiceCode.KV_TXN_CONFLICT, status.getCode());
+        Assert.assertEquals(Integer.MAX_VALUE, status.getActualCode());
+    }
+
+    @Test
+    public void testGetInstanceFailsClosedForUnknownActualCodeWithoutErrorFallback() throws RpcException {
+        Cloud.MetaServiceResponseStatus status = callGetInstanceWithStatus(
+                Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(Cloud.MetaServiceCode.OK)
+                        .setActualCode(Integer.MAX_VALUE)
+                        .build());
+
+        Assert.assertEquals(Cloud.MetaServiceCode.UNDEFINED_ERR, status.getCode());
+        Assert.assertEquals(Integer.MAX_VALUE, status.getActualCode());
+
+        status = callGetInstanceWithStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                .setActualCode(Integer.MAX_VALUE)
+                .build());
+
+        Assert.assertEquals(Cloud.MetaServiceCode.UNDEFINED_ERR, status.getCode());
+        Assert.assertEquals(Integer.MAX_VALUE, status.getActualCode());
+    }
+
+    @Test
+    public void testGetInstanceFailsClosedWithoutAnyCode() throws RpcException {
+        Cloud.MetaServiceResponseStatus status = callGetInstanceWithStatus(
+                Cloud.MetaServiceResponseStatus.getDefaultInstance());
+
+        Assert.assertEquals(Cloud.MetaServiceCode.UNDEFINED_ERR, status.getCode());
+    }
+
+    @Test
+    public void testResponseFailsClosedWithoutStatus() {
+        Cloud.GetInstanceResponse response = Deencapsulation.invoke(
+                MetaServiceClient.class,
+                "restoreActualCode",
+                Cloud.GetInstanceResponse.getDefaultInstance());
+
+        Assert.assertTrue(response.hasStatus());
+        Assert.assertEquals(Cloud.MetaServiceCode.UNDEFINED_ERR, response.getStatus().getCode());
+    }
+
+    @Test
+    public void testGetInstanceKeepsLegacyCodeWithoutActualCode() throws RpcException {
+        Cloud.MetaServiceResponseStatus status = callGetInstanceWithStatus(
+                Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(Cloud.MetaServiceCode.KV_TXN_CONFLICT)
+                        .build());
+
+        Assert.assertEquals(Cloud.MetaServiceCode.KV_TXN_CONFLICT, status.getCode());
+        Assert.assertFalse(status.hasActualCode());
+    }
+
+    @Test
+    public void testGetVisibleVersionAsyncPrefersKnownActualCode() throws Exception {
+        MetaServiceProxy proxy = new MetaServiceProxy();
+        MetaServiceClient client = mockNormalClient();
+        putClient(proxy, client);
+        SettableFuture<Cloud.GetVersionResponse> rpcFuture = SettableFuture.create();
+        Mockito.when(client.getVisibleVersionAsync(Mockito.any())).thenReturn(rpcFuture);
+
+        Future<Cloud.GetVersionResponse> normalizedFuture = proxy.getVisibleVersionAsync(
+                Cloud.GetVersionRequest.newBuilder().build());
+        rpcFuture.set(Cloud.GetVersionResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(Cloud.MetaServiceCode.KV_TXN_CONFLICT)
+                        .setActualCode(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber()))
+                .build());
+
+        Cloud.GetVersionResponse response = normalizedFuture.get();
+        response = Deencapsulation.invoke(MetaServiceClient.class, "restoreActualCode", response);
+        Cloud.MetaServiceResponseStatus status = response.getStatus();
+        Assert.assertEquals(Cloud.MetaServiceCode.MS_TOO_BUSY, status.getCode());
+        Assert.assertEquals(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber(), status.getActualCode());
+    }
+
+    @Test
+    public void testLegacySchemaWireCompatibility() throws Exception {
+        Descriptors.Descriptor legacyStatusDescriptor = legacyStatusDescriptor();
+        Descriptors.FieldDescriptor legacyCodeField = legacyStatusDescriptor.findFieldByName("code");
+        Cloud.MetaServiceResponseStatus currentStatus = Cloud.MetaServiceResponseStatus.newBuilder()
+                .setCode(Cloud.MetaServiceCode.KV_TXN_CONFLICT)
+                .setActualCode(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber())
+                .setMsg("busy")
+                .build();
+
+        DynamicMessage legacyStatus = DynamicMessage.parseFrom(
+                legacyStatusDescriptor, currentStatus.toByteArray());
+        Descriptors.EnumValueDescriptor legacyCode =
+                (Descriptors.EnumValueDescriptor) legacyStatus.getField(legacyCodeField);
+        Assert.assertEquals(Cloud.MetaServiceCode.KV_TXN_CONFLICT.getNumber(), legacyCode.getNumber());
+        Assert.assertNull(legacyStatusDescriptor.findFieldByName("actual_code"));
+        Assert.assertTrue(legacyStatus.getUnknownFields().hasField(3));
+        Assert.assertEquals(Long.valueOf(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber()),
+                legacyStatus.getUnknownFields().getField(3).getVarintList().get(0));
+
+        Cloud.MetaServiceResponseStatus roundTripStatus =
+                Cloud.MetaServiceResponseStatus.parseFrom(legacyStatus.toByteArray());
+        Assert.assertEquals(Cloud.MetaServiceCode.KV_TXN_CONFLICT, roundTripStatus.getCode());
+        Assert.assertEquals(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber(), roundTripStatus.getActualCode());
+    }
+
+    @Test
+    public void testLegacySchemaReadsUnknownEnumAsDefaultOk() throws Exception {
+        Descriptors.Descriptor legacyStatusDescriptor = legacyStatusDescriptor();
+        Descriptors.FieldDescriptor legacyCodeField = legacyStatusDescriptor.findFieldByName("code");
+        Cloud.MetaServiceResponseStatus incompatibleStatus = Cloud.MetaServiceResponseStatus.newBuilder()
+                .setCode(Cloud.MetaServiceCode.MS_TOO_BUSY)
+                .build();
+
+        DynamicMessage legacyStatus = DynamicMessage.parseFrom(
+                legacyStatusDescriptor, incompatibleStatus.toByteArray());
+        Descriptors.EnumValueDescriptor legacyCode =
+                (Descriptors.EnumValueDescriptor) legacyStatus.getField(legacyCodeField);
+        Assert.assertFalse(legacyStatus.hasField(legacyCodeField));
+        Assert.assertEquals(Cloud.MetaServiceCode.OK.getNumber(), legacyCode.getNumber());
+        Assert.assertTrue(legacyStatus.getUnknownFields().hasField(1));
+        Assert.assertEquals(Long.valueOf(Cloud.MetaServiceCode.MS_TOO_BUSY.getNumber()),
+                legacyStatus.getUnknownFields().getField(1).getVarintList().get(0));
     }
 
     @Test
@@ -315,11 +479,18 @@ public class MetaServiceProxyTest {
 
     @Test
     public void testGetVisibleVersionAsyncRateLimitedBeforeRpc() throws RpcException {
-        enableRateLimit(1, "", 1, 0);
+        // Consume limitForPeriod = qpsPerCore * CPU_CORES * burstSeconds in one weighted request.
+        // A long burst window also prevents a refresh before the assertion if the scheduler stalls.
+        int qpsPerCore = 1;
+        int rateLimitBurstSeconds = 60;
+        int limitForPeriod = qpsPerCore * CPU_CORES * rateLimitBurstSeconds;
+        enableRateLimit(qpsPerCore, "", rateLimitBurstSeconds, 0);
         MetaServiceProxy proxy = new MetaServiceProxy();
         MetaServiceClient client = mockNormalClient();
         putClient(proxy, client);
-        consumeRateLimitPermits(proxy, "getPartitionVersion");
+        Mockito.when(client.getVisibleVersionAsync(Mockito.any()))
+                .thenReturn(Futures.immediateFuture(okGetVersionResponse()));
+        proxy.getVisibleVersionAsync(buildBatchPartitionVersionRequest(limitForPeriod));
 
         try {
             proxy.getVisibleVersionAsync(Cloud.GetVersionRequest.newBuilder().build());
@@ -328,7 +499,7 @@ public class MetaServiceProxyTest {
             Assert.assertTrue(e.getMessage().contains("meta service rpc rate limited"));
         }
 
-        Mockito.verify(client, Mockito.never()).getVisibleVersionAsync(Mockito.any());
+        Mockito.verify(client, Mockito.times(1)).getVisibleVersionAsync(Mockito.any());
         Mockito.verify(client, Mockito.never()).shutdown(Mockito.anyBoolean());
     }
 
@@ -338,8 +509,8 @@ public class MetaServiceProxyTest {
         MetaServiceProxy proxy = new MetaServiceProxy();
         MetaServiceClient client = mockNormalClient();
         putClient(proxy, client);
-        SettableFuture<Cloud.GetVersionResponse> future = SettableFuture.create();
-        Mockito.when(client.getVisibleVersionAsync(Mockito.any())).thenReturn(future);
+        Mockito.when(client.getVisibleVersionAsync(Mockito.any()))
+                .thenReturn(Futures.immediateFuture(okGetVersionResponse()));
 
         proxy.getVisibleVersionAsync(buildBatchTableVersionRequest(CPU_CORES));
 
@@ -357,6 +528,7 @@ public class MetaServiceProxyTest {
     private void enableRateLimit(int defaultQpsPerCore, String qpsPerCoreConfig, int burstSeconds,
             long waitTimeoutMs) {
         Config.meta_service_rpc_rate_limit_enabled = true;
+        Config.meta_service_rpc_rate_limit_dry_run = false;
         Config.meta_service_rpc_rate_limit_default_qps_per_core = defaultQpsPerCore;
         Config.meta_service_rpc_rate_limit_qps_per_core_config = qpsPerCoreConfig;
         Config.meta_service_rpc_rate_limit_burst_seconds = burstSeconds;
@@ -375,6 +547,55 @@ public class MetaServiceProxyTest {
         for (int i = 0; i < CPU_CORES; i++) {
             wrapper.executeRequest(methodName, (ignored) -> okResponse, Cloud.GetVersionResponse::getStatus);
         }
+    }
+
+    private Cloud.MetaServiceResponseStatus callGetInstanceWithStatus(
+            Cloud.MetaServiceResponseStatus responseStatus) throws RpcException {
+        MetaServiceProxy proxy = new MetaServiceProxy();
+        MetaServiceClient client = mockNormalClient();
+        putClient(proxy, client);
+        Mockito.when(client.getInstance(Mockito.any())).thenReturn(Cloud.GetInstanceResponse.newBuilder()
+                .setStatus(responseStatus)
+                .build());
+        Cloud.GetInstanceResponse response = proxy.getInstance(Cloud.GetInstanceRequest.newBuilder().build());
+        response = Deencapsulation.invoke(MetaServiceClient.class, "restoreActualCode", response);
+        return response.getStatus();
+    }
+
+    private Descriptors.Descriptor legacyStatusDescriptor() throws Descriptors.DescriptorValidationException {
+        // Frozen subset of the actual_code schema used by released clients.
+        DescriptorProtos.EnumDescriptorProto legacyCode = DescriptorProtos.EnumDescriptorProto.newBuilder()
+                .setName("MetaServiceCode")
+                .addValue(DescriptorProtos.EnumValueDescriptorProto.newBuilder()
+                        .setName("OK")
+                        .setNumber(0))
+                .addValue(DescriptorProtos.EnumValueDescriptorProto.newBuilder()
+                        .setName("KV_TXN_CONFLICT")
+                        .setNumber(Cloud.MetaServiceCode.KV_TXN_CONFLICT.getNumber()))
+                .build();
+        DescriptorProtos.DescriptorProto legacyStatus = DescriptorProtos.DescriptorProto.newBuilder()
+                .setName("MetaServiceResponseStatus")
+                .addField(DescriptorProtos.FieldDescriptorProto.newBuilder()
+                        .setName("code")
+                        .setNumber(1)
+                        .setLabel(DescriptorProtos.FieldDescriptorProto.Label.LABEL_OPTIONAL)
+                        .setType(DescriptorProtos.FieldDescriptorProto.Type.TYPE_ENUM)
+                        .setTypeName(".doris.cloud.legacy.MetaServiceCode"))
+                .addField(DescriptorProtos.FieldDescriptorProto.newBuilder()
+                        .setName("msg")
+                        .setNumber(2)
+                        .setLabel(DescriptorProtos.FieldDescriptorProto.Label.LABEL_OPTIONAL)
+                        .setType(DescriptorProtos.FieldDescriptorProto.Type.TYPE_STRING))
+                .build();
+        DescriptorProtos.FileDescriptorProto legacyFile = DescriptorProtos.FileDescriptorProto.newBuilder()
+                .setName("legacy_meta_service_status.proto")
+                .setPackage("doris.cloud.legacy")
+                .setSyntax("proto2")
+                .addEnumType(legacyCode)
+                .addMessageType(legacyStatus)
+                .build();
+        return Descriptors.FileDescriptor.buildFrom(
+                legacyFile, new Descriptors.FileDescriptor[0]).findMessageTypeByName("MetaServiceResponseStatus");
     }
 
     private Cloud.GetVersionRequest buildBatchPartitionVersionRequest(int partitionNum) {

@@ -59,6 +59,9 @@ under the License.
                 <exclude>org.apache.doris:fe-filesystem-api</exclude>
                 <exclude>org.apache.doris:fe-filesystem-spi</exclude>
                 <exclude>org.apache.doris:fe-extension-spi</exclude>
+                <!-- Logging provided by host -->
+                <exclude>org.apache.logging.log4j:*</exclude>
+                <exclude>org.slf4j:*</exclude>
             </excludes>
         </dependencySet>
     </dependencySets>

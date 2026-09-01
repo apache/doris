@@ -20,7 +20,10 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
+#include <limits>
+#include <memory>
 #include <mutex>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -37,6 +40,10 @@ class Block;
 namespace segment_v2 {
 class SegmentWriter;
 class VerticalSegmentWriter;
+class DerivedColumnGenerator;
+// Matches block_transform.h: at most one derived column (the row-store column)
+// for each flush, held as a {cid, generator} pair; null generator means none.
+using DerivedColumn = std::pair<uint32_t, std::shared_ptr<const DerivedColumnGenerator>>;
 } // namespace segment_v2
 
 struct SegmentStatistics;
@@ -101,6 +108,11 @@ public:
 
     ~SegmentFlusher();
 
+    // Runs the block transform chain on `block` and hands back the derived (row-store)
+    // column for the caller to feed into its writer.
+    Status transform_block(Block* block, int32_t segment_id,
+                           segment_v2::DerivedColumn* derived_column);
+
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
     Status flush_single_block(const Block* block, int32_t segment_id,
@@ -124,7 +136,9 @@ public:
         ~Writer();
 
         Status add_rows(const Block* block, size_t row_offset, size_t input_row_num) {
-            return _flusher->_add_rows(_writer, block, row_offset, input_row_num);
+            RETURN_IF_ERROR(_flusher->_add_rows(_writer, block, row_offset, input_row_num));
+            _flusher->_num_rows_written += input_row_num;
+            return Status::OK();
         }
 
         Status flush();
@@ -179,13 +193,44 @@ public:
 
     ~SegmentCreator() = default;
 
-    void set_segment_start_id(uint32_t start_id) { _next_segment_id = start_id; }
+    void set_segment_start_id(int32_t start_seg_id,
+                              int32_t max_seg_num = std::numeric_limits<int32_t>::max()) {
+        DORIS_CHECK_GE(start_seg_id, 0);
+        DORIS_CHECK_GE(max_seg_num, 0);
+        DORIS_CHECK_EQ(_next_segment_id.load(std::memory_order_relaxed), _segment_start_id);
+        if (max_seg_num != std::numeric_limits<int32_t>::max()) {
+            DORIS_CHECK_LE(static_cast<int64_t>(start_seg_id) + max_seg_num,
+                           std::numeric_limits<int32_t>::max());
+        }
+        _segment_start_id = start_seg_id;
+        _max_segment_num = max_seg_num;
+        _next_segment_id.store(start_seg_id, std::memory_order_relaxed);
+    }
 
     Status add_block(const Block* block);
 
     Status flush();
 
-    int32_t allocate_segment_id() { return _next_segment_id.fetch_add(1); }
+    Result<int32_t> allocate_segment_id() {
+        if (_max_segment_num == std::numeric_limits<int32_t>::max()) {
+            return _next_segment_id.fetch_add(1, std::memory_order_relaxed);
+        }
+
+        int32_t next_seg_id = _next_segment_id.load(std::memory_order_relaxed);
+        while (true) {
+            const int64_t allocated_segment_num =
+                    static_cast<int64_t>(next_seg_id) - _segment_start_id;
+            if (allocated_segment_num >= _max_segment_num) {
+                return ResultError(Status::Error<ErrorCode::TOO_MANY_SEGMENTS>(
+                        "too many segments, start_seg_id:{}, max_seg_num:{}", _segment_start_id,
+                        _max_segment_num));
+            }
+            if (_next_segment_id.compare_exchange_weak(next_seg_id, next_seg_id + 1,
+                                                       std::memory_order_relaxed)) {
+                return next_seg_id;
+            }
+        }
+    }
 
     // Return the next segment id to be allocated without advancing internal state.
     int32_t get_allocated_segment_id() const { return _next_segment_id.load(); }
@@ -209,13 +254,16 @@ public:
     // Flush a block into a single segment, without pre-allocated segment_id.
     // This method is thread-safe.
     Status flush_single_block(const Block* block) {
-        return flush_single_block(block, allocate_segment_id());
+        auto segment_id = DORIS_TRY(allocate_segment_id());
+        return flush_single_block(block, segment_id);
     }
 
     Status close();
 
 private:
     std::atomic<int32_t> _next_segment_id = 0;
+    int32_t _segment_start_id = 0;
+    int32_t _max_segment_num = std::numeric_limits<int32_t>::max();
     SegmentFlusher _segment_flusher;
     std::unique_ptr<SegmentFlusher::Writer> _flush_writer;
 };

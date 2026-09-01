@@ -123,7 +123,7 @@ suite("eliminate_outer_join") {
     where ps_suppkey > 1
     '''
 
-    // full join ps => right join ps, other outer joins are not eliminated
+    // The filter on partsupp null-rejects the right side of each cascading full join.
     qt_2 '''
     explain shape plan
     select * 

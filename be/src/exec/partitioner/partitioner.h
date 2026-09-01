@@ -211,4 +211,9 @@ private:
     }
 };
 
+/// Instantiated once in partitioner.cpp; suppresses per-TU implicit instantiation.
+extern template class Crc32HashPartitioner<ShuffleChannelIds>;
+extern template class Crc32HashPartitioner<SpillPartitionChannelIds>;
+extern template class Crc32HashPartitioner<SpillRePartitionChannelIds>;
+
 } // namespace doris

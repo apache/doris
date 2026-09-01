@@ -18,12 +18,15 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
@@ -49,6 +52,8 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class StmtExecutorTest extends TestWithFeService {
+    private static final String AI_RESOURCE_LOG_SECRET = "sk-test-secret";
+    private static final String MASKED_STMT_FALLBACK = "/* masked statement unavailable */";
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -471,5 +476,131 @@ public class StmtExecutorTest extends TestWithFeService {
             connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = originalPartitionTtl;
             connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = originalTableTtl;
         }
+    }
+
+    @Test
+    public void testEmptyOriginStmtSkipsAuditMaskingReparse() throws Exception {
+        org.apache.doris.nereids.trees.plans.logical.LogicalPlan logicalPlan = Mockito.mock(
+                org.apache.doris.nereids.trees.plans.logical.LogicalPlan.class,
+                Mockito.withSettings().extraInterfaces(
+                        org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption.class));
+        Mockito.doThrow(new AssertionError("empty SQL should not trigger audit masking reparse"))
+                .when((org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption) logicalPlan)
+                .geneEncryptionSQL("");
+
+        org.apache.doris.analysis.StatementBase parsedStmt = new org.apache.doris.nereids.glue.LogicalPlanAdapter(
+                logicalPlan, new org.apache.doris.nereids.StatementContext());
+        parsedStmt.setOrigStmt(new OriginStatement("", 0));
+        StmtExecutor executor = new StmtExecutor(connectContext, parsedStmt);
+
+        // Empty internal SQL must bypass audit masking reparsing in both logging paths.
+        Method getStmtForLogging = StmtExecutor.class.getDeclaredMethod("getStmtForLogging", String.class);
+        getStmtForLogging.setAccessible(true);
+        Assertions.assertEquals("", getStmtForLogging.invoke(executor, ""));
+
+        Method getStmtForLoggingBeforeParse = StmtExecutor.class.getDeclaredMethod("getStmtForLoggingBeforeParse");
+        getStmtForLoggingBeforeParse.setAccessible(true);
+        Assertions.assertEquals("", getStmtForLoggingBeforeParse.invoke(executor));
+    }
+
+    @Test
+    public void testNeedAuditEncryptionStatementLogsMaskedSql() throws Exception {
+        String resourceName = newAiResourceName();
+        boolean originalPrintRequest = Config.enable_print_request_before_execution;
+        Config.enable_print_request_before_execution = true;
+        try (TestLogAppender appender = TestLogAppender.attach(StmtExecutor.class)) {
+            connectContext.getState().reset();
+            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, buildCreateAiResourceSql(resourceName,
+                    AI_RESOURCE_LOG_SECRET));
+            stmtExecutor.execute();
+
+            Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.INFO, AI_RESOURCE_LOG_SECRET));
+            Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.INFO, "*XXX"));
+            Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.DEBUG, AI_RESOURCE_LOG_SECRET));
+            Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.DEBUG, "*XXX"));
+        } finally {
+            Config.enable_print_request_before_execution = originalPrintRequest;
+        }
+        connectContext.getState().reset();
+        StmtExecutor showExecutor = new StmtExecutor(connectContext, "");
+        showExecutor.execute();
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+    }
+
+    @Test
+    public void testAlterResourceSuccessLogDoesNotPrintResourceObject() throws Exception {
+        String resourceName = newAiResourceName();
+        createResource(buildCreateAiResourceSql(resourceName, AI_RESOURCE_LOG_SECRET));
+        String alterSql = "ALTER RESOURCE \"" + resourceName + "\" PROPERTIES ("
+                + "\"ai.api_key\" = \"sk-updated-secret\")";
+        String fullResourceJson = Env.getCurrentEnv().getResourceMgr().getResource(resourceName).toString();
+
+        try (TestLogAppender appender = TestLogAppender.attach(ResourceMgr.class)) {
+            connectContext.getState().reset();
+            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, alterSql);
+            stmtExecutor.execute();
+
+            Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.INFO, "sk-updated-secret"));
+            Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.INFO, "\"properties\""));
+            Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.INFO, fullResourceJson));
+        }
+    }
+
+    @Test
+    public void testGetStmtForLoggingFailsClosedWhenMaskingThrows() throws Exception {
+        org.apache.doris.nereids.trees.plans.logical.LogicalPlan logicalPlan = Mockito.mock(
+                org.apache.doris.nereids.trees.plans.logical.LogicalPlan.class,
+                Mockito.withSettings().extraInterfaces(
+                        org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption.class));
+        Mockito.doThrow(new IllegalStateException("masking failed"))
+                .when((org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption) logicalPlan)
+                .geneEncryptionSQL(Mockito.anyString());
+
+        org.apache.doris.analysis.StatementBase parsedStmt = new org.apache.doris.nereids.glue.LogicalPlanAdapter(
+                logicalPlan, new org.apache.doris.nereids.StatementContext());
+        parsedStmt.setOrigStmt(new OriginStatement("CREATE EXTERNAL RESOURCE \"ai_resource\" PROPERTIES ("
+                + "\"ai.api_key\" = \"" + AI_RESOURCE_LOG_SECRET + "\")", 0));
+        StmtExecutor executor = new StmtExecutor(connectContext, parsedStmt);
+
+        Method getStmtForLogging = StmtExecutor.class.getDeclaredMethod("getStmtForLogging", String.class);
+        getStmtForLogging.setAccessible(true);
+        Assertions.assertEquals(MASKED_STMT_FALLBACK, getStmtForLogging.invoke(executor,
+                parsedStmt.getOrigStmt().originStmt));
+    }
+
+    @Test
+    public void testGetStmtForLoggingBeforeParseFailsClosedOnParseError() throws Exception {
+        StmtExecutor executor = new StmtExecutor(connectContext,
+                "CREATE EXTERNAL RESOURCE \"broken_ai_resource\" PROPERTIES (\"ai.api_key\" = \""
+                        + AI_RESOURCE_LOG_SECRET + "\"");
+
+        Method getStmtForLoggingBeforeParse = StmtExecutor.class.getDeclaredMethod("getStmtForLoggingBeforeParse");
+        getStmtForLoggingBeforeParse.setAccessible(true);
+        Assertions.assertEquals(MASKED_STMT_FALLBACK, getStmtForLoggingBeforeParse.invoke(executor));
+    }
+
+    private void createResource(String sql) throws Exception {
+        connectContext.getState().reset();
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        stmtExecutor.execute();
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+    }
+
+    // Use unique resource names to keep log-masking tests isolated across the PER_CLASS test fixture.
+    private static String newAiResourceName() {
+        return "ai_resource_log_test_" + System.nanoTime();
+    }
+
+    // Build resource SQL with a caller-provided name so tests do not share catalog state.
+    private static String buildCreateAiResourceSql(String resourceName, String apiKey) {
+        return "CREATE EXTERNAL RESOURCE \"" + resourceName + "\"\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "   \"type\" = \"ai\",\n"
+                + "   \"ai.provider_type\" = \"openai\",\n"
+                + "   \"ai.endpoint\" = \"https://api.test\",\n"
+                + "   \"ai.model_name\" = \"gpt-test\",\n"
+                + "   \"ai.api_key\" = \"" + apiKey + "\"\n"
+                + ");";
     }
 }

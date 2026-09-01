@@ -39,8 +39,8 @@ public:
     DataTypeTimeStampTz() = default;
     DataTypeTimeStampTz(UInt32 scale) : _scale(scale) {}
     bool equals(const IDataType& rhs) const override {
-        return rhs.get_primitive_type() == PrimitiveType::TYPE_TIMESTAMPTZ &&
-               _scale == rhs.get_scale();
+        return typeid(rhs) == typeid(*this) &&
+               _scale == static_cast<const DataTypeTimeStampTz&>(rhs)._scale;
     }
     bool equals_ignore_precision(const IDataType& rhs) const override {
         return rhs.get_primitive_type() == PrimitiveType::TYPE_TIMESTAMPTZ;
@@ -60,10 +60,7 @@ public:
         scalar_type->set_scale(_scale);
     }
 
-    void to_pb_column_meta(PColumnMeta* col_meta) const override {
-        DataTypeNumberBase<PrimitiveType::TYPE_TIMESTAMPTZ>::to_pb_column_meta(col_meta);
-        col_meta->mutable_decimal_param()->set_scale(_scale);
-    }
+    void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
     UInt32 get_scale() const override { return _scale; }
 

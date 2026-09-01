@@ -17,9 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.encryption.EncryptionKey;
 import org.apache.doris.encryption.RootKeyInfo;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -29,6 +33,7 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -63,6 +68,11 @@ public class AdminSetEncryptionRootKeyCommand extends Command implements Forward
      * validate
      */
     public void validate() throws AnalysisException {
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
+
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("The properties must not be empty");
         }
@@ -72,7 +82,7 @@ public class AdminSetEncryptionRootKeyCommand extends Command implements Forward
             throw new AnalysisException("The type field cannot be empty.");
         }
         try {
-            rootKeyInfo.type = RootKeyInfo.RootKeyType.valueOf(typeValue.toUpperCase());
+            rootKeyInfo.type = RootKeyInfo.RootKeyType.tryFrom(typeValue);
         } catch (IllegalArgumentException e) {
             throw new AnalysisException("invalid root key type: " + typeValue);
         }
@@ -82,7 +92,7 @@ public class AdminSetEncryptionRootKeyCommand extends Command implements Forward
             throw new AnalysisException("The encryption_algorithm field cannot be empty.");
         }
         try {
-            rootKeyInfo.algorithm = EncryptionKey.Algorithm.valueOf(encryptionAlgorithmValue.toUpperCase());
+            rootKeyInfo.algorithm = EncryptionKey.Algorithm.valueOf(encryptionAlgorithmValue.toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
             throw new AnalysisException("invalid encryption algorithm: " + encryptionAlgorithmValue);
         }

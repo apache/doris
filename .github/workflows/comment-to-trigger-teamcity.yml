@@ -29,8 +29,55 @@ permissions:
 jobs:
   check-comment-if-need-to-trigger-teamcity:
 
-    # This job only runs for pull request comments, and comment body contains 'run'
-    if: ${{ github.event.issue.pull_request && (contains(github.event.comment.body, 'run') || contains(github.event.comment.body, 'skip buildall') || contains(github.event.comment.body, 'skip check_coverage')) }}
+    # Keep this server-side filter aligned with the supported commands parsed below.
+    # A generic "run" match also catches performance reports such as "Total hot run time".
+    if: >-
+      ${{
+        github.event.issue.pull_request &&
+        !startsWith(github.event.comment.body, '/review') &&
+        (
+          contains(github.event.comment.body, 'run buildall') ||
+          contains(github.event.comment.body, 'run compile') ||
+          contains(github.event.comment.body, 'run beut') ||
+          contains(github.event.comment.body, 'run feut') ||
+          contains(github.event.comment.body, 'run cloudut') ||
+          contains(github.event.comment.body, 'run p0') ||
+          contains(github.event.comment.body, 'run p1') ||
+          contains(github.event.comment.body, 'run external') ||
+          contains(github.event.comment.body, 'run cloud_p0') ||
+          contains(github.event.comment.body, 'run cloud_p1') ||
+          contains(github.event.comment.body, 'run vault_p0') ||
+          contains(github.event.comment.body, 'run nonConcurrent') ||
+          contains(github.event.comment.body, 'run check_coverage') ||
+          contains(github.event.comment.body, 'run performance') ||
+          contains(github.event.comment.body, 'skip buildall') ||
+          contains(github.event.comment.body, 'skip check_coverage')
+        )
+      }}
+
+    # Serialize duplicate commands for one PR. The next run then sees the build
+    # queued by the previous run and can safely skip an identical PR revision.
+    concurrency:
+      group: >-
+        comment-to-trigger-teamcity-${{ github.event.issue.number }}-${{
+          contains(github.event.comment.body, 'run buildall') && 'buildall' ||
+          contains(github.event.comment.body, 'run compile') && 'compile' ||
+          contains(github.event.comment.body, 'run beut') && 'beut' ||
+          contains(github.event.comment.body, 'run feut') && 'feut' ||
+          contains(github.event.comment.body, 'run cloudut') && 'cloudut' ||
+          contains(github.event.comment.body, 'run p0') && 'p0' ||
+          contains(github.event.comment.body, 'run p1') && 'p1' ||
+          contains(github.event.comment.body, 'run external') && 'external' ||
+          contains(github.event.comment.body, 'run cloud_p0') && 'cloud-p0' ||
+          contains(github.event.comment.body, 'run cloud_p1') && 'cloud-p1' ||
+          contains(github.event.comment.body, 'run vault_p0') && 'vault-p0' ||
+          contains(github.event.comment.body, 'run nonConcurrent') && 'non-concurrent' ||
+          contains(github.event.comment.body, 'run check_coverage') && 'check-coverage' ||
+          contains(github.event.comment.body, 'run performance') && 'performance' ||
+          contains(github.event.comment.body, 'skip buildall') && 'skip-buildall' ||
+          'skip-check-coverage'
+        }}
+      cancel-in-progress: false
 
     runs-on: ubuntu-latest
     env:

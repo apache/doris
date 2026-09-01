@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.apache.doris</groupId>
+        <version>${revision}</version>
+        <artifactId>fe</artifactId>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <artifactId>fe-trino-connector-common</artifactId>
+    <packaging>jar</packaging>
+    <name>Doris FE Trino Connector Common</name>
+    <description>Shared Trino plugin bootstrap classes (org.apache.doris.trinoconnector) used by both the FE
+        trino connector plugin (fe-connector-trino) and the BE trino-connector-scanner. Kept out of fe-common
+        so that fe-common — and therefore fe-core / output/fe/lib and the BE shared preload classpath — does
+        not drag in io.trino:trino-main.</description>
+
+    <dependencies>
+        <!-- Trino engine: these classes wrap Trino's plugin/connector bootstrap APIs.
+             Transitively provides guava, jackson-annotations and jsr305, which the classes also use. -->
+        <dependency>
+            <groupId>io.trino</groupId>
+            <artifactId>trino-main</artifactId>
+        </dependency>
+
+        <!-- Jakarta annotation for @PreDestroy (TrinoConnectorServicesProvider) -->
+        <dependency>
+            <groupId>jakarta.annotation</groupId>
+            <artifactId>jakarta.annotation-api</artifactId>
+        </dependency>
+
+        <!-- Doris logging (not provided by Trino) -->
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>doris-fe-trino-connector-common</finalName>
+    </build>
+</project>

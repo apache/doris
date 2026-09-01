@@ -263,11 +263,12 @@ Status JsonFunctions::extract_from_object(simdjson::ondemand::object& obj,
 // 1. array out of bound
 // 2. not exist such field in object
 // 3. the input type is not object but could be null or other types and lead to simdjson::INCORRECT_TYPE
+// Construct msg only on error because call sites use fmt::format and most lookups succeed.
 #define HANDLE_SIMDJSON_ERROR(err, msg)                                                     \
     do {                                                                                    \
         const simdjson::error_code& _err = err;                                             \
-        const std::string& _msg = msg;                                                      \
         if (UNLIKELY(_err)) {                                                               \
+            const std::string _msg = msg;                                                   \
             if (_err == simdjson::NO_SUCH_FIELD || _err == simdjson::INDEX_OUT_OF_BOUNDS || \
                 _err == simdjson::INCORRECT_TYPE) {                                         \
                 return Status::NotFound<false>(                                             \

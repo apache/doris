@@ -551,12 +551,9 @@ void insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_col
                         const UInt8* __restrict null_map_data, UInt8* __restrict filled_flag,
                         const size_t input_rows_count) {
     if (result_column->size() == 0 && input_rows_count) {
-        result_column->resize(input_rows_count);
-        auto* __restrict result_raw_data =
-                assert_cast<ColumnType*>(result_column.get())->get_data().data();
-        for (int i = 0; i < input_rows_count; i++) {
-            result_raw_data[i] = {};
-        }
+        // The branchless accumulation below requires an all-zero buffer. Do not value-initialize
+        // date-like types here because their default values may have non-zero packed bits.
+        assert_cast<ColumnType*>(result_column.get())->get_data().resize_fill(input_rows_count);
     }
     auto* __restrict result_raw_data =
             assert_cast<ColumnType*>(result_column.get())->get_data().data();
@@ -676,6 +673,7 @@ Status VectorizedCoalesceExpr::execute_column_impl(VExprContext* context, const 
                                result_type->get_primitive_type() == PrimitiveType::TYPE_MAP ||
                                result_type->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
                                result_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY ||
+                               result_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT ||
                                result_type->get_primitive_type() == PrimitiveType::TYPE_JSONB;
     if (cannot_random_write) {
         result_column->reserve(input_rows_count);

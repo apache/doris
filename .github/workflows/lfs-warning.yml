@@ -18,30 +18,81 @@
 ---
 name: 'Check Large File'
 
-on: [push, pull_request_target]
+on:
+  push:
+    branches:
+      - master
+  pull_request_target:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
 
 jobs:
   large-file-checker:
     name: "Check large file"
     runs-on: ubuntu-latest
     steps:
-      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: actions/checkout@v3
-        with:
-          persist-credentials: false
-          submodules: recursive
-      
-      - name: "Checkout lfs-warning commit"
+      # Replaces the previous checkout + ppremk/lfs-warning action with plain
+      # GitHub API calls. The check itself only needs the list of added files
+      # and their sizes, so a full repository checkout (with recursive
+      # submodules) and an external action clone were unnecessary.
+      - name: "Collect added files"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          rm -rf ./.github/actions/lfs-warning
-          git clone https://github.com/ppremk/lfs-warning .github/actions/lfs-warning
-          pushd .github/actions/lfs-warning &>/dev/null
-          git checkout 4b98a8a5e6c429c23c34eee02d71553bca216425
-          popd &>/dev/null
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request_target" ]]; then
+            PR_NUM="$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")"
+            gh api "repos/$GITHUB_REPOSITORY/pulls/${PR_NUM}/files?per_page=100" --paginate \
+              --jq '.[] | select(.status == "added") | [.filename, .raw_url] | @tsv' > "$RUNNER_TEMP/files.tsv"
+          else
+            gh api "repos/$GITHUB_REPOSITORY/commits/${{ github.sha }}" \
+              --jq '.files[] | select(.status == "added") | [.filename, .raw_url] | @tsv' > "$RUNNER_TEMP/files.tsv"
+          fi
+          echo "Added files: $(wc -l < "$RUNNER_TEMP/files.tsv")"
 
-      - name: "Check Large File"
-        uses: ./.github/actions/lfs-warning
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          filesizelimit: 1MB
+      - name: "Check sizes against the 1MB limit"
+        run: |
+          set -euo pipefail
+          LIMIT=$((1 * 1024 * 1024))
+          : > "$RUNNER_TEMP/oversized.tsv"
+          while IFS=$'\t' read -r filename raw_url; do
+            [[ -z "${filename}" ]] && continue
+            SIZE="$(curl -sIL "${raw_url}" | awk 'BEGIN{IGNORECASE=1} /^content-length:/ {v=$2} END {gsub("\r","",v); print v+0}')"
+            if (( SIZE > LIMIT )); then
+              printf '%s\t%s\n' "${filename}" "${SIZE}" >> "$RUNNER_TEMP/oversized.tsv"
+            fi
+          done < "$RUNNER_TEMP/files.tsv"
+          echo "Oversized files: $(wc -l < "$RUNNER_TEMP/oversized.tsv")"
 
+      - name: "Warn on oversized files in pull requests"
+        if: github.event_name == 'pull_request_target'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ ! -s "$RUNNER_TEMP/oversized.tsv" ]]; then
+            exit 0
+          fi
+          PR_NUM="$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")"
+          {
+            echo "⚠️ **Large files detected** (size limit: 1MB):"
+            echo
+            while IFS=$'\t' read -r filename size; do
+              printf -- '- %s (%s MB)\n' "${filename}" "$(( size / 1024 / 1024 ))"
+            done < "$RUNNER_TEMP/oversized.tsv"
+          } > "$RUNNER_TEMP/comment.md"
+          gh pr comment "${PR_NUM}" --body-file "$RUNNER_TEMP/comment.md"
+
+      # Unlike the previous action, a direct master push with oversized files
+      # now fails the check instead of being silently ignored.
+      - name: "Fail on oversized files pushed to master"
+        if: github.event_name == 'push'
+        run: |
+          if [[ -s "$RUNNER_TEMP/oversized.tsv" ]]; then
+            echo "::error::Files larger than 1MB were pushed to master:"
+            cat "$RUNNER_TEMP/oversized.tsv"
+            exit 1
+          fi

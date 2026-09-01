@@ -37,6 +37,8 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -47,6 +49,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class QeProcessorImpl implements QeProcessor {
@@ -57,6 +60,11 @@ public final class QeProcessorImpl implements QeProcessor {
     private Map<TUniqueId, Integer> queryToInstancesNum;
     private Map<String, AtomicInteger> userToInstancesCount;
     private ExecutorService writeProfileExecutor;
+    private final Cache<String, Boolean> acceptedExternalFileReports = CacheBuilder.newBuilder()
+            .maximumSize(1_000_000)
+            .expireAfterWrite(30, TimeUnit.MINUTES)
+            .build();
+    private final QueryFinishCallbackRegistry queryFinishCallbackRegistry = new QueryFinishCallbackRegistry();
 
     public static final QeProcessor INSTANCE;
 
@@ -162,7 +170,9 @@ public final class QeProcessorImpl implements QeProcessor {
             }
             queryToInstancesNum.put(queryId, instancesNum);
             userToInstancesCount.computeIfAbsent(user, ignored -> new AtomicInteger(0)).addAndGet(instancesNum);
-            MetricRepo.USER_COUNTER_QUERY_INSTANCE_BEGIN.getOrAdd(user).increase(instancesNum.longValue());
+            if (MetricRepo.isInit) {
+                MetricRepo.USER_COUNTER_QUERY_INSTANCE_BEGIN.getOrAdd(user).increase(instancesNum.longValue());
+            }
         }
     }
 
@@ -206,8 +216,14 @@ public final class QeProcessorImpl implements QeProcessor {
             }
         }
 
-        // commit hive tranaction if needed
-        Env.getCurrentHiveTransactionMgr().deregister(DebugUtil.printId(queryId));
+        // Run connector-registered query-finish callbacks (e.g. committing a hive
+        // read transaction). Connector-agnostic: fe-core names no source here.
+        queryFinishCallbackRegistry.runAndClear(DebugUtil.printId(queryId));
+    }
+
+    @Override
+    public void registerQueryFinishCallback(String queryId, Runnable callback) {
+        queryFinishCallbackRegistry.register(queryId, callback);
     }
 
     @Override
@@ -277,22 +293,67 @@ public final class QeProcessorImpl implements QeProcessor {
             }
         }
 
+        boolean hasExternalCommitData = hasExternalCommitData(params);
+        String reportKey = hasExternalCommitData ? externalFileReportKey(params) : null;
+        if (hasExternalCommitData && reportKey == null) {
+            return rejectedExternalFileReport(result, "External-file report is missing its identity fields");
+        }
+        if (hasExternalCommitData && acceptedExternalFileReports.getIfPresent(reportKey) != null) {
+            // Keep acceptance available after coordinator removal so a lost response is retry-safe.
+            result.setStatus(new TStatus(TStatusCode.OK));
+            result.setExternalFileCommitDataAccepted(true);
+            return result;
+        }
+
         final QueryInfo info = coordinatorMap.get(params.query_id);
         result.setStatus(new TStatus(TStatusCode.OK));
         if (info == null) {
             // Currently, the execution of query is splited from the exec status process.
             // So, it is very likely that when exec status arrived on FE asynchronously, coordinator
             // has been removed from coordinatorMap.
-            return result;
+            return hasExternalCommitData
+                    ? rejectedExternalFileReport(result, "Coordinator no longer owns this external-file report")
+                    : result;
         }
         try {
-            info.getCoord().updateFragmentExecStatus(params);
+            boolean accepted = info.getCoord().updateFragmentExecStatus(params);
+            if (hasExternalCommitData && !accepted) {
+                return rejectedExternalFileReport(result, "FE has not accepted the external-file report");
+            }
         } catch (Exception e) {
             LOG.warn("Exception during handle report, response: {}, query: {}, instance: {}", result.toString(),
                     DebugUtil.printId(params.query_id), DebugUtil.printId(params.fragment_instance_id), e);
-            return result;
+            return hasExternalCommitData
+                    ? rejectedExternalFileReport(result, "FE did not accept the external-file report")
+                    : result;
         }
         result.setStatus(new TStatus(TStatusCode.OK));
+        if (hasExternalCommitData) {
+            // Publish the retry token before replying; a transport loss cannot revoke FE ownership.
+            acceptedExternalFileReports.put(reportKey, Boolean.TRUE);
+            result.setExternalFileCommitDataAccepted(true);
+        }
+        return result;
+    }
+
+    private static boolean hasExternalCommitData(TReportExecStatusParams params) {
+        return params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas() || params.isSetMcCommitDatas();
+    }
+
+    private static String externalFileReportKey(TReportExecStatusParams params) {
+        if (!params.isSetQueryId() || !params.isSetFragmentId() || !params.isSetBackendId()) {
+            return null;
+        }
+        return params.getQueryId().getHi() + ":" + params.getQueryId().getLo() + ":"
+                + params.getFragmentId() + ":" + params.getBackendId();
+    }
+
+    private static TReportExecStatusResult rejectedExternalFileReport(
+            TReportExecStatusResult result, String message) {
+        TStatus status = new TStatus(TStatusCode.INTERNAL_ERROR);
+        status.addToErrorMsgs(message);
+        result.setStatus(status);
+        result.setExternalFileCommitDataAccepted(false);
         return result;
     }
 

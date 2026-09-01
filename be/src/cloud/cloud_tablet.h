@@ -71,6 +71,7 @@ struct SyncOptions {
 struct RecycledRowsets {
     RowsetId rowset_id;
     int64_t num_segments;
+    std::vector<int64_t> segment_ids;
     std::vector<std::string> index_file_names;
 };
 
@@ -442,9 +443,8 @@ private:
             std::chrono::system_clock::time_point freshness_limit_tp) const;
 
     // Submit a segment download task for warming up
-    void _submit_segment_download_task(const RowsetSharedPtr& rs,
-                                       const StorageResource* storage_resource, int seg_id,
-                                       int64_t expiration_time);
+    void _submit_segment_download_task(const RowsetSharedPtr& rs, io::Path segment_path,
+                                       int64_t segment_file_size, int64_t expiration_time);
 
     // Submit an inverted index download task for warming up
     void _submit_inverted_index_download_task(const RowsetSharedPtr& rs,
@@ -488,11 +488,9 @@ private:
     std::atomic<int64_t> _last_base_compaction_schedule_millis;
     // timestamp of last full compaction schedule time
     std::atomic<int64_t> _last_full_compaction_schedule_millis;
-
     std::string _last_cumu_compaction_status;
     std::string _last_base_compaction_status;
     std::string _last_full_compaction_status;
-
     int64_t _base_compaction_cnt = 0;
     int64_t _cumulative_compaction_cnt = 0;
     int64_t _full_compaction_cnt = 0;

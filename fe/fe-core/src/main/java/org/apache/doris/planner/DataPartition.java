@@ -87,7 +87,7 @@ public class DataPartition {
 
     public DataPartition(TPartitionType type, Expr operationExpr, List<Expr> insertPartitionExprs,
             List<Expr> deletePartitionExprs, boolean insertRandom,
-            List<IcebergPartitionField> insertPartitionFields, Integer partitionSpecId) {
+            List<MergePartitionField> insertPartitionFields, Integer partitionSpecId) {
         Preconditions.checkState(type == TPartitionType.MERGE_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.of();
@@ -155,7 +155,7 @@ public class DataPartition {
                 str.append(", insert=").append(Joiner.on(", ").join(insertExprs));
             } else if (!mergePartitionInfo.insertPartitionFields.isEmpty()) {
                 List<String> insertFields = Lists.newArrayList();
-                for (IcebergPartitionField field : mergePartitionInfo.insertPartitionFields) {
+                for (MergePartitionField field : mergePartitionInfo.insertPartitionFields) {
                     insertFields.add(field.toSql());
                 }
                 str.append(", insert=").append(Joiner.on(", ").join(insertFields));
@@ -178,20 +178,27 @@ public class DataPartition {
         return str.toString();
     }
 
-    public static class IcebergPartitionField {
+    public static class MergePartitionField {
         private final Expr sourceExpr;
         private final String transform;
         private final Integer param;
         private final String name;
         private final Integer sourceId;
+        private final ImmutableList<Integer> sourceFieldPath;
 
-        public IcebergPartitionField(Expr sourceExpr, String transform, Integer param,
+        public MergePartitionField(Expr sourceExpr, String transform, Integer param,
                 String name, Integer sourceId) {
+            this(sourceExpr, transform, param, name, sourceId, ImmutableList.of());
+        }
+
+        public MergePartitionField(Expr sourceExpr, String transform, Integer param,
+                String name, Integer sourceId, List<Integer> sourceFieldPath) {
             this.sourceExpr = Preconditions.checkNotNull(sourceExpr, "sourceExpr should not be null");
             this.transform = Preconditions.checkNotNull(transform, "transform should not be null");
             this.param = param;
             this.name = name;
             this.sourceId = sourceId;
+            this.sourceFieldPath = ImmutableList.copyOf(sourceFieldPath);
         }
 
         public TIcebergPartitionField toThrift() {
@@ -207,6 +214,9 @@ public class DataPartition {
             if (sourceId != null) {
                 field.setSourceId(sourceId);
             }
+            if (!sourceFieldPath.isEmpty()) {
+                field.setSourceFieldPath(sourceFieldPath);
+            }
             return field;
         }
 
@@ -220,12 +230,12 @@ public class DataPartition {
         private final ImmutableList<Expr> insertPartitionExprs;
         private final ImmutableList<Expr> deletePartitionExprs;
         private final boolean insertRandom;
-        private final ImmutableList<IcebergPartitionField> insertPartitionFields;
+        private final ImmutableList<MergePartitionField> insertPartitionFields;
         private final Integer partitionSpecId;
 
         private MergePartitionInfo(Expr operationExpr, List<Expr> insertPartitionExprs,
                 List<Expr> deletePartitionExprs, boolean insertRandom,
-                List<IcebergPartitionField> insertPartitionFields, Integer partitionSpecId) {
+                List<MergePartitionField> insertPartitionFields, Integer partitionSpecId) {
             this.operationExpr = Preconditions.checkNotNull(operationExpr, "operationExpr should not be null");
             this.insertPartitionExprs = ImmutableList.copyOf(
                     Preconditions.checkNotNull(insertPartitionExprs, "insertPartitionExprs should not be null"));
@@ -249,7 +259,7 @@ public class DataPartition {
             info.setInsertRandom(insertRandom);
             if (!insertPartitionFields.isEmpty()) {
                 List<TIcebergPartitionField> fields = Lists.newArrayList();
-                for (IcebergPartitionField field : insertPartitionFields) {
+                for (MergePartitionField field : insertPartitionFields) {
                     fields.add(field.toThrift());
                 }
                 info.setInsertPartitionFields(fields);

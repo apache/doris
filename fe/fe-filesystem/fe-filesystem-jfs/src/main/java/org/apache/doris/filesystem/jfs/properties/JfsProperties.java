@@ -21,6 +21,7 @@ import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.hdfs.properties.HdfsCompatibleProperties;
 import org.apache.doris.filesystem.hdfs.properties.HdfsPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
+import org.apache.doris.foundation.property.NoPathTraversalValidator;
 
 import com.google.common.collect.ImmutableSet;
 import org.apache.commons.collections4.MapUtils;
@@ -45,6 +46,7 @@ public class JfsProperties extends HdfsCompatibleProperties {
     private String fsDefaultFS = "";
 
     @ConnectorProperty(names = {"hadoop.config.resources"}, required = false,
+            validator = NoPathTraversalValidator.class,
             description = "The xml files of Hadoop configuration.")
     private String hadoopConfigResources = "";
 

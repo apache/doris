@@ -21,14 +21,21 @@
 #include <fcntl.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+#include <netinet/in.h>
 #include <sys/mman.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <boost/algorithm/string/predicate.hpp>
+#include <chrono>
+#include <cstring>
 #include <filesystem>
+#include <thread>
 
 #include "gtest/gtest_pred_impl.h"
+#include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "service/backend_service.h"
 #include "service/http/ev_http_server.h"
@@ -666,6 +673,59 @@ TEST_F(HttpClientTest, batch_download) {
 
     st = download_files_v2(address, "token", remote_dir, local_dir, file_info_list);
     EXPECT_TRUE(st.ok());
+}
+
+TEST_F(HttpClientTest, abort_in_flight_request) {
+    // A listening socket that is never accepted from. The kernel completes the handshake
+    // and buffers the request, so the client believes it is connected, but no response ever
+    // comes back. This is what an audit stream load looks like when the http service that
+    // was supposed to serve it has been torn down.
+    int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    ASSERT_GE(listen_fd, 0);
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0; // let the kernel pick a free port
+    ASSERT_EQ(0, bind(listen_fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)));
+    ASSERT_EQ(0, listen(listen_fd, 8));
+    socklen_t addr_len = sizeof(addr);
+    ASSERT_EQ(0, getsockname(listen_fd, reinterpret_cast<struct sockaddr*>(&addr), &addr_len));
+    std::string url = "http://127.0.0.1:" + std::to_string(ntohs(addr.sin_port)) + "/no_answer";
+
+    HttpClient client;
+    auto st = client.init(url);
+    EXPECT_TRUE(st.ok()) << st;
+    client.set_method(GET);
+    // Much longer than the abort is expected to take, so that finishing early can only be
+    // the abort callback and not the timeout.
+    client.set_timeout_ms(60 * 1000);
+    std::atomic<bool> should_abort {false};
+    client.set_abort_callback([&should_abort]() { return should_abort.load(); });
+
+    // Ask for the abort only once the request is on the wire, like a shutdown starting
+    // while a worker is already blocked inside execute().
+    std::thread aborter([&should_abort]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        should_abort = true;
+    });
+
+    auto start = std::chrono::steady_clock::now();
+    std::string response;
+    st = client.execute(&response);
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              std::chrono::steady_clock::now() - start)
+                              .count();
+    aborter.join();
+    close(listen_fd);
+
+    EXPECT_FALSE(st.ok());
+    // The request really was stuck waiting rather than failing outright, ...
+    EXPECT_GE(elapsed_ms, 300) << "request did not reach the server, it took " << elapsed_ms
+                               << "ms";
+    // ... and the abort ended it instead of CURLOPT_TIMEOUT_MS. libcurl polls the callback
+    // about once a second while the connection is idle.
+    EXPECT_LT(elapsed_ms, 15000) << "request was not aborted, it took " << elapsed_ms << "ms";
 }
 
 } // namespace doris

@@ -47,10 +47,10 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalView;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.systable.SysTableResolver;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -73,7 +73,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -101,7 +100,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
@@ -185,6 +183,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // check if it is a CTE's name
         CTEContext cteContext = cascadesContext.getCteContext().findCTEContext(tableName).orElse(null);
         if (cteContext != null) {
+            rejectScanParamsOnCte(unboundRelation);
             Optional<LogicalPlan> analyzedCte = cteContext.getAnalyzedCTEPlan(tableName);
             if (analyzedCte.isPresent()) {
                 LogicalCTEConsumer consumer = new LogicalCTEConsumer(unboundRelation.getRelationId(),
@@ -205,6 +204,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // check if it is a recursive CTE's name
         if (cascadesContext.getRecursiveCteContext().isPresent()
                 && cascadesContext.getRecursiveCteContext().get().findCTEContext(tableName).isPresent()) {
+            rejectScanParamsOnCte(unboundRelation);
             if (cascadesContext.isAnalyzingRecursiveCteAnchorChild()) {
                 throw new AnalysisException(
                         String.format("recursive reference to query %s must not appear within its non-recursive term",
@@ -229,6 +229,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return plan;
     }
 
+    private void rejectScanParamsOnCte(UnboundRelation unboundRelation) {
+        if (unboundRelation.getScanParams() != null) {
+            // A CTE reference has no physical table handle on which scan parameters can be applied.
+            throw new AnalysisException("Table scan parameters are not supported on CTE references.");
+        }
+    }
+
     private LogicalPlan bind(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 unboundRelation.getNameParts());
@@ -244,7 +251,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<Long> tabletIds = unboundRelation.getTabletIds();
         StreamScanType changeScanType = checkChangeScanCondition((OlapTable) table, unboundRelation.getScanParams());
         if (changeScanType != null) {
-            table = new RowBinlogTableWrapper((OlapTable) table);
+            table = new RowBinlogTableWrapper((OlapTable) table,
+                    CollectionUtils.isEmpty(partIds)
+                            ? makeUniformedTimestampRangeMap(((OlapTable) table).getPartitionIds(),
+                                    parseTimestampRange(unboundRelation.getScanParams())) :
+                            makeUniformedTimestampRangeMap(partIds,
+                                    parseTimestampRange(unboundRelation.getScanParams())));
         } else if (unboundRelation.getScanParams() != null) {
             unboundRelation.getScanParams().validateOlapTable();
         }
@@ -295,8 +307,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 throw new AnalysisException(
                         "PREAGGOPEN hint is not supported on @incr (change-read) scans.");
             }
-            return checkAndAddChangeScanFilter(scan, changeScanType,
-                    parseTimestampRange(unboundRelation.getScanParams()), false);
+            return checkAndAddChangeScanFilter(scan, changeScanType, false);
         }
         // Time-travel (FOR VERSION/TIME AS OF): wrap the scan with a __DORIS_COMMIT_TSO_COL__
         // predicate (dup) or a base/binlog union (mow).
@@ -585,7 +596,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // right: binlog MIN_DELTA over tso>t1, keep UPDATE_BEFORE/DELETE rows (before image),
         // projected to the same visible schema. BE splits each change so UPDATE_BEFORE/DELETE rows
         // already carry the pre-change value in the (same-named) value columns.
-        RowBinlogTableWrapper binlogTable = new RowBinlogTableWrapper(olapTable);
+        RowBinlogTableWrapper binlogTable = new RowBinlogTableWrapper(olapTable, CollectionUtils.isEmpty(partIds)
+                ? makeUniformedTimestampRangeMap(olapTable.getPartitionIds(), Pair.of(targetTso, null)) :
+                makeUniformedTimestampRangeMap(partIds, Pair.of(targetTso, null)));
         RelationId binlogRelationId = cascadesContext.getStatementContext().getNextRelationId();
         LogicalOlapScan binlogScan = CollectionUtils.isEmpty(partIds)
                 ? new LogicalOlapScan(binlogRelationId, binlogTable, qualifier, tabletIds,
@@ -598,8 +611,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         binlogScan = binlogScan.withTableScanParams(
                 new TableScanParams(TableScanParams.INCREMENTAL_READ, incrParams, Lists.newArrayList()));
 
-        LogicalPlan right = checkAndAddChangeScanFilter(binlogScan, StreamScanType.MIN_DELTA, Pair.of(targetTso, null),
-                true);
+        LogicalPlan right = checkAndAddChangeScanFilter(binlogScan, StreamScanType.MIN_DELTA, true);
         right = projectFromOriginSlots(right, visibleOutput);
 
         // both children are bound; BindExpression aligns by position and fills the union output.
@@ -613,7 +625,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private Optional<LogicalPlan> handleMetaTable(TableIf table, UnboundRelation unboundRelation,
-            List<String> qualifiedTableName) {
+            List<String> qualifiedTableName, CascadesContext cascadesContext) {
         Optional<SysTableResolver.SysTablePlan> sysTablePlanOpt = SysTableResolver.resolveForPlan(
                 table, qualifiedTableName.get(0), qualifiedTableName.get(1), qualifiedTableName.get(2));
         if (!sysTablePlanOpt.isPresent()) {
@@ -626,6 +638,21 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (sysTablePlan.isNative()) {
             List<String> qualifierWithoutTableName = qualifiedTableName.subList(0, qualifiedTableName.size() - 1);
             ExternalTable sysExternalTable = sysTablePlan.getSysExternalTable();
+            if (sysExternalTable instanceof PluginDrivenSysExternalTable) {
+                Optional<TableSnapshot> tableSnapshot = unboundRelation.getTableSnapshot();
+                Optional<TableScanParams> scanParams = Optional.ofNullable(unboundRelation.getScanParams());
+                StatementContext statementContext = cascadesContext.getStatementContext();
+                ((PluginDrivenSysExternalTable) sysExternalTable).resolveScanPin(
+                        tableSnapshot, scanParams, () -> {
+                            // System and plain aliases must enter the same latest-fence map regardless
+                            // of bind order; the system table's private memo alone cannot provide that.
+                            statementContext.loadSnapshots(table, tableSnapshot, scanParams);
+                            return statementContext.getSnapshot(table, tableSnapshot, scanParams);
+                        });
+            }
+            // Per-system-table scan-param capability (which metadata view honors @incr / @options) is
+            // asked of the connector at split generation by PluginDrivenScanNode.checkSysTableScanConstraints,
+            // which owns the user-facing message. Binding only needs the base table's gate above.
             return Optional.of(new LogicalFileScan(
                     unboundRelation.getRelationId(),
                     sysExternalTable,
@@ -725,9 +752,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     Utils.qualifiedNameWithBackquote(qualifiedTableName));
         });
 
+        validateOptionsTarget(table, unboundRelation.getScanParams());
+
         // Handle meta table like "table_name$partitions"
         // qualifiedTableName should be like "ctl.db.tbl$partitions"
-        Optional<LogicalPlan> logicalPlan = handleMetaTable(table, unboundRelation, qualifiedTableName);
+        Optional<LogicalPlan> logicalPlan = handleMetaTable(
+                table, unboundRelation, qualifiedTableName, cascadesContext);
         if (logicalPlan.isPresent()) {
             return logicalPlan.get();
         }
@@ -749,67 +779,33 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     Plan viewBody = parseAndAnalyzeDorisView(view, qualifiedTableName, cascadesContext);
                     LogicalView<Plan> logicalView = new LogicalView<>(view, viewBody);
                     return new LogicalSubQueryAlias<>(qualifiedTableName, logicalView);
-                case HMS_EXTERNAL_TABLE:
-                    HMSExternalTable hmsTable = (HMSExternalTable) table;
-                    if (Config.enable_query_hive_views && hmsTable.isView()) {
-                        isView = true;
-                        String hiveCatalog = hmsTable.getCatalog().getName();
-                        String hiveDb = hmsTable.getDatabase().getFullName();
-                        String ddlSql = hmsTable.getViewText();
-                        Plan hiveViewPlan = parseAndAnalyzeExternalView(
-                                hmsTable, hiveCatalog, hiveDb, ddlSql, cascadesContext);
-                        return new LogicalSubQueryAlias<>(qualifiedTableName, hiveViewPlan);
-                    }
-                    if (hmsTable.getDlaType() == DLAType.HUDI) {
-                        LogicalHudiScan hudiScan = new LogicalHudiScan(unboundRelation.getRelationId(), hmsTable,
-                                qualifierWithoutTableName, ImmutableList.of(), Optional.empty(),
-                                unboundRelation.getTableSample(), unboundRelation.getTableSnapshot(),
-                                Optional.empty());
-                        hudiScan = hudiScan.withScanParams(
-                                hmsTable, Optional.ofNullable(unboundRelation.getScanParams()));
-                        return hudiScan;
-                    } else {
-                        return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
-                                qualifierWithoutTableName,
-                                ImmutableList.of(),
-                                unboundRelation.getTableSample(),
-                                unboundRelation.getTableSnapshot(),
-                                Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
-                    }
-                case ICEBERG_EXTERNAL_TABLE:
-                    IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
-                    if (Config.enable_query_iceberg_views && icebergExternalTable.isView()) {
-                        Optional<TableSnapshot> tableSnapshot = unboundRelation.getTableSnapshot();
-                        if (tableSnapshot.isPresent()) {
-                            // iceberg view not supported with snapshot time/version travel
+                case PLUGIN_EXTERNAL_TABLE:
+                    if (table instanceof PluginDrivenExternalTable
+                            && ((PluginDrivenExternalTable) table).isView()) {
+                        // Plugin view (hive after the hms cutover, or iceberg): any connector that declares
+                        // SUPPORTS_VIEW serves its view here, unconditionally — the legacy
+                        // enable_query_hive_views / enable_query_iceberg_views switches are deprecated no-ops,
+                        // so a view is served regardless of them. The view body is converted by the session
+                        // dialect inside parseAndAnalyzeExternalView (shared with the legacy HMS hive-view
+                        // path), which is fully neutral.
+                        PluginDrivenExternalTable pluginViewTable = (PluginDrivenExternalTable) table;
+                        if (unboundRelation.getTableSnapshot().isPresent()) {
+                            // A view cannot be combined with snapshot time/version travel (meaningless for a
+                            // view, for hive and iceberg alike).
                             // note that enable_fallback_to_original_planner should be set with false
                             // or else this exception will not be thrown
                             // because legacy planner will retry and thrown other exception
                             throw new UnsupportedOperationException(
-                                "iceberg view not supported with snapshot time/version travel");
+                                "view not supported with snapshot time/version travel");
                         }
                         isView = true;
-                        String icebergCatalog = icebergExternalTable.getCatalog().getName();
-                        String icebergDb = icebergExternalTable.getDatabase().getFullName();
-                        String ddlSql = icebergExternalTable.getViewText();
-                        Plan icebergViewPlan = parseAndAnalyzeExternalView(icebergExternalTable,
-                                icebergCatalog, icebergDb, ddlSql, cascadesContext);
-                        return new LogicalSubQueryAlias<>(qualifiedTableName, icebergViewPlan);
+                        String pluginCatalog = pluginViewTable.getCatalog().getName();
+                        String pluginDb = pluginViewTable.getDatabase().getFullName();
+                        String ddlSql = pluginViewTable.getViewText();
+                        Plan pluginViewPlan = parseAndAnalyzeExternalView(pluginViewTable,
+                                pluginCatalog, pluginDb, ddlSql, cascadesContext);
+                        return new LogicalSubQueryAlias<>(qualifiedTableName, pluginViewPlan);
                     }
-                    if (icebergExternalTable.isView()) {
-                        throw new UnsupportedOperationException(
-                            "please set enable_query_iceberg_views=true to enable query iceberg views");
-                    }
-                    return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
-                        qualifierWithoutTableName, ImmutableList.of(),
-                        unboundRelation.getTableSample(),
-                        unboundRelation.getTableSnapshot(),
-                        Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
-                case PAIMON_EXTERNAL_TABLE:
-                case MAX_COMPUTE_EXTERNAL_TABLE:
-                case TRINO_CONNECTOR_EXTERNAL_TABLE:
-                case LAKESOUl_EXTERNAL_TABLE:
-                case PLUGIN_EXTERNAL_TABLE:
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
                             qualifierWithoutTableName, ImmutableList.of(),
                             unboundRelation.getTableSample(),
@@ -870,7 +866,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 case TEST_EXTERNAL_TABLE:
                     return new LogicalTestScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
                 case STREAM:
-                    return makeTableStreamScan(table, unboundRelation, qualifierWithoutTableName);
+                    return makeTableStreamScan(table, unboundRelation, qualifierWithoutTableName,
+                            cascadesContext.getStatementContext());
                 default:
                     throw new AnalysisException("Unsupported tableType " + table.getType());
             }
@@ -885,8 +882,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             sqlCacheContext.setHasUnsupportedTables(true);
                         } else if (table instanceof OlapTable) {
                             sqlCacheContext.addUsedTable(table);
-                        } else if (table instanceof HMSExternalTable
+                        } else if (table instanceof ExternalTable && table instanceof MTMVRelatedTableIf
                                 && cascadesContext.getConnectContext().getSessionVariable().enableHiveSqlCache) {
+                            // Any external lakehouse plugin table that exposes a stable data-version token
+                            // (MTMVRelatedTableIf#getNewestUpdateVersionOrTime) is cacheable; addUsedTable
+                            // records the token and fails safe if it is unavailable. Gated by the (default
+                            // false) enable_hive_sql_cache switch so behavior is unchanged unless opted in.
                             sqlCacheContext.addUsedTable(table);
                         } else {
                             sqlCacheContext.setHasUnsupportedTables(true);
@@ -896,6 +897,26 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Rejects {@code @options(...)} on any table whose connector cannot honor it. This gate is
+     * REQUIRED, not cosmetic: {@code @options} changes WHICH version a relation reads, and the
+     * option map only reaches a connector through the MVCC pin path ({@link StatementContext#loadSnapshots}
+     * -> {@code ConnectorMetadata.resolveTimeTravel}). A table that is not MVCC-capable never enters that
+     * path, so without this check the clause would be silently dropped and a historical question answered
+     * with latest data. The option KEYS are not inspected here — the declaring connector owns the whole
+     * vocabulary and validates them while resolving the pin.
+     */
+    private void validateOptionsTarget(TableIf table, TableScanParams scanParams) {
+        if (scanParams == null || !scanParams.isOptions()) {
+            return;
+        }
+        if (!(table instanceof PluginDrivenExternalTable)
+                || !((PluginDrivenExternalTable) table).supportsScanParamOptions()) {
+            throw new AnalysisException(
+                    "OPTIONS scan params are not supported for table " + table.getName() + ".");
         }
     }
 
@@ -996,9 +1017,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }).collect(ImmutableList.toImmutableList());
     }
 
-    private LogicalPlan makeTableStreamScan(TableIf table, UnboundRelation unboundRelation, List<String> qualifier)
+    private LogicalPlan makeTableStreamScan(TableIf table, UnboundRelation unboundRelation, List<String> qualifier,
+            StatementContext statementContext)
             throws AnalysisException {
         if (table instanceof OlapTableStream) {
+            if (Config.isCloudMode()) {
+                statementContext.addPlannerHook(CloudTableStreamReadStateHook.INSTANCE);
+            }
             OlapTableStream olapTableStream = (OlapTableStream) table;
             LogicalOlapTableStreamScan scan = makeOlapTableStreamScan(olapTableStream,
                     unboundRelation, qualifier);
@@ -1015,38 +1040,25 @@ public class BindRelation extends OneAnalysisRuleFactory {
      * Add append only filter on olap scan with changes if need.
      */
     public static LogicalPlan checkAndAddChangeScanFilter(LogicalOlapScan scan,
-                                                          StreamScanType scanType,
-                                                          Pair<Long, Long> timestampRange, boolean beforeImageOnly) {
+                                                          StreamScanType scanType, boolean beforeImageOnly) {
         LogicalPlan plan = scan;
-        Slot timestampSlot = null;
         Slot opSlot = null;
         for (Slot slot : scan.getOutput()) {
-            if (slot.getName().equals(Column.BINLOG_TSO_COL)) {
-                timestampSlot = slot;
-            }
             if (slot.getName().equals(Column.BINLOG_OPERATION_COL)) {
                 opSlot = slot;
-            }
-            if (opSlot != null && timestampSlot != null) {
                 break;
             }
         }
-        List<Expression> conjuncts = Lists.newArrayList();
-        Preconditions.checkArgument(timestampSlot != null, "timestampSlot is null");
-        conjuncts.add(new GreaterThan(timestampSlot, new BigIntLiteral(timestampRange.first)));
-        if (timestampRange.second != null) {
-            conjuncts.add(new LessThanEqual(timestampSlot, new BigIntLiteral(timestampRange.second)));
-        }
         if (scanType.equals(StreamScanType.APPEND_ONLY)) {
             Preconditions.checkArgument(opSlot != null, "opSlot is null");
-            conjuncts.add(new EqualTo(opSlot, new BigIntLiteral(BinlogUtils.ROW_BINLOG_APPEND)));
-        }
-        if (beforeImageOnly) {
-            conjuncts.add(new InPredicate(opSlot, ImmutableList.of(
+            return new LogicalFilter<>(ImmutableSet.of(new EqualTo(opSlot,
+                    new BigIntLiteral(BinlogUtils.ROW_BINLOG_APPEND))), plan);
+        } else if (beforeImageOnly) {
+            return new LogicalFilter<>(ImmutableSet.of(new InPredicate(opSlot, ImmutableList.of(
                     new BigIntLiteral(BinlogUtils.ROW_BINLOG_DELETE),
-                    new BigIntLiteral(BinlogUtils.ROW_BINLOG_UPDATE_BEFORE))));
+                    new BigIntLiteral(BinlogUtils.ROW_BINLOG_UPDATE_BEFORE)))), plan);
         }
-        return new LogicalFilter<>(ImmutableSet.copyOf(conjuncts), plan);
+        return plan;
     }
 
     private LogicalPlan projectFromOriginSlots(LogicalPlan plan, List<Slot> wantedSlots) {
@@ -1062,5 +1074,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
             project.add(new Alias(match, wanted.getName()));
         }
         return new LogicalProject<>(project, plan);
+    }
+
+    private Map<Long, Pair<Long, Long>> makeUniformedTimestampRangeMap(List<Long> partIds,
+                                                                       Pair<Long, Long> timestampRange) {
+        return partIds.stream().collect(Collectors.toMap(partId -> partId, partId -> timestampRange));
     }
 }

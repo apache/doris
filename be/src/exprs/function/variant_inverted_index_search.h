@@ -68,6 +68,13 @@ enum class SearchFieldBindingState {
     MISSING_IN_SEGMENT,
 };
 
+enum class SearchFieldExecutionMode {
+    UNBOUND,
+    CLUCENE,
+    DIRECT_INDEX,
+    SNII_NATIVE,
+};
+
 struct FieldReaderBinding {
     std::string logical_field_name;
     std::string stored_field_name;
@@ -79,14 +86,19 @@ struct FieldReaderBinding {
     std::map<std::string, std::string> index_properties;
     std::string binding_key;
     std::string analyzer_key;
+    InvertedIndexAnalyzerCtxSPtr analyzer_context;
     SearchFieldBindingState state = SearchFieldBindingState::MISSING_IN_SEGMENT;
+    SearchFieldExecutionMode execution_mode = SearchFieldExecutionMode::UNBOUND;
 
     bool is_bound() const {
         return state == SearchFieldBindingState::BOUND || inverted_reader != nullptr ||
                lucene_reader != nullptr;
     }
     bool use_direct_index_reader() const {
-        return is_bound() && inverted_reader != nullptr && lucene_reader == nullptr;
+        return is_bound() && execution_mode == SearchFieldExecutionMode::DIRECT_INDEX;
+    }
+    bool use_snii_native_reader() const {
+        return is_bound() && execution_mode == SearchFieldExecutionMode::SNII_NATIVE;
     }
 };
 
@@ -100,6 +112,10 @@ public:
 
     Status resolve(const std::string& field_name, InvertedIndexQueryType query_type,
                    FieldReaderBinding* binding);
+
+    Status resolve_with_analyzer_context(const std::string& field_name,
+                                         InvertedIndexQueryType query_type,
+                                         FieldReaderBinding* binding);
 
     bool is_variant_subcolumn(const std::string& field_name) const {
         return _variant_subcolumn_fields.count(field_name) > 0;

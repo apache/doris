@@ -58,10 +58,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -715,22 +713,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     @Override
     public void write(DataOutput out) throws IOException {
-        discardHudiTable();
         Text.writeString(out, GsonUtils.GSON.toJson(this));
         writeTables(out);
-    }
-
-
-    private void discardHudiTable() {
-        Iterator<Entry<String, Table>> iterator = nameToTable.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<String, Table> entry = iterator.next();
-            if (entry.getValue().getType() == TableType.HUDI) {
-                LOG.warn("hudi table is deprecated, discard it. table name: {}", entry.getKey());
-                iterator.remove();
-                idToTable.remove(entry.getValue().getId());
-            }
-        }
     }
 
     public void analyze() {
@@ -859,7 +843,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         }
     }
 
-    public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
+    public synchronized List<Long> dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
         Function udfFunction = null;
         try {
             // here we must first getFunction, as dropFunctionImpl will remove it
@@ -869,11 +853,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 throw new UserException(e);
             } else {
                 // ignore it, as drop it if exist, so can't sure it must exist
-                return;
+                return ImmutableList.of();
             }
         }
 
+        List<Long> droppedFunctionIds = Lists.newArrayList();
         dropFunctionImpl(function, ifExists);
+        droppedFunctionIds.add(udfFunction.getId());
         if (udfFunction != null && udfFunction.isUDTFunction()) {
             // all of the table function in doris will have two function
             // one is the normal, and another is outer, the different of them is deal with
@@ -882,8 +868,18 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                     function.getName().getFunction() + "_outer");
             FunctionSearchDesc functionOuter = new FunctionSearchDesc(name, function.getArgTypes(),
                     function.isVariadic());
+            Function udfOuterFunction = null;
+            try {
+                udfOuterFunction = getFunction(functionOuter);
+            } catch (AnalysisException e) {
+                // Let dropFunctionImpl preserve the existing IF EXISTS and error behavior.
+            }
             dropFunctionImpl(functionOuter, ifExists);
+            if (udfOuterFunction != null) {
+                droppedFunctionIds.add(udfOuterFunction.getId());
+            }
         }
+        return droppedFunctionIds;
     }
 
     public synchronized void dropFunctionImpl(FunctionSearchDesc function, boolean ifExists) throws UserException {
@@ -1047,6 +1043,26 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     public BinlogConfig getBinlogConfig() {
         return binlogConfig;
+    }
+
+    /**
+     * Get the database binlog config snapshot and the effective table binlog config for creating a table.
+     *
+     * <p>The first value is the database binlog config snapshot, and the second value is the effective
+     * table binlog config after applying table properties.
+     */
+    public Pair<BinlogConfig, BinlogConfig> getBinlogConfigsForCreateTable(
+            Map<String, String> tableProperties) {
+        BinlogConfig dbBinlogConfig;
+        readLock();
+        try {
+            dbBinlogConfig = new BinlogConfig(binlogConfig);
+        } finally {
+            readUnlock();
+        }
+        BinlogConfig createTableBinlogConfig = new BinlogConfig(dbBinlogConfig);
+        createTableBinlogConfig.mergeFromProperties(tableProperties);
+        return Pair.of(dbBinlogConfig, createTableBinlogConfig);
     }
 
     public void checkStorageVault(Map<String, String> properties) throws DdlException {

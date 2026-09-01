@@ -29,6 +29,17 @@
 # to check if all thirdparties have been downloaded, unpacked and patched.
 #################################################################################
 
+# The shebang above only takes effect when this script is executed directly.
+# `sh build-thirdparty.sh` hands it to /bin/sh instead, which is dash on Debian
+# and Ubuntu and parses none of the `[[ ]]`, arrays and here-strings this script
+# is built on. It does not stop at the first of them either, it keeps going and
+# runs a mangled version of the script. Re-exec under bash so that the way the
+# script was invoked cannot decide whether the build works. Keep this block
+# POSIX, it has to be parsed by the shell that is about to be replaced.
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
+
 set -eo pipefail
 
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
@@ -45,6 +56,26 @@ if [[ -f "${DORIS_HOME}/env.sh" ]]; then
     export DO_NOT_CHECK_JAVA_ENV=
 fi
 
+# Optional ccache for the cmake-based packages. A full third-party build is cold every
+# time, so a warm ccache turns a rebuild triggered by one changed package into a few
+# minutes instead of hours - that is what this is for, and CI is where it pays off.
+#
+# CMake initialises CMAKE_<LANG>_COMPILER_LAUNCHER from the environment variables of the
+# same name, so this needs no change to the cmake invocations below. It is also why this
+# does not go through CC/CXX: "ccache <compiler>" would land the compiler name in
+# CMAKE_<LANG>_FLAGS and leak into whatever the package exports. Autotools packages are
+# deliberately left alone. Off by default, since prefixing the compiler changes how every
+# package configures itself.
+if [[ "${ENABLE_THIRDPARTY_CCACHE:-OFF}" == "ON" ]]; then
+    if ! command -v ccache &>/dev/null; then
+        echo "ENABLE_THIRDPARTY_CCACHE=ON, but ccache is not in PATH" >&2
+        exit 1
+    fi
+    export CMAKE_C_COMPILER_LAUNCHER='ccache'
+    export CMAKE_CXX_COMPILER_LAUNCHER='ccache'
+    echo "ccache is enabled for the cmake-based third-party packages"
+fi
+
 # Check args
 usage() {
     echo "
@@ -53,6 +84,10 @@ Usage: $0 [options...] [packages...]
      -j <num>               build thirdparty parallel
      --clean                clean the extracted data
      --continue <package>   continue to build the remaining packages (starts from the specified package)
+
+  Environment variables:
+     ENABLE_THIRDPARTY_CCACHE=ON          compile the cmake-based packages through ccache
+     DISABLE_THIRDPARTY_BUILD_AZURE=ON    skip the azure-sdk-for-cpp package
   "
     exit 1
 }
@@ -123,7 +158,13 @@ if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
 
-if [[ "$(echo "${DISABLE_BUILD_AZURE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+# Whether the third-party tree carries azure and whether Doris links it are two
+# separate questions. env.sh's DISABLE_BUILD_AZURE answers the second one for BE and
+# the cloud meta-service, and it still defaults to ON on aarch64 and macOS, where the
+# published prebuilt archives predate azure. Those archives have to grow the libraries
+# before anything can link them, so the build does not read that switch;
+# DISABLE_THIRDPARTY_BUILD_AZURE opts the build itself out.
+if [[ "$(echo "${DISABLE_THIRDPARTY_BUILD_AZURE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
     BUILD_AZURE='OFF'
 fi
 
@@ -155,7 +196,8 @@ if [[ "${CLEAN}" -eq 1 ]] && [[ -d "${TP_SOURCE_DIR}" ]]; then
 fi
 
 # Download thirdparties.
-eval "bash ${TP_DIR}/download-thirdparty.sh ${packages[*]}"
+prepare_arrow_paimon_download_packages "${packages[@]}"
+bash "${TP_DIR}/download-thirdparty.sh" "${ARROW_PAIMON_DOWNLOAD_PACKAGES[@]}"
 
 export LD_LIBRARY_PATH="${TP_DIR}/installed/lib:${LD_LIBRARY_PATH}"
 
@@ -312,18 +354,24 @@ else
     echo "Do not strip thirdparty libraries"
 fi
 
-strip_lib() {
+strip_lib_at() {
+    local install_dir="$1"
+    local library="$2"
     if [[ "${STRIP_TP_LIB}" = "ON" ]]; then
-        if [[ -z $1 ]]; then
+        if [[ -z "${library}" ]]; then
             echo "Must specify the library to be stripped."
             exit 1
         fi
-        if [[ ! -f "${TP_LIB_DIR}/$1" ]]; then
-            echo "Library to be stripped (${TP_LIB_DIR}/$1) does not exist."
+        if [[ ! -f "${install_dir}/lib/${library}" ]]; then
+            echo "Library to be stripped (${install_dir}/lib/${library}) does not exist."
             exit 1
         fi
-        strip --strip-debug --strip-unneeded "${TP_LIB_DIR}/$1"
+        strip --strip-debug --strip-unneeded "${install_dir}/lib/${library}"
     fi
+}
+
+strip_lib() {
+    strip_lib_at "${TP_INSTALL_DIR}" "$1"
 }
 
 #libbacktrace
@@ -399,6 +447,10 @@ build_thrift() {
     check_if_source_exist "${THRIFT_SOURCE}"
     cd "${TP_SOURCE_DIR}/${THRIFT_SOURCE}"
 
+    # Headers of a previously installed thrift would shadow the in-tree ones
+    # via -I${TP_INCLUDE_DIR} and break an in-place version upgrade.
+    rm -rf "${TP_INSTALL_DIR}/include/thrift"
+
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         cflags="-I${TP_INCLUDE_DIR}"
         cxxflags="-I${TP_INCLUDE_DIR} ${warning_unused_but_set_variable} -Wno-inconsistent-missing-override"
@@ -412,9 +464,9 @@ build_thrift() {
     # NOTE(amos): libtool discard -static. --static works.
     ./configure CFLAGS="${cflags}" CXXFLAGS="${cxxflags}" LDFLAGS="${ldflags}" LIBS="-lcrypto -ldl -lssl" \
         --prefix="${TP_INSTALL_DIR}" --docdir="${TP_INSTALL_DIR}/doc" --enable-static --disable-shared --disable-tests \
-        --disable-tutorial --without-qt4 --without-qt5 --without-csharp --without-erlang --without-nodejs --without-nodets --without-swift \
-        --without-lua --without-perl --without-php --without-php_extension --without-dart --without-ruby --without-cl \
-        --without-haskell --without-go --without-haxe --without-d --without-python -without-java --without-dotnetcore -without-rs --with-cpp \
+        --disable-tutorial --without-qt5 --without-c_glib --without-java --without-kotlin --without-erlang --without-nodejs --without-nodets \
+        --without-lua --without-python --without-py3 --without-perl --without-php --without-php_extension \
+        --without-dart --without-ruby --without-go --without-rs --without-cl --without-netstd --without-d --with-cpp \
         --with-libevent="${TP_INSTALL_DIR}" --with-boost="${TP_INSTALL_DIR}" --with-openssl="${TP_INSTALL_DIR}"
 
     if [[ -f compiler/cpp/thrifty.hh ]]; then
@@ -1061,10 +1113,19 @@ build_grpc() {
     # sed -i 's/find_dependency/find_package/g' "${TP_INSTALL_DIR}"/lib64/cmake/grpc/gRPCConfig.cmake
 }
 
-# arrow
-build_arrow() {
-    check_if_source_exist "${ARROW_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}/cpp"
+# Arrow 17 is installed in the legacy unversioned prefix for pre-upgrade
+# branch-4.1 revisions, while Arrow 24 is installed in a versioned prefix
+# selected by master.
+build_arrow_stack() {
+    local arrow_source="$1"
+    local xsimd_archive="$2"
+    local install_dir="$3"
+    local has_separate_compute_archive="$4"
+
+    check_if_source_exist "${arrow_source}"
+    mkdir -p "${install_dir}/lib64"
+    ln -sfn lib64 "${install_dir}/lib"
+    cd "${TP_SOURCE_DIR}/${arrow_source}/cpp"
 
     mkdir -p release
     cd release
@@ -1077,7 +1138,7 @@ build_arrow() {
     export ARROW_Thrift_URL="${TP_SOURCE_DIR}/${THRIFT_NAME}"
     export ARROW_SNAPPY_URL="${TP_SOURCE_DIR}/${SNAPPY_NAME}"
     export ARROW_ZLIB_URL="${TP_SOURCE_DIR}/${ZLIB_NAME}"
-    export ARROW_XSIMD_URL="${TP_SOURCE_DIR}/${XSIMD_NAME}"
+    export ARROW_XSIMD_URL="${TP_SOURCE_DIR}/${xsimd_archive}"
     export ARROW_ORC_URL="${TP_SOURCE_DIR}/${ORC_NAME}"
     export ARROW_GRPC_URL="${TP_SOURCE_DIR}/${GRPC_NAME}"
     export ARROW_PROTOBUF_URL="${TP_SOURCE_DIR}/${PROTOBUF_NAME}"
@@ -1088,9 +1149,7 @@ build_arrow() {
         ldflags="-L${TP_LIB_DIR}"
     fi
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-        CXXFLAGS="-I${TP_INCLUDE_DIR}" \
-        LDFLAGS="${ldflags}" \
+    LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
         -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
@@ -1101,7 +1160,7 @@ build_arrow() {
         -DARROW_FILESYSTEM=ON \
         -DARROW_DATASET=ON \
         -DARROW_ACERO=ON \
-        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_INSTALL_PREFIX="${install_dir}" \
         -DCMAKE_INSTALL_LIBDIR=lib64 \
         -DARROW_BOOST_USE_SHARED=OFF \
         -DARROW_WITH_GRPC=ON \
@@ -1125,6 +1184,7 @@ build_arrow() {
         -Dxsimd_SOURCE=BUNDLED \
         -DBrotli_SOURCE=BUNDLED \
         -DARROW_LZ4_USE_SHARED=OFF \
+        -DLZ4_ROOT="${TP_INSTALL_DIR};${TP_INSTALL_DIR}/include/lz4" \
         -DLZ4_LIB="${TP_INSTALL_DIR}/lib/liblz4.a" -DLZ4_INCLUDE_DIR="${TP_INSTALL_DIR}/include/lz4" \
         -DLz4_SOURCE=SYSTEM \
         -DARROW_ZSTD_USE_SHARED=OFF \
@@ -1143,13 +1203,116 @@ build_arrow() {
     "${BUILD_SYSTEM}" install
 
     #copy dep libs
-    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a "${TP_INSTALL_DIR}/lib64/libbrotlienc.a"
-    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a "${TP_INSTALL_DIR}/lib64/libbrotlidec.a"
-    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${TP_INSTALL_DIR}/lib64/libbrotlicommon.a"
-    strip_lib libarrow.a
-    strip_lib libparquet.a
-    strip_lib libarrow_dataset.a
-    strip_lib libarrow_acero.a
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a "${install_dir}/lib64/libbrotlienc.a"
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a "${install_dir}/lib64/libbrotlidec.a"
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${install_dir}/lib64/libbrotlicommon.a"
+    strip_lib_at "${install_dir}" libarrow.a
+    if [[ "${has_separate_compute_archive}" == "true" ]]; then
+        strip_lib_at "${install_dir}" libarrow_compute.a
+    fi
+    strip_lib_at "${install_dir}" libparquet.a
+    strip_lib_at "${install_dir}" libarrow_dataset.a
+    strip_lib_at "${install_dir}" libarrow_acero.a
+}
+
+build_arrow_17() {
+    prepare_arrow_17_install_prefix "${TP_INSTALL_DIR}"
+    build_arrow_stack "${ARROW_17_SOURCE}" "${XSIMD_17_NAME}" "${TP_INSTALL_DIR}" false
+    publish_arrow_17_prebuilt_marker "${TP_INSTALL_DIR}"
+}
+
+build_arrow() {
+    local install_dir
+    install_dir="$(arrow_install_dir "${TP_INSTALL_DIR}")"
+    invalidate_arrow_prebuilt_marker "${TP_INSTALL_DIR}"
+    clean_arrow_artifacts_in "${install_dir}"
+    build_arrow_stack "${ARROW_SOURCE}" "${XSIMD_NAME}" "${install_dir}" true
+    publish_arrow_prebuilt_marker "${TP_INSTALL_DIR}"
+}
+
+# arrow-adbc
+# Produces three artifacts from one source tree:
+#   libadbc_driver_manager.a  -- statically linked into doris_be
+#   libadbc_driver_jni.so     -- loaded by the FE adbc connector
+#   libadbc_driver_sqlite.so  -- BE unit tests only, not shipped
+# and installs a fourth that is not built here:
+#   libadbc_driver_flightsql.so -- prebuilt, adbc tests only, not shipped
+build_arrow_adbc() {
+    check_if_source_exist "${ARROW_ADBC_SOURCE}"
+
+    local adbc_src="${TP_SOURCE_DIR}/${ARROW_ADBC_SOURCE}"
+
+    # The SQLite driver needs a SQLite3 development package, which Doris does not
+    # ship and most build hosts lack. arrow-adbc vendors the amalgamation, so build
+    # it here into a scratch prefix and hand the paths to FindSQLite3. It ends up
+    # statically inside libadbc_driver_sqlite.so, so nothing sqlite is installed.
+    local sqlite_host="${adbc_src}/c/${BUILD_DIR}-sqlite-host"
+    rm -rf "${sqlite_host}"
+    mkdir -p "${sqlite_host}/include" "${sqlite_host}/lib"
+    "${CC}" -O2 -fPIC -DSQLITE_ENABLE_COLUMN_METADATA=1 \
+        -c "${adbc_src}/c/vendor/sqlite3/sqlite3.c" -o "${sqlite_host}/sqlite3.o"
+    ar rcs "${sqlite_host}/lib/libsqlite3.a" "${sqlite_host}/sqlite3.o"
+    cp -f "${adbc_src}/c/vendor/sqlite3/sqlite3.h" "${sqlite_host}/include/"
+
+    # (1) driver manager + sqlite driver
+    cd "${adbc_src}/c"
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_INSTALL_LIBDIR=lib64 \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DADBC_DRIVER_MANAGER=ON \
+        -DADBC_DRIVER_SQLITE=ON \
+        -DADBC_BUILD_STATIC=ON \
+        -DADBC_BUILD_SHARED=ON \
+        -DADBC_BUILD_TESTS=OFF \
+        -DADBC_USE_CCACHE=OFF \
+        -DSQLite3_INCLUDE_DIR="${sqlite_host}/include" \
+        -DSQLite3_LIBRARY="${sqlite_host}/lib/libsqlite3.a" \
+        ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+
+    # (2) JNI bridge for the FE. Must come after (1): it links the driver manager.
+    #     Built directly rather than through upstream's java/CMakeLists.txt, which
+    #     shells out to Maven just to generate the JNI header; that header is
+    #     checked in as a patch instead (see thirdparty/patches). Also not taken
+    #     from the Maven jar: the prebuilt binary there requires GLIBC_2.34 and
+    #     GLIBCXX_3.4.31, which excludes CentOS 7/8, Rocky 8, Ubuntu 20.04 and more.
+    #     Only jni.h is needed, so any JDK will do.
+    if [[ ! -f "${JAVA_HOME}/include/jni.h" ]]; then
+        echo "arrow-adbc: JAVA_HOME must point at a JDK (no ${JAVA_HOME}/include/jni.h)"
+        exit 1
+    fi
+    local jni_md_dir='linux'
+    if [[ "${KERNEL}" == 'Darwin' ]]; then
+        jni_md_dir='darwin'
+    fi
+
+    "${CXX}" -std="c++${TP_CXX_STANDARD}" -O2 -fPIC -shared \
+        -I"${JAVA_HOME}/include" \
+        -I"${JAVA_HOME}/include/${jni_md_dir}" \
+        -I"${adbc_src}/java/driver/jni/doris_generated" \
+        -I"${TP_INCLUDE_DIR}" \
+        "${adbc_src}/java/driver/jni/src/main/cpp/jni_wrapper.cc" \
+        -o "${TP_INSTALL_DIR}/lib64/libadbc_driver_jni.so" \
+        "${TP_INSTALL_DIR}/lib64/libadbc_driver_manager.a"
+
+    # (3) Flight SQL driver. Not built: upstream implements it in Go, so it comes
+    #     prebuilt out of the release wheel that download-thirdparty.sh unpacked
+    #     (see vars.sh). Nothing links against it; the FE and BE dlopen it at run
+    #     time, and only the adbc tests ask for it.
+    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+        check_if_source_exist "${ARROW_ADBC_FLIGHTSQL_SOURCE}"
+        cp -f "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}/libadbc_driver_flightsql.so" \
+            "${TP_INSTALL_DIR}/lib64/libadbc_driver_flightsql.so"
+    fi
+
+    rm -rf "${sqlite_host}"
 }
 
 # abseil
@@ -1804,24 +1967,6 @@ build_fast_float() {
     cp -r ./include/fast_float "${TP_INSTALL_DIR}/include/"
 }
 
-# hadoop_libs
-build_hadoop_libs() {
-    check_if_source_exist "${HADOOP_LIBS_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${HADOOP_LIBS_SOURCE}"
-    echo "THIRDPARTY_INSTALLED=${TP_INSTALL_DIR}" >env.sh
-    ./build.sh
-
-    rm -rf "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
-    rm -rf "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
-    mkdir -p "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
-    mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
-    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.6/* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
-    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.6/include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
-    rm -rf "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/*.a"
-    find ./hadoop-dist/target/hadoop-3.3.6/lib/native/ -type f ! -name '*.a' -exec cp {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
-    find ./hadoop-dist/target/hadoop-3.3.6/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
-}
-
 # hadoop_libs_3_4
 build_hadoop_libs_3_4() {
     check_if_source_exist "${HADOOP_LIBS_3_4_SOURCE}"
@@ -1838,6 +1983,21 @@ build_hadoop_libs_3_4() {
     rm -rf "${TP_INSTALL_DIR}/lib/hadoop_hdfs_3_4/native/*.a"
     find ./hadoop-dist/target/hadoop-3.4.2/lib/native/ -type f ! -name '*.a' -exec cp {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs_3_4/native/" \;
     find ./hadoop-dist/target/hadoop-3.4.2/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs_3_4/native/" \;
+
+    # 3.3.6.6 installed this same layout under hadoop_hdfs/, and that prefix is what
+    # branch-3.0, branch-3.1, the cloud module and anything outside this tree still
+    # include and link. Only 3.4.2.4 is built now, so point the old name at it rather
+    # than ship a second 182MB copy per platform. Relative target, so the prebuilt
+    # archive stays relocatable - the same shape as the lib -> lib64 link the install
+    # prefix is set up with.
+    #
+    # No trailing slash: `rm -rf link/` deletes what the link points at on BSD rm and
+    # does nothing on GNU rm, while `rm -rf link` removes just the link everywhere.
+    # The removal has to run first - `ln -s` against an existing real directory would
+    # land inside it instead of replacing it.
+    rm -rf "${TP_INSTALL_DIR}/include/hadoop_hdfs" "${TP_INSTALL_DIR}/lib/hadoop_hdfs"
+    ln -sfn hadoop_hdfs_3_4 "${TP_INSTALL_DIR}/include/hadoop_hdfs"
+    ln -sfn hadoop_hdfs_3_4 "${TP_INSTALL_DIR}/lib/hadoop_hdfs"
 }
 
 # AvxToNeon
@@ -1943,30 +2103,150 @@ build_base64() {
 
 # azure blob storage
 build_azure() {
-    if [[ "${BUILD_AZURE}" == "OFF" || "$(uname -s)" == 'Darwin' ]]; then
+    if [[ "${BUILD_AZURE}" == "OFF" ]]; then
         echo "Skip build azure"
-    else
-        check_if_source_exist "${AZURE_SOURCE}"
-        cd "${TP_SOURCE_DIR}/${AZURE_SOURCE}"
-        azure_dir=$(pwd)
-
-        rm -rf "${BUILD_DIR}"
-        mkdir -p "${BUILD_DIR}"
-        cd "${BUILD_DIR}"
-
-        # We need use openssl 1.1.1n, which is already carried in vcpkg-custom-ports
-        AZURE_PORTS="vcpkg-custom-ports"
-        AZURE_MANIFEST_DIR="."
-
-        # Add -ldl for clang compatibility (libcrypto.a requires dlopen/dlsym/dlclose/dlerror)
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-        -DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized" \
-        -DCMAKE_EXE_LINKER_FLAGS="-ldl" \
-        -DCMAKE_SHARED_LINKER_FLAGS="-ldl" \
-        -DDISABLE_RUST_IN_BUILD=ON -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
-        "${BUILD_SYSTEM}" -j "${PARALLEL}"
-        "${BUILD_SYSTEM}" install
+        return
     fi
+
+    check_if_source_exist "${AZURE_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${AZURE_SOURCE}"
+    azure_dir="$(pwd)"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    # We need use openssl 1.1.1n, which is already carried in vcpkg-custom-ports
+    AZURE_PORTS="vcpkg-custom-ports"
+    AZURE_MANIFEST_DIR="."
+
+    local azure_machine_type
+    local vcpkg_arch
+    azure_machine_type="$(uname -m)"
+    case "${azure_machine_type}" in
+    aarch64 | arm64)
+        vcpkg_arch='arm64'
+        ;;
+    x86_64 | amd64)
+        vcpkg_arch='x64'
+        ;;
+    *)
+        echo "azure: unsupported machine type ${azure_machine_type}" >&2
+        exit 1
+        ;;
+    esac
+
+    # vcpkg builds every port twice, debug and release, and installs both. Doris only
+    # ever links the release halves, and VCPKG_BUILD_TYPE - the only supported way to
+    # ask for release only - can be set from a triplet file, so shadow the built-in
+    # triplet with our own. Naming the file after the built-in triplet is what makes
+    # the overlay take precedence.
+    local vcpkg_triplet
+    local vcpkg_triplet_dir="${PWD}/doris-vcpkg-triplets"
+    mkdir -p "${vcpkg_triplet_dir}"
+    if [[ "${KERNEL}" == 'Darwin' ]]; then
+        local vcpkg_osx_arch='x86_64'
+        if [[ "${vcpkg_arch}" == 'arm64' ]]; then vcpkg_osx_arch='arm64'; fi
+        vcpkg_triplet="${vcpkg_arch}-osx"
+        cat >"${vcpkg_triplet_dir}/${vcpkg_triplet}.cmake" <<EOF
+set(VCPKG_TARGET_ARCHITECTURE ${vcpkg_arch})
+set(VCPKG_CRT_LINKAGE dynamic)
+set(VCPKG_LIBRARY_LINKAGE static)
+set(VCPKG_CMAKE_SYSTEM_NAME Darwin)
+set(VCPKG_OSX_ARCHITECTURES ${vcpkg_osx_arch})
+set(VCPKG_BUILD_TYPE release)
+EOF
+        if [[ -n "${MACOSX_DEPLOYMENT_TARGET}" ]]; then
+            echo "set(VCPKG_OSX_DEPLOYMENT_TARGET \"${MACOSX_DEPLOYMENT_TARGET}\")" \
+                >>"${vcpkg_triplet_dir}/${vcpkg_triplet}.cmake"
+        fi
+    else
+        vcpkg_triplet="${vcpkg_arch}-linux"
+        cat >"${vcpkg_triplet_dir}/${vcpkg_triplet}.cmake" <<EOF
+set(VCPKG_TARGET_ARCHITECTURE ${vcpkg_arch})
+set(VCPKG_CRT_LINKAGE dynamic)
+set(VCPKG_LIBRARY_LINKAGE static)
+set(VCPKG_CMAKE_SYSTEM_NAME Linux)
+set(VCPKG_BUILD_TYPE release)
+EOF
+    fi
+
+    # vcpkg ships no prebuilt cmake/ninja/curl for aarch64 Linux, so it has to reuse
+    # the ones already on PATH.
+    if [[ "${vcpkg_arch}" == 'arm64' && "${KERNEL}" != 'Darwin' ]]; then
+        export VCPKG_FORCE_SYSTEM_BINARIES=1
+    fi
+
+    # libcrypto.a needs dlopen/dlsym/dlclose/dlerror, and with clang find_library may
+    # not turn up libdl, so ask for it explicitly. Apple has no libdl - those symbols
+    # live in libSystem - and -ldl would fail the link there.
+    local azure_link_flags=()
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        azure_link_flags=(-DCMAKE_EXE_LINKER_FLAGS="-ldl" -DCMAKE_SHARED_LINKER_FLAGS="-ldl")
+    fi
+
+    # vcpkg fetches the sources of curl, libxml2, openssl and zlib from their upstream
+    # hosts while cmake configures, and none of that goes through download-thirdparty.sh
+    # and its mirror. Keep those tarballs outside "${BUILD_DIR}", which was wiped above,
+    # so a retry - or a later run in the same tree - only fetches what the attempt
+    # before it missed. "thirdparty/src*" is already gitignored.
+    VCPKG_DOWNLOADS="${TP_SOURCE_DIR}/vcpkg-downloads"
+    export VCPKG_DOWNLOADS
+    mkdir -p "${VCPKG_DOWNLOADS}"
+
+    # vcpkg's own retry is three attempts inside one second, which rides out nothing:
+    # in apache/doris run 32032837067 all three jobs died on
+    # github.com/madler/zlib/archive/v1.3.1.tar.gz answering 429 (500 on macOS arm64),
+    # and because azure is the last package this script builds, each of them threw away
+    # a finished tree over one file. So wait out a rate limit window instead. Only a
+    # download is worth waiting on - a port that will not compile, or a bad option,
+    # fails identically every time - so the configure is retried on nothing else, and
+    # the ports that did build come back from vcpkg's binary cache, which lives outside
+    # this directory. cmake is piped through tee rather than redirected so that a
+    # vcpkg install that takes twenty minutes still shows progress; this script runs
+    # under `set -o pipefail`, so the status tested below is cmake's, not tee's.
+    #
+    # DISABLE_AMQP and DISABLE_AZURE_CORE_OPENTELEMETRY are already the patched
+    # defaults; passing them here keeps the reason visible from the build script.
+    local azure_attempt
+    local azure_attempts=5
+    local azure_backoff
+    local azure_log="${PWD}/doris-azure-configure.log"
+    for ((azure_attempt = 1; azure_attempt <= azure_attempts; azure_attempt++)); do
+        if "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized" \
+            "${azure_link_flags[@]}" \
+            -DVCPKG_TARGET_TRIPLET="${vcpkg_triplet}" \
+            -DVCPKG_OVERLAY_TRIPLETS="${vcpkg_triplet_dir}" \
+            -DDISABLE_RUST_IN_BUILD=ON -DDISABLE_AMQP=ON -DDISABLE_AZURE_CORE_OPENTELEMETRY=ON \
+            -DBUILD_TESTING=OFF -DBUILD_SAMPLES=OFF -DBUILD_PERFORMANCE_TESTS=OFF \
+            -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release .. 2>&1 | tee "${azure_log}"; then
+            break
+        fi
+
+        if ! grep -qE 'Download failed, halting portfile|error: curl: \(' "${azure_log}"; then
+            echo "azure: cmake configure failed, and not on a download - see above" >&2
+            exit 1
+        fi
+
+        if [[ "${azure_attempt}" -eq "${azure_attempts}" ]]; then
+            echo "azure: vcpkg could not download its sources in ${azure_attempts} attempts" >&2
+            exit 1
+        fi
+
+        # A configure that died inside the vcpkg toolchain file leaves a cache with no
+        # compiler in it, and cmake would report that instead of running vcpkg again.
+        rm -rf CMakeCache.txt CMakeFiles
+
+        azure_backoff=$((azure_attempt * 120))
+        echo "azure: vcpkg could not download a source, retrying in ${azure_backoff}s" \
+            "(attempt $((azure_attempt + 1)) of ${azure_attempts})" >&2
+        sleep "${azure_backoff}"
+    done
+    rm -f "${azure_log}"
+
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
 }
 
 # dragonbox
@@ -2006,6 +2286,18 @@ build_icu() {
     make install
 }
 
+# mecab-ipadic
+build_mecab_ipadic() {
+    check_if_source_exist "${MECAB_IPADIC_SOURCE}"
+    mkdir -p "${TP_INSTALL_DIR}/share"
+    local dest="${TP_INSTALL_DIR}/share/${MECAB_IPADIC_SOURCE}"
+    # Copy into a temporary directory and publish with an atomic rename, so an
+    # interrupted copy never leaves a half-populated.
+    rm -rf "${dest}" "${dest}.tmp"
+    cp -r "${TP_SOURCE_DIR}/${MECAB_IPADIC_SOURCE}" "${dest}.tmp"
+    mv "${dest}.tmp" "${dest}"
+}
+
 # jindofs
 build_jindofs() {
     check_if_source_exist "${JINDOFS_SOURCE}"
@@ -2042,10 +2334,18 @@ build_pugixml() {
     cp "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/pugiconfig.hpp" "${TP_INSTALL_DIR}/include/"
 }
 
-# paimon-cpp
-build_paimon_cpp() {
-    check_if_source_exist "${PAIMON_CPP_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
+# Build each Paimon variant against the matching Arrow prefix and install it
+# beside that Arrow version. Arrow types cross Paimon's public C++ boundary, so
+# mixing the two versions is not ABI-safe.
+build_paimon_cpp_stack() {
+    local paimon_source="$1"
+    local arrow_install_dir="$2"
+    local install_dir="$3"
+
+    check_if_source_exist "${paimon_source}"
+    mkdir -p "${install_dir}/lib64"
+    ln -sfn lib64 "${install_dir}/lib"
+    cd "${TP_SOURCE_DIR}/${paimon_source}"
 
     rm -rf "${BUILD_DIR}"
     mkdir -p "${BUILD_DIR}"
@@ -2057,12 +2357,13 @@ build_paimon_cpp() {
         paimon_linker_flags="${paimon_linker_flags} -lunwind"
     fi
 
+    PAIMON_ARROW_INSTALL_DIR="${arrow_install_dir}" \
     CXXFLAGS="-Wno-nontrivial-memcall" \
     "${CMAKE_CMD}" -C "${TP_DIR}/paimon-cpp-cache.cmake" \
         -G "${GENERATOR}" \
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
-        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_INSTALL_PREFIX="${install_dir}" \
         -DPAIMON_BUILD_SHARED=OFF \
         -DPAIMON_BUILD_STATIC=ON \
         -DPAIMON_BUILD_TESTS=OFF \
@@ -2086,11 +2387,12 @@ build_paimon_cpp() {
     # reuses Doris's Arrow and does NOT build arrow_ep, so the paimon_deps
     # directory is not needed.  When building its own Arrow (legacy), copy
     # arrow artefacts into an isolated directory to avoid clashing with Doris.
-    local paimon_deps_dir="${TP_INSTALL_DIR}/paimon-cpp/lib64/paimon_deps"
+    local paimon_deps_dir="${install_dir}/paimon-cpp/lib64/paimon_deps"
     if [ -d "arrow_ep-install/lib" ]; then
         mkdir -p "${paimon_deps_dir}"
         for paimon_arrow_dep in \
             libarrow.a \
+            libarrow_compute.a \
             libarrow_filesystem.a \
             libarrow_dataset.a \
             libarrow_acero.a \
@@ -2105,25 +2407,43 @@ build_paimon_cpp() {
 
     # Install roaring_bitmap, renamed to avoid conflict with Doris's croaringbitmap
     if [ -f "release/libroaring_bitmap.a" ]; then
-        cp -v "release/libroaring_bitmap.a" "${TP_INSTALL_DIR}/lib64/libroaring_bitmap_paimon.a"
+        cp -v "release/libroaring_bitmap.a" "${install_dir}/lib64/libroaring_bitmap_paimon.a"
     fi
 
     # Install xxhash, renamed to avoid conflict with Doris's xxhash
     if [ -f "release/libxxhash.a" ]; then
-        cp -v "release/libxxhash.a" "${TP_INSTALL_DIR}/lib64/libxxhash_paimon.a"
+        cp -v "release/libxxhash.a" "${install_dir}/lib64/libxxhash_paimon.a"
     fi
 
     # Install fmt v11 (from fmt_ep-install directory, renamed to avoid conflict with Doris's fmt v7)
     if [ -f "fmt_ep-install/lib/libfmt.a" ]; then
-        cp -v "fmt_ep-install/lib/libfmt.a" "${TP_INSTALL_DIR}/lib64/libfmt_paimon.a"
+        cp -v "fmt_ep-install/lib/libfmt.a" "${install_dir}/lib64/libfmt_paimon.a"
     fi
 
     # Install tbb (from tbb_ep-install directory, renamed to avoid conflict with Doris's tbb)
     if [ -f "tbb_ep-install/lib/libtbb.a" ]; then
-        cp -v "tbb_ep-install/lib/libtbb.a" "${TP_INSTALL_DIR}/lib64/libtbb_paimon.a"
+        cp -v "tbb_ep-install/lib/libtbb.a" "${install_dir}/lib64/libtbb_paimon.a"
     fi
 
     echo "Paimon-cpp internal dependencies installed successfully"
+}
+
+build_paimon_cpp_17() {
+    require_arrow_17_prebuilt_for_paimon "${TP_INSTALL_DIR}"
+    invalidate_paimon_17_prebuilt_marker "${TP_INSTALL_DIR}"
+    clean_paimon_artifacts_in "${TP_INSTALL_DIR}"
+    build_paimon_cpp_stack "${PAIMON_CPP_17_SOURCE}" "${TP_INSTALL_DIR}" "${TP_INSTALL_DIR}"
+    publish_paimon_17_prebuilt_marker "${TP_INSTALL_DIR}"
+}
+
+build_paimon_cpp() {
+    local install_dir
+    install_dir="$(arrow_install_dir "${TP_INSTALL_DIR}")"
+    require_arrow_prebuilt_for_paimon "${TP_INSTALL_DIR}"
+    invalidate_paimon_prebuilt_marker "${TP_INSTALL_DIR}"
+    clean_paimon_artifacts_in "${install_dir}"
+    build_paimon_cpp_stack "${PAIMON_CPP_SOURCE}" "${install_dir}" "${install_dir}"
+    publish_paimon_prebuilt_marker "${TP_INSTALL_DIR}"
 }
 
 # lance-c
@@ -2227,7 +2547,9 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         orc
         cares
         grpc # after cares, protobuf
+        arrow_17
         arrow
+        arrow_adbc
         lance_c
         s2
         bitshuffle
@@ -2262,15 +2584,17 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         azure
         brotli
         icu
+        mecab_ipadic
         pugixml
+        paimon_cpp_17
         paimon_cpp
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
-    elif [[ "$(uname -s)" == 'Linux' ]]; then
-        read -r -a packages <<<"${packages[*]} hadoop_libs"
-        read -r -a packages <<<"${packages[*]} hadoop_libs_3_4"
     fi
+    # hadoop_libs_3_4 runs last on every platform: its native build links against
+    # what the packages above install into ${TP_INSTALL_DIR}.
+    read -r -a packages <<<"${packages[*]} hadoop_libs_3_4"
 fi
 
 # Map a package name to its source directory variable(s) and remove them to free disk space.
@@ -2318,7 +2642,17 @@ cleanup_package_source() {
         cyrus_sasl)      src_var="CYRUS_SASL_SOURCE" ;;
         librdkafka)      src_var="LIBRDKAFKA_SOURCE" ;;
         flatbuffers)     src_var="FLATBUFFERS_SOURCE" ;;
+        arrow_17)        src_var="ARROW_17_SOURCE" ;;
         arrow)           src_var="ARROW_SOURCE" ;;
+        arrow_adbc)
+            # arrow_adbc also unpacks the prebuilt flightsql driver, clean both
+            if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" && -d "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+                echo "Cleaning up source: ${ARROW_ADBC_FLIGHTSQL_SOURCE}"
+                rm -rf "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}" \
+                    "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}"-*.dist-info
+            fi
+            src_var="ARROW_ADBC_SOURCE"
+            ;;
         brotli)          src_var="BROTLI_SOURCE" ;;
         cares)           src_var="CARES_SOURCE" ;;
         grpc)            src_var="GRPC_SOURCE" ;;
@@ -2339,7 +2673,6 @@ cleanup_package_source() {
         xxhash)          src_var="XXHASH_SOURCE" ;;
         concurrentqueue) src_var="CONCURRENTQUEUE_SOURCE" ;;
         fast_float)      src_var="FAST_FLOAT_SOURCE" ;;
-        hadoop_libs)     src_var="HADOOP_LIBS_SOURCE" ;;
         hadoop_libs_3_4) src_var="HADOOP_LIBS_3_4_SOURCE" ;;
         avx2neon)        src_var="AVX2NEON_SOURCE" ;;
         libdeflate)      src_var="LIBDEFLATE_SOURCE" ;;
@@ -2359,9 +2692,11 @@ cleanup_package_source() {
         azure)           src_var="AZURE_SOURCE" ;;
         dragonbox)       src_var="DRAGONBOX_SOURCE" ;;
         icu)             src_var="ICU_SOURCE" ;;
+        mecab_ipadic)    src_var="MECAB_IPADIC_SOURCE" ;;
         jindofs)         src_var="JINDOFS_SOURCE" ;;
         juicefs)         src_var="JUICEFS_SOURCE" ;;
         pugixml)         src_var="PUGIXML_SOURCE" ;;
+        paimon_cpp_17)   src_var="PAIMON_CPP_17_SOURCE" ;;
         paimon_cpp)      src_var="PAIMON_CPP_SOURCE" ;;
         lance_c)         src_var="LANCE_C_SOURCE" ;;
         aws_sdk)         src_var="AWS_SDK_SOURCE" ;;

@@ -22,7 +22,9 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HashDistributionInfo.HashType;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 
 import com.google.common.collect.Lists;
@@ -31,6 +33,7 @@ import org.apache.commons.collections4.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -53,29 +56,28 @@ import java.util.Set;
 public class HashDistributionPruner implements DistributionPruner {
     private static final Logger LOG = LogManager.getLogger(HashDistributionPruner.class);
 
-    // partition list, sort by the hash code
-    private List<Long> bucketsList;
+    // Tablet snapshot in hash bucket order.
+    private final List<Tablet> tablets;
+    private final int bucketNum;
     // partition columns
-    private List<Column>                       distributionColumns;
+    private final List<Column> distributionColumns;
     // partition column filters
-    private Map<String, PartitionColumnFilter> distributionColumnFilters;
-    private int                                hashMod;
-
-    private boolean isBaseIndexSelected;
+    private final Map<String, PartitionColumnFilter> distributionColumnFilters;
+    private final int hashMod;
 
     private final HashType hashType;
 
-    public HashDistributionPruner(List<Column> schema, List<Long> bucketsList, List<Column> columns,
+    public HashDistributionPruner(List<Column> schema, MaterializedIndex materializedIndex, List<Column> columns,
             Map<String, PartitionColumnFilter> filters, int hashMod, boolean isBaseIndexSelected) {
-        this(schema, bucketsList, columns, filters, hashMod, isBaseIndexSelected, HashType.CRC32);
+        this(schema, materializedIndex, columns, filters, hashMod, isBaseIndexSelected, HashType.CRC32);
     }
 
-    public HashDistributionPruner(List<Column> schema, List<Long> bucketsList, List<Column> columns,
+    public HashDistributionPruner(List<Column> schema, MaterializedIndex materializedIndex, List<Column> columns,
             Map<String, PartitionColumnFilter> filters, int hashMod, boolean isBaseIndexSelected, HashType hashType) {
-        this.bucketsList = bucketsList;
+        this.tablets = materializedIndex.getTablets();
+        this.bucketNum = tablets.size();
         this.distributionColumns = columns;
         this.hashMod = hashMod;
-        this.isBaseIndexSelected = isBaseIndexSelected;
         this.hashType = hashType;
         if (isBaseIndexSelected) {
             this.distributionColumnFilters = filters;
@@ -106,14 +108,14 @@ public class HashDistributionPruner implements DistributionPruner {
                 long hashValue = hashKey.getHashValue();
                 bucket = (int) ((hashValue & 0xffffffff) % hashMod);
             }
-            return Lists.newArrayList(bucketsList.get(bucket));
+            return Lists.newArrayList(getTabletId(bucket));
         }
         Column keyColumn = distributionColumns.get(columnId);
         PartitionColumnFilter filter = distributionColumnFilters.get(keyColumn.getName());
         if (null == filter) {
             // no filter in this column, no partition Key
             // return all subPartition
-            return Lists.newArrayList(bucketsList);
+            return getAllTabletIds();
         }
         InPredicate inPredicate = filter.getInPredicate();
         if (null == inPredicate
@@ -128,12 +130,12 @@ public class HashDistributionPruner implements DistributionPruner {
                 return result;
             }
             // return all SubPartition
-            return Lists.newArrayList(bucketsList);
+            return getAllTabletIds();
         }
 
         if (!(inPredicate.getChild(0) instanceof SlotRef)) {
             // return all SubPartition
-            return Lists.newArrayList(bucketsList);
+            return getAllTabletIds();
         }
         Set<Long> resultSet = Sets.newHashSet();
         int inElementNum = inPredicate.getInElementNum();
@@ -145,11 +147,23 @@ public class HashDistributionPruner implements DistributionPruner {
             Collection<Long> subList = prune(columnId + 1, hashKey, newComplex);
             resultSet.addAll(subList);
             hashKey.popColumn();
-            if (resultSet.size() >= bucketsList.size()) {
+            if (resultSet.size() >= bucketNum) {
                 break;
             }
         }
         return resultSet;
+    }
+
+    private long getTabletId(int bucket) {
+        return tablets.get(bucket).getId();
+    }
+
+    private List<Long> getAllTabletIds() {
+        List<Long> tabletIds = new ArrayList<>(bucketNum);
+        for (Tablet tablet : tablets) {
+            tabletIds.add(tablet.getId());
+        }
+        return tabletIds;
     }
 
     public Collection<Long> prune() {

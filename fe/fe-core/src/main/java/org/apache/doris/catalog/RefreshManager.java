@@ -21,16 +21,15 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.ExternalObjectLog;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveExternalMetaCache;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.log.CatalogLog;
+import org.apache.doris.datasource.log.ExternalObjectLog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.persist.OperationType;
 
 import com.google.common.base.Strings;
@@ -101,23 +100,45 @@ public class RefreshManager {
         ExternalCatalog catalog = (ExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(log.getCatalogId());
         if (catalog == null) {
             LOG.warn("failed to find catalog when replaying refresh db: {}", log.debugForRefreshDb());
+            return;
         }
-        Optional<ExternalDatabase<? extends ExternalTable>> db;
-        if (!Strings.isNullOrEmpty(log.getDbName())) {
-            db = catalog.getDbForReplay(log.getDbName());
-        } else {
-            db = catalog.getDbForReplay(log.getDbId());
+        String localDbName = log.getDbName();
+        if (Strings.isNullOrEmpty(localDbName)) {
+            LOG.warn("refresh database replay log has no local name: {}", log.debugForRefreshDb());
+            return;
         }
+        long dbId = Util.genIdByName(catalog.getName(), localDbName);
+        Optional<ExternalDatabase<? extends ExternalTable>> db = catalog.getDbForReplay(localDbName);
 
         if (!db.isPresent()) {
-            LOG.warn("failed to find db when replaying refresh db: {}", log.debugForRefreshDb());
-        } else {
-            refreshDbInternal(db.get());
+            ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+            try {
+                invalidateAllConnectorCachesIfPresent(catalog);
+            } finally {
+                cacheMgr.invalidateDb(log.getCatalogId(), dbId, localDbName);
+            }
+            LOG.info("database object cache is cold when replaying refresh database; invalidated caches by "
+                            + "local name {}: {}",
+                    localDbName, log.debugForRefreshDb());
+            return;
         }
+        refreshDbInternal(db.get());
     }
 
     private void refreshDbInternal(ExternalDatabase db) {
-        db.resetMetaToUninitialized();
+        // Connector metadata is the row-count source, so invalidate it before engine and row-count caches.
+        try {
+            if (db.getCatalog() instanceof PluginDrivenExternalCatalog) {
+                ((PluginDrivenExternalCatalog) db.getCatalog()).getConnector().invalidateDb(db.getRemoteName());
+            }
+        } finally {
+            try {
+                db.resetMetaToUninitialized();
+            } finally {
+                Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .invalidateDbRowCountCache(db.getCatalog().getId(), db.getId());
+            }
+        }
         LOG.info("refresh database {} in catalog {}", db.getFullName(), db.getCatalog().getName());
     }
 
@@ -150,9 +171,19 @@ public class RefreshManager {
         }
         long updateTime = System.currentTimeMillis();
         refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, updateTime);
-        ExternalObjectLog log = ExternalObjectLog.createForRefreshTable(catalog.getId(), db.getFullName(),
-                table.getName(), updateTime);
+        ExternalObjectLog log = ExternalObjectLog.createForRefreshTable(
+                catalog.getId(), db.getFullName(), table.getName(), updateTime);
+        env.getEditLog().logRefreshExternalTable(log);
+    }
+
+    /** Records a committed remote mutation for replay before any fallible local cache refresh. */
+    public void refreshTableAfterExternalMutation(ExternalTable table) {
+        ExternalDatabase db = table.getDb();
+        long updateTime = System.currentTimeMillis();
+        ExternalObjectLog log = ExternalObjectLog.createForRefreshTable(
+                table.getCatalog().getId(), db.getFullName(), table.getName(), updateTime);
         Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
+        refreshTableInternal(db, table, updateTime);
     }
 
     public void replayRefreshTable(ExternalObjectLog log) {
@@ -161,60 +192,94 @@ public class RefreshManager {
             LOG.warn("failed to find catalog when replaying refresh table: {}", log.debugForRefreshTable());
             return;
         }
-        Optional<ExternalDatabase<? extends ExternalTable>> db;
-        if (!Strings.isNullOrEmpty(log.getDbName())) {
-            db = catalog.getDbForReplay(log.getDbName());
-        } else {
-            db = catalog.getDbForReplay(log.getDbId());
-        }
-        // See comment in refreshDbInternal for why db and table may be null.
-        if (!db.isPresent()) {
-            LOG.warn("failed to find db when replaying refresh table: {}", log.debugForRefreshTable());
+        String localDbName = log.getDbName();
+        String localTableName = log.getTableName();
+        if (Strings.isNullOrEmpty(localDbName) || Strings.isNullOrEmpty(localTableName)) {
+            LOG.warn("refresh table replay log has no local name: {}", log.debugForRefreshTable());
             return;
         }
-        Optional<? extends ExternalTable> table;
-        if (!Strings.isNullOrEmpty(log.getTableName())) {
-            table = db.get().getTableForReplay(log.getTableName());
-        } else {
-            table = db.get().getTableForReplay(log.getTableId());
-        }
-        if (!table.isPresent()) {
-            LOG.warn("failed to find table when replaying refresh table: {}", log.debugForRefreshTable());
-            return;
-        }
+        long dbId = Util.genIdByName(catalog.getName(), localDbName);
+        long tableId = Util.genIdByName(catalog.getName(), localDbName, localTableName);
+        Optional<ExternalDatabase<? extends ExternalTable>> db = catalog.getDbForReplay(localDbName);
         if (!Strings.isNullOrEmpty(log.getNewTableName())) {
-            // this is a rename table op
-            db.get().unregisterTable(log.getTableName());
-            db.get().resetMetaCacheNames();
-            Env.getCurrentEnv().getConstraintManager().renameTable(
-                    new TableNameInfo(catalog.getName(), log.getDbName(), log.getTableName()),
-                    new TableNameInfo(catalog.getName(), log.getDbName(), log.getNewTableName()));
-        } else {
-            List<String> modifiedPartNames = log.getPartitionNames();
-            List<String> newPartNames = log.getNewPartitionNames();
-            if (catalog instanceof HMSExternalCatalog
-                    && ((modifiedPartNames != null && !modifiedPartNames.isEmpty())
-                    || (newPartNames != null && !newPartNames.isEmpty()))) {
-                // Partition-level cache invalidation, only for hive catalog
-                HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                        .hive(catalog.getId());
-                cache.refreshAffectedPartitionsCache((HMSExternalTable) table.get(), modifiedPartNames, newPartNames);
-                if (table.get() instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
-                    ((HMSExternalTable) table.get()).setUpdateTime(log.getLastUpdateTime());
+            replayRenameTable(log, catalog, db);
+            return;
+        }
+        if (!db.isPresent()) {
+            try {
+                invalidateAllConnectorCachesIfPresent(catalog);
+            } finally {
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(
+                        log.getCatalogId(), dbId, localDbName, tableId, localTableName);
+            }
+            LOG.info("database object cache is cold when replaying refresh table; "
+                            + "invalidated caches by local names {}.{}: {}",
+                    localDbName, localTableName, log.debugForRefreshTable());
+            return;
+        }
+        Optional<? extends ExternalTable> table = db.get().getTableForReplay(localTableName);
+        if (!table.isPresent()) {
+            try {
+                if (catalog instanceof PluginDrivenExternalCatalog) {
+                    // A cold table object cannot provide the mapped remote table name.
+                    ((PluginDrivenExternalCatalog) catalog).getConnector().invalidateDb(db.get().getRemoteName());
                 }
-                LOG.info("replay refresh partitions for table {}, "
-                                + "modified partitions count: {}, "
-                                + "new partitions count: {}",
-                        table.get().getName(), modifiedPartNames == null ? 0 : modifiedPartNames.size(),
-                        newPartNames == null ? 0 : newPartNames.size());
+            } finally {
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(
+                        log.getCatalogId(), dbId, db.get().getFullName(), tableId, localTableName);
+            }
+            LOG.info("table object cache is cold when replaying refresh table; invalidated caches by local name {}: {}",
+                    localTableName, log.debugForRefreshTable());
+            return;
+        }
+        refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
+    }
+
+    private void replayRenameTable(ExternalObjectLog log, ExternalCatalog catalog,
+            Optional<ExternalDatabase<? extends ExternalTable>> db) {
+        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        String localDbName = log.getDbName();
+        String localTableName = log.getTableName();
+        long dbId = Util.genIdByName(catalog.getName(), localDbName);
+        long sourceTableId = Util.genIdByName(catalog.getName(), localDbName, localTableName);
+        long destinationTableId = Util.genIdByName(catalog.getName(), localDbName, log.getNewTableName());
+        try {
+            if (!db.isPresent()) {
+                invalidateAllConnectorCachesIfPresent(catalog);
+                LOG.info("database object cache is cold when replaying rename table; invalidated connector caches for "
+                                + "{}: {}",
+                        localDbName, log.debugForRefreshTable());
             } else {
-                // Full table cache invalidation
-                refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
+                ExternalDatabase<? extends ExternalTable> database = db.get();
+                try {
+                    if (catalog instanceof PluginDrivenExternalCatalog) {
+                        // Persisted names are local identities, so database scope is the replay-safe connector key.
+                        ((PluginDrivenExternalCatalog) catalog).getConnector()
+                                .invalidateDb(database.getRemoteName());
+                    }
+                } finally {
+                    database.invalidateTableRename(localTableName, log.getNewTableName());
+                }
+            }
+        } finally {
+            try {
+                Env.getCurrentEnv().getConstraintManager().renameTable(
+                        new TableNameInfo(catalog.getName(), localDbName, localTableName),
+                        new TableNameInfo(catalog.getName(), localDbName, log.getNewTableName()));
+            } finally {
+                cacheMgr.invalidateTableRename(log.getCatalogId(), dbId, localDbName,
+                        sourceTableId, localTableName, destinationTableId, log.getNewTableName());
             }
         }
     }
 
-    public void refreshExternalTableFromEvent(String catalogName, String dbName, String tableName,
+    private void invalidateAllConnectorCachesIfPresent(ExternalCatalog catalog) {
+        if (catalog instanceof PluginDrivenExternalCatalog) {
+            ((PluginDrivenExternalCatalog) catalog).invalidateAllConnectorCachesIfPresent();
+        }
+    }
+
+    public void refreshExternalTableFromEvent(String catalogName, String localDbName, String localTableName,
             long updateTime) throws DdlException {
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         if (catalog == null) {
@@ -223,12 +288,12 @@ public class RefreshManager {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support refresh ExternalCatalog Tables");
         }
-        DatabaseIf db = catalog.getDbNullable(dbName);
+        DatabaseIf db = catalog.getDbNullable(localDbName);
         if (db == null) {
             return;
         }
 
-        TableIf table = db.getTableNullable(tableName);
+        TableIf table = db.getTableNullable(localTableName);
         if (table == null) {
             return;
         }
@@ -237,55 +302,52 @@ public class RefreshManager {
 
     public void refreshTableInternal(ExternalDatabase db, ExternalTable table, long updateTime) {
         table.unsetObjectCreated();
-        // Iceberg partition evolution can change partition specs across FEs.
-        // Clear related-table validation cache to avoid stale partitioned/unpartitioned judgment.
-        if (table instanceof IcebergExternalTable) {
-            ((IcebergExternalTable) table).setIsValidRelatedTableCached(false);
-        }
         if (updateTime > 0) {
             table.setUpdateTime(updateTime);
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table);
+        // Connector metadata is the row-count source, so invalidate it before engine and row-count caches.
+        try {
+            if (table.getCatalog() instanceof PluginDrivenExternalCatalog) {
+                ((PluginDrivenExternalCatalog) table.getCatalog()).getConnector()
+                        .invalidateTable(db.getRemoteName(), table.getRemoteName());
+            }
+        } finally {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(table);
+        }
         LOG.info("refresh table {}, id {} from db {} in catalog {}, update time: {}",
                 table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName(), updateTime);
     }
 
     // Refresh partition
-    public void refreshPartitions(String catalogName, String dbName, String tableName,
-            List<String> partitionNames, long updateTime, boolean ignoreIfNotExists)
-            throws DdlException {
+    public void refreshPartitionsFromEvent(String catalogName, String localDbName, String localTableName,
+            List<String> partitionNames, long updateTime) throws DdlException {
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         if (catalog == null) {
-            if (!ignoreIfNotExists) {
-                throw new DdlException("No catalog found with name: " + catalogName);
-            }
             return;
         }
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support ExternalCatalog");
         }
-        DatabaseIf db = catalog.getDbNullable(dbName);
+        DatabaseIf db = catalog.getDbNullable(localDbName);
         if (db == null) {
-            if (!ignoreIfNotExists) {
-                throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
-            }
             return;
         }
 
-        TableIf table = db.getTableNullable(tableName);
+        TableIf table = db.getTableNullable(localTableName);
         if (table == null) {
-            if (!ignoreIfNotExists) {
-                throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
-            }
             return;
         }
 
         ExternalTable externalTable = (ExternalTable) table;
-        HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().hive(externalTable.getCatalog().getId());
-        for (String partitionName : partitionNames) {
-            cache.invalidatePartitionCache(externalTable, partitionName);
+        try {
+            if (externalTable.getCatalog() instanceof PluginDrivenExternalCatalog) {
+                ((PluginDrivenExternalCatalog) externalTable.getCatalog()).getConnector().invalidatePartition(
+                        ((ExternalDatabase<?>) db).getRemoteName(), externalTable.getRemoteName(), partitionNames);
+            }
+            externalTable.setUpdateTime(updateTime);
+        } finally {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableRowCountCache(externalTable);
         }
-        ((HMSExternalTable) table).setUpdateTime(updateTime);
     }
 
     public void addToRefreshMap(long catalogId, Integer[] sec) {

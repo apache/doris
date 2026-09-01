@@ -21,6 +21,7 @@
 #include "storage/index/inverted/char_filter/empty_char_filter_factory.h"
 #include "storage/index/inverted/char_filter/icu_normalizer_char_filter_factory.h"
 #include "storage/index/inverted/token_filter/ascii_folding_filter_factory.h"
+#include "storage/index/inverted/token_filter/common_grams_filter_factory.h"
 #include "storage/index/inverted/token_filter/empty_token_filter_factory.h"
 #include "storage/index/inverted/token_filter/icu_normalizer_filter_factory.h"
 #include "storage/index/inverted/token_filter/lower_case_filter_factory.h"
@@ -82,6 +83,8 @@ void AnalysisFactoryMgr::initialise() {
                 "pinyin", []() { return std::make_shared<PinyinFilterFactory>(); });
         registerFactory<TokenFilterFactory>(
                 "icu_normalizer", []() { return std::make_shared<ICUNormalizerFilterFactory>(); });
+        registerFactory<TokenFilterFactory>(
+                "common_grams", []() { return std::make_shared<CommonGramsFilterFactory>(); });
     });
 }
 

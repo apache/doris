@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <iterator>
 #include <random>
+#include <ranges>
 #include <shared_mutex>
 
 #include "cloud/cloud_tablet.h"
@@ -37,6 +38,7 @@
 #include "core/assert_cast.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "cpp/sync_point.h"
 #include "load/memtable/memtable.h"
 #include "service/point_query_executor.h"
 #include "storage/binlog.h"
@@ -135,8 +137,6 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
                                                              _tablet_meta->all_stale_rs_metas());
-    _row_binlog_version_tracker.construct_versioned_tracker(
-            _tablet_meta->all_row_binlog_rs_metas());
 
     // if !_tablet_meta->all_rs_metas()[0]->tablet_schema(),
     // that mean the tablet_meta is still no upgrade to doris 1.2 versions.
@@ -256,14 +256,6 @@ RowsetSharedPtr BaseTablet::get_stale_rowset_by_version(const Version& version) 
     return iter->second;
 }
 
-RowsetSharedPtr BaseTablet::get_row_binlog_rowset_by_version(const Version& version) const {
-    auto iter = _row_binlog_rs_version_map.find(version);
-    if (iter == _row_binlog_rs_version_map.end()) {
-        return nullptr;
-    }
-    return iter->second;
-}
-
 // Already under _meta_lock
 RowsetSharedPtr BaseTablet::get_rowset_with_max_version() const {
     Version max_version = _tablet_meta->max_version();
@@ -323,14 +315,11 @@ Versions BaseTablet::get_missed_versions(int64_t spec_version) const {
     return calc_missed_versions(spec_version, std::move(existing_versions));
 }
 
-Versions BaseTablet::get_missed_versions_unlocked(int64_t spec_version,
-                                                  bool capture_row_binlog) const {
+Versions BaseTablet::get_missed_versions_unlocked(int64_t spec_version) const {
     DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
 
     Versions existing_versions;
-    const auto& rs_metas = capture_row_binlog ? _tablet_meta->all_row_binlog_rs_metas()
-                                              : _tablet_meta->all_rs_metas();
-    for (const auto& [ver, _] : rs_metas) {
+    for (const auto& [ver, _] : _tablet_meta->all_rs_metas()) {
         existing_versions.emplace_back(ver);
     }
     return calc_missed_versions(spec_version, std::move(existing_versions));
@@ -348,14 +337,9 @@ void BaseTablet::_print_missed_versions(const Versions& missed_versions) const {
 
 bool BaseTablet::_reconstruct_version_tracker_if_necessary() {
     double data_orphan_vertex_ratio = _timestamped_version_tracker.get_orphan_vertex_ratio();
-    double row_binlog_orphan_vertex_ratio = _row_binlog_version_tracker.get_orphan_vertex_ratio();
     if (data_orphan_vertex_ratio >= config::tablet_version_graph_orphan_vertex_ratio) {
         _timestamped_version_tracker.construct_versioned_tracker(
                 _tablet_meta->all_rs_metas(), _tablet_meta->all_stale_rs_metas());
-        return true;
-    } else if (row_binlog_orphan_vertex_ratio >= config::tablet_version_graph_orphan_vertex_ratio) {
-        _row_binlog_version_tracker.construct_versioned_tracker(
-                _tablet_meta->all_row_binlog_rs_metas());
         return true;
     }
     return false;
@@ -469,6 +453,7 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
     return Status::OK();
 }
 
+// NOLINTNEXTLINE(readability-function-size): Keep the existing rowset lookup flow together.
 Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest_schema,
                                   bool with_seq_col,
                                   const std::vector<RowsetSharedPtr>& specified_rowsets,
@@ -560,6 +545,8 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
                 // return it's rowset
                 *rowset = rs;
             }
+            TEST_SYNC_POINT_CALLBACK("BaseTablet::lookup_row_key:found", this, rs.get(),
+                                     with_seq_col, s.code());
             // find it and return
             return s;
         }
@@ -662,7 +649,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
 
     std::map<RowsetId, RowsetSharedPtr> rsid_to_rowset;
     rsid_to_rowset[rowset_id] = rowset;
-    Block block = rowset_schema->create_block();
+    Block block = rowset_schema->create_storage_block();
     Block ordered_block = block.clone_empty();
     uint32_t pos = 0;
 
@@ -875,7 +862,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             auto row_binlog_schema = row_binlog_rowset->tablet_schema();
             std::vector<uint32_t> lsn_cids = {
                     static_cast<uint32_t>(row_binlog_schema->binlog_lsn_col_idx())};
-            lsn_block = row_binlog_schema->create_block_by_cids(lsn_cids);
+            lsn_block = row_binlog_schema->create_storage_block(lsn_cids);
             std::map<RowsetId, RowsetSharedPtr> rsid_to_row_binlog {
                     {row_binlog_rowset->rowset_id(), row_binlog_rowset}};
             std::map<uint32_t, uint32_t> read_index;
@@ -886,11 +873,11 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
 
         std::vector<uint32_t> sort_perm;
         RETURN_IF_ERROR(sort_block(block, ordered_block, &sort_perm));
-        auto segment_id = rowset_writer->allocate_segment_id();
+        auto segment_id = DORIS_TRY(rowset_writer->allocate_segment_id());
 
         // Publish-phase partial update may flush transient segments to a GroupRowsetWriter.
-        // For row-binlog writing, RowBinlogSegmentWriter requires `seg_id -> lsn_ids` to be
-        // registered before the segment writer is constructed.
+        // For row-binlog writing, the derive stage requires `seg_id -> lsn_ids` to be
+        // registered before the block is flushed.
         if (auto* group_writer = typeid_cast<GroupRowsetWriter*>(rowset_writer);
             group_writer != nullptr) {
             auto binlog_writer = group_writer->row_binlog_writer();
@@ -903,8 +890,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 for (auto p : sort_perm) {
                     lsn_ids->emplace_back(src.get_data()[p]);
                 }
-                binlog_ctx.write_binlog_opt().write_binlog_config().insert_seg_lsn(
-                        segment_id, std::move(lsn_ids));
+                binlog_ctx.insert_segment_allocated_lsns(segment_id, std::move(lsn_ids));
             }
         }
         RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block, segment_id));
@@ -1085,8 +1071,8 @@ Status BaseTablet::generate_new_block_for_partial_update(
     auto& full_mutable_columns = full_mutable_columns_guard.mutable_columns();
     const auto& missing_cids = partial_update_info->missing_cids;
     const auto& update_cids = partial_update_info->update_cids;
-    auto old_block = rowset_schema->create_block_by_cids(missing_cids);
-    auto update_block = rowset_schema->create_block_by_cids(update_cids);
+    auto old_block = rowset_schema->create_storage_block(missing_cids);
+    auto update_block = rowset_schema->create_storage_block(update_cids);
 
     bool have_input_seq_column = false;
     if (rowset_schema->has_sequence_col()) {
@@ -1252,8 +1238,8 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
     const auto& non_sort_key_cids = partial_update_info->missing_cids;
     std::vector<uint32_t> all_cids(rowset_schema->num_columns());
     std::iota(all_cids.begin(), all_cids.end(), 0);
-    auto old_block = rowset_schema->create_block_by_cids(non_sort_key_cids);
-    auto update_block = rowset_schema->create_block_by_cids(all_cids);
+    auto old_block = rowset_schema->create_storage_block(non_sort_key_cids);
+    auto update_block = rowset_schema->create_storage_block(all_cids);
 
     // rowid in the final block(start from 0, increase continuously) -> rowid to read in update_block
     std::map<uint32_t, uint32_t> read_index_update;
@@ -1525,13 +1511,14 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     DeleteBitmapPtr delete_bitmap = txn_info->delete_bitmap;
     bool is_partial_update =
             txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update();
-    for (const auto& rs : txn_info->attach_rowsets) {
-        if (rs != nullptr && rs->rowset_meta() != nullptr && rs->rowset_meta()->is_row_binlog()) {
-            row_binlog_rowset = rs;
-            build_row_binlog = is_partial_update ||
-                               self->tablet_meta()->binlog_config().need_historical_value();
-            break;
-        }
+    const auto& binlog_rs = txn_info->attach_row_binlog.rowset;
+    if (binlog_rs != nullptr && binlog_rs->rowset_meta() != nullptr &&
+        binlog_rs->rowset_meta()->is_row_binlog()) {
+        DCHECK(txn_info->attach_row_binlog.tablet != nullptr);
+        row_binlog_rowset = binlog_rs;
+        const auto& binlog_tablet_meta = txn_info->attach_row_binlog.tablet->tablet_meta();
+        build_row_binlog =
+                is_partial_update || binlog_tablet_meta->binlog_config().need_historical_value();
     }
 
     // rewrite conflict only when partial update or need before
@@ -1662,8 +1649,9 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         DCHECK(transient_rs_writer != nullptr);
 
         // Create transient row binlog writer for publish-phase segment appending.
-        auto transient_row_binlog_writer = DORIS_TRY(self->create_transient_rowset_writer(
-                *row_binlog_rowset, txn_info->partial_update_info, txn_expiration));
+        auto transient_row_binlog_writer =
+                DORIS_TRY(txn_info->attach_row_binlog.tablet->create_transient_rowset_writer(
+                        *row_binlog_rowset, txn_info->partial_update_info, txn_expiration));
 
         // Prepare source MOW context for historical row retrieval in binlog writer.
         auto& data_ctx = const_cast<RowsetWriterContext&>(transient_rs_writer->context());
@@ -1679,6 +1667,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         cfg.source.is_transient_rowset_writer = data_ctx.is_transient_rowset_writer;
         cfg.source.source_write_type = data_ctx.write_type;
         cfg.source.row_binlog_rowset = row_binlog_rowset;
+        cfg.source.base_tablet = self;
 
         // Wrap two transient writers into a group writer for dual flush/build.
         RowsetWriterSharedPtr data_writer_sp(std::move(transient_rs_writer));
@@ -1687,6 +1676,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         RETURN_IF_ERROR(RowsetFactory::create_empty_group_rowset_writer(&group_writer));
         group_writer->set_data_writer(data_writer_sp);
         group_writer->set_row_binlog_writer(row_binlog_writer_sp);
+        RETURN_IF_ERROR(group_writer->init(group_writer->data_writer()->context()));
         transient_rs_writer = std::move(group_writer);
     }
 
@@ -1761,14 +1751,13 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
                << " flush binlog<row> (old segment num: " << old_segments
                << ", new segment num: " << new_segments << ")";
 
-            SegmentLoader::instance()->erase_segments(row_binlog_rowset->rowset_id(),
-                                                      row_binlog_rowset->num_segments());
+            SegmentLoader::instance()->erase_segments(*row_binlog_rowset->rowset_meta());
         }
 
         // update the shared_ptr to new bitmap, which is consistent with current rowset.
         txn_info->delete_bitmap = delete_bitmap;
         // erase segment cache cause we will add a segment to rowset
-        SegmentLoader::instance()->erase_segments(rowset->rowset_id(), rowset->num_segments());
+        SegmentLoader::instance()->erase_segments(*rowset->rowset_meta());
     }
 
     size_t total_rows = std::accumulate(
@@ -1794,15 +1783,18 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
 }
 
 void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
-        const std::vector<RowsetSharedPtr>& input_rowsets, const RowIdConversion& rowid_conversion,
-        uint64_t start_version, uint64_t end_version, std::set<RowLocation>* missed_rows,
+        const std::vector<RowsetSharedPtr>& input_rowsets, const RowsetSharedPtr& output_rowset,
+        const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
+        std::set<RowLocation>* missed_rows,
         std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
         const DeleteBitmap& input_delete_bitmap, DeleteBitmap* output_rowset_delete_bitmap) {
+    DORIS_CHECK_EQ(output_rowset->rowset_id(), rowid_conversion.get_dst_rowset_id());
     RowLocation src;
-    RowLocation dst;
+    RowIdConversion::DestinationRowId converted_dst;
     for (auto& rowset : input_rowsets) {
         src.rowset_id = rowset->rowset_id();
-        for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
+        for (auto seg : rowset->segments()) {
+            auto seg_id = cast_set<uint32_t>(seg.id());
             src.segment_id = seg_id;
             DeleteBitmap subset_map(tablet_id());
             input_delete_bitmap.subset({rowset->rowset_id(), seg_id, start_version},
@@ -1813,7 +1805,7 @@ void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
                 auto cur_version = std::get<2>(iter->first);
                 for (auto index = iter->second.begin(); index != iter->second.end(); ++index) {
                     src.row_id = *index;
-                    if (rowid_conversion.get(src, &dst) != 0) {
+                    if (rowid_conversion.get(src, &converted_dst) != 0) {
                         VLOG_CRITICAL << "Can't find rowid, may be deleted by the delete_handler, "
                                       << " src loaction: |" << src.rowset_id << "|"
                                       << src.segment_id << "|" << src.row_id
@@ -1823,6 +1815,8 @@ void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
                         }
                         continue;
                     }
+                    RowLocation dst = output_rowset->segment(converted_dst.segment_pos)
+                                              .row_location(converted_dst.row_id);
                     VLOG_DEBUG << "calc_compaction_output_rowset_delete_bitmap dst location: |"
                                << dst.rowset_id << "|" << dst.segment_id << "|" << dst.row_id
                                << " src location: |" << src.rowset_id << "|" << src.segment_id
@@ -1864,7 +1858,8 @@ Status BaseTablet::check_rowid_conversion(
         for (auto& [src, dst] : locations) {
             std::string src_key;
             std::string dst_key;
-            Status s = segments[src.segment_id]->read_key_by_rowid(src.row_id, &src_key);
+            const size_t src_segment_pos = src_rowset->rowset_meta()->position_of(src.segment_id);
+            Status s = segments[src_segment_pos]->read_key_by_rowid(src.row_id, &src_key);
             if (UNLIKELY(s.is<NOT_IMPLEMENTED_ERROR>())) {
                 LOG(INFO) << "primary key index of old version does not "
                              "support reading key by rowid";
@@ -1877,7 +1872,8 @@ Status BaseTablet::check_rowid_conversion(
                 return s;
             }
 
-            s = dst_segments[dst.segment_id]->read_key_by_rowid(dst.row_id, &dst_key);
+            const size_t dst_segment_pos = dst_rowset->rowset_meta()->position_of(dst.segment_id);
+            s = dst_segments[dst_segment_pos]->read_key_by_rowid(dst.row_id, &dst_key);
             if (UNLIKELY(!s)) {
                 LOG(WARNING) << "failed to get dst key: |" << dst.rowset_id << "|" << dst.segment_id
                              << "|" << dst.row_id << " status: " << s;
@@ -2002,7 +1998,8 @@ void BaseTablet::agg_delete_bitmap_for_stale_rowsets(
     // do agg for pre rowsets
     DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     for (auto& rowset : pre_rowsets) {
-        for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
+        for (auto seg : rowset->segments()) {
+            auto seg_id = cast_set<uint32_t>(seg.id());
             auto d = tablet_meta()->delete_bitmap().get_agg_without_cache(
                     {rowset->rowset_id(), seg_id, end_version}, start_version);
             if (d->isEmpty()) {
@@ -2315,8 +2312,9 @@ int32_t BaseTablet::max_version_config() {
 }
 
 void BaseTablet::prefill_dbm_agg_cache(const RowsetSharedPtr& rowset, int64_t version) {
-    for (std::size_t i = 0; i < rowset->num_segments(); i++) {
-        tablet_meta()->delete_bitmap().get_agg({rowset->rowset_id(), i, version});
+    for (auto seg : rowset->segments()) {
+        tablet_meta()->delete_bitmap().get_agg(
+                {rowset->rowset_id(), cast_set<uint32_t>(seg.id()), version});
     }
 }
 

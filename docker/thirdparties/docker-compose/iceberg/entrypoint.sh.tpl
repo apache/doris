@@ -28,12 +28,15 @@ set -ex
 mkdir -p /opt/spark/events
 SPARK_THRIFT_EXTENSIONS="org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions"
 
+# -f, because the container's writable layer survives a stop: on `docker start`
+# the links from the previous run are still there, and a bare `ln -s` would fail
+# under `set -e` and take the whole entrypoint down.
 for f in /opt/spark/sbin/*; do
-  ln -s $f /usr/local/bin/$(basename $f)
+  ln -sf $f /usr/local/bin/$(basename $f)
 done
 
 for f in /opt/spark/bin/*; do
-  ln -s $f /usr/local/bin/$(basename $f)
+  ln -sf $f /usr/local/bin/$(basename $f)
 done
 
 

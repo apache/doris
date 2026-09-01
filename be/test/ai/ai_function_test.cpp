@@ -27,6 +27,7 @@
 
 #include "core/block/block.h"
 #include "core/column/column_array.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
@@ -43,6 +44,7 @@
 #include "exprs/function/ai/ai_summarize.h"
 #include "exprs/function/ai/ai_translate.h"
 #include "exprs/function/ai/embed.h"
+#include "exprs/function/simple_function_factory.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 
@@ -63,7 +65,7 @@ public:
 
     using AIFunction<FunctionAIFilterBatchTestHelper>::execute_batch_request;
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+    DataTypePtr get_nested_return_type_impl(const DataTypes& /*arguments*/) const {
         return std::make_shared<DataTypeBool>();
     }
 
@@ -183,16 +185,19 @@ private:
 };
 
 namespace {
-MutableColumnPtr create_string_array_column(const std::vector<std::vector<std::string>>& rows) {
+MutableColumnPtr create_string_array_column(const std::vector<std::vector<std::string>>& rows,
+                                            const std::vector<UInt8>& null_map = {}) {
     auto nested_column = ColumnString::create();
     auto null_map_column = ColumnUInt8::create();
     auto offsets_column = ColumnOffset64::create();
 
     IColumn::Offset offset = 0;
+    size_t element = 0;
     for (const auto& row : rows) {
         for (const auto& value : row) {
             nested_column->insert_data(value.data(), value.size());
-            null_map_column->insert_value(0);
+            null_map_column->insert_value(null_map.empty() ? 0 : null_map[element]);
+            ++element;
         }
         offset += row.size();
         offsets_column->insert_value(offset);
@@ -201,6 +206,27 @@ MutableColumnPtr create_string_array_column(const std::vector<std::vector<std::s
     return ColumnArray::create(
             ColumnNullable::create(std::move(nested_column), std::move(null_map_column)),
             std::move(offsets_column));
+}
+
+FunctionBasePtr get_ai_function(const std::string& name, const Block& arguments,
+                                const DataTypePtr& return_type) {
+    return SimpleFunctionFactory::instance().get_function(
+            name, arguments.get_columns_with_type_and_name(), return_type);
+}
+
+Columns get_prompt_columns(const Block& block, const ColumnNumbers& arguments) {
+    Columns prompt_columns;
+    prompt_columns.reserve(arguments.size() - 1);
+    for (size_t i = 1; i < arguments.size(); ++i) {
+        const auto& argument = block.get_by_position(arguments[i]);
+        prompt_columns.emplace_back(
+                argument.unnest_nullable(argument.type->is_nullable()
+                                                 ? argument.get_nullable_column_info()
+                                                 : NullableColumnInfo {},
+                                         false)
+                        .column);
+    }
+    return prompt_columns;
 }
 } // namespace
 
@@ -219,7 +245,7 @@ TEST(AIFunctionTest, AISummarizeTest) {
 
     ColumnNumbers arguments = {0, 1};
     std::string prompt;
-    Status status = function.build_prompt(block, arguments, 0, prompt);
+    Status status = function.build_prompt(get_prompt_columns(block, arguments), 0, prompt);
 
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(prompt, "This is a test document that needs to be summarized.");
@@ -240,7 +266,7 @@ TEST(AIFunctionTest, AISentimentTest) {
 
     ColumnNumbers arguments = {0, 1};
     std::string prompt;
-    Status status = function.build_prompt(block, arguments, 0, prompt);
+    Status status = function.build_prompt(get_prompt_columns(block, arguments), 0, prompt);
 
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(prompt, "I really enjoyed the doris community!");
@@ -266,7 +292,7 @@ TEST(AIFunctionTest, AIMaskTest) {
 
     ColumnNumbers arguments = {0, 1, 2};
     std::string prompt;
-    Status status = function.build_prompt(block, arguments, 0, prompt);
+    Status status = function.build_prompt(get_prompt_columns(block, arguments), 0, prompt);
 
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(prompt,
@@ -289,7 +315,7 @@ TEST(AIFunctionTest, AIGenerateTest) {
 
     ColumnNumbers arguments = {0, 1};
     std::string prompt;
-    Status status = function.build_prompt(block, arguments, 0, prompt);
+    Status status = function.build_prompt(get_prompt_columns(block, arguments), 0, prompt);
 
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(prompt, "Write a poem about spring");
@@ -310,7 +336,7 @@ TEST(AIFunctionTest, AIFixGrammarTest) {
 
     ColumnNumbers arguments = {0, 1};
     std::string prompt;
-    Status status = function.build_prompt(block, arguments, 0, prompt);
+    Status status = function.build_prompt(get_prompt_columns(block, arguments), 0, prompt);
 
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(prompt, "She don't like apples");
@@ -335,7 +361,7 @@ TEST(AIFunctionTest, AIExtractTest) {
 
     ColumnNumbers arguments = {0, 1, 2};
     std::string prompt;
-    Status status = function.build_prompt(block, arguments, 0, prompt);
+    Status status = function.build_prompt(get_prompt_columns(block, arguments), 0, prompt);
 
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(prompt,
@@ -362,12 +388,44 @@ TEST(AIFunctionTest, AIClassifyTest) {
 
     ColumnNumbers arguments = {0, 1, 2};
     std::string prompt;
-    Status status = function.build_prompt(block, arguments, 0, prompt);
+    Status status = function.build_prompt(get_prompt_columns(block, arguments), 0, prompt);
 
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(prompt,
               "Labels: [\"positive\", \"negative\", \"neutral\"]\n"
               "Text: This product exceeded my expectations");
+}
+
+TEST(AIFunctionTest, NullableLabelElementsAreSkipped) {
+    std::vector<std::string> texts = {"good product"};
+    auto labels = create_string_array_column({{"positive", "unused-null", "negative"}},
+                                             std::vector<UInt8> {0, 1, 0});
+
+    Block block;
+    block.insert({ColumnHelper::create_column<DataTypeString>({"resource_name"}),
+                  std::make_shared<DataTypeString>(), "resource"});
+    block.insert({ColumnHelper::create_column<DataTypeString>(texts),
+                  std::make_shared<DataTypeString>(), "text"});
+    block.insert({std::move(labels),
+                  std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>()), "labels"});
+
+    Columns prompt_columns = get_prompt_columns(block, {0, 1, 2});
+    std::string prompt;
+    const std::string expected =
+            "Labels: [\"positive\", \"negative\"]\n"
+            "Text: good product";
+
+    FunctionAIClassify classify;
+    ASSERT_TRUE(classify.build_prompt(prompt_columns, 0, prompt).ok());
+    EXPECT_EQ(prompt, expected);
+
+    FunctionAIExtract extract;
+    ASSERT_TRUE(extract.build_prompt(prompt_columns, 0, prompt).ok());
+    EXPECT_EQ(prompt, expected);
+
+    FunctionAIMask mask;
+    ASSERT_TRUE(mask.build_prompt(prompt_columns, 0, prompt).ok());
+    EXPECT_EQ(prompt, expected);
 }
 
 TEST(AIFunctionTest, AITranslateTest) {
@@ -388,7 +446,7 @@ TEST(AIFunctionTest, AITranslateTest) {
 
     ColumnNumbers arguments = {0, 1, 2};
     std::string prompt;
-    Status status = function.build_prompt(block, arguments, 0, prompt);
+    Status status = function.build_prompt(get_prompt_columns(block, arguments), 0, prompt);
 
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(prompt,
@@ -414,7 +472,7 @@ TEST(AIFunctionTest, AISimilarityTest) {
 
     ColumnNumbers arguments = {0, 1, 2};
     std::string prompt;
-    Status status = function.build_prompt(block, arguments, 0, prompt);
+    Status status = function.build_prompt(get_prompt_columns(block, arguments), 0, prompt);
 
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(prompt, "Text 1: I like this dish\nText 2: This dish is very good");
@@ -593,7 +651,7 @@ TEST(AIFunctionTest, AIFilterTest) {
 
     ColumnNumbers arguments = {0, 1};
     std::string prompt;
-    Status status = function.build_prompt(block, arguments, 0, prompt);
+    Status status = function.build_prompt(get_prompt_columns(block, arguments), 0, prompt);
 
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(prompt, "This is a valid sentence.");
@@ -1141,6 +1199,269 @@ TEST(AIFunctionTest, AIStringFunctionBatchExecuteTest) {
     EXPECT_EQ(res_col.get_data_at(2).to_string(), "neutral");
 
     unsetenv("AI_TEST_RESULT");
+}
+
+TEST(AIFunctionTest, NullableStringResultThroughPreparedFunction) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+    setenv("AI_TEST_RESULT", R"(["answer-a","answer-c"])", 1);
+
+    std::vector<std::string> texts = {"unused-null", "text-a", "unused-null", "text-c",
+                                      "unused-null"};
+    std::vector<UInt8> null_map = {1, 0, 1, 0, 1};
+    Block block;
+    block.insert({ColumnHelper::create_column<DataTypeString>(
+                          std::vector<std::string>(texts.size(), "mock_resource")),
+                  std::make_shared<DataTypeString>(), "resource"});
+    block.insert({ColumnHelper::create_nullable_column<DataTypeString>(texts, null_map),
+                  make_nullable(std::make_shared<DataTypeString>()), "text"});
+
+    auto return_type = make_nullable(std::make_shared<DataTypeString>());
+    auto function = get_ai_function("ai_generate", block, return_type);
+    ASSERT_NE(function, nullptr);
+    EXPECT_TRUE(function->get_return_type()->equals(*return_type));
+
+    block.insert({nullptr, return_type, "result"});
+    Status status = function->execute(ctx.get(), block, {0, 1}, 2, texts.size());
+    unsetenv("AI_TEST_RESULT");
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+    const auto& nested = assert_cast<const ColumnString&>(result.get_nested_column());
+    ASSERT_EQ(result.size(), texts.size());
+    for (size_t row = 0; row < null_map.size(); ++row) {
+        EXPECT_EQ(result.is_null_at(row), null_map[row] != 0);
+    }
+    EXPECT_EQ(nested.get_data_at(1).to_string(), "answer-a");
+    EXPECT_EQ(nested.get_data_at(3).to_string(), "answer-c");
+}
+
+TEST(AIFunctionTest, NullableInputWithoutNullsThroughPreparedFunction) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+    setenv("AI_TEST_RESULT", R"(["answer-a","answer-b","answer-c"])", 1);
+
+    std::vector<std::string> texts = {"text-a", "text-b", "text-c"};
+    Block block;
+    block.insert({ColumnHelper::create_column<DataTypeString>(
+                          std::vector<std::string>(texts.size(), "mock_resource")),
+                  std::make_shared<DataTypeString>(), "resource"});
+    block.insert({ColumnHelper::create_nullable_column<DataTypeString>(
+                          texts, std::vector<UInt8>(texts.size(), 0)),
+                  make_nullable(std::make_shared<DataTypeString>()), "text"});
+
+    auto return_type = make_nullable(std::make_shared<DataTypeString>());
+    auto function = get_ai_function("ai_generate", block, return_type);
+    ASSERT_NE(function, nullptr);
+
+    block.insert({nullptr, return_type, "result"});
+    Status status = function->execute(ctx.get(), block, {0, 1}, 2, texts.size());
+    unsetenv("AI_TEST_RESULT");
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+    const auto& nested = assert_cast<const ColumnString&>(result.get_nested_column());
+    ASSERT_EQ(result.size(), texts.size());
+    for (size_t row = 0; row < texts.size(); ++row) {
+        EXPECT_FALSE(result.is_null_at(row));
+    }
+    EXPECT_EQ(nested.get_data_at(0).to_string(), "answer-a");
+    EXPECT_EQ(nested.get_data_at(1).to_string(), "answer-b");
+    EXPECT_EQ(nested.get_data_at(2).to_string(), "answer-c");
+}
+
+TEST(AIFunctionTest, NullableBoolResultThroughPreparedFunction) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+    setenv("AI_TEST_RESULT", R"(["1","0"])", 1);
+
+    std::vector<std::string> texts = {"unused-null", "valid", "unused-null", "invalid"};
+    std::vector<UInt8> null_map = {1, 0, 1, 0};
+    Block block;
+    block.insert({ColumnHelper::create_column<DataTypeString>(
+                          std::vector<std::string>(texts.size(), "mock_resource")),
+                  std::make_shared<DataTypeString>(), "resource"});
+    block.insert({ColumnHelper::create_nullable_column<DataTypeString>(texts, null_map),
+                  make_nullable(std::make_shared<DataTypeString>()), "text"});
+
+    auto return_type = make_nullable(std::make_shared<DataTypeBool>());
+    auto function = get_ai_function("ai_filter", block, return_type);
+    ASSERT_NE(function, nullptr);
+    EXPECT_TRUE(function->get_return_type()->equals(*return_type));
+
+    block.insert({nullptr, return_type, "result"});
+    Status status = function->execute(ctx.get(), block, {0, 1}, 2, texts.size());
+    unsetenv("AI_TEST_RESULT");
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+    const auto& nested = assert_cast<const ColumnUInt8&>(result.get_nested_column());
+    EXPECT_TRUE(result.is_null_at(0));
+    EXPECT_EQ(nested.get_element(1), 1);
+    EXPECT_TRUE(result.is_null_at(2));
+    EXPECT_EQ(nested.get_element(3), 0);
+}
+
+TEST(AIFunctionTest, NullableFloatResultMergesArgumentNullMaps) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+    setenv("AI_TEST_RESULT", R"(["0.5","1.5"])", 1);
+
+    std::vector<std::string> text1 = {"left-a", "unused-null", "left-c", "left-d"};
+    std::vector<std::string> text2 = {"right-a", "right-b", "unused-null", "right-d"};
+    std::vector<UInt8> null_map1 = {0, 1, 0, 0};
+    std::vector<UInt8> null_map2 = {0, 0, 1, 0};
+    Block block;
+    block.insert({ColumnHelper::create_column<DataTypeString>(
+                          std::vector<std::string>(text1.size(), "mock_resource")),
+                  std::make_shared<DataTypeString>(), "resource"});
+    block.insert({ColumnHelper::create_nullable_column<DataTypeString>(text1, null_map1),
+                  make_nullable(std::make_shared<DataTypeString>()), "text1"});
+    block.insert({ColumnHelper::create_nullable_column<DataTypeString>(text2, null_map2),
+                  make_nullable(std::make_shared<DataTypeString>()), "text2"});
+
+    auto return_type = make_nullable(std::make_shared<DataTypeFloat32>());
+    auto function = get_ai_function("ai_similarity", block, return_type);
+    ASSERT_NE(function, nullptr);
+    EXPECT_TRUE(function->get_return_type()->equals(*return_type));
+
+    block.insert({nullptr, return_type, "result"});
+    Status status = function->execute(ctx.get(), block, {0, 1, 2}, 3, text1.size());
+    unsetenv("AI_TEST_RESULT");
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(3).column);
+    const auto& nested = assert_cast<const ColumnFloat32&>(result.get_nested_column());
+    EXPECT_FALSE(result.is_null_at(0));
+    EXPECT_FLOAT_EQ(nested.get_element(0), 0.5f);
+    EXPECT_TRUE(result.is_null_at(1));
+    EXPECT_TRUE(result.is_null_at(2));
+    EXPECT_FALSE(result.is_null_at(3));
+    EXPECT_FLOAT_EQ(nested.get_element(3), 1.5f);
+}
+
+TEST(AIFunctionTest, NullableArrayArgumentThroughPreparedFunction) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+    setenv("AI_TEST_RESULT", R"(["positive"])", 1);
+
+    std::vector<std::string> texts = {"unused-null", "good product", "unused-null"};
+    std::vector<UInt8> labels_null_map = {1, 0, 1};
+    auto labels = create_string_array_column({{}, {"positive", "negative"}, {}});
+    Block block;
+    block.insert({ColumnHelper::create_column<DataTypeString>(
+                          std::vector<std::string>(texts.size(), "mock_resource")),
+                  std::make_shared<DataTypeString>(), "resource"});
+    block.insert({ColumnHelper::create_column<DataTypeString>(texts),
+                  std::make_shared<DataTypeString>(), "text"});
+    block.insert(
+            {ColumnNullable::create(std::move(labels),
+                                    ColumnHelper::create_column<DataTypeUInt8>(labels_null_map)),
+             make_nullable(std::make_shared<DataTypeArray>(
+                     make_nullable(std::make_shared<DataTypeString>()))),
+             "labels"});
+
+    auto return_type = make_nullable(std::make_shared<DataTypeString>());
+    auto function = get_ai_function("ai_classify", block, return_type);
+    ASSERT_NE(function, nullptr);
+
+    block.insert({nullptr, return_type, "result"});
+    Status status = function->execute(ctx.get(), block, {0, 1, 2}, 3, texts.size());
+    unsetenv("AI_TEST_RESULT");
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(3).column);
+    const auto& nested = assert_cast<const ColumnString&>(result.get_nested_column());
+    EXPECT_TRUE(result.is_null_at(0));
+    EXPECT_EQ(nested.get_data_at(1).to_string(), "positive");
+    EXPECT_TRUE(result.is_null_at(2));
+}
+
+TEST(AIFunctionTest, NullableLabelElementsThroughPreparedFunction) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+    setenv("AI_TEST_RESULT", R"(["positive"])", 1);
+
+    auto labels = create_string_array_column({{"positive", "unused-null", "negative"}},
+                                             std::vector<UInt8> {0, 1, 0});
+    Block block;
+    block.insert({ColumnHelper::create_column<DataTypeString>({"mock_resource"}),
+                  std::make_shared<DataTypeString>(), "resource"});
+    block.insert({ColumnHelper::create_column<DataTypeString>({"good product"}),
+                  std::make_shared<DataTypeString>(), "text"});
+    block.insert({std::move(labels),
+                  std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>()), "labels"});
+
+    auto return_type = std::make_shared<DataTypeString>();
+    auto function = get_ai_function("ai_classify", block, return_type);
+    ASSERT_NE(function, nullptr);
+
+    block.insert({nullptr, return_type, "result"});
+    Status status = function->execute(ctx.get(), block, {0, 1, 2}, 3, 1);
+    unsetenv("AI_TEST_RESULT");
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& result = assert_cast<const ColumnString&>(*block.get_by_position(3).column);
+    ASSERT_EQ(result.size(), 1);
+    EXPECT_EQ(result.get_data_at(0).to_string(), "positive");
+}
+
+TEST(AIFunctionTest, AllNullConstArgumentReturnsConstNull) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+    constexpr size_t row_count = 5;
+
+    auto resource = ColumnConst::create(
+            ColumnHelper::create_column<DataTypeString>({"mock_resource"}), row_count);
+    auto nullable_text =
+            ColumnHelper::create_nullable_column<DataTypeString>({""}, std::vector<UInt8> {1});
+    auto text = ColumnConst::create(std::move(nullable_text), row_count);
+    Block block;
+    block.insert({std::move(resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(text), make_nullable(std::make_shared<DataTypeString>()), "text"});
+
+    auto return_type = make_nullable(std::make_shared<DataTypeString>());
+    auto function = get_ai_function("ai_generate", block, return_type);
+    ASSERT_NE(function, nullptr);
+
+    block.insert({nullptr, return_type, "result"});
+    Status status = function->execute(ctx.get(), block, {0, 1}, 2, row_count);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_TRUE(is_column_const(*block.get_by_position(2).column));
+    ColumnPtr full_result = block.get_by_position(2).column->convert_to_full_column_if_const();
+    const auto& nullable_result = assert_cast<const ColumnNullable&>(*full_result);
+    ASSERT_EQ(nullable_result.size(), row_count);
+    for (size_t row = 0; row < row_count; ++row) {
+        EXPECT_TRUE(nullable_result.is_null_at(row));
+    }
+}
+
+TEST(AIFunctionTest, NullResourceReturnsConstNullBeforeLookup) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+    constexpr size_t row_count = 3;
+
+    auto nullable_resource =
+            ColumnHelper::create_nullable_column<DataTypeString>({""}, std::vector<UInt8> {1});
+    auto resource = ColumnConst::create(std::move(nullable_resource), row_count);
+    auto text = ColumnHelper::create_column<DataTypeString>(
+            std::vector<std::string>(row_count, "prompt"));
+    Block block;
+    block.insert(
+            {std::move(resource), make_nullable(std::make_shared<DataTypeString>()), "resource"});
+    block.insert({std::move(text), std::make_shared<DataTypeString>(), "text"});
+
+    auto return_type = make_nullable(std::make_shared<DataTypeString>());
+    auto function = get_ai_function("ai_generate", block, return_type);
+    ASSERT_NE(function, nullptr);
+
+    block.insert({nullptr, return_type, "result"});
+    Status status = function->execute(ctx.get(), block, {0, 1}, 2, row_count);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_TRUE(is_column_const(*block.get_by_position(2).column));
+    EXPECT_TRUE(block.get_by_position(2).column->only_null());
 }
 
 TEST(AIFunctionTest, MissingAIResourcesMetadataTest) {

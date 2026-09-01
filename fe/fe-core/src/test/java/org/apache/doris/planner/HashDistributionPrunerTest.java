@@ -28,6 +28,8 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HashDistributionInfo.HashType;
+import org.apache.doris.catalog.LocalTablet;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 
@@ -98,7 +100,8 @@ public class HashDistributionPrunerTest {
         filters.put("CHANNEL", channelFilter);
         filters.put("SHOP_TYPE", shopTypeFilter);
 
-        HashDistributionPruner pruner = new HashDistributionPruner(null, tabletIds, columns, filters, tabletIds.size(),
+        MaterializedIndex index = createMaterializedIndex(tabletIds);
+        HashDistributionPruner pruner = new HashDistributionPruner(null, index, columns, filters, tabletIds.size(),
                 true);
 
         Collection<Long> results = pruner.prune();
@@ -201,7 +204,8 @@ public class HashDistributionPrunerTest {
         nameFilter.setUpperBound(new StringLiteral("A"), true);
         filters.put("NAME", nameFilter);
 
-        HashDistributionPruner pruner = new HashDistributionPruner(null, tabletIds, columns, filters,
+        MaterializedIndex index = createMaterializedIndex(tabletIds);
+        HashDistributionPruner pruner = new HashDistributionPruner(null, index, columns, filters,
                 tabletIds.size(), true, HashType.IDENTITY);
         // append(uint32_le(1), bytes("A")) = 1 * 256 + 65; 321 % 257 = 64
         Assert.assertEquals(Lists.newArrayList(64L), pruner.prune());
@@ -226,11 +230,59 @@ public class HashDistributionPrunerTest {
         Map<String, PartitionColumnFilter> filters = new CaseInsensitiveMap();
         filters.put(colName, filter);
 
-        HashDistributionPruner pruner = new HashDistributionPruner(null, tabletIds, columns, filters, tabletIds.size(),
+        MaterializedIndex index = createMaterializedIndex(tabletIds);
+        HashDistributionPruner pruner = new HashDistributionPruner(null, index, columns, filters, tabletIds.size(),
                 true, HashType.IDENTITY);
         Collection<Long> results = pruner.prune();
         Assert.assertEquals(1, results.size());
         Assert.assertEquals(Long.valueOf(expectedBucket), results.iterator().next());
+    }
+
+    @Test
+    public void testPruneWithMaterializedIndex() {
+        List<Long> tabletIds = Lists.newArrayListWithExpectedSize(8);
+        MaterializedIndex index = new MaterializedIndex();
+        for (long i = 0; i < 8; i++) {
+            long tabletId = 100 + i;
+            tabletIds.add(tabletId);
+            index.addTablet(new LocalTablet(tabletId), null, true);
+        }
+
+        Column column = new Column("k1", PrimitiveType.CHAR, false);
+        List<Column> columns = Lists.newArrayList(column);
+
+        List<Expr> inList = Lists.newArrayList();
+        inList.add(new StringLiteral("a"));
+        inList.add(new StringLiteral("b"));
+        PartitionColumnFilter filter = new PartitionColumnFilter();
+        filter.setInPredicate(new InPredicate(new SlotRef(null, "k1"), inList, false));
+
+        Map<String, PartitionColumnFilter> filters = new CaseInsensitiveMap();
+        filters.put("K1", filter);
+
+        Collection<Long> indexResult = new HashDistributionPruner(null, index, columns, filters,
+                tabletIds.size(), true).prune();
+        Set<Long> expectedTabletIds = Sets.newHashSet();
+        for (Expr literal : inList) {
+            PartitionKey hashKey = new PartitionKey();
+            hashKey.pushColumn((StringLiteral) literal, PrimitiveType.CHAR);
+            long hashValue = hashKey.getHashValue();
+            expectedTabletIds.add(tabletIds.get((int) ((hashValue & 0xffffffff) % tabletIds.size())));
+        }
+        Assert.assertEquals(expectedTabletIds, Sets.newHashSet(indexResult));
+
+        Map<String, PartitionColumnFilter> emptyFilters = new CaseInsensitiveMap();
+        Collection<Long> allIndexTablets = new HashDistributionPruner(null, index, columns, emptyFilters,
+                tabletIds.size(), true).prune();
+        Assert.assertEquals(tabletIds, Lists.newArrayList(allIndexTablets));
+    }
+
+    private MaterializedIndex createMaterializedIndex(List<Long> tabletIds) {
+        MaterializedIndex index = new MaterializedIndex();
+        for (long tabletId : tabletIds) {
+            index.addTablet(new LocalTablet(tabletId), null, true);
+        }
+        return index;
     }
 
 }

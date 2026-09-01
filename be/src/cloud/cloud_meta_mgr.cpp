@@ -37,6 +37,7 @@
 #include <memory>
 #include <mutex>
 #include <random>
+#include <ranges>
 #include <shared_mutex>
 #include <string>
 #include <type_traits>
@@ -54,14 +55,17 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/obj-client/obj_storage_client.h"
 #include "cpp/sync_point.h"
-#include "io/fs/obj_storage_client.h"
 #include "load/stream_load/stream_load_context.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
+#include "service/backend_options.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_fwd.h"
+#include "storage/rowset/rowset_segment_id.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_meta.h"
 #include "util/client_cache.h"
@@ -69,6 +73,7 @@
 #include "util/network_util.h"
 #include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
+#include "util/time.h"
 
 namespace doris::cloud {
 using namespace ErrorCode;
@@ -153,8 +158,63 @@ Status bthread_fork_join(std::vector<std::function<Status()>>&& tasks, int concu
     return Status::OK();
 }
 
+// Resolve the status code returned by Meta Service (MS) for BE/FE clients of different version.
+// Assuming MS is always the latest version, it sends both the meta-service error code and a code that
+// older clients can decode:
+//
+//                              latest MS
+//                 +---------------------------------------+
+//                 | actual_code = meta-service error code |
+//                 | code        = compatible code         |
+//                 +----------------+----------------------+
+//                                  |
+//                    +-------------+-------------+
+//                    |                           |
+//           old BE/FE without              old BE/FE with
+//          the actual_code field         the actual_code field
+//                    |                           |
+//          ignores actual_code            local enum recognizes
+//          and reads code                 actual_code value?
+//                                         yes                  no
+//                                         |                     |
+//                                  use actual code      use code only when it
+//                                                       is explicit and non-OK
+//                                                                 |
+//                                                          otherwise return
+//                                                           UNDEFINED_ERR
+//
+// After MS adds an error code, an older actual_code-aware client may not have that enum value;
+// MetaServiceCode_IsValid detects this case. The non-OK fallback check is essential:
+// if MS ignore or incorrectly converts the compatible code to OK, an unknown error
+// must remain an error instead of becoming a false success.
+MetaServiceCode get_response_code(const MetaServiceResponseStatus& status) {
+    if (status.has_actual_code()) {
+        // Check whether this client build contains the code in its MetaServiceCode enum.
+        if (MetaServiceCode_IsValid(status.actual_code())) {
+            return static_cast<MetaServiceCode>(status.actual_code());
+        }
+        // An older client may use the compatible code, but unsupported cases must return an explicit error.
+        // Return the non-OK compatible code prepared by MS for older clients.
+        if (status.has_code() && status.code() != MetaServiceCode::OK) {
+            return status.code();
+        }
+        // Never return OK when the compatible code is absent or invalid.
+        return MetaServiceCode::UNDEFINED_ERR;
+    }
+    // A legacy response has only code, so return its explicit value, including a real OK.
+    if (status.has_code()) {
+        return status.code();
+    }
+    // A response missing both fields is invalid and must be rejected.
+    return MetaServiceCode::UNDEFINED_ERR;
+}
+
 namespace {
 constexpr int kBrpcRetryTimes = 3;
+
+void restore_actual_code(MetaServiceResponseStatus* status) {
+    status->set_code(get_response_code(*status));
+}
 
 bvar::LatencyRecorder _get_rowset_latency("doris_cloud_meta_mgr_get_rowset");
 bvar::LatencyRecorder g_cloud_commit_txn_resp_redirect_latency("cloud_table_stats_report_latency");
@@ -418,6 +478,16 @@ using MetaServiceMethod = void (MetaService_Stub::*)(::google::protobuf::RpcCont
                                                      const Request*, Response*,
                                                      ::google::protobuf::Closure*);
 
+template <typename Request, typename Response>
+void call_ms(MetaService_Stub* stub, MetaServiceMethod<Request, Response> method,
+             brpc::Controller* cntl, const Request& req, Response* res) {
+    (stub->*method)(cntl, &req, res, nullptr);
+    if (!cntl->Failed()) {
+        // Meta Service may downgrade code for wire compatibility; restore the exact value.
+        restore_actual_code(res->mutable_status());
+    }
+}
+
 // Rate limiting context for retry_rpc
 struct RpcRateLimitCtx {
     HostLevelMSRpcRateLimiters* host_limiters {nullptr};
@@ -425,33 +495,54 @@ struct RpcRateLimitCtx {
     int64_t table_id {-1}; // For table-level backpressure, passed from caller
 };
 
-// Apply rate limiting before RPC (both host-level and table-level)
-void apply_rate_limit(MetaServiceRPC rpc, const RpcRateLimitCtx& ctx) {
-    // Table-level rate limit (for load-related RPCs only)
-    if (ctx.backpressure_handler && ctx.table_id > 0) {
-        LoadRelatedRpc load_rpc = to_load_related_rpc(rpc);
-        if (load_rpc != LoadRelatedRpc::COUNT) {
-            auto wait_until = ctx.backpressure_handler->before_rpc(load_rpc, ctx.table_id);
-            auto now = std::chrono::steady_clock::now();
-            if (wait_until > now) {
-                auto wait_us =
-                        std::chrono::duration_cast<std::chrono::microseconds>(wait_until - now)
-                                .count();
-                if (wait_us > 0) {
-                    if (auto* recorder = get_throttle_wait_recorder(load_rpc);
-                        recorder != nullptr) {
-                        *recorder << wait_us;
-                    }
-                    bthread_usleep(wait_us);
-                }
-            }
-        }
+void apply_table_level_rate_limit(MetaServiceRPC rpc, const RpcRateLimitCtx& ctx) {
+    if (ctx.backpressure_handler == nullptr || ctx.table_id <= 0) {
+        return;
     }
 
-    // Host-level rate limit
-    if (ctx.host_limiters) {
-        ctx.host_limiters->limit(rpc);
+    const auto load_rpc = to_load_related_rpc(rpc);
+    if (load_rpc == LoadRelatedRpc::COUNT) {
+        return;
     }
+
+    const auto decision = ctx.backpressure_handler->before_rpc(load_rpc, ctx.table_id);
+    const auto now = std::chrono::steady_clock::now();
+    if (decision.wait_until <= now) {
+        return;
+    }
+
+    const auto wait_us =
+            std::chrono::duration_cast<std::chrono::microseconds>(decision.wait_until - now)
+                    .count();
+    if (wait_us <= 0) {
+        return;
+    }
+
+    auto* recorder = get_throttle_wait_recorder(load_rpc);
+    DCHECK(recorder);
+    *recorder << wait_us;
+    if (ctx.backpressure_handler->should_log_throttle(load_rpc, MonotonicMicros())) {
+        const double current_qps =
+                ctx.backpressure_handler->get_current_qps(load_rpc, ctx.table_id);
+        LOG(INFO) << "[ms-throttle] table-level rate limiter triggered for MS RPC request"
+                  << ", rpc=" << load_related_rpc_name(load_rpc) << ", table_id=" << ctx.table_id
+                  << ", wait_us=" << wait_us << ", current_qps=" << current_qps
+                  << ", qps_limit=" << decision.qps_limit;
+    }
+
+    if (decision.dry_run) {
+        return;
+    }
+    bthread_usleep(wait_us);
+}
+
+// Apply rate limiting before RPC (both host-level and table-level)
+void apply_rate_limit(MetaServiceRPC rpc, const RpcRateLimitCtx& ctx) {
+    apply_table_level_rate_limit(rpc, ctx);
+    if (ctx.host_limiters == nullptr) {
+        return;
+    }
+    ctx.host_limiters->limit(rpc);
 }
 
 // Record RPC QPS statistics after RPC (for table-level tracking)
@@ -503,7 +594,7 @@ Status retry_rpc(MetaServiceRPC rpc, const Request& req, Response* res,
         cntl.set_max_retry(kBrpcRetryTimes);
         res->Clear();
         int error_code = 0;
-        (stub.get()->*method)(&cntl, &req, res, nullptr);
+        call_ms(stub.get(), method, &cntl, req, res);
 
         // Record QPS statistics for all RPCs sent to MS (success or failure)
         record_rpc_qps(rpc, rate_limit_ctx);
@@ -729,7 +820,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         }
 
         auto start = std::chrono::steady_clock::now();
-        stub->get_rowset(&cntl, &req, &resp, nullptr);
+        call_ms(stub.get(), &MetaService_Stub::get_rowset, &cntl, req, &resp);
         auto end = std::chrono::steady_clock::now();
         int64_t latency = cntl.latency_us();
         _get_rowset_latency << latency;
@@ -801,9 +892,8 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             sync_stats->get_remote_rowsets_num += resp.rowset_meta().size();
         }
 
-        // If is mow, the tablet has no delete bitmap in base rowsets.
-        // So dont need to sync it.
-        if (options.sync_delete_bitmap && tablet->enable_unique_key_merge_on_write() &&
+        // MOW and row-binlog tablets need delete bitmap from meta-service.
+        if (options.sync_delete_bitmap && tablet->need_read_delete_bitmap() &&
             tablet->tablet_state() == TABLET_RUNNING) {
             DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.sync_tablet_delete_bitmap.block",
                             DBUG_BLOCK);
@@ -1242,20 +1332,25 @@ Status CloudMetaMgr::_check_delete_bitmap_v2_correctness(CloudTablet* tablet, Ge
     }
     int64_t tablet_id = tablet->tablet_id();
     int64_t new_max_version = std::max(old_max_version, resp.rowset_meta().rbegin()->end_version());
-    // rowset_id, num_segments
-    std::vector<std::pair<RowsetId, int64_t>> all_rowsets;
+    // rowset_id, segment_ids
+    std::vector<std::pair<RowsetId, std::vector<int64_t>>> all_rowsets;
     std::map<std::string, std::string> rowset_to_resource;
     for (const auto& rs_meta : resp.rowset_meta()) {
         RowsetId rowset_id;
         rowset_id.init(rs_meta.rowset_id_v2());
-        all_rowsets.emplace_back(std::make_pair(rowset_id, rs_meta.num_segments()));
+        all_rowsets.emplace_back(rowset_id, rowset_segment_ids(rs_meta));
         rowset_to_resource[rs_meta.rowset_id_v2()] = rs_meta.resource_id();
     }
     if (old_max_version > 0) {
         RowsetIdUnorderedSet all_rs_ids;
         RETURN_IF_ERROR(tablet->get_all_rs_id(old_max_version, &all_rs_ids));
         for (auto& rowset : tablet->get_rowset_by_ids(&all_rs_ids)) {
-            all_rowsets.emplace_back(std::make_pair(rowset->rowset_id(), rowset->num_segments()));
+            std::vector<int64_t> segment_ids;
+            segment_ids.reserve(rowset->num_segments());
+            for (auto seg : rowset->segments()) {
+                segment_ids.push_back(seg.id());
+            }
+            all_rowsets.emplace_back(std::make_pair(rowset->rowset_id(), std::move(segment_ids)));
             rowset_to_resource[rowset->rowset_id().to_string()] =
                     rowset->rowset_meta()->resource_id();
         }
@@ -1263,8 +1358,8 @@ Status CloudMetaMgr::_check_delete_bitmap_v2_correctness(CloudTablet* tablet, Ge
 
     auto compare_delete_bitmap = [&](DeleteBitmap* delete_bitmap, int version) {
         bool success = true;
-        for (auto& [rs_id, num_segments] : all_rowsets) {
-            for (int seg_id = 0; seg_id < num_segments; ++seg_id) {
+        for (auto& [rs_id, segment_ids] : all_rowsets) {
+            for (auto seg_id : segment_ids) {
                 DeleteBitmap::BitmapKey key = {rs_id, seg_id, new_max_version};
                 auto dm1 = tablet->tablet_meta()->delete_bitmap().get_agg(key);
                 auto dm2 = delete_bitmap->get_agg_without_cache(key);
@@ -1476,8 +1571,8 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, const std::string
     return st;
 }
 
-Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,
-                                   RowsetMetaSharedPtr* existed_rs_meta) {
+Status CloudMetaMgr::do_commit_rowset(RowsetMeta& rs_meta, const std::string& job_id,
+                                      int64_t table_id, RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
     {
@@ -1530,6 +1625,26 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
     return st;
 }
 
+Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,
+                                   RowsetMetaSharedPtr* existed_rs_meta,
+                                   RowsetMeta* attach_row_binlog,
+                                   RowsetMetaSharedPtr* existed_attach_row_binlog) {
+    if (attach_row_binlog == nullptr) {
+        return do_commit_rowset(rs_meta, job_id, table_id, existed_rs_meta);
+    }
+
+    VLOG_DEBUG << "commit rowset with row binlog, tablet_id: " << rs_meta.tablet_id()
+               << ", rowset_id: " << rs_meta.rowset_id()
+               << ", attach_row_binlog_tablet_id: " << attach_row_binlog->tablet_id()
+               << ", attach_row_binlog_rowset_id: " << attach_row_binlog->rowset_id()
+               << " txn_id: " << rs_meta.txn_id();
+    Status st = do_commit_rowset(*attach_row_binlog, job_id, table_id, existed_attach_row_binlog);
+    if (!st.ok() && !st.is<ALREADY_EXIST>()) {
+        return st;
+    }
+    return do_commit_rowset(rs_meta, job_id, table_id, existed_rs_meta);
+}
+
 void CloudMetaMgr::cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t expiration_time) {
     // For load-generated rowsets (job_id is empty), add to pending rowset manager
     // so FE can notify BE to promote them later
@@ -1541,7 +1656,7 @@ void CloudMetaMgr::cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t e
             txn_id, tablet_id, std::move(rs_meta), expiration_time);
 }
 
-Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id) {
+Status CloudMetaMgr::do_update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id) {
     VLOG_DEBUG << "update committed rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id();
     CreateRowsetRequest req;
@@ -1566,6 +1681,22 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_
         return Status::InternalError("failed to update committed rowset: {}", resp.status().msg());
     }
     return st;
+}
+
+Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id,
+                                       const RowsetMeta* attach_row_binlog) {
+    if (attach_row_binlog == nullptr) {
+        return do_update_tmp_rowset(rs_meta, table_id);
+    }
+
+    VLOG_DEBUG << "update committed rowset with row binlog, tablet_id: " << rs_meta.tablet_id()
+               << ", rowset_id: " << rs_meta.rowset_id()
+               << ", attach_row_binlog_tablet_id: " << attach_row_binlog->tablet_id()
+               << ", attach_row_binlog_rowset_id: " << attach_row_binlog->rowset_id();
+    DCHECK_EQ(rs_meta.tablet_schema()->num_variant_columns(),
+              attach_row_binlog->tablet_schema()->num_variant_columns());
+    RETURN_IF_ERROR(do_update_tmp_rowset(*attach_row_binlog, table_id));
+    return do_update_tmp_rowset(rs_meta, table_id);
 }
 
 // async send TableStats(in res) to FE coz we are in streamload ctx, response to the user ASAP
@@ -1648,6 +1779,9 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
                         });
 
     if (st.ok()) {
+        VLOG_DEBUG << "commit txn succeeded, db_id: " << ctx.db_id << ", txn_id: " << ctx.txn_id
+                   << ", label: " << ctx.label << ", is_lazy_commit: " << res.is_lazy_commit()
+                   << ", is_lazy_commit_incomplete: " << res.is_lazy_commit_incomplete();
         std::vector<int64_t> tablet_ids;
         for (auto& commit_info : ctx.commit_infos) {
             tablet_ids.emplace_back(commit_info.tabletId);
@@ -2281,9 +2415,9 @@ int64_t CloudMetaMgr::get_segment_file_size(RowsetMeta& rs_meta) {
     if (!fs) {
         LOG(WARNING) << "get fs failed, resource_id={}" << rs_meta.resource_id();
     }
-    for (int64_t seg_id = 0; seg_id < rs_meta.num_segments(); seg_id++) {
+    for (auto seg : rs_meta.segments()) {
         std::string segment_path = StorageResource().remote_segment_path(
-                rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg_id);
+                rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg.id());
         int64_t segment_file_size = 0;
         auto st = fs->file_size(segment_path, &segment_file_size);
         if (!st.ok()) {
@@ -2312,9 +2446,9 @@ int64_t CloudMetaMgr::get_inverted_index_file_size(RowsetMeta& rs_meta) {
         InvertedIndexStorageFormatPB::V1) {
         const auto& indices = rs_meta.tablet_schema()->inverted_indexes();
         for (auto& index : indices) {
-            for (int seg_id = 0; seg_id < rs_meta.num_segments(); ++seg_id) {
+            for (auto seg : rs_meta.segments()) {
                 std::string segment_path = StorageResource().remote_segment_path(
-                        rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg_id);
+                        rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg.id());
                 int64_t file_size = 0;
 
                 std::string inverted_index_file_path =
@@ -2340,10 +2474,10 @@ int64_t CloudMetaMgr::get_inverted_index_file_size(RowsetMeta& rs_meta) {
             }
         }
     } else {
-        for (int seg_id = 0; seg_id < rs_meta.num_segments(); ++seg_id) {
+        for (auto seg : rs_meta.segments()) {
             int64_t file_size = 0;
             std::string segment_path = StorageResource().remote_segment_path(
-                    rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg_id);
+                    rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg.id());
 
             std::string inverted_index_file_path = InvertedIndexDescriptor::get_index_file_path_v2(
                     InvertedIndexDescriptor::get_index_file_path_prefix(segment_path));

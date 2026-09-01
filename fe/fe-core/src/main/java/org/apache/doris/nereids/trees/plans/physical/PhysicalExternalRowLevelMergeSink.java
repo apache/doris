@@ -1,0 +1,590 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.plans.physical;
+
+import org.apache.doris.catalog.Column;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.write.ConnectorWritePartitionField;
+import org.apache.doris.connector.spi.write.ConnectorWritePartitionSpec;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpecMerge;
+import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.Statistics;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.TreeMap;
+import java.util.stream.Collectors;
+
+/**
+ * Physical Iceberg Merge Sink for UPDATE operations.
+ * This sink is responsible for writing position delete files and data files.
+ */
+public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
+        extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
+    private final String boundWriteMetadataIdentity;
+    private final boolean writesDataFiles;
+    // True for SQL MERGE INTO, false for UPDATE; see LogicalExternalRowLevelMergeSink.
+    private final boolean requireMergeCardinalityCheck;
+
+    /**
+     * Constructor
+     */
+    public PhysicalExternalRowLevelMergeSink(ExternalDatabase database,
+                                    ExternalTable targetTable,
+                                    List<Column> cols,
+                                    List<NamedExpression> outputExprs,
+                                    boolean requireMergeCardinalityCheck,
+                                    Optional<GroupExpression> groupExpression,
+                                    LogicalProperties logicalProperties,
+                                    CHILD_TYPE child) {
+        this(database, targetTable, null, cols, outputExprs, true, requireMergeCardinalityCheck,
+                groupExpression, logicalProperties, PhysicalProperties.GATHER, null, child);
+    }
+
+    /** Builds a row-level sink with the write generation captured during logical planning. */
+    public PhysicalExternalRowLevelMergeSink(ExternalDatabase database,
+                                    ExternalTable targetTable,
+                                    String boundWriteMetadataIdentity,
+                                    List<Column> cols,
+                                    List<NamedExpression> outputExprs,
+                                    boolean requireMergeCardinalityCheck,
+                                    Optional<GroupExpression> groupExpression,
+                                    LogicalProperties logicalProperties,
+                                    CHILD_TYPE child) {
+        this(database, targetTable, boundWriteMetadataIdentity, cols, outputExprs,
+                true, requireMergeCardinalityCheck, groupExpression, logicalProperties,
+                PhysicalProperties.GATHER, null, child);
+    }
+
+    /**
+     * Constructor that records whether the merge writes replacement data files.
+     */
+    public PhysicalExternalRowLevelMergeSink(ExternalDatabase database,
+                                    ExternalTable targetTable,
+                                    List<Column> cols,
+                                    List<NamedExpression> outputExprs,
+                                    boolean writesDataFiles,
+                                    boolean requireMergeCardinalityCheck,
+                                    Optional<GroupExpression> groupExpression,
+                                    LogicalProperties logicalProperties,
+                                    CHILD_TYPE child) {
+        this(database, targetTable, null, cols, outputExprs, writesDataFiles,
+                requireMergeCardinalityCheck, groupExpression, logicalProperties,
+                PhysicalProperties.GATHER, null, child);
+    }
+
+    /** Builds a row-level sink with explicit metadata generation and data-file settings. */
+    public PhysicalExternalRowLevelMergeSink(ExternalDatabase database,
+                                    ExternalTable targetTable,
+                                    String boundWriteMetadataIdentity,
+                                    List<Column> cols,
+                                    List<NamedExpression> outputExprs,
+                                    boolean writesDataFiles,
+                                    boolean requireMergeCardinalityCheck,
+                                    Optional<GroupExpression> groupExpression,
+                                    LogicalProperties logicalProperties,
+                                    CHILD_TYPE child) {
+        this(database, targetTable, boundWriteMetadataIdentity, cols, outputExprs, writesDataFiles,
+                requireMergeCardinalityCheck, groupExpression, logicalProperties,
+                PhysicalProperties.GATHER, null, child);
+    }
+
+    /**
+     * Constructor
+     */
+    public PhysicalExternalRowLevelMergeSink(ExternalDatabase database,
+                                    ExternalTable targetTable,
+                                    List<Column> cols,
+                                    List<NamedExpression> outputExprs,
+                                    boolean requireMergeCardinalityCheck,
+                                    Optional<GroupExpression> groupExpression,
+                                    LogicalProperties logicalProperties,
+                                    PhysicalProperties physicalProperties,
+                                    Statistics statistics,
+                                    CHILD_TYPE child) {
+        this(database, targetTable, null, cols, outputExprs, true, requireMergeCardinalityCheck,
+                groupExpression, logicalProperties, physicalProperties, statistics, child);
+    }
+
+    /** Builds a row-level sink with explicit metadata generation and data-file settings. */
+    public PhysicalExternalRowLevelMergeSink(ExternalDatabase database,
+                                    ExternalTable targetTable,
+                                    String boundWriteMetadataIdentity,
+                                    List<Column> cols,
+                                    List<NamedExpression> outputExprs,
+                                    boolean writesDataFiles,
+                                    boolean requireMergeCardinalityCheck,
+                                    Optional<GroupExpression> groupExpression,
+                                    LogicalProperties logicalProperties,
+                                    PhysicalProperties physicalProperties,
+                                    Statistics statistics,
+                                    CHILD_TYPE child) {
+        super(PlanType.PHYSICAL_EXTERNAL_ROW_LEVEL_MERGE_SINK, database, targetTable, cols, outputExprs,
+                groupExpression, logicalProperties, physicalProperties, statistics, child);
+        this.boundWriteMetadataIdentity = boundWriteMetadataIdentity;
+        this.writesDataFiles = writesDataFiles;
+        this.requireMergeCardinalityCheck = requireMergeCardinalityCheck;
+    }
+
+    public String getBoundWriteMetadataIdentity() {
+        return boundWriteMetadataIdentity;
+    }
+
+    public boolean isWritesDataFiles() {
+        return writesDataFiles;
+    }
+
+    public boolean isRequireMergeCardinalityCheck() {
+        return requireMergeCardinalityCheck;
+    }
+
+    @Override
+    public Plan withChildren(List<Plan> children) {
+        return new PhysicalExternalRowLevelMergeSink<>(
+                database, targetTable,
+                boundWriteMetadataIdentity, cols, outputExprs, writesDataFiles,
+                requireMergeCardinalityCheck, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, children.get(0));
+    }
+
+    @Override
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitPhysicalExternalRowLevelMergeSink(this, context);
+    }
+
+    @Override
+    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return new PhysicalExternalRowLevelMergeSink<>(
+                database, targetTable, boundWriteMetadataIdentity, cols, outputExprs,
+                writesDataFiles, requireMergeCardinalityCheck,
+                groupExpression, getLogicalProperties(), child());
+    }
+
+    @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+                                                 Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new PhysicalExternalRowLevelMergeSink<>(
+                database, targetTable, boundWriteMetadataIdentity, cols, outputExprs,
+                writesDataFiles, requireMergeCardinalityCheck,
+                groupExpression, logicalProperties.get(), children.get(0));
+    }
+
+    @Override
+    public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
+        return new PhysicalExternalRowLevelMergeSink<>(
+                database, targetTable, boundWriteMetadataIdentity, cols, outputExprs,
+                writesDataFiles, requireMergeCardinalityCheck,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        PhysicalExternalRowLevelMergeSink<?> that = (PhysicalExternalRowLevelMergeSink<?>) o;
+        return writesDataFiles == that.writesDataFiles
+                && requireMergeCardinalityCheck == that.requireMergeCardinalityCheck
+                && Objects.equals(boundWriteMetadataIdentity, that.boundWriteMetadataIdentity);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), boundWriteMetadataIdentity,
+                writesDataFiles, requireMergeCardinalityCheck);
+    }
+
+    /**
+     * Get output physical properties.
+     */
+    @Override
+    public PhysicalProperties getRequirePhysicalProperties() {
+        ExprId rowIdExprId = null;
+        ExprId operationExprId = null;
+        Map<String, ExprId> nameToExprId = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        List<Slot> outputSlots = child().getOutput();
+        for (Slot slot : outputSlots) {
+            String name = slot.getName();
+            if (operationExprId == null && MergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
+                operationExprId = slot.getExprId();
+            }
+            if (rowIdExprId == null && Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name)) {
+                rowIdExprId = slot.getExprId();
+            }
+            nameToExprId.put(name, slot.getExprId());
+        }
+
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null || !ctx.getSessionVariable().isEnableIcebergMergePartitioning()) {
+            if (rowIdExprId != null && operationExprId != null) {
+                // Route only delete images by row ID; unmatched inserts have NULL row IDs and must
+                // remain distributable instead of collapsing onto one exchange channel.
+                return new PhysicalProperties(new DistributionSpecMerge(
+                        operationExprId,
+                        ImmutableList.of(),
+                        ImmutableList.of(rowIdExprId),
+                        true,
+                        ImmutableList.of(),
+                        null));
+            }
+            return PhysicalProperties.GATHER;
+        }
+
+        if (rowIdExprId == null || operationExprId == null) {
+            return PhysicalProperties.GATHER;
+        }
+
+        List<ExprId> insertPartitionExprIds = new ArrayList<>();
+        List<DistributionSpecMerge.MergePartitionField> insertPartitionFields = new ArrayList<>();
+        Integer partitionSpecId = null;
+        Map<String, ExprId> columnExprIdMap = buildColumnExprIdMap(outputSlots, nameToExprId);
+        Map<Integer, ExprId> columnIdToExprId = buildColumnIdExprIdMap(outputSlots);
+        boolean insertExprsOk = false;
+        InsertPartitionFieldResult fieldResult = getIcebergPartitioning(
+                insertPartitionFields, targetTable, columnExprIdMap, columnIdToExprId);
+        boolean insertFieldsOk = fieldResult.success;
+        boolean hasNonIdentity = fieldResult.hasNonIdentity;
+        if (insertFieldsOk) {
+            partitionSpecId = fieldResult.partitionSpecId;
+            insertPartitionFields.stream()
+                    .filter(field -> "identity".equals(field.getTransform()))
+                    .map(DistributionSpecMerge.MergePartitionField::getSourceExprId)
+                    .forEach(insertPartitionExprIds::add);
+            insertExprsOk = !insertPartitionExprIds.isEmpty();
+        }
+
+        boolean insertRandom = !(insertExprsOk || insertFieldsOk);
+        if (!insertFieldsOk && hasNonIdentity) {
+            insertRandom = true;
+            insertPartitionExprIds.clear();
+        }
+        if (insertRandom) {
+            insertPartitionExprIds.clear();
+            insertPartitionFields.clear();
+        }
+
+        return new PhysicalProperties(new DistributionSpecMerge(
+                operationExprId,
+                insertPartitionExprIds,
+                ImmutableList.of(rowIdExprId),
+                insertRandom,
+                insertPartitionFields,
+                partitionSpecId));
+    }
+
+    private Map<String, ExprId> buildColumnExprIdMap(List<Slot> outputSlots,
+                                                     Map<String, ExprId> nameToExprId) {
+        List<Column> visibleColumns = new ArrayList<>();
+        for (Column column : cols) {
+            if (column.isVisible()) {
+                visibleColumns.add(column);
+            }
+        }
+        List<Slot> dataSlots = getDataSlots(outputSlots);
+        if (dataSlots.size() == visibleColumns.size()) {
+            Map<String, ExprId> columnExprIdMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+            for (int i = 0; i < visibleColumns.size(); i++) {
+                columnExprIdMap.put(visibleColumns.get(i).getName(), dataSlots.get(i).getExprId());
+            }
+            return columnExprIdMap;
+        }
+        return nameToExprId;
+    }
+
+    private Map<Integer, ExprId> buildColumnIdExprIdMap(List<Slot> outputSlots) {
+        Map<Integer, ExprId> result = new HashMap<>();
+        List<Column> visibleColumns = cols.stream()
+                .filter(Column::isVisible)
+                .collect(Collectors.toList());
+        List<Slot> dataSlots = getDataSlots(outputSlots);
+        if (visibleColumns.size() != dataSlots.size()) {
+            return result;
+        }
+        for (int i = 0; i < visibleColumns.size(); i++) {
+            if (visibleColumns.get(i).getUniqueId() >= 0) {
+                result.put(visibleColumns.get(i).getUniqueId(), dataSlots.get(i).getExprId());
+            }
+        }
+        return result;
+    }
+
+    private List<Slot> getDataSlots(List<Slot> outputSlots) {
+        List<Slot> dataSlots = new ArrayList<>();
+        for (Slot slot : outputSlots) {
+            String name = slot.getName();
+            if (MergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
+                continue;
+            }
+            if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name)) {
+                continue;
+            }
+            dataSlots.add(slot);
+        }
+        return dataSlots;
+    }
+
+    /**
+     * Partition-field resolution for the merge-write distribution: asks the connector for its
+     * engine-neutral {@link ConnectorWritePartitionSpec} and reconstructs the legacy result via
+     * {@link #reconstructPartitionFields}, preserving the three legacy parities (hard-fail clear on an
+     * unresolvable source column, the non-identity pre-pass over all fields, and the spec-id carry).
+     * Routes entirely through neutral connector SPI (no {@code instanceof Iceberg*}, no native types).
+     */
+    private InsertPartitionFieldResult getIcebergPartitioning(
+            List<DistributionSpecMerge.MergePartitionField> insertPartitionFields,
+            ExternalTable table,
+            Map<String, ExprId> columnExprIdMap,
+            Map<Integer, ExprId> columnIdToExprId) {
+        return buildInsertPartitionFieldsFromConnector(
+                insertPartitionFields, (PluginDrivenExternalTable) table, columnExprIdMap, columnIdToExprId);
+    }
+
+    /**
+     * Post-flip arm of {@link #getIcebergPartitioning}: fetches the connector's engine-neutral
+     * {@link ConnectorWritePartitionSpec} via the same canonical access path as
+     * {@code PhysicalPlanTranslator.visitPhysicalConnectorTableSink}, then reconstructs the partition
+     * fields. A {@code null} write-plan provider or an unresolvable table handle degrades to the
+     * non-partitioned result (false, GATHER/random fallback), never an exception — matching the legacy
+     * native walk, which only ever returns result objects from inside the distribution derivation.
+     */
+    private InsertPartitionFieldResult buildInsertPartitionFieldsFromConnector(
+            List<DistributionSpecMerge.MergePartitionField> insertPartitionFields,
+            PluginDrivenExternalTable table,
+            Map<String, ExprId> columnExprIdMap,
+            Map<Integer, ExprId> columnIdToExprId) {
+        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
+        Connector connector = catalog.getConnector();
+        ConnectorSession session = catalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        // Resolve the handle first so the write provider is selected per-table (a heterogeneous gateway routes
+        // iceberg-on-HMS to its sibling by the handle type); both null-degrade checks keep the non-partitioned
+        // fallback. Byte-identical for single-format connectors (getWritePlanProvider(handle) defaults through).
+        ConnectorTableHandle handle = metadata.getTableHandle(
+                session, table.getRemoteDbName(), table.getRemoteName()).orElse(null);
+        if (handle == null) {
+            return new InsertPartitionFieldResult(false, false, null);
+        }
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(handle);
+        if (writePlanProvider == null) {
+            return new InsertPartitionFieldResult(false, false, null);
+        }
+        ConnectorWritePartitionSpec spec = writePlanProvider.getWritePartitioning(session, handle);
+        return reconstructPartitionFields(
+                insertPartitionFields, spec, columnExprIdMap, columnIdToExprId, cols);
+    }
+
+    /**
+     * Reconstructs the legacy {@link InsertPartitionFieldResult} from a connector's engine-neutral
+     * {@link ConnectorWritePartitionSpec}, byte-for-byte equivalent to the retired native
+     * {@code PartitionSpec} walk. Pure (no native types, no I/O) so the three parities are
+     * pinned deterministically:
+     * <ul>
+     *   <li><b>P1 hard-fail clear:</b> a field with a {@code null} source column name, or one whose name
+     *       does not resolve to a bound expr id, clears the accumulated fields and returns
+     *       {@code success=false} — short-circuited <em>before</em> constructing the field, since the
+     *       {@link DistributionSpecMerge.MergePartitionField} ctor requires a non-null expr id;</li>
+     *   <li><b>P2 non-identity pre-pass:</b> {@code hasNonIdentity} is computed over <em>all</em> fields
+     *       from the transform string ({@code !"identity".equals}) independently of resolvability,
+     *       matching legacy {@code field.transform().isIdentity()} (only {@code Identity.toString()} is
+     *       {@code "identity"}); it gates the caller's random fallback;</li>
+     *   <li><b>spec-id carry:</b> the spec id is returned on every partitioned outcome (success or
+     *       hard-fail), {@code null} only when unpartitioned.</li>
+     * </ul>
+     * A {@code null} spec means the connector reported the target unpartitioned (mirroring legacy
+     * {@code spec().isPartitioned()}), yielding {@code (false, false, null)}.
+     */
+    static InsertPartitionFieldResult reconstructPartitionFields(
+            List<DistributionSpecMerge.MergePartitionField> insertPartitionFields,
+            ConnectorWritePartitionSpec spec,
+            Map<String, ExprId> columnExprIdMap) {
+        return reconstructPartitionFields(insertPartitionFields, spec, columnExprIdMap,
+                java.util.Collections.emptyMap(), null);
+    }
+
+    static InsertPartitionFieldResult reconstructPartitionFields(
+            List<DistributionSpecMerge.MergePartitionField> insertPartitionFields,
+            ConnectorWritePartitionSpec spec,
+            Map<String, ExprId> columnExprIdMap,
+            Map<Integer, ExprId> columnIdToExprId) {
+        return reconstructPartitionFields(
+                insertPartitionFields, spec, columnExprIdMap, columnIdToExprId, null);
+    }
+
+    static InsertPartitionFieldResult reconstructPartitionFields(
+            List<DistributionSpecMerge.MergePartitionField> insertPartitionFields,
+            ConnectorWritePartitionSpec spec,
+            Map<String, ExprId> columnExprIdMap,
+            List<Column> tableColumns) {
+        return reconstructPartitionFields(insertPartitionFields, spec, columnExprIdMap,
+                java.util.Collections.emptyMap(), tableColumns);
+    }
+
+    static InsertPartitionFieldResult reconstructPartitionFields(
+            List<DistributionSpecMerge.MergePartitionField> insertPartitionFields,
+            ConnectorWritePartitionSpec spec,
+            Map<String, ExprId> columnExprIdMap,
+            Map<Integer, ExprId> columnIdToExprId,
+            List<Column> tableColumns) {
+        if (spec == null) {
+            return new InsertPartitionFieldResult(false, false, null);
+        }
+        List<ConnectorWritePartitionField> fields = spec.getFields();
+        boolean hasNonIdentity = false;
+        for (ConnectorWritePartitionField field : fields) {
+            if (!"identity".equals(field.getTransform())) {
+                hasNonIdentity = true;
+                break;
+            }
+        }
+        for (ConnectorWritePartitionField field : fields) {
+            String sourceColumnName = field.getSourceColumnName();
+            if (sourceColumnName == null) {
+                insertPartitionFields.clear();
+                return new InsertPartitionFieldResult(false, hasNonIdentity, spec.getSpecId());
+            }
+            // Prefer the stable source field id carried by the bind-time schema. A same-name replacement
+            // must not inherit the old output expression after concurrent Iceberg schema evolution.
+            Column sourceColumn = findSourceColumn(tableColumns, sourceColumnName);
+            ExprId exprId;
+            if (columnIdToExprId.isEmpty()) {
+                exprId = columnExprIdMap.get(sourceColumnName);
+            } else if (sourceColumn == null) {
+                // The id-only test seam has no column tree, so preserve its exact top-level-id lookup.
+                exprId = tableColumns == null ? columnIdToExprId.get(field.getSourceId()) : null;
+            } else {
+                // A nested Iceberg source id identifies a child, but the Nereids slot and its ExprId belong to
+                // the top-level struct. Resolve the slot by its root id and use sourceFieldPath for the child.
+                exprId = sourceColumn.getUniqueId() < 0
+                        ? null : columnIdToExprId.get(sourceColumn.getUniqueId());
+            }
+            if (exprId == null) {
+                insertPartitionFields.clear();
+                return new InsertPartitionFieldResult(false, hasNonIdentity, spec.getSpecId());
+            }
+            List<Integer> sourceFieldPath = resolveSourceFieldPath(
+                    tableColumns, sourceColumnName, field.getSourceId());
+            if (sourceFieldPath == null) {
+                insertPartitionFields.clear();
+                return new InsertPartitionFieldResult(false, hasNonIdentity, spec.getSpecId());
+            }
+            insertPartitionFields.add(new DistributionSpecMerge.MergePartitionField(
+                    field.getTransform(), exprId, field.getTransformParam(),
+                    field.getFieldName(), field.getSourceId(), sourceFieldPath));
+        }
+        if (insertPartitionFields.isEmpty()) {
+            return new InsertPartitionFieldResult(false, hasNonIdentity, spec.getSpecId());
+        }
+        return new InsertPartitionFieldResult(true, hasNonIdentity, spec.getSpecId());
+    }
+
+    private static List<Integer> resolveSourceFieldPath(
+            List<Column> tableColumns, String sourceColumnName, int sourceId) {
+        if (tableColumns == null) {
+            return ImmutableList.of();
+        }
+        Column sourceColumn = findSourceColumn(tableColumns, sourceColumnName);
+        if (sourceColumn == null) {
+            return null;
+        }
+        if (sourceColumn.getUniqueId() < 0) {
+            // Without the root id an empty path cannot distinguish a top-level source from an unstamped child.
+            return null;
+        }
+        if (sourceColumn.getUniqueId() == sourceId) {
+            return ImmutableList.of();
+        }
+        List<Integer> path = new ArrayList<>();
+        // Iceberg field ids are stable across rename/evolution; resolving by id avoids ambiguous dotted names
+        // and keeps exchange routing on the same nested value used by the writer.
+        return findSourceFieldPath(sourceColumn.getChildren(), sourceId, path)
+                ? ImmutableList.copyOf(path) : null;
+    }
+
+    private static Column findSourceColumn(List<Column> tableColumns, String sourceColumnName) {
+        if (tableColumns == null) {
+            return null;
+        }
+        for (Column column : tableColumns) {
+            if (column.getName().equalsIgnoreCase(sourceColumnName)) {
+                return column;
+            }
+        }
+        return null;
+    }
+
+    private static boolean findSourceFieldPath(List<Column> columns, int sourceId, List<Integer> path) {
+        if (columns == null) {
+            return false;
+        }
+        for (int index = 0; index < columns.size(); index++) {
+            Column column = columns.get(index);
+            path.add(index);
+            if (column.getUniqueId() == sourceId
+                    || findSourceFieldPath(column.getChildren(), sourceId, path)) {
+                return true;
+            }
+            path.remove(path.size() - 1);
+        }
+        return false;
+    }
+
+    // Package-private (not private) so the same-package parity test can assert on the reconstructed
+    // result of {@link #reconstructPartitionFields} directly, without driving the full distribution.
+    static class InsertPartitionFieldResult {
+        final boolean success;
+        final boolean hasNonIdentity;
+        final Integer partitionSpecId;
+
+        InsertPartitionFieldResult(boolean success, boolean hasNonIdentity, Integer partitionSpecId) {
+            this.success = success;
+            this.hasNonIdentity = hasNonIdentity;
+            this.partitionSpecId = partitionSpecId;
+        }
+    }
+}

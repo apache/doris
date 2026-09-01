@@ -17,12 +17,16 @@
 
 package org.apache.doris.connector.jdbc;
 
+import org.apache.doris.connector.spi.ConnectorContext;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Map;
+
 /**
  * Tests for {@link JdbcUrlNormalizer}, focusing on the setParamIfAbsent
- * duplicate-append fix (P1-7).
+ * duplicate-append fix (P1-7), plus how this connector's two deployment-level settings are resolved.
  */
 public class JdbcUrlNormalizerTest {
 
@@ -118,20 +122,16 @@ public class JdbcUrlNormalizerTest {
 
     @Test
     void testSqlServerEncryptOverrideWhenForced() {
-        java.util.Map<String, String> env = java.util.Map.of(
-                "force_sqlserver_jdbc_encrypt_false", "true");
         String url = "jdbc:sqlserver://host:1433;databaseName=test";
-        String result = JdbcUrlNormalizer.normalize(url, JdbcDbType.SQLSERVER, env);
+        String result = JdbcUrlNormalizer.normalize(url, JdbcDbType.SQLSERVER, true);
         Assertions.assertTrue(result.contains(";encrypt=false"),
-                "encrypt=false should be added when force_sqlserver_jdbc_encrypt_false is true; got: " + result);
+                "encrypt=false should be added when the override is on; got: " + result);
     }
 
     @Test
     void testSqlServerEncryptOverrideReplacesTrue() {
-        java.util.Map<String, String> env = java.util.Map.of(
-                "force_sqlserver_jdbc_encrypt_false", "true");
         String url = "jdbc:sqlserver://host:1433;encrypt=true;databaseName=test";
-        String result = JdbcUrlNormalizer.normalize(url, JdbcDbType.SQLSERVER, env);
+        String result = JdbcUrlNormalizer.normalize(url, JdbcDbType.SQLSERVER, true);
         Assertions.assertTrue(result.contains("encrypt=false"),
                 "encrypt=true should be replaced with encrypt=false; got: " + result);
         Assertions.assertFalse(result.contains("encrypt=true"),
@@ -144,6 +144,67 @@ public class JdbcUrlNormalizerTest {
         String result = JdbcUrlNormalizer.normalize(url, JdbcDbType.SQLSERVER);
         Assertions.assertFalse(result.contains("encrypt=false"),
                 "encrypt=false should NOT be added without force flag; got: " + result);
+    }
+
+    @Test
+    void theEncryptOverrideIsReadFromThePluginConfFirstThenFeConf() {
+        // The resolution the connector performs before calling normalize. Asserted here rather than
+        // trusted: an administrator who turns the override on in jdbc.conf must not be silently
+        // overruled by fe.conf's default, and vice versa an untouched deployment must keep reading
+        // fe.conf exactly as before.
+        Assertions.assertTrue(JdbcConf.forceSqlServerEncryptFalse(
+                context(Map.of(JdbcConf.CONF_FORCE_SQLSERVER_ENCRYPT_FALSE, "true"),
+                        Map.of(JdbcConf.ENV_FORCE_SQLSERVER_ENCRYPT_FALSE, "false"))));
+
+        Assertions.assertTrue(JdbcConf.forceSqlServerEncryptFalse(
+                context(Map.of(), Map.of(JdbcConf.ENV_FORCE_SQLSERVER_ENCRYPT_FALSE, "true"))));
+
+        Assertions.assertFalse(JdbcConf.forceSqlServerEncryptFalse(context(Map.of(), Map.of())));
+    }
+
+    @Test
+    void theDriversDirIsReadFromThePluginConfFirstThenFeConf() {
+        // Through JdbcConf, which is what the connector calls: asserting on ConnectorConf.get with
+        // hand-passed keys would only prove what this test passed it.
+        Assertions.assertEquals("/from/plugin/conf", JdbcConf.driversDir(
+                context(Map.of(JdbcConf.CONF_DRIVERS_DIR, "/from/plugin/conf"),
+                        Map.of(JdbcConf.ENV_DRIVERS_DIR, "/from/fe/conf"))));
+
+        Assertions.assertEquals("/from/fe/conf", JdbcConf.driversDir(
+                context(Map.of(), Map.of(JdbcConf.ENV_DRIVERS_DIR, "/from/fe/conf"))));
+    }
+
+    @Test
+    void theConfTemplateIsNamedAfterTheProvider() {
+        // The engine reads <name>.conf, so a template under any other name deploys a file nothing ever
+        // opens -- silently, with every setting in it ignored. Renaming getType() must break here.
+        String expected = new JdbcConnectorProvider().name() + ".conf.template";
+        Assertions.assertNotNull(getClass().getClassLoader().getResource(expected),
+                "the plugin must ship " + expected + " on its classpath");
+    }
+
+    private static ConnectorContext context(Map<String, String> conf, Map<String, String> env) {
+        return new ConnectorContext() {
+            @Override
+            public String getCatalogName() {
+                return "test_catalog";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 1L;
+            }
+
+            @Override
+            public Map<String, String> getConnectorConfig() {
+                return conf;
+            }
+
+            @Override
+            public Map<String, String> getEnvironment() {
+                return env;
+            }
+        };
     }
 
     private static int countOccurrences(String str, String sub) {

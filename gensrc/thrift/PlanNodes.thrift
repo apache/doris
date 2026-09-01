@@ -102,6 +102,11 @@ struct TPaloScanRange {
   10: optional i64 start_tso
   11: optional i64 end_tso
   12: optional TBinlogScanType binlog_scan_type
+  // Bucket metadata for BE-side runtime-filter bucket pruning. These fields
+  // are populated only when the scan has an eligible single-column HASH
+  // distribution runtime-filter target.
+  13: optional i32 bucket_seq
+  14: optional i32 bucket_num
 }
 
 enum TFileFormatType {
@@ -478,12 +483,29 @@ struct TTableFormatFileDesc {
     // ES per-shard parameters (used when table_format_type == "es")
     // Contains: index, type, shard_id, host_port, es_hosts
     13: optional map<string, string> es_params
+    // ADBC connection and query parameters (used when table_format_type == "adbc").
+    // Keys: driver_path, driver_entrypoint, uri, username, password,
+    //       adbc.<option> passthrough, and either query_sql or partition_b64.
+    // The partition descriptor is opaque binary, so it travels base64-encoded.
+    14: optional map<string, string> adbc_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
 enum TTextSerdeType {
     JSON_TEXT_SERDE = 0,
     HIVE_TEXT_SERDE = 1,
+}
+
+// A provider-independent logical search request. Physical target information remains in the
+// provider FileDesc (for example, dataset_uri/version/fragment_ids in TLanceFileDesc).
+struct TExternalSearchRequest {
+    1: optional i32 schema_version = 1
+}
+
+struct TLanceScanParams {
+    1: optional binary lance_substrait_filter
+    2: optional TExternalSearchRequest external_search_request
+    3: optional map<string, string> lance_storage_options
 }
 
 struct TFileScanRangeParams {
@@ -564,6 +586,12 @@ struct TFileScanRangeParams {
     // behavior during a BE-first rolling upgrade; version 1 enables file-wide ID projection and
     // logical initial-default materialization.
     34: optional i32 iceberg_scan_semantics_version
+    // FE-generated identity for sharing a deserialized table across JNI scanners in one scan node.
+    35: optional string serialized_table_cache_key
+    // HMS catalog property hive.parquet.time-zone. When absent, format_v2 keeps INT96 wall-clock
+    // values unchanged. When present, only INT96 TIMESTAMP values are converted with this zone.
+    36: optional string hive_parquet_time_zone
+    37: optional TLanceScanParams lance_scan_params
 }
 
 struct TFileRangeDesc {
@@ -659,6 +687,7 @@ struct TPaimonMetadataParams {
   9: optional map<string, string> paimon_props
 }
 
+// deprecated
 struct THudiMetadataParams {
   1: optional Types.THudiQueryType hudi_query_type
   2: optional string catalog
@@ -767,6 +796,13 @@ struct TPartitionBoundary {
   6: optional bool range_end_inclusive = false
 }
 
+// Identifies a Lance table for read-only physical index entry inspection.
+struct TLanceIndexMetadataParams {
+  1: optional string catalog
+  2: optional string database
+  3: optional string table
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params // deprecated
@@ -779,7 +815,7 @@ struct TMetaScanRange {
   9: optional TPartitionsMetadataParams partitions_params
   10: optional TMetaCacheStatsParams meta_cache_stats_params
   11: optional TPartitionValuesMetadataParams partition_values_params
-  12: optional THudiMetadataParams hudi_params
+  12: optional THudiMetadataParams hudi_params // deprecated
   13: optional TPaimonMetadataParams paimon_params // deprecated
 
   // for quering sys tables for Paimon/Iceberg
@@ -787,6 +823,7 @@ struct TMetaScanRange {
   15: optional string serialized_table;
   16: optional list<string> serialized_splits;
   17: optional TParquetMetadataParams parquet_params;
+  18: optional TLanceIndexMetadataParams lance_index_params;
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -948,6 +985,9 @@ struct TSchemaScanNode {
   14: optional string catalog
   15: optional list<Types.TNetworkAddress> fe_addr_list
   16: optional string frontend_conjuncts
+  // Captured from the session at plan time, because the FE cannot see the session of the
+  // query when the BE calls back into it for schema metadata.
+  17: optional bool mysql_compatible_index_metadata = false
 }
 
 struct TMetaScanNode {
@@ -970,7 +1010,7 @@ struct TSortInfo {
   // Expressions evaluated over the input row that materialize the tuple to be sorted.
   // Contains one expr per slot in the materialized tuple.
   4: optional list<Exprs.TExpr> sort_tuple_slot_exprs
-  // Indicates whether topn query using two phase read
+  // [deprecated] Two-phase read is replaced by TopN lazy materialization.
   6: optional bool use_two_phase_read
 }
 
@@ -1635,6 +1675,11 @@ struct TRuntimeFilterDesc {
   // slice and must be merged before being applied. Computed truthfully by FE after local
   // exchange planning; replaces inferring this from the target scan's is_serial_operator.
   21: optional bool force_local_merge;
+
+  // Scan node ids whose target is a direct SlotRef on the only HASH
+  // distribution column. BE still verifies that the delivered filter has an
+  // exact IN set before using it for bucket pruning.
+  22: optional set<Types.TPlanNodeId> bucket_pruning_target_ids;
 }
 
 

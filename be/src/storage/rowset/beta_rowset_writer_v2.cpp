@@ -61,6 +61,10 @@ BetaRowsetWriterV2::~BetaRowsetWriterV2() = default;
 
 Status BetaRowsetWriterV2::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
+    // Row-binlog writer or a schema carrying ROW_LSN_COL needs allocated LSN.
+    _context._need_allocate_lsn =
+            _context.write_binlog_opt().enable ||
+            (_context.tablet_schema != nullptr && _context.tablet_schema->row_lsn_col_idx() >= 0);
     _context.segment_collector = std::make_shared<SegmentCollectorT<BetaRowsetWriterV2>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BetaRowsetWriterV2>>(this);
     return Status::OK();

@@ -353,10 +353,14 @@ void FragmentMgr::stop() {
     // destructred and remove it from _query_ctx_map_delay_delete which is destructring. it's UB.
     _query_ctx_map_delay_delete.clear();
     _pipeline_map.clear();
+    decltype(_rerunnable_params_map) rerunnable_params_map;
     {
         std::lock_guard<std::mutex> lk(_rerunnable_params_lock);
-        _rerunnable_params_map.clear();
+        rerunnable_params_map.swap(_rerunnable_params_map);
     }
+    // RerunableFragmentInfo holds QueryContext. Destroy it after releasing the lock because
+    // QueryContext::~QueryContext() can re-enter remove_query_context().
+    rerunnable_params_map.clear();
 }
 
 static void empty_function(RuntimeState*, Status*) {}
@@ -429,18 +433,23 @@ void FragmentMgr::remove_pipeline_context(std::pair<TUniqueId, int> key) {
 }
 
 void FragmentMgr::remove_query_context(const TUniqueId& key) {
-    // Clean up any saved rerunnable params for this query to avoid memory leaks.
-    // This covers both cancel and normal destruction paths.
+    // Successful FINAL_CLOSE removes rerunnable entries one fragment at a time. Detach any entries
+    // that remain when the query is removed, such as on cancellation.
+    decltype(_rerunnable_params_map) rerunnable_params_map;
     {
         std::lock_guard<std::mutex> lk(_rerunnable_params_lock);
         for (auto it = _rerunnable_params_map.begin(); it != _rerunnable_params_map.end();) {
             if (it->first.first == key) {
-                it = _rerunnable_params_map.erase(it);
+                auto current = it++;
+                rerunnable_params_map.insert(_rerunnable_params_map.extract(current));
             } else {
                 ++it;
             }
         }
     }
+    // Destroy detached entries outside _rerunnable_params_lock. Releasing their last QueryContext
+    // reference can run QueryContext::~QueryContext(), which calls this method.
+    rerunnable_params_map.clear();
     _query_ctx_map_delay_delete.erase(key);
 #ifndef BE_TEST
     _query_ctx_map.erase(key);
@@ -656,7 +665,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             prepare_st = Status::Aborted("FragmentMgr.exec_plan_fragment.prepare_failed");
         });
         if (!prepare_st.ok()) {
-            query_ctx->cancel(prepare_st, params.fragment_id);
+            query_ctx->cancel(prepare_st);
             return prepare_st;
         }
     }
@@ -1091,6 +1100,7 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     query_options.batch_size = params.batch_size;
     query_options.execution_timeout = params.execution_timeout;
     query_options.mem_limit = params.mem_limit;
+    query_options.__isset.mem_limit = params.__isset.mem_limit;
     query_options.query_type = TQueryType::EXTERNAL;
     query_options.be_exec_version = BeExecVersionManager::get_newest_version();
     exec_fragment_params.__set_query_options(query_options);
@@ -1252,10 +1262,10 @@ Status FragmentMgr::transmit_rec_cte_block(
 // wait_for_destroy: collect deregister RF IDs, store brpc closure, trigger old PFC close
 // rebuild: increment stage, deregister old RFs, create+prepare new PFC from saved params
 // submit: submit the new PFC's pipeline tasks for execution
-// final_close: async wait for close, send final report, clean up (last round only)
+// final_close: send final report, detach saved params, trigger the last PFC close
 //
-// The brpc ClosureGuard is stored in the PFC so the RPC response is deferred until
-// the PFC is fully destroyed. This gives the caller (RecCTESourceOperatorX) a
+// During wait_for_destroy, the brpc ClosureGuard is stored in the PFC so the RPC response is
+// deferred until the PFC is fully destroyed. This gives the caller (RecCTESourceOperatorX) a
 // synchronization point to know when the old PFC has finished all its tasks.
 Status FragmentMgr::rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& guard,
                                    const TUniqueId& query_id, int fragment_id,
@@ -1293,6 +1303,17 @@ Status FragmentMgr::rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& gu
         SCOPED_ATTACH_TASK(query_ctx);
         RETURN_IF_ERROR(
                 fragment_ctx->listen_wait_close(guard, stage == PRerunFragmentParams::FINAL_CLOSE));
+
+        if (stage == PRerunFragmentParams::FINAL_CLOSE) {
+            // Detach the entry under the lock and destroy it afterward. This keeps the invariant
+            // that RerunableFragmentInfo, which owns QueryContext, is never destroyed while holding
+            // _rerunnable_params_lock.
+            decltype(_rerunnable_params_map)::node_type final_close_info;
+            {
+                std::lock_guard<std::mutex> lk(_rerunnable_params_lock);
+                final_close_info = _rerunnable_params_map.extract({query_id, fragment_id});
+            }
+        }
         fragment_ctx->notify_close();
         return Status::OK();
     } else if (stage == PRerunFragmentParams::REBUILD) {
@@ -1329,7 +1350,7 @@ Status FragmentMgr::rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& gu
         ASSIGN_STATUS_IF_CATCH_EXCEPTION(prepare_st = context->prepare(_thread_pool.get()),
                                          prepare_st);
         if (!prepare_st.ok()) {
-            q_ctx->cancel(prepare_st, info.params.fragment_id);
+            q_ctx->cancel(prepare_st);
             return prepare_st;
         }
 

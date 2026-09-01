@@ -22,12 +22,12 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.job.manager.StreamingTaskManager;
 import org.apache.doris.load.EtlJobType;
@@ -54,6 +54,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -182,6 +183,67 @@ class OlapInsertExecutorTest {
         }
     }
 
+    @Test
+    void testBeforeExecFailureUsesTheNormalAbortAndCleanupPath() throws Exception {
+        ConnectContext ctx = createExecutorContext();
+        Coordinator coordinator = createCoordinator();
+        GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TransactionState txnState = Mockito.mock(TransactionState.class);
+        LoadManager loadManager = Mockito.mock(LoadManager.class);
+        Env currentEnv = createCurrentEnv(loadManager);
+        StmtExecutor stmtExecutor = createStmtExecutor();
+
+        try (MockedStatic<EnvFactory> envFactoryMock = Mockito.mockStatic(EnvFactory.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            prepareFactoryMocks(envFactoryMock, envMock, coordinator, txnMgr, txnState, currentEnv);
+            ctx.setEnv(currentEnv);
+
+            OlapInsertExecutor executor = createExecutorWithBeforeExecFailure(ctx);
+            executor.txnId = 10004L;
+
+            Assertions.assertDoesNotThrow(() -> executor.executeSingleInsert(stmtExecutor));
+            Assertions.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+            Assertions.assertTrue(ctx.getState().getErrorMessage().contains("beforeExec failure"));
+            Mockito.verify(txnMgr).abortTransaction(1L, 10004L, "beforeExec failure");
+            Mockito.verify(coordinator).close();
+            Mockito.verify(stmtExecutor).updateProfile(true);
+        }
+    }
+
+    @Test
+    void testEmptyStreamInsertCommitsWithoutCoordinatorExecution() throws Exception {
+        ConnectContext ctx = createExecutorContext();
+        Coordinator coordinator = createCoordinator();
+        GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TransactionState txnState = Mockito.mock(TransactionState.class);
+        LoadManager loadManager = Mockito.mock(LoadManager.class);
+        Env currentEnv = createCurrentEnv(loadManager);
+        StmtExecutor stmtExecutor = createStmtExecutor();
+        List<TableStreamUpdateInfo> streamUpdateInfos = List.of(Mockito.mock(TableStreamUpdateInfo.class));
+
+        try (MockedStatic<EnvFactory> envFactoryMock = Mockito.mockStatic(EnvFactory.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            prepareFactoryMocks(envFactoryMock, envMock, coordinator, txnMgr, txnState, currentEnv);
+            ctx.setEnv(currentEnv);
+            Mockito.when(txnMgr.commitAndPublishTransaction(
+                    Mockito.any(), Mockito.anyList(), Mockito.anyLong(), Mockito.anyList(), Mockito.anyLong(),
+                    Mockito.isNull(), Mockito.eq(streamUpdateInfos))).thenReturn(true);
+
+            OlapInsertExecutor executor = createExecutor(ctx, true);
+            executor.txnId = 10005L;
+            executor.setStreamUpdateInfos(streamUpdateInfos);
+            executor.executeSingleInsert(stmtExecutor);
+
+            Mockito.verify(coordinator, Mockito.never()).exec();
+            Mockito.verify(txnMgr).commitAndPublishTransaction(
+                    Mockito.eq(executor.getDatabase()), Mockito.anyList(), Mockito.eq(10005L),
+                    Mockito.argThat(List::isEmpty), Mockito.anyLong(), Mockito.isNull(),
+                    Mockito.eq(streamUpdateInfos));
+            Assertions.assertEquals(TransactionStatus.VISIBLE, executor.txnStatus);
+            Assertions.assertEquals(0L, ctx.getReturnRows());
+        }
+    }
+
     // Build a fresh context per case so insertResult and QueryState do not leak between tests.
     private ConnectContext createExecutorContext() {
         ConnectContext ctx = new ConnectContext();
@@ -243,6 +305,10 @@ class OlapInsertExecutorTest {
 
     // Create an executor with mocked table metadata because this test only validates timeout result handling.
     private OlapInsertExecutor createExecutor(ConnectContext ctx) {
+        return createExecutor(ctx, false);
+    }
+
+    private OlapInsertExecutor createExecutor(ConnectContext ctx, boolean emptyInsert) {
         Database database = Mockito.mock(Database.class);
         Mockito.when(database.getFullName()).thenReturn("test_db");
         Mockito.when(database.getId()).thenReturn(1L);
@@ -254,20 +320,37 @@ class OlapInsertExecutorTest {
         Mockito.when(table.getId()).thenReturn(2L);
 
         return new OlapInsertExecutor(ctx, table, "label_test", Mockito.mock(NereidsPlanner.class),
-                Optional.empty(), false, 0L);
+                Optional.empty(), emptyInsert, 0L);
+    }
+
+    private OlapInsertExecutor createExecutorWithBeforeExecFailure(ConnectContext ctx) {
+        Database database = Mockito.mock(Database.class);
+        Mockito.when(database.getFullName()).thenReturn("test_db");
+        Mockito.when(database.getId()).thenReturn(1L);
+
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(table.getName()).thenReturn("test_tbl");
+        Mockito.when(table.getId()).thenReturn(2L);
+
+        return new OlapInsertExecutor(ctx, table, "label_test", Mockito.mock(NereidsPlanner.class),
+                Optional.empty(), false, 0L) {
+            @Override
+            protected void beforeExec() {
+                throw new RuntimeException("beforeExec failure");
+            }
+        };
     }
 
     // Redirect coordinator creation and transaction access to mocks so the test stays deterministic.
     private void prepareFactoryMocks(MockedStatic<EnvFactory> envFactoryMock, MockedStatic<Env> envMock,
             Coordinator coordinator, GlobalTransactionMgrIface txnMgr, TransactionState txnState, Env currentEnv) {
         EnvFactory envFactory = Mockito.mock(EnvFactory.class);
-        HiveTransactionMgr hiveTransactionMgr = Mockito.mock(HiveTransactionMgr.class);
         envFactoryMock.when(EnvFactory::getInstance).thenReturn(envFactory);
         Mockito.when(envFactory.createCoordinator(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyLong()))
                 .thenReturn(coordinator);
 
         envMock.when(Env::getCurrentGlobalTransactionMgr).thenReturn(txnMgr);
-        envMock.when(Env::getCurrentHiveTransactionMgr).thenReturn(hiveTransactionMgr);
         envMock.when(Env::getCurrentEnv).thenReturn(currentEnv);
         Mockito.when(txnMgr.getTransactionState(Mockito.anyLong(), Mockito.anyLong())).thenReturn(txnState);
     }

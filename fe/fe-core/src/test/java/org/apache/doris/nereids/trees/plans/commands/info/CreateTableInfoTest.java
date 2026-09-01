@@ -84,6 +84,13 @@ public class CreateTableInfoTest {
                 "partition expression literal is illegal!");
     }
 
+    // NOTE: the LIVE iceberg v3 reserved-row-lineage-column rejection moved off fe-core into the iceberg
+    // connector (IcebergConnectorMetadata.createTable); it is now covered by IcebergConnectorMetadataDdlTest
+    // (request-level + catalog table-default/override format-version precedence). CreateTableInfo's
+    // validateIcebergRowLineageColumns(int) is no longer on the live path (the engine gate was removed) and
+    // survives only for the legacy dead IcebergMetadataOps caller (deleted with it in the deletion phase), so
+    // the former fe-core unit tests that drove it directly were dropped.
+
     @Test
     public void testCheckPartitionNullity1() {
         List<ColumnDefinition> columnDefs = new ArrayList<>();
@@ -286,5 +293,28 @@ public class CreateTableInfoTest {
         CreateTableInfo createTableInfo2 = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo2, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
         Assertions.assertThrows(AnalysisException.class, () -> createTableInfo2.checkPartitionNullity(columnDefs2, partitionTableInfo2),
                 "Can't have null partition is for NOT NULL partition column in partition expr's index 0");
+    }
+
+    /**
+     * MAXVALUE can only be used in RANGE partition's VALUES LESS THAN, it is not a
+     * concrete LIST partition value, so InPartition.validate() must reject it.
+     */
+    @Test
+    public void testInPartitionRejectMaxValue() {
+        List<List<Expression>> values = new ArrayList<>();
+        List<Expression> innerValues = new ArrayList<>();
+        innerValues.add(PartitionDefinition.MaxValue.INSTANCE);
+        values.add(innerValues);
+        InPartition inPartition = new InPartition(false, "p1", values);
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> inPartition.validate(new HashMap<>()));
+        Assertions.assertTrue(ex.getMessage().contains("MAXVALUE is not allowed in LIST partition 'p1'"));
+        Assertions.assertTrue(ex.getMessage().contains("VALUES IN (MAXVALUE)"));
+
+        // NULL is still a valid LIST partition value.
+        List<List<Expression>> nullValues = new ArrayList<>();
+        nullValues.add(Lists.newArrayList((Expression) NullLiteral.INSTANCE));
+        InPartition nullPartition = new InPartition(false, "p2", nullValues);
+        Assertions.assertDoesNotThrow(() -> nullPartition.validate(new HashMap<>()));
     }
 }

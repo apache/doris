@@ -17,7 +17,6 @@
 
 suite("scalar_agg_pushdown") {
     sql "set eager_aggregation_mode=1;"
-    sql "set eager_aggregation_on_join=true;"
     sql "set disable_nereids_rules='SALT_JOIN';"
     sql "set runtime_filter_mode=OFF;"
     sql 'set ignore_shape_nodes="PhysicalProject, PhysicalDistribute";'

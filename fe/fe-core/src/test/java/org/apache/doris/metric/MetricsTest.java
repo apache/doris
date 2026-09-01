@@ -23,7 +23,15 @@ import org.apache.doris.cloud.JobWarmUpStats;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.JsonUtil;
+import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.cdc.split.BinlogSplit;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.job.manager.JobManager;
+import org.apache.doris.job.offset.jdbc.JdbcOffset;
+import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
@@ -40,7 +48,10 @@ import org.junit.Test;
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
@@ -121,11 +132,54 @@ public class MetricsTest {
     }
 
     @Test
+    public void testStreamingJobTimeAndLagMetrics() {
+        StreamingInsertJob job = Deencapsulation.newInstance(StreamingInsertJob.class);
+        job.setJobId(1787039821000L);
+        job.setJobName("streaming_metric_job");
+        job.setLastTaskSuccessTime(1787039821123L);
+
+        JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+        provider.setLagBytes(4096);
+        Map<String, String> committedOffset = new HashMap<>();
+        committedOffset.put("file", "mysql-bin.000001");
+        committedOffset.put("pos", "100");
+        committedOffset.put("ts_sec", "1787039800");
+        provider.setCurrentOffset(
+                new JdbcOffset(Collections.singletonList(new BinlogSplit(committedOffset))));
+        Deencapsulation.setField(job, "offsetProvider", provider);
+
+        Env env = Env.getCurrentEnv();
+        FrontendNodeType originalFeType = Deencapsulation.getField(env, "feType");
+        Deencapsulation.setField(env, "feType", FrontendNodeType.MASTER);
+        JobManager jobManager = env.getJobManager();
+        ConcurrentHashMap<Long, AbstractJob> jobMap = Deencapsulation.getField(jobManager, "jobMap");
+        jobMap.put(job.getJobId(), job);
+        try {
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            String metricResult = getPrometheusMetrics();
+
+            Assert.assertTrue(metricResult.contains("doris_fe_streaming_job_per_job_lag_bytes"
+                    + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"} 4096"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_streaming_job_per_job_last_source_event_timestamp_seconds"
+                            + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"} 1787039800"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_streaming_job_per_job_last_task_success_time_seconds"
+                            + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"} 1787039821"));
+            Assert.assertFalse(metricResult.contains("doris_fe_streaming_job_per_job_lag{"));
+        } finally {
+            jobMap.remove(job.getJobId());
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            Deencapsulation.setField(env, "feType", originalFeType);
+        }
+    }
+
+    @Test
     public void testUserQueryMetrics() {
         MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd("test_user").increase(1L);
         MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd("test_user").increase(1L);
         MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("test_user").update(10L);
-        MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("qing.lu@lbk.one").update(20L);
+        MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("xxx.yyy@example.com").update(20L);
         MetricVisitor visitor = new PrometheusMetricVisitor();
         MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
         MetricRepo.visitHistograms(visitor);
@@ -138,38 +192,38 @@ public class MetricsTest {
         Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\"} 0.0"));
         Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\",user=\"test_user\"} 10.0"));
         Assert.assertTrue(metricResult.contains(
-                "doris_fe_query_latency_ms{quantile=\"0.999\",user=\"qing.lu@lbk.one\"} 20.0"));
-        Assert.assertFalse(metricResult.contains("doris_fe_query_latency_ms_lu@lbk_one"));
+                "doris_fe_query_latency_ms{quantile=\"0.999\",user=\"xxx.yyy@example.com\"} 20.0"));
+        Assert.assertFalse(metricResult.contains("doris_fe_query_latency_ms_yyy@example_com"));
 
     }
 
     @Test
     public void testPrometheusVisitorKeepsLabeledHistogramValuesOutOfMetricName() {
         HistogramMetric histogramMetric = new HistogramMetric("query.latency.ms",
-                Lists.newArrayList(new MetricLabel("user", "thomas.liu@developertools.com")));
+                Lists.newArrayList(new MetricLabel("user", "xxx.yyy@example.com")));
         histogramMetric.update(30L);
         MetricVisitor prometheusVisitor = new PrometheusMetricVisitor();
         prometheusVisitor.visitHistogram(MetricVisitor.FE_PREFIX, histogramMetric.getName(),
                 histogramMetric.getHistogram(), histogramMetric.getLabels());
         String prometheusResult = prometheusVisitor.finish();
         Assert.assertTrue(prometheusResult.contains(
-                "doris_fe_query_latency_ms{quantile=\"0.999\",user=\"thomas.liu@developertools.com\"} 30.0"));
-        Assert.assertFalse(prometheusResult.contains("doris_fe_query_latency_ms_liu@developertools_com"));
-        Assert.assertFalse(prometheusResult.contains("user=\"thomas\""));
+                "doris_fe_query_latency_ms{quantile=\"0.999\",user=\"xxx.yyy@example.com\"} 30.0"));
+        Assert.assertFalse(prometheusResult.contains("doris_fe_query_latency_ms_yyy@example_com"));
+        Assert.assertFalse(prometheusResult.contains("user=\"xxx\""));
     }
 
     @Test
     public void testJsonVisitorKeepsLabeledHistogramValuesOutOfMetricName() {
         HistogramMetric histogramMetric = new HistogramMetric("query.latency.ms",
-                Lists.newArrayList(new MetricLabel("user", "qing.lu@lbk.one")));
+                Lists.newArrayList(new MetricLabel("user", "xxx.yyy@example.com")));
         histogramMetric.update(20L);
         MetricVisitor jsonVisitor = new JsonMetricVisitor();
         jsonVisitor.visitHistogram(MetricVisitor.FE_PREFIX, histogramMetric.getName(),
                 histogramMetric.getHistogram(), histogramMetric.getLabels());
         String jsonResult = jsonVisitor.finish();
         Assert.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_query_latency_ms\""));
-        Assert.assertTrue(jsonResult.contains("\"user\":\"qing.lu@lbk.one\""));
-        Assert.assertFalse(jsonResult.contains("\"metric\":\"doris_fe_query_latency_ms_lu@lbk_one\""));
+        Assert.assertTrue(jsonResult.contains("\"user\":\"xxx.yyy@example.com\""));
+        Assert.assertFalse(jsonResult.contains("\"metric\":\"doris_fe_query_latency_ms_yyy@example_com\""));
     }
 
     @Test
@@ -246,6 +300,48 @@ public class MetricsTest {
                 CloudMetrics.VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER.getMetrics().clear();
             }
             CloudMetrics.VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER = originMetric;
+            Config.cloud_unique_id = originCloudUniqueId;
+        }
+    }
+
+    @Test
+    public void testCloudTabletRebalancerMetrics() {
+        String originCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.cloud_unique_id = "test_cloud_unique_id";
+            CloudMetrics.initCloudTabletRebalancerMetrics();
+
+            MetricRepo.updateCloudTabletRebalancerMetrics(125L, 4096L, 200L);
+
+            String metricResult = getPrometheusMetrics();
+            Assert.assertTrue(metricResult.contains("# TYPE doris_fe_cloud_tablet_rebalancer_round_total counter"));
+            Assert.assertTrue(metricResult.contains("doris_fe_cloud_tablet_rebalancer_round_total 1"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_allocated_bytes_total 4096"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_last_round_allocated_bytes 4096"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_duration_ms_total 125"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_last_round_duration_ms 125"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_tablet_scan_total 200"));
+
+            MetricRepo.updateCloudTabletRebalancerMetrics(25L, -1L, 50L);
+
+            metricResult = getPrometheusMetrics();
+            Assert.assertTrue(metricResult.contains("doris_fe_cloud_tablet_rebalancer_round_total 2"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_allocated_bytes_total 4096"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_last_round_allocated_bytes -1"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_duration_ms_total 150"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_last_round_duration_ms 25"));
+            Assert.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_tablet_scan_total 250"));
+        } finally {
             Config.cloud_unique_id = originCloudUniqueId;
         }
     }

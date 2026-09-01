@@ -38,6 +38,7 @@
 #include "exprs/vexpr_context.h"
 #include "format/native/native_format.h"
 #include "format_v2/column_mapper.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"

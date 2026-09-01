@@ -44,7 +44,6 @@ struct pairing_heap_tag;
 
 namespace doris {
 
-class TabletSchema;
 class RuntimeProfile;
 
 // Pure-computation helper: estimate whether collected data meets the byte budget
@@ -122,7 +121,7 @@ private:
     class LevelIterator {
     public:
         LevelIterator(TabletReader* reader)
-                : _schema(reader->tablet_schema()),
+                : _schema(reader->_read_schema),
                   _compare_columns(reader->_reader_context.read_orderby_key_columns) {}
 
         virtual Status init(bool get_data_by_ref = false) = 0;
@@ -143,7 +142,8 @@ private:
 
         virtual ~LevelIterator() = default;
 
-        const TabletSchema& tablet_schema() const { return _schema; }
+        // Exact read schema of every block this iterator exposes.
+        const ReadSchema& schema() const { return *_schema; }
 
         const inline std::vector<uint32_t>* compare_columns() const { return _compare_columns; }
 
@@ -156,7 +156,7 @@ private:
         virtual void update_profile(RuntimeProfile* profile) = 0;
 
     protected:
-        const TabletSchema& _schema;
+        const ReadSchemaSPtr _schema;
         IteratorRowRef _ref;
         std::vector<uint32_t>* _compare_columns = nullptr;
     };
@@ -234,7 +234,8 @@ private:
         Status refresh_current_row();
 
     private:
-        Status _next_by_ref(IteratorRowRef* ref);
+        // Build an empty block with the exact read-schema layout.
+        std::shared_ptr<Block> _create_read_block() const;
 
         bool _is_empty() {
             if (_get_data_by_ref) {
@@ -324,6 +325,9 @@ private:
         bool collected_enough_rows(const MutableColumns& columns, int rows_to_merge) const;
 
     private:
+        // Validate comparator ordinals and the default key-prefix layout.
+        Status _validate_merge_compare_contract(int sequence_ordinal) const;
+
         Status _merge_next(IteratorRowRef* ref);
 
         Status _normal_next(IteratorRowRef* ref);

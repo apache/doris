@@ -18,10 +18,6 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.maxcompute.MCProperties;
-import org.apache.doris.datasource.property.metastore.AWSGlueMetaStoreBaseProperties;
-import org.apache.doris.datasource.property.metastore.AliyunDLFBaseProperties;
-import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
-import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.util.BasicPrintableMap;
 
 import com.google.common.collect.Sets;
@@ -47,11 +43,39 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         SENSITIVE_KEY.add("bos_secret_accesskey");
         SENSITIVE_KEY.add("jdbc.password");
         SENSITIVE_KEY.add("elasticsearch.password");
+        SENSITIVE_KEY.add("ai.api_key");
         SENSITIVE_KEY.addAll(Arrays.asList(
                 MCProperties.SECRET_KEY));
-        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AliyunDLFBaseProperties.class));
-        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AWSGlueMetaStoreBaseProperties.class));
-        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(IcebergRestProperties.class));
+        // DLF 1.0 secret keys. Formerly reflected off AliyunDLFBaseProperties, removed with the DLF 1.0 thrift
+        // metastore. Masking must outlive the feature: a DLF catalog created before the removal still replays from
+        // the image (rejection deliberately fires at CREATE and at client creation, never during replay, so FE can
+        // still start), so it remains listable and SHOW CREATE CATALOG still prints its stored properties. All four
+        // former sensitive keys are enumerated here, byte-identical to the former reflection result (the class had
+        // no superclass, so the walk contributed nothing else). The overlap with the inlined storage keys
+        // below is uneven and must NOT be relied on: they alias dlf.secret_key, but nothing else covers
+        // dlf.catalog.accessKeySecret or either session-token alias, so omitting those would silently unmask them.
+        // AWS Glue's only sensitive property (glueSecretKey) aliased
+        // {glue.secret_key, aws.glue.secret-key, client.credentials-provider.glue.secret_key}; all three are
+        // already in the inlined storage-key union below, so removing AWSGlueMetaStoreBaseProperties with the
+        // hive migration drops no masked key.
+        SENSITIVE_KEY.add("dlf.secret_key");
+        SENSITIVE_KEY.add("dlf.catalog.accessKeySecret");
+        SENSITIVE_KEY.add("dlf.session_token");
+        SENSITIVE_KEY.add("dlf.catalog.sessionToken");
+        // Iceberg REST catalog secret keys. Formerly reflected off the fe-core IcebergRestProperties
+        // (getSensitiveKeys). That class is removed with the fe-core iceberg property cluster; its
+        // authoritative copy now lives connector-side (fe-connector-metastore-iceberg
+        // IcebergRestMetaStoreProperties), which fe-core cannot depend on. SHOW CREATE CATALOG masking must
+        // still hide these, so all four former IcebergRestProperties sensitive keys are enumerated explicitly,
+        // byte-identical to the former reflection result (nothing in its now-retired fe-core superclass chain
+        // carried sensitive keys). Note the overlap with the inlined storage keys below is
+        // uneven and must NOT be relied on: iceberg.rest.secret-access-key aliases the (sensitive) S3 secret
+        // key, but iceberg.rest.session-token aliases the S3 session-token field which is NOT sensitive, so
+        // omitting it here would silently unmask it. Keep in sync with the connector's sensitive REST keys.
+        SENSITIVE_KEY.add("iceberg.rest.oauth2.token");
+        SENSITIVE_KEY.add("iceberg.rest.oauth2.credential");
+        SENSITIVE_KEY.add("iceberg.rest.secret-access-key");
+        SENSITIVE_KEY.add("iceberg.rest.session-token");
         // Inlined union of the legacy typed storage classes' @ConnectorProperty(sensitive = true)
         // key aliases (S3/GCS/Azure/OSS/OSS-HDFS/COS/OBS/Minio Properties). The set is
         // case-insensitive, so alias spellings differing only in case are listed once. Locked

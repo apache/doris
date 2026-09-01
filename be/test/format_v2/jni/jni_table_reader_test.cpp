@@ -27,7 +27,15 @@
 #include <thread>
 #include <vector>
 
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vslot_ref.h"
+#include "format/jni/jni_data_bridge.h"
+#include "format_v2/jni/hudi_jni_reader.h"
 #include "io/io_common.h"
+#include "runtime/runtime_state.h"
 
 namespace doris::format {
 namespace {
@@ -107,6 +115,135 @@ Status init_reader(FakeJniTableReader* reader, const std::shared_ptr<io::IOConte
             .runtime_state = nullptr,
             .scanner_profile = scanner_profile,
     });
+}
+
+TEST(JniTableReaderTest, RequiredFieldEncodingPreservesQuotedIdentifiers) {
+    EXPECT_EQ(JniDataBridge::encode_schema_values({"region,code", "hash#name", "地区 名"}),
+              "$cmVnaW9uLGNvZGU=,$aGFzaCNuYW1l,$5Zyw5Yy6IOWQjQ==");
+    EXPECT_EQ(JniDataBridge::encode_schema_values({}), "");
+    EXPECT_EQ(JniDataBridge::encode_schema_values({""}), "$");
+}
+
+TEST(JniTableReaderTest, EncodedTypeDescriptorsPreserveNestedQuotedIdentifiers) {
+    auto type = std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
+                       std::make_shared<DataTypeString>()},
+            Strings {"hash#name", "region,code", "colon:name"});
+
+    // Keep standard Base64 padding in the wire-contract expectation; Java decodes these tokens
+    // verbatim, and field names whose length is not divisible by three require trailing '=' bytes.
+    EXPECT_EQ(JniDataBridge::get_jni_type_with_encoded_struct_fields(type),
+              "struct<$aGFzaCNuYW1l:string,$cmVnaW9uLGNvZGU=:string,$Y29sb246bmFtZQ==:string>");
+}
+
+TEST(JniTableReaderTest, GenericConnectorDoesNotPublishPaimonEncodedSchema) {
+    FakeJniTableReader reader;
+    reader._jni_columns = {JniTableReader::JniColumn {
+            .java_name = "region,code",
+            // Keep the aggregate complete because BE UT treats omitted JNI column fields as errors.
+            .output_type = std::make_shared<DataTypeString>(),
+            .transfer_type = std::make_shared<DataTypeString>(),
+    }};
+
+    reader._prepare_jni_scanner_schema();
+
+    EXPECT_FALSE(reader._scanner_params.contains("required_fields_base64"));
+    EXPECT_FALSE(reader._scanner_params.contains("columns_types_base64"));
+}
+
+TEST(JniTableReaderTest, GenericConnectorUsesQuerySessionTimezone) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("America/Los_Angeles");
+    FakeJniTableReader reader;
+    ASSERT_TRUE(reader.init({.projected_columns = {},
+                             .conjuncts = {},
+                             .format = FileFormat::JNI,
+                             .scan_params = nullptr,
+                             .io_ctx = nullptr,
+                             .runtime_state = &state,
+                             .scanner_profile = nullptr})
+                        .ok());
+
+    reader._apply_common_scanner_params();
+    EXPECT_EQ(reader._scanner_params["time_zone"], "America/Los_Angeles");
+}
+
+TEST(JniTableReaderTest, CatalogTimezoneCannotOverrideQuerySessionTimezone) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("America/Los_Angeles");
+    FakeJniTableReader reader;
+    ASSERT_TRUE(reader.init({.projected_columns = {},
+                             .conjuncts = {},
+                             .format = FileFormat::JNI,
+                             .scan_params = nullptr,
+                             .io_ctx = nullptr,
+                             .runtime_state = &state,
+                             .scanner_profile = nullptr})
+                        .ok());
+    reader._scanner_params["time_zone"] = "UTC";
+
+    reader._apply_common_scanner_params();
+
+    EXPECT_EQ(reader._scanner_params["time_zone"], "America/Los_Angeles");
+}
+
+TEST(HudiJniReaderTest, CatalogInt96TimezoneDoesNotOverrideSessionTimezone) {
+    TFileScanRangeParams scan_params;
+    scan_params.__set_hive_parquet_time_zone("Asia/Shanghai");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("America/Los_Angeles");
+
+    hudi::HudiJniReader reader;
+    ASSERT_TRUE(reader.init({.projected_columns = {},
+                             .conjuncts = {},
+                             .format = FileFormat::JNI,
+                             .scan_params = &scan_params,
+                             .io_ctx = nullptr,
+                             .runtime_state = &state,
+                             .scanner_profile = nullptr})
+                        .ok());
+    TFileRangeDesc range;
+    TTableFormatFileDesc table_format_params;
+    THudiFileDesc hudi_params;
+    table_format_params.__set_hudi_params(std::move(hudi_params));
+    range.__set_table_format_params(std::move(table_format_params));
+    reader._current_range = std::move(range);
+
+    std::map<std::string, std::string> params;
+    ASSERT_TRUE(reader.build_scanner_params(&params).ok());
+    reader._scanner_params = std::move(params);
+    reader._apply_common_scanner_params();
+    EXPECT_EQ(reader._scanner_params["time_zone"], "America/Los_Angeles");
+    EXPECT_FALSE(reader._scanner_params.contains("int96_time_zone"));
+}
+
+TEST(HudiJniReaderTest, UnconfiguredInt96TimezoneUsesSessionTimezone) {
+    TFileScanRangeParams scan_params;
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("America/Los_Angeles");
+
+    hudi::HudiJniReader reader;
+    ASSERT_TRUE(reader.init({.projected_columns = {},
+                             .conjuncts = {},
+                             .format = FileFormat::JNI,
+                             .scan_params = &scan_params,
+                             .io_ctx = nullptr,
+                             .runtime_state = &state,
+                             .scanner_profile = nullptr})
+                        .ok());
+    TFileRangeDesc range;
+    TTableFormatFileDesc table_format_params;
+    THudiFileDesc hudi_params;
+    table_format_params.__set_hudi_params(std::move(hudi_params));
+    range.__set_table_format_params(std::move(table_format_params));
+    reader._current_range = std::move(range);
+
+    std::map<std::string, std::string> params;
+    ASSERT_TRUE(reader.build_scanner_params(&params).ok());
+    reader._scanner_params = std::move(params);
+    reader._apply_common_scanner_params();
+    EXPECT_EQ(reader._scanner_params["time_zone"], "America/Los_Angeles");
+    EXPECT_FALSE(reader._scanner_params.contains("int96_time_zone"));
 }
 
 TEST(JniTableReaderTest, CancellationStopsBeforeFetchingAnotherJavaBatch) {
@@ -199,6 +336,29 @@ TEST(JniTableReaderTest, AdaptiveProbeSetBeforePrepareControlsFirstJniOpen) {
 
     EXPECT_EQ(reader.open_batch_sizes, std::vector<size_t>({32}));
     EXPECT_TRUE(reader.TEST_scanner_opened());
+}
+
+TEST(JniTableReaderTest, RefreshedConjunctIsReadyBeforeFilteringOpenScanner) {
+    FakeJniTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, nullptr).ok());
+    ASSERT_TRUE(reader.prepare_split({
+                                             .partition_values = {},
+                                             .conjuncts = std::nullopt,
+                                             .partition_prune_conjuncts = {},
+                                             .all_runtime_filters_applied = true,
+                                             .condition_cache_digest = std::nullopt,
+                                             .cache = nullptr,
+                                             .current_range = {},
+                                             .current_split_format = FileFormat::JNI,
+                                             .global_rowid_context = std::nullopt,
+                                     })
+                        .ok());
+
+    auto refreshed = VExprContext::create_shared(
+            VSlotRef::create_shared(0, 0, 0, std::make_shared<DataTypeUInt8>(), "filter_column"));
+    ASSERT_FALSE(refreshed->root()->ready_status().ok());
+    ASSERT_TRUE(reader.refresh_conjuncts({refreshed}).ok());
+    EXPECT_TRUE(refreshed->root()->ready_status().ok());
 }
 
 TEST(JniTableReaderTest, CommonLifecycleTimersContainJniLifecycleWork) {

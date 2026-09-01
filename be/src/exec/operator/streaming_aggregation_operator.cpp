@@ -763,16 +763,19 @@ bool StreamingAggLocalState::_emplace_into_hash_table_limit(AggregateDataPtr* pl
                               };
 
                               auto creator_for_null_key = [&](auto& mapped) {
-                                  mapped = _agg_arena_pool.aligned_alloc(
+                                  auto* new_state = _agg_arena_pool.aligned_alloc(
                                           Base::_parent->template cast<StreamingAggOperatorX>()
                                                   ._total_size_of_aggregate_states,
                                           Base::_parent->template cast<StreamingAggOperatorX>()
                                                   ._align_aggregate_states);
-                                  auto st = _create_agg_status(mapped);
+                                  auto st = _create_agg_status(new_state);
                                   if (!st) {
                                       throw Exception(st.code(), st.to_string());
                                   }
-                                  _refresh_limit_heap(i, key_columns);
+                                  commit_aggregate_state(
+                                          mapped, new_state,
+                                          [&] { _refresh_limit_heap(i, key_columns); },
+                                          [&](auto* state) { _destroy_agg_status(state); });
                               };
 
                               SCOPED_TIMER(_hash_table_emplace_timer);
@@ -1009,7 +1012,8 @@ Status StreamingAggOperatorX::_init_probe_expr_ctx(RuntimeState* state) {
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
-    RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));
+    RETURN_IF_ERROR(
+            VExpr::prepare(_probe_expr_ctxs, state, _child->operator_row_desc_after_projection()));
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
     return Status::OK();
 }
@@ -1028,7 +1032,8 @@ Status StreamingAggOperatorX::_init_aggregate_evaluators(RuntimeState* state) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
-                state, _child->row_desc(), intermediate_slot_desc, output_slot_desc));
+                state, _child->operator_row_desc_after_projection(), intermediate_slot_desc,
+                output_slot_desc));
         _aggregate_evaluators[i]->set_version(state->be_exec_version());
     }
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
@@ -1122,7 +1127,8 @@ Status StreamingAggOperatorX::push(RuntimeState* state, Block* in_block, bool eo
         RETURN_IF_ERROR(
                 local_state.do_pre_agg(state, in_block, local_state._pre_aggregated_block.get()));
     }
-    in_block->clear_column_data(_child->row_desc().num_materialized_slots());
+    in_block->clear_column_data(
+            _child->operator_row_desc_after_projection().num_materialized_slots());
     return Status::OK();
 }
 

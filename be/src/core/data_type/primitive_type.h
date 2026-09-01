@@ -34,9 +34,9 @@
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exec/common/template_helpers.hpp"
-#include "util/json/path_in_data.h"
 
 namespace doris {
+class PathInData;
 template <typename T>
 class ColumnStr;
 class IColumnDummy;
@@ -44,13 +44,12 @@ class ColumnMap;
 class ColumnVariant;
 class ColumnStruct;
 class ColumnVarbinary;
+class VariantField;
 using ColumnString = ColumnStr<UInt32>;
 class JsonbField;
 struct Array;
 struct Struct;
 struct Map;
-struct FieldWithDataType;
-using VariantMap = std::map<PathInData, FieldWithDataType>;
 template <DecimalNativeTypeConcept T>
 struct Decimal;
 template <PrimitiveType T>
@@ -496,7 +495,7 @@ struct PrimitiveTypeTraits<TYPE_STRUCT> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_VARIANT> {
-    using CppType = VariantMap;
+    using CppType = VariantField;
     using StorageFieldType = CppType;
     using DataType = DataTypeVariant;
     using ColumnType = ColumnVariant;

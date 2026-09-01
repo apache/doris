@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StructField;
@@ -105,8 +106,11 @@ public class CreateNamedStruct extends ScalarFunction implements CustomSignature
             ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
             for (int i = 0; i < arity(); i = i + 2) {
                 StringLikeLiteral nameLiteral = (StringLikeLiteral) child(i);
+                // A named struct has the same value-nullability contract as struct(...); keeping
+                // the field nullable here would reject safe casts into required target fields.
                 structFields.add(new StructField(nameLiteral.getStringValue(),
-                        children.get(i + 1).getDataType(), true, ""));
+                        children.get(i + 1).getDataType(),
+                        StructLiteral.computeFieldNullable(children.get(i + 1)), ""));
             }
             return FunctionSignature.ret(new StructType(structFields.build()))
                     .args(children.stream().map(ExpressionTrait::getDataType).toArray(DataType[]::new));

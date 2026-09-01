@@ -23,9 +23,11 @@
 #include "core/data_type/data_type.h"
 #include "exprs/vexpr_fwd.h"
 #include "format_v2/parquet/parquet_profile.h"
+#include "format_v2/parquet/reader/direct_predicate.h"
 #include "format_v2/parquet/selection_vector.h"
 
 namespace doris::format::parquet {
+
 struct ParquetColumnSchema;
 
 // Scan-time column contract for FileScannerV2.
@@ -59,7 +61,8 @@ public:
                                                  uint16_t selected_rows, int64_t batch_rows,
                                                  const IColumn::Filter& dictionary_filter,
                                                  IColumn* projected_column,
-                                                 IColumn::Filter* row_filter, bool* used_filter);
+                                                 IColumn::Filter* row_filter,
+                                                 uint16_t* survivor_count, bool* used_filter);
 
     // Consume batch_rows and evaluate eligible fixed-width values without first constructing a
     // complete predicate column. Append survivors when projected_column is non-null. Implementations
@@ -68,7 +71,17 @@ public:
                                                   uint16_t selected_rows, int64_t batch_rows,
                                                   const VExprSPtrs& conjuncts, int column_id,
                                                   IColumn* projected_column,
-                                                  IColumn::Filter* row_filter, bool* used_filter);
+                                                  IColumn::Filter* row_filter, bool* used_filter,
+                                                  DirectPredicateExecutionKind* execution_kind);
+
+    // Consume batch_rows and evaluate runtime filters on file-local logical values inside the
+    // reader. This covers encodings and logical conversions that cannot use the raw fixed-width
+    // path while still preventing a second expression pass in the scan scheduler.
+    virtual Status select_with_runtime_filter(const SelectionVector& selection,
+                                              uint16_t selected_rows, int64_t batch_rows,
+                                              const VExprContextSPtrs& conjuncts, int column_id,
+                                              MutableColumnPtr* projected_column,
+                                              IColumn::Filter* row_filter, bool* used_filter);
 
     // Native statistics are cumulative and can be recursively aggregated for complex columns.
     // Flush once at the scheduler batch boundary instead of snapshotting after each operation.

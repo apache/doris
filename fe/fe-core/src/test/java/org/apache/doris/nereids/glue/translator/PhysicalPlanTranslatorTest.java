@@ -19,13 +19,25 @@ package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.GroupingInfo;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTableWrapper;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.RowBinlogTableWrapper;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.properties.DataTrait;
@@ -48,6 +60,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.planner.AggregationNode;
+import org.apache.doris.planner.MaterializationNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PartitionSortNode;
 import org.apache.doris.planner.PlanFragment;
@@ -59,6 +72,7 @@ import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
+import org.apache.doris.thrift.TRuntimeFilterType;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -78,11 +92,17 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 public class PhysicalPlanTranslatorTest extends TestWithFeService {
 
+    private boolean originalEnableFeatureBinlog;
+    private boolean originalEnableTableStream;
+
     @Override
     protected void runBeforeAll() throws Exception {
+        originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        originalEnableTableStream = Config.enable_table_stream;
         createDatabase("test_db");
         createTable("create table test_db.t(a int, b int) distributed by hash(a) buckets 3 "
                 + "properties('replication_num' = '1');");
@@ -96,7 +116,43 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 + ")\n"
                 + "distributed by hash(k1) buckets 3\n"
                 + "properties('replication_num' = '1');");
+        Config.enable_feature_binlog = true;
+        Config.enable_table_stream = true;
+        createTable("create table test_db.binlog_scan_schema_t(\n"
+                + "k1 int, k2 int, v1 int, v2 int)\n"
+                + "unique key(k1, k2)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1',"
+                + "'enable_unique_key_merge_on_write' = 'true',"
+                + "'binlog.enable' = 'true','binlog.format' = 'ROW',"
+                + "'binlog.need_historical_value' = 'true');");
+        createTable("create table test_db.sequence_scan_schema_t(\n"
+                + "k1 int, k2 int, v1 int, v2 int)\n"
+                + "unique key(k1, k2)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1',"
+                + "'enable_unique_key_merge_on_write' = 'false',"
+                + "'function_column.sequence_type' = 'int');");
+        createTable("create table test_db.sequence_map_scan_schema_t(\n"
+                + "k1 bigint, k2 int, v1 int, v2 int, s1 bigint, s2 bigint)\n"
+                + "unique key(k1, k2)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1',"
+                + "'enable_unique_key_merge_on_write' = 'false',"
+                + "'sequence_mapping.s1' = 'v1',"
+                + "'sequence_mapping.s2' = 'v2');");
+        createTable("create stream test_db.binlog_scan_schema_stream "
+                + "on table test_db.binlog_scan_schema_t properties('type' = 'append_only')");
+        Database database = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_db");
+        bumpPartitionsAndReplicas(
+                (OlapTable) database.getTableOrMetaException("binlog_scan_schema_t"), 2L);
         connectContext.getSessionVariable().setDisableNereidsRules("prune_empty_partition");
+    }
+
+    @Override
+    protected void runAfterAll() {
+        Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        Config.enable_table_stream = originalEnableTableStream;
     }
 
     @Test
@@ -172,6 +228,126 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
     }
 
     @Test
+    public void testBinlogPhysicalScanSchemaDependencies() throws Exception {
+        OlapScanNode scanNode = getFirstOlapScanNode(
+                "select v1 from test_db.binlog_scan_schema_t"
+                        + "@incr(\"incrementType\" = \"MIN_DELTA\")");
+        List<String> scanColumns = scanNode.getTupleDesc().getSlots().stream()
+                .map(slot -> slot.getColumn().getName())
+                .collect(Collectors.toList());
+
+        Assertions.assertTrue(scanColumns.containsAll(ImmutableList.of(
+                "k1", "k2", "v1", "v2", Column.generateBeforeColName("v1"),
+                Column.generateBeforeColName("v2"),
+                Column.BINLOG_OPERATION_COL, Column.BINLOG_TSO_COL)));
+        Assertions.assertFalse(scanColumns.contains(Column.BINLOG_LSN_COL));
+
+        Assertions.assertTrue(scanNode.getExtraKeyColumnSlotIds().isEmpty());
+        Assertions.assertEquals(ImmutableList.of("v1"), scanNode.getOutputTupleDesc().getSlots().stream()
+                .map(slot -> slot.getColumn().getName())
+                .collect(Collectors.toList()));
+
+        TPlanNode thriftScanNode = scanNode.treeToThrift().getNodes().get(0);
+        Set<Integer> dependencyUniqueIds = scanNode.getTupleDesc().getSlots().stream()
+                .filter(slot -> !slot.getColumn().getName().equals("v1"))
+                .map(slot -> slot.getColumn().getUniqueId())
+                .collect(Collectors.toSet());
+        Assertions.assertTrue(dependencyUniqueIds.stream()
+                .noneMatch(thriftScanNode.olap_scan_node.getOutputColumnUniqueIds()::contains));
+    }
+
+    @Test
+    public void testAppendOnlyBinlogPhysicalScanSchemaDependencies() throws Exception {
+        OlapScanNode scanNode = getFirstOlapScanNode(
+                "select v1 from test_db.binlog_scan_schema_t"
+                        + "@incr(\"incrementType\" = \"APPEND_ONLY\")");
+        Set<String> scanColumns = scanNode.getTupleDesc().getSlots().stream()
+                .map(slot -> slot.getColumn().getName())
+                .collect(Collectors.toSet());
+        Assertions.assertEquals(ImmutableSet.of(
+                "v1", Column.BINLOG_OPERATION_COL, Column.BINLOG_TSO_COL), scanColumns);
+
+        Assertions.assertTrue(scanNode.getExtraKeyColumnSlotIds().isEmpty());
+    }
+
+    @Test
+    public void testMergeSequencePhysicalScanSchemaDependencies() throws Exception {
+        OlapScanNode sequenceScan = getFirstOlapScanNode(
+                "select v1 from test_db.sequence_scan_schema_t");
+        Assertions.assertTrue(sequenceScan.getTupleDesc().getSlots().stream()
+                .anyMatch(slot -> slot.getColumn().getName().equals(Column.SEQUENCE_COL)));
+
+        OlapScanNode sequenceMapScan = getFirstOlapScanNode(
+                "select v1 from test_db.sequence_map_scan_schema_t");
+        Set<String> sequenceMapScanColumns = sequenceMapScan.getTupleDesc().getSlots().stream()
+                .map(slot -> slot.getColumn().getName())
+                .collect(Collectors.toSet());
+        Assertions.assertTrue(sequenceMapScanColumns.containsAll(ImmutableSet.of("k1", "k2", "v1", "s1")));
+        Assertions.assertFalse(sequenceMapScanColumns.contains("v2"));
+        Assertions.assertFalse(sequenceMapScanColumns.contains("s2"));
+    }
+
+    @Test
+    public void testSnapshotPhysicalScanSchemaIncludesCommitTso() throws Exception {
+        OlapScanNode snapshotMowScan = getOlapScanNodes(
+                "select v1 + 1 as projected_v1 from test_db.binlog_scan_schema_stream@snapshot()").stream()
+                .filter(scan -> scan.getOlapTable() instanceof OlapTableWrapper
+                        && !(scan.getOlapTable() instanceof RowBinlogTableWrapper))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("snapshot base scan not found"));
+        Set<SlotId> physicalSlotIds = snapshotMowScan.getTupleDesc().getSlots().stream()
+                .map(SlotDescriptor::getId)
+                .collect(Collectors.toSet());
+        Assertions.assertTrue(snapshotMowScan.getTupleDesc().getSlots().stream()
+                .map(slot -> slot.getColumn().getName())
+                .anyMatch(Column.COMMIT_TSO_COL::equals));
+        Assertions.assertTrue(snapshotMowScan.getOutputTupleDesc().getSlots().stream()
+                .noneMatch(slot -> slot.getColumn() != null
+                        && slot.getColumn().getName().equals(Column.COMMIT_TSO_COL)));
+
+        Set<SlotId> projectionInputSlotIds = Sets.newHashSet();
+        for (Expr projection : snapshotMowScan.getProjectList()) {
+            Expr.extractSlots(projection, projectionInputSlotIds);
+        }
+        Assertions.assertTrue(physicalSlotIds.containsAll(projectionInputSlotIds));
+    }
+
+    @Test
+    public void testLazyMaterializedScanPreservesStorageDependencies() throws Exception {
+        int originalThreshold = connectContext.getSessionVariable().topNLazyMaterializationThreshold;
+        connectContext.getSessionVariable().topNLazyMaterializationThreshold = 1024;
+        try {
+            Planner planner = getSQLPlanner(
+                    "select v2 from test_db.sequence_scan_schema_t order by k1 limit 1");
+            Set<MaterializationNode> materializationNodes = Sets.newHashSet();
+            Set<OlapScanNode> scanNodes = Sets.newHashSet();
+            for (PlanFragment fragment : planner.getFragments()) {
+                PlanNode root = fragment.getPlanRoot();
+                if (root != null) {
+                    root.collect(MaterializationNode.class, materializationNodes);
+                    root.collect(OlapScanNode.class, scanNodes);
+                }
+            }
+
+            Assertions.assertEquals(1, materializationNodes.size());
+            Assertions.assertEquals(1, scanNodes.size());
+            OlapScanNode scanNode = scanNodes.iterator().next();
+            Assertions.assertTrue(scanNode.getTupleDesc().getSlots().stream()
+                    .noneMatch(slot -> slot.getColumn().getName().equals("v2")));
+            Set<Integer> dependencyUniqueIds = scanNode.getTupleDesc().getSlots().stream()
+                    .filter(slot -> slot.getColumn().getName().equals(Column.SEQUENCE_COL))
+                    .map(slot -> slot.getColumn().getUniqueId())
+                    .collect(Collectors.toSet());
+            Assertions.assertEquals(1, dependencyUniqueIds.size());
+            TPlanNode thriftScanNode = scanNode.treeToThrift().getNodes().get(0);
+            Assertions.assertTrue(dependencyUniqueIds.stream()
+                    .noneMatch(thriftScanNode.olap_scan_node.getOutputColumnUniqueIds()::contains));
+        } finally {
+            connectContext.getSessionVariable().topNLazyMaterializationThreshold = originalThreshold;
+        }
+    }
+
+    @Test
     public void testAggNeedsFinalize() throws Exception {
         String querySql = "select b from test_db.t group by b";
         Planner planner = getSQLPlanner(querySql);
@@ -215,6 +391,51 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         OlapScanNode nonPartitionFilteredScanNode = getFirstOlapScanNode(
                 "select * from test_db.partitioned_t where k1 = 1");
         Assertions.assertFalse(nonPartitionFilteredScanNode.hasPartitionPredicate());
+    }
+
+    @Test
+    public void testRfPartitionPruneSnapshotSurvivesEnablementChange() throws Exception {
+        int oldRuntimeFilterType = connectContext.getSessionVariable().getRuntimeFilterType();
+        boolean oldEnablePartitionPrune =
+                connectContext.getSessionVariable().isEnableRuntimeFilterPartitionPrune();
+        boolean oldEnableRuntimeFilterPrune =
+                connectContext.getSessionVariable().isEnableRuntimeFilterPrune();
+        boolean oldDisableJoinReorder = connectContext.getSessionVariable().isDisableJoinReorder();
+        try {
+            connectContext.getSessionVariable().setRuntimeFilterType(TRuntimeFilterType.MIN_MAX.getValue());
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(true);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
+            connectContext.getSessionVariable().setDisableJoinReorder(true);
+
+            Planner planner = getSQLPlanner("select p.* from test_db.partitioned_t p "
+                    + "join [broadcast] test_db.t d on p.p1 = d.a");
+            List<OlapScanNode> scanNodes = new ArrayList<>();
+            for (PlanFragment fragment : planner.getFragments()) {
+                PlanNode root = fragment.getPlanRoot();
+                if (root != null) {
+                    root.collect(OlapScanNode.class, scanNodes);
+                }
+            }
+            OlapScanNode partitionedScan = scanNodes.stream()
+                    .filter(scan -> scan.getOlapTable().getName().equals("partitioned_t"))
+                    .findFirst()
+                    .orElseThrow();
+            Assertions.assertEquals(2, partitionedScan.getSelectedPartitionIds().size());
+
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(false);
+            TPlanNode thriftScanNode = partitionedScan.treeToThrift().getNodes().get(0);
+
+            Assertions.assertTrue(thriftScanNode.olap_scan_node.isSetPartitionBoundaries());
+            Assertions.assertEquals(Sets.newHashSet(partitionedScan.getSelectedPartitionIds()),
+                    thriftScanNode.olap_scan_node.getPartitionBoundaries().stream()
+                            .map(boundary -> boundary.getPartitionId())
+                            .collect(Collectors.toSet()));
+        } finally {
+            connectContext.getSessionVariable().setRuntimeFilterType(oldRuntimeFilterType);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(oldEnablePartitionPrune);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPrune(oldEnableRuntimeFilterPrune);
+            connectContext.getSessionVariable().setDisableJoinReorder(oldDisableJoinReorder);
+        }
     }
 
     @Test
@@ -300,6 +521,10 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
     }
 
     private OlapScanNode getFirstOlapScanNode(String sql) throws Exception {
+        return getOlapScanNodes(sql).get(0);
+    }
+
+    private List<OlapScanNode> getOlapScanNodes(String sql) throws Exception {
         Planner planner = getSQLPlanner(sql);
         Assertions.assertNotNull(planner);
         List<OlapScanNode> scanNodes = new ArrayList<>();
@@ -310,7 +535,22 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
             }
         }
         Assertions.assertFalse(scanNodes.isEmpty());
-        return scanNodes.get(0);
+        return scanNodes;
+    }
+
+    private static void bumpPartitionsAndReplicas(OlapTable table, long newVersion) {
+        for (Partition partition : table.getPartitions()) {
+            long timestamp = System.currentTimeMillis();
+            partition.setVisibleVersionAndTime(newVersion, timestamp, timestamp);
+            partition.setNextVersion(newVersion + 1);
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
+                for (Tablet tablet : index.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replica.updateVersion(newVersion);
+                    }
+                }
+            }
+        }
     }
 
     private static final class TestScanNode extends ScanNode {
