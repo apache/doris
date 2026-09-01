@@ -3,3 +3,19 @@
 1	alice	2025-01-01
 2	bob	2025-01-02
 
+-- !paimon_jdbc_concurrent_append --
+left	128	128	8128
+right	128	128	136128
+
+-- !paimon_jdbc_same_partition_append --
+128	128	324032
+
+-- !paimon_jdbc_concurrent_aggregation --
+1	30
+
+-- !paimon_jdbc_concurrent_dynamic --
+left	64	64
+right	64	64
+
+-- !paimon_jdbc_merge_during_compact --
+2	merge-during-compact	200
