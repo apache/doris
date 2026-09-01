@@ -18,6 +18,9 @@
 suite("aggregate_without_roll_up_projection") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
+    // Pin the session time zone: the test inserts offset-less TIMESTAMPTZ values and the golden output
+    // hard-codes +08:00, so on a non +08:00 runner the rendered values would differ for environmental reasons.
+    sql "set time_zone = '+08:00'"
     sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     // Disable the plain aggregate rule so that the query is rewritten by the
     // MATERIALIZED_VIEW_PROJECT_FILTER_AGGREGATE rule only, which reproduces the bug that a
@@ -44,6 +47,14 @@ suite("aggregate_without_roll_up_projection") {
     create_sync_mv(db, "sync_tz_base", "sync_tz_day",
             "select date_trunc(ts, 'day') as day_ts, sum(v) as day_sum from sync_tz_base "
                     + "where ts is not null group by date_trunc(ts, 'day');")
+    // The mv groups by (day, id), while a query selecting only `day` is grouped by (day, id) and its top
+    // project is a strict matching prefix of the normalized aggregate outputs. The redundant aggregate
+    // output must be projected away, otherwise the rewritten plan output count differs from the query
+    // and the rewrite is rejected. The select aliases avoid column name conflicts with the base table
+    // and the existing mv on the same table.
+    create_sync_mv(db, "sync_tz_base", "sync_tz_day_id",
+            "select date_trunc(ts, 'day') as day_ts2, id as id2, sum(v) as day_sum2 from sync_tz_base "
+                    + "where ts is not null group by date_trunc(ts, 'day'), id;")
 
     sql "analyze table sync_tz_base with sync;"
     sql """alter table sync_tz_base modify column id set stats ('row_count'='4');"""
@@ -56,4 +67,13 @@ suite("aggregate_without_roll_up_projection") {
             + "from sync_tz_base where ts is not null group by date_trunc(ts, 'day');", "sync_tz_day")
     order_qt_select_mv """select cast(date_trunc(ts, 'day') as string) as day_ts, sum(v)
             from sync_tz_base where ts is not null group by date_trunc(ts, 'day') order by 1;"""
+
+    // The query top project is a strict matching prefix of the normalized aggregate outputs
+    // (`select day from ... group by day, id`), and the leading subset exactly matches the mv
+    // outputs, which reproduces the boundary where the redundant aggregate output must be
+    // projected away by a top project above the rewritten aggregate.
+    mv_rewrite_success("select date_trunc(ts, 'day') from sync_tz_base where ts is not null "
+            + "group by date_trunc(ts, 'day'), id;", "sync_tz_day_id")
+    order_qt_select_mv_leading_subset """select date_trunc(ts, 'day') from sync_tz_base
+            where ts is not null group by date_trunc(ts, 'day'), id order by 1;"""
 }
