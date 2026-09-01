@@ -33,6 +33,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "storage/olap_common.h"
 #include "storage/olap_meta.h"
+#include "storage/tablet/tablet_schema.h"
 
 using ::testing::_;
 using ::testing::Return;
@@ -109,6 +110,86 @@ TEST_F(RowsetMetaTest, TestInit) {
     do_check(rowset_meta_3);
 }
 
+TEST_F(RowsetMetaTest, TopLevelInvertedIndexFormatOverridesEmbeddedSchemaFormat) {
+    RowsetMetaPB rowset_meta_pb;
+    rowset_meta_pb.set_rowset_id(0);
+    rowset_meta_pb.set_rowset_id_v2("000000000000000000000000000000000000000000000001");
+    rowset_meta_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+    rowset_meta_pb.mutable_tablet_schema()->set_schema_version(7);
+    rowset_meta_pb.mutable_tablet_schema()->set_inverted_index_storage_format(
+            InvertedIndexStorageFormatPB::V3);
+
+    RowsetMeta rowset_meta;
+    ASSERT_TRUE(rowset_meta.init_from_pb(rowset_meta_pb));
+    ASSERT_TRUE(rowset_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, rowset_meta.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              rowset_meta.tablet_schema()->get_inverted_index_storage_format());
+
+    RowsetMetaPB serialized;
+    rowset_meta.to_rowset_pb(&serialized);
+    ASSERT_TRUE(serialized.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, serialized.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              serialized.tablet_schema().inverted_index_storage_format());
+}
+
+TEST_F(RowsetMetaTest, TopLevelInvertedIndexFormatStaysAlignedWhenSchemaChanges) {
+    RowsetMetaPB rowset_meta_pb;
+    rowset_meta_pb.set_rowset_id(0);
+    rowset_meta_pb.set_rowset_id_v2("000000000000000000000000000000000000000000000001");
+    rowset_meta_pb.mutable_tablet_schema()->set_schema_version(7);
+    rowset_meta_pb.mutable_tablet_schema()->set_inverted_index_storage_format(
+            InvertedIndexStorageFormatPB::V3);
+
+    RowsetMeta rowset_meta;
+    ASSERT_TRUE(rowset_meta.init_from_pb(rowset_meta_pb));
+    rowset_meta.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+
+    TabletSchemaPB replacement_schema;
+    replacement_schema.set_schema_version(8);
+    replacement_schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+    rowset_meta.set_tablet_schema(replacement_schema);
+
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              rowset_meta.tablet_schema()->get_inverted_index_storage_format());
+    RowsetMetaPB serialized;
+    rowset_meta.to_rowset_pb(&serialized);
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, serialized.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              serialized.tablet_schema().inverted_index_storage_format());
+}
+
+TEST_F(RowsetMetaTest, LegacyEmbeddedSchemaInvertedIndexFormatIsFallback) {
+    RowsetMetaPB rowset_meta_pb;
+    rowset_meta_pb.set_rowset_id(0);
+    rowset_meta_pb.set_rowset_id_v2("000000000000000000000000000000000000000000000001");
+    rowset_meta_pb.mutable_tablet_schema()->set_schema_version(7);
+    rowset_meta_pb.mutable_tablet_schema()->set_inverted_index_storage_format(
+            InvertedIndexStorageFormatPB::V3);
+
+    RowsetMeta rowset_meta;
+    ASSERT_TRUE(rowset_meta.init_from_pb(rowset_meta_pb));
+    EXPECT_FALSE(rowset_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3,
+              rowset_meta.tablet_schema()->get_inverted_index_storage_format());
+
+    RowsetMetaPB top_level_format_pb;
+    top_level_format_pb.set_rowset_id(0);
+    top_level_format_pb.set_rowset_id_v2("000000000000000000000000000000000000000000000001");
+    top_level_format_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+    top_level_format_pb.mutable_tablet_schema()->set_schema_version(8);
+    ASSERT_TRUE(rowset_meta.init_from_pb(top_level_format_pb));
+    EXPECT_TRUE(rowset_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              rowset_meta.tablet_schema()->get_inverted_index_storage_format());
+
+    ASSERT_TRUE(rowset_meta.init_from_pb(rowset_meta_pb));
+    EXPECT_FALSE(rowset_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3,
+              rowset_meta.tablet_schema()->get_inverted_index_storage_format());
+}
+
 TEST_F(RowsetMetaTest, TestInitWithInvalidData) {
     RowsetMeta rowset_meta;
     EXPECT_FALSE(rowset_meta.init_from_json("invalid json meta data"));
@@ -122,6 +203,27 @@ TEST_F(RowsetMetaTest, TestRowsetIdInit) {
     id.init(rowset_id_str);
     // 0x100000000000000 - 0x01
     EXPECT_EQ(id.to_string(), "72057594037927935");
+}
+
+TEST_F(RowsetMetaTest, SegmentGroupsKeepRowsetOverlappingSemantics) {
+    RowsetMeta rowset_meta;
+    rowset_meta.set_version({10, 10});
+    rowset_meta.set_num_segments(5);
+    rowset_meta.set_segments_overlap(NONOVERLAPPING_WITHIN_GROUP);
+    rowset_meta.set_segment_group_sizes({2, 3});
+
+    EXPECT_TRUE(rowset_meta.is_segments_overlapping());
+    EXPECT_TRUE(rowset_meta.produced_by_compaction());
+    EXPECT_EQ(rowset_meta.get_compaction_score(), 5);
+    EXPECT_EQ(rowset_meta.get_merge_way_num(), 5);
+
+    auto rowset_meta_pb = rowset_meta.get_rowset_pb();
+    ASSERT_EQ(rowset_meta_pb.segment_group_sizes_size(), 2);
+    EXPECT_EQ(rowset_meta_pb.segment_group_sizes(0), 2);
+    EXPECT_EQ(rowset_meta_pb.segment_group_sizes(1), 3);
+
+    rowset_meta.clear_segment_group_sizes();
+    EXPECT_EQ(rowset_meta.get_rowset_pb().segment_group_sizes_size(), 0);
 }
 
 TEST_F(RowsetMetaTest, TestNumSegmentRowsSetAndGet) {
@@ -507,6 +609,78 @@ TEST_F(RowsetMetaTest, TestIsSegmentsOverlapping) {
     // OVERLAP_UNKNOWN must stay non-overlapping to avoid inflating
     // get_compaction_score()/get_merge_way_num() and degrading ordered reads after upgrade.
     check(3, OVERLAP_UNKNOWN, 2, 5, false, false);
+}
+
+TEST_F(RowsetMetaTest, TestSegmentIdsAccessors) {
+    RowsetMeta rowset_meta;
+    EXPECT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
+
+    // Legacy rowset (no segment_ids) falls back to contiguous ids [0, num_segments).
+    rowset_meta.set_num_segments(3);
+    EXPECT_FALSE(rowset_meta.has_segment_ids());
+    EXPECT_EQ(rowset_meta.num_segments(), 3);
+    EXPECT_EQ(rowset_meta.segment_id(0), 0);
+    EXPECT_EQ(rowset_meta.segment_id(2), 2);
+    EXPECT_EQ(rowset_meta.position_of(2), 2);
+
+    // Non-contiguous segment_ids: position <-> real id mapping.
+    rowset_meta.set_segment_ids({0, 2, 5});
+    EXPECT_TRUE(rowset_meta.has_segment_ids());
+    EXPECT_EQ(rowset_meta.num_segments(), 3);
+    EXPECT_EQ(rowset_meta.segment_id(0), 0);
+    EXPECT_EQ(rowset_meta.segment_id(1), 2);
+    EXPECT_EQ(rowset_meta.segment_id(2), 5);
+    EXPECT_EQ(rowset_meta.position_of(0), 0);
+    EXPECT_EQ(rowset_meta.position_of(2), 1);
+    EXPECT_EQ(rowset_meta.position_of(5), 2);
+}
+
+TEST_F(RowsetMetaTest, TestSegmentIdsMustBeStrictlyIncreasing) {
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+
+    RowsetMeta rowset_meta;
+    EXPECT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
+
+    EXPECT_DEATH(rowset_meta.set_segment_ids({0, 2, 2}),
+                 "Check failed: segment_id > prev_segment_id");
+    EXPECT_DEATH(rowset_meta.set_segment_ids({0, 2, 1}),
+                 "Check failed: segment_id > prev_segment_id");
+    EXPECT_DEATH(rowset_meta.set_segment_ids({0, -1, 2}), "Check failed: segment_id >= 0");
+}
+
+TEST_F(RowsetMetaTest, TestSegmentMetaView) {
+    RowsetMeta rowset_meta;
+    EXPECT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
+    rowset_meta.set_segment_ids({0, 2, 5});
+    rowset_meta.add_segments_file_size({10, 20, 30});
+    rowset_meta.set_num_segment_rows({100, 200, 300});
+
+    std::vector<KeyBoundsPB> key_bounds(3);
+    key_bounds[0].set_min_key("a");
+    key_bounds[0].set_max_key("b");
+    key_bounds[1].set_min_key("c");
+    key_bounds[1].set_max_key("d");
+    key_bounds[2].set_min_key("e");
+    key_bounds[2].set_max_key("f");
+    rowset_meta.set_segments_key_bounds(key_bounds);
+
+    auto seg = rowset_meta.segment(1);
+    EXPECT_EQ(seg.pos(), 1);
+    EXPECT_EQ(seg.id(), 2);
+    EXPECT_EQ(seg.ref().pos, 1);
+    EXPECT_EQ(seg.ref().id, 2);
+    EXPECT_EQ(seg.file_size(), 20);
+    ASSERT_TRUE(seg.has_num_rows());
+    EXPECT_EQ(seg.num_rows(), 200);
+    ASSERT_TRUE(seg.has_position_key_bounds());
+    EXPECT_EQ(seg.key_bounds().min_key(), "c");
+    EXPECT_EQ(seg.key_bounds().max_key(), "d");
+
+    std::vector<int64_t> segment_ids;
+    for (auto segment : rowset_meta.segments()) {
+        segment_ids.push_back(segment.id());
+    }
+    EXPECT_EQ(segment_ids, std::vector<int64_t>({0, 2, 5}));
 }
 
 } // namespace doris

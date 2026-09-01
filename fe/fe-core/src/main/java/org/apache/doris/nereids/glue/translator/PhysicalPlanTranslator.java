@@ -3429,14 +3429,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     // (e.g. GROUP_CONCAT(... ORDER BY ...)) needs sort-info
                     // metadata, which BucketedAggregationNode does not carry.
                     foundOnePhaseOnly.set(true);
-                    return false;
+                    return true;
                 }
                 if (c instanceof AggregateExpression) {
                     AggregateFunction func = ((AggregateExpression) c).getFunction();
                     if (!func.supportAggregatePhase(AggregatePhase.TWO)) {
                         foundOnePhaseOnly.set(true);
+                        return true;
                     }
-                    return true;
                 }
                 return false;
             });

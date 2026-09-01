@@ -69,6 +69,7 @@
 #include "common/config.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
+#include "common/rowset_segment_id.h"
 #include "common/simple_thread_pool.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
@@ -2530,7 +2531,8 @@ void InstanceRecycler::submit_recycle_prepare_rowsets_job(
                 LOG(WARNING) << "failed to delete rowset data, key=" << hex(key);
                 continue;
             }
-            if (delete_versioned_delete_bitmap_kvs(current_meta.tablet_id(),
+            if (delete_versioned_delete_bitmap_kvs(current_meta.partition_id(),
+                                                   current_meta.tablet_id(),
                                                    current_meta.rowset_id_v2()) != 0) {
                 continue;
             }
@@ -2591,8 +2593,8 @@ void InstanceRecycler::submit_recycle_tmp_rowsets_job(SimpleThreadPool& worker_p
             return;
         }
         for (const auto& [_, rowset] : rowsets_to_delete) {
-            if (delete_versioned_delete_bitmap_kvs(rowset.tablet_id(), rowset.rowset_id_v2()) !=
-                0) {
+            if (delete_versioned_delete_bitmap_kvs(rowset.partition_id(), rowset.tablet_id(),
+                                                   rowset.rowset_id_v2()) != 0) {
                 return;
             }
             if (delete_delete_bitmap_kvs(rowset.tablet_id(), rowset.rowset_id_v2()) != 0) {
@@ -3834,19 +3836,21 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
     int64_t tablet_id = rs_meta_pb.tablet_id();
     const auto& rowset_id = rs_meta_pb.rowset_id_v2();
     for (int64_t i = 0; i < num_segments; ++i) {
-        add_file_to_delete_if_not_packed(rs_meta_pb, segment_path(tablet_id, rowset_id, i),
+        auto segment_id = rowset_segment_id(rs_meta_pb, i);
+        add_file_to_delete_if_not_packed(rs_meta_pb, segment_path(tablet_id, rowset_id, segment_id),
                                          &file_paths);
         if (index_format == InvertedIndexStorageFormatPB::V1) {
             for (const auto& index_id : index_ids) {
                 add_file_to_delete_if_not_packed(
                         rs_meta_pb,
-                        inverted_index_path_v1(tablet_id, rowset_id, i, index_id.first,
+                        inverted_index_path_v1(tablet_id, rowset_id, segment_id, index_id.first,
                                                index_id.second),
                         &file_paths);
             }
         } else if (!index_ids.empty()) {
             add_file_to_delete_if_not_packed(
-                    rs_meta_pb, inverted_index_path_v2(tablet_id, rowset_id, i), &file_paths);
+                    rs_meta_pb, inverted_index_path_v2(tablet_id, rowset_id, segment_id),
+                    &file_paths);
         }
     }
 
@@ -4466,8 +4470,7 @@ int InstanceRecycler::delete_rowset_data(
         // we have to treat tmp rowset as "orphans" that may not related to any existing tablets
         // due to aborted schema change.
         if (is_formal_rowset) {
-            std::lock_guard lock(recycled_tablets_mtx_);
-            if (recycled_tablets_.count(rs.tablet_id()) && rs.packed_slice_locations_size() == 0) {
+            if (is_tablet_recycled(rs.tablet_id()) && rs.packed_slice_locations_size() == 0) {
                 // Tablet has been recycled and this rowset has no packed slices, so file data
                 // should already be gone; skip to avoid redundant deletes. Rowsets with packed
                 // slice info must still run to decrement packed file ref counts.
@@ -4595,13 +4598,14 @@ int InstanceRecycler::delete_rowset_data(
             continue;
         }
         for (int64_t i = 0; i < num_segments; ++i) {
-            add_file_to_delete_if_not_packed(rs, segment_path(tablet_id, rowset_id, i),
+            auto segment_id = rowset_segment_id(rs, i);
+            add_file_to_delete_if_not_packed(rs, segment_path(tablet_id, rowset_id, segment_id),
                                              &file_paths);
             if (index_format == InvertedIndexStorageFormatPB::V1) {
                 for (const auto& index_id : index_ids) {
                     add_file_to_delete_if_not_packed(
                             rs,
-                            inverted_index_path_v1(tablet_id, rowset_id, i, index_id.first,
+                            inverted_index_path_v1(tablet_id, rowset_id, segment_id, index_id.first,
                                                    index_id.second),
                             &file_paths);
                 }
@@ -4613,10 +4617,10 @@ int InstanceRecycler::delete_rowset_data(
                     LOG_INFO("delete rowset data schema kv not found, try to delete index file")
                             .tag("instance_id", instance_id_)
                             .tag("inverted index v2 path",
-                                 inverted_index_path_v2(tablet_id, rowset_id, i));
+                                 inverted_index_path_v2(tablet_id, rowset_id, segment_id));
                 }
                 add_file_to_delete_if_not_packed(
-                        rs, inverted_index_path_v2(tablet_id, rowset_id, i), &file_paths);
+                        rs, inverted_index_path_v2(tablet_id, rowset_id, segment_id), &file_paths);
             }
         }
     }
@@ -4722,16 +4726,96 @@ int InstanceRecycler::delete_rowset_data(const std::string& resource_id, int64_t
     return accessor->delete_prefix(rowset_path_prefix(tablet_id, rowset_id));
 }
 
-int InstanceRecycler::delete_versioned_delete_bitmap_kvs(int64_t tablet_id,
+bool InstanceRecycler::is_tablet_recycled(int64_t tablet_id) {
+    std::lock_guard lock(recycled_tablets_mtx_);
+    return recycled_tablets_.contains(tablet_id);
+}
+
+int InstanceRecycler::should_delete_versioned_delete_bitmap_kvs(int64_t partition_id,
+                                                                int64_t tablet_id) {
+    bool is_mow = true;
+    if (partition_id != -1) {
+        std::lock_guard lock(partition_mow_cache_mutex);
+        if (auto it = partition_mow_cache.find(partition_id); it != partition_mow_cache.end()) {
+            // cache hit
+            is_mow = it->second;
+            return is_mow ? 1 : 0;
+        }
+    }
+
+    TabletIndexPB tablet_index;
+    int ret = get_tablet_idx(txn_kv_.get(), instance_id_, tablet_id, tablet_index);
+    if (ret == 1) {
+        // maybe recycled
+        return is_tablet_recycled(tablet_id) ? 0 : 1;
+    }
+    if (ret != 0) {
+        LOG(WARNING) << "failed to get tablet index, instance_id=" << instance_id_
+                     << ", tablet_id=" << tablet_id;
+        return ret;
+    }
+
+    // Legacy RecycleRowsetPB without type does not carry a partition ID. Check the cache after
+    // obtaining its partition ID from the tablet index.
+    if (partition_id == -1) {
+        partition_id = tablet_index.partition_id();
+        std::lock_guard lock(partition_mow_cache_mutex);
+        if (auto it = partition_mow_cache.find(partition_id); it != partition_mow_cache.end()) {
+            is_mow = it->second;
+            return is_mow ? 1 : 0;
+        }
+    }
+
+    std::string tablet_meta_key =
+            meta_tablet_key({instance_id_, tablet_index.table_id(), tablet_index.index_id(),
+                             partition_id, tablet_id});
+    std::string tablet_meta_value;
+    ret = txn_get(txn_kv_.get(), tablet_meta_key, tablet_meta_value);
+    if (ret == 1) {
+        // maybe recycled
+        return is_tablet_recycled(tablet_id) ? 0 : 1;
+    }
+    if (ret != 0) {
+        LOG(WARNING) << "failed to get tablet meta, instance_id=" << instance_id_
+                     << ", tablet_id=" << tablet_id;
+        return ret;
+    }
+
+    TabletMetaCloudPB tablet_meta;
+    if (!tablet_meta.ParseFromString(tablet_meta_value)) {
+        LOG(WARNING) << "failed to parse tablet meta, instance_id=" << instance_id_
+                     << ", tablet_id=" << tablet_id;
+        return -1;
+    }
+    // The row-binlog companion of a MoW data tablet stores versioned delete bitmaps copied from
+    // that tablet, but its own MoW flag is deliberately false. Clean its DBMs without caching that
+    // false value as the MoW state of the whole partition.
+    // Rule: boolean enableUniqueKeyMergeOnWrite = !isRowBinlogIndex && tbl.getEnableUniqueKeyMergeOnWrite();
+    if (tablet_meta.tablet_role() == TabletRolePB::TABLET_ROLE_ROW_BINLOG) {
+        return 1;
+    }
+    bool tablet_is_mow = tablet_meta.enable_unique_key_merge_on_write();
+    std::lock_guard lock(partition_mow_cache_mutex);
+    auto [it, _] = partition_mow_cache.emplace(partition_id, tablet_is_mow);
+    return it->second ? 1 : 0;
+}
+
+int InstanceRecycler::delete_versioned_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id,
                                                          const std::string& rowset_id) {
+    int ret = should_delete_versioned_delete_bitmap_kvs(partition_id, tablet_id);
+    if (ret <= 0) {
+        return ret;
+    }
+
     std::string dbm_start_key =
             versioned::meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id});
     std::string dbm_end_key = dbm_start_key;
     encode_int64(INT64_MAX, &dbm_end_key);
-    int ret = txn_remove(txn_kv_.get(), dbm_start_key, dbm_end_key);
+    ret = txn_remove(txn_kv_.get(), dbm_start_key, dbm_end_key);
     if (ret != 0) {
         LOG(WARNING) << "failed to delete versioned delete bitmap kv, instance_id=" << instance_id_
-                     << " tablet_id=" << tablet_id << " rowset_id=" << rowset_id;
+                     << " partition_id=" << partition_id << " tablet_id=" << tablet_id
+                     << " rowset_id=" << rowset_id;
     }
     return ret;
 }
@@ -5700,12 +5784,17 @@ int InstanceRecycler::recycle_rowsets() {
             config::instance_recycler_worker_pool_size, "recycle_rowsets");
     worker_pool->start();
     auto delete_rowset_data_by_prefix = [&](std::string key, const std::string& resource_id,
-                                            int64_t tablet_id, const std::string& rowset_id) {
+                                            int64_t partition_id, int64_t tablet_id,
+                                            const std::string& rowset_id) {
         // Try to delete rowset data in background thread
         int ret = worker_pool->submit_with_timeout(
-                [&, resource_id, tablet_id, rowset_id, key]() mutable {
+                [&, resource_id, partition_id, tablet_id, rowset_id, key]() mutable {
                     if (delete_rowset_data(resource_id, tablet_id, rowset_id) != 0) {
                         LOG(WARNING) << "failed to delete rowset data, key=" << hex(key);
+                        return;
+                    }
+                    if (delete_versioned_delete_bitmap_kvs(partition_id, tablet_id, rowset_id) !=
+                        0) {
                         return;
                     }
                     std::vector<std::string> keys;
@@ -5716,7 +5805,6 @@ int InstanceRecycler::recycle_rowsets() {
                             keys.swap(async_recycled_rowset_keys);
                         }
                     }
-                    delete_versioned_delete_bitmap_kvs(tablet_id, rowset_id);
                     if (keys.empty()) return;
                     if (txn_remove(txn_kv_.get(), keys) != 0) {
                         LOG(WARNING) << "failed to delete recycle rowset kv, instance_id="
@@ -5734,7 +5822,7 @@ int InstanceRecycler::recycle_rowsets() {
             LOG(WARNING) << "failed to delete rowset data, key=" << hex(key);
             return -1;
         }
-        if (delete_versioned_delete_bitmap_kvs(tablet_id, rowset_id) != 0) {
+        if (delete_versioned_delete_bitmap_kvs(partition_id, tablet_id, rowset_id) != 0) {
             return -1;
         }
         rowset_keys_without_data.push_back(std::move(key));
@@ -5794,7 +5882,7 @@ int InstanceRecycler::recycle_rowsets() {
             LOG(INFO) << "delete rowset data, instance_id=" << instance_id_
                       << " tablet_id=" << rowset.tablet_id() << " rowset_id=" << rowset_id
                       << " task_type=" << metrics_context.operation_type;
-            if (delete_rowset_data_by_prefix(std::string(k), rowset.resource_id(),
+            if (delete_rowset_data_by_prefix(std::string(k), rowset.resource_id(), -1,
                                              rowset.tablet_id(), rowset_id) != 0) {
                 return -1;
             }
@@ -5854,7 +5942,7 @@ int InstanceRecycler::recycle_rowsets() {
                 }
             }
             if (delete_rowset_data_by_prefix(std::string(k), rowset_meta->resource_id(),
-                                             rowset_meta->tablet_id(),
+                                             rowset_meta->partition_id(), rowset_meta->tablet_id(),
                                              rowset_meta->rowset_id_v2()) != 0) {
                 return -1;
             }
@@ -5881,7 +5969,8 @@ int InstanceRecycler::recycle_rowsets() {
                 return;
             }
             for (const auto& [_, rs] : rowsets_to_delete) {
-                if (delete_versioned_delete_bitmap_kvs(rs.tablet_id(), rs.rowset_id_v2()) != 0) {
+                if (delete_versioned_delete_bitmap_kvs(rs.partition_id(), rs.tablet_id(),
+                                                       rs.rowset_id_v2()) != 0) {
                     return;
                 }
             }
@@ -6705,7 +6794,8 @@ int InstanceRecycler::recycle_tmp_rowsets() {
                 return;
             }
             for (const auto& [_, rs] : tmp_rowsets_to_delete) {
-                if (delete_versioned_delete_bitmap_kvs(rs.tablet_id(), rs.rowset_id_v2()) != 0) {
+                if (delete_versioned_delete_bitmap_kvs(rs.partition_id(), rs.tablet_id(),
+                                                       rs.rowset_id_v2()) != 0) {
                     LOG(WARNING) << "failed to delete versioned delete bitmap kv, rs="
                                  << rs.ShortDebugString();
                     return;

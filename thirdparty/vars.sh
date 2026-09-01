@@ -72,10 +72,10 @@ OPENSSL_SOURCE=openssl-OpenSSL_1_1_1s
 OPENSSL_MD5SUM="7e79a7560dee77c0758baa33c61af4b4"
 
 # thrift
-THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.16.0/thrift-0.16.0.tar.gz"
-THRIFT_NAME=thrift-0.16.0.tar.gz
-THRIFT_SOURCE=thrift-0.16.0
-THRIFT_MD5SUM="44cf1b54b4ec1890576c85804acfa637"
+THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.24.0/thrift-0.24.0.tar.gz"
+THRIFT_NAME=thrift-0.24.0.tar.gz
+THRIFT_SOURCE=thrift-0.24.0
+THRIFT_MD5SUM="232e035ff80c5fb4b7243f0be3a76b02"
 
 # protobuf
 # brpc is not yet compatible with protobuf >= 22
@@ -618,6 +618,7 @@ export TP_ARCHIVES=(
     'CYRUS_SASL'
     'LIBRDKAFKA'
     'FLATBUFFERS'
+    'ARROW_17'
     'ARROW'
     'ARROW_ADBC'
     'BROTLI'
@@ -650,6 +651,7 @@ export TP_ARCHIVES=(
     'PDQSORT'
     'TIMSORT'
     'BENCHMARK'
+    'XSIMD_17'
     'XSIMD'
     'SIMDJSON'
     'NLOHMANN_JSON'
@@ -672,6 +674,7 @@ export TP_ARCHIVES=(
     'JINDOFS'
     'JUICEFS'
     'PUGIXML'
+    'PAIMON_CPP_17'
     'PAIMON_CPP'
     'LANCE_C'
 )

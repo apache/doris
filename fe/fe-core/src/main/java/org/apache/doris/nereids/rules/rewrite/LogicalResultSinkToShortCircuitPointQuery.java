@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -31,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
@@ -60,11 +62,23 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
                         && expression.child(1).isLiteral());
     }
 
-    private boolean scanMatchShortCircuitCondition(LogicalOlapScan olapScan) {
+    @VisibleForTesting
+    boolean scanMatchShortCircuitCondition(LogicalOlapScan olapScan) {
         if (!ConnectContext.get().getSessionVariable().isEnableShortCircuitQuery()) {
             return false;
         }
+        // Lazy point-query pruning does not preserve explicit PARTITION/TABLET restrictions.
+        // Keep these queries on the normal execution path so the physical scan enforces them.
+        if (!olapScan.getManuallySpecifiedPartitions().isEmpty()
+                || !olapScan.getManuallySpecifiedTabletIds().isEmpty()) {
+            return false;
+        }
         OlapTable olapTable = olapScan.getTable();
+        // Remote Doris metadata refresh replaces the RemoteOlapTable instance. A prepared context retains the old
+        // instance, so its table-local topology version cannot observe remote partition changes.
+        if (olapTable instanceof RemoteOlapTable) {
+            return false;
+        }
         if (olapTable.hasVariantColumns()) {
             return false;
         }

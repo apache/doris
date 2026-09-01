@@ -806,14 +806,23 @@ public class CreateTableInfo {
         columns.forEach(c -> c.validate(targetIsInternalCatalog, keysSet, orderKeySet, finalEnableMergeOnWrite,
                 keysType));
 
+        try {
+            invertedIndexFileStorageFormat =
+                    PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(new HashMap<>(properties));
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
+
         // validate index
         if (!indexes.isEmpty()) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-            try {
-                invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
-                        new HashMap<>(properties));
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage(), e.getCause());
+            if (invertedIndexFileStorageFormat == null) {
+                try {
+                    invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
+                            new HashMap<>(properties));
+                } catch (Exception e) {
+                    throw new AnalysisException(e.getMessage(), e.getCause());
+                }
             }
 
             for (IndexDefinition indexDef : indexes) {
@@ -1628,16 +1637,17 @@ public class CreateTableInfo {
     }
 
     /**
-     * check if add Commit TSO Column
+     * Add hidden columns required by row binlog.
      */
-    public void createCommitTSOColumnIfNecessary(BinlogConfig binlogConfig) {
-        // __DORIS_COMMIT_TSO_COL__ injection for time-travel:
-        // only on dup / mow tables with row binlog enabled (binlog.enable=true && binlog.format=ROW).
-        if (keysType.equals(KeysType.DUP_KEYS)
-                || (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite)) {
-            if (binlogConfig.isRowFormat()) {
-                columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
-            }
+    public void createRowBinlogHiddenColumnsIfNecessary(BinlogConfig binlogConfig) {
+        if (!binlogConfig.isRowFormat()) {
+            return;
+        }
+        if (keysType.equals(KeysType.DUP_KEYS)) {
+            columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
+            columns.add(ColumnDefinition.newRowLsnColumnDefinition(AggregateType.NONE));
+        } else if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
+            columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
         }
     }
 }

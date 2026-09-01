@@ -21,12 +21,17 @@
 
 # Get the Doris thirdparty installation directory from environment
 set(DORIS_THIRDPARTY_DIR "$ENV{TP_INSTALL_DIR}" CACHE PATH "Doris thirdparty install directory")
+set(DORIS_ARROW_DIR "$ENV{PAIMON_ARROW_INSTALL_DIR}" CACHE PATH "Selected Doris Arrow install directory")
 
 if(NOT DORIS_THIRDPARTY_DIR)
     message(FATAL_ERROR "TP_INSTALL_DIR environment variable must be set")
 endif()
+if(NOT DORIS_ARROW_DIR)
+    message(FATAL_ERROR "PAIMON_ARROW_INSTALL_DIR environment variable must be set")
+endif()
 
 message(STATUS "Using Doris thirdparty libraries from: ${DORIS_THIRDPARTY_DIR}")
+message(STATUS "Using selected Arrow libraries from: ${DORIS_ARROW_DIR}")
 
 # Set CMAKE_PREFIX_PATH to help find_package locate our libraries
 set(CMAKE_PREFIX_PATH "${DORIS_THIRDPARTY_DIR};${CMAKE_PREFIX_PATH}" CACHE STRING "Search path for find_package")
@@ -64,21 +69,21 @@ set(LZ4_INCLUDE_DIR "${DORIS_INCLUDE_DIR}" CACHE PATH "LZ4 include directory")
 # ============================================================================
 
 # ============================================================================
-# Arrow - Reuse from Doris (Doris Arrow now includes COMPUTE/DATASET/ACERO/FILESYSTEM)
-# Doris's Arrow 24.0.0 is built with the full module set that paimon-cpp
-# needs, so we skip paimon-cpp's internal externalproject_add(arrow_ep ...).
+# Arrow - Reuse the version selected by the caller. Both installed Arrow stacks
+# include DATASET/ACERO/FILESYSTEM; Arrow 24 also has a separate Compute archive.
 # ============================================================================
 set(PAIMON_USE_EXTERNAL_ARROW ON CACHE BOOL "Use pre-built Arrow from Doris instead of building from source")
 
-set(DORIS_LIB64_DIR "${DORIS_THIRDPARTY_DIR}/lib64" CACHE PATH "Doris lib64 directory")
+set(DORIS_ARROW_LIB64_DIR "${DORIS_ARROW_DIR}/lib64" CACHE PATH "Selected Arrow lib64 directory")
+set(DORIS_ARROW_INCLUDE_DIR "${DORIS_ARROW_DIR}/include" CACHE PATH "Selected Arrow include directory")
 
-set(PAIMON_EXTERNAL_ARROW_INCLUDE_DIR "${DORIS_INCLUDE_DIR}" CACHE PATH "Arrow include directory")
-set(PAIMON_EXTERNAL_ARROW_LIB "${DORIS_LIB64_DIR}/libarrow.a" CACHE FILEPATH "Arrow core library")
-set(PAIMON_EXTERNAL_ARROW_COMPUTE_LIB "${DORIS_LIB64_DIR}/libarrow_compute.a" CACHE FILEPATH "Arrow Compute library")
-set(PAIMON_EXTERNAL_ARROW_DATASET_LIB "${DORIS_LIB64_DIR}/libarrow_dataset.a" CACHE FILEPATH "Arrow Dataset library")
-set(PAIMON_EXTERNAL_ARROW_ACERO_LIB "${DORIS_LIB64_DIR}/libarrow_acero.a" CACHE FILEPATH "Arrow Acero library")
-set(PAIMON_EXTERNAL_PARQUET_LIB "${DORIS_LIB64_DIR}/libparquet.a" CACHE FILEPATH "Parquet library")
-set(PAIMON_EXTERNAL_ARROW_BUNDLED_DEPS_LIB "${DORIS_LIB64_DIR}/libarrow_bundled_dependencies.a" CACHE FILEPATH "Arrow bundled dependencies library")
+set(PAIMON_EXTERNAL_ARROW_INCLUDE_DIR "${DORIS_ARROW_INCLUDE_DIR}" CACHE PATH "Arrow include directory")
+set(PAIMON_EXTERNAL_ARROW_LIB "${DORIS_ARROW_LIB64_DIR}/libarrow.a" CACHE FILEPATH "Arrow core library")
+set(PAIMON_EXTERNAL_ARROW_COMPUTE_LIB "${DORIS_ARROW_LIB64_DIR}/libarrow_compute.a" CACHE FILEPATH "Arrow Compute library")
+set(PAIMON_EXTERNAL_ARROW_DATASET_LIB "${DORIS_ARROW_LIB64_DIR}/libarrow_dataset.a" CACHE FILEPATH "Arrow Dataset library")
+set(PAIMON_EXTERNAL_ARROW_ACERO_LIB "${DORIS_ARROW_LIB64_DIR}/libarrow_acero.a" CACHE FILEPATH "Arrow Acero library")
+set(PAIMON_EXTERNAL_PARQUET_LIB "${DORIS_ARROW_LIB64_DIR}/libparquet.a" CACHE FILEPATH "Parquet library")
+set(PAIMON_EXTERNAL_ARROW_BUNDLED_DEPS_LIB "${DORIS_ARROW_LIB64_DIR}/libarrow_bundled_dependencies.a" CACHE FILEPATH "Arrow bundled dependencies library")
 
 # Protobuf, Thrift - still built separately by paimon-cpp
 

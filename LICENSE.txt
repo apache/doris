@@ -738,3 +738,11 @@ Version 1.0 or a BSD-style license, alternatively. The full open source license 
 at license/LICENSE.txt in the JMC project.
 
 ----------------------------------------------------------------------------------
+
+ui bundled dependency elkjs 0.12.0: Eclipse Public License v2.0
+
+elkjs is offered under EPL-2.0 OR GPL-3.0-or-later. This distribution elects
+EPL-2.0. The full Eclipse Public License v2.0 text is available at
+dist/licenses/LICENSE-EPL-2.0.txt.
+
+----------------------------------------------------------------------------------

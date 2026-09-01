@@ -43,8 +43,10 @@ namespace doris {
 struct RowsetId;
 
 class RowSourcesBuffer;
+class RowsetMeta;
 struct RowBatch;
 struct VerticalCompactionContextStats;
+class VerticalBlockReaderTestAccessor;
 
 class VerticalBlockReader final : public TabletReader {
 public:
@@ -72,6 +74,13 @@ public:
     static uint64_t nextId;
 
 private:
+    friend class VerticalBlockReaderTestAccessor;
+
+    static void _append_grouped_iterator_init_flags(const RowsetMeta& rowset_meta,
+                                                    std::pair<int64_t, int64_t> segment_offsets,
+                                                    size_t added_iterators,
+                                                    std::vector<bool>* iterator_init_flag);
+
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
     Status _direct_next_block(Block* block, bool* eof);

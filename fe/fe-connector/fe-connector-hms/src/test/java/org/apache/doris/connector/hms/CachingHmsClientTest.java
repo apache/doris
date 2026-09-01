@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.hms;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -29,6 +31,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Tests {@link CachingHmsClient}: the caching decorator over an {@link HmsClient}.
@@ -38,8 +45,8 @@ import java.util.Set;
  * pin the behaviours that make that re-homed cache correct: (1) the four read methods actually cache (loader
  * runs once per key), keyed exactly by their arguments — including the database dimension, so two databases
  * never collide; (2) the per-entry {@code meta.cache.hive.*} knobs turn a cache off; (3)
- * {@link CachingHmsClient#flush} / {@code flushAll} drop the right entries across all four caches (arming
- * REFRESH) and {@code flush} is scoped to one table; and that other methods are a verbatim pass-through and
+ * the shared catalog owner drops the right entries across all four caches and scopes invalidation correctly;
+ * and that other methods are a verbatim pass-through and
  * a loader failure is neither swallowed nor cached.</p>
  */
 public class CachingHmsClientTest {
@@ -52,12 +59,16 @@ public class CachingHmsClientTest {
         return m;
     }
 
+    private static CachingHmsClient cache(HmsClient delegate, Map<String, String> properties) {
+        return new CachingHmsClient(new CatalogMetaCache(), delegate, properties);
+    }
+
     // ---- getTable ----
 
     @Test
     public void getTableCachesByDbAndTable() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
 
         HmsTableInfo first = cache.getTable("db", "t1");
         HmsTableInfo second = cache.getTable("db", "t1");
@@ -74,7 +85,7 @@ public class CachingHmsClientTest {
     @Test
     public void cacheKeysAreScopedByDatabase() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
 
         // Same table name, different database, across all four caches. WHY: the db dimension MUST be part of
         // every key — otherwise "db2.t" would be served "db1.t"'s cached metadata (a cross-database mix-up).
@@ -101,7 +112,7 @@ public class CachingHmsClientTest {
     @Test
     public void listPartitionNamesCachesByDbTableAndMaxParts() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
 
         List<String> a = cache.listPartitionNames("db", "t", -1);
         List<String> b = cache.listPartitionNames("db", "t", -1);
@@ -118,7 +129,7 @@ public class CachingHmsClientTest {
     @Test
     public void getTableFreshAlwaysHitsDelegate() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
 
         // WHY: SHOW CREATE TABLE must see the latest schema (a column added externally after the cache filled)
         // even while DESC serves the stale cached table. Every fresh call goes to the metastore. (test_hive_meta_cache.)
@@ -130,7 +141,7 @@ public class CachingHmsClientTest {
     @Test
     public void getTableFreshDoesNotPopulateCache() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
 
         // Fresh call must NOT write the table cache: a following cached getTable must still MISS (delegate call #2)
         // and only THEN populate — proving fresh bypasses the cache in both directions.
@@ -154,7 +165,7 @@ public class CachingHmsClientTest {
     @Test
     public void listPartitionNamesFreshAlwaysHitsDelegate() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
 
         // WHY: SHOW PARTITIONS must see partitions added externally after the cache filled. Every fresh call
         // goes to the metastore — never served from partitionNamesCache. (test_hive_use_meta_cache_true sql09.)
@@ -166,7 +177,7 @@ public class CachingHmsClientTest {
     @Test
     public void listPartitionNamesFreshDoesNotPopulateCache() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
 
         // Fresh call must NOT write the names cache: a following cached listPartitionNames must still MISS
         // (delegate call #2) and only THEN populate — proving fresh bypasses the cache in both directions.
@@ -191,7 +202,7 @@ public class CachingHmsClientTest {
     @Test
     public void getPartitionsSharesPerPartitionEntriesAcrossRequests() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
 
         // First request loads BOTH partitions in one delegate round-trip and caches each PER PARTITION.
         List<HmsPartitionInfo> a = cache.getPartitions("db", "t", Arrays.asList("p=1", "p=2"));
@@ -223,7 +234,7 @@ public class CachingHmsClientTest {
     @Test
     public void getPartitionsPreservesOrderAcrossHitsAndMisses() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
         cache.getPartitions("db", "t", Collections.singletonList("p=2"));
 
         List<HmsPartitionInfo> result = cache.getPartitions(
@@ -239,7 +250,7 @@ public class CachingHmsClientTest {
     @Test
     public void getPartitionsStatsKeepLogicalRequestAndPhysicalMissDimensions() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
 
         HmsPartitionBatchStats cold = cache.getPartitionsWithStats(
                 "db", "t", Arrays.asList("p=1", "p=2")).getStats();
@@ -263,7 +274,7 @@ public class CachingHmsClientTest {
     @Test
     public void failedPartitionStatsKeepLogicalRequestAndPhysicalMissDimensions() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
         cache.getPartitions("db", "t", Collections.singletonList("p=1"));
         delegate.getPartitionsError = new HmsClientException("failed", HmsPartitionBatchStats.builder()
                 .requestedItems(1)
@@ -286,7 +297,7 @@ public class CachingHmsClientTest {
     public void getPartitionsRejectsMissingPartitionWithoutPartialCaching() {
         RecordingHmsClient delegate = new RecordingHmsClient();
         delegate.absentPartitionNames.add("p=9");
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
 
         Assertions.assertThrows(HmsClientException.class,
                 () -> cache.getPartitions("db", "t", Arrays.asList("p=1", "p=9")));
@@ -303,7 +314,7 @@ public class CachingHmsClientTest {
     public void getExistingPartitionsReturnsAndCachesOnlyPresentSubset() {
         RecordingHmsClient delegate = new RecordingHmsClient();
         delegate.absentPartitionNames.add("p=2");
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
 
         List<HmsPartitionInfo> first = cache.getExistingPartitions(
                 "db", "t", Arrays.asList("p=1", "p=2", "p=3"));
@@ -320,7 +331,7 @@ public class CachingHmsClientTest {
     public void getExistingPartitionsRetainsPhysicalBatchStatsWhenNamesBecomeStale() {
         RecordingHmsClient delegate = new RecordingHmsClient();
         delegate.absentPartitionNames.add("p=2");
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
 
         HmsPartitionBatchResult result = cache.getExistingPartitionsWithStats(
                 "db", "t", Arrays.asList("p=1", "p=2", "p=3"));
@@ -336,7 +347,7 @@ public class CachingHmsClientTest {
     public void getPartitionsRejectsUnexpectedIdentityWithoutCachingIt() {
         RecordingHmsClient delegate = new RecordingHmsClient();
         delegate.forcedValues = Arrays.asList("EXOTIC");
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
 
         Assertions.assertThrows(HmsClientException.class,
                 () -> cache.getPartitions("db", "t", Collections.singletonList("p=1")));
@@ -349,15 +360,15 @@ public class CachingHmsClientTest {
     }
 
     @Test
-    public void getPartitionsFlushRacingInFlightFetchDoesNotRecacheStale() {
+    public void getPartitionsInvalidationRacingInFlightFetchDoesNotRecacheStale() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CatalogMetaCache owner = new CatalogMetaCache();
+        CachingHmsClient cache = new CachingHmsClient(owner, delegate, Collections.emptyMap());
 
-        // Model a REFRESH TABLE (flush) landing DURING the cold-cache delegate RPC: getPartitions captures the
-        // invalidation generation BEFORE the RPC, the flush bumps it mid-RPC, so the per-partition guarded put
-        // must be dropped rather than re-cache the pre-refresh partition. The in-flight query still returns the
-        // freshly-fetched partition (only the CACHE put is guarded).
-        delegate.onGetPartitions = () -> cache.flush("db", "t");
+        // Model a REFRESH TABLE landing DURING the cold-cache delegate RPC: the bulk-load handle captures the
+        // framework publication fence before the RPC, so the per-partition publish must be dropped rather than
+        // re-cache the pre-refresh partition. The in-flight query still returns the freshly-fetched partition.
+        delegate.onGetPartitions = () -> owner.invalidateTable("db", "t");
         List<HmsPartitionInfo> r = cache.getPartitions("db", "t", Arrays.asList("p=1"));
         Assertions.assertEquals(1, r.size(), "the in-flight query still returns the delegate's partition");
         Assertions.assertEquals(1, delegate.getPartitionsCalls);
@@ -373,12 +384,54 @@ public class CachingHmsClientTest {
                 "a flush racing the in-flight fetch must not leave the stale partition cached (guarded put)");
     }
 
+    @Test
+    public void coldPartitionBatchInvalidationFencesInFlightFetch() throws Exception {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CatalogMetaCache owner = new CatalogMetaCache();
+        CachingHmsClient cache = new CachingHmsClient(owner, delegate,
+                props("meta.cache.hive.partition_names.ttl-second", "0"));
+        CountDownLatch fetchStarted = new CountDownLatch(1);
+        CountDownLatch releaseFetch = new CountDownLatch(1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        delegate.onGetPartitions = () -> {
+            fetchStarted.countDown();
+            try {
+                Assertions.assertTrue(releaseFetch.await(10, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(e);
+            }
+        };
+
+        try {
+            Future<List<HmsPartitionInfo>> inFlight = executor.submit(
+                    () -> cache.getPartitions("db", "t", Arrays.asList("p=1")));
+            Assertions.assertTrue(fetchStarted.await(10, TimeUnit.SECONDS));
+
+            // Both the partition-name collection and p=1 are cold. The batch invalidation must still advance
+            // the resolved table prefix captured by the bulk handle before the HMS RPC.
+            owner.invalidatePartitions("db", "t", Collections.singletonList(Arrays.asList("1")));
+            releaseFetch.countDown();
+            Assertions.assertEquals(1, inFlight.get(10, TimeUnit.SECONDS).size());
+
+            delegate.onGetPartitions = null;
+            cache.getPartitions("db", "t", Arrays.asList("p=1"));
+            Assertions.assertEquals(2, delegate.getPartitionsCalls,
+                    "the pre-invalidation HMS result must not publish into the long-lived partition cache");
+        } finally {
+            releaseFetch.countDown();
+            executor.shutdownNow();
+            cache.close();
+            owner.close();
+        }
+    }
+
     // ---- column statistics ----
 
     @Test
     public void columnStatisticsCacheByRequestedColumnList() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
 
         List<String> cols = Arrays.asList("c1", "c2");
         List<HmsColumnStatistics> a = cache.getTableColumnStatistics("db", "t", cols);
@@ -398,7 +451,7 @@ public class CachingHmsClientTest {
     @Test
     public void emptyColumnStatisticsResultIsCached() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
 
         // The fake returns an empty (no-stats) list for an empty column request.
         cache.getTableColumnStatistics("db", "t", Collections.emptyList());
@@ -417,7 +470,7 @@ public class CachingHmsClientTest {
                 "meta.cache.hive.table.enable", "false",
                 "meta.cache.hive.partition_names.ttl-second", "0");
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, properties);
+        CachingHmsClient cache = cache(delegate, properties);
 
         cache.getTable("db", "t");
         cache.getTable("db", "t");
@@ -445,7 +498,7 @@ public class CachingHmsClientTest {
                 "schema.cache.ttl-second", "0",
                 "partition.cache.ttl-second", "0");
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, properties);
+        CachingHmsClient cache = cache(delegate, properties);
 
         cache.getTable("db", "t");
         cache.getTable("db", "t");
@@ -465,12 +518,13 @@ public class CachingHmsClientTest {
         Assertions.assertEquals(1, delegate.getPartitionsCalls);
     }
 
-    // ---- flush(db, table) ----
+    // ---- shared-owner invalidation ----
 
     @Test
-    public void flushDropsOnlyThatTablesEntries() {
+    public void tableInvalidationDropsOnlyThatTablesEntries() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CatalogMetaCache owner = new CatalogMetaCache();
+        CachingHmsClient cache = new CachingHmsClient(owner, delegate, Collections.emptyMap());
 
         // Populate ALL four caches for BOTH t1 and t2 (t2 must live in the three predicate-invalidated caches
         // too, not just the table cache, so an over-broad flush of them is detectable).
@@ -487,7 +541,7 @@ public class CachingHmsClientTest {
         Assertions.assertEquals(2, delegate.getPartitionsCalls);
         Assertions.assertEquals(2, delegate.getColumnStatsCalls);
 
-        cache.flush("db", "t1");
+        owner.invalidateTable("db", "t1");
 
         // WHY: t1 must reload across all four caches after its flush.
         cache.getTable("db", "t1");
@@ -512,15 +566,16 @@ public class CachingHmsClientTest {
         Assertions.assertEquals(3, delegate.getColumnStatsCalls);
     }
 
-    // ---- flushDb() ----
+    // ---- database invalidation ----
 
     @Test
-    public void flushDbDropsOnlyThatDatabasesEntries() {
+    public void databaseInvalidationDropsOnlyThatDatabasesEntries() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CatalogMetaCache owner = new CatalogMetaCache();
+        CachingHmsClient cache = new CachingHmsClient(owner, delegate, Collections.emptyMap());
 
         // Populate all four caches for db1.t1, plus db1.t2 (a SECOND table in the same db) and db2.t1 (a table in
-        // ANOTHER db). flushDb("db1") must drop EVERY db1 table (t1 AND t2) across all four caches, while db2 lives.
+        // ANOTHER db). Invalidating db1 must drop EVERY db1 table (t1 AND t2) across all four caches, while db2 lives.
         cache.getTable("db1", "t1");
         cache.listPartitionNames("db1", "t1", -1);
         cache.getPartitions("db1", "t1", Arrays.asList("p=1"));
@@ -529,7 +584,7 @@ public class CachingHmsClientTest {
         cache.getTable("db2", "t1");
         Assertions.assertEquals(3, delegate.getTableCalls);
 
-        cache.flushDb("db1");
+        owner.invalidateDatabase("db1");
 
         // WHY: every db1 table reloads across all four caches — this pins the matchesDb() db scoping (not the
         // per-table matches()): t2 reloading proves the whole database was dropped, not just one table.
@@ -549,12 +604,13 @@ public class CachingHmsClientTest {
         Assertions.assertEquals(5, delegate.getTableCalls, "flushDb must NOT drop another database's entries");
     }
 
-    // ---- flushAll() ----
+    // ---- catalog invalidation ----
 
     @Test
-    public void flushAllDropsEverything() {
+    public void catalogInvalidationDropsEverything() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CatalogMetaCache owner = new CatalogMetaCache();
+        CachingHmsClient cache = new CachingHmsClient(owner, delegate, Collections.emptyMap());
 
         // Populate all four caches so flushAll's independent invalidateAll() call on each is exercised.
         cache.getTable("db", "t");
@@ -566,7 +622,7 @@ public class CachingHmsClientTest {
         Assertions.assertEquals(1, delegate.getPartitionsCalls);
         Assertions.assertEquals(1, delegate.getColumnStatsCalls);
 
-        cache.flushAll();
+        owner.invalidateCatalog();
 
         // WHY: flushAll drops ALL four caches — every one reloads (not just the table cache).
         cache.getTable("db", "t");
@@ -584,7 +640,7 @@ public class CachingHmsClientTest {
     @Test
     public void nonCachedMethodsDelegate() throws IOException {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
 
         cache.listDatabases();
         Assertions.assertEquals(1, delegate.listDatabasesCalls);
@@ -602,7 +658,7 @@ public class CachingHmsClientTest {
     public void loaderExceptionPropagatesAndIsNotCached() {
         RecordingHmsClient delegate = new RecordingHmsClient();
         delegate.getTableError = new HmsClientException("boom");
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
 
         HmsClientException e = Assertions.assertThrows(HmsClientException.class,
                 () -> cache.getTable("db", "t"));
@@ -619,7 +675,7 @@ public class CachingHmsClientTest {
     @Test
     public void nullDelegateRejected() {
         Assertions.assertThrows(NullPointerException.class,
-                () -> new CachingHmsClient(null, Collections.emptyMap()));
+                () -> cache(null, Collections.emptyMap()));
     }
 
     /**
