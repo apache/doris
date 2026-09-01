@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.DescriptorToThriftConverter;
-import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
@@ -1465,7 +1464,8 @@ public class Coordinator implements CoordInterface {
         return receivers;
     }
 
-    protected long getOutfileTimeoutDeadline() {
+    @Override
+    public long getOutfileTimeoutDeadline() {
         return timeoutDeadline;
     }
 
@@ -1477,9 +1477,8 @@ public class Coordinator implements CoordInterface {
                     receiver.getAddress(), address -> InternalService.POutfileWriteFinishedRequest.newBuilder()
                             // Old BEs ignore operation, so preserve their success field during upgrades.
                             .setSuccess(operation == InternalService.POutfileWriteOperation.OUTFILE_COMMIT));
-            if (Config.be_exec_version >= OutFileClause.SUPPORT_ATOMIC_OUTFILE_VERSION) {
-                request.setOperation(operation);
-            }
+            // This method is reached only when the query's snapshotted protocol supports it.
+            request.setOperation(operation);
             request.addBufferIds(receiver.getRealFinstId());
         }
         if (requests.isEmpty()) {

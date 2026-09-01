@@ -17,6 +17,8 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.OutFileClause;
+import org.apache.doris.analysis.Queriable;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
@@ -24,6 +26,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.QueryTimeoutException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
@@ -51,6 +54,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -151,6 +155,62 @@ public class StmtExecutorTest extends TestWithFeService {
                         () -> markerPublished.set(true)));
 
         Assertions.assertFalse(markerPublished.get());
+    }
+
+    @Test
+    public void testOutfileCapabilityIsStableWhenExecVersionChanges() {
+        int originalVersion = Config.be_exec_version;
+        try {
+            Config.be_exec_version = OutFileClause.SUPPORT_ATOMIC_OUTFILE_VERSION;
+            OutFileClause atomicClause = new OutFileClause("file:///tmp/atomic-outfile/", "csv",
+                    Collections.emptyMap());
+            Assertions.assertTrue(atomicClause.toSinkOptions().isEnableAtomicOutfile());
+
+            Config.be_exec_version = OutFileClause.SUPPORT_ATOMIC_OUTFILE_VERSION - 1;
+            Assertions.assertTrue(atomicClause.toSinkOptions().isEnableAtomicOutfile());
+
+            OutFileClause legacyClause = new OutFileClause("file:///tmp/legacy-outfile/", "csv",
+                    Collections.emptyMap());
+            Assertions.assertFalse(legacyClause.toSinkOptions().isEnableAtomicOutfile());
+            Config.be_exec_version = OutFileClause.SUPPORT_ATOMIC_OUTFILE_VERSION;
+            Assertions.assertFalse(legacyClause.toSinkOptions().isEnableAtomicOutfile());
+        } finally {
+            Config.be_exec_version = originalVersion;
+        }
+    }
+
+    @Test
+    public void testAtomicOutfileArrowFlightRejectionDoesNotRegisterQuery() throws Exception {
+        int originalVersion = Config.be_exec_version;
+        TUniqueId queryId = new TUniqueId(0x67328L, 0x28298L);
+        ConnectContext flightContext = Mockito.spy(connectContext);
+        Mockito.doReturn(ConnectType.MYSQL).when(flightContext).getConnectType();
+        StmtExecutor stmtExecutor = new StmtExecutor(flightContext, "");
+        try {
+            Config.be_exec_version = OutFileClause.SUPPORT_ATOMIC_OUTFILE_VERSION;
+            OutFileClause outFileClause = new OutFileClause("file:///tmp/flight-outfile/", "csv",
+                    Collections.emptyMap());
+            outFileClause.toSinkOptions();
+            Queriable query = Mockito.mock(Queriable.class);
+            Mockito.when(query.getOutFileClause()).thenReturn(outFileClause);
+            flightContext.setQueryId(queryId);
+            Mockito.doReturn(ConnectType.ARROW_FLIGHT_SQL).when(flightContext).getConnectType();
+
+            Assertions.assertThrows(UserException.class,
+                    () -> stmtExecutor.executeAndSendResult(true, false, query, null, null, null));
+            Assertions.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
+        } finally {
+            QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+            Config.be_exec_version = originalVersion;
+        }
+    }
+
+    @Test
+    public void testAtomicOutfileMarkerUsesRemainingQueryDeadline() throws Exception {
+        Assertions.assertEquals(25L, StmtExecutor.calculateOutfileCreateTimeoutMs(1025L, 1000L, 100L));
+        Assertions.assertEquals(100L, StmtExecutor.calculateOutfileCreateTimeoutMs(1200L, 1000L, 100L));
+        Assertions.assertThrows(QueryTimeoutException.class,
+                () -> StmtExecutor.calculateOutfileCreateTimeoutMs(1000L, 1000L, 100L));
     }
 
     @Test

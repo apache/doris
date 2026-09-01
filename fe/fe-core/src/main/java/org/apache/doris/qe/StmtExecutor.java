@@ -1490,6 +1490,15 @@ public class StmtExecutor {
         //          Query OK, 10 rows affected (0.01 sec)
         //
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
+        OutFileClause outFileClause = null;
+        if (isOutfileQuery) {
+            outFileClause = queryStmt.getOutFileClause();
+            Preconditions.checkState(outFileClause != null, "OUTFILE query must have OutFileClause");
+        }
+        boolean atomicOutfile = outFileClause != null && outFileClause.isAtomicOutfileEnabled();
+        // Reject before coordinator construction because registration is outside the cleanup try/finally.
+        validateAtomicOutfileConnectType(atomicOutfile, context.getConnectType());
+
         RowBatch batch;
         CoordInterface coordBase = null;
         if (statementContext.isShortCircuitQuery()) {
@@ -1516,19 +1525,11 @@ public class StmtExecutor {
             coordBase = coord;
         }
 
-        coordBase.setIsProfileSafeStmt(this.isProfileSafeStmt());
-        OutFileClause outFileClause = null;
-        if (isOutfileQuery) {
-            outFileClause = queryStmt.getOutFileClause();
-            Preconditions.checkState(outFileClause != null, "OUTFILE query must have OutFileClause");
-            if (Config.be_exec_version >= OutFileClause.SUPPORT_ATOMIC_OUTFILE_VERSION
-                    && context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
-                throw new UserException("Atomic OUTFILE is not supported over Arrow Flight SQL");
-            }
+        if (outFileClause != null && coordBase instanceof Coordinator) {
+            // Keep the BE query option aligned with the sink option captured while planning this query.
+            ((Coordinator) coordBase).getQueryOptions().setBeExecVersion(outFileClause.getBeExecVersion());
         }
-
-        boolean atomicOutfile = isOutfileQuery
-                && Config.be_exec_version >= OutFileClause.SUPPORT_ATOMIC_OUTFILE_VERSION;
+        coordBase.setIsProfileSafeStmt(this.isProfileSafeStmt());
         boolean outfileCommitted = false;
         boolean outfileMarkerMayExist = false;
         TNetworkAddress outfileMarkerBackend = null;
@@ -1620,10 +1621,12 @@ public class StmtExecutor {
                 }
                 OutFileClause finalOutFileClause = outFileClause;
                 TNetworkAddress finalMarkerBackend = outfileMarkerBackend;
+                long outfileDeadlineMs = atomicOutfile ? coordBase.getOutfileTimeoutDeadline() : Long.MAX_VALUE;
                 finishOutfileTransaction(atomicOutfile, coordBase, () -> {
                     if (finalMarkerBackend != null) {
                         outfileWriteSuccess(finalOutFileClause, finalMarkerBackend,
-                                InternalService.POutfileSuccessOperation.OUTFILE_MARKER_CREATE);
+                                InternalService.POutfileSuccessOperation.OUTFILE_MARKER_CREATE,
+                                outfileDeadlineMs);
                     }
                 });
                 if (atomicOutfile) {
@@ -1729,6 +1732,22 @@ public class StmtExecutor {
         void publish() throws Exception;
     }
 
+    static void validateAtomicOutfileConnectType(boolean atomicOutfile, ConnectType connectType)
+            throws UserException {
+        if (atomicOutfile && ConnectType.ARROW_FLIGHT_SQL.equals(connectType)) {
+            throw new UserException("Atomic OUTFILE is not supported over Arrow Flight SQL");
+        }
+    }
+
+    static long calculateOutfileCreateTimeoutMs(long deadlineMs, long nowMs, long maxTimeoutMs)
+            throws QueryTimeoutException {
+        long remainingMs = deadlineMs - nowMs;
+        if (remainingMs <= 0) {
+            throw new QueryTimeoutException();
+        }
+        return Math.min(remainingMs, maxTimeoutMs);
+    }
+
     static void finishOutfileTransaction(boolean atomicOutfile, CoordInterface coordBase,
             OutfileMarkerPublisher markerPublisher) throws Exception {
         if (!atomicOutfile) {
@@ -1781,6 +1800,11 @@ public class StmtExecutor {
 
     private void outfileWriteSuccess(OutFileClause outFileClause, TNetworkAddress address,
             InternalService.POutfileSuccessOperation operation) throws Exception {
+        outfileWriteSuccess(outFileClause, address, operation, Long.MAX_VALUE);
+    }
+
+    private void outfileWriteSuccess(OutFileClause outFileClause, TNetworkAddress address,
+            InternalService.POutfileSuccessOperation operation, long deadlineMs) throws Exception {
         // 1. set TResultFileSinkOptions
         TResultFileSinkOptions sinkOptions = outFileClause.toSinkOptions();
 
@@ -1805,9 +1829,15 @@ public class StmtExecutor {
                 .setResultFileSink(ByteString.copyFrom(new TSerializer().serialize(sink)))
                 .setOperation(operation)
                 .setMarkerToken(DebugUtil.printId(context.queryId())).build();
-        long timeoutMs = operation == InternalService.POutfileSuccessOperation.OUTFILE_MARKER_DELETE
-                ? Math.max(1, Math.min(Config.remote_fragment_exec_timeout_ms, OUTFILE_CLEANUP_TIMEOUT_MS))
-                : Math.max(1, Config.remote_fragment_exec_timeout_ms);
+        long timeoutMs;
+        if (operation == InternalService.POutfileSuccessOperation.OUTFILE_MARKER_DELETE) {
+            timeoutMs = Math.max(1, Math.min(Config.remote_fragment_exec_timeout_ms, OUTFILE_CLEANUP_TIMEOUT_MS));
+        } else if (deadlineMs == Long.MAX_VALUE) {
+            timeoutMs = Math.max(1, Config.remote_fragment_exec_timeout_ms);
+        } else {
+            timeoutMs = calculateOutfileCreateTimeoutMs(deadlineMs, System.currentTimeMillis(),
+                    Math.max(1, Config.remote_fragment_exec_timeout_ms));
+        }
         Future<POutfileWriteSuccessResult> future = BackendServiceProxy.getInstance()
                 .outfileWriteSuccessAsync(address, request, timeoutMs);
         POutfileWriteSuccessResult result = future.get(timeoutMs, TimeUnit.MILLISECONDS);

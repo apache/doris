@@ -145,6 +145,7 @@ public class OutFileClause {
     private boolean isAnalyzed = false;
 
     private FileFormatProperties fileFormatProperties;
+    private Integer beExecVersion;
 
     public OutFileClause(String filePath, String format, Map<String, String> properties) {
         this.filePath = filePath;
@@ -162,6 +163,7 @@ public class OutFileClause {
         this.fileFormatProperties = other.fileFormatProperties;
         this.properties = other.properties == null ? null : Maps.newHashMap(other.properties);
         this.isAnalyzed = other.isAnalyzed;
+        this.beExecVersion = other.beExecVersion;
     }
 
     public String getColumnSeparator() {
@@ -190,6 +192,18 @@ public class OutFileClause {
 
     public BrokerDesc getBrokerDesc() {
         return brokerDesc;
+    }
+
+    public int getBeExecVersion() {
+        if (beExecVersion == null) {
+            // Planning and finalization must use one snapshot of the mutable protocol version.
+            beExecVersion = Config.be_exec_version;
+        }
+        return beExecVersion;
+    }
+
+    public boolean isAtomicOutfileEnabled() {
+        return getBeExecVersion() >= SUPPORT_ATOMIC_OUTFILE_VERSION;
     }
 
     public void analyze(List<Expr> resultExprs, List<String> colLabels, boolean needFormat) throws UserException {
@@ -757,7 +771,7 @@ public class OutFileClause {
         sinkOptions.setDeleteExistingFiles(deleteExistingFiles);
         sinkOptions.setFileSuffix(fileSuffix);
         sinkOptions.setWithBom(withBom);
-        sinkOptions.setEnableAtomicOutfile(Config.be_exec_version >= SUPPORT_ATOMIC_OUTFILE_VERSION);
+        sinkOptions.setEnableAtomicOutfile(isAtomicOutfileEnabled());
 
         if (brokerDesc != null) {
             sinkOptions.setBrokerProperties(brokerDesc.getBackendConfigProperties());

@@ -40,6 +40,10 @@ public interface CoordInterface {
         throw new UnsupportedOperationException("Atomic OUTFILE finalization is not supported");
     }
 
+    public default long getOutfileTimeoutDeadline() {
+        throw new UnsupportedOperationException("Atomic OUTFILE deadline is not supported");
+    }
+
     List<TNetworkAddress> getInvolvedBackends();
 
     void setIsProfileSafeStmt(boolean isSafe);

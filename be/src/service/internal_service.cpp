@@ -105,6 +105,7 @@
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "service/backend_options.h"
+#include "service/outfile_marker_state.h"
 #include "service/point_query_executor.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
@@ -142,14 +143,8 @@ namespace doris {
 namespace {
 
 std::mutex outfile_marker_lock;
-struct OutfileMarkerState {
-    std::chrono::steady_clock::time_point updated_at;
-    std::string owned_path;
-    bool tombstoned = false;
-};
 std::unordered_map<std::string, std::weak_ptr<std::mutex>> outfile_marker_operation_locks;
 std::unordered_map<std::string, OutfileMarkerState> outfile_marker_states;
-constexpr auto OUTFILE_MARKER_TOMBSTONE_TTL = std::chrono::hours(1);
 constexpr auto OUTFILE_MARKER_CLEANUP_INTERVAL = std::chrono::minutes(1);
 auto outfile_marker_last_cleanup = std::chrono::steady_clock::now();
 
@@ -167,10 +162,7 @@ void cleanup_expired_outfile_marker_states(std::chrono::steady_clock::time_point
         }
     }
     for (auto it = outfile_marker_states.begin(); it != outfile_marker_states.end();) {
-        // A failed marker delete retains the only in-process rollback fence and ownership record.
-        // Expire state only after the owned path has been deleted successfully.
-        if (it->second.owned_path.empty() &&
-            now - it->second.updated_at >= OUTFILE_MARKER_TOMBSTONE_TTL) {
+        if (should_expire_outfile_marker_state(it->second, now)) {
             it = outfile_marker_states.erase(it);
         } else {
             ++it;
@@ -879,7 +871,9 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
         }
 
         io::FileWriterPtr file_writer;
-        const io::FileWriterOptions options {.write_file_cache = false, .sync_file_data = false};
+        const io::FileWriterOptions options {.write_file_cache = false,
+                                             .sync_file_data = should_sync_outfile_marker(
+                                                     result_file_sink.storage_backend_type)};
         // The create acknowledgement can be lost after publishing the marker, so ownership is
         // retained by marker_token for a compensating DELETE.
         st = file_system->create_file(file_name, &file_writer, &options);

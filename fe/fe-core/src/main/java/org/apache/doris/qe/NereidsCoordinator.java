@@ -550,7 +550,7 @@ public class NereidsCoordinator extends Coordinator {
     }
 
     @Override
-    protected long getOutfileTimeoutDeadline() {
+    public long getOutfileTimeoutDeadline() {
         // Nereids owns its deadline in CoordinatorContext instead of the legacy Coordinator field.
         return coordinatorContext.timeoutDeadline.get();
     }
