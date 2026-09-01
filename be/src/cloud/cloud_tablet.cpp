@@ -39,6 +39,7 @@
 #include <vector>
 
 #include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/cloud_warm_up_manager.h"
@@ -938,6 +939,62 @@ int64_t CloudTablet::get_cloud_cumu_compaction_score() const {
     return _approximate_cumu_num_deltas.load(std::memory_order_relaxed);
 }
 
+// Keep the conditions consistent with the filter_out/disable/skip logic in
+// CloudStorageEngine::_generate_cloud_compaction_tasks and
+// CloudTabletMgr::get_topn_tablets_to_compact
+std::string CloudTablet::compaction_not_scheduled_reason() {
+    if (is_zombie_tablet()) {
+        return "zombie";
+    }
+    if (_tablet_meta->tablet_schema()->disable_auto_compaction()) {
+        return "disabled";
+    }
+    if (_engine.has_base_compaction(tablet_id()) || _engine.has_cumu_compaction(tablet_id()) ||
+        _engine.has_full_compaction(tablet_id()) ||
+        _engine.is_preparing_cumu_compaction(tablet_id())) {
+        return "compaction_inflight";
+    }
+    if (tablet_state() == TABLET_NOTREADY) {
+        if (!config::enable_new_tablet_do_compaction) {
+            return "alter_new_tablet_compaction_disabled";
+        }
+        if (alter_version() == -1) {
+            return "waiting_alter_task";
+        }
+    }
+    auto* cloud_cluster_info =
+            static_cast<CloudClusterInfo*>(ExecEnv::GetInstance()->cluster_info());
+    if (config::enable_standby_passive_compaction && cloud_cluster_info->is_in_standby() &&
+        fetch_add_approximate_num_rowsets(0) <
+                config::max_tablet_version_num * config::standby_compaction_version_ratio) {
+        return "standby_throttled";
+    }
+    if (cloud_cluster_info->should_skip_compaction(this)) {
+        return "handled_by_other_cluster";
+    }
+    int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+    auto cooldown_left = [now](int64_t last_ms) {
+        return last_ms + config::min_compaction_failure_interval_ms - now;
+    };
+    if (int64_t ms = cooldown_left(last_cumu_compaction_failure_time()); ms > 0) {
+        return fmt::format("cumu_failure_cooldown({}ms)", ms);
+    }
+    if (int64_t ms = cooldown_left(last_cumu_no_suitable_version_ms); ms > 0) {
+        return fmt::format("cumu_no_suitable_version({}ms)", ms);
+    }
+    if (int64_t ms = cooldown_left(last_base_compaction_failure_time()); ms > 0) {
+        return fmt::format("base_failure_cooldown({}ms)", ms);
+    }
+    if (now - last_load_time_ms > config::compaction_load_max_freeze_interval_s * 1000 &&
+        now - last_cumu_compaction_success_time_ms < config::cumu_compaction_interval_s * 1000 &&
+        fetch_add_approximate_num_rowsets(0) < max_version_config() / 2) {
+        return "frozen";
+    }
+    return "";
+}
+
 // return a json string to show the compaction status of this tablet
 void CloudTablet::get_compaction_status(std::string* json_result) {
     rapidjson::Document root;
@@ -970,6 +1027,21 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
                                       cast_set<uint32_t>(compaction_policy.length()),
                                       root.GetAllocator());
     root.AddMember("compaction policy", compaction_policy_value, root.GetAllocator());
+    rapidjson::Value tablet_state_value;
+    std::string tablet_state_str = tablet_state() == TABLET_RUNNING ? "RUNNING" : "NOTREADY";
+    tablet_state_value.SetString(tablet_state_str.c_str(),
+                                 cast_set<uint>(tablet_state_str.length()), root.GetAllocator());
+    root.AddMember("tablet state", tablet_state_value, root.GetAllocator());
+    root.AddMember("is zombie tablet", is_zombie_tablet(), root.GetAllocator());
+    root.AddMember("has active alter job", has_active_alter_job(), root.GetAllocator());
+    root.AddMember("alter version", alter_version(), root.GetAllocator());
+    root.AddMember("disable auto compaction",
+                   _tablet_meta->tablet_schema()->disable_auto_compaction(), root.GetAllocator());
+    rapidjson::Value reason_value;
+    std::string reason_str = compaction_not_scheduled_reason();
+    reason_value.SetString(reason_str.c_str(), cast_set<uint>(reason_str.length()),
+                           root.GetAllocator());
+    root.AddMember("not scheduled reason", reason_value, root.GetAllocator());
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
     rapidjson::Value cumu_value;
     std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_millis.load());

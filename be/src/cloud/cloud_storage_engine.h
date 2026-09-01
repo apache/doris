@@ -156,6 +156,11 @@ public:
         return _submitted_full_compactions.contains(tablet_id);
     }
 
+    bool is_preparing_cumu_compaction(int64_t tablet_id) const {
+        std::lock_guard lock(_compaction_mtx);
+        return _tablet_preparing_cumu_compaction.contains(tablet_id);
+    }
+
     std::shared_ptr<CloudCumulativeCompactionPolicy> cumu_compaction_policy(
             std::string_view compaction_policy);
 

@@ -21,6 +21,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <span>
 #include <string>
 
 #include "cloud/cloud_tablet_mgr.h"
@@ -34,6 +35,13 @@ namespace doris {
 struct CompactionScoreResult {
     int64_t tablet_id;
     size_t compaction_score;
+    // Only filled in cloud mode: "RUNNING" or "NOTREADY" (an in-progress schema
+    // change new tablet; abandoned shadow tablets are excluded from the result)
+    std::string tablet_state;
+    // Only filled in cloud mode: why this tablet is currently not scheduled for
+    // compaction (empty if it is schedulable), e.g. "disabled",
+    // "compaction_inflight", "cumu_failure_cooldown(12000ms)"
+    std::string not_scheduled_reason;
 };
 
 inline bool operator>(const CompactionScoreResult& lhs, const CompactionScoreResult& rhs) {
@@ -44,6 +52,10 @@ struct CompactionScoresAccessor {
     virtual ~CompactionScoresAccessor() = default;
 
     virtual std::vector<CompactionScoreResult> get_all_tablet_compaction_scores() = 0;
+
+    // Fill display-only details (tablet state, not-scheduled reason) for the top-n
+    // entries about to be returned. Default is a no-op (local mode).
+    virtual void fill_details(std::span<CompactionScoreResult> entries) {}
 };
 
 // topn, sync

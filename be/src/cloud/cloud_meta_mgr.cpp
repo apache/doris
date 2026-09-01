@@ -789,6 +789,12 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             req.set_cumulative_point(tablet->cumulative_layer_point());
         }
         req.set_end_version(-1);
+        if (tablet->tablet_state() == TABLET_NOTREADY) {
+            // Ask MS whether this NOT_READY tablet still has an active alter job, to
+            // tell an in-progress schema change new tablet from an abandoned shadow
+            // tablet, see CloudTablet::has_active_alter_job()
+            req.set_need_alter_job_info(true);
+        }
         VLOG_DEBUG << "send GetRowsetRequest: " << req.ShortDebugString();
 
         // Host-level rate limiting for get_rowset
@@ -862,6 +868,10 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
 
         int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
         tablet->last_sync_time_s = now;
+
+        if (resp.has_has_alter_job()) {
+            tablet->set_has_active_alter_job(resp.has_alter_job());
+        }
 
         if (sync_stats) {
             sync_stats->get_remote_rowsets_rpc_ns +=

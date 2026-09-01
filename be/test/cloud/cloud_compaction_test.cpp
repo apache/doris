@@ -1423,4 +1423,59 @@ TEST_F(CloudCompactionTest, test_apply_txn_size_truncation_and_log_single_large_
     ASSERT_EQ(truncated, 0);
     ASSERT_EQ(compaction.get_input_rowsets().size(), 1);
 }
+
+TEST_F(CloudCompactionTest, zombie_tablet_excluded_from_score_and_candidates) {
+    auto filter_out = [](CloudTablet* t) { return false; };
+    CloudTabletMgr mgr(_engine);
+
+    auto make_tablet = [&](int64_t tablet_id, TabletState state, bool has_alter_job,
+                           int64_t cumu_deltas) {
+        TabletMetaSharedPtr meta(new TabletMeta(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6,
+                                                {{7, 8}}, UniqueId(9, 10),
+                                                TTabletType::TABLET_TYPE_DISK,
+                                                TCompressionType::LZ4F));
+        meta->_tablet_id = tablet_id;
+        meta->set_tablet_state(state);
+        auto tablet = std::make_shared<CloudTablet>(_engine, meta);
+        tablet->set_has_active_alter_job(has_alter_job);
+        tablet->_approximate_cumu_num_deltas = cumu_deltas;
+        tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+        mgr.put_tablet_for_UT(tablet);
+        return tablet;
+    };
+
+    // A normal running tablet with a low score
+    auto running = make_tablet(20001, TABLET_RUNNING, true, 3);
+    // An in-progress schema change new tablet: NOT_READY with an active alter job
+    auto live_shadow = make_tablet(20002, TABLET_NOTREADY, true, 50);
+    // An abandoned shadow tablet: NOT_READY whose alter job has been cancelled
+    auto zombie = make_tablet(20003, TABLET_NOTREADY, false, 551);
+
+    ASSERT_FALSE(live_shadow->is_zombie_tablet());
+    ASSERT_TRUE(zombie->is_zombie_tablet());
+
+    CompactionScoreStats score_stats;
+    std::vector<std::shared_ptr<CloudTablet>> tablets;
+    Status st = mgr.get_topn_tablets_to_compact(10, CompactionType::CUMULATIVE_COMPACTION,
+                                                filter_out, &tablets, &score_stats);
+    ASSERT_EQ(st, Status::OK());
+    // The zombie contributes to neither the max score nor the candidates, while
+    // the in-progress schema change new tablet still counts
+    ASSERT_EQ(score_stats.max_score, 50);
+    ASSERT_EQ(tablets.size(), 2);
+    ASSERT_EQ(tablets[0]->tablet_id(), 20002);
+    for (auto& t : tablets) {
+        ASSERT_NE(t->tablet_id(), 20003);
+    }
+
+    // Once the alter job of the live shadow is gone as well, it becomes a zombie
+    // too and the max score falls back to the running tablet
+    live_shadow->set_has_active_alter_job(false);
+    st = mgr.get_topn_tablets_to_compact(10, CompactionType::CUMULATIVE_COMPACTION, filter_out,
+                                         &tablets, &score_stats);
+    ASSERT_EQ(st, Status::OK());
+    ASSERT_EQ(score_stats.max_score, 3);
+    ASSERT_EQ(tablets.size(), 1);
+    ASSERT_EQ(tablets[0]->tablet_id(), 20001);
+}
 } // namespace doris

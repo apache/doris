@@ -270,6 +270,32 @@ public:
     int64_t alter_version() const { return _alter_version; }
     void set_alter_version(int64_t alter_version) { _alter_version = alter_version; }
 
+    // Whether this tablet still has an active alter (schema change) job registered
+    // in meta-service. Only meaningful for NOT_READY tablets; refreshed on each
+    // rowset sync (see GetRowsetResponse.has_alter_job). Defaults to true so that
+    // a tablet is treated as alter-in-progress until the first sync tells otherwise
+    // (also keeps behavior unchanged when MS has not been upgraded to fill it).
+    bool has_active_alter_job() const {
+        return _has_active_alter_job.load(std::memory_order_relaxed);
+    }
+    void set_has_active_alter_job(bool v) {
+        _has_active_alter_job.store(v, std::memory_order_relaxed);
+    }
+
+    // A NOT_READY tablet whose schema change job has been cancelled or removed in
+    // meta-service. It will never be converted or compacted, does not serve reads
+    // or writes, and just stays in the local tablet cache until the recycler
+    // permanently deletes its meta. It should be invisible to compaction score
+    // stats, /api/compaction_score and compaction scheduling.
+    bool is_zombie_tablet() const {
+        return tablet_state() == TABLET_NOTREADY && !has_active_alter_job();
+    }
+
+    // Why this tablet is currently not scheduled for compaction, empty if it is
+    // schedulable. Display only (/api/compaction_score, /api/compaction/show),
+    // evaluated on demand, never in the scheduling loop.
+    std::string compaction_not_scheduled_reason();
+
     // Last active cluster info for compaction read-write separation
     std::string last_active_cluster_id() const {
         std::shared_lock lock(_cluster_info_mutex);
@@ -497,6 +523,7 @@ private:
     int64_t _max_version = -1;
     int64_t _base_size = 0;
     int64_t _alter_version = -1;
+    std::atomic<bool> _has_active_alter_job {true};
 
     std::mutex _base_compaction_lock;
     std::mutex _cumulative_compaction_lock;
