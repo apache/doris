@@ -31,12 +31,14 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
@@ -211,6 +213,50 @@ public class StmtExecutorTest extends TestWithFeService {
         Assertions.assertEquals(100L, StmtExecutor.calculateOutfileCreateTimeoutMs(1200L, 1000L, 100L));
         Assertions.assertThrows(QueryTimeoutException.class,
                 () -> StmtExecutor.calculateOutfileCreateTimeoutMs(1000L, 1000L, 100L));
+    }
+
+    @Test
+    public void testAtomicOutfileRpcFailureDoesNotRetry() throws Exception {
+        int originalVersion = Config.be_exec_version;
+        int originalRetryTime = Config.max_query_retry_time;
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        String originalDeployMode = Config.deploy_mode;
+        TUniqueId originalQueryId = connectContext.queryId();
+        org.apache.doris.nereids.StatementContext originalStatementContext = connectContext.getStatementContext();
+        try {
+            Config.be_exec_version = OutFileClause.SUPPORT_ATOMIC_OUTFILE_VERSION;
+            Config.max_query_retry_time = 1;
+            Config.cloud_unique_id = "";
+            Config.deploy_mode = "";
+            OutFileClause outFileClause = new OutFileClause("file:///tmp/retry-outfile/", "csv",
+                    Collections.emptyMap());
+            outFileClause.toSinkOptions();
+            LogicalPlanAdapter query = Mockito.mock(LogicalPlanAdapter.class);
+            Mockito.when(query.hasOutFileClause()).thenReturn(true);
+            Mockito.when(query.getOutFileClause()).thenReturn(outFileClause);
+            Mockito.when(query.getOrigStmt()).thenReturn(new OriginStatement("select 1 into outfile", 0));
+            Mockito.when(query.getStatementContext()).thenReturn(new org.apache.doris.nereids.StatementContext());
+            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, query);
+            TUniqueId queryId = new TUniqueId(1, 2);
+            connectContext.setQueryId(queryId);
+            AtomicInteger attempts = new AtomicInteger();
+            RpcException injectedFailure = new RpcException("test-host", "injected finalization failure");
+
+            Assertions.assertThrows(RpcException.class,
+                    () -> stmtExecutor.handleQueryWithRetry(queryId, () -> {
+                        attempts.incrementAndGet();
+                        throw injectedFailure;
+                    }));
+
+            Assertions.assertEquals(1, attempts.get());
+        } finally {
+            Config.be_exec_version = originalVersion;
+            Config.max_query_retry_time = originalRetryTime;
+            Config.cloud_unique_id = originalCloudUniqueId;
+            Config.deploy_mode = originalDeployMode;
+            connectContext.setQueryId(originalQueryId);
+            connectContext.setStatementContext(originalStatementContext);
+        }
     }
 
     @Test

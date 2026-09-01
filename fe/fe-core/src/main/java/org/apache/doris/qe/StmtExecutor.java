@@ -1092,10 +1092,22 @@ public class StmtExecutor {
         }
     }
 
+    @FunctionalInterface
+    interface QueryAttempt {
+        void execute() throws Exception;
+    }
+
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
+        handleQueryWithRetry(queryId, this::handleQueryStmt);
+    }
+
+    void handleQueryWithRetry(TUniqueId queryId, QueryAttempt queryAttempt) throws Exception {
         // queue query here
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
+        OutFileClause retryOutfileClause = parsedStmt instanceof Queriable
+                ? ((Queriable) parsedStmt).getOutFileClause() : null;
+        boolean atomicOutfile = retryOutfileClause != null && retryOutfileClause.isAtomicOutfileEnabled();
         for (int i = 0; i < retryTime; i++) {
             try {
                 // reset query id for each retry
@@ -1133,7 +1145,7 @@ public class StmtExecutor {
                 if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
                     context.setReturnResultFromLocal(false);
                 }
-                handleQueryStmt();
+                queryAttempt.execute();
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 break;
             } catch (RpcException | UserException e) {
@@ -1144,6 +1156,10 @@ public class StmtExecutor {
                 }
                 // If the previous try is timeout or cancelled, then do not need try again.
                 if (this.coord != null && (this.coord.isQueryCancelled() || this.coord.isTimeout())) {
+                    throw e;
+                }
+                // A failed atomic attempt may still own late files, so it must not overlap a retry.
+                if (atomicOutfile) {
                     throw e;
                 }
                 LOG.warn("retry due to exception {}. retried {} times. is rpc error: {}, is user error: {}.",
