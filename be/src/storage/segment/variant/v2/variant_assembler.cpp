@@ -542,6 +542,13 @@ Status assemble_hierarchical_row(StorageMapKind storage_map_kind, bool has_root,
                                         pending, emitter));
     }
     if (!emitter->emitted) {
+        if (reads_whole_variant && has_root && storage_map_kind == StorageMapKind::NONE &&
+            materialized_slots.empty()) {
+            // Flat-leaf compaction reads only the persisted root sidecar. An empty sidecar on a
+            // non-null physical row is an inner Variant null placeholder, not an outer SQL NULL.
+            row->add_null();
+            return Status::OK();
+        }
         if (reads_whole_variant &&
             (storage_map_kind != StorageMapKind::NONE || !materialized_slots.empty())) {
             // In hierarchical root storage, an outer-non-null row with no emitted paths is the

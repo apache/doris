@@ -70,6 +70,7 @@ public:
     enum class ReadType {
         SUBCOLUMNS_AND_SPARSE = 0,
         DOC_VALUE_COLUMN = 1,
+        ROOT_ONLY = 2,
     };
     static Status create(ColumnIteratorUPtr* reader, int32_t col_uid, PathInData path,
                          const SubcolumnColumnMetaInfo::Node* target_node,

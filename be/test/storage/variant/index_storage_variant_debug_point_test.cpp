@@ -133,7 +133,11 @@ protected:
                 {{"single_array_field_count", std::to_string(expected_field_count)}});
         auto rowset = write_rowset(
                 single_array_variant_rowset(version, std::move(elements), array_is_null));
-        EXPECT_GT(debug_point.execute_num(), 0);
+        if (array_is_null) {
+            EXPECT_EQ(debug_point.execute_num(), 0);
+        } else {
+            EXPECT_GT(debug_point.execute_num(), 0);
+        }
         EXPECT_TRUE(rowset.has_value()) << rowset.error();
         if (!rowset.has_value()) {
             return nullptr;
@@ -142,7 +146,12 @@ protected:
         auto probe = probe_rowset(rowset.value());
         EXPECT_TRUE(probe.has_value()) << probe.error();
         if (probe.has_value()) {
-            expect_index_files(probe.value(), true);
+            EXPECT_EQ(probe->contains_relative_path(std::string(kArrayPath)), !array_is_null);
+            if (array_is_null) {
+                EXPECT_EQ(probe->index_files.existing_files, 0);
+            } else {
+                expect_index_files(probe.value(), true);
+            }
         }
         return rowset.value();
     }

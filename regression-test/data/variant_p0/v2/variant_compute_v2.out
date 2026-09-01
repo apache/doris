@@ -75,7 +75,7 @@ true	-7	123.45	2024-02-29	2024-02-29T12:34:56.123456	true	true	true	1	0	true	tru
 [1, null, 3]	[1, 2, null]	[1, null, 3]	[[1, null], [2, 3]]	true	true
 
 -- !typed_scalar_is_not_a_document --
-{"a":1}	1
+{"a":1}	1	true
 
 -- !array_element --
 0	0	20	null	true	true	true
@@ -83,7 +83,7 @@ true	-7	123.45	2024-02-29	2024-02-29T12:34:56.123456	true	true	true	1	0	true	tru
 2	2	20	null	true	true	true
 
 -- !variant_selector_semantics --
-object-key
+object-key	true
 
 -- !variant_type_dynamic --
 object

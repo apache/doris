@@ -28,6 +28,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_variant.h"
 
 namespace doris {
 
@@ -108,6 +109,18 @@ TEST_F(SimpleFunctionFactoryTest, test_null_literal_skips_return_type_inference)
     FunctionBasePtr function;
     ASSERT_NO_THROW(function = SimpleFunctionFactory::instance().get_function(
                             FunctionNullLiteralBeTestMock::name, arguments, expected_return_type));
+    ASSERT_NE(function, nullptr);
+    EXPECT_TRUE(function->get_return_type()->equals(*expected_return_type));
+}
+
+TEST_F(SimpleFunctionFactoryTest, VariantIntegerElementUsesVariantOverload) {
+    ColumnsWithTypeAndName arguments = {{nullptr, std::make_shared<DataTypeVariant>(), "variant"},
+                                        {nullptr, std::make_shared<DataTypeInt64>(), "index"}};
+    auto expected_return_type = make_nullable(std::make_shared<DataTypeVariant>());
+
+    FunctionBasePtr function;
+    ASSERT_NO_THROW(function = SimpleFunctionFactory::instance().get_function(
+                            "element_at", arguments, expected_return_type));
     ASSERT_NE(function, nullptr);
     EXPECT_TRUE(function->get_return_type()->equals(*expected_return_type));
 }
