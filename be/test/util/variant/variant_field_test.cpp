@@ -28,11 +28,9 @@
 #include <vector>
 
 #include "common/exception.h"
-#include "core/field.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "util/json/json_parser.h"
-#include "util/json/path_in_data.h"
 #include "util/json/simd_json_parser.h"
 
 namespace doris {
@@ -320,30 +318,6 @@ TEST(VariantFieldTest, CopyAndMoveOwnTheirBytes) {
     }
     EXPECT_EQ(as_view(decoded.bytes()), decoded_snapshot);
     EXPECT_EQ(decoded.ref().get_string(), StringRef("owned"));
-}
-
-TEST(VariantFieldTest, LegacyMoveKeepsSourceAsEmptyLegacyMap) {
-    VariantMap legacy;
-    legacy.emplace(PathInData("a"), FieldWithDataType {.field = Field::create_field<TYPE_INT>(7)});
-    VariantField source(std::move(legacy));
-
-    VariantField moved(std::move(source));
-    EXPECT_TRUE(moved.is_legacy());
-    EXPECT_EQ(moved.legacy_map().at(PathInData("a")).field.get<TYPE_INT>(), 7);
-    // V1 reused moved-from std::map fields as empty maps; retain that contract until V1 is removed.
-    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
-    EXPECT_TRUE(source.is_legacy());
-    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
-    EXPECT_TRUE(source.legacy_map().empty());
-
-    VariantField assigned;
-    assigned = std::move(moved);
-    EXPECT_TRUE(assigned.is_legacy());
-    EXPECT_EQ(assigned.legacy_map().at(PathInData("a")).field.get<TYPE_INT>(), 7);
-    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
-    EXPECT_TRUE(moved.is_legacy());
-    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
-    EXPECT_TRUE(moved.legacy_map().empty());
 }
 
 TEST(VariantFieldTest, PreservesLegalNonCanonicalBytes) {

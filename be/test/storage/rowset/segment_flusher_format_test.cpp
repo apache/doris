@@ -58,6 +58,7 @@
 #include "core/value/hll.h"
 #include "core/value/quantile_state.h"
 #include "cpp/sync_point.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
@@ -2159,26 +2160,13 @@ bool logical_field_vector_equal(const FieldVector& current, const FieldVector& g
     return true;
 }
 
-bool logical_variant_equal(const VariantMap& current, const VariantMap& golden) {
-    if (current.size() != golden.size()) {
-        return false;
-    }
-    auto current_entry = current.begin();
-    auto golden_entry = golden.begin();
-    for (; current_entry != current.end(); ++current_entry, ++golden_entry) {
-        const auto& current_value = current_entry->second;
-        const auto& golden_value = golden_entry->second;
-        if (current_entry->first != golden_entry->first ||
-            current_value.base_scalar_type_id != golden_value.base_scalar_type_id ||
-            current_value.num_dimensions != golden_value.num_dimensions ||
-            current_value.precision != golden_value.precision ||
-            current_value.scale != golden_value.scale ||
-            current_value.need_convert != golden_value.need_convert ||
-            !logical_field_equal(current_value.field, golden_value.field)) {
-            return false;
-        }
-    }
-    return true;
+std::string variant_field_json(const VariantField& field) {
+    struct StringWriter {
+        void write(const char* data, size_t size) { value.append(data, size); }
+        std::string value;
+    } writer;
+    to_json(field.ref(), writer);
+    return std::move(writer.value);
 }
 
 bool logical_field_equal(const Field& current, const Field& golden) {
@@ -2194,13 +2182,9 @@ bool logical_field_equal(const Field& current, const Field& golden) {
         return logical_field_vector_equal(current.get<TYPE_STRUCT>(), golden.get<TYPE_STRUCT>());
     case TYPE_MAP:
         return logical_field_vector_equal(current.get<TYPE_MAP>(), golden.get<TYPE_MAP>());
-    case TYPE_VARIANT: {
-        const auto& current_variant = current.get<TYPE_VARIANT>();
-        const auto& golden_variant = golden.get<TYPE_VARIANT>();
-        DORIS_CHECK(current_variant.is_legacy());
-        DORIS_CHECK(golden_variant.is_legacy());
-        return logical_variant_equal(current_variant.legacy_map(), golden_variant.legacy_map());
-    }
+    case TYPE_VARIANT:
+        return variant_field_json(current.get<TYPE_VARIANT>()) ==
+               variant_field_json(golden.get<TYPE_VARIANT>());
     case TYPE_JSONB: {
         const auto& current_jsonb = current.get<TYPE_JSONB>();
         const auto& golden_jsonb = golden.get<TYPE_JSONB>();
@@ -3624,18 +3608,14 @@ TEST_F(SegmentFlusherTransformFormatTest,
 }
 
 TEST_F(SegmentFlusherFormatTest, VariantLogicalComparisonPreservesScalarTypes) {
-    VariantMap boolean_object;
-    boolean_object.try_emplace(
-            PathInData("different"),
-            FieldWithDataType {.field = Field::create_field<TYPE_BOOLEAN>(UInt8(1)),
-                               .base_scalar_type_id = TYPE_BOOLEAN});
-    VariantMap integer_object;
-    integer_object.try_emplace(PathInData("different"),
-                               FieldWithDataType {.field = Field::create_field<TYPE_INT>(Int32(1)),
-                                                  .base_scalar_type_id = TYPE_INT});
-
-    auto boolean_variant = Field::create_field<TYPE_VARIANT>(std::move(boolean_object));
-    auto integer_variant = Field::create_field<TYPE_VARIANT>(std::move(integer_object));
+    const auto encode = [](std::string_view json) {
+        JsonStringToVariantEncoder encoder({.throw_on_invalid_json = true});
+        encoder.add_json({json.data(), json.size()});
+        VariantBatchBuilder batch = encoder.finish_batch();
+        return Field::create_field<TYPE_VARIANT>(VariantField::from_ref(batch.value_at(0)));
+    };
+    auto boolean_variant = encode(R"({"different":true})");
+    auto integer_variant = encode(R"({"different":1})");
     EXPECT_TRUE(logical_field_equal(boolean_variant, boolean_variant));
     EXPECT_FALSE(logical_field_equal(boolean_variant, integer_variant));
 }

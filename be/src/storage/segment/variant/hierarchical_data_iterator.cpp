@@ -49,8 +49,7 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
                                         std::unique_ptr<SubstreamIterator>&& root_column_reader,
                                         ColumnReaderCache* column_reader_cache,
                                         OlapReaderStatistics* stats, ReadType read_type,
-                                        bool use_variant_v2, const io::IOContext* io_ctx) {
-    DORIS_CHECK(use_variant_v2);
+                                        const io::IOContext* io_ctx) {
     // None leave node need merge with root
     std::unique_ptr<HierarchicalDataIterator> stream_iter(new HierarchicalDataIterator(path));
     if (node != nullptr && read_type == ReadType::SUBCOLUMNS_AND_SPARSE) {

@@ -28,11 +28,8 @@ namespace doris::segment_v2 {
 
 BinaryColumnExtractIterator::BinaryColumnExtractIterator(std::string_view path,
                                                          BinaryColumnCacheSPtr sparse_column_cache,
-                                                         const StorageReadOptions* opts,
-                                                         bool use_variant_v2)
-        : BaseBinaryColumnProcessor(std::move(sparse_column_cache), opts), _path(path) {
-    DORIS_CHECK(use_variant_v2);
-}
+                                                         const StorageReadOptions* opts)
+        : BaseBinaryColumnProcessor(std::move(sparse_column_cache), opts), _path(path) {}
 
 Status BinaryColumnExtractIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
     RETURN_IF_ERROR(_validate_destination(*dst));

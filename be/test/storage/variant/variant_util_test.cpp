@@ -20,49 +20,9 @@
 #include <string>
 #include <vector>
 
-#include "core/block/block.h"
-#include "core/column/column_string.h"
-#include "core/column/variant_v2/column_variant_v2.h"
-#include "core/data_type/data_type_variant_v2.h"
 #include "gtest/gtest.h"
-#include "storage/tablet/tablet_schema.h"
 
 namespace doris::variant_util {
-
-static TabletSchema make_variant_schema() {
-    TabletSchemaPB schema_pb;
-    schema_pb.set_keys_type(KeysType::DUP_KEYS);
-    auto* column = schema_pb.add_column();
-    column->set_unique_id(1);
-    column->set_name("v");
-    column->set_type("VARIANT");
-    column->set_is_key(false);
-    column->set_is_nullable(false);
-
-    TabletSchema tablet_schema;
-    tablet_schema.init_from_pb(schema_pb);
-    return tablet_schema;
-}
-
-TEST(VariantUtilTest, ParseVariantColumnsKeepsV2PhysicalColumn) {
-    auto variant = ColumnVariantV2::create();
-    const auto* expected_column = variant.get();
-    Block block;
-    block.insert({std::move(variant), std::make_shared<DataTypeVariantV2>(), "v"});
-
-    Status st = parse_and_materialize_variant_columns(block, make_variant_schema(), {0});
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    EXPECT_EQ(block.get_by_position(0).column.get(), expected_column);
-}
-
-TEST(VariantUtilTest, ParseVariantColumnsRejectsNonV2PhysicalColumn) {
-    Block block;
-    block.insert({ColumnString::create(), std::make_shared<DataTypeVariantV2>(), "v"});
-
-    Status st = parse_and_materialize_variant_columns(block, make_variant_schema(), {0});
-    ASSERT_FALSE(st.ok());
-    EXPECT_NE(st.to_string().find("ColumnVariantV2"), std::string::npos);
-}
 
 TEST(VariantUtilTest, GlobToRegex) {
     struct Case {

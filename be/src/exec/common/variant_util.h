@@ -239,8 +239,4 @@ public:
             TabletSchemaSPtr& output_schema, TabletSchema::PathsSetInfo& paths_set_info);
 };
 
-// Validate Variant columns at the storage transform boundary.
-Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& tablet_schema,
-                                             const std::vector<uint32_t>& column_pos);
-
 } // namespace  doris::variant_util

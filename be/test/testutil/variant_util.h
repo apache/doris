@@ -58,17 +58,6 @@ public:
         return field_map[type];
     }
 
-    static doris::Field construct_variant_map(
-            const std::vector<std::pair<std::string, doris::Field>>& key_and_values) {
-        doris::Field res = doris::Field::create_field<TYPE_VARIANT>(VariantMap());
-        auto& object = res.get<TYPE_VARIANT>().legacy_map();
-        for (const auto& [k, v] : key_and_values) {
-            PathInData path(k);
-            object.try_emplace(path, FieldWithDataType {.field = v});
-        }
-        return res;
-    }
-
     static auto construct_basic_varint_column() {
         auto variant = ColumnVariantV2::create();
         std::vector<std::string> rows;
@@ -113,20 +102,6 @@ public:
         rows.emplace_back("20");
         insert_json_rows(*variant, rows);
         return variant;
-    }
-
-    static doris::Field create_nested_array_field(
-            std::vector<std::map<std::string, doris::Field>> data) {
-        doris::Field array_field = doris::Field::create_field<TYPE_ARRAY>(Array());
-        auto variant_field = doris::Field::create_field<TYPE_VARIANT>(VariantMap());
-        for (const auto& entry : data) {
-            auto& variant_map = variant_field.get<TYPE_VARIANT>().legacy_map();
-            for (const auto& [k, v] : entry) {
-                variant_map.try_emplace(PathInData(k), FieldWithDataType {.field = v});
-            }
-            array_field.get<TYPE_ARRAY>().emplace_back(std::move(variant_field));
-        }
-        return array_field;
     }
 
     static void insert_root_scalar_field(ColumnVariantV2& variant, doris::Field&& field) {

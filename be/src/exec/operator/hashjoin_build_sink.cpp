@@ -583,15 +583,9 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     SCOPED_TIMER(_build_table_timer);
     auto rows = (uint32_t)block.rows();
-    // 1. Dispose the overflow of ColumnString
-    // 2. Finalize the Variant column to speed up
+    // Dispose the overflow of ColumnString.
     for (auto& data : block) {
         data.column = IColumn::mutate(std::move(data.column))->convert_column_if_overflow();
-        if (p._need_finalize_variant_column) {
-            auto mutable_column = IColumn::mutate(std::move(data.column));
-            mutable_column->finalize();
-            data.column = std::move(mutable_column);
-        }
     }
 
     ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
@@ -807,10 +801,6 @@ Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
                 output_slot_flags.emplace_back(
                         std::find(_hash_output_slot_ids.begin(), _hash_output_slot_ids.end(),
                                   slot_desc->id()) != _hash_output_slot_ids.end());
-                if (output_slot_flags.back() &&
-                    slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-                    _need_finalize_variant_column = true;
-                }
             }
         }
     };

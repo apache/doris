@@ -250,12 +250,11 @@ void IndexStorageVariantSparseStatsTest::run_sparse_stats_limit_boundary_case(
     const int32_t missing_column_id = column_id_by_path("v.b.missing");
     ASSERT_GE(missing_column_id, 0) << dump_schema_paths(*tablet_schema());
 
-    auto read_path = [&](int32_t column_id, bool use_v2) {
+    auto read_path = [&](int32_t column_id) {
         IndexReadOptions read_options;
         read_options.need_ordered_result = true;
         read_options.return_columns = {0, static_cast<uint32_t>(column_id)};
         read_options.collect_variant_values = true;
-        read_options.use_variant_v2 = use_v2;
         return read_rowsets(readable.value(), std::move(read_options));
     };
 
@@ -265,41 +264,34 @@ void IndexStorageVariantSparseStatsTest::run_sparse_stats_limit_boundary_case(
             {std::nullopt, std::nullopt, std::nullopt, std::nullopt, R"("child-0")"});
     const auto expected_missing_values = canonical_variant_values(
             {std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt});
-    for (const bool use_v2 : {false, true}) {
-        auto child = read_path(child_column_id, use_v2);
-        ASSERT_TRUE(child.has_value()) << "use_v2=" << use_v2 << ": " << child.error();
-        ASSERT_EQ(child->rows_read, 5);
-        EXPECT_EQ(child->variant_v2_output_uids.contains(-1), use_v2);
-        ASSERT_TRUE(child->variant_values_by_uid.contains(-1));
-        const auto& child_values = child->variant_values_by_uid.at(-1);
-        ASSERT_EQ(child_values.size(), 5);
-        const auto logical_child_values = canonical_variant_values(child_values);
-        EXPECT_EQ(logical_child_values, expected_child_values)
-                << "use_v2=" << use_v2 << '\n'
-                << describe_optional_string_values(child_values);
-        if (stats_below_limit) {
-            EXPECT_GT(child->stats.variant_subtree_sparse_iter_count, 0) << "use_v2=" << use_v2;
-        } else {
-            EXPECT_GT(child->stats.variant_subtree_hierarchical_iter_count, 0)
-                    << "use_v2=" << use_v2;
-        }
+    auto child = read_path(child_column_id);
+    ASSERT_TRUE(child.has_value()) << child.error();
+    ASSERT_EQ(child->rows_read, 5);
+    EXPECT_TRUE(child->variant_v2_output_uids.contains(-1));
+    ASSERT_TRUE(child->variant_values_by_uid.contains(-1));
+    const auto& child_values = child->variant_values_by_uid.at(-1);
+    ASSERT_EQ(child_values.size(), 5);
+    EXPECT_EQ(canonical_variant_values(child_values), expected_child_values)
+            << describe_optional_string_values(child_values);
+    if (stats_below_limit) {
+        EXPECT_GT(child->stats.variant_subtree_sparse_iter_count, 0);
+    } else {
+        EXPECT_GT(child->stats.variant_subtree_hierarchical_iter_count, 0);
+    }
 
-        auto missing = read_path(missing_column_id, use_v2);
-        ASSERT_TRUE(missing.has_value()) << "use_v2=" << use_v2 << ": " << missing.error();
-        ASSERT_EQ(missing->rows_read, 5);
-        EXPECT_EQ(missing->variant_v2_output_uids.contains(-1), use_v2);
-        ASSERT_TRUE(missing->variant_values_by_uid.contains(-1));
-        const auto& missing_values = missing->variant_values_by_uid.at(-1);
-        ASSERT_EQ(missing_values.size(), 5);
-        EXPECT_EQ(canonical_variant_values(missing_values), expected_missing_values)
-                << "use_v2=" << use_v2 << '\n'
-                << describe_optional_string_values(missing_values);
-        if (stats_below_limit) {
-            EXPECT_GT(missing->stats.variant_subtree_default_iter_count, 0) << "use_v2=" << use_v2;
-        } else {
-            EXPECT_GT(missing->stats.variant_subtree_hierarchical_iter_count, 0)
-                    << "use_v2=" << use_v2;
-        }
+    auto missing = read_path(missing_column_id);
+    ASSERT_TRUE(missing.has_value()) << missing.error();
+    ASSERT_EQ(missing->rows_read, 5);
+    EXPECT_TRUE(missing->variant_v2_output_uids.contains(-1));
+    ASSERT_TRUE(missing->variant_values_by_uid.contains(-1));
+    const auto& missing_values = missing->variant_values_by_uid.at(-1);
+    ASSERT_EQ(missing_values.size(), 5);
+    EXPECT_EQ(canonical_variant_values(missing_values), expected_missing_values)
+            << describe_optional_string_values(missing_values);
+    if (stats_below_limit) {
+        EXPECT_GT(missing->stats.variant_subtree_default_iter_count, 0);
+    } else {
+        EXPECT_GT(missing->stats.variant_subtree_hierarchical_iter_count, 0);
     }
 }
 

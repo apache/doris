@@ -251,8 +251,7 @@ Status VariantColumnReader::_create_hierarchical_reader(
         ColumnIteratorUPtr* reader, int32_t col_uid, PathInData path,
         const SubcolumnColumnMetaInfo::Node* node, const SubcolumnColumnMetaInfo::Node* root,
         ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats,
-        HierarchicalDataIterator::ReadType read_type, bool use_variant_v2,
-        const io::IOContext* io_ctx) {
+        HierarchicalDataIterator::ReadType read_type, const io::IOContext* io_ctx) {
     // make sure external meta is loaded otherwise can't find any meta data for extracted columns
     // TODO(lhy): this will load all external meta if not loaded, and memory will be consumed.
     RETURN_IF_ERROR(load_external_meta_once(stats, io_ctx));
@@ -294,7 +293,7 @@ Status VariantColumnReader::_create_hierarchical_reader(
     }
     RETURN_IF_ERROR(HierarchicalDataIterator::create(
             reader, col_uid, path, node, std::move(sparse_iter), std::move(root_column_reader),
-            column_reader_cache, stats, read_type, use_variant_v2, io_ctx));
+            column_reader_cache, stats, read_type, io_ctx));
     return Status::OK();
 }
 
@@ -1015,7 +1014,7 @@ Status VariantColumnReader::_create_iterator_from_plan(
                                                       : target_col.parent_unique_id();
         RETURN_IF_ERROR(_create_hierarchical_reader(
                 iterator, col_uid, plan.relative_path, plan.node, plan.root, column_reader_cache,
-                opt->stats, HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE, true,
+                opt->stats, HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE,
                 &opt->io_ctx));
         return _maybe_wrap_root_merge_iterator(iterator, plan, opt);
     }
@@ -1032,7 +1031,7 @@ Status VariantColumnReader::_create_iterator_from_plan(
         BinaryColumnCacheSPtr binary_column_cache = DORIS_TRY(_get_binary_column_cache(
                 binary_column_cache_ptr, plan.binary_cache_key, plan.binary_column_reader));
         *iterator = std::make_unique<BinaryColumnExtractIterator>(
-                plan.relative_path.get_path(), std::move(binary_column_cache), opt, true);
+                plan.relative_path.get_path(), std::move(binary_column_cache), opt);
         if (opt && opt->stats) {
             opt->stats->variant_subtree_sparse_iter_count++;
         }
@@ -1070,8 +1069,7 @@ Status VariantColumnReader::_create_iterator_from_plan(
                                                       : target_col.parent_unique_id();
         RETURN_IF_ERROR(_create_hierarchical_reader(
                 iterator, col_uid, plan.relative_path, plan.node, plan.root, column_reader_cache,
-                opt->stats, HierarchicalDataIterator::ReadType::DOC_VALUE_COLUMN, true,
-                &opt->io_ctx));
+                opt->stats, HierarchicalDataIterator::ReadType::DOC_VALUE_COLUMN, &opt->io_ctx));
         if (opt && opt->stats) {
             opt->stats->variant_doc_value_column_iter_count++;
         }
@@ -1108,8 +1106,8 @@ Status VariantColumnReader::_maybe_wrap_root_merge_iterator(ColumnIteratorUPtr* 
         return Status::OK();
     }
 
-    // The planner may reach this point through ROOT_FLAT, HIERARCHICAL or HIERARCHICAL_DOC.
-    // Wrapping once here prevents those branches from duplicating the same root merge logic.
+    // Root reconstruction reaches this point through HIERARCHICAL or HIERARCHICAL_DOC.
+    // Wrapping once here prevents those branches from duplicating the same nested-group merge.
     ColumnIteratorUPtr merged_iterator;
     RETURN_IF_ERROR(_nested_group_read_provider->create_root_merge_iterator(
             std::move(*iterator), _nested_group_readers, opt, &merged_iterator));

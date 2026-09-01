@@ -560,22 +560,17 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
     // _left_output_slots_flags : column of left table need to output set flag = true
     // _rgiht_output_slots_flags : column of right table need to output set flag = true
     // if _hash_output_slot_ids is empty, means all column of left/right table need to output.
-    auto init_output_slots_flags = [&](auto& tuple_descs, auto& output_slot_flags,
-                                       bool init_finalize_flag = false) {
+    auto init_output_slots_flags = [&](auto& tuple_descs, auto& output_slot_flags) {
         for (const auto& tuple_desc : tuple_descs) {
             for (const auto& slot_desc : tuple_desc->slots()) {
                 output_slot_flags.emplace_back(
                         std::find(_hash_output_slot_ids.begin(), _hash_output_slot_ids.end(),
                                   slot_desc->id()) != _hash_output_slot_ids.end());
-                if (init_finalize_flag && output_slot_flags.back() &&
-                    slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-                    _need_finalize_variant_column = true;
-                }
             }
         }
     };
     init_output_slots_flags(_child->operator_row_desc_after_projection().tuple_descriptors(),
-                            _left_output_slot_flags, true);
+                            _left_output_slot_flags);
     init_output_slots_flags(
             _build_side_child->operator_row_desc_after_projection().tuple_descriptors(),
             _right_output_slot_flags);

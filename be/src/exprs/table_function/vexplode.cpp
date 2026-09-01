@@ -62,8 +62,6 @@ Status VExplodeTableFunction::_process_init_variant(Block* block, int value_colu
     auto target_type = std::make_shared<DataTypeArray>(variant_type);
     RETURN_IF_ERROR(CastWrapper::variant_v2_internal::cast_variant_to_array(
             nullptr, *variant, target_type, variant->size(), outer_nulls, &_array_column));
-    _detail.output_as_variant = true;
-    _detail.nested_type = make_nullable(std::move(variant_type));
     return Status::OK();
 }
 
