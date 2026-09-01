@@ -6,10 +6,14 @@
 -- !before_snapshots --
 1
 
--- !after_rows --
+-- !after_append_rows --
 1	10	base-1
 2	20	base-2
+3	30	insert-values
+4	40	insert-select
+
+-- !after_rows --
+6	60	merge-insert
 
 -- !after_snapshots --
-1
-
+7
