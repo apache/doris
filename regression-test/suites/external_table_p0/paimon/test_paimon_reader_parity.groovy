@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_cpp_reader", "p0,external") {
+suite("test_paimon_reader_parity", "p0,external") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disabled paimon test")
         return
     }
 
-    String catalogName = "test_paimon_cpp_reader"
+    String catalogName = "test_paimon_reader_parity"
     String hdfsPort = context.config.otherConfigs.get("hive2HdfsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
@@ -35,9 +35,6 @@ suite("test_paimon_cpp_reader", "p0,external") {
         );"""
         sql """switch ${catalogName}"""
         sql """use db1"""
-        // Do not force JNI; keep default selection behavior.
-        sql """set force_jni_scanner=false"""
-
         def testQueries = [
                 """select c1 from complex_all order by c1""",
                 """select c1 from complex_all where c1 >= 2 order by c1""",
@@ -51,19 +48,17 @@ suite("test_paimon_cpp_reader", "p0,external") {
                 """select * from deletion_vector_parquet"""
         ]
 
-        // Default path is JNI when enable_paimon_cpp_reader=false.
-        sql """set enable_paimon_cpp_reader=false"""
+        sql """set force_jni_scanner=true"""
         def jniResults = testQueries.collect { query -> sql(query) }
 
-        sql """set enable_paimon_cpp_reader=true"""
-        def cppResults = testQueries.collect { query -> sql(query) }
+        sql """set force_jni_scanner=false"""
+        def nativeResults = testQueries.collect { query -> sql(query) }
 
-        assertTrue(cppResults[0].size() > 0)
+        assertTrue(nativeResults[0].size() > 0)
         for (int i = 0; i < testQueries.size(); i++) {
-            assertEquals(jniResults[i].toString(), cppResults[i].toString())
+            assertEquals(jniResults[i].toString(), nativeResults[i].toString())
         }
     } finally {
-        sql """set enable_paimon_cpp_reader=false"""
         sql """set force_jni_scanner=false"""
         sql """drop catalog if exists ${catalogName}"""
     }
