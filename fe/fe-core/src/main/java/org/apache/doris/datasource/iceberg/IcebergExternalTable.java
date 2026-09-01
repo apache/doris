@@ -148,10 +148,6 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         return IcebergUtils.getIcebergTable(this);
     }
 
-    public Table getWritableIcebergTable() {
-        return IcebergUtils.getWritableIcebergTable(this);
-    }
-
     @Override
     public String getComment() {
         return properties().getOrDefault(TABLE_COMMENT_PROP, "");

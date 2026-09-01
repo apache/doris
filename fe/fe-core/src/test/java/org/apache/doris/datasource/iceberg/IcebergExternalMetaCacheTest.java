@@ -632,7 +632,9 @@ public class IcebergExternalMetaCacheTest {
             // Projections built from the published generation carry its execution context for
             // later planning-time validation.
             Assert.assertSame(authenticator,
-                    cache.getSnapshotCache(dorisTable).getCapturedAuthenticator());
+                    cache.getSnapshotCacheWithRetainedTableForTest(dorisTable).getCapturedAuthenticator());
+            Assert.assertFalse("background snapshots must not expose an unowned table",
+                    cache.getSnapshotCache(dorisTable).getIcebergTable().isPresent());
 
             initialized.set(false);
             Assert.assertSame(table, cache.getWritableIcebergTable(dorisTable));
@@ -965,7 +967,7 @@ public class IcebergExternalMetaCacheTest {
                     IcebergSchemaCacheKey.class, SchemaCacheValue.class);
 
             for (int i = 1; i <= 3; i++) {
-                IcebergSnapshotCacheValue projection = cache.getSnapshotCache(dorisTable);
+                IcebergSnapshotCacheValue projection = cache.getSnapshotCacheWithRetainedTableForTest(dorisTable);
                 Assert.assertNotNull(projection);
                 Assert.assertNull("rejected table handle must not be published", tables.peekIfPresent(mapping));
                 Assert.assertEquals("projections of an unpublished generation must be retired",
@@ -1122,15 +1124,16 @@ public class IcebergExternalMetaCacheTest {
             IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
             Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
 
-            IcebergSnapshotCacheValue first = cache.getSnapshotCache(dorisTable);
+            IcebergSnapshotCacheValue first = cache.getSnapshotCacheWithRetainedTableForTest(dorisTable);
             Assert.assertNull(tables.peekIfPresent(mapping));
             Assert.assertEquals(1L, snapshots.stats().getEstimatedSize());
             // A new handle owns a distinct FileIO instance. Even with equal properties, retiring
             // that handle closes its exact IO, so the projection is rebound before retirement.
-            IcebergSnapshotCacheValue sameCredentialsProjection = cache.getSnapshotCache(dorisTable);
+            IcebergSnapshotCacheValue sameCredentialsProjection =
+                    cache.getSnapshotCacheWithRetainedTableForTest(dorisTable);
             Assert.assertNotSame(first, sameCredentialsProjection);
             // Rotated credentials: the projection frozen on the first handle is rebuilt.
-            IcebergSnapshotCacheValue rebound = cache.getSnapshotCache(dorisTable);
+            IcebergSnapshotCacheValue rebound = cache.getSnapshotCacheWithRetainedTableForTest(dorisTable);
             Assert.assertNotSame(sameCredentialsProjection, rebound);
             Assert.assertSame(rotatedHandle.io(), rebound.getIcebergTable().get().io());
             Assert.assertEquals(1L, snapshots.stats().getEstimatedSize());
@@ -1189,7 +1192,7 @@ public class IcebergExternalMetaCacheTest {
             IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
             Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
 
-            IcebergSnapshotCacheValue projection = cache.getSnapshotCache(dorisTable);
+            IcebergSnapshotCacheValue projection = cache.getSnapshotCacheWithRetainedTableForTest(dorisTable);
             IcebergTableCacheValue tableValue = cache.entry(1L, IcebergExternalMetaCache.ENTRY_TABLE,
                     NameMapping.class, IcebergTableCacheValue.class).get(mapping);
             Assert.assertEquals(0, preparations.get());
@@ -2182,10 +2185,11 @@ public class IcebergExternalMetaCacheTest {
             ExternalTable table = Mockito.mock(IcebergExternalTable.class);
             Mockito.when(table.getOrBuildNameMapping()).thenReturn(mapping);
 
-            Table queryTable = cache.getQueryScopedIcebergTable(table);
-
-            Assert.assertSame(value.getRetainedIcebergTable(), queryTable);
-            Assert.assertFalse(value.isQueryIsolationPrepared());
+            try (IcebergTableCacheValue.Lease lease = cache.borrowForTest(mapping)) {
+                Table queryTable = cache.createQueryScopedTable(table, lease.getValue());
+                Assert.assertSame(value.getRetainedIcebergTable(), queryTable);
+                Assert.assertFalse(value.isQueryIsolationPrepared());
+            }
         } finally {
             executor.shutdownNow();
         }
@@ -2221,13 +2225,15 @@ public class IcebergExternalMetaCacheTest {
             ExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
             Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
 
-            Table queryTable = cache.getQueryScopedIcebergTable(dorisTable);
-            entry.put(mapping, new IcebergTableCacheValue(secondTable));
+            try (IcebergTableCacheValue.Lease lease = cache.borrowForTest(mapping)) {
+                Table queryTable = cache.createQueryScopedTable(dorisTable, lease.getValue());
+                entry.put(mapping, new IcebergTableCacheValue(secondTable));
 
-            Assert.assertEquals(firstSnapshotId,
-                    queryTable.currentSnapshot().snapshotId());
-            Assert.assertEquals(firstTable.location(),
-                    queryTable.location());
+                Assert.assertEquals(firstSnapshotId,
+                        queryTable.currentSnapshot().snapshotId());
+                Assert.assertEquals(firstTable.location(),
+                        queryTable.location());
+            }
         } finally {
             executor.shutdownNow();
         }
@@ -2270,10 +2276,11 @@ public class IcebergExternalMetaCacheTest {
             ExternalTable table = Mockito.mock(IcebergExternalTable.class);
             Mockito.when(table.getOrBuildNameMapping()).thenReturn(mapping);
 
-            Table queryTable = cache.getQueryScopedIcebergTable(table);
-
-            Assert.assertEquals(staleTable.schema().asStruct(), queryTable.schema().asStruct());
-            Mockito.verify(metadataOps, Mockito.never()).loadTable("db", "tbl");
+            try (IcebergTableCacheValue.Lease lease = cache.borrowForTest(mapping)) {
+                Table queryTable = cache.createQueryScopedTable(table, lease.getValue());
+                Assert.assertEquals(staleTable.schema().asStruct(), queryTable.schema().asStruct());
+                Mockito.verify(metadataOps, Mockito.never()).loadTable("db", "tbl");
+            }
         } finally {
             cache.close();
             executor.shutdownNow();
