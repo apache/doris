@@ -88,7 +88,7 @@ public class PaimonConnectorMetadataPartitionTest {
     private static Partition partition(Map<String, String> spec, long recordCount,
             long fileSizeInBytes, long lastFileCreationTime) {
         return new Partition(spec, recordCount, fileSizeInBytes, /*fileCount*/ 1, lastFileCreationTime,
-                /*done*/ true);
+                /*totalBuckets*/ 1, /*done*/ true);
     }
 
     @Test
@@ -186,7 +186,7 @@ public class PaimonConnectorMetadataPartitionTest {
         // lastFileCreationTime, done).
         ops.partitions = Collections.singletonList(new Partition(
                 spec, /*recordCount*/ 42L, /*fileSizeInBytes*/ 1024L, /*fileCount*/ 7L,
-                /*lastFileCreationTime*/ 1700000000000L, /*done*/ true));
+                /*lastFileCreationTime*/ 1700000000000L, /*totalBuckets*/ 3, /*done*/ true));
 
         ConnectorPartitionInfo info = metadataWith(ops)
                 .listPartitions(null, dtRegionHandle(table), Optional.empty()).get(0);
