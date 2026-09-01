@@ -53,6 +53,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDistinct
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayEnumerate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayEnumerateUniq;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExcept;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExceptAll;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExists;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFilter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFirst;
@@ -657,6 +658,11 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayEnumerate.class, "array_enumerate"),
             scalar(ArrayEnumerateUniq.class, "array_enumerate_uniq"),
             scalar(ArrayExcept.class, "array_except"),
+            scalar(ArrayExceptAll.class, "array_except_all"),
+            scalar(ArrayExists.class, "array_exists"),
+            scalar(ArrayFilter.class, "array_filter"),
+            scalar(ArrayFirst.class, "array_first"),
+            scalar(ArrayFirstIndex.class, "array_first_index"),
             scalar(ArrayFlatten.class, "array_flatten"),
             scalar(ArrayIntersect.class, "array_intersect"),
             scalar(ArrayJoin.class, "array_join"),
