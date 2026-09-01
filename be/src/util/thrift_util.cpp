@@ -100,7 +100,7 @@ static void thrift_output_function(const char* output) {
 }
 
 void init_thrift_logging() {
-    apache::thrift::GlobalOutput.setOutputFunction(thrift_output_function);
+    apache::thrift::TOutput::instance().setOutputFunction(thrift_output_function);
 }
 
 Status wait_for_local_server(const ThriftServer& server, int num_retries, int retry_interval_ms) {
