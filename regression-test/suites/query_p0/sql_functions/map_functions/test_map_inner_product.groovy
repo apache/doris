@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_map_inner_product", "p0") {
+suite("test_map_inner_product", "p0,nonConcurrent") {
     sql "drop table if exists test_map_inner_product"
     sql """
         create table test_map_inner_product (

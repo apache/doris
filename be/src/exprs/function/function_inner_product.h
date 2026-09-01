@@ -158,13 +158,7 @@ private:
             raw_column = nullable->get_nested_column_ptr().get();
         }
 
-        const auto& map = assert_cast<const ColumnMap&>(*raw_column);
-        if (map.get_values().has_null()) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "{} for function {} cannot have null", argument_name,
-                                   function_name);
-        }
-        return map;
+        return assert_cast<const ColumnMap&>(*raw_column);
     }
 
     static const IColumn& _get_key_column(const IColumn& column, const UInt8*& null_map) {
@@ -174,6 +168,58 @@ private:
             return nullable->get_nested_column();
         }
         return column;
+    }
+
+    static const IColumn& _get_value_column(const IColumn& column,
+                                            const ColumnNullable*& nullable_with_null) {
+        nullable_with_null = nullptr;
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(&column)) {
+            if (nullable->has_null()) {
+                nullable_with_null = nullable;
+            }
+            return nullable->get_nested_column();
+        }
+        return column;
+    }
+
+    template <typename KeyTraits>
+    static void _validate_retained_values(typename KeyTraits::KeyAccessor keys,
+                                          const UInt8* key_null_map,
+                                          const ColumnNullable& nullable_values, MapRange range,
+                                          const char* argument_name) {
+        if (!nullable_values.has_null(range.begin, range.begin + range.size)) {
+            return;
+        }
+
+        using Key = typename KeyTraits::Key;
+        doris::flat_hash_set<Key, typename KeyTraits::Hash> seen_keys;
+        seen_keys.reserve(range.size);
+        const auto& value_null_map = nullable_values.get_null_map_data();
+        bool has_null_key = false;
+
+        // Only the last value for each key is visible. Ignore NULL values shadowed by a later
+        // duplicate, matching ColumnMap::deduplicate_keys() semantics.
+        for (size_t i = range.begin + range.size; i > range.begin; --i) {
+            const size_t index = i - 1;
+            if (key_null_map != nullptr && key_null_map[index]) {
+                if (!has_null_key) {
+                    has_null_key = true;
+                    if (value_null_map[index]) {
+                        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                               "{} for function {} cannot have null", argument_name,
+                                               InnerProduct::name);
+                    }
+                }
+                continue;
+            }
+
+            if (seen_keys.emplace(KeyTraits::get_key(keys, index)).second &&
+                value_null_map[index]) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "{} for function {} cannot have null", argument_name,
+                                       InnerProduct::name);
+            }
+        }
     }
 
     template <PrimitiveType KeyType>
@@ -192,33 +238,44 @@ private:
                 assert_cast<const KeyColumn&>(_get_key_column(left.get_keys(), left_key_null_map));
         const auto& right_keys = assert_cast<const KeyColumn&>(
                 _get_key_column(right.get_keys(), right_key_null_map));
-        const IColumn* left_values_column = &left.get_values();
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(left_values_column)) {
-            left_values_column = &nullable->get_nested_column();
-        }
-        const IColumn* right_values_column = &right.get_values();
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(right_values_column)) {
-            right_values_column = &nullable->get_nested_column();
-        }
-        const auto& left_values = assert_cast<const ColumnType&>(*left_values_column).get_data();
-        const auto& right_values = assert_cast<const ColumnType&>(*right_values_column).get_data();
+        const ColumnNullable* left_nullable_values = nullptr;
+        const ColumnNullable* right_nullable_values = nullptr;
+        const auto& left_values =
+                assert_cast<const ColumnType&>(
+                        _get_value_column(left.get_values(), left_nullable_values))
+                        .get_data();
+        const auto& right_values =
+                assert_cast<const ColumnType&>(
+                        _get_value_column(right.get_values(), right_nullable_values))
+                        .get_data();
 
         struct MapData {
             KeyAccessor keys;
             const UInt8* key_null_map;
             const float* values;
+            const ColumnNullable* nullable_values;
         };
 
         const MapData left_data {KeyTraits::get_key_accessor(left_keys), left_key_null_map,
-                                 left_values.data()};
+                                 left_values.data(), left_nullable_values};
         const MapData right_data {KeyTraits::get_key_accessor(right_keys), right_key_null_map,
-                                  right_values.data()};
+                                  right_values.data(), right_nullable_values};
 
         // Build the hash table from the smaller map row to minimize temporary memory.
         doris::flat_hash_map<Key, float, typename KeyTraits::Hash> values_by_key;
         for (size_t row = 0; row < input_rows_count; ++row) {
             const MapRange left_range = _get_map_range(left, left_is_const, row);
             const MapRange right_range = _get_map_range(right, right_is_const, row);
+            if (left_data.nullable_values != nullptr) {
+                _validate_retained_values<KeyTraits>(left_data.keys, left_data.key_null_map,
+                                                     *left_data.nullable_values, left_range,
+                                                     "First argument");
+            }
+            if (right_data.nullable_values != nullptr) {
+                _validate_retained_values<KeyTraits>(right_data.keys, right_data.key_null_map,
+                                                     *right_data.nullable_values, right_range,
+                                                     "Second argument");
+            }
             const bool build_left = left_range.size <= right_range.size;
             const MapData build = build_left ? left_data : right_data;
             const MapData probe = build_left ? right_data : left_data;

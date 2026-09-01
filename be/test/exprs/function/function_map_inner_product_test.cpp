@@ -211,18 +211,68 @@ TEST(FunctionMapInnerProductTest, duplicate_keys_use_last_value) {
     EXPECT_FLOAT_EQ(result[3], 15.0F);
 }
 
-TEST(FunctionMapInnerProductTest, rejects_null_values) {
+TEST(FunctionMapInnerProductTest, shadowed_null_values_are_ignored) {
     auto map_type = std::make_shared<DataTypeMap>(nullable_int_type(), nullable_float_type());
     auto return_type = std::make_shared<DataTypeFloat32>();
     Block block;
-    block.insert({make_int_float_map({1}, {std::nullopt}, {1}), map_type, "left"});
-    block.insert({make_int_float_map({1}, {2.0F}, {1}), map_type, "right"});
+    // Cover a shadowed NULL value on either side and in both build/probe roles. Rows 1 and 3
+    // additionally exercise the separate NULL-key bucket.
+    block.insert(
+            {make_int_float_map(
+                     {1, 1, std::nullopt, std::nullopt, 2, 1, 2, std::nullopt, 2, 3},
+                     {std::nullopt, 2.0F, std::nullopt, 2.0F, 5.0F, 3.0F, 4.0F, 3.0F, 4.0F, 5.0F},
+                     {2, 5, 7, 10}),
+             map_type, "left"});
+    block.insert(
+            {make_int_float_map(
+                     {1, 2, 3, std::nullopt, 3, 1, 1, 3, std::nullopt, std::nullopt},
+                     {3.0F, 4.0F, 5.0F, 3.0F, 4.0F, std::nullopt, 2.0F, 5.0F, std::nullopt, 2.0F},
+                     {3, 5, 8, 10}),
+             map_type, "right"});
     block.insert({nullptr, return_type, "result"});
 
-    const auto status = execute_inner_product(block, return_type);
-    ASSERT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("First argument for function inner_product cannot have null"),
-              std::string::npos);
+    ASSERT_TRUE(execute_inner_product(block, return_type).ok());
+    const auto& result =
+            assert_cast<const ColumnFloat32&>(*block.get_by_position(2).column).get_data();
+    ASSERT_EQ(result.size(), 4);
+    EXPECT_FLOAT_EQ(result[0], 6.0F);
+    EXPECT_FLOAT_EQ(result[1], 6.0F);
+    EXPECT_FLOAT_EQ(result[2], 6.0F);
+    EXPECT_FLOAT_EQ(result[3], 6.0F);
+}
+
+TEST(FunctionMapInnerProductTest, rejects_retained_null_values) {
+    auto map_type = std::make_shared<DataTypeMap>(nullable_int_type(), nullable_float_type());
+    auto return_type = std::make_shared<DataTypeFloat32>();
+
+    auto expect_rejected = [&](ColumnPtr left, ColumnPtr right, const std::string& message) {
+        Block block;
+        block.insert({std::move(left), map_type, "left"});
+        block.insert({std::move(right), map_type, "right"});
+        block.insert({nullptr, return_type, "result"});
+
+        const auto status = execute_inner_product(block, return_type);
+        ASSERT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find(message), std::string::npos);
+    };
+
+    const std::string first_argument_error =
+            "First argument for function inner_product cannot have null";
+    const std::string second_argument_error =
+            "Second argument for function inner_product cannot have null";
+
+    // Retained NULL on the left while the left and right maps are selected for build.
+    expect_rejected(make_int_float_map({1}, {std::nullopt}, {1}),
+                    make_int_float_map({2, 3}, {2.0F, 3.0F}, {2}), first_argument_error);
+    expect_rejected(make_int_float_map({std::nullopt, std::nullopt}, {1.0F, std::nullopt}, {2}),
+                    make_int_float_map({1}, {3.0F}, {1}), first_argument_error);
+
+    // Retained NULL on the right while the left and right maps are selected for build.
+    expect_rejected(make_int_float_map({1}, {3.0F}, {1}),
+                    make_int_float_map({std::nullopt, std::nullopt}, {1.0F, std::nullopt}, {2}),
+                    second_argument_error);
+    expect_rejected(make_int_float_map({2, 3}, {2.0F, 3.0F}, {2}),
+                    make_int_float_map({1}, {std::nullopt}, {1}), second_argument_error);
 }
 
 TEST(FunctionMapInnerProductTest, rejects_unsupported_key_type) {
