@@ -165,7 +165,7 @@ TEST(CastVariantV2ToTest, IpScalarSourcesUseTypedIdentityWhitelist) {
               ipv6_source.get());
 }
 
-TEST(CastVariantV2ToTest, StringTypesParseJsonDocuments) {
+TEST(CastVariantV2ToTest, StringTypesAreStringScalarsAndAreNotParsed) {
     const std::array<DataTypePtr, 3> source_types {
             std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(16, TYPE_CHAR),
             std::make_shared<DataTypeString>(64, TYPE_VARCHAR)};
@@ -174,15 +174,17 @@ TEST(CastVariantV2ToTest, StringTypesParseJsonDocuments) {
         source->insert_data(R"({"a":1})", 7);
         CastResult cast = execute_to_variant(source->get_ptr(), source_type);
         ASSERT_TRUE(cast.status.ok()) << source_type->get_name() << ": " << cast.status;
+        const auto& variant = assert_cast<const ColumnVariantV2&>(*cast.column);
+        ASSERT_TRUE(variant.is_typed()) << source_type->get_name();
+        EXPECT_EQ(variant.typed_type()->get_primitive_type(), source_type->get_primitive_type())
+                << source_type->get_name();
         auto encoded = IColumn::mutate(cast.column);
-        auto& variant = assert_cast<ColumnVariantV2&>(*encoded);
-        variant.ensure_encoded();
-        ASSERT_EQ(variant.get_value_ref(0).basic_type(), VariantBasicType::OBJECT)
+        auto& encoded_variant = assert_cast<ColumnVariantV2&>(*encoded);
+        encoded_variant.ensure_encoded();
+        ASSERT_EQ(encoded_variant.get_value_ref(0).basic_type(), VariantBasicType::SHORT_STRING)
                 << source_type->get_name();
-        VariantRef field;
-        ASSERT_TRUE(variant.get_value_ref(0).object_find(StringRef("a"), &field))
+        EXPECT_EQ(encoded_variant.get_value_ref(0).get_string(), StringRef(R"({"a":1})"))
                 << source_type->get_name();
-        EXPECT_EQ(field.get_int(), 1) << source_type->get_name();
     }
 }
 
