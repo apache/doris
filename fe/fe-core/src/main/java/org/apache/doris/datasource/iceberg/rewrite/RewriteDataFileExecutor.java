@@ -30,6 +30,7 @@ import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 import org.apache.doris.system.Backend;
+import org.apache.doris.transaction.TransactionManager;
 
 import com.google.common.collect.Lists;
 // Keep third-party imports lexical to preserve the repository's CustomImportOrder invariant.
@@ -62,16 +63,15 @@ public class RewriteDataFileExecutor {
     public RewriteResult executeGroupsConcurrently(List<RewriteDataGroup> groups, long targetFileSizeBytes,
             WritableTableLease writableTableLease)
             throws UserException {
-        // Begin transaction
-        long transactionId = dorisTable.getCatalog().getTransactionManager().begin();
-        IcebergTransaction transaction = (IcebergTransaction) dorisTable.getCatalog().getTransactionManager()
-                .getTransaction(transactionId);
-        MvccSnapshot targetSnapshot = new IcebergMvccSnapshot(
-                IcebergUtils.getSnapshotForWritableLease(dorisTable, writableTableLease));
         List<RewriteGroupTask> tasks = Lists.newArrayList();
         RewriteResultCollector resultCollector = new RewriteResultCollector(groups.size(), tasks);
+        TransactionManager transactionManager = dorisTable.getCatalog().getTransactionManager();
+        long transactionId = transactionManager.begin();
         boolean committed = false;
         try {
+            IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(transactionId);
+            MvccSnapshot targetSnapshot = new IcebergMvccSnapshot(
+                    IcebergUtils.getSnapshotForWritableLease(dorisTable, writableTableLease));
             transaction.beginRewrite(dorisTable, writableTableLease.getTable(), writableTableLease);
 
             // Register files to delete
@@ -132,7 +132,7 @@ public class RewriteDataFileExecutor {
             long rewrittenBytesCount = groups.stream().mapToLong(group -> group.getTotalSize()).sum();
             int removedDeleteFilesCount = groups.stream().mapToInt(group -> group.getDeleteFileCount()).sum();
 
-            transaction.commit();
+            transactionManager.commit(transactionId);
             committed = true;
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(dorisTable);
 
@@ -141,15 +141,9 @@ public class RewriteDataFileExecutor {
         } finally {
             if (!committed) {
                 resultCollector.cancelAllTasks();
-                transaction.rollback();
+                transactionManager.rollback(transactionId);
             }
         }
-    }
-
-    void commitAndInvalidate(IcebergTransaction transaction) throws UserException {
-        transaction.commit();
-        // Rewrite commits bypass the external-table DDL path, so evict the pre-rewrite snapshot before reuse.
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(dorisTable);
     }
 
     /**
