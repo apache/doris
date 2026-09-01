@@ -29,6 +29,7 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionField;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionSpec;
@@ -104,6 +105,11 @@ import java.util.stream.Collectors;
  * connector transaction and fails loud if absent.</p>
  */
 public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
+
+    @Override
+    public ConnectorRowChangeStyle getRowChangeStyle() {
+        return ConnectorRowChangeStyle.POSITION_DELETE;
+    }
 
     private static final int SUPPORT_NESTED_PARTITION_WRITE_EXEC_VERSION = 12;
 

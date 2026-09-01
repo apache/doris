@@ -15,27 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands.info;
+package org.apache.doris.connector.spi.write;
 
-/**
- * Type of DML Command.
- * For Unique Key table, we need to process some
- * hidden columns in different way for different DML type.
- */
-public enum DMLCommandType {
-    // Not a DML command
+/** Engine-neutral physical representation used by a connector for row-level DML. */
+public enum ConnectorRowChangeStyle {
     NONE,
-    // for INSERT INTO or INSERT INTO SELECT
-    INSERT,
-    // for group_commit tvf
-    GROUP_COMMIT,
-    // for UPDATE
-    UPDATE,
-    // for DELETE
-    DELETE,
-    // for MERGE INTO
-    MERGE,
-    // for all other load jobs, including Stream Load, Broker Load, S3 Load
-    // Routine Load etc.
-    LOAD
+    POSITION_DELETE,
+    CHANGELOG
 }

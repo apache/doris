@@ -39,6 +39,9 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
+import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
+import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -218,6 +221,47 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 .map(connector::getWritePlanProvider)
                 .map(ConnectorWritePlanProvider::supportedOperations)
                 .orElseGet(() -> EnumSet.noneOf(WriteOperation.class));
+    }
+
+    /** Returns the connector's row-change representation for this table. */
+    public ConnectorRowChangeStyle getConnectorRowChangeStyle() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return ConnectorRowChangeStyle.NONE;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        if (connector == null) {
+            return ConnectorRowChangeStyle.NONE;
+        }
+        return resolveWriteCapabilityHandle(connector)
+                .map(connector::getWritePlanProvider)
+                .map(ConnectorWritePlanProvider::getRowChangeStyle)
+                .orElse(ConnectorRowChangeStyle.NONE);
+    }
+
+    /** Returns the primary-key columns used by a connector changelog write. */
+    public List<String> getConnectorRowLevelPrimaryKeyColumns() {
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        ConnectorTableHandle handle = resolveConnectorTableHandle(session, metadata)
+                .orElseThrow(() -> new DorisConnectorException(
+                        "Cannot resolve row-level DML target " + getName()));
+        ConnectorWritePlanProvider provider = connector.getWritePlanProvider(handle);
+        return provider.getRowLevelPrimaryKeyColumns(session, handle);
+    }
+
+    /** Runs connector-specific row-level DML validation for this table. */
+    public void validateConnectorRowLevelDml(ConnectorRowLevelDmlRequest request) {
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        ConnectorTableHandle handle = resolveConnectorTableHandle(session, metadata)
+                .orElseThrow(() -> new DorisConnectorException(
+                        "Cannot resolve row-level DML target " + getName()));
+        metadata.validateRowLevelDmlMode(session, handle, request.getOperation());
+        connector.getWritePlanProvider(handle).validateRowLevelDml(session, handle, request);
     }
 
     /**
@@ -453,6 +497,29 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 .map(connector::getWritePlanProvider)
                 .map(ConnectorWritePlanProvider::requiresMaterializeStaticPartitionValues)
                 .orElse(false);
+    }
+
+    /** Returns this table's connector-declared write distribution, or empty for generic planning. */
+    public Optional<ConnectorWriteDistribution> getConnectorWriteDistribution() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return Optional.empty();
+        }
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return Optional.empty();
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        Optional<ConnectorTableHandle> handle = resolveConnectorTableHandle(session, metadata);
+        if (!handle.isPresent()) {
+            return Optional.empty();
+        }
+        ConnectorWritePlanProvider provider = connector.getWritePlanProvider(handle.get());
+        if (provider == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(provider.getWriteDistribution(session, handle.get()));
     }
 
     @Override

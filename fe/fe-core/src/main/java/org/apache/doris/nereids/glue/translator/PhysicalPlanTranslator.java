@@ -66,12 +66,14 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAllSingleton;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.properties.DistributionSpecExecutionAny;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkUnPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecMerge;
 import org.apache.doris.nereids.properties.DistributionSpecOlapTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecPaimonTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.DistributionSpecStorageAny;
 import org.apache.doris.nereids.properties.DistributionSpecStorageGather;
@@ -216,6 +218,9 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TBinlogScanType;
+import org.apache.doris.thrift.TExternalTableSinkHashAlgorithm;
+import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
+import org.apache.doris.thrift.TPaimonFixedBucketInfo;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TResultSinkType;
@@ -728,8 +733,22 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // planWrite enters its REWRITE arm (RewriteFiles semantics) instead of the plain-INSERT append; the
         // rewrite marker rides on the sink (PhysicalConnectorTableSink.isRewrite), not on a ConnectContext or
         // an instanceof Iceberg. Ordinary connector INSERTs keep WriteOperation.INSERT (byte-identical).
-        WriteOperation writeOperation = connectorTableSink.isRewrite()
-                ? WriteOperation.REWRITE : WriteOperation.INSERT;
+        WriteOperation writeOperation;
+        switch (connectorTableSink.getDmlCommandType()) {
+            case DELETE:
+                writeOperation = WriteOperation.DELETE;
+                break;
+            case UPDATE:
+                writeOperation = WriteOperation.UPDATE;
+                break;
+            case MERGE:
+                writeOperation = WriteOperation.MERGE;
+                break;
+            default:
+                writeOperation = connectorTableSink.isRewrite()
+                        ? WriteOperation.REWRITE : WriteOperation.INSERT;
+                break;
+        }
         // The write list can omit explicit/static-partition columns, but schema-drift validation must
         // retain the complete generation captured by BindSink instead of comparing that subset.
         PluginDrivenTableSink providerSink = new PluginDrivenTableSink(targetTable,
@@ -3729,9 +3748,35 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     partitionExprs.add(context.findSlotRef(partitionExprId));
                 }
             }
-            return new DataPartition(TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED, partitionExprs);
+            return new DataPartition(TPartitionType.EXTERNAL_TABLE_SINK_HASH_PARTITIONED,
+                    partitionExprs, TExternalTableSinkHashAlgorithm.DIRECT_HASH,
+                    TExternalTableSinkWriterAssignment.SKEWED, Lists.newArrayList(), null);
+        } else if (distributionSpec instanceof DistributionSpecExternalTableSinkHashPartitioned) {
+            DistributionSpecExternalTableSinkHashPartitioned externalSpec =
+                    (DistributionSpecExternalTableSinkHashPartitioned) distributionSpec;
+            List<Expr> partitionExprs = Lists.newArrayList();
+            for (ExprId partitionExprId : externalSpec.getOutputColumnExprIds()) {
+                if (!childOutputIds.contains(partitionExprId)) {
+                    throw new RuntimeException("External table sink partition expression "
+                            + partitionExprId + " is missing from child output");
+                }
+                partitionExprs.add(context.findSlotRef(partitionExprId));
+            }
+            TPaimonFixedBucketInfo fixedBucketInfo = null;
+            if (externalSpec instanceof DistributionSpecPaimonTableSinkHashPartitioned) {
+                DistributionSpecPaimonTableSinkHashPartitioned paimonSpec =
+                        (DistributionSpecPaimonTableSinkHashPartitioned) externalSpec;
+                fixedBucketInfo = new TPaimonFixedBucketInfo();
+                fixedBucketInfo.setNumBuckets(paimonSpec.getNumBuckets());
+                fixedBucketInfo.setPartitionFieldIndexes(paimonSpec.getPartitionFieldIndexes());
+                fixedBucketInfo.setBucketFieldIndexes(paimonSpec.getBucketFieldIndexes());
+            }
+            return new DataPartition(TPartitionType.EXTERNAL_TABLE_SINK_HASH_PARTITIONED,
+                    partitionExprs, TExternalTableSinkHashAlgorithm.PAIMON_FIXED_BUCKET,
+                    TExternalTableSinkWriterAssignment.IDENTITY,
+                    externalSpec.getPartitionTransforms(), fixedBucketInfo);
         } else if (distributionSpec instanceof DistributionSpecHiveTableSinkUnPartitioned) {
-            return new DataPartition(TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED);
+            return new DataPartition(TPartitionType.EXTERNAL_TABLE_SINK_UNPARTITIONED);
         } else if (distributionSpec instanceof DistributionSpecMerge) {
             DistributionSpecMerge mergeSpec = (DistributionSpecMerge) distributionSpec;
             Expr operationExpr = context.findSlotRef(mergeSpec.getOperationExprId());
