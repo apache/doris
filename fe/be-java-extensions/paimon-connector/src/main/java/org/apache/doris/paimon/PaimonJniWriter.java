@@ -93,7 +93,7 @@ public class PaimonJniWriter {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonJniWriter.class);
     private static final int APPEND_ONLY_WRITER_MIN_PAGES = 1;
     private static final int MERGE_TREE_WRITER_MIN_PAGES = 3;
-    private static final long KEY_DYNAMIC_INDEX_MIN_MEMORY_BYTES = 4L * 1024 * 1024;
+    private static final long KEY_DYNAMIC_BLOCK_CACHE_MIN_BYTES = 4L * 1024 * 1024;
     private static final long COMPACTION_CLOSE_TIMEOUT_SECONDS = 60;
 
     private final ClassLoader classLoader;
@@ -108,7 +108,6 @@ public class PaimonJniWriter {
     private TableWriteImpl<?> writer;
     private DorisIOManager ioManager;
     private ExecutorService compactionExecutor;
-    private long globalIndexMemoryLimitBytes;
     private long commitIdentifier;
     private String commitUser;
     private BucketMode bucketMode;
@@ -329,9 +328,11 @@ public class PaimonJniWriter {
         if (overwrite) {
             writer.withIgnorePreviousFiles(true);
         }
-        openMemoryResources(table, coreOptions, nativePageMemoryLimitBytes,
+        long globalIndexBlockCacheSizeBytes = openMemoryResources(
+                table, coreOptions, nativePageMemoryLimitBytes,
                 nativeMemoryManager, nativeSpillSession);
-        openDynamicBucketAssigner(table, commitUser, overwrite, coreOptions);
+        openDynamicBucketAssigner(
+                table, commitUser, overwrite, coreOptions, globalIndexBlockCacheSizeBytes);
     }
 
     private void validateWriteColumnsForMergeEngine(int writeColumnCount, CoreOptions coreOptions) {
@@ -348,7 +349,7 @@ public class PaimonJniWriter {
         }
     }
 
-    private void openMemoryResources(
+    private long openMemoryResources(
             FileStoreTable table,
             CoreOptions coreOptions,
             long nativePageMemoryLimitBytes,
@@ -358,10 +359,11 @@ public class PaimonJniWriter {
         long writeBufferSize = coreOptions.writeBufferSize();
         boolean mergeTreeWriter = !table.primaryKeys().isEmpty();
         long writerMemoryLimit = nativePageMemoryLimitBytes;
+        long globalIndexBlockCacheSizeBytes = 0;
         if (bucketMode == BucketMode.KEY_DYNAMIC) {
-            globalIndexMemoryLimitBytes = calculateGlobalIndexMemoryLimit(
-                    nativePageMemoryLimitBytes, pageSize, mergeTreeWriter);
-            writerMemoryLimit = nativePageMemoryLimitBytes - globalIndexMemoryLimitBytes;
+            globalIndexBlockCacheSizeBytes = calculateGlobalIndexBlockCacheSize(
+                    nativePageMemoryLimitBytes, pageSize);
+            writerMemoryLimit = nativePageMemoryLimitBytes - globalIndexBlockCacheSizeBytes;
         }
         // Paimon creates merge-tree bucket writers lazily on the first write. Their
         // SortBufferWriteBuffer requires three pages at construction time, so reject a permanent
@@ -383,6 +385,7 @@ public class PaimonJniWriter {
         ioManager = DorisIOManager.create(nativeSpillSession);
         writer.withIOManager(ioManager);
         LOG.info("Paimon writer uses a lazy Doris-managed spill session");
+        return globalIndexBlockCacheSizeBytes;
     }
 
     static long validateAndGetMemoryPoolLimit(long writeBufferSize,
@@ -407,31 +410,28 @@ public class PaimonJniWriter {
         return effectivePoolLimit;
     }
 
-    static long calculateGlobalIndexMemoryLimit(
-            long totalMemoryLimitBytes, int pageSize, boolean mergeTreeWriter) {
-        long minimumIndexMemory = Math.max(KEY_DYNAMIC_INDEX_MIN_MEMORY_BYTES, pageSize);
-        int requiredWriterPages = mergeTreeWriter
-                ? MERGE_TREE_WRITER_MIN_PAGES
-                : APPEND_ONLY_WRITER_MIN_PAGES;
-        long minimumWriterMemory = (long) requiredWriterPages * pageSize;
-        if (totalMemoryLimitBytes < minimumIndexMemory + minimumWriterMemory) {
+    static long calculateGlobalIndexBlockCacheSize(long totalMemoryLimitBytes, int pageSize) {
+        long minimumBlockCacheSize = Math.max(KEY_DYNAMIC_BLOCK_CACHE_MIN_BYTES, pageSize);
+        long minimumWriterMemory = (long) MERGE_TREE_WRITER_MIN_PAGES * pageSize;
+        if (totalMemoryLimitBytes < minimumBlockCacheSize + minimumWriterMemory) {
             throw new IllegalArgumentException(
                     "Paimon KEY_DYNAMIC requires memory for both the write buffer and global "
                             + "index: limit=" + totalMemoryLimitBytes
-                            + ", minimumIndexMemory=" + minimumIndexMemory
+                            + ", minimumBlockCacheSize=" + minimumBlockCacheSize
                             + ", minimumWriterMemory=" + minimumWriterMemory);
         }
-        return Math.max(minimumIndexMemory, totalMemoryLimitBytes / 4);
+        return Math.max(minimumBlockCacheSize, totalMemoryLimitBytes / 4);
     }
 
     private void openDynamicBucketAssigner(FileStoreTable table, String commitUser,
-            boolean overwrite, CoreOptions coreOptions) throws Exception {
+            boolean overwrite, CoreOptions coreOptions, long globalIndexBlockCacheSizeBytes)
+            throws Exception {
         switch (bucketMode) {
             case HASH_DYNAMIC:
                 openHashDynamicBucketAssigner(table, commitUser, overwrite, coreOptions);
                 break;
             case KEY_DYNAMIC:
-                openKeyDynamicBucketAssigner(table, globalIndexMemoryLimitBytes);
+                openKeyDynamicBucketAssigner(table, globalIndexBlockCacheSizeBytes);
                 break;
             default:
                 // Fixed, unaware and postpone modes route through TableWrite.write(row).
@@ -464,15 +464,24 @@ public class PaimonJniWriter {
                         coreOptions.dynamicBucketMaxBuckets());
     }
 
-    private void openKeyDynamicBucketAssigner(FileStoreTable table, long memoryPoolLimitBytes)
+    private void openKeyDynamicBucketAssigner(FileStoreTable table, long blockCacheSizeBytes)
             throws Exception {
+        validateDynamicBucketTargetRowNum(table.coreOptions().dynamicBucketTargetRowNum());
         FileStoreTable indexTable = table.copy(Collections.singletonMap(
-                RocksDBOptions.BLOCK_CACHE_SIZE.key(), memoryPoolLimitBytes + "b"));
+                RocksDBOptions.BLOCK_CACHE_SIZE.key(), blockCacheSizeBytes + "b"));
         globalIndexAssigner = new GlobalIndexAssigner(indexTable);
-        globalIndexAssigner.open(memoryPoolLimitBytes, ioManager, 1, 0, this::writeAssignedRow);
+        globalIndexAssigner.open(blockCacheSizeBytes, ioManager, 1, 0, this::writeAssignedRow);
         new IndexBootstrap(table).bootstrap(
                 1, 0, this::bootstrapGlobalIndexKey);
         globalIndexAssigner.endBoostrap(false);
+    }
+
+    static void validateDynamicBucketTargetRowNum(long targetRowNum) {
+        if (targetRowNum <= 0 || targetRowNum > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException(
+                    "Paimon dynamic-bucket.target-row-num must be between 1 and "
+                            + Integer.MAX_VALUE + ", actual=" + targetRowNum);
+        }
     }
 
     // ────────────────────────────────────────────────────────────
@@ -696,7 +705,6 @@ public class PaimonJniWriter {
         dynamicBucketExtractor = null;
         globalIndexAssigner = null;
         ioManager = null;
-        globalIndexMemoryLimitBytes = 0;
         fullCompactionChangelog = false;
         fullCompactionBuckets.clear();
         preparedCommitMessages = Collections.emptyList();

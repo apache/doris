@@ -34,9 +34,6 @@ under the License.
             <unpackOptions>
                 <excludes>
                     <exclude>**/Log4j2Plugins.dat</exclude>
-                    <!-- Doris Linux binaries require glibc, so musl RocksDB JNI libraries are
-                         unusable and must not be included in the connector distribution. -->
-                    <exclude>librocksdbjni-*-musl.so</exclude>
                 </excludes>
             </unpackOptions>
         </dependencySet>
