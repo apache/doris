@@ -764,7 +764,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // Process DataSplits
         for (DataSplit dataSplit : dataSplits) {
             if (isCountPushdownSplit(countPushdown, dataSplit)) {
-                countSum += dataSplit.mergedRowCount();
+                countSum += dataSplit.mergedRowCount().getAsLong();
                 if (countRepresentative == null) {
                     countRepresentative = dataSplit;
                 }
@@ -1228,7 +1228,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (undecorated instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable fallbackReadTable = (FallbackReadFileStoreTable) undecorated;
             authorizeBranch(fallbackReadTable.wrapped());
-            authorizeBranch(fallbackReadTable.fallback());
+            authorizeBranch(fallbackReadTable.other());
             return;
         }
         authorizeBranch(undecorated);
@@ -1290,7 +1290,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             FallbackReadFileStoreTable targetPair = (FallbackReadFileStoreTable) target;
             return new FallbackReadFileStoreTable(
                     pinCatalogSnapshotBranch(targetPair.wrapped(), sourcePair.wrapped()),
-                    pinCatalogSnapshotBranch(targetPair.fallback(), sourcePair.fallback()));
+                    pinCatalogSnapshotBranch(targetPair.other(), sourcePair.other()),
+                    PaimonReaderOptions.isWrappedFirst(targetPair));
         }
         return pinCatalogSnapshotBranch(target, source);
     }
@@ -1333,7 +1334,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             FallbackReadFileStoreTable fallbackReadTable = (FallbackReadFileStoreTable) undecorated;
             return new FallbackReadFileStoreTable(
                     rebuildWithoutCatalogLoader(fallbackReadTable.wrapped()),
-                    rebuildWithoutCatalogLoader(fallbackReadTable.fallback()));
+                    rebuildWithoutCatalogLoader(fallbackReadTable.other()),
+                    PaimonReaderOptions.isWrappedFirst(fallbackReadTable));
         }
         return rebuildWithoutCatalogLoader(undecorated);
     }
@@ -1454,12 +1456,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * Whether a {@link DataSplit} contributes a precomputed COUNT(*)-pushdown row count: true iff count
      * pushdown is active for this scan AND the split's merged (post-merge / post-deletion-vector) row
      * count is precomputed by the paimon SDK. Mirrors legacy {@code PaimonScanNode}'s count gate
-     * ({@code applyCountPushdown && dataSplit.mergedRowCountAvailable()}, the FIRST routing arm).
+     * ({@code applyCountPushdown && dataSplit.mergedRowCount().isPresent()}, the FIRST routing arm).
      * Extracted as a pure static so the correctness-critical count routing decision is unit-testable
      * with a real {@link DataSplit}, like {@link #shouldUseNativeReader}.
      */
     static boolean isCountPushdownSplit(boolean countPushdown, DataSplit dataSplit) {
-        return countPushdown && dataSplit.mergedRowCountAvailable();
+        return countPushdown && dataSplit.mergedRowCount().isPresent();
     }
 
     /**
