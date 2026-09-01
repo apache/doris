@@ -223,9 +223,6 @@ Status resolve_variant_element_v2_path(
     for (const VariantElementV2PathSegment& segment : segments) {
         OwnedPathSegment owned {.kind = segment.kind(), .key = {}, .index = segment.index()};
         if (segment.kind() == VariantElementV2PathSegment::Kind::OBJECT_KEY) {
-            if (segment.key().size == 0) {
-                return Status::InvalidArgument("Variant V2 object path key must not be empty");
-            }
             if (segment.key().size != 0 && segment.key().data == nullptr) {
                 return Status::InvalidArgument("Variant V2 object path key has a null pointer");
             }
