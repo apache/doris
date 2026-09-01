@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.constraint.TableIdentifier;
@@ -140,6 +141,11 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         boolean ivmRewriteEnabled = connectContext != null
                 && connectContext.getStatementContext() != null
                 && connectContext.getStatementContext().isIvmMTMVRewrite();
+        // SNAPSHOT reads on DUP tables expose the base row LSN column, so it stays accessible
+        // the same way as on the base table.
+        boolean snapshotDupTable = readMode == StreamReadMode.SNAPSHOT
+                && table instanceof OlapTable
+                && ((OlapTable) table).getKeysType() == KeysType.DUP_KEYS;
 
         ImmutableList.Builder<Slot> slots = ImmutableList.builder();
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
@@ -162,17 +168,19 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
             boolean ivmRewriteColumn = ivmRewriteEnabled
                     && (Column.IVM_ROW_ID_COL.equals(col.getName())
                             || (Column.ROW_LSN_COL.equals(col.getName()) && !isIncremental()));
-            if (!col.isVisible() && !isReset() && !ivmRewriteColumn) {
+            boolean snapshotDupRowLsn = snapshotDupTable && Column.ROW_LSN_COL.equals(col.getName());
+            if (!col.isVisible() && !isReset() && !ivmRewriteColumn && !snapshotDupRowLsn) {
                 continue;
             }
             Pair<Long, String> key = Pair.of(selectedIndexId, col.getName());
-            // For INCREMENTAL / SNAPSHOT reads, non-key value columns are materialized from the
-            // base table row-binlog whose after/before value columns are always nullable (see
-            // Column.generateAfterValueColumn / generateBeforeValueColumn). Declare these value
-            // columns as nullable here so the stream scan output stays consistent with the plan
-            // expanded in NormalizeOlapTableStreamScan, otherwise AdjustNullable reports a
-            // not-nullable -> nullable conflict. RESET does a full base-table scan, so keep its
-            // original nullability.
+            // INCREMENTAL reads materialize value columns from the base table row-binlog whose
+            // after/before value columns are always nullable (see Column.generateAfterValueColumn /
+            // generateBeforeValueColumn). SNAPSHOT reads scan the base table directly (DUP tables;
+            // MOW normal partitions) but may also rebuild partitions from binlog, so declaring
+            // every non-RESET value column nullable is a safe widening that keeps the stream scan
+            // output consistent with the plan expanded in NormalizeOlapTableStreamScan; otherwise
+            // AdjustNullable reports a not-nullable -> nullable conflict. RESET does a full
+            // base-table scan only, so it keeps its original nullability.
             Slot slot = cacheSlotWithSlotName.computeIfAbsent(key, k -> {
                 SlotReference slotRef = slotFromColumn.get(index);
                 boolean forceNullable = readMode != StreamReadMode.RESET && !baseSchema.get(index).isKey();
