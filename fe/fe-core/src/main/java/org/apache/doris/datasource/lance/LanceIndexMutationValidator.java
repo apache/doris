@@ -71,9 +71,7 @@ public final class LanceIndexMutationValidator {
         if (def.getCols() == null || def.getCols().size() != 1) {
             rejectInvalidDefinition("Lance index must be built on exactly one column");
         }
-        if (def.getIndexName().getBytes(StandardCharsets.UTF_8).length > MAX_INDEX_NAME_BYTES) {
-            rejectInvalidDefinition("index name too long, the index name length at most is 64.");
-        }
+        validateIndexName(def.getIndexName());
         String columnName = def.getCols().get(0);
         Column column = table.getColumn(columnName);
         if (column == null) {
@@ -109,11 +107,29 @@ public final class LanceIndexMutationValidator {
     }
 
     /**
-     * Validates a top-level DROP INDEX statement targeting a Lance catalog table.
+     * Validates a top-level DROP INDEX statement targeting a Lance catalog table. The REST
+     * rejection keeps failing fast; Directory catalogs then get the same index-name bounds as
+     * the CREATE path.
      */
-    public static void validateDropIndex(LanceExternalCatalog catalog) throws AnalysisException {
+    public static void validateDropIndex(LanceExternalCatalog catalog, String indexName)
+            throws AnalysisException {
         if (catalog.isRestCatalogConfigured()) {
             rejectUnsupportedOperation("DROP INDEX", "REST catalogs");
+        }
+        validateIndexName(indexName);
+    }
+
+    /**
+     * Shared Lance index-name bounds for the CREATE and DROP paths: the name becomes the durable
+     * logical identity that an admitted job and its same-name fence key are built on, so
+     * null/empty names are rejected here instead of being masked as unsupported operations.
+     */
+    private static void validateIndexName(String indexName) throws AnalysisException {
+        if (indexName == null || indexName.isEmpty()) {
+            rejectInvalidDefinition("index name cannot be empty");
+        }
+        if (indexName.getBytes(StandardCharsets.UTF_8).length > MAX_INDEX_NAME_BYTES) {
+            rejectInvalidDefinition("index name too long, the index name length at most is 64.");
         }
     }
 

@@ -407,16 +407,53 @@ public class LanceIndexMutationValidatorTest {
                 orReplaceException.getMysqlErrorCode());
 
         AnalysisException dropException = Assertions.assertThrows(AnalysisException.class,
-                () -> LanceIndexMutationValidator.validateDropIndex(restCatalog()));
+                () -> LanceIndexMutationValidator.validateDropIndex(restCatalog(), "idx"));
         Assertions.assertEquals("DROP INDEX is not supported for Lance REST catalogs",
                 dropException.getDetailMessage());
         Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_OPERATION_NOT_SUPPORTED,
                 dropException.getMysqlErrorCode());
+
+        // The REST fail-fast precedes even the index-name bounds on the DROP path.
+        AnalysisException dropEmptyNameException = Assertions.assertThrows(AnalysisException.class,
+                () -> LanceIndexMutationValidator.validateDropIndex(restCatalog(), ""));
+        Assertions.assertEquals("DROP INDEX is not supported for Lance REST catalogs",
+                dropEmptyNameException.getDetailMessage());
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_OPERATION_NOT_SUPPORTED,
+                dropEmptyNameException.getMysqlErrorCode());
+    }
+
+    @Test
+    public void testBlankIndexNameRejectedOnBothPaths() {
+        // Nereids accepts an empty backquoted identifier (``), so both the CREATE and the DROP
+        // path must reject the empty name instead of masking it as an unsupported operation.
+        assertRejected("index name cannot be empty",
+                indexDef("", Collections.singletonList("v"), "ANN", validAnnProperties()), annTable());
+        assertRejected("index name cannot be empty",
+                indexDef(null, Collections.singletonList("v"), "ANN", validAnnProperties()), annTable());
+
+        for (String blankName : new String[] {null, ""}) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> LanceIndexMutationValidator.validateDropIndex(filesystemCatalog(), blankName));
+            Assertions.assertEquals("index name cannot be empty", exception.getDetailMessage());
+            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_INVALID, exception.getMysqlErrorCode());
+        }
+    }
+
+    @Test
+    public void testDropIndexNameLengthBound() {
+        char[] tooLong = new char[65];
+        Arrays.fill(tooLong, 'a');
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> LanceIndexMutationValidator.validateDropIndex(filesystemCatalog(),
+                        new String(tooLong)));
+        Assertions.assertEquals("index name too long, the index name length at most is 64.",
+                exception.getDetailMessage());
+        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_INVALID, exception.getMysqlErrorCode());
     }
 
     @Test
     public void testDropIndexOnFilesystemCatalogPasses() {
         Assertions.assertDoesNotThrow(
-                () -> LanceIndexMutationValidator.validateDropIndex(filesystemCatalog()));
+                () -> LanceIndexMutationValidator.validateDropIndex(filesystemCatalog(), "idx"));
     }
 }

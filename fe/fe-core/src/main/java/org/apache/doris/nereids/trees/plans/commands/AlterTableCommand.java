@@ -144,7 +144,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         String tableName = tbl.getTbl();
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrException(ctlName, catalogName -> new DdlException("Unknown catalog " + catalogName));
-        validateLanceRestIndexOperations(catalog);
+        validateLanceIndexOperationsBeforeResolution(catalog);
         DatabaseIf dbIf = catalog.getDbOrDdlException(dbName);
         TableIf tableIf = dbIf.getTableOrDdlException(tableName);
         if (tableIf.isTemporary()) {
@@ -178,7 +178,13 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         }
     }
 
-    private void validateLanceRestIndexOperations(CatalogIf catalog) throws AnalysisException {
+    /**
+     * Lance index checks that do not need the resolved table: REST catalogs fail fast for
+     * top-level CREATE/DROP INDEX before database/table metadata resolution, and DROP INDEX on
+     * Directory catalogs gets the shared index-name bounds here because the op-level
+     * DropIndexOp.validate() is never reached on the typed-rejection path below.
+     */
+    private void validateLanceIndexOperationsBeforeResolution(CatalogIf catalog) throws AnalysisException {
         if (!(catalog instanceof LanceExternalCatalog)) {
             return;
         }
@@ -187,7 +193,8 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                 LanceIndexMutationValidator.validateCreateIndexCatalog((LanceExternalCatalog) catalog,
                         ((CreateIndexOp) op).getIndexDef());
             } else if (op instanceof DropIndexOp && !((DropIndexOp) op).isAlter()) {
-                LanceIndexMutationValidator.validateDropIndex((LanceExternalCatalog) catalog);
+                LanceIndexMutationValidator.validateDropIndex((LanceExternalCatalog) catalog,
+                        ((DropIndexOp) op).getIndexName());
             }
         }
     }
