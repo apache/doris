@@ -34,7 +34,7 @@
 
 namespace doris::io {
 
-TEST(HttpFileReaderTest, ChunkResponseDisablesFileCache) {
+TEST(HttpFileReaderFactoryTest, ChunkResponseDisablesFileCache) {
     FileSystemProperties properties;
     properties.system_type = TFileType::FILE_HTTP;
     properties.properties = {{"http.enable.chunk.response", "true"}};
@@ -167,7 +167,7 @@ NormalHandler HttpFileReaderTest::s_normal_handler;
 
 // The normal path: HEAD succeeds and returns the size via Content-Length; reads then work
 // over Range requests without triggering any fallback.
-TEST_F(HttpFileReaderTest, open_uses_head_size_when_head_succeeds) {
+TEST_F(HttpFileReaderTest, OpenUsesHeadSizeWhenHeadSucceeds) {
     std::map<std::string, std::string> props;
     FileReaderOptions opts;
     auto res = HttpFileReader::create(s_host + "/normal", props, opts, nullptr);
@@ -189,7 +189,7 @@ TEST_F(HttpFileReaderTest, open_uses_head_size_when_head_succeeds) {
 
 // The core regression: a URL whose HEAD returns 403 must still open and read
 // via the GET-based fallback, recovering the size from Content-Range.
-TEST_F(HttpFileReaderTest, open_falls_back_to_get_when_head_forbidden) {
+TEST_F(HttpFileReaderTest, OpenFallsBackToGetWhenHeadForbidden) {
     std::map<std::string, std::string> props;
     FileReaderOptions opts;
     auto res = HttpFileReader::create(s_host + "/presigned", props, opts, nullptr);
@@ -213,7 +213,7 @@ TEST_F(HttpFileReaderTest, open_falls_back_to_get_when_head_forbidden) {
 
 // A resource forbidden for every method (GET included) must fail to open,
 // rather than being silently swallowed.
-TEST_F(HttpFileReaderTest, open_fails_when_all_methods_forbidden) {
+TEST_F(HttpFileReaderTest, OpenFailsWhenAllMethodsForbidden) {
     std::map<std::string, std::string> props;
     FileReaderOptions opts;
     auto res = HttpFileReader::create(s_host + "/forbidden", props, opts, nullptr);
@@ -221,7 +221,7 @@ TEST_F(HttpFileReaderTest, open_fails_when_all_methods_forbidden) {
 }
 
 // Reading a sub-range must also work through the fallback path.
-TEST_F(HttpFileReaderTest, read_middle_range_after_head_forbidden) {
+TEST_F(HttpFileReaderTest, ReadMiddleRangeAfterHeadForbidden) {
     std::map<std::string, std::string> props;
     FileReaderOptions opts;
     auto res = HttpFileReader::create(s_host + "/presigned", props, opts, nullptr);
