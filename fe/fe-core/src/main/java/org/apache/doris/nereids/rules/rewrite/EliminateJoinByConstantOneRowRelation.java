@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -32,7 +31,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
@@ -54,22 +52,15 @@ public class EliminateJoinByConstantOneRowRelation implements RewriteRuleFactory
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 logicalJoin(any(), logicalOneRowRelation())
-                        .when(join -> isEnabled())
                         .whenNot(LogicalJoin::isMarkJoin)
                         .when(join -> supportedJoinType(join.getJoinType()))
                         .then(join -> tryRewrite(join, /* constantOnRight= */ true))
                         .toRule(RuleType.ELIMINATE_JOIN_BY_CONSTANT_ONE_ROW_RELATION),
                 logicalJoin(logicalOneRowRelation(), any())
-                        .when(join -> isEnabled())
                         .whenNot(LogicalJoin::isMarkJoin)
                         .when(join -> supportedJoinType(join.getJoinType()))
                         .then(join -> tryRewrite(join, /* constantOnRight= */ false))
                         .toRule(RuleType.ELIMINATE_JOIN_BY_CONSTANT_ONE_ROW_RELATION));
-    }
-
-    private static boolean isEnabled() {
-        ConnectContext ctx = ConnectContext.get();
-        return ctx != null && ctx.getSessionVariable().enableEliminateJoinByConstantOneRowRelation;
     }
 
     private static boolean supportedJoinType(JoinType joinType) {
@@ -90,7 +81,6 @@ public class EliminateJoinByConstantOneRowRelation implements RewriteRuleFactory
         Set<Expression> filterConjuncts = new LinkedHashSet<>();
         collectRewrittenConjuncts(join.getHashJoinConjuncts(), slotToConstant, filterConjuncts);
         collectRewrittenConjuncts(join.getOtherJoinConjuncts(), slotToConstant, filterConjuncts);
-        collectRewrittenConjuncts(join.getMarkJoinConjuncts(), slotToConstant, filterConjuncts);
 
         List<NamedExpression> newProjects = new ArrayList<>(otherSide.getOutput().size()
                 + constantSide.getProjects().size());
@@ -118,8 +108,7 @@ public class EliminateJoinByConstantOneRowRelation implements RewriteRuleFactory
 
     private static boolean isSafeConstantExpr(Expression e) {
         return !e.containsVolatileExpression()
-                && !e.anyMatch(Sleep.class::isInstance)
-                && !e.anyMatch(SubqueryExpr.class::isInstance);
+                && !e.anyMatch(Sleep.class::isInstance);
     }
 
     private static void collectRewrittenConjuncts(

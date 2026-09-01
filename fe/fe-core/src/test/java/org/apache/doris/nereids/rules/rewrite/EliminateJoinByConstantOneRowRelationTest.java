@@ -22,24 +22,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
 
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 public class EliminateJoinByConstantOneRowRelationTest extends SqlTestBase {
-
-    private boolean savedEnableRule;
-
-    @BeforeEach
-    void enableRule() {
-        savedEnableRule = connectContext.getSessionVariable().enableEliminateJoinByConstantOneRowRelation;
-        connectContext.getSessionVariable().enableEliminateJoinByConstantOneRowRelation = true;
-    }
-
-    @AfterEach
-    void restoreRule() {
-        connectContext.getSessionVariable().enableEliminateJoinByConstantOneRowRelation = savedEnableRule;
-    }
 
     @Test
     void testInnerJoinWithConstantOneRowRelationEliminated() {
