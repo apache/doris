@@ -256,8 +256,8 @@ TEST(FileHandleCacheTest, ReadAtOpenFailedHandleDestroyedNotCached) {
         FileHandleCache::Accessor accessor;
         get_handle(*cache, mock_fs, fname, mtime, &accessor, &cache_hit);
         EXPECT_FALSE(cache_hit);
-        auto reader = std::make_shared<HdfsFileReader>(Path(fname), "hdfs", std::move(accessor),
-                                                       nullptr, mtime);
+        auto reader =
+                std::make_shared<HdfsFileReader>(Path(fname), "hdfs", std::move(accessor), mtime);
         char buf[16];
         size_t bytes_read = 0;
         auto st = reader->read_at(0, {buf, sizeof(buf)}, &bytes_read, nullptr);
@@ -354,8 +354,7 @@ TEST(FileHandleCacheTest, SecondReadAfterFailureDoesNotCrash) {
     bool cache_hit = false;
     FileHandleCache::Accessor accessor;
     get_handle(*cache, mock_fs, fname, mtime, &accessor, &cache_hit);
-    auto reader = std::make_shared<HdfsFileReader>(Path(fname), "hdfs", std::move(accessor),
-                                                   nullptr, mtime);
+    auto reader = std::make_shared<HdfsFileReader>(Path(fname), "hdfs", std::move(accessor), mtime);
 
     char buf[16];
     size_t bytes_read = 0;
