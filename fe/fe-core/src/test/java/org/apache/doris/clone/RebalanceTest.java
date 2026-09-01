@@ -114,6 +114,7 @@ public class RebalanceTest {
 
         mockedEnvStatic = Mockito.mockStatic(Env.class);
         mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        mockedEnvStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
         mockedEnvStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeConstants.meta_version);
         mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
         mockedEnvStatic.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
