@@ -252,6 +252,12 @@ public class AlterTableCommandLanceIndexTest {
                             + " (c) USING BTREE"));
             Assertions.assertEquals("DROP INDEX is not supported for Lance REST catalogs",
                     runAndGetMessage("DROP INDEX idx ON " + CTL + "." + DB + "." + TBL));
+            // The REST fail-fast precedes even the index-name bounds.
+            Assertions.assertEquals("CREATE INDEX is not supported for Lance REST catalogs",
+                    runAndGetMessage("CREATE INDEX `` ON " + CTL + "." + DB + "." + TBL
+                            + " (v) USING ANN " + VALID_ANN_PROPERTIES));
+            Assertions.assertEquals("DROP INDEX is not supported for Lance REST catalogs",
+                    runAndGetMessage("DROP INDEX `` ON " + CTL + "." + DB + "." + TBL));
             Mockito.verify(fixture.catalog, Mockito.never()).getDbOrDdlException(Mockito.anyString());
             Mockito.verify(fixture.database, Mockito.never()).getTableOrDdlException(Mockito.anyString());
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
@@ -275,6 +281,29 @@ public class AlterTableCommandLanceIndexTest {
             Assertions.assertEquals("Index column 'nope' does not exist",
                     runAndGetMessage("CREATE INDEX idx ON " + CTL + "." + DB + "." + TBL
                             + " (nope) USING BTREE"));
+            Mockito.verify(fixture.env, Mockito.never()).getNextId();
+        }
+    }
+
+    @Test
+    public void testBlankQuotedIndexNameRejectedOnBothPaths() throws Exception {
+        try (LanceFixture fixture = new LanceFixture(false, true)) {
+            // Nereids accepts an empty backquoted identifier, so `CREATE INDEX `` ` and
+            // `DROP INDEX `` ` reach the command with an empty index name. Both paths must
+            // surface the name error, not the typed unsupported-operation rejection.
+            Assertions.assertEquals("index name cannot be empty",
+                    runAndGetMessage("CREATE INDEX `` ON " + CTL + "." + DB + "." + TBL
+                            + " (v) USING ANN " + VALID_ANN_PROPERTIES));
+            Assertions.assertEquals("index name cannot be empty",
+                    runAndGetMessage("CREATE OR REPLACE INDEX `` ON " + CTL + "." + DB + "." + TBL
+                            + " (c) USING BTREE"));
+            Assertions.assertEquals("index name cannot be empty",
+                    runAndGetMessage("DROP INDEX `` ON " + CTL + "." + DB + "." + TBL));
+            Assertions.assertEquals("index name cannot be empty",
+                    runAndGetMessage("DROP INDEX IF EXISTS `` ON " + CTL + "." + DB + "." + TBL));
+            AnalysisException exception = runAndGetCommonAnalysisException(
+                    "DROP INDEX `` ON " + CTL + "." + DB + "." + TBL);
+            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_INVALID, exception.getMysqlErrorCode());
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
         }
     }
