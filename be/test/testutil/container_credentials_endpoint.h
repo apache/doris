@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#include "cpp/container_credentials_test_util.h"
+#include "cpp/test/container_credentials_test_util.h"
 #include "service/http/ev_http_server.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_handler.h"
@@ -36,7 +36,7 @@
 //
 // Only the first of those lives here, because it is the only one the cloud test tree cannot use: it
 // needs EvHttpServer, which is BE-only. The other two - ContainerCredentialsEnvGuard and
-// as_valid_http_provider - come from cpp/container_credentials_test_util.h, included above and
+// as_valid_http_provider - come from cpp/test/container_credentials_test_util.h, included above and
 // re-exported to anything that includes this header, so BE tests keep getting all three from one
 // include.
 namespace doris {

@@ -34,10 +34,10 @@
 #include "cpp/aws_common.h"
 
 // Test support for the container credentials provider built by
-// create_container_credentials_provider(). It lives in common/cpp because both test trees need it:
-// the BE unit tests cover the S3 client factory and the Kafka MSK IAM signer, the cloud unit tests
-// cover the recycler, and all three reach the same factory. Header-only, so it never enters the
-// CommonCPP library
+// create_container_credentials_provider(). It lives in common/cpp/test because both test trees need
+// it and neither can include the other's: the BE unit tests cover the S3 client factory and the
+// Kafka MSK IAM signer, the cloud unit tests cover the recycler, and all three reach the same
+// factory.
 namespace doris {
 
 // Clears the four AWS_CONTAINER_* variables on construction and restores them on destruction.
