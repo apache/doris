@@ -847,6 +847,12 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> targetWriteSchema = resolvedTargetSchema.stream()
                 .filter(column -> isConnectorSinkWriteColumn(column, sink.isRewrite()))
                 .collect(ImmutableList.toImmutableList());
+        boolean changelogRowChange = sink.getRowChangeSpec().isPresent();
+        if (changelogRowChange) {
+            child = ConnectorChangelogPlanBuilder.build(targetWriteSchema,
+                    table.getConnectorRowLevelPrimaryKeyColumns(), sink.getRowChangeSpec().get(),
+                    child, ctx.cascadesContext);
+        }
         if (sink.isRewrite()) {
             List<NamedExpression> rewriteOutputs = selectConnectorRewriteOutputs(
                     targetWriteSchema, child.getOutput());
@@ -854,9 +860,10 @@ public class BindSink implements AnalysisRuleFactory {
                 child = new LogicalProject<>(rewriteOutputs, child);
             }
         }
-        List<Column> bindColumns = selectConnectorSinkBindColumns(
-                table, targetWriteSchema, sink.getColNames(),
-                staticPartitionColNames, sink.isRewrite());
+        List<Column> bindColumns = changelogRowChange
+                ? targetWriteSchema
+                : selectConnectorSinkBindColumns(table, targetWriteSchema, sink.getColNames(),
+                        staticPartitionColNames, sink.isRewrite());
         LogicalConnectorTableSink<?> boundSink = new LogicalConnectorTableSink<>(
                 database,
                 table,
@@ -872,11 +879,15 @@ public class BindSink implements AnalysisRuleFactory {
                 Optional.empty(),
                 Optional.empty(),
                 child);
-        if (boundSink.getCols().size() != child.getOutput().size()) {
+        int expectedOutputSize = boundSink.getCols().size() + (changelogRowChange ? 1 : 0);
+        if (expectedOutputSize != child.getOutput().size()) {
             // Carry the "Expected N columns but got M" detail that legacy (and the sibling count-check in this
             // file) emit; the terser form dropped it on the connector path.
             throw new AnalysisException("insert into cols should be corresponding to the query output. "
-                    + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
+                    + "Expected " + expectedOutputSize + " columns but got " + child.getOutput().size());
+        }
+        if (changelogRowChange) {
+            return boundSink;
         }
         if (table.requiresFullSchemaWriteOrder()) {
             // Positional-write connector (e.g. MaxCompute): its BE writer maps data columns positionally
