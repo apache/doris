@@ -79,6 +79,9 @@ using Row = std::pair<InputCell, Expect>;
 using DataSet = std::vector<Row>;
 // to represent Array<Int64>: {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_BIGINT}
 using InputTypeSet = std::vector<AnyType>;
+// Each entry represents one logical argument. This form supports parametric types, for example:
+// {{PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT}, {PrimitiveType::TYPE_BIGINT}}.
+using InputArgTypeSet = std::vector<InputTypeSet>;
 
 struct Nullable {
     PrimitiveType tp;
@@ -322,7 +325,7 @@ template <typename ResultType, bool ResultNullable = false, bool datetime_is_str
 Status check_function(const std::string& func_name, const InputTypeSet& input_types,
                       const DataSet& data_set, int result_scale = -1, int result_precision = -1,
                       bool expect_execute_fail = false, bool expect_result_ne = false,
-                      bool is_strict_mode = false) {
+                      bool is_strict_mode = false, DataTypePtr result_nested_type = nullptr) {
     TestCaseInfo::arg_size = static_cast<int>(input_types.size());
     TestCaseInfo::func_call_index++;
     // 1.0 create data type
@@ -384,6 +387,10 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
             }
             return ResultNullable ? make_nullable(std::make_shared<ResultType>(real_scale))
                                   : std::make_shared<ResultType>(real_scale);
+        } else if constexpr (std::is_same_v<ResultType, DataTypeArray>) {
+            EXPECT_NE(result_nested_type, nullptr);
+            DataTypePtr array_type = std::make_shared<DataTypeArray>(result_nested_type);
+            return ResultNullable ? make_nullable(array_type) : array_type;
         } else {
             return ResultNullable ? make_nullable(std::make_shared<ResultType>())
                                   : std::make_shared<ResultType>();
@@ -394,8 +401,14 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     assert(func.get() != nullptr);
 
     // this may be useless now. for some type like array, it's wrong. TODO: need more details explainations
-    auto fn_ctx_return = get_return_type_descriptor<ResultType>(std::max(0, result_scale),
-                                                                std::max(0, result_precision));
+    auto fn_ctx_return = [&]() {
+        if constexpr (std::is_same_v<ResultType, DataTypeArray>) {
+            return remove_nullable(return_type);
+        } else {
+            return get_return_type_descriptor<ResultType>(std::max(0, result_scale),
+                                                          std::max(0, result_precision));
+        }
+    }();
 
     FunctionUtils fn_utils(fn_ctx_return, arg_types, is_strict_mode);
     auto* fn_ctx = fn_utils.get_fn_ctx();
@@ -423,7 +436,9 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
     // 3.0. create expected result column in block
     DataTypePtr result_type_ptr;
-    if constexpr (IsDataTypeDecimal<ResultType>) { // decimal
+    if constexpr (std::is_same_v<ResultType, DataTypeArray>) {
+        result_type_ptr = return_type;
+    } else if constexpr (IsDataTypeDecimal<ResultType>) { // decimal
         result_type_ptr = ResultNullable
                                   ? make_nullable(std::make_shared<ResultType>(result_precision,
                                                                                result_scale))
@@ -529,6 +544,43 @@ void check_function_all_arg_comb(const std::string& func_name, const InputTypeSe
             TestCaseInfo::func_call_index--;
             static_cast<void>(
                     check_function<ReturnType, nullable>(func_name, input_types, data_set));
+        }
+    }
+}
+
+// Variant for parametric argument or result types. Each entry in base_arg_types is one logical
+// argument and may contain multiple type descriptors, such as ARRAY followed by its item type.
+template <typename ReturnType, bool nullable = false>
+void check_function_all_arg_comb(const std::string& func_name,
+                                 const InputArgTypeSet& base_arg_types, const DataSet& data_set,
+                                 DataTypePtr result_nested_type) {
+    TestCaseInfo::func_call_index++;
+    const size_t arg_cnt = base_arg_types.size();
+    for (int combination = 0; combination < (1 << arg_cnt); ++combination) {
+        InputTypeSet input_types;
+        for (size_t arg = 0; arg < arg_cnt; ++arg) {
+            const bool is_const = (1 << arg) & combination;
+            const auto& arg_types = base_arg_types[arg];
+            DCHECK(!arg_types.empty());
+            const auto base_type = any_cast<PrimitiveType>(arg_types.front());
+            input_types.emplace_back(is_const ? AnyType(Consted {base_type}) : arg_types.front());
+            input_types.insert(input_types.end(), arg_types.begin() + 1, arg_types.end());
+        }
+
+        TestCaseInfo::arg_const_info = combination;
+        TestCaseInfo::error_line_number = -1;
+        if (combination != 0) {
+            for (const auto& line : data_set) {
+                TestCaseInfo::func_call_index--;
+                static_cast<void>(check_function<ReturnType, nullable>(
+                        func_name, input_types, DataSet {line}, -1, -1, false, false, false,
+                        result_nested_type));
+            }
+        } else {
+            TestCaseInfo::func_call_index--;
+            static_cast<void>(check_function<ReturnType, nullable>(func_name, input_types, data_set,
+                                                                   -1, -1, false, false, false,
+                                                                   result_nested_type));
         }
     }
 }

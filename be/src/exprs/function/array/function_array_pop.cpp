@@ -23,7 +23,9 @@
 #include <ostream>
 #include <utility>
 
+#include "common/compiler_util.h"
 #include "common/status.h"
+#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
 #include "core/block/column_with_type_and_name.h"
@@ -104,9 +106,74 @@ public:
     static constexpr int start_offset = 2;
 };
 
+class FunctionArrayTrim : public IFunction {
+public:
+    static constexpr auto name = "trim_array";
+    static FunctionPtr create() { return std::make_shared<FunctionArrayTrim>(); }
+
+    String get_name() const override { return name; }
+
+    bool is_variadic() const override { return false; }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
+                << "First argument for function: " << name
+                << " should be DataTypeArray but it has type " << arguments[0]->get_name() << ".";
+        DCHECK(arguments[1]->get_primitive_type() == TYPE_BIGINT)
+                << "Second argument for function: " << name << " should be BigInt but it has type "
+                << arguments[1]->get_name() << ".";
+        return arguments[0];
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto array_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto size_column =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+
+        ColumnArrayExecutionData src;
+        if (!extract_column_array_info(*array_column, src)) {
+            return Status::RuntimeError(
+                    fmt::format("execute failed, unsupported types for function {}({}, {})",
+                                get_name(), block.get_by_position(arguments[0]).type->get_name(),
+                                block.get_by_position(arguments[1]).type->get_name()));
+        }
+
+        auto length_column = ColumnInt64::create();
+        length_column->reserve(input_rows_count);
+        const auto& sizes = assert_cast<const ColumnInt64&>(*size_column).get_data();
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            const auto size = sizes[row];
+            const size_t offset = (*src.offsets_ptr)[row - 1];
+            const size_t cardinality = (*src.offsets_ptr)[row] - offset;
+            if (UNLIKELY(size < 0)) {
+                return Status::InvalidArgument("size must not be negative: {}", size);
+            }
+            if (UNLIKELY(static_cast<size_t>(size) > cardinality)) {
+                return Status::InvalidArgument("size must not exceed array cardinality {}: {}",
+                                               cardinality, size);
+            }
+            length_column->insert_value(static_cast<Int64>(cardinality) - size);
+        }
+
+        const bool nested_is_nullable = src.nested_nullmap_data != nullptr;
+        ColumnArrayMutableData dst = create_mutable_data(src.nested_col.get(), nested_is_nullable);
+        dst.offsets_ptr->reserve(input_rows_count);
+        auto offset_column = ColumnInt64::create(input_rows_count, 1);
+        slice_array(dst, src, *offset_column, length_column.get());
+
+        block.replace_by_position(result, assemble_column_array(dst));
+        return Status::OK();
+    }
+};
+
 void register_function_array_pop(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayPopback>();
     factory.register_function<FunctionArrayPopfront>();
+    factory.register_function<FunctionArrayTrim>();
 }
 
 } // namespace doris

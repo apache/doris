@@ -551,6 +551,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.TransformKeys
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TransformValues;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Translate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Trim;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVariant;
@@ -1149,6 +1150,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ToSeconds.class, "to_seconds"),
             scalar(Translate.class, "translate"),
             scalar(Trim.class, "trim"),
+            scalar(TrimArray.class, "trim_array"),
             scalar(TrimIn.class, "trim_in"),
             scalar(Truncate.class, "truncate"),
             scalar(Unhex.class, "unhex"),
