@@ -76,6 +76,7 @@ suite("test_paimon_file_metadata_columns", "p0,external") {
         // the first row in each file, so their reported positions must remain physical 1/2 rather
         // than being renumbered after filtering or scanner-range splitting.
         spark_paimon_multi """
+            create database if not exists paimon.db1;
             drop table if exists paimon.db1.${crossFileTable};
             create table paimon.db1.${crossFileTable} (id int, payload string)
                 using paimon tblproperties ('bucket'='1', 'file.format'='parquet');
