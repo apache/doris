@@ -562,9 +562,7 @@ Status OlapScanner::_init_variant_columns() {
         const int32_t column_index = tablet_schema->field_index(path);
         if (column_index < 0) {
             tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
-            continue;
         }
-        tablet_schema->mutable_column(column_index).set_variant_is_v2(true);
     }
     variant_util::inherit_column_attributes(tablet_schema);
     return Status::OK();

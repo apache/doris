@@ -68,8 +68,7 @@ suite("variant_mv_rowstore_crash", "variant_type") {
     order_qt_mv "SELECT * FROM ${mv_name} ORDER BY k"
 
     // Test 2: INSERT INTO ... SELECT variant subcolumn into rowstore table
-    // This ensures variant goes through parse_and_materialize_variant_columns
-    // with ensure_root_node_type path
+    // This ensures a Variant subcolumn is materialized into the row-store target.
     def tbl3 = "var_rs_target_tbl"
     sql "DROP TABLE IF EXISTS ${tbl3}"
     sql """

@@ -473,7 +473,6 @@ void get_column_by_type(const DataTypePtr& data_type, const std::string& name, T
         DORIS_CHECK(variant_v2 != nullptr);
         column.set_variant_max_subcolumns_count(variant_v2->variant_max_subcolumns_count());
         column.set_variant_enable_doc_mode(variant_v2->enable_doc_mode());
-        column.set_variant_is_v2(variant_v2 != nullptr);
         return;
     }
     // size is not fixed when type is string or json
@@ -1802,26 +1801,6 @@ bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
     }
     return inherit_index(parent_indexes, subcolumns_indexes, (FieldType)column_pb.type(),
                          column_pb.column_path_info().path());
-}
-
-Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& tablet_schema,
-                                             const std::vector<uint32_t>& column_pos) {
-    for (const uint32_t schema_pos : column_pos) {
-        const auto& column = tablet_schema.column(schema_pos);
-        if (!column.is_variant_type()) {
-            continue;
-        }
-        const ColumnPtr& column_ref = block.get_by_position(schema_pos).column;
-        const IColumn* physical_column = column_ref.get();
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(physical_column)) {
-            physical_column = &nullable->get_nested_column();
-        }
-        if (check_and_get_column<ColumnVariantV2>(physical_column) == nullptr) {
-            return Status::InvalidArgument("Variant storage expects ColumnVariantV2, got {}",
-                                           physical_column->get_name());
-        }
-    }
-    return Status::OK();
 }
 
 } // namespace doris::variant_util

@@ -204,8 +204,7 @@ TEST(BinaryColumnExtractIteratorV2Test, RejectsNonV2Destination) {
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
-    BinaryColumnExtractIterator v2_reader("a", cache, &read_options,
-                                          /*use_variant_v2=*/true);
+    BinaryColumnExtractIterator v2_reader("a", cache, &read_options);
 
     ColumnIteratorOptions iterator_options;
     iterator_options.stats = &stats;
@@ -227,10 +226,8 @@ TEST(BinaryColumnExtractIteratorV2Test, SharedCacheProducesTypedAndEncodedResult
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
-    auto extract_a = std::make_unique<BinaryColumnExtractIterator>("a", cache, &read_options,
-                                                                   /*use_variant_v2=*/true);
-    auto extract_b = std::make_unique<BinaryColumnExtractIterator>("b", cache, &read_options,
-                                                                   /*use_variant_v2=*/true);
+    auto extract_a = std::make_unique<BinaryColumnExtractIterator>("a", cache, &read_options);
+    auto extract_b = std::make_unique<BinaryColumnExtractIterator>("b", cache, &read_options);
 
     ColumnIteratorOptions iterator_options;
     iterator_options.stats = &stats;
@@ -292,8 +289,7 @@ TEST(BinaryColumnExtractIteratorV2Test, PhysicalAndEncodedNullUseVersionNativeSe
         StorageReadOptions read_options;
         read_options.stats = &stats;
         auto extract =
-                std::make_unique<BinaryColumnExtractIterator>("a", std::move(cache), &read_options,
-                                                              /*use_variant_v2=*/true);
+                std::make_unique<BinaryColumnExtractIterator>("a", std::move(cache), &read_options);
         ColumnIteratorOptions iterator_options;
         ASSERT_TRUE(extract->init(iterator_options).ok());
         ASSERT_TRUE(extract->seek_to_ordinal(0).ok());
@@ -328,8 +324,7 @@ TEST(BinaryColumnExtractIteratorV2Test, ShortFinalAllMissingBatchUsesProducedRow
         OlapReaderStatistics stats;
         StorageReadOptions read_options;
         read_options.stats = &stats;
-        BinaryColumnExtractIterator extract("a", std::move(cache), &read_options,
-                                            /*use_variant_v2=*/true);
+        BinaryColumnExtractIterator extract("a", std::move(cache), &read_options);
         ColumnIteratorOptions iterator_options;
         ASSERT_TRUE(extract.init(iterator_options).ok());
         ASSERT_TRUE(extract.seek_to_ordinal(0).ok());
@@ -355,10 +350,8 @@ TEST(BinaryColumnExtractIteratorV2Test, SharedCacheReusesRowidBatchAcrossPaths) 
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
-    auto extract_a = std::make_unique<BinaryColumnExtractIterator>("a", cache, &read_options,
-                                                                   /*use_variant_v2=*/true);
-    auto extract_b = std::make_unique<BinaryColumnExtractIterator>("b", cache, &read_options,
-                                                                   /*use_variant_v2=*/true);
+    auto extract_a = std::make_unique<BinaryColumnExtractIterator>("a", cache, &read_options);
+    auto extract_b = std::make_unique<BinaryColumnExtractIterator>("b", cache, &read_options);
 
     ColumnIteratorOptions iterator_options;
     iterator_options.stats = &stats;
@@ -438,8 +431,7 @@ TEST(BinaryColumnExtractIteratorV2Test, RejectsInvalidOffsets) {
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
-    auto extract = std::make_unique<BinaryColumnExtractIterator>("a", cache, &read_options,
-                                                                 /*use_variant_v2=*/true);
+    auto extract = std::make_unique<BinaryColumnExtractIterator>("a", cache, &read_options);
     ColumnIteratorOptions iterator_options;
     iterator_options.stats = &stats;
     ASSERT_TRUE(extract->init(iterator_options).ok());
@@ -474,8 +466,7 @@ TEST(BinaryColumnExtractIteratorV2Test, RejectsDecreasingOffsets) {
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
-    auto extract = std::make_unique<BinaryColumnExtractIterator>("a", cache, &read_options,
-                                                                 /*use_variant_v2=*/true);
+    auto extract = std::make_unique<BinaryColumnExtractIterator>("a", cache, &read_options);
     ColumnIteratorOptions iterator_options;
     iterator_options.stats = &stats;
     ASSERT_TRUE(extract->init(iterator_options).ok());
@@ -509,8 +500,7 @@ TEST(BinaryColumnExtractIteratorV2Test, RejectsOffsetsThatLeaveUnconsumedCells) 
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
-    auto extract = std::make_unique<BinaryColumnExtractIterator>("a", cache, &read_options,
-                                                                 /*use_variant_v2=*/true);
+    auto extract = std::make_unique<BinaryColumnExtractIterator>("a", cache, &read_options);
     ColumnIteratorOptions iterator_options;
     iterator_options.stats = &stats;
     ASSERT_TRUE(extract->init(iterator_options).ok());
@@ -543,8 +533,7 @@ TEST(BinaryColumnExtractIteratorV2Test, RejectsMismatchedPathAndCellCounts) {
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
-    auto extract = std::make_unique<BinaryColumnExtractIterator>("a", cache, &read_options,
-                                                                 /*use_variant_v2=*/true);
+    auto extract = std::make_unique<BinaryColumnExtractIterator>("a", cache, &read_options);
     ColumnIteratorOptions iterator_options;
     iterator_options.stats = &stats;
     ASSERT_TRUE(extract->init(iterator_options).ok());
@@ -583,8 +572,7 @@ TEST(BinaryColumnExtractIteratorV2Test, DoesNotRescanFrozenPathOrdering) {
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
-    auto extract = std::make_unique<BinaryColumnExtractIterator>("a", cache, &read_options,
-                                                                 /*use_variant_v2=*/true);
+    auto extract = std::make_unique<BinaryColumnExtractIterator>("a", cache, &read_options);
     ColumnIteratorOptions iterator_options;
     iterator_options.stats = &stats;
     ASSERT_TRUE(extract->init(iterator_options).ok());

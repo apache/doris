@@ -106,6 +106,9 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DataTypePtr arg_0 = remove_nullable(arguments[0]);
+        DCHECK(arg_0->get_primitive_type() == TYPE_ARRAY || arg_0->get_primitive_type() == TYPE_MAP)
+                << "first argument for function: " << name
+                << " should be DataTypeArray or DataTypeMap, but it is " << arg_0->get_name();
         if (arg_0->get_primitive_type() == TYPE_ARRAY) {
             DCHECK(is_int_or_bool(arguments[1]->get_primitive_type()))
                     << "second argument for function: " << name

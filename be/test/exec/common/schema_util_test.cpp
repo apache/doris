@@ -735,40 +735,14 @@ TEST_F(SchemaUtilTest, TestGetColumnByType) {
     EXPECT_TRUE(nullable_column.is_nullable());
     EXPECT_EQ(nullable_column.type(), FieldType::OLAP_FIELD_TYPE_INT);
 
-    // V1 and V2 share the storage attributes; only the transient compute destination differs.
-    auto variant_v1_column = variant_util::get_column_by_type(
-            make_nullable(std::make_shared<DataTypeVariant>(10, true)), "variant_v1", ext_info);
-    auto variant_v2_column = variant_util::get_column_by_type(
+    auto variant_column = variant_util::get_column_by_type(
             make_nullable(std::make_shared<DataTypeVariantV2>(10, true)), "variant_v2", ext_info);
-    for (const auto* variant_column : {&variant_v1_column, &variant_v2_column}) {
-        EXPECT_TRUE(variant_column->is_nullable());
-        EXPECT_EQ(variant_column->type(), FieldType::OLAP_FIELD_TYPE_VARIANT);
-        EXPECT_EQ(variant_column->variant_max_subcolumns_count(), 10);
-        EXPECT_TRUE(variant_column->variant_enable_doc_mode());
-        EXPECT_EQ(variant_column->parent_unique_id(), 2);
-        EXPECT_EQ(variant_column->path_info_ptr()->get_path(), "test.path");
-    }
-    EXPECT_FALSE(variant_v1_column.variant_is_v2());
-    EXPECT_TRUE(variant_v2_column.variant_is_v2());
-}
-
-TEST_F(SchemaUtilTest, VariantV2MarkerIsPreservedAcrossSchemaCopy) {
-    TabletColumn variant_column;
-    variant_column.set_name("v");
-    variant_column.set_unique_id(1);
-    variant_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
-    variant_column.set_is_nullable(true);
-    variant_column.set_variant_is_v2(true);
-
-    TabletSchema source;
-    source.append_column(std::move(variant_column));
-    ASSERT_EQ(source.num_columns(), 1);
-    EXPECT_TRUE(source.column(0).variant_is_v2());
-
-    TabletSchema copied;
-    copied.copy_from(source);
-    ASSERT_EQ(copied.num_columns(), 1);
-    EXPECT_TRUE(copied.column(0).variant_is_v2());
+    EXPECT_TRUE(variant_column.is_nullable());
+    EXPECT_EQ(variant_column.type(), FieldType::OLAP_FIELD_TYPE_VARIANT);
+    EXPECT_EQ(variant_column.variant_max_subcolumns_count(), 10);
+    EXPECT_TRUE(variant_column.variant_enable_doc_mode());
+    EXPECT_EQ(variant_column.parent_unique_id(), 2);
+    EXPECT_EQ(variant_column.path_info_ptr()->get_path(), "test.path");
 }
 
 TEST_F(SchemaUtilTest, TestHasSchemaIndexDiff) {
@@ -793,31 +767,6 @@ TEST_F(SchemaUtilTest, TestHasSchemaIndexDiff) {
     schema2->init_from_pb(schema2_pb);
 
     EXPECT_TRUE(variant_util::has_schema_index_diff(schema1.get(), schema2.get(), 0, 0));
-}
-
-TEST_F(SchemaUtilTest, TestParseVariantColumns) {
-    // Create a block with variant column
-    Block block;
-
-    auto variant_type = std::make_shared<DataTypeVariant>(10, false);
-    auto variant_column = ColumnVariantV2::create();
-    Slice value(R"({"a":1,"b":"test"})", 18);
-    DataTypeSerDe::FormatOptions options;
-    ASSERT_TRUE(DataTypeVariantV2SerDe()
-                        .deserialize_one_cell_from_json(*variant_column, value, options)
-                        .ok());
-
-    block.insert({variant_column->get_ptr(), variant_type, "variant_col"});
-
-    TabletSchemaPB schema_pb;
-    schema_pb.set_keys_type(KeysType::DUP_KEYS);
-    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000, "v_index", 1, "VARIANT",
-                     "variant_col", IndexType::INVERTED);
-    TabletSchema schema;
-    schema.init_from_pb(schema_pb);
-
-    auto status = variant_util::parse_and_materialize_variant_columns(block, schema, {0});
-    EXPECT_TRUE(status.ok()) << status;
 }
 
 TEST_F(SchemaUtilTest, TestGetLeastCommonSchema) {
@@ -1340,25 +1289,6 @@ TEST_F(SchemaUtilTest, TestCreateSparseColumn) {
     // Check map value columns
     EXPECT_EQ(sparse_column.get_sub_column(0).type(), FieldType::OLAP_FIELD_TYPE_STRING);
     EXPECT_EQ(sparse_column.get_sub_column(1).type(), FieldType::OLAP_FIELD_TYPE_STRING);
-}
-
-TEST_F(SchemaUtilTest, TestParseVariantColumnsRejectsNonV2PhysicalColumn) {
-    Block block;
-    auto string_column = ColumnString::create();
-    string_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>(R"({"a":1})"));
-    block.insert({string_column->get_ptr(), std::make_shared<DataTypeVariant>(10, false),
-                  "variant_col"});
-
-    TabletSchemaPB schema_pb;
-    schema_pb.set_keys_type(KeysType::DUP_KEYS);
-    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000, "v_index", 1, "VARIANT",
-                     "variant_col", IndexType::INVERTED);
-    TabletSchema schema;
-    schema.init_from_pb(schema_pb);
-
-    auto status = variant_util::parse_and_materialize_variant_columns(block, schema, {0});
-    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
-    EXPECT_NE(status.to_string().find("ColumnVariantV2"), std::string::npos);
 }
 
 TEST_F(SchemaUtilTest, get_compaction_typed_columns) {

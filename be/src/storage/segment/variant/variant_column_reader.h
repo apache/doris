@@ -404,7 +404,7 @@ private:
                                        ColumnReaderCache* column_reader_cache,
                                        OlapReaderStatistics* stats,
                                        HierarchicalDataIterator::ReadType read_type,
-                                       bool use_variant_v2, const io::IOContext* io_ctx);
+                                       const io::IOContext* io_ctx);
     // Create a reader that merges subcolumns into the destination sparse column.
     // If bucket_index is set, only subcolumns whose path belongs to this bucket will be merged.
     Status _create_sparse_merge_reader(ColumnIteratorUPtr* iterator, const StorageReadOptions* opts,

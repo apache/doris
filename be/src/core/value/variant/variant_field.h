@@ -18,7 +18,6 @@
 #pragma once
 
 #include <cstddef>
-#include <map>
 #include <memory>
 
 #include "core/string_ref.h"
@@ -26,10 +25,7 @@
 
 namespace doris {
 
-struct FieldWithDataType;
-class PathInData;
 class VariantScalarRef;
-using VariantMap = std::map<PathInData, FieldWithDataType>;
 
 // Validate a complete metadata dictionary, including every UTF-8 key. Call this once before
 // validating one or more payloads that reference the same dictionary.
@@ -39,12 +35,10 @@ void validate_variant_metadata(VariantMetadataRef metadata);
 // passed validate_variant_metadata().
 void validate_variant_payload(VariantRef value);
 
-// Holds the legacy V1 path map or owns one encoded V2 row. The encoded byte layout is
+// Owns one encoded Variant row. The byte layout is
 // [u32 little-endian metadata_size][metadata][exactly one value].
 class VariantField {
 public:
-    // Every special member lives in the .cpp: with PathInData forward-declared, any inline
-    // definition would instantiate the VariantMap destructor through the _legacy deleter.
     VariantField() noexcept;
     ~VariantField();
 
@@ -52,12 +46,6 @@ public:
     VariantField(VariantField&& other) noexcept;
     VariantField& operator=(const VariantField& other);
     VariantField& operator=(VariantField&& other) noexcept;
-
-    // Transitional field-map representation kept only for Field API callers.
-    VariantField(VariantMap legacy);
-    bool is_legacy() const noexcept;
-    VariantMap& legacy_map();
-    const VariantMap& legacy_map() const;
 
     // Validate an already encoded Variant view, add the VariantField framing, and copy the
     // metadata and value bytes without canonicalizing them.
@@ -91,9 +79,6 @@ private:
     VariantField(std::unique_ptr<char[]> data, size_t size) noexcept;
     void swap(VariantField& other) noexcept;
 
-    // A moved-from V1 field is still a valid empty V1 map, matching std::map move semantics.
-    bool _legacy_representation = false;
-    std::unique_ptr<VariantMap> _legacy;
     std::unique_ptr<char[]> _data;
     size_t _size = 0;
 };

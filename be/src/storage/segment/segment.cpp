@@ -1331,7 +1331,6 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         TabletColumn column = schema.column(index);
         if (column.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
             DORIS_CHECK(variant_v2_type != nullptr);
-            column.set_variant_is_v2(true);
         }
         if (iterator_hint == nullptr) {
             RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_options));

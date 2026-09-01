@@ -89,7 +89,7 @@ public:
 class BinaryColumnExtractIterator : public BaseBinaryColumnProcessor {
 public:
     BinaryColumnExtractIterator(std::string_view path, BinaryColumnCacheSPtr sparse_column_cache,
-                                const StorageReadOptions* opts, bool use_variant_v2);
+                                const StorageReadOptions* opts);
 
     Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
 

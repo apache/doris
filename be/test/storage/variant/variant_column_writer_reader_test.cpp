@@ -1616,8 +1616,7 @@ protected:
     }
 
     Status read_variant_root_rows(const SegmentFooterPB& footer, const std::string& file_path,
-                                  std::vector<std::optional<std::string>>* out_rows,
-                                  bool read_as_v2 = true) {
+                                  std::vector<std::optional<std::string>>* out_rows) {
         DCHECK(out_rows != nullptr);
         io::FileReaderSPtr file_reader;
         RETURN_IF_ERROR(io::global_local_filesystem()->open_file(file_path, &file_reader));
@@ -1629,7 +1628,6 @@ protected:
         MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
 
         TabletColumn parent_column = _tablet_schema->column(0);
-        parent_column.set_variant_is_v2(read_as_v2);
         auto parent_type = DataTypeFactory::instance().create_data_type(parent_column, false);
 
         StorageReadOptions read_opts;
@@ -1742,9 +1740,6 @@ protected:
         VariantUtil::insert_json_rows(*scalar_variant, jsons);
         columns[0] = std::move(scalar_variant);
         block.set_columns(std::move(columns));
-
-        RETURN_IF_ERROR(
-                variant_util::parse_and_materialize_variant_columns(block, *_tablet_schema, {0}));
 
         const auto& parsed_variant =
                 assert_cast<const ColumnVariantV2&>(*block.get_by_position(0).column);
@@ -3332,7 +3327,6 @@ TEST_F(VariantColumnWriterReaderTest, test_segment_rowid_read_by_reader_version)
 
     const std::vector<uint32_t> row_ids {0, 1, 2};
     const std::vector<uint32_t> second_row_ids {3};
-    ASSERT_TRUE(_tablet_schema->column(0).variant_is_v2());
     for (size_t slot_index = 0; slot_index < 3; ++slot_index) {
         const auto type = remove_nullable(slots[slot_index]->type());
         EXPECT_NE(typeid_cast<const DataTypeVariantV2*>(type.get()), nullptr);
@@ -3400,7 +3394,6 @@ TEST_F(VariantColumnWriterReaderTest, test_segment_rowid_read_by_reader_version)
         }
     }
     EXPECT_NE(typeid_cast<BinaryColumnExtractIterator*>(subpath_iterator.get()), nullptr);
-    EXPECT_TRUE(assert_cast<const ColumnVariantV2&>(subpath_variant).is_typed());
 
     // Declare "a" as an ARRAY<JSONB> typed path so this exercises the materialized array merge
     // rather than the sparse-cell decoder.
@@ -3670,7 +3663,6 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     // The segment is still written with ColumnVariantV2. A query destination can request
     // ColumnVariantV2 and assemble the same hierarchical streams directly.
     TabletColumn parent_column_v2 = parent_column;
-    parent_column_v2.set_variant_is_v2(true);
     ColumnIteratorUPtr variant_v2_it;
     st = variant_column_reader->new_iterator(&variant_v2_it, &parent_column_v2, &storage_read_opts,
                                              &column_reader_cache);
@@ -3771,7 +3763,6 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
         }
 
         TabletColumn subcolumn_in_sparse_v2 = subcolumn_in_sparse;
-        subcolumn_in_sparse_v2.set_variant_is_v2(true);
         ColumnIteratorUPtr variant_v2_sparse_it;
         st = variant_column_reader->new_iterator(&variant_v2_sparse_it, &subcolumn_in_sparse_v2,
                                                  &storage_read_opts, &column_reader_cache,
@@ -3792,7 +3783,6 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
         EXPECT_EQ(nrows, 1000);
         auto& nullable = assert_cast<ColumnNullable&>(*nullable_variant_v2);
         auto& sparse_variant_v2 = assert_cast<ColumnVariantV2&>(nullable.get_nested_column());
-        EXPECT_TRUE(sparse_variant_v2.is_typed());
         const std::string json_key = "\"" + key.substr(1) + "\":";
         for (int row = 0; row < 1000; ++row) {
             const bool present = inserted_jsonstr[row].find(json_key) != std::string::npos;
@@ -4243,7 +4233,6 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_and_read_hierarchical_doc) 
     // The segment above is written by the legacy ColumnVariantV2 writer. Read the same doc-value
     // streams into ColumnVariantV2 to cover the HIERARCHICAL_DOC query path.
     TabletColumn parent_column_v2 = parent_column;
-    parent_column_v2.set_variant_is_v2(true);
     OlapReaderStatistics v2_stats;
     StorageReadOptions v2_read_opts;
     v2_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
@@ -4413,7 +4402,6 @@ TEST_F(VariantColumnWriterReaderTest,
     }
 
     TabletColumn parent_column_v2 = parent_column;
-    parent_column_v2.set_variant_is_v2(true);
     StorageReadOptions v2_query_read_opts;
     v2_query_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     v2_query_read_opts.tablet_schema = _tablet_schema;
@@ -5245,8 +5233,6 @@ TEST_F(VariantColumnWriterReaderTest, test_storage_parse_kv_write_materialized_a
     columns[0] = std::move(scalar_variant);
     block.set_columns(std::move(columns));
 
-    st = variant_util::parse_and_materialize_variant_columns(block, *_tablet_schema, {0});
-    ASSERT_TRUE(st.ok()) << st.to_string();
     const auto& parsed_variant =
             assert_cast<const ColumnVariantV2&>(*block.get_by_position(0).column);
     EXPECT_EQ(parsed_variant.size(), kRows);
@@ -6633,7 +6619,6 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable) {
     // The physical segment is written by ColumnVariantV2. Read it into a nullable ColumnVariantV2
     // destination and verify that the root null map and non-null values survive both scan modes.
     TabletColumn parent_column_v2 = parent_column;
-    parent_column_v2.set_variant_is_v2(true);
     auto parent_type_v2 = DataTypeFactory::instance().create_data_type(parent_column_v2, false);
 
     OlapReaderStatistics v2_stats;
