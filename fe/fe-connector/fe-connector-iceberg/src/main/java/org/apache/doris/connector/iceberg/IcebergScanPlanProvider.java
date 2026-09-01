@@ -2758,7 +2758,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             if (spec == null) {
                 continue;
             }
-            if (!ManifestEvaluator.forPartitionFilter(filterExpr, spec, caseSensitive).eval(manifest)) {
+            if (!deleteManifestEvaluator(spec, filterExpr, caseSensitive).eval(manifest)) {
                 continue;
             }
             deleteFiles.addAll(manifestCacheGet(manifest, table, statsQueryId).getDeleteFiles());
@@ -2927,6 +2927,23 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 }).eval(manifest));
         return CloseableIterable.filter(matching,
                 manifest -> manifest.hasAddedFiles() || manifest.hasExistingFiles());
+    }
+
+    /**
+     * Partition-prune evaluator for DELETE manifests: the ROW filter must be projected into partition space
+     * before {@link ManifestEvaluator#forPartitionFilter}, which binds against the partition struct. Passing
+     * the raw row filter binds fine on identity-only specs (the partition field keeps the source column name)
+     * but throws {@code ValidationException} ("Cannot find field ...") on any spec with a transform
+     * (e.g. {@code month(ts)} stores the field as {@code ts_month}) whenever the filter references the
+     * transform's source column — which aborted the WHOLE cached plan into the SDK fallback for every
+     * filtered query on such tables (one WARN + stack per query). The data-manifest side
+     * ({@link #getMatchingManifest}) always projected; this mirrors it. An inclusive projection maps
+     * predicates on non-partition columns to {@code alwaysTrue()}, so pruning stays correct.
+     */
+    static ManifestEvaluator deleteManifestEvaluator(PartitionSpec spec, Expression rowFilter,
+            boolean caseSensitive) {
+        return ManifestEvaluator.forPartitionFilter(
+                Projections.inclusive(spec, caseSensitive).project(rowFilter), spec, caseSensitive);
     }
 
     /**
