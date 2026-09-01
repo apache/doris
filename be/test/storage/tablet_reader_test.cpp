@@ -135,4 +135,26 @@ TEST_F(TabletReaderTest, remove_delete_columns_keeps_unrelated_paths) {
 
     EXPECT_EQ(size_t(2), access_paths.size());
 }
+
+TEST_F(TabletReaderTest, initializes_unbounded_key_ranges) {
+    auto schema = create_schema({{"k1", 10}});
+    OlapTuple upper_key;
+    upper_key.add_field(Field::create_field<TYPE_INT>(10));
+    OlapTuple lower_key;
+    lower_key.add_field(Field::create_field<TYPE_INT>(20));
+
+    TabletReader::ReaderParams params;
+    params.start_key.emplace_back(std::nullopt);
+    params.end_key.emplace_back(std::move(upper_key));
+    params.start_key.emplace_back(std::move(lower_key));
+    params.end_key.emplace_back(std::nullopt);
+
+    TabletReader reader;
+    reader._tablet_schema = std::move(schema);
+    ASSERT_TRUE(reader._init_keys_param(params).ok());
+    EXPECT_FALSE(reader._keys_param.start_keys[0].has_value());
+    EXPECT_TRUE(reader._keys_param.end_keys[0].has_value());
+    EXPECT_TRUE(reader._keys_param.start_keys[1].has_value());
+    EXPECT_FALSE(reader._keys_param.end_keys[1].has_value());
+}
 } // namespace doris

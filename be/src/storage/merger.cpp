@@ -38,12 +38,14 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
+#include "runtime/runtime_state.h"
 #include "storage/iterator/block_reader.h"
 #include "storage/iterator/vertical_block_reader.h"
 #include "storage/iterator/vertical_merge_iterator.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
+#include "storage/olap_tuple.h"
 #include "storage/rowid_conversion.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
@@ -64,11 +66,44 @@
 #include "util/slice.h"
 
 namespace doris {
+
+namespace {
+
+Status set_key_range(TabletReader::ReaderParams* reader_params, const TabletSchema& tablet_schema,
+                     const Merger::KeyRange& range) {
+    DORIS_CHECK(range.lower_key.has_value() || range.upper_key.has_value());
+    if (tablet_schema.sort_type() == SortType::ZORDER ||
+        !tablet_schema.cluster_key_uids().empty()) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                "Key range is not supported for Z-order or cluster-key tablets");
+    }
+    auto validate_bound = [&](const std::optional<OlapTuple>& bound) -> Status {
+        if (bound.has_value() &&
+            (bound->size() == 0 || bound->size() > tablet_schema.num_key_columns())) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "Key range bound must be a non-empty leading key prefix: bound columns={}, "
+                    "key columns={}",
+                    bound->size(), tablet_schema.num_key_columns());
+        }
+        return Status::OK();
+    };
+    RETURN_IF_ERROR(validate_bound(range.lower_key));
+    RETURN_IF_ERROR(validate_bound(range.upper_key));
+    reader_params->start_key.push_back(range.lower_key);
+    reader_params->end_key.push_back(range.upper_key);
+    reader_params->start_key_include = range.lower_inclusive;
+    reader_params->end_key_include = range.upper_inclusive;
+    return Status::OK();
+}
+
+} // namespace
+
 Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
                               const TabletSchema& cur_tablet_schema,
                               const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
                               RowsetWriter* dst_rowset_writer, Statistics* stats_output,
-                              std::optional<std::pair<int64_t, int64_t>> segment_range) {
+                              std::optional<std::pair<int64_t, int64_t>> segment_range,
+                              std::optional<KeyRange> key_range, RuntimeState* runtime_state) {
     if (!cur_tablet_schema.cluster_key_uids().empty()) {
         return Status::InternalError(
                 "mow table with cluster keys does not support non vertical compaction");
@@ -78,6 +113,10 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
     reader_params.read_row_binlog = tablet->is_row_binlog_tablet();
+    reader_params.runtime_state = runtime_state;
+    if (key_range.has_value()) {
+        RETURN_IF_ERROR(set_key_range(&reader_params, cur_tablet_schema, *key_range));
+    }
     if (reader_params.read_row_binlog) {
         // Row-binlog horizontal (non-vertical) compaction must produce a globally
         // (key, TSO)-ordered output.
@@ -121,6 +160,9 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     size_t output_rows = 0;
     bool eof = false;
     while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
+        if (runtime_state != nullptr) {
+            RETURN_IF_CANCELLED(runtime_state);
+        }
         auto tablet_state = tablet->tablet_state();
         if (tablet_state != TABLET_RUNNING && tablet_state != TABLET_NOTREADY) {
             tablet->clear_cache();
@@ -258,7 +300,8 @@ Status Merger::vertical_compact_one_group(
         RowsetWriter* dst_rowset_writer, uint32_t max_rows_per_segment, Statistics* stats_output,
         std::vector<uint32_t> key_group_cluster_key_idxes, int64_t batch_size,
         CompactionSampleInfo* sample_info, VerticalCompactionContextStats* context_stats,
-        bool enable_sparse_optimization, std::optional<std::pair<int64_t, int64_t>> segment_range) {
+        bool enable_sparse_optimization, std::optional<std::pair<int64_t, int64_t>> segment_range,
+        std::optional<KeyRange> key_range, RuntimeState* runtime_state) {
     // build tablet reader
     VLOG_NOTICE << "vertical compact one group, max_rows_per_segment=" << max_rows_per_segment;
     VerticalBlockReader reader(row_source_buf, context_stats);
@@ -268,7 +311,11 @@ Status Merger::vertical_compact_one_group(
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
     reader_params.read_row_binlog = tablet->is_row_binlog_tablet();
+    reader_params.runtime_state = runtime_state;
     reader_params.enable_sparse_optimization = enable_sparse_optimization;
+    if (key_range.has_value()) {
+        RETURN_IF_ERROR(set_key_range(&reader_params, tablet_schema, *key_range));
+    }
 
     TabletReadSource read_source;
     read_source.rs_splits.reserve(src_rowset_readers.size());
@@ -310,6 +357,9 @@ Status Merger::vertical_compact_one_group(
     size_t output_rows = 0;
     bool eof = false;
     while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
+        if (runtime_state != nullptr) {
+            RETURN_IF_CANCELLED(runtime_state);
+        }
         auto tablet_state = tablet->tablet_state();
         if (tablet_state != TABLET_RUNNING && tablet_state != TABLET_NOTREADY) {
             tablet->clear_cache();
@@ -495,14 +545,18 @@ int64_t estimate_batch_size(int group_index, BaseTabletSPtr tablet, int64_t way_
 // 2. compact groups one by one, generate a row_source_buf when compact key group
 // and use this row_source_buf to compact value column groups
 // 3. build output rowset
-Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
-                                      const TabletSchema& tablet_schema,
-                                      const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
-                                      RowsetWriter* dst_rowset_writer,
-                                      uint32_t max_rows_per_segment, int64_t merge_way_num,
-                                      Statistics* stats_output,
-                                      VerticalCompactionProgressCallback progress_cb,
-                                      std::optional<std::pair<int64_t, int64_t>> segment_range) {
+Status Merger::vertical_merge_rowsets(
+        BaseTabletSPtr tablet, ReaderType reader_type, const TabletSchema& tablet_schema,
+        const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
+        RowsetWriter* dst_rowset_writer, uint32_t max_rows_per_segment, int64_t merge_way_num,
+        Statistics* stats_output, VerticalCompactionProgressCallback progress_cb,
+        std::optional<std::pair<int64_t, int64_t>> segment_range, std::optional<KeyRange> key_range,
+        RuntimeState* runtime_state) {
+    if (key_range.has_value() && reader_type != ReaderType::READER_BASE_COMPACTION) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                "Key range is only supported for base compaction, reader_type={}",
+                static_cast<int>(reader_type));
+    }
     LOG(INFO) << "Start to do vertical compaction, tablet_id: " << tablet->tablet_id();
     VerticalCompactionContextStats context_stats;
     Defer log_context_stats {[&] {
@@ -553,7 +607,7 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
     // When density <= threshold, enable sparse optimization
     // threshold = 0 means disable, 1 means always enable (default)
     bool enable_sparse_optimization = false;
-    if (!segment_range.has_value()) {
+    if (!segment_range.has_value() && !key_range.has_value()) {
         for (const auto& rs_reader : src_rowset_readers) {
             total_rows += rs_reader->rowset()->rowset_meta()->num_rows();
         }
@@ -606,7 +660,7 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
             }
         }
     }
-    if (!segment_range.has_value() && need_footer_collection) {
+    if (!segment_range.has_value() && !key_range.has_value() && need_footer_collection) {
         for (const auto& rs_reader : src_rowset_readers) {
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rs_reader->rowset());
             if (!beta_rowset) {
@@ -706,6 +760,9 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
 
     // compact group one by one
     for (auto i = 0; i < column_groups.size(); ++i) {
+        if (runtime_state != nullptr) {
+            RETURN_IF_CANCELLED(runtime_state);
+        }
         VLOG_NOTICE << "row source size: " << row_sources_buf.total_size();
         bool is_key = (i == 0);
         int64_t batch_size = config::compaction_batch_size != -1
@@ -721,7 +778,7 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
                 tablet, reader_type, tablet_schema, is_key, column_groups[i], &row_sources_buf,
                 src_rowset_readers, dst_rowset_writer, max_rows_per_segment, group_stats_ptr,
                 key_group_cluster_key_idxes, batch_size, &sample_info, &context_stats,
-                enable_sparse_optimization, segment_range);
+                enable_sparse_optimization, segment_range, key_range, runtime_state);
         {
             std::unique_lock<std::mutex> lock(sample_info_lock);
             sample_infos[i] = sample_info;
@@ -752,7 +809,7 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
     // Calculate and store density for next compaction's sparse optimization threshold
     // density = (total_cells - total_null_count) / total_cells
     // Smaller density means more sparse
-    if (!segment_range.has_value()) {
+    if (!segment_range.has_value() && !key_range.has_value()) {
         std::unique_lock<std::mutex> lock(sample_info_lock);
         int64_t total_null_count = 0;
         for (const auto& info : sample_infos) {

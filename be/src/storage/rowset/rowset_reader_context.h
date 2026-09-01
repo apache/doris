@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 
+#include <optional>
 #include <set>
 #include <vector>
 
@@ -29,12 +30,12 @@
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/column_predicate.h"
+#include "storage/row_cursor.h"
 #include "storage/rowid_conversion.h"
 #include "storage/schema.h"
 
 namespace doris {
 
-class RowCursor;
 class DeleteBitmap;
 class DeleteHandler;
 class TabletSchema;
@@ -63,9 +64,9 @@ struct RowsetReaderContext {
     const std::vector<std::shared_ptr<ColumnPredicate>>* predicates = nullptr;
     // value column predicate in UNIQUE table
     const std::vector<std::shared_ptr<ColumnPredicate>>* value_predicates = nullptr;
-    const std::vector<RowCursor>* lower_bound_keys = nullptr;
+    const std::vector<std::optional<RowCursor>>* lower_bound_keys = nullptr;
     const std::vector<bool>* is_lower_keys_included = nullptr;
-    const std::vector<RowCursor>* upper_bound_keys = nullptr;
+    const std::vector<std::optional<RowCursor>>* upper_bound_keys = nullptr;
     const std::vector<bool>* is_upper_keys_included = nullptr;
     const DeleteHandler* delete_handler = nullptr;
     OlapReaderStatistics* stats = nullptr;
