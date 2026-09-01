@@ -99,7 +99,6 @@ public class MasterOpExecutor extends FEOpExecutor {
 
     public void updateLoadData(long tableId, long receiveData) throws Exception {
         result = forward(buildUpdateLoadDataParams(tableId, receiveData));
-        waitOnReplaying();
     }
 
     private TMasterOpRequest buildSyncJournalParams() {

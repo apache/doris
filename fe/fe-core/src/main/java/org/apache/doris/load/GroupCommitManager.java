@@ -43,6 +43,8 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Strings;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -51,10 +53,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 public class GroupCommitManager {
@@ -63,10 +64,16 @@ public class GroupCommitManager {
 
     private Set<Long> blockedTableIds = new HashSet<>();
 
-    // Encoded <Cluster and Table id> to BE id map. Only for group commit.
-    private final Map<String, Long> tableToBeMap = new ConcurrentHashMap<>();
+    // Selection preferences are part of the bounded cache key.
+    private final Cache<String, Long> tableToBeMap = CacheBuilder.newBuilder()
+            .maximumSize(10000)
+            .expireAfterAccess(1, TimeUnit.HOURS)
+            .build();
     // Table id to pressure map. Only for group commit.
-    private final Map<Long, SlidingWindowCounter> tableToPressureMap = new ConcurrentHashMap<>();
+    private final Cache<Long, SlidingWindowCounter> tableToPressureMap = CacheBuilder.newBuilder()
+            .maximumSize(10000)
+            .expireAfterAccess(1, TimeUnit.HOURS)
+            .build();
 
     public boolean isBlock(long tableId) {
         return blockedTableIds.contains(tableId);
@@ -294,7 +301,7 @@ public class GroupCommitManager {
             throws DdlException, LoadException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("cloud group commit select be info, tableToBeMap {}, tablePressureMap {}",
-                    tableToBeMap.toString(), tableToPressureMap.toString());
+                    tableToBeMap.asMap().toString(), tableToPressureMap.asMap().toString());
         }
         if (Strings.isNullOrEmpty(cluster)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_NO_CLUSTER_ERROR);
@@ -328,8 +335,8 @@ public class GroupCommitManager {
     private long selectBackendForLocalGroupCommitInternal(long tableId,
             @Nullable BackendSelection.SelectionHint selectionHint) throws LoadException {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("group commit select be info, tableToBeMap {}, tablePressureMap {}", tableToBeMap.toString(),
-                    tableToPressureMap.toString());
+            LOG.debug("group commit select be info, tableToBeMap {}, tablePressureMap {}",
+                    tableToBeMap.asMap().toString(), tableToPressureMap.asMap().toString());
         }
         boolean hasLoadSelectionPreference = BackendSelectionManager.hasLoadSelectionPreference(selectionHint);
         String cacheKey = buildLocalGroupCommitCacheKey(tableId, selectionHint, hasLoadSelectionPreference);
@@ -373,26 +380,24 @@ public class GroupCommitManager {
     @Nullable
     private Long getCachedBackend(String cacheKey, @Nullable String cloudCluster, long tableId) {
         OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
-        if (tableToBeMap.containsKey(cacheKey)) {
-            if (tableToPressureMap.get(tableId) == null) {
+        Long backendId = tableToBeMap.getIfPresent(cacheKey);
+        if (backendId != null) {
+            SlidingWindowCounter pressure = tableToPressureMap.getIfPresent(tableId);
+            if (pressure == null) {
                 return null;
-            } else if (tableToPressureMap.get(tableId).get() < table.getGroupCommitDataBytes()) {
+            } else if (pressure.get() < table.getGroupCommitDataBytes()) {
                 // There are multiple threads getting cached backends for the same table.
                 // Maybe one thread removes the tableId from the tableToBeMap.
                 // Another thread gets the same tableId but can not find this tableId.
                 // So another thread needs to get the random backend.
-                Long backendId = tableToBeMap.get(cacheKey);
-                if (backendId == null) {
-                    return null;
-                }
                 Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
                 if (isBackendAvailable(backend, cloudCluster)) {
                     return backend.getId();
                 } else {
-                    tableToBeMap.remove(cacheKey);
+                    tableToBeMap.invalidate(cacheKey);
                 }
             } else {
-                tableToBeMap.remove(cacheKey);
+                tableToBeMap.invalidate(cacheKey);
             }
         }
         return null;
@@ -484,11 +489,12 @@ public class GroupCommitManager {
     }
 
     private void updateLoadDataInternal(long tableId, long receiveData) {
-        if (tableToPressureMap.containsKey(tableId)) {
-            tableToPressureMap.get(tableId).add(receiveData);
+        SlidingWindowCounter pressure = tableToPressureMap.getIfPresent(tableId);
+        if (pressure != null) {
+            pressure.add(receiveData);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Update load data for table {}, receiveData {}, tablePressureMap {}", tableId, receiveData,
-                        tableToPressureMap.toString());
+                        tableToPressureMap.asMap().toString());
             }
         } else if (LOG.isDebugEnabled()) {
             LOG.debug("can not find table id {}", tableId);
