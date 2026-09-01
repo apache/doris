@@ -1724,8 +1724,11 @@ public class IcebergWritePlanProviderTest {
         providerFor(ops.table, ctx).planWrite(new WriteSession(txn),
                 new WriteHandle(emptyPinnedHandle).writeOperation(WriteOperation.MERGE));
 
-        Assertions.assertNull(txn.getBaseSnapshotId(),
-                "an explicitly empty read must leave RowDelta validation unbounded across the first append");
+        // #66348: an explicitly pinned -1 (the empty-table generation) stays on baseSnapshotId as an
+        // OCC fence — the RowDelta commit validates from the pinned generation, so a concurrent first
+        // append in the read->begin-write window is detected at commit instead of being silently allowed.
+        Assertions.assertEquals(Long.valueOf(-1L), txn.getBaseSnapshotId(),
+                "an explicitly empty read must stay an OCC fence across a concurrent first append");
     }
 
     // ───────────────────────────── MERGE sink (TIcebergMergeSink) ─────────────────────────────
