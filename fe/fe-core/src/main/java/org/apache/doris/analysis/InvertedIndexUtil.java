@@ -431,11 +431,7 @@ public class InvertedIndexUtil {
                         "Invalid inverted index 'dict_compression' value: "
                                 + dictCompression + ", dict_compression must be true or false");
             }
-
-            if (invertedIndexFileStorageFormat != TInvertedIndexFileStorageFormat.V3) {
-                throw new AnalysisException(
-                        "dict_compression can only be set when storage format is V3");
-            }
+            // dict_compression now silently ignores by V2/V3 inverted index
         }
 
         // Canonicalize built-ins while retaining the exact spelling of a resolved legacy policy.
