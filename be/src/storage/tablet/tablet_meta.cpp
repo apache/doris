@@ -278,8 +278,8 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _time_series_compaction_empty_rowsets_threshold(
                   b._time_series_compaction_empty_rowsets_threshold),
           _time_series_compaction_level_threshold(b._time_series_compaction_level_threshold),
-          _vertical_compaction_num_columns_per_group(
-                  b._vertical_compaction_num_columns_per_group) {};
+          _vertical_compaction_num_columns_per_group(b._vertical_compaction_num_columns_per_group),
+          _inverted_index_storage_format(b._inverted_index_storage_format) {};
 
 void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                           ColumnPB* column) {
@@ -799,6 +799,10 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _cumulative_layer_point = tablet_meta_pb.cumulative_layer_point();
     _tablet_uid = TabletUid(tablet_meta_pb.tablet_uid());
     _ttl_seconds = tablet_meta_pb.ttl_seconds();
+    _inverted_index_storage_format.reset();
+    if (tablet_meta_pb.has_inverted_index_storage_format()) {
+        _inverted_index_storage_format = tablet_meta_pb.inverted_index_storage_format();
+    }
     if (tablet_meta_pb.has_tablet_type()) {
         _tablet_type = tablet_meta_pb.tablet_type();
     } else {
@@ -829,7 +833,11 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
 
     // init _schema
     TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
-    schema->init_from_pb(tablet_meta_pb.schema());
+    TabletSchemaPB schema_pb = tablet_meta_pb.schema();
+    if (_inverted_index_storage_format.has_value()) {
+        schema_pb.set_inverted_index_storage_format(*_inverted_index_storage_format);
+    }
+    schema->init_from_pb(schema_pb);
     if (_handle) {
         TabletSchemaCache::instance()->release(_handle);
     }
@@ -955,6 +963,11 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
     }
 
     _schema->to_schema_pb(tablet_meta_pb->mutable_schema());
+    if (_inverted_index_storage_format.has_value()) {
+        tablet_meta_pb->set_inverted_index_storage_format(*_inverted_index_storage_format);
+        tablet_meta_pb->mutable_schema()->set_inverted_index_storage_format(
+                *_inverted_index_storage_format);
+    }
 
     tablet_meta_pb->set_in_restore_mode(in_restore_mode());
 

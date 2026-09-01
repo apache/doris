@@ -23,6 +23,40 @@ options { tokenVocab = DorisLexer; }
 
 @members {
     public boolean ansiSQLSyntax = false;
+
+    private boolean isTupleLambdaBody() {
+        if (_input.LA(1) != LEFT_PAREN) {
+            return false;
+        }
+        int parenthesisDepth = 0;
+        int bracketDepth = 0;
+        int braceDepth = 0;
+        for (int offset = 1; ; offset++) {
+            int tokenType = _input.LA(offset);
+            if (tokenType == Token.EOF) {
+                return false;
+            }
+            if (tokenType == LEFT_PAREN) {
+                parenthesisDepth++;
+            } else if (tokenType == RIGHT_PAREN) {
+                parenthesisDepth--;
+                if (parenthesisDepth == 0) {
+                    return false;
+                }
+            } else if (tokenType == LEFT_BRACKET) {
+                bracketDepth++;
+            } else if (tokenType == RIGHT_BRACKET) {
+                bracketDepth--;
+            } else if (tokenType == LEFT_BRACE) {
+                braceDepth++;
+            } else if (tokenType == RIGHT_BRACE) {
+                braceDepth--;
+            } else if (tokenType == COMMA && parenthesisDepth == 1
+                    && bracketDepth == 0 && braceDepth == 0) {
+                return true;
+            }
+        }
+    }
 }
 
 multiStatements
@@ -1787,7 +1821,9 @@ lambdaExpression
     | LEFT_PAREN
         args+=errorCapturingIdentifier (COMMA args+=errorCapturingIdentifier)+
       RIGHT_PAREN
-        ARROW body=booleanExpression
+        ARROW ({isTupleLambdaBody()}?
+            LEFT_PAREN bodyItems+=expression (COMMA bodyItems+=expression)+ RIGHT_PAREN
+            | body=booleanExpression)
     ;
 
 booleanExpression
