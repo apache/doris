@@ -38,7 +38,12 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
     private static final String REGION = "oss_region";
     private static final String SECURITY_TOKEN = "oss_security_token";
     private static final String ADDRESSING_STYLE = "addressing_style";
+    private static final String SKIP_SIGNATURE = "skip_signature";
     private static final String ALLOW_ANONYMOUS = "allow_anonymous";
+    private static final String ROLE_ARN = "role_arn";
+    private static final String OIDC_TOKEN = "oidc_token";
+    private static final String OIDC_PROVIDER_ARN = "oidc_provider_arn";
+    private static final String OIDC_TOKEN_FILE = "oidc_token_file";
 
     /**
      * Lance exposes the {@code oss_*} names as its public storage-option vocabulary and normalizes
@@ -56,13 +61,18 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
             .put(REGION, REGION)
             .put("security_token", SECURITY_TOKEN)
             .put(SECURITY_TOKEN, SECURITY_TOKEN)
+            // OpenDAL 0.57 renamed this option to skip_signature, but lance-c 0.1.6 still uses
+            // OpenDAL 0.56. Emit the old spelling, which newer OpenDAL keeps as an alias.
+            .put(SKIP_SIGNATURE, ALLOW_ANONYMOUS)
+            .put(ALLOW_ANONYMOUS, ALLOW_ANONYMOUS)
             .build();
 
     private LanceOssStorageProvider() {
     }
 
     @Override
-    public Map<String, String> fromDorisProperties(List<StorageProperties> storageProperties) {
+    public Map<String, String> normalizeDorisStorageOptions(
+            List<StorageProperties> storageProperties) {
         Map<String, String> result = new HashMap<>();
         OSSProperties properties = selectOss(storageProperties);
         if (properties == null) {
@@ -70,7 +80,7 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
         }
         putIfNotEmpty(result, ENDPOINT, properties.getEndpoint());
         putIfNotEmpty(result, REGION, properties.getRegion());
-        putAuth(result, properties.getAccessKey(), properties.getSecretKey(),
+        putCredentials(result, properties.getAccessKey(), properties.getSecretKey(),
                 properties.getSessionToken());
 
         // Lance snapshots the host's OSS_*/AWS_*/ALIBABA_CLOUD_* environment into the same config
@@ -85,7 +95,8 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
     }
 
     @Override
-    public Map<String, String> normalizeVended(Map<String, String> vendedOptions) {
+    public Map<String, String> normalizeVendedStorageOptions(
+            Map<String, String> vendedOptions) {
         Map<String, String> result = new HashMap<>();
         if (vendedOptions == null) {
             return result;
@@ -107,12 +118,9 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
      * over the catalog's.
      *
      * <p>Authentication is one value, not a set of independent keys: a key pair, the token that
-     * belongs to that pair, and the flag saying there is no pair at all. The overlay that produced
+     * belongs to that pair, and an explicit choice to skip signing. The overlay that produced
      * {@code merged} is key by key, so on its own it can pair one side's access key with the
-     * other's secret, or leave a token attached to a pair it was never issued for. OpenDAL does not
-     * second-guess any of that - {@code OssCore::sign} returns the request unsigned whenever
-     * {@code allow_anonymous} is set, whatever credentials sit beside it, and it signs with
-     * whatever token it finds next to a pair.
+     * other's secret, or leave a token attached to a pair it was never issued for.
      *
      * <p>So the two sides are never mixed. A namespace that supplies any part of the authentication
      * has just described this table and supplies all of it; otherwise the catalog's stands
@@ -127,26 +135,25 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
         boolean vendedSuppliesAuth = normalizedVended.containsKey(ACCESS_KEY_ID)
                 || normalizedVended.containsKey(SECRET_ACCESS_KEY)
                 || normalizedVended.containsKey(SECURITY_TOKEN)
-                || normalizedVended.containsKey(ALLOW_ANONYMOUS);
+                || normalizedVended.containsKey(ALLOW_ANONYMOUS)
+                || normalizedVended.containsKey(ROLE_ARN)
+                || normalizedVended.containsKey(OIDC_TOKEN)
+                || normalizedVended.containsKey(OIDC_PROVIDER_ARN)
+                || normalizedVended.containsKey(OIDC_TOKEN_FILE);
         if (!vendedSuppliesAuth) {
             return;
         }
-        putAuth(merged, normalizedVended.get(ACCESS_KEY_ID),
+        putCredentials(merged, normalizedVended.get(ACCESS_KEY_ID),
                 normalizedVended.get(SECRET_ACCESS_KEY), normalizedVended.get(SECURITY_TOKEN));
     }
 
     /**
-     * Writes one authentication state into {@code options}, replacing whatever was there.
+     * Writes one credential tuple into {@code options}, replacing whatever was there.
      *
-     * <p>States the anonymous flag either way rather than only when true. Absence is not neutral:
-     * lance snapshots the host's {@code OSS_}/{@code AWS_} environment into the same config map
-     * before these options are applied, so an omitted key hands the decision to an exported
-     * {@code OSS_ALLOW_ANONYMOUS}.
-     *
-     * <p>Blank is not a credential, so a blank pair is anonymous rather than a signer built from
-     * empty strings, and a token is only carried when there is a pair for it to belong to.
+     * <p>Blank is not a credential, and a token is only carried when there is a pair for it to
+     * belong to. Whether the resulting request is signed is inferred from the complete merged map.
      */
-    private static void putAuth(Map<String, String> options, String keyId, String secret,
+    private static void putCredentials(Map<String, String> options, String keyId, String secret,
             String token) {
         options.remove(ACCESS_KEY_ID);
         options.remove(SECRET_ACCESS_KEY);
@@ -163,7 +170,31 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
             options.put(SECRET_ACCESS_KEY, secret);
             putIfNotEmpty(options, SECURITY_TOKEN, token);
         }
-        options.put(ALLOW_ANONYMOUS, String.valueOf(!hasKeyId));
+    }
+
+    @Override
+    public Map<String, String> inferStorageOptions(Map<String, String> effectiveOptions) {
+        Map<String, String> inferred = new HashMap<>();
+        boolean hasSigningConfiguration = hasSigningConfiguration(effectiveOptions);
+        String allowAnonymous = effectiveOptions.get(ALLOW_ANONYMOUS);
+        if (allowAnonymous != null) {
+            if (Boolean.parseBoolean(allowAnonymous) && hasSigningConfiguration) {
+                throw new IllegalArgumentException(
+                        "Conflicting OSS authentication: anonymous access is enabled but signing "
+                                + "credentials are also configured");
+            }
+            return inferred;
+        }
+        inferred.put(ALLOW_ANONYMOUS, String.valueOf(!hasSigningConfiguration));
+        return inferred;
+    }
+
+    private static boolean hasSigningConfiguration(Map<String, String> options) {
+        return StringUtils.isNotEmpty(options.get(ACCESS_KEY_ID))
+                || StringUtils.isNotEmpty(options.get(ROLE_ARN))
+                || StringUtils.isNotEmpty(options.get(OIDC_TOKEN))
+                || StringUtils.isNotEmpty(options.get(OIDC_PROVIDER_ARN))
+                || StringUtils.isNotEmpty(options.get(OIDC_TOKEN_FILE));
     }
 
     private static OSSProperties selectOss(List<StorageProperties> storageProperties) {

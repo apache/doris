@@ -46,12 +46,9 @@ public final class LanceStorageOptions {
      * <p>Used wherever no namespace is involved: the storage a namespace client reads itself, and
      * the {@code s3()} table-valued function.
      */
-    public static Map<String, String> forUri(String uri, List<StorageProperties> storageProperties) {
-        Map<String, String> result = new HashMap<>(
-                LanceStorageProvider.forDataset(uri).fromDorisProperties(storageProperties));
-        result.forEach((key, value) -> rejectUntransportable(key, value,
-                "Doris storage configuration"));
-        return result;
+    public static Map<String, String> fromDorisStorageProperties(
+            String uri, List<StorageProperties> storageProperties) {
+        return buildStorageOptions(uri, storageProperties, null);
     }
 
     /**
@@ -63,28 +60,39 @@ public final class LanceStorageOptions {
      * whichever its HashMap yields last - independently in the FE and in the BE.
      *
      * <p>{@code vendedOptions} may be null or empty; a namespace that describes a table without
-     * vending storage options is ordinary, and this then degenerates to {@link #forUri}.
+     * vending storage options is ordinary, and this then degenerates to
+     * {@link #fromDorisStorageProperties}.
      */
-    public static Map<String, String> forVendedTable(String datasetUri,
+    public static Map<String, String> fromDorisAndVendedStorageOptions(String datasetUri,
             List<StorageProperties> storageProperties, Map<String, String> vendedOptions) {
-        Map<String, String> result = forUri(datasetUri, storageProperties);
-        if (vendedOptions == null || vendedOptions.isEmpty()) {
-            return result;
-        }
-        vendedOptions.forEach(LanceStorageOptions::validateVendedOption);
-        // Safe to validate the vended half before normalizing: normalizeVended only ever renames a
-        // key to one of this class's own constants or passes it through unchanged, so it cannot
-        // introduce a NUL that the check above would have missed.
+        return buildStorageOptions(datasetUri, storageProperties, vendedOptions);
+    }
+
+    private static Map<String, String> buildStorageOptions(String datasetUri,
+            List<StorageProperties> storageProperties, Map<String, String> vendedOptions) {
         LanceStorageProvider provider = LanceStorageProvider.forDataset(datasetUri);
-        Map<String, String> normalizedVended = provider.normalizeVended(vendedOptions);
+        Map<String, String> result = new HashMap<>(
+                provider.normalizeDorisStorageOptions(storageProperties));
+        result.forEach((key, value) -> rejectUntransportable(key, value,
+                "Doris storage configuration"));
+        Map<String, String> normalizedVended = new HashMap<>();
+        if (vendedOptions != null && !vendedOptions.isEmpty()) {
+            vendedOptions.forEach(LanceStorageOptions::validateVendedOption);
+            // Safe to validate before normalizing: normalization only renames a key to a provider
+            // constant or passes it through, so it cannot introduce a NUL missed above.
+            normalizedVended = provider.normalizeVendedStorageOptions(vendedOptions);
+        }
         result.putAll(normalizedVended);
         // The overlay above is key by key, which can leave OSS's authentication options - a key
-        // pair, its token, and the flag saying there is no pair - disagreeing with one another.
+        // pair, its token, and the signing choice - disagreeing with one another.
         // Only OSS couples its options this way, so this is a direct call rather than a hook on
         // LanceStorageProvider that one implementation would honour and the others ignore.
         if (provider instanceof LanceOssStorageProvider) {
             LanceOssStorageProvider.reconcileAuth(result, normalizedVended);
         }
+        provider.inferStorageOptions(result).forEach(result::putIfAbsent);
+        result.forEach((key, value) -> rejectUntransportable(key, value,
+                "Lance storage configuration"));
         return result;
     }
 
