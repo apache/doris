@@ -36,6 +36,18 @@
 #include "exprs/vectorized_agg_fn.h"
 #include "exprs/vexpr.h"
 
+namespace doris {
+
+GroupJoinSharedState::GroupJoinSharedState()
+        : data_variants(std::make_unique<GroupJoinDataVariants>()),
+          arena(std::make_shared<Arena>()) {}
+
+GroupJoinSharedState::~GroupJoinSharedState() {
+    groupjoin::destroy_agg_states(this);
+}
+
+} // namespace doris
+
 namespace doris::groupjoin {
 
 Status validate_group_join_node(const TPlanNode& tnode) {
