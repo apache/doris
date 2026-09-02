@@ -59,6 +59,7 @@ public class IcebergScanRange implements ConnectorScanRange {
     private final long length;
     private final long fileSize;
     private final String fileFormat;
+    private final String backendFileType;
     private final int formatVersion;
     private final Integer partitionSpecId;
     private final String partitionDataJson;
@@ -124,6 +125,7 @@ public class IcebergScanRange implements ConnectorScanRange {
         this.length = builder.length;
         this.fileSize = builder.fileSize;
         this.fileFormat = builder.fileFormat;
+        this.backendFileType = builder.backendFileType;
         this.formatVersion = builder.formatVersion;
         this.partitionSpecId = builder.partitionSpecId;
         this.partitionDataJson = builder.partitionDataJson;
@@ -193,6 +195,11 @@ public class IcebergScanRange implements ConnectorScanRange {
     @Override
     public String getFileFormat() {
         return fileFormat;
+    }
+
+    @Override
+    public Optional<String> getBackendFileType() {
+        return Optional.ofNullable(backendFileType);
     }
 
     /**
@@ -457,6 +464,7 @@ public class IcebergScanRange implements ConnectorScanRange {
         // Default empty (NOT "jni", which is not a real iceberg file format). Production callers set the real
         // orc/parquet from the data file's format; mirrors PaimonScanRange.Builder.
         private String fileFormat = "";
+        private String backendFileType;
         // Default 2 (the iceberg metadata default); production callers set the real table format version.
         private int formatVersion = 2;
         private Integer partitionSpecId;
@@ -531,6 +539,11 @@ public class IcebergScanRange implements ConnectorScanRange {
 
         public Builder fileFormat(String fileFormat) {
             this.fileFormat = fileFormat;
+            return this;
+        }
+
+        public Builder backendFileType(String backendFileType) {
+            this.backendFileType = backendFileType;
             return this;
         }
 

@@ -129,6 +129,18 @@ public class DefaultConnectorContextNormalizeUriTest {
     }
 
     @Test
+    public void vendedAdlsCredentialsKeepAbfsPathAndUseHdfsReader() {
+        String path = "abfss://container@account.dfs.core.windows.net/table/part-0.parquet";
+        Map<String, String> token = Map.of(
+                "adls.sas-token.account.dfs.core.windows.net", "testSasToken",
+                "adls.sas-token-expires-at-ms.account.dfs.core.windows.net", "4102444800000");
+        DefaultConnectorContext restCtx = new DefaultConnectorContext("c", 1L);
+
+        Assertions.assertEquals(path, restCtx.normalizeStorageUri(path, token));
+        Assertions.assertEquals(TFileType.FILE_HDFS.name(), restCtx.getBackendFileType(path, token));
+    }
+
+    @Test
     public void emptyTokenUnderEmptyStaticStillFailsLoud() {
         // WHY: prove the fix is the TOKEN, not a swallow — with an empty static map AND no vended token
         // there is genuinely no credential, so normalization must still FAIL LOUD (legacy parity) rather

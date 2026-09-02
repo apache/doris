@@ -147,6 +147,18 @@ under the License.
             <version>${iceberg.version}</version>
         </dependency>
 
+        <!-- Iceberg Azure integration: ADLSFileIO plus its shaded Azure SDK dependencies. -->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-azure</artifactId>
+            <version>${iceberg.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-azure-bundle</artifactId>
+            <version>${iceberg.version}</version>
+        </dependency>
+
         <!-- The hms-flavor org.apache.iceberg.hive.HiveCatalog is NOT a direct dependency here: it is
              bundled (with the shared relocated thrift shade.doris.hive.org.apache.thrift) inside
              fe-connector-hms-hive-shade and reaches this plugin transitively via fe-connector-hms above —
