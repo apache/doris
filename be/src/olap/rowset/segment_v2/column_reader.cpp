@@ -452,6 +452,9 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
     // TODO: this work to get min/max value seems should only do once
     ZoneMapInfo zone_map_info;
     RETURN_IF_ERROR(_parse_zone_map(*_segment_zone_map, zone_map_info));
+    // Segment::new_iterator does not build this iterator on a pass_all zone map, whose min/max
+    // are meaningless and would be reported below as if they were data.
+    DCHECK(!zone_map_info.pass_all);
 
     dst->reserve(*n);
 
@@ -479,6 +482,17 @@ Status ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicat
     return Status::OK();
 }
 
+Status ColumnReader::segment_zone_map_invalid(bool* invalid) const {
+    *invalid = false;
+    if (_segment_zone_map == nullptr) {
+        return Status::OK();
+    }
+    ZoneMapInfo zone_map_info;
+    RETURN_IF_ERROR(_parse_zone_map(*_segment_zone_map, zone_map_info));
+    *invalid = zone_map_info.pass_all;
+    return Status::OK();
+}
+
 Status ColumnReader::prune_predicates_by_zone_map(
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, const int column_id,
         bool* pruned) const {
@@ -489,6 +503,9 @@ Status ColumnReader::prune_predicates_by_zone_map(
 
     ZoneMapInfo zone_map_info;
     RETURN_IF_ERROR(_parse_zone_map(*_segment_zone_map, zone_map_info));
+    if (zone_map_info.pass_all) {
+        return Status::OK();
+    }
 
     for (auto it = predicates.begin(); it != predicates.end();) {
         auto predicate = *it;
@@ -502,11 +519,67 @@ Status ColumnReader::prune_predicates_by_zone_map(
     return Status::OK();
 }
 
+namespace {
+
+// A parsed bound is never NaN, infinity or null, and none of them can take part in a zone map
+// comparison.
+bool is_finite_bound(const vectorized::Field& bound) {
+    if (bound.get_type() == TYPE_FLOAT) {
+        return std::isfinite(bound.get<TYPE_FLOAT>());
+    }
+    if (bound.get_type() == TYPE_DOUBLE) {
+        return std::isfinite(bound.get<TYPE_DOUBLE>());
+    }
+    return bound.get_type() != TYPE_NULL;
+}
+
+// Only FLOAT and DOUBLE can come out reversed: any value of any other type moves both bounds.
+bool is_reversed(const ZoneMapInfo& zone_map_info, FieldType meta_type) {
+    if (FieldType::OLAP_FIELD_TYPE_FLOAT == meta_type) {
+        return zone_map_info.min_value.get<TYPE_FLOAT>() >
+               zone_map_info.max_value.get<TYPE_FLOAT>();
+    }
+    if (FieldType::OLAP_FIELD_TYPE_DOUBLE == meta_type) {
+        return zone_map_info.min_value.get<TYPE_DOUBLE>() >
+               zone_map_info.max_value.get<TYPE_DOUBLE>();
+    }
+    return false;
+}
+
+} // namespace
+
 Status ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, ZoneMapInfo& zone_map_info) const {
     zone_map_info.has_null = zone_map.has_null();
     zone_map_info.is_all_null = !zone_map.has_not_null();
+    zone_map_info.pass_all = zone_map.pass_all();
+
+    // A bound that fails to parse makes the zone map invalid: mark it pass_all so it prunes
+    // nothing, instead of failing the scan that loads it. from_olap_string reports a failed parse
+    // through a nullable serde as a null Field, and lets infinity and NaN through, so the bound
+    // has to be checked as well as the status.
+    auto parse_bound = [&](const std::string& bound, vectorized::Field& value) {
+        vectorized::DataTypeSerDe::FormatOptions opt;
+        opt.ignore_scale = true;
+        if (!_data_type->get_serde()->from_olap_string(bound, value, opt).ok() ||
+            !is_finite_bound(value)) {
+            zone_map_info.pass_all = true;
+        }
+    };
+
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
+        if (!zone_map_info.pass_all) {
+            parse_bound(zone_map.min(), zone_map_info.min_value);
+            parse_bound(zone_map.max(), zone_map_info.max_value);
+        }
+
+        // NaN and infinity only set the flags below, never min/max, so a page holding nothing
+        // else leaves both at the values add_values() starts from: min = DBL_MAX and
+        // max = -DBL_MAX, neither of which is a value in the page.
+        if (!zone_map_info.pass_all && is_reversed(zone_map_info, _meta_type)) {
+            zone_map_info.pass_all = true;
+        }
+
         if (zone_map.has_negative_inf()) {
             if (FieldType::OLAP_FIELD_TYPE_FLOAT == _meta_type) {
                 static auto constexpr float_neg_inf = -std::numeric_limits<float>::infinity();
@@ -519,11 +592,6 @@ Status ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, ZoneMapInfo& zon
             } else {
                 return Status::InternalError("invalid zone map with negative Infinity");
             }
-        } else {
-            vectorized::DataTypeSerDe::FormatOptions opt;
-            opt.ignore_scale = true;
-            RETURN_IF_ERROR(_data_type->get_serde()->from_olap_string(
-                    zone_map.min(), zone_map_info.min_value, opt));
         }
 
         if (zone_map.has_nan()) {
@@ -548,11 +616,6 @@ Status ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, ZoneMapInfo& zon
             } else {
                 return Status::InternalError("invalid zone map with positive Infinity");
             }
-        } else {
-            vectorized::DataTypeSerDe::FormatOptions opt;
-            opt.ignore_scale = true;
-            RETURN_IF_ERROR(_data_type->get_serde()->from_olap_string(
-                    zone_map.max(), zone_map_info.max_value, opt));
         }
     }
     return Status::OK();
@@ -561,7 +624,9 @@ Status ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, ZoneMapInfo& zon
 bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
                                              const ZoneMapInfo& zone_map_info,
                                              const AndBlockColumnPredicate* col_predicates) const {
-    if (zone_map.pass_all()) {
+    // Read pass_all from the parsed zone map: _parse_zone_map also sets it when the bounds could
+    // not be used, and min/max are meaningless then.
+    if (zone_map_info.pass_all) {
         return true;
     }
 
@@ -577,11 +642,13 @@ Status ColumnReader::_get_filtered_pages(
     const std::vector<ZoneMapPB>& zone_maps = _zone_map_index->page_zone_maps();
     size_t page_size = _zone_map_index->num_pages();
     for (size_t i = 0; i < page_size; ++i) {
-        if (zone_maps[i].pass_all()) {
+        ZoneMapInfo zone_map_info;
+        RETURN_IF_ERROR(_parse_zone_map(zone_maps[i], zone_map_info));
+        // pass_all also covers a zone map whose bounds turned out to be no use: min/max are
+        // meaningless there, so the delete predicates below must not see them either.
+        if (zone_map_info.pass_all) {
             page_indexes->push_back(cast_set<uint32_t>(i));
         } else {
-            ZoneMapInfo zone_map_info;
-            RETURN_IF_ERROR(_parse_zone_map(zone_maps[i], zone_map_info));
             if (_zone_map_match_condition(zone_maps[i], zone_map_info, col_predicates)) {
                 bool should_read = true;
                 if (delete_predicates != nullptr) {

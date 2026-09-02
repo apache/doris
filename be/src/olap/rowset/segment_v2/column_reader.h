@@ -186,6 +186,9 @@ public:
     const EncodingInfo* encoding_info() const { return _encoding_info; }
 
     bool has_zone_map() const { return _zone_map_index != nullptr; }
+
+    // Whether the segment zone map turned out to carry no usable bounds.
+    Status segment_zone_map_invalid(bool* invalid) const;
     bool has_bloom_filter_index(bool ngram) const;
     // Check if this column could match `cond' using segment zone map.
     // Since segment zone map is stored in metadata, this function is fast without I/O.
