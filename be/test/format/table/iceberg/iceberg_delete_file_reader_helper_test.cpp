@@ -28,6 +28,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <optional>
 #include <string>
 #include <thread>
@@ -219,6 +220,36 @@ TEST(IcebergDeleteFileReaderHelperTest, BuildDeleteFileRange) {
     EXPECT_EQ(range.start_offset, 0);
     EXPECT_EQ(range.size, -1);
     EXPECT_EQ(range.file_size, -1);
+}
+
+TEST(IcebergDeleteFileReaderHelperTest, NativeAzureDeleteParamsDoNotBuildHdfsParams) {
+    // Native Azure credentials travel through the generic object-storage properties map while
+    // FILE_HDFS is reserved for genuine Hadoop callers. Keeping this distinction is what prevents
+    // UPDATE/MERGE deletion-vector reads from re-entering the Hadoop ABFS builder.
+    const std::map<std::string, std::string> native_azure_properties {
+            {"AZURE_AUTH_TYPE", "SAS"},
+            {"AZURE_ENDPOINT", "https://account.blob.core.windows.net"},
+            {"AZURE_ACCOUNT_NAME", "account"},
+            {"AZURE_CONTAINER", "container"},
+            {"AZURE_SAS_TOKEN", "sv=2024-01-01&sig=redacted"},
+            {"AZURE_SAS_EXPIRY_MS", "4102444800000"},
+    };
+
+    const auto native_params = build_iceberg_delete_scan_range_params(
+            native_azure_properties, TFileType::FILE_S3, {});
+    ASSERT_TRUE(native_params.__isset.file_type);
+    EXPECT_EQ(TFileType::FILE_S3, native_params.file_type);
+    ASSERT_TRUE(native_params.__isset.properties);
+    EXPECT_EQ(native_azure_properties, native_params.properties);
+    EXPECT_FALSE(native_params.__isset.hdfs_params);
+
+    // Preserve the existing Hadoop contract for non-Azure callers.
+    const auto hdfs_params = build_iceberg_delete_scan_range_params(
+            native_azure_properties, TFileType::FILE_HDFS, {});
+    ASSERT_TRUE(hdfs_params.__isset.file_type);
+    EXPECT_EQ(TFileType::FILE_HDFS, hdfs_params.file_type);
+    ASSERT_TRUE(hdfs_params.__isset.hdfs_params);
+    ASSERT_TRUE(hdfs_params.hdfs_params.__isset.hdfs_conf);
 }
 
 TEST(IcebergDeleteFileReaderHelperTest, IsDeletionVector) {
