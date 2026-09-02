@@ -108,9 +108,9 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getSnapshotCacheValue(
-                MvccUtil.getSnapshotFromContext(this), this);
-        return Optional.of(IcebergUtils.getSchemaCacheValue(this, snapshotValue));
+        return Optional.of(IcebergUtils.withSnapshotCacheValue(
+                MvccUtil.getSnapshotFromContext(this), this,
+                snapshotValue -> IcebergUtils.getSchemaCacheValue(this, snapshotValue)));
     }
 
     @Override
@@ -279,7 +279,11 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
-        List<Column> schema = IcebergUtils.getIcebergSchema(this, snapshot);
+        return IcebergUtils.withSnapshotCacheValue(snapshot, this, this::projectFullSchema);
+    }
+
+    private List<Column> projectFullSchema(IcebergSnapshotCacheValue snapshotValue) {
+        List<Column> schema = IcebergUtils.getSchemaCacheValue(this, snapshotValue).getSchema();
         schema = new ArrayList<>(schema);
 
         Optional<Table> snapshotTable = snapshot
