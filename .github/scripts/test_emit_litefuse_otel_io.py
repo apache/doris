@@ -18,10 +18,12 @@
 
 import importlib.util
 import io
+import json
 from pathlib import Path
 import unittest
 from unittest import mock
 import urllib.error
+import urllib.parse
 
 
 MODULE_PATH = Path(__file__).with_name("emit_litefuse_otel_io.py")
@@ -60,6 +62,14 @@ class FakeResponse:
 class PartialSuccessResponse(FakeResponse):
     def read(self):
         return b'{"partialSuccess":{"rejectedSpans":"1","errorMessage":"bad span"}}'
+
+
+class JsonResponse(FakeResponse):
+    def __init__(self, payload):
+        self.payload = payload
+
+    def read(self):
+        return json.dumps(self.payload).encode()
 
 
 class LitefuseOtelExporterTest(unittest.TestCase):
@@ -169,6 +179,40 @@ class LitefuseOtelExporterTest(unittest.TestCase):
             )
 
         self.assertLess(max(encoded_batch_sizes), len(span_events))
+
+    def test_prechunking_encodes_each_legacy_event_once(self):
+        span_events = [
+            self.span_event(f"{index:032x}", output_size=200)
+            for index in range(1, 101)
+        ]
+        original_compact_json_bytes = MODULE.compact_json_bytes
+        encode_count = 0
+
+        def recording_compact_json_bytes(value):
+            nonlocal encode_count
+            encode_count += 1
+            return original_compact_json_bytes(value)
+
+        with mock.patch.object(
+            MODULE,
+            "compact_json_bytes",
+            side_effect=recording_compact_json_bytes,
+        ):
+            chunks = MODULE.chunk_payload(
+                {"batch": span_events}, max_payload_bytes=5_000
+            )
+
+        self.assertEqual(encode_count, len(span_events))
+        self.assertEqual(
+            [event for chunk, _size in chunks for event in chunk["batch"]],
+            span_events,
+        )
+        self.assertTrue(
+            all(
+                size == MODULE.json_payload_bytes(chunk)
+                for chunk, size in chunks
+            )
+        )
 
     def test_posts_otlp_v4_headers(self):
         payload = MODULE.otlp_payload(
@@ -284,6 +328,194 @@ class LitefuseOtelExporterTest(unittest.TestCase):
         self.assertEqual(status["payload_too_large_retries"], 1)
         self.assertEqual(status["request_count"], 2)
         self.assertEqual(status["success_count"], 2)
+
+    def test_retries_retryable_otlp_http_status(self):
+        trace_event = {"type": "trace-create", "body": self.trace_body()}
+        payload = {"batch": [trace_event, self.span_event("2" * 32)]}
+        unavailable = urllib.error.HTTPError(
+            "https://litefuse.example/api/public/otel/v1/traces",
+            503,
+            "Service Unavailable",
+            {},
+            io.BytesIO(b'{"message":"temporarily unavailable"}'),
+        )
+
+        with mock.patch.object(
+            MODULE.urllib.request,
+            "urlopen",
+            side_effect=[unavailable, FakeResponse()],
+        ):
+            status = MODULE.post_payload(
+                "https://litefuse.example/api/public/otel/v1/traces",
+                "public",
+                "secret",
+                payload,
+                10_000,
+                30,
+                3,
+                0,
+            )
+
+        self.assertEqual(status["http_retries"], 1)
+        self.assertEqual(status["request_count"], 1)
+        self.assertEqual(status["success_count"], 1)
+
+    def test_paginates_v2_observation_readback(self):
+        responses = [
+            JsonResponse({"data": [{"id": "newest"}], "meta": {"cursor": "next"}}),
+            JsonResponse({"data": [{"id": "oldest"}], "meta": {}}),
+        ]
+        requests = []
+
+        def fake_urlopen(request, timeout):
+            requests.append((request, timeout))
+            return responses.pop(0)
+
+        with mock.patch.object(MODULE.urllib.request, "urlopen", fake_urlopen):
+            payload = MODULE.fetch_observations_v2(
+                "https://litefuse.example", "public", "secret", "trace-id"
+            )
+
+        self.assertEqual(payload["data"], [{"id": "newest"}, {"id": "oldest"}])
+        first_query = urllib.parse.parse_qs(
+            urllib.parse.urlparse(requests[0][0].full_url).query
+        )
+        second_query = urllib.parse.parse_qs(
+            urllib.parse.urlparse(requests[1][0].full_url).query
+        )
+        self.assertEqual(first_query["limit"], ["1000"])
+        self.assertNotIn("cursor", first_query)
+        self.assertEqual(second_query["cursor"], ["next"])
+        self.assertEqual([timeout for _request, timeout in requests], [30, 30])
+
+    def test_rejects_incomplete_v2_observation_pagination(self):
+        response = JsonResponse(
+            {"data": [{"id": "newest"}], "meta": {"cursor": "still-more"}}
+        )
+
+        with mock.patch.object(
+            MODULE.urllib.request, "urlopen", return_value=response
+        ):
+            with self.assertRaisesRegex(RuntimeError, "remained paginated"):
+                MODULE.fetch_observations_v2(
+                    "https://litefuse.example",
+                    "public",
+                    "secret",
+                    "trace-id",
+                    max_pages=1,
+                )
+
+    def test_verify_prefers_v2_observations(self):
+        args = mock.Mock(
+            base_url="https://litefuse.example",
+            verify_attempts=1,
+            verify_sleep_seconds=0,
+            min_observations=3,
+            min_step_observations=1,
+        )
+        observations = [
+            {
+                "id": "review",
+                "name": "codex.review",
+                "input": {"prompt": "p"},
+                "output": {"text": "o"},
+            },
+            {
+                "id": "turn",
+                "name": "codex.turn",
+                "input": {"prompt": "p"},
+                "output": {"text": "o"},
+            },
+            {
+                "id": "command",
+                "name": "codex.command",
+                "input": {"command": "pwd"},
+                "output": {"status": "ok"},
+            },
+        ]
+
+        with mock.patch.object(MODULE, "fetch_trace", return_value={}), mock.patch.object(
+            MODULE, "fetch_observations_v2", return_value={"data": observations}
+        ), mock.patch.object(MODULE, "fetch_observations_legacy") as legacy_fetch:
+            result = MODULE.verify_trace(
+                args, "public", "secret", "trace-id", len(observations)
+            )
+
+        self.assertEqual(result["read_source"], "v2_observations")
+        self.assertEqual(result["required_observation_count"], len(observations))
+        legacy_fetch.assert_not_called()
+
+    def test_verify_rejects_partially_visible_trace(self):
+        args = mock.Mock(
+            base_url="https://litefuse.example",
+            verify_attempts=1,
+            verify_sleep_seconds=0,
+            min_observations=1,
+            min_step_observations=1,
+        )
+        observations = [
+            {
+                "id": "review",
+                "name": "codex.review",
+                "input": {"prompt": "p"},
+                "output": {"text": "o"},
+            },
+            {
+                "id": "command",
+                "name": "codex.command",
+                "input": {"command": "pwd"},
+                "output": {"status": "ok"},
+            },
+        ]
+
+        with mock.patch.object(MODULE, "fetch_trace", return_value={}), mock.patch.object(
+            MODULE, "fetch_observations_v2", return_value={"data": observations}
+        ), mock.patch.object(MODULE, "fetch_observations_legacy"):
+            with self.assertRaisesRegex(
+                RuntimeError, '"required_observation_count": 3'
+            ):
+                MODULE.verify_trace(
+                    args, "public", "secret", "trace-id", 3
+                )
+
+    def test_verify_rejects_duplicate_observation_ids(self):
+        args = mock.Mock(
+            base_url="https://litefuse.example",
+            verify_attempts=1,
+            verify_sleep_seconds=0,
+            min_observations=1,
+            min_step_observations=1,
+        )
+        observations = [
+            {
+                "id": "review",
+                "name": "codex.review",
+                "input": {"prompt": "p"},
+                "output": {"text": "o"},
+            },
+            {
+                "id": "command",
+                "name": "codex.command",
+                "input": {"command": "pwd"},
+                "output": {"status": "ok"},
+            },
+            {
+                "id": "command",
+                "name": "codex.command",
+                "input": {"command": "pwd"},
+                "output": {"status": "ok"},
+            },
+        ]
+
+        with mock.patch.object(MODULE, "fetch_trace", return_value={}), mock.patch.object(
+            MODULE, "fetch_observations_v2", return_value={"data": observations}
+        ), mock.patch.object(MODULE, "fetch_observations_legacy"):
+            with self.assertRaisesRegex(
+                RuntimeError, '"duplicate_observation_count": 1'
+            ):
+                MODULE.verify_trace(
+                    args, "public", "secret", "trace-id", 2
+                )
 
 
 if __name__ == "__main__":

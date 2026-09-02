@@ -29,6 +29,9 @@ import urllib.parse
 import urllib.request
 
 
+OTLP_RETRYABLE_HTTP_STATUS_CODES = frozenset((429, 502, 503, 504))
+
+
 def read_text(path, max_chars, tail=False, optional=False):
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as handle:
@@ -1102,22 +1105,22 @@ def chunk_payload(payload, max_payload_bytes):
     batch = payload.get("batch") or []
     chunks = []
     current = []
-    current_bytes = json_payload_bytes({"batch": current})
+    empty_payload_bytes = json_payload_bytes({"batch": []})
+    current_bytes = empty_payload_bytes
 
     for event in batch:
-        event_payload = {"batch": [event]}
-        event_bytes = json_payload_bytes(event_payload)
-        if event_bytes > max_payload_bytes:
+        event_json_bytes = len(compact_json_bytes(event))
+        event_payload_bytes = empty_payload_bytes + event_json_bytes
+        if event_payload_bytes > max_payload_bytes:
             event = shrink_event_for_payload(event, max_payload_bytes)
-            event_payload = {"batch": [event]}
-            event_bytes = json_payload_bytes(event_payload)
+            event_json_bytes = len(compact_json_bytes(event))
+            event_payload_bytes = empty_payload_bytes + event_json_bytes
 
-        candidate = {"batch": current + [event]}
-        candidate_bytes = json_payload_bytes(candidate)
+        candidate_bytes = current_bytes + event_json_bytes + (1 if current else 0)
         if current and candidate_bytes > max_payload_bytes:
             chunks.append(({"batch": current}, current_bytes))
             current = [event]
-            current_bytes = event_bytes
+            current_bytes = event_payload_bytes
         else:
             current.append(event)
             current_bytes = candidate_bytes
@@ -1421,6 +1424,7 @@ def post_payload(
     request_sizes = []
     payload_too_large_retry_count = 0
     transport_retry_count = 0
+    http_retry_count = 0
     trace_body = trace_body_from_payload(payload)
     chunks = otlp_chunks(payload, max_payload_bytes, trace_body)
     while chunks:
@@ -1430,27 +1434,40 @@ def post_payload(
                 endpoint, public_key, secret_key, otlp_chunk, timeout_seconds
             )
         except urllib.error.HTTPError as exc:
-            if exc.code != 413:
-                error_body = exc.read().decode("utf-8", errors="replace")
+            if exc.code == 413:
+                payload_too_large_retry_count += 1
+                chunk_events = chunk.get("batch") or []
+                if len(chunk_events) > 1:
+                    chunks = split_otlp_chunk(
+                        chunk, max_payload_bytes, trace_body
+                    ) + chunks
+                    continue
+                next_limit = max(1_000, min(max_payload_bytes - 1, request_size // 2))
+                if next_limit >= request_size:
+                    raise RuntimeError(
+                        "Litefuse OTLP ingestion returned 413 and the request cannot be "
+                        f"reduced further: {request_size} bytes"
+                    ) from exc
+                chunks = otlp_chunks(chunk, next_limit, trace_body) + chunks
+                continue
+
+            if exc.code in OTLP_RETRYABLE_HTTP_STATUS_CODES:
+                http_retry_count += 1
+                if http_retry_count <= retry_attempts:
+                    time.sleep(retry_sleep_seconds)
+                    chunks.insert(0, (chunk, otlp_chunk, request_size))
+                    continue
+
+            error_body = exc.read().decode("utf-8", errors="replace")
+            if exc.code in OTLP_RETRYABLE_HTTP_STATUS_CODES:
                 raise RuntimeError(
-                    "Litefuse OTLP ingestion returned "
+                    "Litefuse OTLP ingestion failed after HTTP retries: "
                     f"HTTP {exc.code}: {truncate_text(error_body, 4_000)}"
                 ) from exc
-            payload_too_large_retry_count += 1
-            chunk_events = chunk.get("batch") or []
-            if len(chunk_events) > 1:
-                chunks = split_otlp_chunk(
-                    chunk, max_payload_bytes, trace_body
-                ) + chunks
-                continue
-            next_limit = max(1_000, min(max_payload_bytes - 1, request_size // 2))
-            if next_limit >= request_size:
-                raise RuntimeError(
-                    "Litefuse OTLP ingestion returned 413 and the request cannot be "
-                    f"reduced further: {request_size} bytes"
-                ) from exc
-            chunks = otlp_chunks(chunk, next_limit, trace_body) + chunks
-            continue
+            raise RuntimeError(
+                "Litefuse OTLP ingestion returned "
+                f"HTTP {exc.code}: {truncate_text(error_body, 4_000)}"
+            ) from exc
         except (TimeoutError, urllib.error.URLError) as exc:
             transport_retry_count += 1
             if transport_retry_count > retry_attempts:
@@ -1480,6 +1497,7 @@ def post_payload(
         "max_request_size": max(request_sizes) if request_sizes else 0,
         "payload_too_large_retries": payload_too_large_retry_count,
         "transport_retries": transport_retry_count,
+        "http_retries": http_retry_count,
         "success_count": success_count,
     }
 
@@ -1495,25 +1513,40 @@ def fetch_trace(base_url, public_key, secret_key, trace_id):
         return json.loads(response.read().decode())
 
 
-def fetch_observations_v2(base_url, public_key, secret_key, trace_id):
+def fetch_observations_v2(
+    base_url, public_key, secret_key, trace_id, max_pages=10
+):
     auth = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
     now = datetime.now(timezone.utc)
-    params = urllib.parse.urlencode(
-        {
-            "traceId": trace_id,
-            "fromStartTime": (now - timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
-            "toStartTime": (now + timedelta(minutes=5)).isoformat().replace("+00:00", "Z"),
-            "fields": "core,basic,io,trace_context,model,usage",
-            "limit": "100",
-        }
+    query = {
+        "traceId": trace_id,
+        "fromStartTime": (now - timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
+        "toStartTime": (now + timedelta(minutes=5)).isoformat().replace("+00:00", "Z"),
+        "fields": "core,basic,io,trace_context,model,usage",
+        "limit": "1000",
+    }
+    rows = []
+    cursor = ""
+    for _ in range(max_pages):
+        if cursor:
+            query["cursor"] = cursor
+        params = urllib.parse.urlencode(query)
+        request = urllib.request.Request(
+            f"{base_url.rstrip('/')}/api/public/v2/observations?{params}",
+            headers={"Authorization": f"Basic {auth}"},
+            method="GET",
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read().decode())
+        rows.extend(observation_rows_from_v2(payload))
+        meta = payload.get("meta") if isinstance(payload, dict) else {}
+        cursor = meta.get("cursor") if isinstance(meta, dict) else ""
+        if not cursor:
+            return {**payload, "data": rows}
+    raise RuntimeError(
+        "Litefuse v2 observations remained paginated after "
+        f"{max_pages} pages for trace {trace_id}"
     )
-    request = urllib.request.Request(
-        f"{base_url.rstrip('/')}/api/public/v2/observations?{params}",
-        headers={"Authorization": f"Basic {auth}"},
-        method="GET",
-    )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.loads(response.read().decode())
 
 
 def fetch_observations_legacy(
@@ -1589,8 +1622,13 @@ def context_events_readback_ok(input_object):
     return event_count == 0 and events_value in (None, "", {})
 
 
-def verify_trace(args, public_key, secret_key, trace_id):
+def verify_trace(
+    args, public_key, secret_key, trace_id, expected_observation_count
+):
     last_diagnostic = {}
+    required_observation_count = max(
+        args.min_observations, expected_observation_count
+    )
     for _ in range(args.verify_attempts):
         legacy_trace_error = ""
         try:
@@ -1599,26 +1637,34 @@ def verify_trace(args, public_key, secret_key, trace_id):
             legacy_detail = {}
             legacy_trace_error = type(exc).__name__
         try:
-            observations_payload = fetch_observations_legacy(
+            observations_payload = fetch_observations_v2(
                 args.base_url, public_key, secret_key, trace_id
             )
             observations = observation_rows_from_v2(observations_payload)
-            read_source = "legacy_observations"
-        except Exception as exc:
+            read_source = "v2_observations"
+        except Exception as v2_exc:
             try:
-                observations_payload = fetch_observations_v2(
+                observations_payload = fetch_observations_legacy(
                     args.base_url, public_key, secret_key, trace_id
                 )
                 observations = observation_rows_from_v2(observations_payload)
-                read_source = "v2_observations"
+                read_source = f"legacy_observations:{type(v2_exc).__name__}"
             except Exception:
                 observations = legacy_detail.get("observations") or []
-                read_source = f"legacy_trace_fallback:{type(exc).__name__}"
+                read_source = f"legacy_trace_fallback:{type(v2_exc).__name__}"
         observations_missing_io = [
             observation
             for observation in observations
             if not (observation.get("input") and observation.get("output"))
         ]
+        observation_ids = [
+            str(observation.get("id"))
+            for observation in observations
+            if observation.get("id")
+        ]
+        unique_observation_count = len(set(observation_ids))
+        observations_missing_id_count = len(observations) - len(observation_ids)
+        duplicate_observation_count = len(observation_ids) - unique_observation_count
         step_observations = [
             observation
             for observation in observations
@@ -1692,6 +1738,10 @@ def verify_trace(args, public_key, secret_key, trace_id):
             "trace_input": bool(trace_input),
             "trace_output": bool(trace_output),
             "observation_count": len(observations),
+            "required_observation_count": required_observation_count,
+            "unique_observation_count": unique_observation_count,
+            "observations_missing_id_count": observations_missing_id_count,
+            "duplicate_observation_count": duplicate_observation_count,
             "step_observation_count": len(step_observations),
             "agent_message_count": len(agent_message_observations),
             "agent_message_input_keys": agent_message_input_keys,
@@ -1710,7 +1760,9 @@ def verify_trace(args, public_key, secret_key, trace_id):
             [
                 trace_input,
                 trace_output,
-                len(observations) >= args.min_observations,
+                unique_observation_count >= required_observation_count,
+                observations_missing_id_count == 0,
+                duplicate_observation_count == 0,
                 len(step_observations) >= args.min_step_observations,
                 not observations_missing_io,
                 not agent_message_observations or agent_message_structure_ok,
@@ -1722,6 +1774,10 @@ def verify_trace(args, public_key, secret_key, trace_id):
                 "trace_output": True,
                 "read_source": read_source,
                 "observation_count": len(observations),
+                "required_observation_count": required_observation_count,
+                "unique_observation_count": unique_observation_count,
+                "observations_missing_id_count": observations_missing_id_count,
+                "duplicate_observation_count": duplicate_observation_count,
                 "step_observation_count": len(step_observations),
                 "agent_message_count": len(agent_message_observations),
                 "agent_message_input_keys": agent_message_input_keys,
@@ -1885,7 +1941,13 @@ def main():
 
     if args.verify:
         try:
-            result["verified"] = verify_trace(args, public_key, secret_key, trace_id)
+            result["verified"] = verify_trace(
+                args,
+                public_key,
+                secret_key,
+                trace_id,
+                observation_count,
+            )
         except Exception as exc:
             result["verification_error"] = str(exc)
             print(json.dumps(result, sort_keys=True))
