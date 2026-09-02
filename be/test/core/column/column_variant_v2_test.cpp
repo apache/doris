@@ -2712,6 +2712,53 @@ TEST(ColumnVariantV2Test, TypedEncodedInsertMatrixKeepsConstSource) {
     expect_int32_rows(*source, SOURCE_VALUES, SOURCE_NULLS);
 }
 
+TEST(ColumnVariantV2Test, EmptyDestinationPreservesTypedBulkCopies) {
+    constexpr std::array<int32_t, 3> SOURCE_VALUES {1, 2, 3};
+    constexpr std::array<uint8_t, 3> SOURCE_NULLS {0, 1, 0};
+    auto source = typed_int32(SOURCE_VALUES, SOURCE_NULLS);
+
+    auto range = ColumnVariantV2::create();
+    range->insert_range_from(*source, 0, source->size());
+    EXPECT_TRUE(range->is_typed());
+    expect_int32_rows(*range, SOURCE_VALUES, SOURCE_NULLS);
+
+    auto repeated = ColumnVariantV2::create();
+    repeated->insert_many_from(*source, 2, 4);
+    EXPECT_TRUE(repeated->is_typed());
+    constexpr std::array<int32_t, 4> REPEATED_VALUES {3, 3, 3, 3};
+    constexpr std::array<uint8_t, 4> REPEATED_NULLS {0, 0, 0, 0};
+    expect_int32_rows(*repeated, REPEATED_VALUES, REPEATED_NULLS);
+
+    constexpr std::array<uint32_t, 4> SELECTED {2, 0, 1, 2};
+    auto gathered = ColumnVariantV2::create();
+    gathered->insert_indices_from(*source, SELECTED.data(), SELECTED.data() + SELECTED.size());
+    EXPECT_TRUE(gathered->is_typed());
+    constexpr std::array<int32_t, 4> GATHERED_VALUES {3, 1, 0, 3};
+    constexpr std::array<uint8_t, 4> GATHERED_NULLS {0, 0, 1, 0};
+    expect_int32_rows(*gathered, GATHERED_VALUES, GATHERED_NULLS);
+
+    auto nullable_source = ColumnNullable::create(std::move(source), ColumnUInt8::create(3, 0));
+    auto nullable_destination =
+            ColumnNullable::create(ColumnVariantV2::create(), ColumnUInt8::create());
+    nullable_destination->insert_many_from(*nullable_source, 0, 4);
+    const auto& nullable_variant =
+            assert_cast<const ColumnVariantV2&>(nullable_destination->get_nested_column());
+    EXPECT_TRUE(nullable_variant.is_typed());
+    constexpr std::array<int32_t, 4> NULLABLE_VALUES {1, 1, 1, 1};
+    constexpr std::array<uint8_t, 4> NULLABLE_NULLS {0, 0, 0, 0};
+    expect_int32_rows(nullable_variant, NULLABLE_VALUES, NULLABLE_NULLS);
+
+    const std::array<std::string_view, 1> STRING_VALUE {"x"};
+    constexpr std::array<uint8_t, 1> STRING_NULL {0};
+    auto strings = typed_strings(STRING_VALUE, STRING_NULL);
+    range->insert_range_from(*strings, 0, 1);
+    EXPECT_FALSE(range->is_typed());
+    EXPECT_EQ(range->get_value_ref(0).get_int(), 1);
+    EXPECT_TRUE(range->get_value_ref(1).is_null());
+    EXPECT_EQ(range->get_value_ref(2).get_int(), 3);
+    EXPECT_EQ(range->get_value_ref(3).get_string(), StringRef("x"));
+}
+
 TEST(ColumnVariantV2Test, MixedEncodedTypedFilterAndRangePreserveCanonicalRows) {
     constexpr std::array<int32_t, 4> VALUES {1, 2, 3, 4};
     constexpr std::array<uint8_t, 4> NULLS {0, 1, 0, 0};
@@ -2733,10 +2780,10 @@ TEST(ColumnVariantV2Test, MixedEncodedTypedFilterAndRangePreserveCanonicalRows) 
     EXPECT_EQ(encoded_inplace->filter(keep), 3);
     expect_canonical_rows_equal(*typed_inplace, *encoded_inplace);
 
-    auto encoded_range = ColumnVariantV2::create();
-    encoded_range->insert_range_from(*typed, 0, typed->size());
-    EXPECT_FALSE(encoded_range->is_typed());
-    expect_canonical_rows_equal(*encoded_range, *encoded);
+    auto selected_typed = ColumnVariantV2::create();
+    selected_typed->insert_range_from(*typed, 0, typed->size());
+    EXPECT_TRUE(selected_typed->is_typed());
+    expect_canonical_rows_equal(*selected_typed, *encoded);
 
     constexpr std::array<int32_t, 0> NO_VALUES {};
     constexpr std::array<uint8_t, 0> NO_NULLS {};

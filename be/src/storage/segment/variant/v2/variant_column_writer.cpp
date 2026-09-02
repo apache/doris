@@ -89,8 +89,10 @@ Status build_root_only_batch(const VariantColumnData& column, size_t num_rows,
     }
 
     auto encoded_batch = ColumnVariantV2::create();
-    RETURN_IF_CATCH_EXCEPTION(
-            { encoded_batch->insert_range_from(*source, column.row_pos, num_rows); });
+    RETURN_IF_CATCH_EXCEPTION({
+        encoded_batch->insert_range_from(*source, column.row_pos, num_rows);
+        encoded_batch->ensure_encoded();
+    });
     return build_from_encoded(encoded_batch->read_view(), 0);
 }
 
