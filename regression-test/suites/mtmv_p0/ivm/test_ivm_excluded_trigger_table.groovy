@@ -57,14 +57,21 @@ suite("test_ivm_excluded_trigger_table", "mtmv") {
         exception "requires base tables to be"
     }
 
-    def queryMvRows = {
-        sql("""SELECT k1, v1 FROM test_ivm_excluded_trigger_table_mv ORDER BY k1""")
-                .collect { row -> [row[0] as int, row[1] as int] }
-    }
+    // First refresh runs as manual INCREMENTAL while excluded_trigger_tables is still set.
+    // The excluded table has no delta stream, so the task must force a COMPLETE baseline
+    // for this first refresh; otherwise the excluded table's pre-existing rows would never
+    // be materialized.
+    sql """REFRESH MATERIALIZED VIEW test_ivm_excluded_trigger_table_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_excluded_trigger_table_mv")
+    order_qt_init_incremental_first_refresh """
+        SELECT k1, v1 FROM test_ivm_excluded_trigger_table_mv
+    """
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_excluded_trigger_table_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_excluded_trigger_table_mv")
-    assertEquals([[1, 10], [2, 20]], queryMvRows())
+    order_qt_after_idempotent_complete """
+        SELECT k1, v1 FROM test_ivm_excluded_trigger_table_mv
+    """
 
     sql """
         INSERT INTO test_ivm_excluded_trigger_table_agg_base VALUES
@@ -75,11 +82,15 @@ suite("test_ivm_excluded_trigger_table", "mtmv") {
     sql """REFRESH MATERIALIZED VIEW test_ivm_excluded_trigger_table_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_excluded_trigger_table_mv")
     // excluded_trigger_tables suppresses base-table changes even for manual INCREMENTAL refresh
-    assertEquals([[1, 10], [2, 20]], queryMvRows())
+    order_qt_incremental_suppressed """
+        SELECT k1, v1 FROM test_ivm_excluded_trigger_table_mv
+    """
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_excluded_trigger_table_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_excluded_trigger_table_mv")
-    assertEquals([[1, 15], [2, 20], [3, 30]], queryMvRows())
+    order_qt_after_complete_with_base_changes """
+        SELECT k1, v1 FROM test_ivm_excluded_trigger_table_mv
+    """
 
     sql """drop materialized view if exists test_ivm_excluded_trigger_table_alt_mv;"""
     sql """drop table if exists ivm_excl_alt_b;"""
@@ -117,14 +128,11 @@ suite("test_ivm_excluded_trigger_table", "mtmv") {
            FROM ivm_excl_alt_b;
     """
 
-    def queryAlterMvRows = {
-        sql("""SELECT k1, v1 FROM test_ivm_excluded_trigger_table_alt_mv ORDER BY k1""")
-                .collect { row -> [row[0] as int, row[1] as int] }
-    }
-
     sql """REFRESH MATERIALIZED VIEW test_ivm_excluded_trigger_table_alt_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_excluded_trigger_table_alt_mv")
-    assertEquals([[1, 10], [2, 20]], queryAlterMvRows())
+    order_qt_alter_after_complete """
+        SELECT k1, v1 FROM test_ivm_excluded_trigger_table_alt_mv
+    """
 
     sql """INSERT INTO ivm_excl_alt_b VALUES (3, 30);"""
     sql """
@@ -133,15 +141,16 @@ suite("test_ivm_excluded_trigger_table", "mtmv") {
     """
     sql """REFRESH MATERIALIZED VIEW test_ivm_excluded_trigger_table_alt_mv INCREMENTAL FALLBACK"""
     waitingMTMVTaskFinishedByMvName("test_ivm_excluded_trigger_table_alt_mv")
-    assertEquals([[1, 10], [2, 20], [3, 30]], queryAlterMvRows())
+    order_qt_alter_after_incremental_fallback """
+        SELECT k1, v1 FROM test_ivm_excluded_trigger_table_alt_mv
+    """
 
-    def refreshMode = sql """
+    qt_alter_fallback_refresh_mode """
         SELECT RefreshMode FROM tasks('type'='mv')
         WHERE MvDatabaseName = '${context.dbName}'
           AND MvName = 'test_ivm_excluded_trigger_table_alt_mv'
         ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
     """
-    assertEquals("COMPLETE", refreshMode[0][0].toString())
 
     sql """INSERT INTO ivm_excl_alt_b VALUES (4, 40);"""
     sql """
@@ -158,6 +167,6 @@ suite("test_ivm_excluded_trigger_table", "mtmv") {
         ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
     """
     order_qt_reinclude_rows """
-        SELECT k1, v1 FROM test_ivm_excluded_trigger_table_alt_mv ORDER BY k1
+        SELECT k1, v1 FROM test_ivm_excluded_trigger_table_alt_mv
     """
 }

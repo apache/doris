@@ -280,6 +280,77 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
     }
 
     @Test
+    void testRewriteRepeatRestoresSameNamedOutputsByPosition() {
+        // Two same-named "id" slots coming from different sides of a join (e.g. a repeat over
+        // grouping sets ((l.id), (r.id))). The rewrite restores the original output order by
+        // position, not by name: a name lookup would resolve both original outputs to the
+        // first matching slot of the rewritten repeat, and the second grouping set would
+        // lose its own slot.
+        LogicalOlapScan leftScan = buildScanForTable(901, "left_t");
+        LogicalOlapScan rightScan = buildScanForTable(902, "right_t");
+        Slot leftId = leftScan.getOutput().get(0);
+        Slot rightId = rightScan.getOutput().get(0);
+        Assertions.assertEquals(leftId.getName(), rightId.getName());
+        Assertions.assertNotEquals(leftId.getExprId(), rightId.getExprId());
+
+        LogicalOlapScan childScan = buildScan();
+        LogicalRepeat<LogicalOlapScan> repeat = new LogicalRepeat<>(
+                ImmutableList.of(ImmutableList.of(leftId), ImmutableList.of(rightId)),
+                ImmutableList.of(leftId, rightId),
+                RepeatType.GROUPING_SETS,
+                childScan);
+        TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
+
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(repeat, dummyCtx());
+
+        Assertions.assertInstanceOf(LogicalProject.class, result.plan);
+        LogicalProject<?> project = (LogicalProject<?>) result.plan;
+        List<NamedExpression> projects = project.getProjects();
+        // First restored output maps back to its own slot...
+        Assertions.assertEquals(leftId.getExprId(), projects.get(0).getExprId());
+        Assertions.assertEquals(leftId.getExprId(), ((Slot) ((Alias) projects.get(0)).child()).getExprId());
+        // ...and the second same-named output must map to the second slot, not to leftId.
+        Assertions.assertEquals(rightId.getExprId(), projects.get(1).getExprId());
+        Assertions.assertEquals(rightId.getExprId(), ((Slot) ((Alias) projects.get(1)).child()).getExprId());
+    }
+
+    @Test
+    void testRewriteRepeatRestoresGroupingIdByName() {
+        // A repeat with a trailing GROUPING_ID slot: newRepeat appends delta metadata BETWEEN
+        // outputExpressions and the grouping id, so the grouping id entry cannot be restored
+        // by position (position E now holds the dml factor slot). It must be resolved by its
+        // unique name instead of being mis-bound to the dml factor.
+        LogicalOlapScan childScan = buildScan();
+        Slot id = childScan.getOutput().get(0);
+        Slot name = childScan.getOutput().get(1);
+        SlotReference groupingId = new SlotReference(StatementScopeIdGenerator.newExprId(),
+                "GROUPING_ID", BigIntType.INSTANCE, true, ImmutableList.of());
+        LogicalRepeat<LogicalOlapScan> repeat = new LogicalRepeat<>(
+                ImmutableList.of(ImmutableList.of(id), ImmutableList.of(name)),
+                ImmutableList.of(id, name),
+                groupingId,
+                RepeatType.GROUPING_SETS,
+                childScan);
+        Assertions.assertEquals(3, repeat.getOutput().size());
+        TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
+
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(repeat, dummyCtx());
+
+        LogicalProject<?> project = (LogicalProject<?>) result.plan;
+        List<NamedExpression> projects = project.getProjects();
+        // [id, name, groupingId, dml, seq]
+        Assertions.assertEquals(5, projects.size());
+        Assertions.assertEquals(id.getExprId(), ((Slot) ((Alias) projects.get(0)).child()).getExprId());
+        Assertions.assertEquals(name.getExprId(), ((Slot) ((Alias) projects.get(1)).child()).getExprId());
+        // The grouping id entry must map to the grouping id slot, not to the dml factor slot.
+        Assertions.assertEquals(groupingId.getExprId(), projects.get(2).getExprId());
+        Slot groupingIdChild = (Slot) ((Alias) projects.get(2)).child();
+        Assertions.assertEquals("GROUPING_ID", groupingIdChild.getName());
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, projects.get(3).getName());
+        Assertions.assertEquals(Column.SEQUENCE_COL, projects.get(4).getName());
+    }
+
+    @Test
     void testVisitUnsupportedPlanThrows() {
         // Pass an unsupported plan directly to the catch-all visit() method.
         // rewritePlan strips ResultSink first, so we test visit() directly.

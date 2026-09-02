@@ -227,8 +227,20 @@ class IvmLinearDeltaHandler {
         // appending delta metadata, otherwise an upper Project maps GROUPING_ID to a hidden delta slot.
         ImmutableList.Builder<NamedExpression> projects = ImmutableList.builderWithExpectedSize(
                 repeat.getOutput().size() + 2);
+        // withAggOutput keeps the outputExpressions list order, so newRepeat.getOutput() aligns
+        // with the original outputExpressions by position. Resolve them by position, not by
+        // name: the original outputs of different grouping sets can carry the same column name
+        // (e.g. two grouping sets over same-named join keys l.id / r.id), and a name lookup
+        // would resolve every one of them to the first matching slot and corrupt all later
+        // grouping sets. The trailing GROUPING_ID slot (appended after outputExpressions, and
+        // after the delta metadata in newRepeat) has a unique name, so resolve it by name.
+        List<Slot> newRepeatOutputs = newRepeat.getOutput();
+        int outputIndex = 0;
         for (Slot output : repeat.getOutput()) {
-            Slot repeatedOutput = helper.findSlotByName(newRepeat.getOutput(), output.getName());
+            Slot repeatedOutput = outputIndex < repeat.getOutputExpressions().size()
+                    ? newRepeatOutputs.get(outputIndex)
+                    : helper.findSlotByName(newRepeatOutputs, output.getName());
+            outputIndex++;
             projects.add(new Alias(output.getExprId(), repeatedOutput, output.getName()));
         }
         Slot repeatDmlFactorSlot = helper.findSlotByName(newRepeat.getOutput(), Column.IVM_DML_FACTOR_COL);

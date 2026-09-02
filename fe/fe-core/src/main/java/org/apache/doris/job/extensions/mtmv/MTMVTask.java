@@ -495,8 +495,17 @@ public class MTMVTask extends AbstractTask {
     }
 
     private boolean shouldUseCompleteForInitialIvmRefresh(boolean containsOneRowRelation) {
-        return mtmv.isIvm() && !mtmv.hasRefreshSnapshot()
-                && (taskContext.getTriggerMode() != MTMVTaskTriggerMode.MANUAL || containsOneRowRelation);
+        if (!mtmv.isIvm() || mtmv.hasRefreshSnapshot()) {
+            return false;
+        }
+        // Excluded trigger tables produce no delta stream in the incremental rewrite, so an
+        // INCREMENTAL first refresh would never read their pre-existing rows. Whenever the
+        // MV has excluded sources, the first refresh must build the full COMPLETE baseline
+        // first (covering manual INCREMENTAL as well); afterwards the snapshot exists and
+        // incremental refreshes only track the remaining streamed tables.
+        return taskContext.getTriggerMode() != MTMVTaskTriggerMode.MANUAL
+                || !CollectionUtils.isEmpty(mtmv.getExcludedTriggerTables())
+                || containsOneRowRelation;
     }
 
     private PartitionRefreshPlan planPartitionRefresh(MTMVRefreshContext context,

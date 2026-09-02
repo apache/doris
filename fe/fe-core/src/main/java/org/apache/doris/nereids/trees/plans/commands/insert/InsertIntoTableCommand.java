@@ -231,12 +231,7 @@ public class InsertIntoTableCommand extends Command
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        isRunning.set(true);
-        try {
-            runInternal(ctx, executor);
-        } finally {
-            isRunning.set(false);
-        }
+        runWithUpdateInfo(ctx, executor, null);
     }
 
     @Override
@@ -255,10 +250,28 @@ public class InsertIntoTableCommand extends Command
         }
     }
 
+    /**
+     * Shared execution entrypoint for both direct statements and scheduled insert tasks
+     * (see InsertTask). The running flag and the pending-cancellation state live here so
+     * cancellation handling (KILL / waitNotRunning) is identical on both paths.
+     */
     public void runWithUpdateInfo(ConnectContext ctx, StmtExecutor executor,
                                   LoadStatistic loadStatistic) throws Exception {
-        // TODO: add coordinator statistic
-        runInternal(ctx, executor);
+        // Consume a cancellation that arrived while this invocation was queued
+        // (cancel-before-run) and reset the flag, so a reused command instance
+        // (server-side prepared INSERT) can execute again after a cancelled run.
+        if (isCancelled.getAndSet(false)) {
+            LOG.info("insert is cancelled before execution, queryId: {}",
+                    ctx.getQueryIdentifier());
+            return;
+        }
+        isRunning.set(true);
+        try {
+            // TODO: add coordinator statistic
+            runInternal(ctx, executor);
+        } finally {
+            isRunning.set(false);
+        }
     }
 
     // may be overridden
@@ -360,40 +373,45 @@ public class InsertIntoTableCommand extends Command
 
             // lock after plan and check does table's schema changed to ensure we lock table order by id.
             TableIf newestTargetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
-            newestTargetTableIf.readLock();
             try {
-                if (targetTableIf.getId() != newestTargetTableIf.getId()) {
-                    LOG.warn("insert plan failed {} times. query id is {}. table id changed from {} to {}",
-                            retryTimes, DebugUtil.printId(ctx.queryId()),
-                            targetTableIf.getId(), newestTargetTableIf.getId());
-                    newestTargetTableIf.readUnlock();
-                    continue;
-                }
-                // Use the schema saved during planning as the schema of the original target table.
-                if (!ctx.getStatementContext().getInsertTargetSchema().equals(newestTargetTableIf.getFullSchema())) {
-                    LOG.warn("insert plan failed {} times. query id is {}. table schema changed from {} to {}",
-                            retryTimes, DebugUtil.printId(ctx.queryId()),
-                            ctx.getStatementContext().getInsertTargetSchema(), newestTargetTableIf.getFullSchema());
-                    newestTargetTableIf.readUnlock();
-                    continue;
-                }
-                if (insertExecutor.requiresTransaction()) {
-                    if (isCancelled.get()) {
-                        LOG.info("insert is cancelled before beginTransaction, queryId: {}",
-                                ctx.getQueryIdentifier());
-                        newestTargetTableIf.readUnlock();
-                        throw new IllegalStateException("insert is cancelled");
+                newestTargetTableIf.readLock();
+                try {
+                    if (targetTableIf.getId() != newestTargetTableIf.getId()) {
+                        LOG.warn("insert plan failed {} times. query id is {}. table id changed from {} to {}",
+                                retryTimes, DebugUtil.printId(ctx.queryId()),
+                                targetTableIf.getId(), newestTargetTableIf.getId());
+                        continue;
                     }
-                    insertExecutor.beginTransaction();
-                    insertExecutor.finalizeSink(
-                            buildResult.planner.getFragments().get(0), buildResult.dataSink,
-                            buildResult.physicalSink
-                    );
+                    // Use the schema saved during planning as the schema of the original target table.
+                    if (!ctx.getStatementContext().getInsertTargetSchema()
+                            .equals(newestTargetTableIf.getFullSchema())) {
+                        LOG.warn("insert plan failed {} times. query id is {}. table schema changed from {} to {}",
+                                retryTimes, DebugUtil.printId(ctx.queryId()),
+                                ctx.getStatementContext().getInsertTargetSchema(),
+                                newestTargetTableIf.getFullSchema());
+                        continue;
+                    }
+                    if (insertExecutor.requiresTransaction()) {
+                        if (isCancelled.get()) {
+                            LOG.info("insert is cancelled before beginTransaction, queryId: {}",
+                                    ctx.getQueryIdentifier());
+                            throw new IllegalStateException("insert is cancelled");
+                        }
+                        insertExecutor.beginTransaction();
+                        insertExecutor.finalizeSink(
+                                buildResult.planner.getFragments().get(0), buildResult.dataSink,
+                                buildResult.physicalSink
+                        );
+                    }
+                } finally {
+                    // Single owner of the read lock: the retry-loop `continue` branches and the
+                    // cancellation throw above must not unlock again (a second unlock would raise
+                    // IllegalMonitorStateException and mask the original error before onFail runs).
+                    newestTargetTableIf.readUnlock();
                 }
-                newestTargetTableIf.readUnlock();
             } catch (Throwable e) {
-                newestTargetTableIf.readUnlock();
-                // the abortTxn in onFail need to acquire table write lock
+                // the abortTxn in onFail need to acquire table write lock; the read lock is
+                // already released by the finally above
                 if (insertExecutor != null) {
                     insertExecutor.onFail(e);
                 }
