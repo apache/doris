@@ -23,6 +23,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
@@ -93,6 +94,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -578,6 +580,51 @@ public class IcebergExternalMetaCacheTest {
             }
             Assert.assertEquals(0, rejectedIo.getCloseCount());
             Mockito.verify(context, Mockito.times(1)).promote();
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testHmsTableLoadRejectsGenerationResetBeforePromotion() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        IcebergMetadataOps loadingOps = Mockito.mock(IcebergMetadataOps.class);
+        IcebergMetadataOps replacementOps = Mockito.mock(IcebergMetadataOps.class);
+        ExecutionAuthenticator authenticator = new ExecutionAuthenticator() { };
+        AtomicReference<IcebergMetadataOps> currentOps = new AtomicReference<>(loadingOps);
+        Mockito.when(catalog.getIcebergMetadataOps()).thenAnswer(invocation -> currentOps.get());
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(authenticator);
+        HMSExternalCatalog.IcebergTableLoadContext context =
+                Mockito.mock(HMSExternalCatalog.IcebergTableLoadContext.class);
+        Mockito.when(catalog.beginIcebergTableLoad()).thenReturn(context);
+        Mockito.when(context.getOps()).thenReturn(loadingOps);
+        Mockito.when(context.getAuthenticator()).thenReturn(authenticator);
+        Mockito.when(context.loadTable("remote_db", "remote_tbl")).thenAnswer(invocation -> {
+            currentOps.set(replacementOps);
+            return Mockito.mock(Table.class);
+        });
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor) {
+            @Override
+            protected CatalogIf<?> getCatalog(long catalogId) {
+                return catalog;
+            }
+        };
+        try {
+            cache.initCatalog(1L, Collections.emptyMap());
+            NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
+
+            try {
+                cache.entry(1L, IcebergExternalMetaCache.ENTRY_TABLE,
+                        NameMapping.class, IcebergTableCacheValue.class).get(mapping);
+                Assert.fail("an HMS load crossing a catalog reset must not be published");
+            } catch (RuntimeException expected) {
+                Assert.assertTrue(exceptionChainContains(expected,
+                        "was reset while acquiring iceberg table"));
+            }
+            Mockito.verify(context, Mockito.never()).promote();
+            Mockito.verify(context).close();
         } finally {
             cache.close();
             executor.shutdownNow();

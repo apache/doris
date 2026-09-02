@@ -2360,12 +2360,17 @@ public class IcebergUtils {
     }
 
     public static List<Column> getIcebergSchema(ExternalTable dorisTable, Optional<MvccSnapshot> snapshot) {
-        IcebergSnapshotCacheValue cacheValue = IcebergUtils.getSnapshotCacheValue(snapshot, dorisTable);
-        return IcebergUtils.getSchemaCacheValue(dorisTable, cacheValue).getSchema();
+        return withSnapshotCacheValue(snapshot, dorisTable,
+                cacheValue -> getSchemaCacheValue(dorisTable, cacheValue).getSchema());
     }
 
     public static List<Column> getIcebergPartitionColumns(Optional<MvccSnapshot> snapshot, ExternalTable dorisTable) {
-        IcebergSnapshotCacheValue snapshotValue = getSnapshotCacheValue(snapshot, dorisTable);
+        return withSnapshotCacheValue(snapshot, dorisTable,
+                snapshotValue -> getIcebergPartitionColumns(dorisTable, snapshotValue));
+    }
+
+    private static List<Column> getIcebergPartitionColumns(
+            ExternalTable dorisTable, IcebergSnapshotCacheValue snapshotValue) {
         Optional<Table> snapshotTable = snapshotValue.getIcebergTable();
         if (snapshotTable.isPresent()) {
             // Schema ID alone cannot identify the partition spec; metadata-only evolution may keep
