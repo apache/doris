@@ -49,6 +49,36 @@ options { tokenVocab = DorisLexer; }
                 ctx.getParent().getText(), ctx);
     }
 
+    // Preserve baseline first-error positions while making clause ownership deterministic.
+    private Token queryOrganizationErrorToken;
+    private Token ansiQueryOrganizationToken;
+
+    @Override
+    public void notifyErrorListeners(Token offendingToken, String msg, RecognitionException e) {
+        Token reportedToken = queryOrganizationErrorToken == null ? offendingToken : queryOrganizationErrorToken;
+        super.notifyErrorListeners(reportedToken, msg, e);
+    }
+
+    private boolean isQueryOrganizationStart() {
+        int tokenType = _input.LA(1);
+        return tokenType == ORDER || tokenType == LIMIT;
+    }
+
+    private void captureAnsiQueryOrganizationToken() {
+        ansiQueryOrganizationToken = ansiSQLSyntax && isQueryOrganizationStart() ? _input.LT(1) : null;
+    }
+
+    private void finishQueryOrganization(QueryOrganizationContext organization) {
+        if (organization != null && organization.getStart() == ansiQueryOrganizationToken) {
+            int tokenType = _input.LA(1);
+            if (tokenType == UNION || tokenType == INTERSECT || tokenType == EXCEPT || tokenType == MINUS
+                    || tokenType == ORDER || tokenType == LIMIT) {
+                queryOrganizationErrorToken = ansiQueryOrganizationToken;
+            }
+            ansiQueryOrganizationToken = null;
+        }
+    }
+
     private boolean isTupleLambdaBody() {
         if (_input.LA(1) != LEFT_PAREN) {
             return false;
@@ -131,7 +161,7 @@ statementBase
 
 queryOrDmlStatement
     : explainContext=explain? cteContext=cte?
-        (queryTerm queryOrganization outFileClause?
+        (queryTerm organization=queryOrganization? {finishQueryOrganization($organization.ctx);} outFileClause?
         | dmlStatementBody[$explainContext.ctx, $cteContext.ctx])    #explainableStatement
     | nonExplainableDmlStatement        #dmlStatementAlias
     | describeStatement                 #describeStatementAlias
@@ -321,12 +351,12 @@ dmlStatementBody[ExplainContext explainContext, CteContext cteContext]
         SET updateAssignmentSeq
         fromClause?
         whereClause?
-        queryOrganization                                              #update
+        organization=queryOrganization?                                #update
     | DELETE FROM tableName=multipartIdentifier
         partitionSpec? tableAlias
         (USING relations)?
         whereClause?
-        queryOrganization                                              #delete
+        organization=queryOrganization?                                #delete
     | MERGE INTO targetTable=multipartIdentifier
         (AS? identifier)? USING srcRelation=relationPrimary
         ON expression
@@ -1476,7 +1506,7 @@ outFileClause
     ;
 
 query
-    : cte? queryTerm queryOrganization
+    : cte? queryTerm organization=queryOrganization? {finishQueryOrganization($organization.ctx);}
     ;
 
 queryTerm
@@ -1504,7 +1534,9 @@ querySpecification
       aggClause?
       havingClause?
       qualifyClause?
-      ({!ansiSQLSyntax}? queryOrganization | {ansiSQLSyntax}?)         #regularQuerySpecification
+      ({!ansiSQLSyntax}? organization=queryOrganization
+      | {ansiSQLSyntax || !isQueryOrganizationStart()}?)
+      {captureAnsiQueryOrganizationToken();}                            #regularQuerySpecification
     ;
 
 cte
@@ -1640,7 +1672,17 @@ unnest:
     )?;
 
 queryOrganization
-    : sortClause? limitClause?
+locals [Token previousErrorToken]
+@init {
+    $previousErrorToken = queryOrganizationErrorToken;
+    queryOrganizationErrorToken = _input.LT(1);
+}
+@after {
+    queryOrganizationErrorToken = $previousErrorToken;
+}
+    : sortClause {queryOrganizationErrorToken = $previousErrorToken;}
+      (limitClause | {_input.LA(1) != LIMIT}?)
+    | limitClause
     ;
 
 sortClause
