@@ -327,6 +327,19 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         }
     }
 
+    /** The action must return metadata derived from the snapshot rather than retain its table. */
+    public <T> T withSnapshotCacheValue(
+            ExternalTable dorisTable, Function<IcebergSnapshotCacheValue, T> action) {
+        NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
+        IcebergTableCacheValue.Lease statementLease = statementLease(nameMapping);
+        if (statementLease != null) {
+            return action.apply(getSnapshotCache(dorisTable, nameMapping, statementLease.getValue()));
+        }
+        try (IcebergTableCacheValue.Lease operationLease = borrow(nameMapping)) {
+            return action.apply(getSnapshotCache(dorisTable, nameMapping, operationLease.getValue()));
+        }
+    }
+
     /** Build a snapshot bound to an action's retained writable generation without another lookup. */
     public IcebergSnapshotCacheValue getSnapshotForWritableLease(
             ExternalTable dorisTable, WritableTableLease lease) {

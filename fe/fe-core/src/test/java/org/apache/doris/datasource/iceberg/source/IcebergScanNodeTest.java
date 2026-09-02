@@ -3128,6 +3128,25 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testPinnedGenerationUsesFrozenSchemaMappingOptions() throws Exception {
+        Table frozenTable = Mockito.mock(Table.class);
+        Table refreshedTable = Mockito.mock(Table.class);
+        IcebergSnapshotCacheValue snapshotValue = new IcebergSnapshotCacheValue(
+                new IcebergPartitionInfo(
+                        Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                new IcebergSnapshot(101L, 21L),
+                Optional.empty(), frozenTable).bindSchemaMappingOptions(true, false);
+        IcebergScanNode node = new IcebergScanNode(
+                new PlanNodeId(0), new TupleDescriptor(new TupleId(0)),
+                new SessionVariable(), ScanContext.EMPTY);
+        node.setRelationSnapshot(Optional.of(new IcebergMvccSnapshot(snapshotValue)));
+
+        Assert.assertSame(frozenTable, useFrozenTableGeneration(node, refreshedTable));
+        Assert.assertTrue(node.getEnableMappingVarbinary());
+        Assert.assertFalse(node.getEnableMappingTimestampTz());
+    }
+
+    @Test
     public void testSnapshotSelectableMetadataTableUsesFrozenBaseGeneration() throws Exception {
         Schema schema = new Schema(21, ImmutableList.of(
                 Types.NestedField.optional(1, "id", Types.IntegerType.get())));

@@ -45,7 +45,6 @@ import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSchemaCacheKey;
-import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -376,7 +375,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             return ((HudiDlaTable) dlaTable).getHudiSchemaCacheValue(MvccUtil.getSnapshotFromContext(this))
                     .getSchema();
         } else if (getDlaType() == DLAType.ICEBERG) {
-            return IcebergUtils.getIcebergSchema(this);
+            return getIcebergSchema(MvccUtil.getSnapshotFromContext(this)).getSchema();
         }
         Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
         return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
@@ -390,7 +389,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (getDlaType() == DLAType.HUDI) {
             return ((HudiDlaTable) dlaTable).getHudiSchemaCacheValue(snapshot).getSchema();
         } else if (getDlaType() == DLAType.ICEBERG) {
-            return IcebergUtils.getIcebergSchema(this, snapshot);
+            return getIcebergSchema(snapshot).getSchema();
         }
         return super.getFullSchema(snapshot);
     }
@@ -402,11 +401,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             return Optional.of(
                     ((HudiDlaTable) dlaTable).getHudiSchemaCacheValue(MvccUtil.getSnapshotFromContext(this)));
         } else if (dlaType == DLAType.ICEBERG) {
-            IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getSnapshotCacheValue(
-                    MvccUtil.getSnapshotFromContext(this), this);
-            return Optional.of(IcebergUtils.getSchemaCacheValue(this, snapshotValue));
+            return Optional.of(getIcebergSchema(MvccUtil.getSnapshotFromContext(this)));
         }
         return super.getSchemaCacheValue();
+    }
+
+    private SchemaCacheValue getIcebergSchema(Optional<MvccSnapshot> snapshot) {
+        return IcebergUtils.withSnapshotCacheValue(snapshot, this,
+                snapshotValue -> IcebergUtils.getSchemaCacheValue(this, snapshotValue));
     }
 
     public List<Type> getPartitionColumnTypes(Optional<MvccSnapshot> snapshot) {

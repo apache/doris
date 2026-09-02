@@ -198,6 +198,8 @@ public class IcebergScanNode extends FileQueryScanNode {
     private int formatVersion;
     private ExecutionAuthenticator preExecutionAuthenticator;
     private IcebergRuntimeContext runtimeContext;
+    private Boolean frozenEnableMappingVarbinary;
+    private Boolean frozenEnableMappingTimestampTz;
     private TableScan icebergTableScan;
     private Schema querySchema;
     // Store PropertiesMap, including vended credentials or static credentials
@@ -1770,6 +1772,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (snapshot.filter(IcebergMvccSnapshot.class::isInstance).isPresent()) {
             IcebergSnapshotCacheValue cacheValue =
                     ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
+            frozenEnableMappingVarbinary = cacheValue.isEnableMappingVarbinary();
+            frozenEnableMappingTimestampTz = cacheValue.isEnableMappingTimestampTz();
             Optional<Table> frozenTable = cacheValue.getIcebergTable();
             if (frozenTable.isPresent()) {
                 runtimeContext = cacheValue.getRuntimeContext();
@@ -1792,6 +1796,18 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
         return currentTable;
+    }
+
+    @Override
+    protected boolean getEnableMappingVarbinary() {
+        return frozenEnableMappingVarbinary == null
+                ? super.getEnableMappingVarbinary() : frozenEnableMappingVarbinary;
+    }
+
+    @Override
+    protected boolean getEnableMappingTimestampTz() {
+        return frozenEnableMappingTimestampTz == null
+                ? super.getEnableMappingTimestampTz() : frozenEnableMappingTimestampTz;
     }
 
     private java.util.concurrent.ExecutorService getPlanningExecutor() {

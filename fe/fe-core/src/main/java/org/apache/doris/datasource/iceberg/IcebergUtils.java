@@ -2287,6 +2287,27 @@ public class IcebergUtils {
         return icebergExternalMetaCache(dorisTable).getSnapshotCache(dorisTable);
     }
 
+    /** The action must return metadata derived from the snapshot rather than retain its table. */
+    public static <T> T withLatestSnapshotCacheValue(
+            ExternalTable dorisTable, Function<IcebergSnapshotCacheValue, T> action) {
+        return icebergExternalMetaCache(dorisTable).withSnapshotCacheValue(dorisTable, action);
+    }
+
+    /** Project metadata from a pinned snapshot or one bounded latest-generation lease. */
+    public static <T> T withSnapshotCacheValue(Optional<MvccSnapshot> snapshot,
+            ExternalTable dorisTable, Function<IcebergSnapshotCacheValue, T> action) {
+        Optional<IcebergSnapshotCacheValue> pinnedSnapshot = snapshot
+                .filter(IcebergMvccSnapshot.class::isInstance)
+                .map(IcebergMvccSnapshot.class::cast)
+                .map(IcebergMvccSnapshot::getSnapshotCacheValue);
+        if (pinnedSnapshot.isPresent()) {
+            Preconditions.checkState(pinnedSnapshot.get().getIcebergTable().isPresent(),
+                    "Pinned Iceberg snapshot does not retain its table generation");
+            return action.apply(pinnedSnapshot.get());
+        }
+        return withLatestSnapshotCacheValue(dorisTable, action);
+    }
+
     public static IcebergSnapshotCacheValue getSnapshotCacheValue(Optional<MvccSnapshot> snapshot,
             ExternalTable dorisTable) {
         if (snapshot.isPresent() && snapshot.get() instanceof IcebergMvccSnapshot) {
