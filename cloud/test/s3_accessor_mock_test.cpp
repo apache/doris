@@ -31,9 +31,9 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/aws_common.h"
-#include "cpp/test/container_credentials_test_util.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
+#include "cpp/test/container_credentials_test_util.h"
 #include "recycler/s3_accessor.h"
 
 using namespace doris;
