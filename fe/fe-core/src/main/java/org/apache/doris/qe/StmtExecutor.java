@@ -1455,6 +1455,12 @@ public class StmtExecutor {
             LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) parsedStmt;
             LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
             if (logicalPlan instanceof org.apache.doris.nereids.trees.plans.algebra.SqlCache) {
+                // sendCachedValues replays MySQL protocol packets, so it needs a MysqlChannel.
+                // ConnectProcessor.executeQuery only looks the sql cache up for a MySQL connection,
+                // so a cached plan must never reach another protocol here.
+                Preconditions.checkState(channel != null,
+                        "sql cache can only be replayed on a MySQL connection, but connect type is %s",
+                        context.getConnectType());
                 NereidsPlanner nereidsPlanner = (NereidsPlanner) planner;
                 PhysicalSqlCache physicalSqlCache = (PhysicalSqlCache) nereidsPlanner.getPhysicalPlan();
                 sendCachedValues(channel, physicalSqlCache.getCacheValues(), logicalPlanAdapter, false, true);
