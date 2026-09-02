@@ -878,13 +878,16 @@ TEST(DataTypeSerDeParquetTest, Int96DictionaryFailuresFollowDecodedIds) {
 }
 
 TEST(DataTypeSerDeParquetTest, TimestampTzChecksUnitOverflowAndTargetRange) {
-    constexpr int64_t MIN_TIMESTAMP_MICROS = -62135596800000000LL;
+    // TIMESTAMPTZ shares DATETIMEV2's storage, so its floor is 0000-01-01, not 0001-01-01. Year
+    // zero itself is covered in data_type_datetimev2_serde_calendar_test.cpp.
+    constexpr int64_t YEAR_ZERO_MICROS = -62167219200000000LL;
+    constexpr int64_t YEAR_ONE_MICROS = -62135596800000000LL;
     constexpr int64_t MAX_TIMESTAMP_MICROS = 253402300799999999LL;
     constexpr int64_t YEAR_10000_MILLIS = 253402300800000LL;
 
     {
         TestParquetDecodeSource source;
-        source.set_fixed_values<int64_t>({MIN_TIMESTAMP_MICROS, MAX_TIMESTAMP_MICROS});
+        source.set_fixed_values<int64_t>({YEAR_ZERO_MICROS, YEAR_ONE_MICROS, MAX_TIMESTAMP_MICROS});
         ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT64,
                                       .logical_type = ParquetLogicalType::TIMESTAMP,
                                       .time_unit = ParquetTimeUnit::MICROS,
@@ -894,12 +897,15 @@ TEST(DataTypeSerDeParquetTest, TimestampTzChecksUnitOverflowAndTargetRange) {
         auto column = type.create_column();
 
         ASSERT_TRUE(type.get_serde()
-                            ->read_column_from_parquet(*column, source, context, 2, state)
+                            ->read_column_from_parquet(*column, source, context, 3, state)
                             .ok());
         const auto& data = assert_cast<const ColumnTimeStampTz&>(*column).get_data();
-        EXPECT_EQ(data[0].year(), 1);
-        EXPECT_EQ(data[1].year(), 9999);
-        EXPECT_EQ(data[1].microsecond(), 999999);
+        EXPECT_EQ(data[0].year(), 0);
+        EXPECT_EQ(data[0].month(), 1);
+        EXPECT_EQ(data[0].day(), 1);
+        EXPECT_EQ(data[1].year(), 1);
+        EXPECT_EQ(data[2].year(), 9999);
+        EXPECT_EQ(data[2].microsecond(), 999999);
     }
     {
         TestParquetDecodeSource source;

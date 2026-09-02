@@ -149,19 +149,37 @@ suite("test_iceberg_write_partition_epoch_boundary",
     assertEquals(7, dorisPartitions.collect { it.toString() }.unique().size(),
                  "distinct timestamps must not share a partition: ${dorisPartitions}")
 
-    // DATE values must survive the round trip through the Doris writer as well. Cast to string:
-    // the MySQL JDBC driver cannot materialise a year-zero DATE as java.sql.Date.
-    // Only the DATE column is compared here: Doris deliberately restricts Parquet timestamp reads
-    // to years 0001-9999 (MIN_DORIS_TIMESTAMP_MICROS in be/src/core/data_type_serde/
-    // parquet_timestamp.h), so a year-zero timestamp written by either engine reads back as NULL.
-    // The partition values for those same rows are still checked above.
+    // The values themselves must survive the round trip through the Doris writer, not just their
+    // partition tuples. Cast to string: the MySQL JDBC driver cannot materialise a year-zero DATE
+    // as java.sql.Date, and Spark's rendering is the reference for the proleptic Gregorian
+    // calendar the file is written in.
+    //
+    // Iceberg `timestamp` is not adjusted to UTC, so the timestamp column lands on the civil
+    // Parquet timestamp path. Doris used to reject every value below 0001-01-01 there and to add
+    // its MySQL day number straight to a proleptic Gregorian ordinal, which shifted the whole
+    // 0000-01-01 .. 0000-02-28 window by a day; rows 1 and 2 read back as NULL and row 3 was the
+    // first one that survived. See https://github.com/apache/doris/issues/67447
     sql """refresh table epoch_boundary_doris"""
     spark_iceberg """refresh table demo.${dbName}.epoch_boundary_doris"""
     assertSparkDorisResultEquals(
-            spark_iceberg("""select cast(id as string), cast(p_date_day as string)
+            spark_iceberg("""select cast(id as string), cast(p_date_day as string),
+                                    cast(p_ts_day as string)
                              from demo.${dbName}.epoch_boundary_doris order by 1"""),
-            sql("""select cast(id as string), cast(p_date_day as string)
+            sql("""select cast(id as string), cast(p_date_day as string),
+                          cast(p_ts_day as string)
                    from epoch_boundary_doris order by 1"""))
+
+    // The same rows written by Spark, read by Doris: the reader has to accept a year-zero
+    // timestamp produced by the reference implementation, not only one it wrote itself.
+    sql """refresh table epoch_boundary_spark"""
+    spark_iceberg """refresh table demo.${dbName}.epoch_boundary_spark"""
+    assertSparkDorisResultEquals(
+            spark_iceberg("""select cast(id as string), cast(p_date_day as string),
+                                    cast(p_ts_day as string)
+                             from demo.${dbName}.epoch_boundary_spark order by 1"""),
+            sql("""select cast(id as string), cast(p_date_day as string),
+                          cast(p_ts_day as string)
+                   from epoch_boundary_spark order by 1"""))
 
     sql """drop database if exists ${dbName} force"""
     sql """drop catalog if exists ${catalogName}"""
