@@ -862,6 +862,97 @@ TEST(VariantAssemblerLegacyTest, UnsortedMaterializedPathsKeepSourceColumns) {
     EXPECT_EQ(json_at(assembled_values(output), 0), R"({"a":20,"m":{"child":30},"z":10})");
 }
 
+TEST(VariantAssemblerLegacyTest, FlatMaterializedSkipsNullSlotsAndKeepsOuterNull) {
+    constexpr size_t ROWS = 32;
+    auto make_nulls = [](size_t visible_row, size_t outer_null_row = ROWS) {
+        auto column = ColumnUInt8::create();
+        for (size_t row = 0; row < ROWS; ++row) {
+            column->insert_value(row != visible_row && row != outer_null_row);
+        }
+        return column;
+    };
+    auto z_values = ColumnInt32::create();
+    auto a_values = ColumnInt32::create();
+    for (size_t row = 0; row < ROWS; ++row) {
+        z_values->insert_value(static_cast<int32_t>(row + 10));
+        a_values->insert_value(static_cast<int32_t>(row + 1));
+    }
+    auto z = ColumnNullable::create(std::move(z_values), make_nulls(1));
+    auto a = ColumnNullable::create(std::move(a_values), make_nulls(0));
+
+    auto root_values = ColumnString::create();
+    root_values->insert_many_defaults(ROWS);
+    auto root_nulls = ColumnUInt8::create();
+    root_nulls->insert_many_defaults(ROWS);
+    root_nulls->get_data().back() = 1;
+    auto root = ColumnNullable::create(std::move(root_values), std::move(root_nulls));
+
+    const auto nullable_int = make_nullable(std::make_shared<DataTypeInt32>());
+    VariantAssemblerOptions options;
+    options.has_root = true;
+    options.materialized_paths = {
+            {.path = PathInData("z"), .type = nullable_int},
+            {.path = PathInData("a"), .type = nullable_int},
+    };
+    auto assembler = create_assembler(std::move(options));
+    const std::array<const IColumn*, 2> materialized {z.get(), a.get()};
+    VariantAssemblerBatchView batch;
+    batch.num_rows = ROWS;
+    batch.root_jsonb = root.get();
+    batch.materialized_columns = materialized;
+
+    ColumnNullable::MutablePtr output;
+    ASSERT_TRUE(assembler->assemble(batch, &output).ok());
+    EXPECT_EQ(json_at(assembled_values(output), 0), R"({"a":1})");
+    EXPECT_EQ(json_at(assembled_values(output), 1), R"({"z":11})");
+    for (size_t row = 2; row + 1 < ROWS; ++row) {
+        EXPECT_EQ(json_at(assembled_values(output), row), "{}") << "row=" << row;
+    }
+    EXPECT_EQ(json_at(assembled_values(output), ROWS - 1), "null");
+    EXPECT_EQ(output->get_null_map_data().back(), 1);
+}
+
+TEST(VariantAssemblerLegacyTest, LiteralDottedPathDoesNotDependOnOtherRootRows) {
+    constexpr size_t ROWS = 32;
+    PathInDataBuilder path_builder;
+    path_builder.append("a.b", false);
+    VariantAssemblerOptions options;
+    options.has_root = true;
+    options.materialized_paths = {{.path = path_builder.build(),
+                                   .type = make_nullable(std::make_shared<DataTypeInt32>())}};
+    auto assembler = create_assembler(std::move(options));
+
+    auto nested_values = ColumnInt32::create();
+    auto value_nulls = ColumnUInt8::create();
+    for (size_t row = 0; row < ROWS; ++row) {
+        nested_values->insert_value(static_cast<int32_t>(row + 7));
+        value_nulls->insert_value(row != 0);
+    }
+    auto values = ColumnNullable::create(std::move(nested_values), std::move(value_nulls));
+    const std::array<const IColumn*, 1> materialized {values.get()};
+    auto assemble = [&](bool second_root_is_nonempty) {
+        auto root = ColumnString::create();
+        root->insert_many_defaults(ROWS);
+        if (second_root_is_nonempty) {
+            auto object = jsonb_column(R"({"batch":1})");
+            root->pop_back(1);
+            root->insert_from(*object, 0);
+        }
+        VariantAssemblerBatchView batch;
+        batch.num_rows = ROWS;
+        batch.root_jsonb = root.get();
+        batch.materialized_columns = materialized;
+        ColumnNullable::MutablePtr output;
+        EXPECT_TRUE(assembler->assemble(batch, &output).ok());
+        return output;
+    };
+
+    auto empty_roots = assemble(false);
+    auto mixed_roots = assemble(true);
+    EXPECT_EQ(json_at(assembled_values(empty_roots), 0), R"({"a":7})");
+    EXPECT_EQ(json_at(assembled_values(mixed_roots), 0), R"({"a":7})");
+}
+
 TEST(VariantAssemblerLegacyTest, RootSidecarYieldsToVisibleHierarchicalStreams) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     const std::string sparse_cell = fixed_storage_cell<int32_t>(FieldType::OLAP_FIELD_TYPE_INT, 20);

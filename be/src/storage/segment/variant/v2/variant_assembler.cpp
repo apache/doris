@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -29,6 +30,7 @@
 #include "core/column/column_vector.h"
 #include "core/column/variant_column_utils.h"
 #include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
@@ -298,6 +300,95 @@ struct PreparedHierarchicalBatch {
     DorisVector<variant_assembler_detail::PreparedMaterializedColumn> materialized;
 };
 
+bool can_assemble_flat_materialized(StorageMapKind storage_map_kind, const PathInData& requested,
+                                    std::span<const MaterializedSlot> materialized_slots) {
+    if (storage_map_kind != StorageMapKind::NONE || !requested.empty() ||
+        materialized_slots.empty()) {
+        return false;
+    }
+    for (size_t index = 0; index < materialized_slots.size(); ++index) {
+        const MaterializedSlot& slot = materialized_slots[index];
+        const auto& parts = slot.relative_path.get_parts();
+        if (parts.size() != 1 || parts.front().key.find('.') != std::string_view::npos ||
+            remove_nullable(slot.type)->get_primitive_type() == TYPE_ARRAY ||
+            (index != 0 && slot.relative_path == materialized_slots[index - 1].relative_path)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool has_only_empty_root_payload(const PreparedHierarchicalBatch& batch, size_t rows) {
+    if (batch.root_values == nullptr) {
+        return true;
+    }
+    for (size_t row = 0; row < rows; ++row) {
+        if ((batch.root_nulls == nullptr || batch.root_nulls[row] == 0) &&
+            batch.root_values->get_data_at(row).size != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+template <typename Visitor>
+void visit_visible_scalar_rows(const variant_assembler_detail::PreparedMaterializedColumn& column,
+                               size_t rows, Visitor&& visitor) {
+    DCHECK_NE(column.primitive, TYPE_ARRAY);
+    if (column.nulls == nullptr) {
+        for (size_t row = 0; row < rows; ++row) {
+            visitor(row);
+        }
+        return;
+    }
+    const uint8_t* current = column.nulls;
+    const uint8_t* end = current + rows;
+    while (current != end) {
+        const auto* visible = static_cast<const uint8_t*>(std::memchr(current, 0, end - current));
+        if (visible == nullptr) {
+            return;
+        }
+        visitor(static_cast<size_t>(visible - column.nulls));
+        current = visible + 1;
+    }
+}
+
+struct ActiveMaterializedRows {
+    DorisVector<size_t> offsets;
+    DorisVector<size_t> slots;
+};
+
+bool index_active_materialized_rows(const PreparedHierarchicalBatch& batch, size_t rows,
+                                    ActiveMaterializedRows* result) {
+    result->offsets.resize(rows + 1);
+    for (const auto& column : batch.materialized) {
+        visit_visible_scalar_rows(column, rows, [&](size_t row) {
+            if (batch.root_nulls == nullptr || batch.root_nulls[row] == 0) {
+                ++result->offsets[row + 1];
+            }
+        });
+    }
+    for (size_t row = 0; row < rows; ++row) {
+        result->offsets[row + 1] += result->offsets[row];
+    }
+    // The CSR index is intended only for sparse batches. At most one out of sixteen cells may
+    // become an active slot, bounding both its memory and its second column scan.
+    if (static_cast<unsigned __int128>(result->offsets.back()) * 16 >
+        static_cast<unsigned __int128>(rows) * batch.materialized.size()) {
+        return false;
+    }
+    result->slots.resize(result->offsets.back());
+    DorisVector<size_t> positions = result->offsets;
+    for (size_t slot = 0; slot < batch.materialized.size(); ++slot) {
+        visit_visible_scalar_rows(batch.materialized[slot], rows, [&](size_t row) {
+            if (batch.root_nulls == nullptr || batch.root_nulls[row] == 0) {
+                result->slots[positions[row]++] = slot;
+            }
+        });
+    }
+    return true;
+}
+
 bool has_materialized_value(
         std::span<const variant_assembler_detail::PreparedMaterializedColumn> materialized,
         std::span<const MaterializedSlot> materialized_slots, size_t row,
@@ -557,14 +648,53 @@ Status assemble_hierarchical_row(StorageMapKind storage_map_kind, bool has_root,
     return Status::OK();
 }
 
+Status assemble_flat_materialized(std::span<const MaterializedSlot> materialized_slots,
+                                  const PreparedHierarchicalBatch& batch,
+                                  const ActiveMaterializedRows& active, size_t rows,
+                                  ColumnNullable::MutablePtr* output) {
+    VariantBatchBuilder builder({.rows = rows, .metadata_keys = materialized_slots.size()});
+    auto outer = ColumnUInt8::create();
+    outer->reserve(rows);
+    for (size_t row_index = 0; row_index < rows; ++row_index) {
+        auto row = builder.begin_row();
+        if (batch.root_nulls != nullptr && batch.root_nulls[row_index] != 0) {
+            outer->insert_value(1);
+            row.add_null();
+            row.finish();
+            continue;
+        }
+        auto object = row.start_object();
+        for (size_t active_index = active.offsets[row_index];
+             active_index < active.offsets[row_index + 1]; ++active_index) {
+            const size_t slot_index = active.slots[active_index];
+            const std::string& path = materialized_slots[slot_index].relative_path.get_path();
+            object.add_key({path.data(), path.size()});
+            RETURN_IF_ERROR(variant_assembler_detail::append_materialized_value(
+                    batch.materialized[slot_index], row_index, row, 1));
+        }
+        object.finish();
+        outer->insert_value(0);
+        row.finish();
+    }
+    publish_encoded(&builder, std::move(outer), output);
+    return Status::OK();
+}
+
 Status assemble_hierarchical(StorageMapKind storage_map_kind, bool has_root,
                              const PathInData& requested,
                              std::span<const MaterializedSlot> materialized_slots,
-                             const VariantAssemblerBatchView& batch,
+                             bool can_assemble_flat, const VariantAssemblerBatchView& batch,
                              ColumnNullable::MutablePtr* output) {
     StorageMapRowCursor map_cursor;
     PreparedHierarchicalBatch prepared = prepare_hierarchical_batch(
             storage_map_kind, has_root, materialized_slots, batch, &map_cursor);
+    if (can_assemble_flat && has_only_empty_root_payload(prepared, batch.num_rows)) {
+        ActiveMaterializedRows active;
+        if (index_active_materialized_rows(prepared, batch.num_rows, &active)) {
+            return assemble_flat_materialized(materialized_slots, prepared, active, batch.num_rows,
+                                              output);
+        }
+    }
     VariantBatchBuilder builder(
             {.rows = batch.num_rows, .metadata_keys = materialized_slots.size() + 8});
     auto outer = ColumnUInt8::create();
@@ -652,26 +782,31 @@ Result<std::unique_ptr<VariantAssembler>> VariantAssembler::create(
         VariantAssemblerOptions options) {
     RETURN_IF_ERROR_RESULT(check_options(options));
     DorisVector<MaterializedSlot> materialized = build_materialized_slots(options);
+    const bool can_assemble_flat = can_assemble_flat_materialized(
+            options.storage_map_kind, options.requested_path, materialized);
     return std::unique_ptr<VariantAssembler>(
             new VariantAssembler(options.storage_map_kind, options.has_root, options.requested_path,
-                                 std::move(materialized)));
+                                 std::move(materialized), can_assemble_flat));
 }
 
 VariantAssembler::VariantAssembler(
         StorageMapKind storage_map_kind, bool has_root, const PathInData& requested,
-        DorisVector<variant_assembler_detail::MaterializedSlot> materialized)
+        DorisVector<variant_assembler_detail::MaterializedSlot> materialized,
+        bool can_assemble_flat_materialized)
         : _storage_map_kind(storage_map_kind),
           _has_root(has_root),
           _requested(requested),
-          _materialized(std::move(materialized)) {}
+          _materialized(std::move(materialized)),
+          _can_assemble_flat_materialized(can_assemble_flat_materialized) {}
 
 Status VariantAssembler::assemble(const VariantAssemblerBatchView& batch,
                                   ColumnNullable::MutablePtr* output) const {
     DORIS_CHECK(output != nullptr);
     try {
         ColumnNullable::MutablePtr result;
-        const Status status = assemble_hierarchical(_storage_map_kind, _has_root, _requested,
-                                                    _materialized, batch, &result);
+        const Status status =
+                assemble_hierarchical(_storage_map_kind, _has_root, _requested, _materialized,
+                                      _can_assemble_flat_materialized, batch, &result);
         if (!status.ok()) {
             return status;
         }

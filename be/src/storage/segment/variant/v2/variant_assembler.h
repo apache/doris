@@ -94,12 +94,14 @@ public:
 
 private:
     VariantAssembler(StorageMapKind storage_map_kind, bool has_root, const PathInData& requested,
-                     DorisVector<variant_assembler_detail::MaterializedSlot> materialized);
+                     DorisVector<variant_assembler_detail::MaterializedSlot> materialized,
+                     bool can_assemble_flat_materialized);
 
     StorageMapKind _storage_map_kind;
     bool _has_root;
     PathInData _requested;
     DorisVector<variant_assembler_detail::MaterializedSlot> _materialized;
+    bool _can_assemble_flat_materialized;
 };
 
 } // namespace segment_v2::variant_v2
