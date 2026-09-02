@@ -925,7 +925,7 @@ def build_subagent_session_payload(args, session_path, session_events):
                 "name": "codex.subagent.review",
                 "startTime": first_timestamp,
                 "endTime": root_end,
-                "input": {"session_file": session_path, "thread_id": thread_id},
+                "input": {"prompt": trace_input},
                 "output": {"final_message": trace_output},
                 "environment": args.environment,
                 "metadata": trace_metadata,
@@ -1098,7 +1098,7 @@ def shrink_event_for_payload(event, max_payload_bytes):
     )
 
 
-def chunk_payload(payload, max_payload_bytes):
+def chunk_payload(payload, max_payload_bytes, shrink_oversized=True):
     batch = payload.get("batch") or []
     chunks = []
     current = []
@@ -1107,7 +1107,7 @@ def chunk_payload(payload, max_payload_bytes):
     for event in batch:
         event_payload = {"batch": [event]}
         event_bytes = json_payload_bytes(event_payload)
-        if event_bytes > max_payload_bytes:
+        if event_bytes > max_payload_bytes and shrink_oversized:
             event = shrink_event_for_payload(event, max_payload_bytes)
             event_payload = {"batch": [event]}
             event_bytes = json_payload_bytes(event_payload)
@@ -1349,8 +1349,10 @@ def otlp_chunks(payload, max_payload_bytes, trace_body=None):
     if not events:
         raise RuntimeError("Litefuse payload contains no spans for OTLP ingestion")
     prechunk_limit = max(1_000, max_payload_bytes // 2)
+    # Bound multi-event OTLP encodes without truncating an individual event before
+    # add_chunk measures its encoded span against the full request limit.
     for legacy_chunk, _legacy_size in chunk_payload(
-        {"batch": events}, prechunk_limit
+        {"batch": events}, prechunk_limit, shrink_oversized=False
     ):
         add_chunk(legacy_chunk["batch"])
     return chunks
@@ -1443,12 +1445,10 @@ def post_payload(
                     chunk, max_payload_bytes, trace_body
                 ) + chunks
                 continue
-            next_limit = max(1_000, min(max_payload_bytes - 1, request_size // 2))
-            if next_limit >= request_size:
-                raise RuntimeError(
-                    "Litefuse OTLP ingestion returned 413 and the request cannot be "
-                    f"reduced further: {request_size} bytes"
-                ) from exc
+            # Retry a strictly smaller complete OTLP envelope. Using half of the
+            # rejected size can be smaller than the fixed resource/trace attributes
+            # and prevent a viable reduced observation from being attempted.
+            next_limit = request_size - 1
             chunks = otlp_chunks(chunk, next_limit, trace_body) + chunks
             continue
         except (TimeoutError, urllib.error.URLError) as exc:

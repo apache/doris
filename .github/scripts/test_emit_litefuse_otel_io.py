@@ -18,7 +18,9 @@
 
 import importlib.util
 import io
+import json
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 import urllib.error
@@ -114,6 +116,73 @@ class LitefuseOtelExporterTest(unittest.TestCase):
             ["doris-ai-review", "codex-jsonl"],
         )
 
+    def test_subagent_root_observation_preserves_task_input(self):
+        args = SimpleNamespace(
+            max_input_chars=200_000,
+            max_output_chars=200_000,
+            max_json_chars=40_000,
+            repository="apache/doris",
+            workflow="Code Review",
+            run_id="run-123",
+            pr_number="67413",
+            head_sha="a" * 40,
+            base_sha="b" * 40,
+            reasoning_effort="xhigh",
+            session_id="run-123",
+            subagent_trace_name="doris-ai-review-subagent",
+            environment="github-actions",
+            model="gpt-5.6-sol",
+        )
+        session_path = "/tmp/thread-123.jsonl"
+        events = [
+            {
+                "type": "session_meta",
+                "timestamp": "2026-09-01T00:00:00.000Z",
+                "payload": {"id": "thread-123"},
+            },
+            {
+                "type": "response_item",
+                "timestamp": "2026-09-01T00:00:01.000Z",
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "review task"}],
+                },
+            },
+            {
+                "type": "response_item",
+                "timestamp": "2026-09-01T00:00:02.000Z",
+                "payload": {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "review result"}],
+                },
+            },
+        ]
+
+        result = MODULE.build_subagent_session_payload(args, session_path, events)
+        chunks = MODULE.otlp_chunks(result["payload"], max_payload_bytes=20_000)
+        spans = [
+            span
+            for _legacy, otel, _size in chunks
+            for resource in otel["resourceSpans"]
+            for scope in resource["scopeSpans"]
+            for span in scope["spans"]
+        ]
+        root = next(span for span in spans if span["name"] == "codex.subagent.review")
+        attributes = attribute_values(root)
+
+        self.assertEqual(
+            json.loads(attributes["langfuse.observation.input"]),
+            {"prompt": "review task"},
+        )
+        self.assertEqual(
+            attributes["langfuse.observation.metadata.session_file"], session_path
+        )
+        self.assertEqual(
+            attributes["langfuse.observation.metadata.thread_id"], "thread-123"
+        )
+
     def test_chunks_encoded_otlp_payloads_to_requested_size(self):
         trace_event = {"type": "trace-create", "body": self.trace_body()}
         span_events = [
@@ -147,6 +216,27 @@ class LitefuseOtelExporterTest(unittest.TestCase):
             otel["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         )["langfuse.observation.output"]
         self.assertIn("truncated_json", output)
+
+    def test_does_not_truncate_span_below_full_otlp_limit(self):
+        trace_event = {"type": "trace-create", "body": self.trace_body()}
+        span_event = self.span_event("2" * 32, output_size=3_500)
+        original = MODULE.otlp_payload(self.trace_body(), [span_event])
+        original_size = MODULE.json_payload_bytes(original)
+
+        self.assertGreater(original_size, 3_000)
+        self.assertLessEqual(original_size, 6_000)
+        chunks = MODULE.otlp_chunks(
+            {"batch": [trace_event, span_event]}, max_payload_bytes=6_000
+        )
+
+        self.assertEqual(len(chunks), 1)
+        _legacy, otel, size = chunks[0]
+        self.assertEqual(size, original_size)
+        output = attribute_values(
+            otel["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        )["langfuse.observation.output"]
+        self.assertNotIn("truncated_json", output)
+        self.assertEqual(len(json.loads(output)["text"]), 3_500)
 
     def test_prechunks_before_otlp_encoding(self):
         trace_event = {"type": "trace-create", "body": self.trace_body()}
@@ -284,6 +374,52 @@ class LitefuseOtelExporterTest(unittest.TestCase):
         self.assertEqual(status["payload_too_large_retries"], 1)
         self.assertEqual(status["request_count"], 2)
         self.assertEqual(status["success_count"], 2)
+
+    def test_retries_single_span_413_without_half_size_ceiling(self):
+        trace_body = {
+            **self.trace_body(),
+            "metadata": {"repository": "apache/doris", "fixed": "m" * 3_000},
+        }
+        trace_event = {"type": "trace-create", "body": trace_body}
+        span_event = self.span_event("2" * 32, output_size=1_500)
+        server_limit = (
+            MODULE.json_payload_bytes(MODULE.otlp_payload(trace_body, [span_event])) - 1
+        )
+        request_sizes = []
+
+        def reject_first_request(request, timeout):
+            request_sizes.append(len(request.data))
+            if len(request.data) > server_limit:
+                raise urllib.error.HTTPError(
+                    request.full_url,
+                    413,
+                    "Payload Too Large",
+                    {},
+                    io.BytesIO(b"payload too large"),
+                )
+            return FakeResponse()
+
+        with mock.patch.object(
+            MODULE.urllib.request, "urlopen", side_effect=reject_first_request
+        ):
+            status = MODULE.post_payload(
+                "https://litefuse.example/api/public/otel/v1/traces",
+                "public",
+                "secret",
+                {"batch": [trace_event, span_event]},
+                10_000,
+                30,
+                3,
+                0,
+            )
+
+        self.assertEqual(status["payload_too_large_retries"], 1)
+        self.assertEqual(status["request_count"], 1)
+        self.assertEqual(status["success_count"], 1)
+        self.assertEqual(len(request_sizes), 2)
+        self.assertLessEqual(request_sizes[1], server_limit)
+        self.assertLess(request_sizes[1], request_sizes[0])
+        self.assertGreater(request_sizes[1], request_sizes[0] // 2)
 
 
 if __name__ == "__main__":
