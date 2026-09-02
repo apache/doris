@@ -22,6 +22,7 @@
 #include <arrow/array/builder_decimal.h>
 #include <arrow/array/builder_nested.h>
 #include <arrow/array/builder_primitive.h>
+#include <arrow/extension_type.h>
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
@@ -207,8 +208,12 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
                    column->byte_size() >= MAX_ARROW_UTF8) {
             arrow_type = arrow::large_binary();
         }
+        const bool is_extension = arrow_type->id() == arrow::Type::EXTENSION;
+        const auto builder_type =
+                is_extension ? static_cast<const arrow::ExtensionType&>(*arrow_type).storage_type()
+                             : arrow_type;
         std::unique_ptr<arrow::ArrayBuilder> builder;
-        auto arrow_st = arrow::MakeBuilder(_pool, arrow_type, &builder);
+        auto arrow_st = arrow::MakeBuilder(_pool, builder_type, &builder);
         if (!arrow_st.ok()) {
             return to_doris_status(arrow_st);
         }
@@ -228,10 +233,13 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
                     "Fail to convert block data to arrow data, type: {}, name: {}, error: {}",
                     _cur_type->get_name(), _block.get_by_position(idx).name, e.what());
         }
-        arrow_st = _cur_builder->Finish(&_arrays[_cur_field_idx]);
+        std::shared_ptr<arrow::Array> array;
+        arrow_st = _cur_builder->Finish(&array);
         if (!arrow_st.ok()) {
             return to_doris_status(arrow_st);
         }
+        _arrays[_cur_field_idx] = is_extension ? arrow::ExtensionType::WrapArray(arrow_type, array)
+                                               : std::move(array);
     }
     *out = arrow::RecordBatch::Make(_schema, actual_rows, std::move(_arrays));
     return Status::OK();

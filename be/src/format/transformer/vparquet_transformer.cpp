@@ -17,6 +17,7 @@
 
 #include "format/transformer/vparquet_transformer.h"
 
+#include <arrow/extension/parquet_variant.h>
 #include <arrow/io/type_fwd.h>
 #include <arrow/table.h>
 #include <arrow/util/key_value_metadata.h>
@@ -35,6 +36,8 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/arrow/arrow_block_convertor.h"
@@ -48,6 +51,21 @@
 #include "util/debug_util.h"
 
 namespace doris {
+namespace {
+
+std::shared_ptr<arrow::DataType> parquet_variant_arrow_type() {
+    static const auto type = arrow::extension::variant(arrow::struct_({
+            arrow::field("metadata", arrow::binary(), false),
+            arrow::field("value", arrow::binary(), false),
+    }));
+    return type;
+}
+
+bool is_variant_v2(const DataTypePtr& type) {
+    return dynamic_cast<const DataTypeVariantV2*>(remove_nullable(type).get()) != nullptr;
+}
+
+} // namespace
 
 ParquetOutputStream::ParquetOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0) {
@@ -237,8 +255,12 @@ Status VParquetTransformer::_parse_schema() {
     } else {
         for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
             std::shared_ptr<arrow::DataType> type;
-            RETURN_IF_ERROR(convert_to_arrow_type(_output_vexpr_ctxs[i]->root()->data_type(), &type,
-                                                  _state->timezone()));
+            const DataTypePtr& output_type = _output_vexpr_ctxs[i]->root()->data_type();
+            if (_output_object_data && is_variant_v2(output_type)) {
+                type = parquet_variant_arrow_type();
+            } else {
+                RETURN_IF_ERROR(convert_to_arrow_type(output_type, &type, _state->timezone()));
+            }
             if (!_parquet_schemas.empty()) {
                 std::shared_ptr<arrow::Field> field =
                         arrow::field(_parquet_schemas[i].schema_column_name, type,
