@@ -20,10 +20,13 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "cctz/time_zone.h"
+#include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
 #include "exprs/vexpr_fwd.h"
 
@@ -64,8 +67,19 @@ namespace doris {
 // a partial filter only ever prunes a superset and never changes results.
 class PaimonRustPredicateConverter {
 public:
+    // V1 mode: resolve fields via slot descriptors from RuntimeState's desc table.
+    // The conjuncts are the scanner's original slot-based expressions.
     PaimonRustPredicateConverter(const std::vector<SlotDescriptor*>& file_slot_descs,
                                  RuntimeState* state, const paimon_table* table);
+    // V2 mode: resolve fields by column name from the supplied registry. FileScannerV2
+    // rewrites conjunct VSlotRefs to table global indices (positions, not slot ids),
+    // so the v1 desc-table lookup must not run; the rewritten refs carry the original
+    // column name and data type instead. `column_names` should list only the columns
+    // the reader actually reads (e.g. exclude partition keys); the caller guarantees
+    // names and types are parallel.
+    PaimonRustPredicateConverter(const std::vector<std::string>& column_names,
+                                 const std::vector<DataTypePtr>& column_types,
+                                 const paimon_table* table);
 
     // Builds an owned predicate AND-combining every convertible conjunct, or
     // nullptr when nothing can be pushed down.
@@ -76,7 +90,8 @@ private:
         // Original file column name passed verbatim to the paimon_predicate_*
         // functions (rust resolves the field index/type from the schema by name).
         std::string column;
-        const SlotDescriptor* slot_desc = nullptr;
+        // Column type used for literal conversion (replaces the v1 SlotDescriptor).
+        DataTypePtr type;
     };
 
     // A datum plus its backing byte storage. String/Bytes datums hold a borrowed
@@ -101,7 +116,7 @@ private:
 
     std::optional<FieldMeta> _resolve_field(const VExprSPtr& expr) const;
     std::optional<DatumHolder> _convert_literal(const VExprSPtr& expr,
-                                                const SlotDescriptor& slot_desc) const;
+                                                const DataTypePtr& column_type) const;
     std::optional<std::string> _extract_string_literal(const VExprSPtr& expr) const;
 
     // Consumes a paimon_result_predicate: frees the error (logging it) and
@@ -123,6 +138,9 @@ private:
     static bool _is_supported_slot_type(PrimitiveType type, uint32_t precision);
 
     std::unordered_set<std::string> _file_columns; // normalized file column names
+    // V2 mode registry: normalized column name -> original name and type. Empty in
+    // v1 mode, which resolves through the desc table instead.
+    std::unordered_map<std::string, std::pair<std::string, DataTypePtr>> _columns_by_name;
     RuntimeState* _state = nullptr;
     const paimon_table* _table = nullptr;
     cctz::time_zone _gmt_tz;
