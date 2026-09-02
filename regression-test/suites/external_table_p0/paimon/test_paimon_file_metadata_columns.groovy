@@ -23,6 +23,7 @@ suite("test_paimon_file_metadata_columns", "p0,external") {
     }
 
     String catalogName = "test_paimon_file_metadata_columns"
+    String dbName = "paimon_file_metadata_columns_db"
     String hdfsPort = context.config.otherConfigs.get("hive2HdfsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String crossFileTable = "file_metadata_cross_file_positions"
@@ -71,31 +72,34 @@ suite("test_paimon_file_metadata_columns", "p0,external") {
         }
     }
 
+    sql """drop catalog if exists ${catalogName}"""
+    sql """create catalog ${catalogName} properties (
+        "type" = "paimon",
+        "paimon.catalog.type" = "filesystem",
+        "warehouse" = "hdfs://${externalEnvIp}:${hdfsPort}/user/doris/paimon1",
+        "meta.cache.paimon.table.ttl-second" = "0"
+    )"""
+
     try {
         // Two independent append commits create two physical data files.  The selected rows omit
         // the first row in each file, so their reported positions must remain physical 1/2 rather
         // than being renumbered after filtering or scanner-range splitting.
         spark_paimon_multi """
-            create database if not exists paimon.db1;
-            drop table if exists paimon.db1.${crossFileTable};
-            create table paimon.db1.${crossFileTable} (id int, payload string)
+            create database if not exists paimon.${dbName};
+            drop table if exists paimon.${dbName}.${crossFileTable};
+            create table paimon.${dbName}.${crossFileTable} (id int, payload string)
                 using paimon tblproperties (
                     'bucket'='1',
                     'bucket-key'='id',
                     'file.format'='parquet'
                 );
-            insert into paimon.db1.${crossFileTable} values
+            insert into paimon.${dbName}.${crossFileTable} values
                 (1, 'first-1'), (2, 'first-2'), (3, 'first-3');
-            insert into paimon.db1.${crossFileTable} values
+            insert into paimon.${dbName}.${crossFileTable} values
                 (4, 'second-1'), (5, 'second-2'), (6, 'second-3');
         """
 
-        sql """drop catalog if exists ${catalogName}"""
-        sql """create catalog ${catalogName} properties (
-            "type" = "paimon",
-            "paimon.catalog.type" = "filesystem",
-            "warehouse" = "hdfs://${externalEnvIp}:${hdfsPort}/user/doris/paimon1"
-        )"""
+        sql """refresh catalog ${catalogName}"""
         sql """switch ${catalogName}"""
         sql """use db1"""
         sql """set enable_file_scanner_v2=true"""
@@ -108,7 +112,7 @@ suite("test_paimon_file_metadata_columns", "p0,external") {
 
         def crossFileRows = sql """
             select id, `__paimon_file_path`, `__paimon_row_index`
-            from ${crossFileTable}
+            from ${dbName}.${crossFileTable}
             where id in (2, 3, 5, 6)
             order by id
         """
