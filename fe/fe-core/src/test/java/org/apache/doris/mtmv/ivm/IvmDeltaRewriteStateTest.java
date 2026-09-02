@@ -168,7 +168,7 @@ class IvmDeltaRewriteStateTest extends IvmDeltaTestBase {
         Partition partition = table.getPartition("p" + partitionIndex);
         MaterializedIndex index = partition.getBaseIndex();
         index.addTablet(new LocalTablet(tabletId),
-                new TabletMeta(1L, table.getId(), partition.getId(), index.getId(), 0, TStorageMedium.HDD));
+                new TabletMeta(1L, table.getId(), partition.getId(), index.getId(), 0, TStorageMedium.HDD, true));
     }
 
     @Test
