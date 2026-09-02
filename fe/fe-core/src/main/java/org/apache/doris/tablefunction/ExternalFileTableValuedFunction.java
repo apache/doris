@@ -560,7 +560,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (Util.isCsvFormat(fileFormatProperties.getFileFormatType())
                 || fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_JSON) {
             int magicNumberBytes = 0;
-            switch (fileFormatProperties.getCompressionType()) {
+            TFileCompressType compressType = Util.getOrInferCompressType(
+                    fileFormatProperties.getCompressionType(), fileStatus.getPath());
+            switch (compressType) {
                 case GZ:
                     magicNumberBytes = 20;
                     break;
