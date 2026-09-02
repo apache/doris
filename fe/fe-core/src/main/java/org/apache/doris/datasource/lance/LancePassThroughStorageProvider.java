@@ -33,8 +33,8 @@ import java.util.Map;
  * {@code endpoint} and takes {@code token} as a bearer token. Rewriting either onto the S3
  * spellings would leave the dataset unreachable, which is what this class exists to prevent.
  *
- * <p>{@link #fromDorisProperties} is empty for want of a translation, not for want of input: Doris
- * does model these - {@code COSProperties} carries an endpoint and
+ * <p>{@link #normalizeDorisStorageOptions} is empty for want of a translation, not for want of
+ * input: Doris does model these - {@code COSProperties} carries an endpoint and
  * credentials like any other. Writing that translation means committing to a vocabulary per
  * provider with no way to exercise it here, which is how the rewriting bug above got in, so it
  * waits for a backend that can be tested against.
@@ -47,12 +47,19 @@ final class LancePassThroughStorageProvider implements LanceStorageProvider {
     }
 
     @Override
-    public Map<String, String> fromDorisProperties(List<StorageProperties> storageProperties) {
+    public Map<String, String> normalizeDorisStorageOptions(
+            List<StorageProperties> storageProperties) {
         return Collections.emptyMap();
     }
 
     @Override
-    public Map<String, String> normalizeVended(Map<String, String> vendedOptions) {
+    public Map<String, String> normalizeVendedStorageOptions(
+            Map<String, String> vendedOptions) {
         return vendedOptions == null ? new HashMap<>() : new HashMap<>(vendedOptions);
+    }
+
+    @Override
+    public Map<String, String> inferStorageOptions(Map<String, String> effectiveOptions) {
+        return Collections.emptyMap();
     }
 }

@@ -54,7 +54,7 @@ public final class LanceMetadataLoader {
             throws Exception {
         try (BufferAllocator allocator = new RootAllocator(ALLOCATOR_LIMIT)) {
             return loadLatest(datasetUri,
-                    LanceStorageOptions.forUri(datasetUri, storageProperties), allocator);
+                    LanceStorageOptions.fromDorisStorageProperties(datasetUri, storageProperties), allocator);
         }
     }
 

@@ -55,19 +55,27 @@ public interface LanceStorageProvider {
      * <p>Empty when the list holds nothing this provider can read. Providers without a Doris
      * adapter are reachable only through what a namespace vends.
      */
-    Map<String, String> fromDorisProperties(List<StorageProperties> storageProperties);
+    Map<String, String> normalizeDorisStorageOptions(List<StorageProperties> storageProperties);
 
     /**
-     * Rewrites the options a namespace vended onto the spelling {@link #fromDorisProperties}
-     * emits, so that the two cannot reach Lance as competing entries for one config key.
+     * Rewrites the options a namespace vended onto the spelling
+     * {@link #normalizeDorisStorageOptions} emits, so that the two cannot reach Lance as competing
+     * entries for one config key.
      *
      * <p>Only the options Doris itself emits are rewritten. Everything else is passed through
      * untouched: the Lance Namespace specification describes {@code storage_options} as
      * configuration "passed directly to Lance", so a client cannot assume a vocabulary beyond the
      * one it contributes to itself.
      */
-    Map<String, String> normalizeVended(Map<String, String> vendedOptions);
+    Map<String, String> normalizeVendedStorageOptions(Map<String, String> vendedOptions);
 
+    /**
+     * Derives provider options from the fully normalized and merged option map.
+     *
+     * <p>The returned entries are defaults: an explicitly supplied option always wins. Inference
+     * therefore runs only after catalog and namespace options have been reconciled.
+     */
+    Map<String, String> inferStorageOptions(Map<String, String> effectiveOptions);
 
     /** The provider Lance will route this dataset to. */
     static LanceStorageProvider forDataset(String datasetUri) {

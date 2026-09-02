@@ -106,7 +106,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
             rootDatabase = properties.getRootDatabase();
             parentNamespace = LanceNamespaceName.parseParentNamespace(
                     properties.getNamespaceParent(), properties.getNamespaceDelimiter());
-            namespaceStorageOptions = LanceStorageOptions.forUri(
+            namespaceStorageOptions = LanceStorageOptions.fromDorisStorageProperties(
                     properties.getNamespaceStorageUri(),
                     catalogProperty.getOrderedStoragePropertiesList());
 
@@ -129,7 +129,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
         }
 
         AbstractLanceProperties properties = getLanceProperties();
-        Map<String, String> storageOptions = LanceStorageOptions.forUri(
+        Map<String, String> storageOptions = LanceStorageOptions.fromDorisStorageProperties(
                 properties.getNamespaceStorageUri(),
                 catalogProperty.getOrderedStoragePropertiesList());
         List<String> parent = LanceNamespaceName.parseParentNamespace(
@@ -400,7 +400,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
         // One option map serves both readers: the FE opens the dataset through the Lance Java SDK
         // and the BE through lance-c, so neither can end up with credentials the other lacks. The
         // dataset URL picks the option vocabulary, the same way Lance picks a provider from it.
-        Map<String, String> storageOptions = LanceStorageOptions.forVendedTable(datasetUri,
+        Map<String, String> storageOptions = LanceStorageOptions.fromDorisAndVendedStorageOptions(datasetUri,
                 catalogProperty.getOrderedStoragePropertiesList(), table.getStorageOptions());
         return new ResolvedTableAccess(datasetUri, storageOptions);
     }
