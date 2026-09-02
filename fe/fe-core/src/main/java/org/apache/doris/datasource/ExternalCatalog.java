@@ -98,6 +98,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 /**
@@ -163,6 +164,7 @@ public abstract class ExternalCatalog
     protected CatalogProperty catalogProperty;
     @SerializedName(value = "initialized")
     protected boolean initialized = false;
+    private AtomicLong metadataLoadEpoch = new AtomicLong();
     @SerializedName(value = "lastUpdateTime")
     protected long lastUpdateTime;
     // <db name, table name> to tableAutoAnalyzePolicy
@@ -185,7 +187,7 @@ public abstract class ExternalCatalog
     protected ExecutionAuthenticator executionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
     // Map lowercase database names to actual remote database names for case-insensitive lookup
-    private Map<String, String> lowerCaseToDatabaseName = Maps.newConcurrentMap();
+    private volatile Map<String, String> lowerCaseToDatabaseName = Maps.newConcurrentMap();
 
     private volatile Configuration cachedConf = null;
     private byte[] confLock = new byte[0];
@@ -421,11 +423,27 @@ public abstract class ExternalCatalog
                     OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
                     Math.max(Config.max_meta_object_cache_num, 1),
                     ignored -> getFilteredDatabaseNames(),
+                    this::updateLowerCaseToDatabaseName,
+                    (remoteName, localName) -> lowerCaseToDatabaseName.put(remoteName.toLowerCase(), remoteName),
+                    localName -> lowerCaseToDatabaseName.remove(localName.toLowerCase()),
                     localDbName -> Optional.ofNullable(
                             buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
                                     true)),
-                    (key, value, cause) -> value.ifPresent(v -> v.resetMetaToUninitialized()));
+                    (key, value, cause) -> value.ifPresent(v -> v.resetMetaToUninitialized()),
+                    this::acquireMetadataLoadEpoch,
+                    this::isMetadataLoadEpochCurrent);
         }
+    }
+
+    protected long acquireMetadataLoadEpoch() {
+        synchronized (this) {
+            makeSureInitialized();
+            return metadataLoadEpoch.get();
+        }
+    }
+
+    boolean isMetadataLoadEpochCurrent(long epoch) {
+        return metadataLoadEpoch.get() == epoch;
     }
 
     // check if all required properties are set when creating catalog
@@ -549,7 +567,6 @@ public abstract class ExternalCatalog
         Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
         Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
 
-        lowerCaseToDatabaseName.clear();
         List<Pair<String, String>> remoteToLocalPairs = Lists.newArrayList();
 
         allDatabases = allDatabases.stream().filter(dbName -> {
@@ -567,8 +584,6 @@ public abstract class ExternalCatalog
 
         for (String remoteDbName : allDatabases) {
             String localDbName = fromRemoteDatabaseName(remoteDbName);
-            // Populate lowercase mapping for case-insensitive lookups
-            lowerCaseToDatabaseName.put(remoteDbName.toLowerCase(), remoteDbName);
             // Apply lower_case_database_names mode to local name
             int dbNameMode = getLowerCaseDatabaseNames();
             if (dbNameMode == 1) {
@@ -610,6 +625,12 @@ public abstract class ExternalCatalog
         return remoteToLocalPairs;
     }
 
+    private void updateLowerCaseToDatabaseName(List<Pair<String, String>> names) {
+        Map<String, String> updated = Maps.newConcurrentMap();
+        names.forEach(pair -> updated.put(pair.key().toLowerCase(), pair.key()));
+        lowerCaseToDatabaseName = updated;
+    }
+
     /**
      * Resets the Catalog state to uninitialized, releases resources held by {@code initLocalObjectsImpl()}
      * <p>
@@ -627,16 +648,31 @@ public abstract class ExternalCatalog
      *                     and reloaded during the refresh process.
      */
     public void resetToUninitialized(boolean invalidCache) {
-        synchronized (this) {
-            this.objectCreated = false;
-            this.initialized = false;
-            synchronized (this.confLock) {
-                this.cachedConf = null;
+        MetaCache<ExternalDatabase<? extends ExternalTable>> cacheToInvalidate = null;
+        try {
+            synchronized (this) {
+                metadataLoadEpoch.incrementAndGet();
+                this.objectCreated = false;
+                this.initialized = false;
+                synchronized (this.confLock) {
+                    this.cachedConf = null;
+                }
+                this.lowerCaseToDatabaseName.clear();
+                cacheToInvalidate = metaCache;
+                if (cacheToInvalidate != null) {
+                    cacheToInvalidate.invalidateNames();
+                }
+                onClose();
             }
-            this.lowerCaseToDatabaseName.clear();
-            onClose();
+        } finally {
+            if (cacheToInvalidate != null) {
+                cacheToInvalidate.invalidateObjects();
+            }
         }
-        onRefreshCache(invalidCache);
+        setLastUpdateTime(System.currentTimeMillis());
+        if (invalidCache) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
+        }
     }
 
     /**
@@ -654,7 +690,6 @@ public abstract class ExternalCatalog
 
     /**
      * Refresh meta cache only (database level cache), without invalidating catalog level cache.
-     * This method is safe to call within synchronized block.
      */
     private void refreshMetaCacheOnly() {
         if (metaCache != null) {
@@ -981,6 +1016,7 @@ public abstract class ExternalCatalog
     @Override
     public void gsonPostProcess() throws IOException {
         objectCreated = false;
+        metadataLoadEpoch = new AtomicLong();
         // TODO: This code is to compatible with older version of metadata.
         //  Could only remove after all users upgrate to the new version.
         if (logType == null) {
@@ -1268,9 +1304,8 @@ public abstract class ExternalCatalog
             // Mode 2: Case-insensitive comparison
             finalName = lowerCaseToDatabaseName.get(dbName.toLowerCase());
             if (finalName == null && !isReplay) {
-                // Refresh database list and try again
                 try {
-                    getFilteredDatabaseNames();
+                    metaCache.refreshNames();
                     finalName = lowerCaseToDatabaseName.get(dbName.toLowerCase());
                 } catch (Exception e) {
                     LOG.warn("Failed to refresh database list for catalog {}", getName(), e);
