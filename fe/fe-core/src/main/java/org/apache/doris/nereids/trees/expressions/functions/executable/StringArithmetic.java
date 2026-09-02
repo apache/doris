@@ -54,9 +54,11 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -65,6 +67,9 @@ import java.util.regex.Pattern;
  */
 public class StringArithmetic {
     private static final long MAX_DAMERAU_LEVENSHTEIN_MATRIX_CELLS = 16L * 1024L * 1024L;
+    private static final int MAX_SIMILARITY_INPUT_LEN = 65535;
+    private static final double JARO_WINKLER_PREFIX_WEIGHT = 0.1;
+    private static final int JARO_WINKLER_MAX_PREFIX = 4;
 
     private static Literal castStringLikeLiteral(StringLikeLiteral first, String value) {
         if (first instanceof StringLiteral) {
@@ -1356,6 +1361,148 @@ public class StringArithmetic {
             }
         }
         return new BigIntLiteral(distance);
+    }
+
+    /**
+     * Executable arithmetic functions jaro
+     */
+    @ExecFunction(name = "jaro")
+    public static Expression jaro(StringLikeLiteral first, StringLikeLiteral second) {
+        int[] left = first.getValue().codePoints().toArray();
+        int[] right = second.getValue().codePoints().toArray();
+        return new DoubleLiteral(jaroSimilarity(left, right, null));
+    }
+
+    /**
+     * Executable arithmetic functions jaro_winkler
+     */
+    @ExecFunction(name = "jaro_winkler")
+    public static Expression jaroWinkler(StringLikeLiteral first, StringLikeLiteral second) {
+        int[] left = first.getValue().codePoints().toArray();
+        int[] right = second.getValue().codePoints().toArray();
+        int[] prefix = new int[1];
+        double jaro = jaroSimilarity(left, right, prefix);
+        double result = jaro + prefix[0] * JARO_WINKLER_PREFIX_WEIGHT * (1.0 - jaro);
+        return new DoubleLiteral(result);
+    }
+
+    // Core Jaro similarity algorithm. When outPrefix is non-null, outPrefix[0] receives the
+    // length of the common leading run (capped at JARO_WINKLER_MAX_PREFIX characters) so
+    // jaroWinkler can reuse this instead of duplicating the matching/transposition logic.
+    private static double jaroSimilarity(int[] left, int[] right, int[] outPrefix) {
+        int m = left.length;
+        int n = right.length;
+        if (outPrefix != null) {
+            outPrefix[0] = 0;
+        }
+        if (m == 0 && n == 0) {
+            return 1.0;
+        }
+        if (m == 0 || n == 0) {
+            return 0.0;
+        }
+        checkSimilarityInputLength(m);
+        checkSimilarityInputLength(n);
+
+        // Two characters can only be matched to each other if they are no farther apart than
+        // this many positions; this is the standard Jaro "matching window" definition.
+        int maxLen = Math.max(m, n);
+        int matchDistance = maxLen / 2 - (maxLen >= 2 ? 1 : 0);
+
+        boolean[] leftMatched = new boolean[m];
+        boolean[] rightMatched = new boolean[n];
+        int matches = 0;
+        for (int i = 0; i < m; i++) {
+            int start = Math.max(0, i - matchDistance);
+            int end = Math.min(i + matchDistance + 1, n);
+            for (int j = start; j < end; j++) {
+                if (!rightMatched[j] && left[i] == right[j]) {
+                    leftMatched[i] = true;
+                    rightMatched[j] = true;
+                    matches++;
+                    break;
+                }
+            }
+        }
+
+        if (outPrefix != null) {
+            int limit = Math.min(JARO_WINKLER_MAX_PREFIX, Math.min(m, n));
+            int prefix = 0;
+            while (prefix < limit && left[prefix] == right[prefix]) {
+                prefix++;
+            }
+            outPrefix[0] = prefix;
+        }
+
+        if (matches == 0) {
+            return 0.0;
+        }
+
+        // Matched characters that appear in a different relative order in the two strings each
+        // count as half a transposition.
+        int transpositions = 0;
+        for (int i = 0, k = 0; i < m; i++) {
+            if (!leftMatched[i]) {
+                continue;
+            }
+            while (!rightMatched[k]) {
+                k++;
+            }
+            if (left[i] != right[k]) {
+                transpositions++;
+            }
+            k++;
+        }
+
+        double matchCount = matches;
+        double transpositionPairs = transpositions / 2.0;
+        return (matchCount / m + matchCount / n + (matchCount - transpositionPairs) / matchCount) / 3.0;
+    }
+
+    /**
+     * Executable arithmetic functions jaccard_similarity
+     *
+     * <p>Returns the Jaccard similarity between the sets of distinct characters of the two
+     * strings, i.e. |A intersect B| / |A union B|, matching ClickHouse's stringJaccardIndex
+     * semantics.
+     */
+    @ExecFunction(name = "jaccard_similarity")
+    public static Expression jaccardSimilarity(StringLikeLiteral first, StringLikeLiteral second) {
+        int[] left = first.getValue().codePoints().toArray();
+        int[] right = second.getValue().codePoints().toArray();
+        checkSimilarityInputLength(left.length);
+        checkSimilarityInputLength(right.length);
+
+        if (left.length == 0 && right.length == 0) {
+            return new DoubleLiteral(1.0);
+        }
+
+        Set<Integer> leftSet = new HashSet<>();
+        for (int c : left) {
+            leftSet.add(c);
+        }
+        Set<Integer> rightSet = new HashSet<>();
+        for (int c : right) {
+            rightSet.add(c);
+        }
+
+        Set<Integer> smaller = leftSet.size() <= rightSet.size() ? leftSet : rightSet;
+        Set<Integer> larger = smaller == leftSet ? rightSet : leftSet;
+        int intersection = 0;
+        for (int c : smaller) {
+            if (larger.contains(c)) {
+                intersection++;
+            }
+        }
+        int union = leftSet.size() + rightSet.size() - intersection;
+        return new DoubleLiteral((double) intersection / union);
+    }
+
+    private static void checkSimilarityInputLength(int length) {
+        if (length > MAX_SIMILARITY_INPUT_LEN) {
+            throw new AnalysisException(
+                    "Input string too long, max " + MAX_SIMILARITY_INPUT_LEN + " characters");
+        }
     }
 
     /**

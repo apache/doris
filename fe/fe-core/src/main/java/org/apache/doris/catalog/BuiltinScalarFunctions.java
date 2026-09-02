@@ -281,6 +281,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsUuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsValidUtf8;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JaccardSimilarity;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Jaro;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JaroWinkler;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
@@ -868,6 +871,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Ipv4CIDRToRange.class, "ipv4_cidr_to_range"),
             scalar(Ipv6CIDRToRange.class, "ipv6_cidr_to_range"),
             scalar(Ipv6FromUInt128StringOrNull.class, "ipv6_from_uint128_string_or_null"),
+            scalar(JaccardSimilarity.class, "jaccard_similarity"),
+            scalar(Jaro.class, "jaro"),
+            scalar(JaroWinkler.class, "jaro_winkler"),
             scalar(JsonArray.class, "json_array", "jsonb_array"),
             scalar(JsonArrayIgnoreNull.class, "json_array_ignore_null", "jsonb_array_ignore_null"),
             scalar(JsonObject.class, "json_object", "jsonb_object"),

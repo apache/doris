@@ -299,6 +299,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsUuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsValidUtf8;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JaccardSimilarity;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Jaro;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JaroWinkler;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
@@ -1722,6 +1725,18 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitIpv6CIDRToRange(Ipv6CIDRToRange ipv6CIDRToRange, C context) {
         return visitScalarFunction(ipv6CIDRToRange, context);
+    }
+
+    default R visitJaccardSimilarity(JaccardSimilarity jaccardSimilarity, C context) {
+        return visitScalarFunction(jaccardSimilarity, context);
+    }
+
+    default R visitJaro(Jaro jaro, C context) {
+        return visitScalarFunction(jaro, context);
+    }
+
+    default R visitJaroWinkler(JaroWinkler jaroWinkler, C context) {
+        return visitScalarFunction(jaroWinkler, context);
     }
 
     default R visitJsonArray(JsonArray jsonArray, C context) {

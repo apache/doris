@@ -1203,6 +1203,203 @@ R163	R163
 -- !nereids_hamming_distance_338 --
 1	\N	1
 
+-- !jaro_487 --
+1.0	1.0	0.0	0.0	0.9444444444444445	0.8222222222222223
+
+-- !jaro_488 --
+1.0	\N	\N
+
+-- !jaro_489 --
+0.6666666666666666	1.0
+
+-- !jaro_winkler_490 --
+1.0	1.0	0.0	0.0	0.9611111111111111	0.8400000000000001
+
+-- !jaro_winkler_491 --
+1.0	\N	\N
+
+-- !jaro_winkler_492 --
+0.9333333333333333	0.8833333333333334	0.7999999999999999
+
+-- !jaccard_similarity_493 --
+1.0	1.0	0.0	1.0	0.0
+
+-- !jaccard_similarity_494 --
+1.0	\N	\N
+
+-- !jaccard_similarity_495 --
+0.6	0.3333333333333333	1.0
+
+-- !jaro_nn_vector_vector --
+1	0.7777777777777777
+2	0.0
+3	0.6666666666666666
+4	0.5555555555555555
+
+-- !jaro_nn_vector_scalar_ascii --
+1	1.0
+
+-- !jaro_nn_scalar_vector_ascii --
+1	1.0
+
+-- !jaro_nn_vector_scalar_utf8 --
+3	0.6666666666666666
+
+-- !jaro_nn_scalar_vector_utf8 --
+3	0.6666666666666666
+
+-- !jaro_tbl --
+1	0.746031746031746
+2	1.0
+3	0.8888888888888888
+4	\N
+5	0.8888888888888888
+6	0.9166666666666666
+7	0.0
+8	0.0
+9	0.8888888888888888
+
+-- !jaro_vector_scalar_nullable --
+2	1.0
+4	\N
+
+-- !jaro_scalar_vector_nullable --
+2	1.0
+4	\N
+
+-- !jaro_lv_nn_vector_vector --
+1	0.8333333333333334
+2	0.8333333333333334
+3	0.0
+4	0.0
+5	0.8888888888888888
+6	0.8888888888888888
+7	0.0
+8	0.0
+
+-- !jaro_lv_nn_vector_scalar_empty --
+1	0.0
+2	0.0
+3	1.0
+4	0.0
+5	0.0
+6	0.0
+7	1.0
+8	0.0
+
+-- !jaro_lv_nn_scalar_vector_empty --
+1	0.0
+2	0.0
+3	1.0
+4	0.0
+5	0.0
+6	0.0
+7	1.0
+8	0.0
+
+-- !jaro_winkler_nn_vector_vector --
+1	0.8222222222222222
+2	0.0
+3	0.7
+4	0.5999999999999999
+
+-- !jaro_winkler_nn_vector_scalar_ascii --
+1	1.0
+
+-- !jaro_winkler_nn_scalar_vector_ascii --
+1	1.0
+
+-- !jaro_winkler_nn_vector_scalar_utf8 --
+3	0.7
+
+-- !jaro_winkler_nn_scalar_vector_utf8 --
+3	0.7
+
+-- !jaro_winkler_tbl --
+1	0.746031746031746
+2	1.0
+3	0.9111111111111111
+4	\N
+5	0.9111111111111111
+6	0.9333333333333333
+7	0.0
+8	0.0
+9	0.9111111111111111
+
+-- !jaro_winkler_vector_scalar_nullable --
+2	1.0
+4	\N
+
+-- !jaro_winkler_scalar_vector_nullable --
+2	1.0
+4	\N
+
+-- !jaro_winkler_lv_nn_vector_vector --
+1	0.8833333333333334
+2	0.8833333333333334
+3	0.0
+4	0.0
+5	0.9111111111111111
+6	0.9111111111111111
+7	0.0
+8	0.0
+
+-- !jaccard_similarity_nn_vector_vector --
+1	0.5
+2	0.0
+3	0.3333333333333333
+4	1.0
+
+-- !jaccard_similarity_nn_vector_scalar_ascii --
+1	1.0
+
+-- !jaccard_similarity_nn_scalar_vector_ascii --
+1	1.0
+
+-- !jaccard_similarity_nn_vector_scalar_utf8 --
+3	0.3333333333333333
+
+-- !jaccard_similarity_nn_scalar_vector_utf8 --
+3	0.3333333333333333
+
+-- !jaccard_similarity_tbl --
+1	0.42857142857142855
+2	1.0
+3	0.6666666666666666
+4	\N
+5	0.6666666666666666
+6	1.0
+7	0.0
+8	0.0
+9	0.6666666666666666
+
+-- !jaccard_similarity_vector_scalar_nullable --
+2	1.0
+4	\N
+
+-- !jaccard_similarity_scalar_vector_nullable --
+2	1.0
+4	\N
+
+-- !jaccard_similarity_lv_nn_vector_vector --
+1	0.5
+2	0.5
+3	0.0
+4	0.0
+5	0.6666666666666666
+6	0.6666666666666666
+7	0.0
+8	0.0
+
+-- !nereids_jaro_496 --
+0.9444444444444445	\N	0.6666666666666666
+
+-- !nereids_jaro_winkler_497 --
+0.9611111111111111	\N	0.8833333333333334
+
+-- !nereids_jaccard_similarity_498 --
+0.6	\N	0.3333333333333333
+
 -- !space_333 --
      
 

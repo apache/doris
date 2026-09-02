@@ -986,6 +986,83 @@ suite("string_functions_all") {
     }
     sql """ set enable_nereids_planner=false, enable_fallback_to_original_planner=true; """
 
+    // JARO / JARO_WINKLER / JACCARD_SIMILARITY tests
+    qt_jaro_487 "SELECT jaro('', ''), jaro('abc', 'abc'), jaro('', 'abc'), jaro('a', 'b'), jaro('MARTHA', 'MARHTA'), jaro('DWAYNE', 'DUANE');"
+    testFoldConst("SELECT jaro('', ''), jaro('abc', 'abc'), jaro('', 'abc'), jaro('a', 'b'), jaro('MARTHA', 'MARHTA'), jaro('DWAYNE', 'DUANE');")
+    qt_jaro_488 "SELECT jaro('abc', 'abc'), jaro(NULL, 'abc'), jaro('abc', NULL);"
+    testFoldConst("SELECT jaro('abc', 'abc'), jaro(NULL, 'abc'), jaro('abc', NULL);")
+    qt_jaro_489 "SELECT jaro('你好', '你们'), jaro('数据库', '数库据');"
+    testFoldConst("SELECT jaro('你好', '你们'), jaro('数据库', '数库据');")
+
+    qt_jaro_winkler_490 "SELECT jaro_winkler('', ''), jaro_winkler('abc', 'abc'), jaro_winkler('', 'abc'), jaro_winkler('a', 'b'), jaro_winkler('MARTHA', 'MARHTA'), jaro_winkler('DWAYNE', 'DUANE');"
+    testFoldConst("SELECT jaro_winkler('', ''), jaro_winkler('abc', 'abc'), jaro_winkler('', 'abc'), jaro_winkler('a', 'b'), jaro_winkler('MARTHA', 'MARHTA'), jaro_winkler('DWAYNE', 'DUANE');")
+    qt_jaro_winkler_491 "SELECT jaro_winkler('abc', 'abc'), jaro_winkler(NULL, 'abc'), jaro_winkler('abc', NULL);"
+    testFoldConst("SELECT jaro_winkler('abc', 'abc'), jaro_winkler(NULL, 'abc'), jaro_winkler('abc', NULL);")
+    qt_jaro_winkler_492 "SELECT jaro_winkler('abcd', 'abdc'), jaro_winkler('你好世界', '你好世间'), jaro_winkler('a你b', 'a们b');"
+    testFoldConst("SELECT jaro_winkler('abcd', 'abdc'), jaro_winkler('你好世界', '你好世间'), jaro_winkler('a你b', 'a们b');")
+
+    qt_jaccard_similarity_493 "SELECT jaccard_similarity('', ''), jaccard_similarity('abc', 'abc'), jaccard_similarity('a', 'b'), jaccard_similarity('ab', 'ba'), jaccard_similarity('ab', 'cd');"
+    testFoldConst("SELECT jaccard_similarity('', ''), jaccard_similarity('abc', 'abc'), jaccard_similarity('a', 'b'), jaccard_similarity('ab', 'ba'), jaccard_similarity('ab', 'cd');")
+    qt_jaccard_similarity_494 "SELECT jaccard_similarity('abc', 'abc'), jaccard_similarity(NULL, 'abc'), jaccard_similarity('abc', NULL);"
+    testFoldConst("SELECT jaccard_similarity('abc', 'abc'), jaccard_similarity(NULL, 'abc'), jaccard_similarity('abc', NULL);")
+    qt_jaccard_similarity_495 "SELECT jaccard_similarity('abcd', 'abce'), jaccard_similarity('你好', '你们'), jaccard_similarity('数据库', '数库据');"
+    testFoldConst("SELECT jaccard_similarity('abcd', 'abce'), jaccard_similarity('你好', '你们'), jaccard_similarity('数据库', '数库据');")
+
+    // column args, column-constant combinations and UTF-8, reusing the tables created above.
+    qt_jaro_nn_vector_vector "SELECT id, jaro(s1, s2) FROM string_distance_nn_test ORDER BY id"
+    qt_jaro_nn_vector_scalar_ascii "SELECT id, jaro(s1, 'abc') FROM string_distance_nn_test WHERE id = 1 ORDER BY id"
+    qt_jaro_nn_scalar_vector_ascii "SELECT id, jaro('abc', s1) FROM string_distance_nn_test WHERE id = 1 ORDER BY id"
+    qt_jaro_nn_vector_scalar_utf8 "SELECT id, jaro(s1, '你们') FROM string_distance_nn_test WHERE id = 3 ORDER BY id"
+    qt_jaro_nn_scalar_vector_utf8 "SELECT id, jaro('你们', s1) FROM string_distance_nn_test WHERE id = 3 ORDER BY id"
+    qt_jaro_tbl "SELECT id, jaro(s1, s2) FROM string_distance_lv_test ORDER BY id"
+    qt_jaro_vector_scalar_nullable "SELECT id, jaro(s1, 'abc') FROM string_distance_lv_test WHERE id IN (2, 4) ORDER BY id"
+    qt_jaro_scalar_vector_nullable "SELECT id, jaro('abc', s1) FROM string_distance_lv_test WHERE id IN (2, 4) ORDER BY id"
+    qt_jaro_lv_nn_vector_vector "SELECT id, jaro(s1, s2) FROM string_distance_lv_nn_test ORDER BY id"
+    qt_jaro_lv_nn_vector_scalar_empty "SELECT id, jaro(s1, '') FROM string_distance_lv_nn_test ORDER BY id"
+    qt_jaro_lv_nn_scalar_vector_empty "SELECT id, jaro('', s1) FROM string_distance_lv_nn_test ORDER BY id"
+
+    qt_jaro_winkler_nn_vector_vector "SELECT id, jaro_winkler(s1, s2) FROM string_distance_nn_test ORDER BY id"
+    qt_jaro_winkler_nn_vector_scalar_ascii "SELECT id, jaro_winkler(s1, 'abc') FROM string_distance_nn_test WHERE id = 1 ORDER BY id"
+    qt_jaro_winkler_nn_scalar_vector_ascii "SELECT id, jaro_winkler('abc', s1) FROM string_distance_nn_test WHERE id = 1 ORDER BY id"
+    qt_jaro_winkler_nn_vector_scalar_utf8 "SELECT id, jaro_winkler(s1, '你们') FROM string_distance_nn_test WHERE id = 3 ORDER BY id"
+    qt_jaro_winkler_nn_scalar_vector_utf8 "SELECT id, jaro_winkler('你们', s1) FROM string_distance_nn_test WHERE id = 3 ORDER BY id"
+    qt_jaro_winkler_tbl "SELECT id, jaro_winkler(s1, s2) FROM string_distance_lv_test ORDER BY id"
+    qt_jaro_winkler_vector_scalar_nullable "SELECT id, jaro_winkler(s1, 'abc') FROM string_distance_lv_test WHERE id IN (2, 4) ORDER BY id"
+    qt_jaro_winkler_scalar_vector_nullable "SELECT id, jaro_winkler('abc', s1) FROM string_distance_lv_test WHERE id IN (2, 4) ORDER BY id"
+    qt_jaro_winkler_lv_nn_vector_vector "SELECT id, jaro_winkler(s1, s2) FROM string_distance_lv_nn_test ORDER BY id"
+
+    qt_jaccard_similarity_nn_vector_vector "SELECT id, jaccard_similarity(s1, s2) FROM string_distance_nn_test ORDER BY id"
+    qt_jaccard_similarity_nn_vector_scalar_ascii "SELECT id, jaccard_similarity(s1, 'abc') FROM string_distance_nn_test WHERE id = 1 ORDER BY id"
+    qt_jaccard_similarity_nn_scalar_vector_ascii "SELECT id, jaccard_similarity('abc', s1) FROM string_distance_nn_test WHERE id = 1 ORDER BY id"
+    qt_jaccard_similarity_nn_vector_scalar_utf8 "SELECT id, jaccard_similarity(s1, '你们') FROM string_distance_nn_test WHERE id = 3 ORDER BY id"
+    qt_jaccard_similarity_nn_scalar_vector_utf8 "SELECT id, jaccard_similarity('你们', s1) FROM string_distance_nn_test WHERE id = 3 ORDER BY id"
+    qt_jaccard_similarity_tbl "SELECT id, jaccard_similarity(s1, s2) FROM string_distance_lv_test ORDER BY id"
+    qt_jaccard_similarity_vector_scalar_nullable "SELECT id, jaccard_similarity(s1, 'abc') FROM string_distance_lv_test WHERE id IN (2, 4) ORDER BY id"
+    qt_jaccard_similarity_scalar_vector_nullable "SELECT id, jaccard_similarity('abc', s1) FROM string_distance_lv_test WHERE id IN (2, 4) ORDER BY id"
+    qt_jaccard_similarity_lv_nn_vector_vector "SELECT id, jaccard_similarity(s1, s2) FROM string_distance_lv_nn_test ORDER BY id"
+
+    test {
+        sql """ SELECT jaro(repeat('a', 65536), 'b'); """
+        exception "too long"
+    }
+    test {
+        sql """ SELECT jaro_winkler(repeat('a', 65536), 'b'); """
+        exception "too long"
+    }
+    test {
+        sql """ SELECT jaccard_similarity(repeat('a', 65536), 'b'); """
+        exception "too long"
+    }
+
+    sql """ set enable_nereids_planner=true, enable_fallback_to_original_planner=false; """
+    qt_nereids_jaro_496 "SELECT jaro('MARTHA', 'MARHTA'), jaro(NULL, 'abc'), jaro('你好', '你们');"
+    testFoldConst("SELECT jaro('MARTHA', 'MARHTA'), jaro(NULL, 'abc'), jaro('你好', '你们');")
+    qt_nereids_jaro_winkler_497 "SELECT jaro_winkler('MARTHA', 'MARHTA'), jaro_winkler(NULL, 'abc'), jaro_winkler('你好世界', '你好世间');"
+    testFoldConst("SELECT jaro_winkler('MARTHA', 'MARHTA'), jaro_winkler(NULL, 'abc'), jaro_winkler('你好世界', '你好世间');")
+    qt_nereids_jaccard_similarity_498 "SELECT jaccard_similarity('abcd', 'abce'), jaccard_similarity(NULL, 'abc'), jaccard_similarity('你好', '你们');"
+    testFoldConst("SELECT jaccard_similarity('abcd', 'abce'), jaccard_similarity(NULL, 'abc'), jaccard_similarity('你好', '你们');")
+    sql """ set enable_nereids_planner=false, enable_fallback_to_original_planner=true; """
+
     // SPACE tests
     qt_space_333 "SELECT space(5);"
     testFoldConst("SELECT space(5);")

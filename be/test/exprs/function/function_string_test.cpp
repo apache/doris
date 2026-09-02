@@ -4116,4 +4116,53 @@ TEST(function_string_test, function_regexp_count_mixed_const_test) {
     check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
+TEST(function_string_test, function_jaro_test) {
+    std::string func_name = "jaro";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+    DataSet data_set = {
+            {{std::string("abc"), std::string("abc")}, double(1.0)},
+            {{std::string(""), std::string("")}, double(1.0)},
+            {{std::string(""), std::string("abc")}, double(0.0)},
+            {{std::string("a"), std::string("b")}, double(0.0)},
+            {{std::string("MARTHA"), std::string("MARHTA")}, double(0.9444444444444445)},
+            {{std::string("DWAYNE"), std::string("DUANE")}, double(0.8222222222222223)},
+            {{Null(), std::string("abc")}, Null()},
+            {{std::string("abc"), Null()}, Null()},
+    };
+    check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set);
+}
+
+TEST(function_string_test, function_jaro_winkler_test) {
+    std::string func_name = "jaro_winkler";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+    DataSet data_set = {
+            {{std::string("abc"), std::string("abc")}, double(1.0)},
+            {{std::string(""), std::string("abc")}, double(0.0)},
+            {{std::string("a"), std::string("b")}, double(0.0)},
+            {{std::string("MARTHA"), std::string("MARHTA")}, double(0.9611111111111111)},
+            {{std::string("DWAYNE"), std::string("DUANE")}, double(0.8400000000000001)},
+            {{std::string("你好世界"), std::string("你好世间")}, double(0.8833333333333334)},
+            {{Null(), std::string("abc")}, Null()},
+            {{std::string("abc"), Null()}, Null()},
+    };
+    check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set);
+}
+
+TEST(function_string_test, function_jaccard_similarity_test) {
+    std::string func_name = "jaccard_similarity";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+    DataSet data_set = {
+            {{std::string("abc"), std::string("abc")}, double(1.0)},
+            {{std::string(""), std::string("")}, double(1.0)},
+            {{std::string("a"), std::string("b")}, double(0.0)},
+            {{std::string("ab"), std::string("ba")}, double(1.0)},
+            {{std::string("ab"), std::string("cd")}, double(0.0)},
+            {{std::string("abcd"), std::string("abce")}, double(0.6)},
+            {{std::string("你好"), std::string("你们")}, double(1.0 / 3.0)},
+            {{Null(), std::string("abc")}, Null()},
+            {{std::string("abc"), Null()}, Null()},
+    };
+    check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set);
+}
+
 } // namespace doris
