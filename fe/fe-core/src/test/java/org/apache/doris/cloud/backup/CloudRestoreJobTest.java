@@ -112,6 +112,7 @@ public class CloudRestoreJobTest {
         Assert.assertTrue(cloudSystemInfoService instanceof CloudSystemInfoService);
 
         Mockito.when(storageVaultMgr.getVaultNameById(Mockito.anyString())).thenReturn("test_vault");
+        Mockito.when(storageVaultMgr.getVaultIdByName("test_vault")).thenReturn("test_vault_id");
 
         mockMetaServiceProxyInstance = Mockito.mock(MetaServiceProxy.class);
         mockedMetaServiceProxy = Mockito.mockStatic(MetaServiceProxy.class);
@@ -256,5 +257,29 @@ public class CloudRestoreJobTest {
         Assert.assertTrue(job.getStatus().ok());
     }
 
-}
+    @Test
+    public void testSkipCloudMetaServiceForEmptyRestorePartitions() throws Exception {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("storage_vault_id", "");
+        expectedRestoreTbl.setTableProperty(new TableProperty(properties));
+        Partition partition = expectedRestoreTbl.getPartition(CatalogTestUtil.testPartition1);
+        expectedRestoreTbl.getPartitionInfo().setIsInMemory(partition.getId(), false);
+        expectedRestoreTbl.dropPartitionAndReserveTablet(partition.getName());
+        Deencapsulation.setField(job, "restoredTbls", Lists.newArrayList(expectedRestoreTbl));
 
+        job.doCreateReplicas();
+        Assert.assertTrue(job.getStatus().ok());
+        Assert.assertEquals("test_vault_id", expectedRestoreTbl.getStorageVaultId());
+
+        job.waitingAllReplicasCreated();
+        Assert.assertTrue(job.getStatus().ok());
+
+        job.cleanMetaObjects(false);
+        Assert.assertTrue(job.getStatus().ok());
+
+        Mockito.verify(mockMetaServiceProxyInstance, Mockito.never()).preparePartition(Mockito.any());
+        Mockito.verify(mockMetaServiceProxyInstance, Mockito.never()).commitPartition(Mockito.any());
+        Mockito.verify(mockMetaServiceProxyInstance, Mockito.never()).dropPartition(Mockito.any());
+    }
+
+}
