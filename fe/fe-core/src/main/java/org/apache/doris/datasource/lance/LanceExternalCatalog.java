@@ -291,7 +291,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
         return loadTableMetadata(dbName, tableName, Optional.empty(), false);
     }
 
-    public LanceTableMetadata loadTableMetadataForVectorSearch(String dbName, String tableName) {
+    public LanceTableMetadata loadTableMetadataForSearch(String dbName, String tableName) {
         return loadTableMetadata(dbName, tableName, Optional.empty(), true);
     }
 

@@ -30,6 +30,8 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TExternalSearchQuery;
 import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFtsCoverageMode;
+import org.apache.doris.thrift.TFullTextSearchParams;
 import org.apache.doris.thrift.TVectorMetric;
 import org.apache.doris.thrift.TVectorSearchOptions;
 import org.apache.doris.thrift.TVectorSearchParams;
@@ -39,6 +41,7 @@ import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.Assert;
 import org.junit.Test;
+import org.lance.index.IndexType;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -203,9 +206,11 @@ public class LanceScanNodeTest {
                 Collections.singletonMap("vector", 9),
                 Arrays.asList(
                         new LanceIndexSegmentInfo(firstSegment, "vector_idx",
-                                Collections.singletonList(9), Arrays.asList(1L, 2L), "L2"),
+                                Collections.singletonList(9), Arrays.asList(1L, 2L),
+                                IndexType.VECTOR, "L2"),
                         new LanceIndexSegmentInfo(secondSegment, "vector_idx",
-                                Collections.singletonList(9), Arrays.asList(3L, 4L), "L2")),
+                                Collections.singletonList(9), Arrays.asList(3L, 4L),
+                                IndexType.VECTOR, "L2")),
                 Collections.emptyMap());
         LanceScanNode node = newSearchNode(metadata, vectorSearchRequest(5, 0));
 
@@ -238,7 +243,8 @@ public class LanceScanNodeTest {
                 Collections.emptyMap(),
                 Collections.singletonList(
                         new LanceIndexSegmentInfo(UUID.randomUUID(), "vector_idx",
-                                Collections.singletonList(9), Arrays.asList(1L, 2L), "L2")),
+                                Collections.singletonList(9), Arrays.asList(1L, 2L),
+                                IndexType.VECTOR, "L2")),
                 Collections.emptyMap());
         TExternalSearchRequest request = vectorSearchRequest(5, 0);
         request.setVectorSearchOptions(new TVectorSearchOptions().setUseIndex(false));
@@ -249,6 +255,86 @@ public class LanceScanNodeTest {
         Assert.assertEquals(2, splits.size());
         assertSplit(splits.get(0), 1, 8, 100);
         assertSplit(splits.get(1), 2, 8, 88);
+    }
+
+    @Test
+    public void testFullTextSearchUsesOneSplitPerCommittedIndexSegment() throws Exception {
+        UUID firstSegment = UUID.fromString("11111111-2222-3333-4444-555555555555");
+        UUID secondSegment = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                fullTextSchema(),
+                Arrays.asList(
+                        new LanceFragmentInfo(1, 8, 8),
+                        new LanceFragmentInfo(2, 7, 7),
+                        new LanceFragmentInfo(3, 6, 6)),
+                Collections.singletonMap("body", 7),
+                Arrays.asList(
+                        new LanceIndexSegmentInfo(firstSegment, "body_fts",
+                                Collections.singletonList(7), Arrays.asList(1L, 2L),
+                                IndexType.INVERTED, null),
+                        new LanceIndexSegmentInfo(secondSegment, "body_fts",
+                                Collections.singletonList(7), Collections.singletonList(3L),
+                                IndexType.INVERTED, null)),
+                Collections.emptyMap());
+        TExternalSearchRequest request = fullTextSearchRequest(
+                5, 2, TFtsCoverageMode.STRICT);
+        LanceScanNode node = newSearchNode(metadata, request);
+
+        List<Split> splits = node.getSplits(8);
+
+        Assert.assertEquals(2, splits.size());
+        assertIndexSplit(splits.get(0), firstSegment, Arrays.asList(1L, 2L), 15, 100);
+        assertIndexSplit(splits.get(1), secondSegment, Collections.singletonList(3L), 15, 40);
+
+        TFileRangeDesc range = new TFileRangeDesc();
+        node.setScanParams(range, splits.get(1));
+        Assert.assertEquals(Collections.singletonList(3L), range.getTableFormatParams()
+                .getLanceParams().getFragmentIds());
+        ByteBuffer encodedUuid = range.getTableFormatParams().getLanceParams()
+                .getIndexSegmentUuids().get(0).duplicate();
+        Assert.assertEquals(secondSegment.getMostSignificantBits(), encodedUuid.getLong());
+        Assert.assertEquals(secondSegment.getLeastSignificantBits(), encodedUuid.getLong());
+
+        TExternalSearchRequest splitRequest = node.createSplitSearchRequest();
+        Assert.assertEquals(7,
+                splitRequest.getSearchQuery().getFullTextSearch().getTopK());
+        Assert.assertEquals(0,
+                splitRequest.getSearchQuery().getFullTextSearch().getOffset());
+        Assert.assertEquals(5, request.getSearchQuery().getFullTextSearch().getTopK());
+        Assert.assertEquals(2, request.getSearchQuery().getFullTextSearch().getOffset());
+    }
+
+    @Test
+    public void testFullTextSearchCoverageModesHandleUnindexedFragments() throws Exception {
+        UUID segment = UUID.fromString("11111111-2222-3333-4444-555555555555");
+        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
+                "s3://bucket/table.lance",
+                42,
+                fullTextSchema(),
+                Arrays.asList(
+                        new LanceFragmentInfo(1, 8, 8),
+                        new LanceFragmentInfo(2, 7, 7),
+                        new LanceFragmentInfo(3, 6, 6)),
+                Collections.singletonMap("body", 7),
+                Collections.singletonList(
+                        new LanceIndexSegmentInfo(segment, "body_fts",
+                                Collections.singletonList(7), Arrays.asList(1L, 2L),
+                                IndexType.INVERTED, null)),
+                Collections.emptyMap());
+
+        LanceScanNode strictNode = newSearchNode(metadata,
+                fullTextSearchRequest(10, 0, TFtsCoverageMode.STRICT));
+        UserException strictFailure = Assert.assertThrows(UserException.class,
+                () -> strictNode.getSplits(2));
+        Assert.assertTrue(strictFailure.getMessage().contains("1 unindexed fragments"));
+
+        LanceScanNode indexOnlyNode = newSearchNode(metadata,
+                fullTextSearchRequest(10, 0, TFtsCoverageMode.INDEX_ONLY));
+        List<Split> indexOnlySplits = indexOnlyNode.getSplits(2);
+        Assert.assertEquals(1, indexOnlySplits.size());
+        assertIndexSplit(indexOnlySplits.get(0), segment, Arrays.asList(1L, 2L), 15, 100);
     }
 
     @Test
@@ -263,7 +349,8 @@ public class LanceScanNodeTest {
                 Collections.singletonMap("vector", 9),
                 Collections.singletonList(
                         new LanceIndexSegmentInfo(UUID.randomUUID(), "vector_idx",
-                                Collections.singletonList(9), Arrays.asList(1L, 2L), "L2")),
+                                Collections.singletonList(9), Arrays.asList(1L, 2L),
+                                IndexType.VECTOR, "L2")),
                 Collections.emptyMap());
         TExternalSearchRequest request = vectorSearchRequest(5, 0);
         request.getSearchQuery().getVectorSearch().setMetric(TVectorMetric.COSINE);
@@ -286,7 +373,8 @@ public class LanceScanNodeTest {
                 Collections.emptyMap(),
                 Collections.singletonList(
                         new LanceIndexSegmentInfo(UUID.randomUUID(), "vector_idx",
-                                Collections.singletonList(9), Collections.singletonList(1L), "L2")),
+                                Collections.singletonList(9), Collections.singletonList(1L),
+                                IndexType.VECTOR, "L2")),
                 Collections.emptyMap());
         LanceScanNode node = newSearchNode(metadata, vectorSearchRequest(5, 0));
 
@@ -297,14 +385,16 @@ public class LanceScanNodeTest {
     }
 
     @Test
-    public void testFragmentSearchRetainsTopKPlusOffsetCandidates() {
+    public void testSplitSearchRetainsTopKPlusOffsetCandidates() {
         TExternalSearchRequest logicalRequest = vectorSearchRequest(5, 2);
+        LanceScanNode node = LanceScanNode.forExternalSearch(
+                new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), null,
+                null, -1, logicalRequest, new SessionVariable());
 
-        TExternalSearchRequest fragmentRequest =
-                LanceScanNode.createFragmentSearchRequest(logicalRequest);
+        TExternalSearchRequest splitRequest = node.createSplitSearchRequest();
 
-        Assert.assertEquals(7, fragmentRequest.getSearchQuery().getVectorSearch().getTopK());
-        Assert.assertEquals(0, fragmentRequest.getSearchQuery().getVectorSearch().getOffset());
+        Assert.assertEquals(7, splitRequest.getSearchQuery().getVectorSearch().getTopK());
+        Assert.assertEquals(0, splitRequest.getSearchQuery().getVectorSearch().getOffset());
         Assert.assertEquals(5, logicalRequest.getSearchQuery().getVectorSearch().getTopK());
         Assert.assertEquals(2, logicalRequest.getSearchQuery().getVectorSearch().getOffset());
     }
@@ -330,11 +420,13 @@ public class LanceScanNodeTest {
 
     private static LanceScanNode newSearchNode(
             LanceTableMetadata metadata, TExternalSearchRequest request) {
-        String vectorColumn = request.getSearchQuery().getVectorSearch().getColumn();
-        int vectorFieldId = metadata.getLanceFieldId(vectorColumn).orElse(-1);
-        return LanceScanNode.forVectorSearch(
+        String searchColumn = request.getSearchQuery().isSetVectorSearch()
+                ? request.getSearchQuery().getVectorSearch().getColumn()
+                : request.getSearchQuery().getFullTextSearch().getColumn();
+        int searchFieldId = metadata.getLanceFieldId(searchColumn).orElse(-1);
+        return LanceScanNode.forExternalSearch(
                 new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), null,
-                metadata, vectorFieldId, request, new SessionVariable());
+                metadata, searchFieldId, request, new SessionVariable());
     }
 
     private static void setMetadata(LanceScanNode node, LanceTableMetadata metadata) throws Exception {
@@ -365,6 +457,11 @@ public class LanceScanNodeTest {
                 Field.nullable("vector", ArrowType.Utf8.INSTANCE)));
     }
 
+    private static Schema fullTextSchema() {
+        return new Schema(Collections.singletonList(
+                Field.nullable("body", ArrowType.Utf8.INSTANCE)));
+    }
+
     private static void assertInvalidSplit(Runnable action, String expectedMessage) {
         try {
             action.run();
@@ -381,5 +478,17 @@ public class LanceScanNodeTest {
                 .setOffset(offset);
         return new TExternalSearchRequest()
                 .setSearchQuery(TExternalSearchQuery.vector_search(vector));
+    }
+
+    private static TExternalSearchRequest fullTextSearchRequest(
+            long topK, long offset, TFtsCoverageMode coverageMode) {
+        TFullTextSearchParams fullText = new TFullTextSearchParams()
+                .setColumn("body")
+                .setQuery("lance")
+                .setTopK(topK)
+                .setOffset(offset)
+                .setCoverageMode(coverageMode);
+        return new TExternalSearchRequest()
+                .setSearchQuery(TExternalSearchQuery.full_text_search(fullText));
     }
 }

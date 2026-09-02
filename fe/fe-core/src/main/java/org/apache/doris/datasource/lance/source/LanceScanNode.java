@@ -39,10 +39,13 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFtsCoverageMode;
+import org.apache.doris.thrift.TFullTextSearchParams;
 import org.apache.doris.thrift.TLanceFileDesc;
 import org.apache.doris.thrift.TLanceScanParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.TVectorMetric;
+import org.apache.doris.thrift.TVectorSearchOptions;
 import org.apache.doris.thrift.TVectorSearchParams;
 
 import java.nio.ByteBuffer;
@@ -61,14 +64,22 @@ import java.util.UUID;
  * Keeping them in one node prevents those common parts from drifting apart. The search request is
  * also an explicit mode marker. Ordinary scans are split by fragment. Indexed vector searches are
  * split by physical index segment, with uncovered fragments retained as flat-search fallbacks.
- * Each search split produces local candidates; a Doris TopN above this scan merges them into the
- * requested snapshot-wide result.
+ * Full-text searches are split only by committed inverted-index segments, with coverage governed
+ * by the request's STRICT or INDEX_ONLY mode. Each search split produces local candidates; a Doris
+ * TopN above this scan merges them into the requested snapshot-wide result.
  */
 public class LanceScanNode extends FileQueryScanNode {
+    private enum SearchKind {
+        NORMAL,
+        VECTOR,
+        FULL_TEXT
+    }
+
     private LanceExternalTable lanceTable;
     private LanceTableMetadata plannedMetadata;
-    private int vectorFieldId = -1;
-    private TExternalSearchRequest externalSearchRequest;
+    private final int searchFieldId;
+    private final TExternalSearchRequest externalSearchRequest;
+    private final SearchKind searchKind;
     private byte[] lanceSubstraitFilter = new byte[0];
     private String lancePushdownPredicate = "";
     private long plannedVersion = -1;
@@ -81,38 +92,45 @@ public class LanceScanNode extends FileQueryScanNode {
             SessionVariable sessionVariable, ScanContext scanContext) {
         super(id, desc, "LANCE_SCAN_NODE", StatisticalType.LANCE_SCAN_NODE,
                 scanContext, needCheckColumnPriv, sessionVariable);
+        this.searchFieldId = -1;
+        this.externalSearchRequest = null;
+        this.searchKind = SearchKind.NORMAL;
     }
 
     /**
      * Creates the search mode of this node.
      *
      * <p>The tuple descriptor belongs to a FunctionGenTable and contains generated columns such as
-     * {@code _distance}. Therefore the real Lance table and the metadata snapshot selected while
-     * analyzing the TVF must be passed separately.
+     * {@code _distance} or {@code _score}. Therefore the real Lance table and the metadata
+     * snapshot selected while analyzing the TVF must be passed separately.
      */
-    public static LanceScanNode forVectorSearch(PlanNodeId id, TupleDescriptor desc,
-            LanceExternalTable lanceTable, LanceTableMetadata plannedMetadata, int vectorFieldId,
+    public static LanceScanNode forExternalSearch(PlanNodeId id, TupleDescriptor desc,
+            LanceExternalTable lanceTable, LanceTableMetadata plannedMetadata, int searchFieldId,
             TExternalSearchRequest externalSearchRequest, SessionVariable sessionVariable) {
-        return new LanceScanNode(id, desc, lanceTable, plannedMetadata, vectorFieldId,
+        return new LanceScanNode(id, desc, lanceTable, plannedMetadata, searchFieldId,
                 externalSearchRequest, sessionVariable);
     }
 
     private LanceScanNode(PlanNodeId id, TupleDescriptor desc, LanceExternalTable lanceTable,
-            LanceTableMetadata plannedMetadata, int vectorFieldId,
+            LanceTableMetadata plannedMetadata, int searchFieldId,
             TExternalSearchRequest externalSearchRequest, SessionVariable sessionVariable) {
         super(id, desc, "LANCE_SCAN_NODE", StatisticalType.LANCE_SCAN_NODE,
                 ScanContext.builder().clusterName(sessionVariable.resolveCloudClusterName()).build(),
                 false, sessionVariable);
         this.lanceTable = lanceTable;
         this.plannedMetadata = plannedMetadata;
-        this.vectorFieldId = vectorFieldId;
+        this.searchFieldId = searchFieldId;
+        if (externalSearchRequest == null) {
+            throw new IllegalArgumentException("Lance external search request must not be null");
+        }
         this.externalSearchRequest = externalSearchRequest.deepCopy();
+        this.searchKind = resolveSearchKind(this.externalSearchRequest);
     }
 
     @Override
     protected void doInitialize() throws UserException {
         List<Column> sourceColumns;
-        if (isExternalSearch()) {
+        if (searchKind != SearchKind.NORMAL) {
             sourceColumns = desc.getTable().getColumns();
         } else {
             lanceTable = (LanceExternalTable) desc.getTable();
@@ -123,11 +141,11 @@ public class LanceScanNode extends FileQueryScanNode {
         super.doInitialize();
         ExternalUtil.initSchemaInfo(params, -1L, sourceColumns);
 
-        if (isExternalSearch()) {
+        if (searchKind != SearchKind.NORMAL) {
             // Search output comes from the FunctionGenTable because it adds generated columns such
-            // as _distance. The real Lance table is still retained for storage and metadata access.
+            // as _distance or _score. The real Lance table is retained for storage and metadata.
             getOrCreateLanceScanParams()
-                    .setExternalSearchRequest(createFragmentSearchRequest(externalSearchRequest));
+                    .setExternalSearchRequest(createSplitSearchRequest());
         }
     }
 
@@ -153,9 +171,9 @@ public class LanceScanNode extends FileQueryScanNode {
 
     @Override
     protected void convertPredicate() {
-        if (isExternalSearch()) {
+        if (searchKind != SearchKind.NORMAL) {
             // The TVF "filter" property is already serialized in externalSearchRequest and is
-            // evaluated by Lance before vector search. Outer WHERE conjuncts have different
+            // evaluated by Lance before candidate search. Outer WHERE conjuncts have different
             // semantics: keep them as Doris scan residuals. Each fragment first returns its Lance
             // ANN candidates, then Doris evaluates these conjuncts before the local/global TopN.
         } else {
@@ -186,20 +204,31 @@ public class LanceScanNode extends FileQueryScanNode {
         LanceTableMetadata metadata = plannedMetadata;
         plannedVersion = metadata.getVersion();
         plannedFragments = metadata.getFragments().size();
-        plannedUnindexedFragments = isExternalSearch() ? plannedFragments : 0;
+        plannedUnindexedFragments = searchKind == SearchKind.NORMAL ? 0 : plannedFragments;
         plannedIndexSegments = 0;
         plannedIndexFragments = 0;
-        if (isExternalSearch() && plannedVersion <= 0) {
+        if (searchKind != SearchKind.NORMAL && plannedVersion <= 0) {
             throw new UserException(
-                    "Lance vector search requires a fixed positive dataset version");
+                    "Lance external search requires a fixed positive dataset version");
         }
 
         Map<Long, LanceFragmentInfo> visibleFragments = getVisibleFragments(metadata);
-        if (isExternalSearch() && shouldUseIndex()) {
-            Optional<List<Split>> indexSplits = createIndexSegmentSplits(metadata, visibleFragments);
-            if (indexSplits.isPresent()) {
-                return indexSplits.get();
-            }
+        switch (searchKind) {
+            case FULL_TEXT:
+                return createFullTextIndexSegmentSplits(metadata, visibleFragments);
+            case VECTOR:
+                if (isVectorIndexEnabled()) {
+                    Optional<List<Split>> indexSplits = createVectorIndexSegmentSplits(
+                            metadata, visibleFragments);
+                    if (indexSplits.isPresent()) {
+                        return indexSplits.get();
+                    }
+                }
+                break;
+            case NORMAL:
+                break;
+            default:
+                throw new IllegalStateException("Unsupported Lance search kind " + searchKind);
         }
         return createFragmentSplits(metadata, visibleFragments);
     }
@@ -236,25 +265,25 @@ public class LanceScanNode extends FileQueryScanNode {
         return splits;
     }
 
-    private Optional<List<Split>> createIndexSegmentSplits(LanceTableMetadata metadata,
+    private Optional<List<Split>> createVectorIndexSegmentSplits(LanceTableMetadata metadata,
             Map<Long, LanceFragmentInfo> visibleFragments) throws UserException {
         if (metadata.getIndexSegments().isEmpty()) {
             return Optional.empty();
         }
         TVectorSearchParams vectorSearchParam = externalSearchRequest.getSearchQuery().getVectorSearch();
-        if (vectorFieldId < 0) {
+        if (searchFieldId < 0) {
             throw new UserException("Lance vector column '" + vectorSearchParam.getColumn()
                     + "' has no field ID in the Lance schema");
         }
 
-        List<LanceIndexSegmentInfo> matchingSegments = selectIndexSegments(
-                metadata.getIndexSegments(), vectorFieldId);
+        List<LanceIndexSegmentInfo> matchingSegments = selectVectorIndexSegments(
+                metadata.getIndexSegments(), searchFieldId);
         if (matchingSegments.isEmpty() || !metricMatches(vectorSearchParam, matchingSegments)) {
             return Optional.empty();
         }
 
         Optional<IndexSegmentSplitPlan> indexPlan = planIndexSegments(
-                metadata, matchingSegments, visibleFragments);
+                metadata, matchingSegments, visibleFragments, false);
         if (!indexPlan.isPresent()) {
             return Optional.empty();
         }
@@ -266,12 +295,44 @@ public class LanceScanNode extends FileQueryScanNode {
         return Optional.of(plan.buildSplits());
     }
 
-    private static List<LanceIndexSegmentInfo> selectIndexSegments(
-            List<LanceIndexSegmentInfo> indexSegments, int vectorFieldId) {
+    private List<Split> createFullTextIndexSegmentSplits(LanceTableMetadata metadata,
+            Map<Long, LanceFragmentInfo> visibleFragments) throws UserException {
+        TFullTextSearchParams fullText =
+                externalSearchRequest.getSearchQuery().getFullTextSearch();
+        if (searchFieldId < 0) {
+            throw new UserException("Lance full-text column '" + fullText.getColumn()
+                    + "' has no field ID in the Lance schema");
+        }
+        List<LanceIndexSegmentInfo> matchingSegments = selectFullTextIndexSegments(
+                metadata.getIndexSegments(), searchFieldId, fullText.getColumn());
+        if (matchingSegments.isEmpty()) {
+            throw new UserException("No committed Lance FTS index exists for column '"
+                    + fullText.getColumn() + "' at dataset version " + metadata.getVersion());
+        }
+        IndexSegmentSplitPlan plan = planIndexSegments(
+                metadata, matchingSegments, visibleFragments, true)
+                .orElseThrow(() -> new UserException("Lance FTS index for column '"
+                        + fullText.getColumn() + "' has no visible indexed fragments at dataset version "
+                        + metadata.getVersion()));
+        plannedIndexSegments = plan.splitCount();
+        plannedIndexFragments = plan.indexSegmentFragmentCount();
+        plannedUnindexedFragments = plannedFragments - plannedIndexFragments;
+        if (fullText.getCoverageMode() == TFtsCoverageMode.STRICT
+                && plannedUnindexedFragments != 0) {
+            throw new UserException("Lance FTS coverage_mode=STRICT requires every fragment at "
+                    + "dataset version " + metadata.getVersion() + " to be indexed; column '"
+                    + fullText.getColumn() + "' has " + plannedUnindexedFragments
+                    + " unindexed fragments. Rebuild the index or use coverage_mode=index_only");
+        }
+        return plan.buildSplits();
+    }
+
+    private static List<LanceIndexSegmentInfo> selectVectorIndexSegments(
+            List<LanceIndexSegmentInfo> indexSegments, int fieldId) {
         List<LanceIndexSegmentInfo> selectedSegments = new ArrayList<>();
         String selectedIndexName = null;
         for (LanceIndexSegmentInfo segment : indexSegments) {
-            if (!segment.getFieldIds().contains(vectorFieldId)) {
+            if (!segment.isVectorIndex() || !segment.getFieldIds().contains(fieldId)) {
                 continue;
             }
             if (selectedIndexName == null) {
@@ -284,19 +345,52 @@ public class LanceScanNode extends FileQueryScanNode {
         return selectedSegments;
     }
 
+    private static List<LanceIndexSegmentInfo> selectFullTextIndexSegments(
+            List<LanceIndexSegmentInfo> indexSegments, int fieldId, String column)
+            throws UserException {
+        List<LanceIndexSegmentInfo> selectedSegments = new ArrayList<>();
+        String selectedIndexName = null;
+        for (LanceIndexSegmentInfo segment : indexSegments) {
+            if (!segment.isFullTextIndex() || !segment.getFieldIds().contains(fieldId)) {
+                continue;
+            }
+            if (selectedIndexName == null) {
+                selectedIndexName = segment.getIndexName();
+            } else if (!selectedIndexName.equals(segment.getIndexName())) {
+                throw new UserException("Multiple Lance FTS indexes exist for column '" + column
+                        + "'; distributed FTS requires one unambiguous logical index");
+            }
+            selectedSegments.add(segment);
+        }
+        return selectedSegments;
+    }
+
     private static Optional<IndexSegmentSplitPlan> planIndexSegments(
             LanceTableMetadata metadata,
             List<LanceIndexSegmentInfo> indexSegments,
-            Map<Long, LanceFragmentInfo> visibleFragments) {
+            Map<Long, LanceFragmentInfo> visibleFragments,
+            boolean requireKnownCoverage) throws UserException {
         IndexSegmentSplitPlan plan = new IndexSegmentSplitPlan(
                 metadata.getDatasetUri(), metadata.getVersion(), indexSegments.size());
         for (LanceIndexSegmentInfo segment : indexSegments) {
             Optional<List<Long>> segmentFragments = segment.getFragmentIds();
             if (!segmentFragments.isPresent()) {
+                if (requireKnownCoverage) {
+                    throw new UserException("Lance FTS segment " + segment.getUuid()
+                            + " has no fragment coverage metadata");
+                }
                 return Optional.empty();
             }
             List<Long> visibleIndexSegmentFragmentIds = effectiveFragmentIds(
                     segmentFragments.get(), visibleFragments);
+            if (requireKnownCoverage) {
+                for (Long fragmentId : visibleIndexSegmentFragmentIds) {
+                    if (plan.isCoveredByIndexSegment(fragmentId)) {
+                        throw new UserException("Lance FTS fragment " + fragmentId
+                                + " is covered by multiple physical index segments");
+                    }
+                }
+            }
             if (!visibleIndexSegmentFragmentIds.isEmpty()) {
                 plan.addIndexSegmentSplit(
                         segment.getUuid(), visibleIndexSegmentFragmentIds,
@@ -339,10 +433,13 @@ public class LanceScanNode extends FileQueryScanNode {
         }
     }
 
-    private boolean shouldUseIndex() {
-        return !externalSearchRequest.isSetVectorSearchOptions()
-                || !externalSearchRequest.getVectorSearchOptions().isSetUseIndex()
-                || externalSearchRequest.getVectorSearchOptions().isUseIndex();
+    private boolean isVectorIndexEnabled() {
+        // default use_index is true
+        if (!externalSearchRequest.isSetVectorSearchOptions()) {
+            return true;
+        }
+        TVectorSearchOptions options = externalSearchRequest.getVectorSearchOptions();
+        return !options.isSetUseIndex() || options.isUseIndex();
     }
 
     private static boolean metricMatches(TVectorSearchParams vector,
@@ -372,10 +469,14 @@ public class LanceScanNode extends FileQueryScanNode {
         if (lanceSplit.getFragmentIds().isEmpty()) {
             throw new IllegalArgumentException("Lance scan split must contain fragments");
         }
-        if (!isExternalSearch() && (lanceSplit.getFragmentIds().size() != 1
+        if (searchKind == SearchKind.NORMAL && (lanceSplit.getFragmentIds().size() != 1
                 || lanceSplit.hasIndexSegmentUuids())) {
             throw new IllegalArgumentException(
                     "Ordinary Lance scan split must contain one fragment and no index segment");
+        }
+        if (searchKind == SearchKind.FULL_TEXT && !lanceSplit.hasIndexSegmentUuids()) {
+            throw new IllegalArgumentException(
+                    "Lance full-text search split must contain an FTS index segment");
         }
         lanceParams.setFragmentIds(lanceSplit.getFragmentIds());
         if (lanceSplit.hasIndexSegmentUuids()) {
@@ -390,8 +491,8 @@ public class LanceScanNode extends FileQueryScanNode {
             lanceParams.setIndexSegmentUuids(uuids);
         }
         // Push LIMIT into each ordinary fragment scanner only when it is safe to truncate that
-        // fragment early. Vector search uses its own per-split candidate bound.
-        if (!isExternalSearch() && canPushDownLimit()) {
+        // fragment early. External searches use their own per-split candidate bound.
+        if (searchKind == SearchKind.NORMAL && canPushDownLimit()) {
             lanceParams.setLimit(getLimit());
         }
 
@@ -413,7 +514,7 @@ public class LanceScanNode extends FileQueryScanNode {
 
     @Override
     protected TableIf getTargetTable() {
-        if (isExternalSearch()) {
+        if (searchKind != SearchKind.NORMAL) {
             // In search mode desc.getTable() is a FunctionGenTable, but default-value expressions
             // and storage access still belong to the underlying Lance table.
             return lanceTable;
@@ -432,13 +533,28 @@ public class LanceScanNode extends FileQueryScanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder result = new StringBuilder(super.getNodeExplainString(prefix, detailLevel));
-        if (isExternalSearch()) {
-            TVectorSearchParams vector = externalSearchRequest.getSearchQuery().getVectorSearch();
-            result.append(prefix).append("externalSearchType=VECTOR\n");
-            result.append(prefix).append("lanceVectorColumn=").append(vector.getColumn()).append("\n");
-            result.append(prefix).append("lanceMetric=")
-                    .append(vector.isSetMetric() ? metricName(vector.getMetric()) : "default")
-                    .append("\n");
+        if (searchKind != SearchKind.NORMAL) {
+            if (searchKind == SearchKind.VECTOR) {
+                TVectorSearchParams vector =
+                        externalSearchRequest.getSearchQuery().getVectorSearch();
+                result.append(prefix).append("externalSearchType=VECTOR\n");
+                result.append(prefix).append("lanceVectorColumn=")
+                        .append(vector.getColumn()).append("\n");
+                result.append(prefix).append("lanceMetric=")
+                        .append(vector.isSetMetric() ? metricName(vector.getMetric()) : "default")
+                        .append("\n");
+            } else {
+                if (searchKind != SearchKind.FULL_TEXT) {
+                    throw new IllegalStateException("Unsupported Lance search kind " + searchKind);
+                }
+                TFullTextSearchParams fullText =
+                        externalSearchRequest.getSearchQuery().getFullTextSearch();
+                result.append(prefix).append("externalSearchType=FULL_TEXT\n");
+                result.append(prefix).append("lanceFullTextColumn=")
+                        .append(fullText.getColumn()).append("\n");
+                result.append(prefix).append("lanceFtsCoverageMode=")
+                        .append(fullText.getCoverageMode()).append("\n");
+            }
             result.append(prefix).append("lanceVersion=")
                     .append(plannedMetadata.getVersion()).append("\n");
             result.append(prefix).append("lanceSearchFragments=")
@@ -465,19 +581,40 @@ public class LanceScanNode extends FileQueryScanNode {
         return result.toString();
     }
 
-    private boolean isExternalSearch() {
-        return externalSearchRequest != null;
+    TExternalSearchRequest createSplitSearchRequest() {
+        TExternalSearchRequest splitRequest = externalSearchRequest.deepCopy();
+        // Every split must retain enough rows for the later global OFFSET/LIMIT. Applying the
+        // logical offset independently inside each split could discard rows that belong to the
+        // snapshot-wide result.
+        switch (searchKind) {
+            case VECTOR:
+                TVectorSearchParams vector = splitRequest.getSearchQuery().getVectorSearch();
+                vector.setTopK(vector.getTopK() + vector.getOffset());
+                vector.setOffset(0);
+                break;
+            case FULL_TEXT:
+                TFullTextSearchParams fullText = splitRequest.getSearchQuery().getFullTextSearch();
+                fullText.setTopK(fullText.getTopK() + fullText.getOffset());
+                fullText.setOffset(0);
+                break;
+            case NORMAL:
+            default:
+                throw new IllegalStateException("Cannot create a search split for " + searchKind);
+        }
+        return splitRequest;
     }
 
-    static TExternalSearchRequest createFragmentSearchRequest(TExternalSearchRequest searchRequest) {
-        TExternalSearchRequest fragmentRequest = searchRequest.deepCopy();
-        TVectorSearchParams vector = fragmentRequest.getSearchQuery().getVectorSearch();
-        // Every fragment must retain enough rows for the later global OFFSET/LIMIT. Applying the
-        // logical offset independently inside each fragment could discard rows that belong to the
-        // snapshot-wide result.
-        vector.setTopK(vector.getTopK() + vector.getOffset());
-        vector.setOffset(0);
-        return fragmentRequest;
+    private static SearchKind resolveSearchKind(TExternalSearchRequest searchRequest) {
+        if (!searchRequest.isSetSearchQuery()) {
+            throw new IllegalArgumentException("Lance external search request requires search_query");
+        }
+        boolean hasVector = searchRequest.getSearchQuery().isSetVectorSearch();
+        boolean hasFullText = searchRequest.getSearchQuery().isSetFullTextSearch();
+        if (hasVector == hasFullText) {
+            throw new IllegalArgumentException(
+                    "Lance external search query must set exactly one search kind");
+        }
+        return hasVector ? SearchKind.VECTOR : SearchKind.FULL_TEXT;
     }
 
     private static String metricName(TVectorMetric metric) {

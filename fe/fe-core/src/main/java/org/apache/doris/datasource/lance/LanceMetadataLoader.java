@@ -72,7 +72,7 @@ public final class LanceMetadataLoader {
                 datasetUri, lanceStorageOptions, OptionalLong.empty(), allocator, false);
     }
 
-    /** Loads the latest fixed snapshot together with vector index segment coverage. */
+    /** Loads the latest fixed snapshot together with search-index segment coverage. */
     public static LanceTableMetadata loadLatestWithIndexSegments(
             String datasetUri, Map<String, String> lanceStorageOptions, BufferAllocator allocator) throws Exception {
         return loadInternal(
@@ -109,7 +109,7 @@ public final class LanceMetadataLoader {
             Map<String, Integer> lanceFieldIds = loadIndexSegments
                     ? loadTopLevelFieldIds(dataset) : Collections.emptyMap();
             List<LanceIndexSegmentInfo> indexSegments = loadIndexSegments
-                    ? loadVectorIndexSegments(dataset) : Collections.emptyList();
+                    ? loadSearchIndexSegments(dataset) : Collections.emptyList();
             return loadIndexSegments
                     ? LanceTableMetadata.withIndexSegments(datasetUri, resolvedVersion,
                             dataset.getSchema(), fragments, lanceFieldIds,
@@ -134,12 +134,13 @@ public final class LanceMetadataLoader {
         return result;
     }
 
-    private static List<LanceIndexSegmentInfo> loadVectorIndexSegments(Dataset dataset) {
+    private static List<LanceIndexSegmentInfo> loadSearchIndexSegments(Dataset dataset) {
         List<LanceIndexSegmentInfo> result = new ArrayList<>();
         for (IndexDescription description : dataset.describeIndices()) {
             String metric = parseMetric(description.getDetailsJson());
             for (Index segment : description.getSegments()) {
-                if (segment.indexType() == null || segment.indexType().getValue() < 100) {
+                if (segment.indexType() == null || (segment.indexType().getValue() < 100
+                        && segment.indexType() != org.lance.index.IndexType.INVERTED)) {
                     continue;
                 }
                 List<Long> fragmentIds = segment.fragments()
@@ -152,7 +153,7 @@ public final class LanceMetadataLoader {
                         })
                         .orElse(null);
                 result.add(new LanceIndexSegmentInfo(segment.uuid(), description.getName(),
-                        description.getFieldIds(), fragmentIds, metric));
+                        description.getFieldIds(), fragmentIds, segment.indexType(), metric));
             }
         }
         return result;
@@ -166,8 +167,8 @@ public final class LanceMetadataLoader {
             JsonNode metric = JsonUtil.readTree(detailsJson).get("metric_type");
             return metric == null || !metric.isTextual() ? null : metric.asText().toUpperCase();
         } catch (RuntimeException e) {
-            // Index details are optional compatibility metadata. An unknown legacy encoding should
-            // disable metric-sensitive segment planning rather than prevent ordinary table access.
+            // Index details are optional metadata. Malformed details disable metric-sensitive
+            // segment planning rather than preventing ordinary table access.
             return null;
         }
     }

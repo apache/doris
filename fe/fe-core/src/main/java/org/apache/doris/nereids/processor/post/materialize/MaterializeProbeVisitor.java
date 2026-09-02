@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.tablefunction.FullTextSearchTableValuedFunction;
 import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
 
 import com.google.common.collect.ImmutableSet;
@@ -129,7 +130,7 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     }
 
     boolean checkTVFRelationTableSupportedType(PhysicalTVFRelation tvfRelation) {
-        if (isVectorSearch(tvfRelation)) {
+        if (isLanceExternalSearch(tvfRelation)) {
             return true;
         }
 
@@ -146,8 +147,10 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
         return false;
     }
 
-    private boolean isVectorSearch(PhysicalTVFRelation tvfRelation) {
-        return VectorSearchTableValuedFunction.NAME.equals(tvfRelation.getFunction().getName());
+    private boolean isLanceExternalSearch(PhysicalTVFRelation tvfRelation) {
+        String functionName = tvfRelation.getFunction().getName();
+        return VectorSearchTableValuedFunction.NAME.equals(functionName)
+                || FullTextSearchTableValuedFunction.NAME.equals(functionName);
     }
 
     @Override
@@ -189,7 +192,7 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
             PhysicalTVFRelation tvfRelation, ProbeContext context) {
         // The first Lance implementation fetches top-level columns by row ID. Keep nested
         // sub-column projections in the search phase until take_rows supports access paths.
-        if (isVectorSearch(tvfRelation) && context.slot.hasSubColPath()) {
+        if (isLanceExternalSearch(tvfRelation) && context.slot.hasSubColPath()) {
             return Optional.empty();
         }
         if (checkTVFRelationTableSupportedType(tvfRelation) && tvfRelation.getOutput().contains(context.slot)
