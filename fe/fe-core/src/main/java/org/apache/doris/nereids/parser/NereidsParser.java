@@ -26,6 +26,7 @@ import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.NonReservedContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.SyntaxParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -343,8 +344,8 @@ public class NereidsParser {
 
     private <T> T parse(String sql, @Nullable LogicalPlanBuilder logicalPlanBuilder,
                         Function<DorisParser, ParserRuleContext> parseFunction) {
-        CommonTokenStream tokenStream = parseAllTokens(sql);
-        ParserRuleContext tree = toAst(tokenStream, parseFunction);
+        CommonTokenStream tokenStream = parseLeanTokens(sql);
+        ParserRuleContext tree = toAstWithFullTokensOnError(sql, tokenStream, parseFunction);
         LogicalPlanBuilder realLogicalPlanBuilder = logicalPlanBuilder == null
                     ? new LogicalPlanBuilder(getHintMap(sql, tokenStream, DorisParser::selectHint))
                     : logicalPlanBuilder;
@@ -352,16 +353,16 @@ public class NereidsParser {
     }
 
     public LogicalPlan parseForCreateView(String sql) {
-        CommonTokenStream tokenStream = parseAllTokens(sql);
-        ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
+        CommonTokenStream tokenStream = parseLeanTokens(sql);
+        ParserRuleContext tree = toAstWithFullTokensOnError(sql, tokenStream, DorisParser::singleStatement);
         LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForCreateView(
                 getHintMap(sql, tokenStream, DorisParser::selectHint));
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
     }
 
     public LogicalPlan parseForEncryption(String sql, Map<Pair<Integer, Integer>, String> indexInSqlToString) {
-        CommonTokenStream tokenStream = parseAllTokens(sql);
-        ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
+        CommonTokenStream tokenStream = parseLeanTokens(sql);
+        ParserRuleContext tree = toAstWithFullTokensOnError(sql, tokenStream, DorisParser::singleStatement);
         LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForEncryption(
                 getHintMap(sql, tokenStream, DorisParser::selectHint), indexInSqlToString);
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
@@ -369,8 +370,8 @@ public class NereidsParser {
 
     /** parseForSyncMv */
     public Optional<String> parseForSyncMv(String sql) {
-        CommonTokenStream tokenStream = parseAllTokens(sql);
-        ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
+        CommonTokenStream tokenStream = parseLeanTokens(sql);
+        ParserRuleContext tree = toAstWithFullTokensOnError(sql, tokenStream, DorisParser::singleStatement);
         LogicalPlanBuilderForSyncMv logicalPlanBuilderForSyncMv = new LogicalPlanBuilderForSyncMv(
                 getHintMap(sql, tokenStream, DorisParser::selectHint));
         logicalPlanBuilderForSyncMv.visit(tree);
@@ -429,6 +430,16 @@ public class NereidsParser {
         return tree;
     }
 
+    private static ParserRuleContext toAstWithFullTokensOnError(
+            String sql, CommonTokenStream tokenStream,
+            Function<DorisParser, ParserRuleContext> parseFunction) {
+        try {
+            return toAst(tokenStream, parseFunction);
+        } catch (SyntaxParseException ignored) {
+            return toAst(parseAllTokens(sql), parseFunction);
+        }
+    }
+
     /**
      * removeCommentAndTrimBlank
      *
@@ -466,8 +477,17 @@ public class NereidsParser {
     }
 
     private static CommonTokenStream parseAllTokens(String sql) {
+        return parseTokens(sql, false);
+    }
+
+    private static CommonTokenStream parseLeanTokens(String sql) {
+        return parseTokens(sql, true);
+    }
+
+    private static CommonTokenStream parseTokens(String sql, boolean leanTokenMode) {
         DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
         lexer.isNoBackslashEscapes = SqlModeHelper.hasNoBackSlashEscapes();
+        lexer.isLeanTokenMode = leanTokenMode;
         CommonTokenStream tokenStream = new CommonTokenStream(lexer);
         tokenStream.fill();
         return tokenStream;

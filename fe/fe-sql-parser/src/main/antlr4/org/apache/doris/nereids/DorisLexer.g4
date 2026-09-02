@@ -21,6 +21,13 @@ lexer grammar DorisLexer;
 
 @members {
   public boolean isNoBackslashEscapes = false;
+  public boolean isLeanTokenMode = false;
+
+  private void skipInLeanTokenMode() {
+    if (isLeanTokenMode) {
+      skip();
+    }
+  }
 
   /**
    * Verify whether current token is a valid decimal token (which contains dot).
@@ -748,7 +755,7 @@ fragment LETTER
     ;
 
 SIMPLE_COMMENT
-    : '--' ('\\\n' | ~[\r\n])* '\r'? '\n'? -> channel(HIDDEN)
+    : '--' ('\\\n' | ~[\r\n])* '\r'? '\n'? {skipInLeanTokenMode();} -> channel(HIDDEN)
     ;
 
 BRACKETED_COMMENT
@@ -757,7 +764,7 @@ BRACKETED_COMMENT
 
 
 WS
-    : [ \r\n\t]+ -> channel(HIDDEN)
+    : [ \r\n\t]+ {skipInLeanTokenMode();} -> channel(HIDDEN)
     ;
 
 // Catch-all for anything we can't recognize.
