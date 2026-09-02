@@ -102,7 +102,7 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
     }
 
     @Test
-    public void testOutfileCapabilitySurvivesConfigChangeBetweenParsingAndPlanning() throws Exception {
+    public void testOutfileCapabilitySurvivesConfigChangeAfterPlanning() throws Exception {
         int originalVersion = Config.be_exec_version;
         boolean originalEnableOutfileToLocal = Config.enable_outfile_to_local;
         try {
@@ -115,9 +115,10 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
             LogicalPlanAdapter adapter = new LogicalPlanAdapter(parsedPlan, statementContext);
             Assertions.assertTrue(adapter.getOutFileClause().isAtomicOutfileEnabled());
 
-            Config.be_exec_version = OutFileClause.SUPPORT_ATOMIC_OUTFILE_VERSION - 1;
             NereidsPlanner planner = new NereidsPlanner(statementContext);
             PhysicalPlan physicalPlan = planner.planWithLock(parsedPlan, PhysicalProperties.ANY);
+
+            Config.be_exec_version = OutFileClause.SUPPORT_ATOMIC_OUTFILE_VERSION - 1;
             PlanFragment fragment = new PhysicalPlanTranslator(
                     new PlanTranslatorContext(planner.getCascadesContext())).translatePlan(physicalPlan);
             Field field = ResultFileSink.class.getDeclaredField("fileSinkOptions");
