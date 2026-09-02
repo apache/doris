@@ -876,7 +876,16 @@ public class MetadataGenerator {
                         continue;
                     }
                     String inlineViewDef = ((View) table).getInlineViewDef();
-                    Map<List<String>, TableIf> tablesMap = PlanUtils.tableCollect(inlineViewDef, ctx);
+                    Map<List<String>, TableIf> tablesMap;
+                    try {
+                        tablesMap = PlanUtils.tableCollect(inlineViewDef, ctx);
+                    } catch (Exception e) {
+                        // A view may reference tables that no longer exist (dangling view).
+                        // Skip it so the whole metadata query does not fail.
+                        LOG.warn("Failed to collect base tables of view {} in database {}, skip it. exception: {}",
+                                tableName, dbName, e);
+                        continue;
+                    }
                     for (Map.Entry<List<String>, TableIf> info : tablesMap.entrySet()) {
                         List<String> fullName = info.getKey();
                         TableIf tbl = info.getValue();
@@ -1257,20 +1266,24 @@ public class MetadataGenerator {
             ExternalTable table) {
         List<TRow> dataBatch = Lists.newArrayList();
         ConnectorSession session = catalog.buildCrossStatementSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, catalog.getConnector());
-        Optional<ConnectorTableHandle> handle = metadata.getTableHandle(
-                session, table.getRemoteDbName(), table.getRemoteName());
-        if (handle.isPresent()) {
-            for (String partition : metadata.listPartitionNames(session, handle.get())) {
-                TRow trow = new TRow();
-                trow.addToColumnValue(new TCell().setStringVal(partition));
-                dataBatch.add(trow);
+        try {
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, catalog.getConnector());
+            Optional<ConnectorTableHandle> handle = metadata.getTableHandle(
+                    session, table.getRemoteDbName(), table.getRemoteName());
+            if (handle.isPresent()) {
+                for (String partition : metadata.listPartitionNames(session, handle.get())) {
+                    TRow trow = new TRow();
+                    trow.addToColumnValue(new TCell().setStringVal(partition));
+                    dataBatch.add(trow);
+                }
             }
+            TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+            result.setDataBatch(dataBatch);
+            result.setStatus(new TStatus(TStatusCode.OK));
+            return result;
+        } finally {
+            session.getStatementScope().closeAll();
         }
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-        result.setDataBatch(dataBatch);
-        result.setStatus(new TStatus(TStatusCode.OK));
-        return result;
     }
 
     private static TFetchSchemaTableDataResult dealInternalCatalog(Database db, TableIf table) {

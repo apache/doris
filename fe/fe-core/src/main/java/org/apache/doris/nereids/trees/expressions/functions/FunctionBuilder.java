@@ -23,12 +23,17 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * This class used to build BoundFunction(Builtin or Combinator) by a list of Expressions.
  */
 public abstract class FunctionBuilder {
     public abstract Class<? extends BoundFunction> functionClass();
+
+    public Optional<LambdaBindingSpec> getLambdaBindingSpec() {
+        return Optional.empty();
+    }
 
     /** check whether arguments can apply to the constructor */
     public abstract boolean canApply(List<? extends Object> arguments);

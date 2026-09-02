@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -265,6 +266,18 @@ public:
 
     template <PrimitiveType T>
     const typename PrimitiveTypeTraits<T>::CppType& get() const;
+
+    bool is_nan() const {
+        // Keep type dispatch with the value so callers cannot reinterpret Field storage using a
+        // mismatched PrimitiveType.
+        if (type == PrimitiveType::TYPE_FLOAT) {
+            return std::isnan(get<TYPE_FLOAT>());
+        }
+        if (type == PrimitiveType::TYPE_DOUBLE) {
+            return std::isnan(get<TYPE_DOUBLE>());
+        }
+        return false;
+    }
 
     bool operator==(const Field& rhs) const {
         return operator<=>(rhs) == std::strong_ordering::equal;

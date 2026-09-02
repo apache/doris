@@ -22,6 +22,7 @@
 #include "arrow/flight/client.h"
 #include "common/status.h"
 #include "format/arrow/arrow_utils.h"
+#include "storage/olap_define.h"
 #include "udf/python/python_udf_meta.h"
 #include "udf/python/python_udf_runtime.h"
 

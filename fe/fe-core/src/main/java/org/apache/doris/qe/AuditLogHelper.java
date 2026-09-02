@@ -46,10 +46,12 @@ import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
@@ -232,7 +234,15 @@ public class AuditLogHelper {
         } catch (ComputeGroupException e) {
             LOG.warn("Failed to get cloud cluster", e);
         }
-        String cluster = Config.isCloudMode() ? cloudCluster : "";
+        // Load statements resolve their own hint at the scheduling sites and record it on the
+        // context; prefer it over the scan-side query decision so load audits are accurate.
+        BackendSelection.SelectionHint selectionHint = ctx.getLoadBackendSelectionDecisionForAudit();
+        if (selectionHint == null) {
+            selectionHint = ctx.getQueryBackendSelectionDecisionForAudit();
+        }
+        // In cloud mode, compute_group keeps its existing cloud compute group meaning. In integrated
+        // mode, resource groups provide compute affinity, so reuse compute_group for the preferred group.
+        String cluster = Config.isCloudMode() ? cloudCluster : selectionHint.getPreferredKey();
         String stmtType = getStmtType(parsedStmt);
         long queueTimeMs = getQueueTimeMs(ctx);
 
@@ -399,10 +409,20 @@ public class AuditLogHelper {
             auditEventBuilder.setState(String.valueOf(MysqlStateType.OK));
         }
         AuditEvent event = auditEventBuilder.build();
-        Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(event);
+        Set<Long> externalDmlBackendIds = getExternalDmlAuditBackendIds(ctx.getExecutor());
+        if (externalDmlBackendIds.isEmpty()) {
+            Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(event);
+        } else {
+            Env.getCurrentEnv().getWorkloadRuntimeStatusMgr()
+                    .submitFinishQueryToAudit(event, externalDmlBackendIds);
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("submit audit event: {}", event.queryId);
         }
+    }
+
+    static Set<Long> getExternalDmlAuditBackendIds(StmtExecutor executor) {
+        return executor == null ? ImmutableSet.of() : executor.getExternalDmlAuditBackendIds();
     }
 
     private static long getQueueTimeMs(ConnectContext ctx) {

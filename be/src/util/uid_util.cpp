@@ -69,3 +69,19 @@ bool TUniqueId::operator<(const TUniqueId& rhs) const {
 }
 
 } // namespace doris
+
+size_t std::hash<doris::TUniqueId>::operator()(const doris::TUniqueId& id) const {
+    uint32_t seed = 0;
+    seed = doris::HashUtil::hash(&id.lo, sizeof(id.lo), seed);
+    seed = doris::HashUtil::hash(&id.hi, sizeof(id.hi), seed);
+    return seed;
+}
+
+size_t std::hash<std::pair<doris::TUniqueId, int64_t>>::operator()(
+        const std::pair<doris::TUniqueId, int64_t>& pair) const {
+    uint32_t seed = 0;
+    seed = doris::HashUtil::hash(&pair.first.lo, sizeof(pair.first.lo), seed);
+    seed = doris::HashUtil::hash(&pair.first.hi, sizeof(pair.first.hi), seed);
+    seed = doris::HashUtil::hash(&pair.second, sizeof(pair.second), seed);
+    return seed;
+}

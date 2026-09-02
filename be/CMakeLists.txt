@@ -159,6 +159,32 @@ endif()
 set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed")
 message(STATUS "THIRDPARTY_DIR is ${THIRDPARTY_DIR}")
 
+# Build-hygiene gates: seconds-level, zero-build-dependency text checks that
+# keep the backend's compile-time invariants from regressing (header layering
+# rules and budgets, extern-template pairing, unity-skip coverage for
+# test-included sources). Running them at configure time makes a violation a
+# build error on every path that builds the BE -- CI, build.sh, the UT build --
+# with no separate wiring, and it fails in the first seconds instead of
+# somewhere inside a long compile. Every failure message carries the mechanism
+# and the fix path; see build-support/check-build-hygiene.sh.
+option(ENABLE_BUILD_HYGIENE "Run the build-hygiene gates at configure time" ON)
+message(STATUS "ENABLE_BUILD_HYGIENE is ${ENABLE_BUILD_HYGIENE}")
+if (ENABLE_BUILD_HYGIENE)
+    execute_process(
+        COMMAND bash "${BASE_DIR}/../build-support/check-build-hygiene.sh"
+        ERROR_VARIABLE BUILD_HYGIENE_ERRORS
+        RESULT_VARIABLE BUILD_HYGIENE_RESULT
+    )
+    if (NOT BUILD_HYGIENE_RESULT EQUAL 0)
+        message(FATAL_ERROR
+            "build-hygiene gates failed (exit ${BUILD_HYGIENE_RESULT}):\n"
+            "${BUILD_HYGIENE_ERRORS}"
+            "Fix the violation (each message ends with its fix path), or "
+            "configure with -DENABLE_BUILD_HYGIENE=OFF to bypass in an "
+            "emergency.")
+    endif()
+endif()
+
 option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 message(STATUS "make test: ${MAKE_TEST}")
 option(BUILD_BENCHMARK "ON for make google benchmark or OFF for not" OFF)
@@ -326,6 +352,26 @@ install(DIRECTORY
     ${BASE_DIR}/dict/pinyin
     DESTINATION ${OUTPUT_DIR}/dict)
 
+# Japanese kuromoji dictionary. A real build always requires it the
+# binary files. However, Unit-test builds (MAKE_TEST=ON) skip it entirely as they don't
+# package for real use.
+if (NOT MAKE_TEST)
+    install(CODE "
+        foreach(_kmj_f
+                \"${BASE_DIR}/dict/kuromoji/system.bin\"
+                \"${BASE_DIR}/dict/kuromoji/matrix.bin\"
+                \"${BASE_DIR}/dict/kuromoji/chardef.bin\"
+                \"${BASE_DIR}/dict/kuromoji/unkdict.bin\")
+            if(NOT EXISTS \"\${_kmj_f}\")
+                message(FATAL_ERROR \"kuromoji dictionary file \${_kmj_f} is missing; build the 'kuromoji_dict' target (stage mecab-ipadic via thirdparty) before packaging.\")
+            endif()
+        endforeach()
+    ")
+    install(DIRECTORY
+        ${BASE_DIR}/dict/kuromoji
+        DESTINATION ${OUTPUT_DIR}/dict)
+endif()
+
 # Check if functions are supported in this platform. All flags will generated
 # in gensrc/build/common/env_config.h.
 # You can check funcion here which depends on platform. Don't forget add this
@@ -373,6 +419,21 @@ add_compile_options(-g
                     -fno-omit-frame-pointer
                     $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>)
 
+# Faster dev compiles: DORIS_DEV_DEBUG_INFO=line-tables keeps only the line
+# tables (enough for stack traces and perf) instead of full debug info; 'full'
+# asks for the default full DWARF explicitly, which is what run-be-ut.sh needs
+# to be overridable with, since UT builds default to line-tables.
+# It must be appended after the -g/-gdwarf-5 above: clang lets the last debug-info
+# flag win, and this keeps the default command line unchanged.
+if ("${DORIS_DEV_DEBUG_INFO}" STREQUAL "line-tables")
+    if (NOT COMPILER_CLANG)
+        message(FATAL_ERROR "DORIS_DEV_DEBUG_INFO=line-tables requires clang")
+    endif()
+    add_compile_options(-gline-tables-only)
+elseif (NOT "${DORIS_DEV_DEBUG_INFO}" STREQUAL "" AND NOT "${DORIS_DEV_DEBUG_INFO}" STREQUAL "full")
+    message(FATAL_ERROR "Unknown DORIS_DEV_DEBUG_INFO value: ${DORIS_DEV_DEBUG_INFO} (supported: line-tables, full)")
+endif()
+
 add_compile_options(-Wno-unused-parameter
                     -Wno-sign-compare)
 
@@ -409,7 +470,14 @@ if (COMPILER_CLANG)
                         -Wthread-safety)
     add_compile_options(-Wno-gnu-statement-expression
                         -Wno-implicit-float-conversion
-                        -Wno-sign-conversion)
+                        -Wno-sign-conversion
+                        # libstdc++-15 puts `#pragma GCC unroll` on loops in its own
+                        # headers (bits/stl_algobase.h); when a sanitizer/coverage
+                        # build compiles at low optimization the unroller punts and
+                        # clang's -Wpass-failed turns that missed *hint* into an
+                        # -Werror failure. The diagnostic carries no correctness
+                        # signal, so drop it.
+                        -Wno-pass-failed)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         add_definitions(-DUSE_LIBCPP)
@@ -833,7 +901,14 @@ endif()
 # NOTE(amos): This should come before -lc -lm to interpose symbols correctly.
 if (GLIBC_COMPATIBILITY)
     add_subdirectory(${SRC_DIR}/glibc-compatibility)
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} glibc-compatibility-explicit glibc-compatibility)
+    # Keep lance_c here instead of COMMON_THIRDPARTY: placing its required libm there
+    # would resolve -lm symbol before Doris compatibility is scanned, preventing
+    # the linker from selecting Doris' optimized implementations.
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        glibc-compatibility-explicit
+        glibc-compatibility
+        -lm
+        lance_c)
 endif()
 
 if (NOT OS_MACOSX)
@@ -981,6 +1056,24 @@ function(pch_reuse target)
     endif()
 endfunction(pch_reuse target)
 
+# Every unity opt-out goes through this helper. set_source_files_properties()
+# silently ignores paths that do not exist, so a skip entry going stale after
+# a rename or move would quietly re-join its unity batch -- slower builds, or
+# new file-scope clashes, with no diagnostic anywhere. Fail the configure
+# instead. Entries under GENSRC_DIR are exempt: they are emitted by
+# add_custom_command at build time (wkt_lex.l.cpp, the generated
+# thrift/protobuf sources) and legitimately do not exist on a fresh configure.
+function(doris_skip_unity_inclusion)
+    foreach(entry IN LISTS ARGN)
+        string(FIND "${entry}" "${GENSRC_DIR}" gensrc_prefix_pos)
+        if(NOT gensrc_prefix_pos EQUAL 0 AND NOT EXISTS "${entry}")
+            message(FATAL_ERROR
+                "unity skip entry does not exist (renamed or moved?): ${entry}")
+        endif()
+    endforeach()
+    set_source_files_properties(${ARGN} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+endfunction()
+
 
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)
@@ -1005,9 +1098,53 @@ if (BUILD_META_TOOL OR BUILD_INDEX_TOOL)
     add_subdirectory(${SRC_DIR}/tools)
 endif()
 
+if (NOT MAKE_TEST)
+    # Offline generator: compiles the UTF-8 mecab-ipadic source into binary files.
+    add_executable(kuromoji_build_dict EXCLUDE_FROM_ALL ${SRC_DIR}/tools/kuromoji_build_dict.cpp)
+    target_include_directories(kuromoji_build_dict PRIVATE ${PROJECT_SOURCE_DIR}/..)
+    pch_reuse(kuromoji_build_dict)
+    set_target_properties(kuromoji_build_dict PROPERTIES ENABLE_EXPORTS 1)
+    if (COMPILER_CLANG)
+        target_compile_options(kuromoji_build_dict PRIVATE
+            -Wno-implicit-int-conversion
+            -Wno-shorten-64-to-32)
+    endif()
+    target_link_libraries(kuromoji_build_dict ${DORIS_LINK_LIBS})
+
+    set(KUROMOJI_IPADIC_SRC "${THIRDPARTY_DIR}/share/mecab-ipadic-2.7.0-20250920"
+        CACHE PATH "UTF-8 mecab-ipadic source directory used to generate the kuromoji dictionary")
+    set(KUROMOJI_DICT_OUT "${BASE_DIR}/dict/kuromoji")
+    file(GLOB KUROMOJI_IPADIC_SRC_FILES CONFIGURE_DEPENDS
+         "${KUROMOJI_IPADIC_SRC}/*.csv"
+         "${KUROMOJI_IPADIC_SRC}/*.def")
+    get_filename_component(KUROMOJI_LIBJVM_DIR "${LIB_JVM}" DIRECTORY)
+    set(KUROMOJI_DYLD_PATH "${KUROMOJI_LIBJVM_DIR}")
+    set(KUROMOJI_LD_PATH "${KUROMOJI_LIBJVM_DIR}")
+    if (NOT "$ENV{DYLD_LIBRARY_PATH}" STREQUAL "")
+        set(KUROMOJI_DYLD_PATH "${KUROMOJI_LIBJVM_DIR}:$ENV{DYLD_LIBRARY_PATH}")
+    endif()
+    if (NOT "$ENV{LD_LIBRARY_PATH}" STREQUAL "")
+        set(KUROMOJI_LD_PATH "${KUROMOJI_LIBJVM_DIR}:$ENV{LD_LIBRARY_PATH}")
+    endif()
+    add_custom_command(
+        OUTPUT "${KUROMOJI_DICT_OUT}/system.bin" "${KUROMOJI_DICT_OUT}/matrix.bin"
+               "${KUROMOJI_DICT_OUT}/chardef.bin" "${KUROMOJI_DICT_OUT}/unkdict.bin"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${KUROMOJI_DICT_OUT}"
+        COMMAND ${CMAKE_COMMAND} -E env
+                "DYLD_LIBRARY_PATH=${KUROMOJI_DYLD_PATH}"
+                "LD_LIBRARY_PATH=${KUROMOJI_LD_PATH}"
+                $<TARGET_FILE:kuromoji_build_dict> "${KUROMOJI_IPADIC_SRC}" "${KUROMOJI_DICT_OUT}"
+        DEPENDS kuromoji_build_dict ${KUROMOJI_IPADIC_SRC_FILES}
+        COMMENT "Generating kuromoji IPADIC dictionary from ${KUROMOJI_IPADIC_SRC}"
+        VERBATIM)
+    # ALL so a real build generates the dictionary before the install step runs.
+    add_custom_target(kuromoji_dict ALL DEPENDS "${KUROMOJI_DICT_OUT}/system.bin")
+endif()
+
 option(BUILD_FILE_CACHE_MICROBENCH_TOOL "Build file cache mirobench Tool" OFF)
 if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
     add_subdirectory(${SRC_DIR}/io/tools)
+    add_subdirectory(${SRC_DIR}/io/cache/benchmark)
     install(FILES
         ${BASE_DIR}/../bin/start_file_cache_microbench.sh
         PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE

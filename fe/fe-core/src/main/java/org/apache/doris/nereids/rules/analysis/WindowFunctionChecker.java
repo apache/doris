@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundType;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundary;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameUnitsType;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.window.CumeDist;
 import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.FirstOrLastValue;
@@ -93,6 +94,10 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
         // in checkWindowFrameBeforeFunc() we have confirmed that both left and right boundary are set as long as
         // windowFrame exists, therefore in all following visitXXX functions we don't need to check whether the right
         // boundary is null.
+        if (windowExpression.getFunction() instanceof CombineCombinator) {
+            throw new AnalysisException("Window function does not support aggregate combine function: "
+                    + ((CombineCombinator) windowExpression.getFunction()).getName());
+        }
         windowExpression.accept(this, null);
     }
 

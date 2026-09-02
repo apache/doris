@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.DateCeilFloorMonoton
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.RoundingMonotonic.RoundingType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
@@ -101,6 +102,11 @@ public class QuarterFloor extends ScalarFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public RoundingType getRoundingType() {
+        return RoundingType.FLOOR;
     }
 
     @Override

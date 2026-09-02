@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Maps;
@@ -41,6 +42,16 @@ public class TablePropertyTest {
 
     // A non-whitelisted dynamic_partition.* key is ignored (skipped via continue), so it is not
     // collected at all and the table is neither built as dynamic nor flagged as incomplete.
+    @Test
+    public void testPartitionInvertedIndexStorageFormat() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "SNII");
+        TableProperty tableProperty = new TableProperty(properties);
+
+        Assert.assertEquals(TInvertedIndexFileStorageFormat.SNII,
+                tableProperty.getPartitionInvertedIndexFileStorageFormat());
+    }
+
     @Test
     public void testIgnoreInvalidDynamicPartitionPropertyKey() {
         Map<String, String> properties = Maps.newHashMap();

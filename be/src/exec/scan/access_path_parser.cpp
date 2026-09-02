@@ -189,6 +189,20 @@ void insert_access_path(AccessPathNode* root, const std::vector<std::string>& pa
     insert_access_path(&root->children[path[path_idx]], path, path_idx + 1);
 }
 
+void collect_variant_access_paths(const AccessPathNode& node, std::vector<std::string>* path,
+                                  std::vector<std::vector<std::string>>* result) {
+    DORIS_CHECK(path != nullptr && result != nullptr);
+    for (const auto& [segment, child] : node.children) {
+        path->push_back(segment);
+        if (child.project_all || child.children.empty()) {
+            result->push_back(*path);
+        } else {
+            collect_variant_access_paths(child, path, result);
+        }
+        path->pop_back();
+    }
+}
+
 Status build_nested_children_from_access_node(format::ColumnDefinition* column,
                                               const DataTypePtr& type, const AccessPathNode& node,
                                               const std::string& path,
@@ -445,6 +459,19 @@ Status build_nested_children_from_access_node(format::ColumnDefinition* column,
         return build_map_children_from_access_node(
                 column, assert_cast<const DataTypeMap&>(*nested_type), node, path, schema_column,
                 prefer_exact_name_match);
+    case TYPE_VARIANT: {
+        // A Variant nested below STRUCT/ARRAY/MAP owns paths relative to this terminal. Keeping
+        // them on the nested ColumnDefinition lets ColumnMapper select the same physical leaves
+        // as a root Variant without flattening away the surrounding container.
+        column->variant_access_paths.clear();
+        std::vector<std::string> variant_path;
+        collect_variant_access_paths(node, &variant_path, &column->variant_access_paths);
+        std::ranges::sort(column->variant_access_paths);
+        column->variant_access_paths.erase(std::unique(column->variant_access_paths.begin(),
+                                                       column->variant_access_paths.end()),
+                                           column->variant_access_paths.end());
+        return Status::OK();
+    }
     default:
         return Status::NotSupported("AccessPathParser does not support access path {} for slot {}",
                                     path, column->name);
@@ -459,6 +486,44 @@ Status AccessPathParser::build_nested_children(format::ColumnDefinition* column,
                                                bool prefer_exact_name_match) {
     DORIS_CHECK(column != nullptr);
     if (is_scanner_materialized_virtual_column(column->name)) {
+        return Status::OK();
+    }
+    if (remove_nullable(column->type)->get_primitive_type() == TYPE_VARIANT) {
+        column->variant_access_paths.clear();
+        for (const auto& access_path : access_paths) {
+            if (access_path.type != TAccessPathType::DATA ||
+                !access_path.__isset.data_access_path) {
+                return Status::NotSupported(
+                        "AccessPathParser only supports DATA access paths for Variant slot {}",
+                        column->name);
+            }
+            const auto& path = access_path.data_access_path.path;
+            if (path.empty()) {
+                // Match the generic access-path tree: an empty DATA path denotes the whole slot
+                // and dominates every narrower Variant path in the same request.
+                column->variant_access_paths.clear();
+                return Status::OK();
+            }
+            int32_t top_level_id = -1;
+            if (to_lower(path.front()) != to_lower(column->name) &&
+                (!parse_non_negative_int(path.front(), &top_level_id) ||
+                 !column->has_identifier_field_id() ||
+                 top_level_id != column->get_identifier_field_id())) {
+                return Status::NotSupported(
+                        "AccessPathParser access path {} does not match Variant slot {}",
+                        access_path_to_string(path), column->name);
+            }
+            if (path.size() == 1) {
+                // A whole-root access covers every subpath and must disable physical leaf pruning.
+                column->variant_access_paths.clear();
+                return Status::OK();
+            }
+            column->variant_access_paths.emplace_back(path.begin() + 1, path.end());
+        }
+        std::ranges::sort(column->variant_access_paths);
+        column->variant_access_paths.erase(std::unique(column->variant_access_paths.begin(),
+                                                       column->variant_access_paths.end()),
+                                           column->variant_access_paths.end());
         return Status::OK();
     }
     if (!is_complex_type(remove_nullable(column->type)->get_primitive_type())) {
@@ -506,8 +571,36 @@ Status AccessPathParser::build_nested_children(format::ColumnDefinition* column,
                                                bool prefer_exact_name_match) {
     DORIS_CHECK(column != nullptr);
     DORIS_CHECK(slot_desc != nullptr);
-    return build_nested_children(column, slot_desc->all_access_paths(), schema_column,
+    return build_nested_children(column, slot_desc->all_access_paths(),
+                                 slot_desc->predicate_access_paths(), schema_column,
                                  prefer_exact_name_match);
+}
+
+Status AccessPathParser::build_nested_children(
+        format::ColumnDefinition* column, const std::vector<TColumnAccessPath>& all_access_paths,
+        const std::vector<TColumnAccessPath>& predicate_access_paths,
+        const format::ColumnDefinition* schema_column, bool prefer_exact_name_match) {
+    DORIS_CHECK(column != nullptr);
+    auto predicate_column = *column;
+    RETURN_IF_ERROR(build_nested_children(column, all_access_paths, schema_column,
+                                          prefer_exact_name_match));
+    column->has_predicate_access_paths = !predicate_access_paths.empty();
+    column->predicate_children.clear();
+    column->predicate_variant_access_paths.clear();
+    if (predicate_access_paths.empty()) {
+        return Status::OK();
+    }
+
+    predicate_column.children.clear();
+    predicate_column.variant_access_paths.clear();
+    predicate_column.has_predicate_access_paths = false;
+    predicate_column.predicate_children.clear();
+    predicate_column.predicate_variant_access_paths.clear();
+    RETURN_IF_ERROR(build_nested_children(&predicate_column, predicate_access_paths, schema_column,
+                                          prefer_exact_name_match));
+    column->predicate_children = std::move(predicate_column.children);
+    column->predicate_variant_access_paths = std::move(predicate_column.variant_access_paths);
+    return Status::OK();
 }
 
 } // namespace doris

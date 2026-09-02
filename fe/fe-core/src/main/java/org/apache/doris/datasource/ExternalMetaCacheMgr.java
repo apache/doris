@@ -22,10 +22,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.datasource.doris.DorisExternalMetaCache;
-import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
+import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
+import org.apache.doris.datasource.metacache.ExternalCatalogMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
-import org.apache.doris.datasource.metacache.ExternalMetaCacheRegistry;
-import org.apache.doris.datasource.metacache.ExternalMetaCacheRouteResolver;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
@@ -37,7 +36,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -82,8 +83,7 @@ public class ExternalMetaCacheMgr {
     private ExecutorService fileListingExecutor;
     // This executor is used to schedule the getting split tasks
     private ExecutorService scheduleExecutor;
-    private final ExternalMetaCacheRegistry cacheRegistry;
-    private final ExternalMetaCacheRouteResolver routeResolver;
+    private final Map<String, ExternalMetaCache> cacheTypes = Maps.newConcurrentMap();
 
     // all catalogs could share the same fsCache.
     private FileSystemCache fsCache;
@@ -115,9 +115,7 @@ public class ExternalMetaCacheMgr {
 
         fsCache = new FileSystemCache();
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
-        cacheRegistry = new ExternalMetaCacheRegistry();
-        routeResolver = new ExternalMetaCacheRouteResolver(cacheRegistry);
-        initEngineCaches();
+        registerBuiltinEngineCaches();
     }
 
     private ExecutorService newThreadPool(boolean isCheckpointCatalog, int numThread, int queueSize,
@@ -144,7 +142,11 @@ public class ExternalMetaCacheMgr {
     }
 
     ExternalMetaCache engine(String engine) {
-        return cacheRegistry.resolve(engine);
+        ExternalMetaCache cache = cacheTypes.get(engine);
+        if (cache == null) {
+            throw new IllegalArgumentException(String.format("unsupported external meta cache engine '%s'", engine));
+        }
+        return cache;
     }
 
     public DorisExternalMetaCache doris(long catalogId) {
@@ -178,13 +180,18 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateCatalog(long catalogId) {
-        routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                cache, catalogId, "invalidateCatalog",
-                () -> cache.invalidateCatalogEntries(catalogId)));
-        // Cache B (Nereids sorted-partition-ranges) has no db/catalog-scoped eviction, so a catalog-level
-        // REFRESH must drop ALL of its entries -- else binary-search pruning could serve ranges older than
-        // the refreshed metadata. Coarse but correct (a rebuild is cheap and lazy). Mirrors invalidateTable.
-        invalidateSortedPartitionsCache();
+        try {
+            try {
+                routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                        cache, catalogId, "invalidateCatalog",
+                        () -> cache.invalidateCatalogEntries(catalogId)));
+            } finally {
+                // This cache has no catalog-scoped key, so catalog invalidation must clear it globally.
+                invalidateSortedPartitionsCache();
+            }
+        } finally {
+            rowCountCache.invalidateCatalog(catalogId);
+        }
     }
 
     public void invalidateCatalogByEngine(long catalogId, String engine) {
@@ -194,12 +201,17 @@ public class ExternalMetaCacheMgr {
     }
 
     public void removeCatalog(long catalogId) {
-        routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                cache, catalogId, "removeCatalog",
-                () -> cache.invalidateCatalog(catalogId)));
-        // Drop ALL Cache B entries: the catalog is going away and Cache B has no catalog-scoped eviction.
-        // (invalidateAll needs no catalog name, so this is safe even after the catalog was already removed.)
-        invalidateSortedPartitionsCache();
+        try {
+            try {
+                routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                        cache, catalogId, "removeCatalog",
+                        () -> cache.invalidateCatalog(catalogId)));
+            } finally {
+                invalidateSortedPartitionsCache();
+            }
+        } finally {
+            rowCountCache.invalidateCatalog(catalogId);
+        }
     }
 
     public void removeCatalogByEngine(long catalogId, String engine) {
@@ -208,24 +220,75 @@ public class ExternalMetaCacheMgr {
                 () -> cache.invalidateCatalog(catalogId)));
     }
 
-    public void invalidateDb(long catalogId, String dbName) {
-        routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                cache, catalogId, "invalidateDb", () -> cache.invalidateDb(catalogId, dbName)));
-        // Cache B has no db-scoped eviction key, so a db-level REFRESH drops ALL entries (coarse but
-        // correct -- a rebuild is cheap and lazy). Mirrors invalidateTable's Cache B wiring.
-        invalidateSortedPartitionsCache();
+    /**
+     * Invalidates database metadata without evicting row counts. Passive object-cache resets use this directly;
+     * mutation paths must add their row-count barrier after upstream metadata has been invalidated.
+     */
+    public void invalidateDbMetadataCache(long catalogId, String dbName) {
+        try {
+            routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                    cache, catalogId, "invalidateDbMetadataCache", () -> cache.invalidateDb(catalogId, dbName)));
+        } finally {
+            // This cache has no database-scoped key, so database invalidation must clear it globally.
+            invalidateSortedPartitionsCache();
+        }
     }
 
-    public void invalidateTable(long catalogId, String dbName, String tableName) {
-        routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                cache, catalogId, "invalidateTable",
-                () -> cache.invalidateTable(catalogId, dbName, tableName)));
-        // Also drop the Nereids sorted-partition-ranges cache for this external table so binary-search
-        // pruning does not serve ranges older than the refreshed metadata.
-        CatalogIf<?> ctl = getCatalog(catalogId);
-        if (ctl != null) {
-            Env.getCurrentEnv().getSortedPartitionsCacheManager().invalidateTable(ctl.getName(), dbName, tableName);
+    public void invalidateDb(long catalogId, long dbId, String dbName) {
+        try {
+            invalidateDbMetadataCache(catalogId, dbName);
+        } finally {
+            // Keep row-count invalidation last: it fences loads published before the metadata invalidation.
+            rowCountCache.invalidateDb(catalogId, dbId);
         }
+    }
+
+    private void invalidateTableMetadataCache(long catalogId, String dbName, String tableName) {
+        try {
+            routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                    cache, catalogId, "invalidateTableMetadataCache",
+                    () -> cache.invalidateTable(catalogId, dbName, tableName)));
+        } finally {
+            CatalogIf<?> catalog = getCatalog(catalogId);
+            if (catalog != null) {
+                Env.getCurrentEnv().getSortedPartitionsCacheManager()
+                        .invalidateTable(catalog.getName(), dbName, tableName);
+            }
+        }
+    }
+
+    public void invalidateTable(long catalogId, long dbId, String dbName,
+            long tableId, String tableName) {
+        try {
+            invalidateTableMetadataCache(catalogId, dbName, tableName);
+        } finally {
+            // Keep row-count invalidation last: it fences loads published before the metadata invalidation.
+            rowCountCache.invalidateTable(catalogId, dbId, tableId);
+        }
+    }
+
+    public void invalidateTableRename(long catalogId, long dbId, String dbName,
+            long sourceTableId, String sourceTableName,
+            long destinationTableId, String destinationTableName) {
+        try {
+            invalidateTable(catalogId, dbId, dbName, sourceTableId, sourceTableName);
+        } finally {
+            // The destination ID may belong to an earlier incarnation, so its row-count barrier must run last.
+            invalidateTable(catalogId, dbId, dbName, destinationTableId, destinationTableName);
+        }
+    }
+
+    public void invalidateTable(ExternalTable table) {
+        invalidateTable(table.getCatalog().getId(), table.getDb().getId(), table.getDbName(),
+                table.getId(), table.getName());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalidated table caches for {}.{} in catalog {}", table.getRemoteDbName(),
+                    table.getRemoteName(), table.getCatalog().getName());
+        }
+    }
+
+    public void invalidateDbRowCountCache(long catalogId, long dbId) {
+        rowCountCache.invalidateDb(catalogId, dbId);
     }
 
     /**
@@ -244,6 +307,12 @@ public class ExternalMetaCacheMgr {
         }
     }
 
+    /** Evicts only row count for partition changes that do not invalidate table-level FE metadata. */
+    public void invalidateTableRowCountCache(ExternalTable table) {
+        rowCountCache.invalidateTable(
+                table.getCatalog().getId(), table.getDb().getId(), table.getId());
+    }
+
     public void invalidateTableByEngine(long catalogId, String engine, String dbName, String tableName) {
         routeSpecifiedEngine(engine, cache -> safeInvalidate(
                 cache, catalogId, "invalidateTableByEngine",
@@ -259,7 +328,7 @@ public class ExternalMetaCacheMgr {
 
     public List<CatalogMetaCacheStats> getCatalogCacheStats(long catalogId) {
         List<CatalogMetaCacheStats> stats = new ArrayList<>();
-        cacheRegistry.allCaches().forEach(externalMetaCache -> externalMetaCache.stats(catalogId)
+        allCacheTypes().forEach(externalMetaCache -> externalMetaCache.stats(catalogId)
                 .forEach((entryName, entryStats) -> stats.add(
                         new CatalogMetaCacheStats(externalMetaCache.engine(), entryName, entryStats))));
         stats.sort(Comparator.comparing(CatalogMetaCacheStats::getEngineName)
@@ -291,17 +360,20 @@ public class ExternalMetaCacheMgr {
         }
     }
 
-    private void initEngineCaches() {
-        registerBuiltinEngineCaches();
-    }
-
     private void registerBuiltinEngineCaches() {
-        cacheRegistry.register(new DefaultExternalMetaCache(ENGINE_DEFAULT, commonRefreshExecutor));
-        cacheRegistry.register(new DorisExternalMetaCache(commonRefreshExecutor));
+        registerCacheType(new DefaultExternalMetaCache(ENGINE_DEFAULT, commonRefreshExecutor));
+        registerCacheType(new DorisExternalMetaCache(commonRefreshExecutor));
     }
 
     private void routeCatalogEngines(long catalogId, Consumer<ExternalMetaCache> action) {
-        routeResolver.resolveCatalogCaches(catalogId, getCatalog(catalogId)).forEach(action);
+        CatalogIf<?> catalog = getCatalog(catalogId);
+        if (catalog instanceof RemoteDorisExternalCatalog) {
+            action.accept(engine(ENGINE_DORIS));
+        } else if (catalog instanceof ExternalCatalog) {
+            action.accept(engine(ENGINE_DEFAULT));
+        } else if (catalog == null) {
+            allCacheTypes().stream().filter(cache -> cache.isCatalogInitialized(catalogId)).forEach(action);
+        }
     }
 
     private void routeSpecifiedEngine(String engine, Consumer<ExternalMetaCache> action) {
@@ -310,7 +382,14 @@ public class ExternalMetaCacheMgr {
 
     List<String> resolveCatalogEngineNamesForTest(@Nullable CatalogIf<?> catalog, long catalogId) {
         List<String> resolved = new ArrayList<>();
-        routeResolver.resolveCatalogCaches(catalogId, catalog).forEach(cache -> resolved.add(cache.engine()));
+        if (catalog instanceof RemoteDorisExternalCatalog) {
+            resolved.add(ENGINE_DORIS);
+        } else if (catalog instanceof ExternalCatalog) {
+            resolved.add(ENGINE_DEFAULT);
+        } else if (catalog == null) {
+            allCacheTypes().stream().filter(cache -> cache.isCatalogInitialized(catalogId))
+                    .forEach(cache -> resolved.add(cache.engine()));
+        }
         return new ArrayList<>(resolved);
     }
 
@@ -360,7 +439,8 @@ public class ExternalMetaCacheMgr {
     @SuppressWarnings("unchecked")
     public Optional<SchemaCacheValue> getSchemaCacheValue(ExternalTable table, SchemaCacheKey key) {
         long catalogId = table.getCatalog().getId();
-        String resolvedEngine = table.getMetaCacheEngine();
+        String resolvedEngine = table.getCatalog() instanceof RemoteDorisExternalCatalog
+                ? ENGINE_DORIS : ENGINE_DEFAULT;
         prepareCatalogByEngine(catalogId, resolvedEngine);
         try {
             return ((ExternalMetaCache) engine(resolvedEngine)).getSchemaValue(catalogId, key);
@@ -381,16 +461,6 @@ public class ExternalMetaCacheMgr {
         return rowCountCache;
     }
 
-    public void invalidateTableCache(ExternalTable dorisTable) {
-        invalidateTable(dorisTable.getCatalog().getId(),
-                dorisTable.getDbName(),
-                dorisTable.getName());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("invalid table cache for {}.{} in catalog {}", dorisTable.getRemoteDbName(),
-                    dorisTable.getRemoteName(), dorisTable.getCatalog().getName());
-        }
-    }
-
     public ExecutorService commonRefreshExecutor() {
         return commonRefreshExecutor;
     }
@@ -406,12 +476,22 @@ public class ExternalMetaCacheMgr {
         return stats;
     }
 
+    private void registerCacheType(ExternalMetaCache cache) {
+        cacheTypes.put(cache.engine(), cache);
+        cache.aliases().forEach(alias -> cacheTypes.put(alias, cache));
+    }
+
+    private Collection<ExternalMetaCache> allCacheTypes() {
+        return new LinkedHashSet<>(cacheTypes.values());
+    }
+
     void replaceEngineCachesForTest(List<? extends ExternalMetaCache> caches) {
-        cacheRegistry.resetForTest(caches);
+        cacheTypes.clear();
+        caches.forEach(this::registerCacheType);
     }
 
     /**
-     * Fallback implementation of {@link AbstractExternalMetaCache} for engines that do not
+     * Fallback implementation of {@link ExternalCatalogMetaCache} for engines that do not
      * provide dedicated cache entries.
      *
      * <p>Registered entries:
@@ -422,7 +502,7 @@ public class ExternalMetaCacheMgr {
      * <p>This class keeps compatibility for generic external engines and routes only schema
      * loading/invalidation. No engine-specific metadata (partitions/files/snapshots) is cached.
      */
-    private static class DefaultExternalMetaCache extends AbstractExternalMetaCache {
+    private static class DefaultExternalMetaCache extends ExternalCatalogMetaCache {
         DefaultExternalMetaCache(String engine, ExecutorService refreshExecutor) {
             super(engine, refreshExecutor);
             registerEntry(MetaCacheEntryDef.of(

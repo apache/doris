@@ -20,6 +20,7 @@
 #include <butil/endpoint.h>
 #include <butil/iobuf.h>
 #include <bvar/bvar.h>
+#include <gen_cpp/Status_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
 #include <algorithm>

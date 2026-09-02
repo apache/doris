@@ -21,7 +21,6 @@
 #pragma once
 
 #include <crc32c/crc32c.h>
-#include <gen_cpp/Types_types.h>
 #include <xxh3.h>
 #include <xxhash.h>
 #include <zlib.h>
@@ -492,36 +491,30 @@ public:
 
 } // namespace doris
 
+namespace doris {
+// Forward declarations only: a std::hash specialization can be DECLARED for
+// an incomplete type, which keeps gen_cpp/Types_types.h out of this header.
+// This header stays the earliest carrier of these specializations (it rides
+// in through string_ref.h and storage/olap_common.h), so they are visible
+// before any implicit instantiation. Bodies live in util/uid_util.cpp and
+// util/network_util.cpp, where the types are complete.
+class TUniqueId;
+class TNetworkAddress;
+} // namespace doris
+
 template <>
 struct std::hash<doris::TUniqueId> {
-    size_t operator()(const doris::TUniqueId& id) const {
-        uint32_t seed = 0;
-        seed = doris::HashUtil::hash(&id.lo, sizeof(id.lo), seed);
-        seed = doris::HashUtil::hash(&id.hi, sizeof(id.hi), seed);
-        return seed;
-    }
+    size_t operator()(const doris::TUniqueId& id) const;
 };
 
 template <>
 struct std::hash<doris::TNetworkAddress> {
-    size_t operator()(const doris::TNetworkAddress& address) const {
-        uint32_t seed = 0;
-        seed = doris::HashUtil::hash(address.hostname.data(), (uint32_t)address.hostname.size(),
-                                     seed);
-        seed = doris::HashUtil::hash(&address.port, 4, seed);
-        return seed;
-    }
+    size_t operator()(const doris::TNetworkAddress& address) const;
 };
 
 template <>
 struct std::hash<std::pair<doris::TUniqueId, int64_t>> {
-    size_t operator()(const std::pair<doris::TUniqueId, int64_t>& pair) const {
-        uint32_t seed = 0;
-        seed = doris::HashUtil::hash(&pair.first.lo, sizeof(pair.first.lo), seed);
-        seed = doris::HashUtil::hash(&pair.first.hi, sizeof(pair.first.hi), seed);
-        seed = doris::HashUtil::hash(&pair.second, sizeof(pair.second), seed);
-        return seed;
-    }
+    size_t operator()(const std::pair<doris::TUniqueId, int64_t>& pair) const;
 };
 
 template <class First, class Second>

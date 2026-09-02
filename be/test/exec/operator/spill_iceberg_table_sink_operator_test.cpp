@@ -138,9 +138,9 @@ TEST(SpillIcebergTableSinkOperatorTest, TerminalWriterDrainsQueuedReservations) 
 }
 
 TEST(SpillIcebergTableSinkOperatorTest, AzureDeferredMultipartRequiresCoordinatorCapability) {
-    EXPECT_TRUE(hive_multipart_protocol_supported(io::ObjStorageType::AWS, false));
-    EXPECT_FALSE(hive_multipart_protocol_supported(io::ObjStorageType::AZURE, false));
-    EXPECT_TRUE(hive_multipart_protocol_supported(io::ObjStorageType::AZURE, true));
+    EXPECT_TRUE(hive_multipart_protocol_supported(io::ObjStorageProvider::AWS, false));
+    EXPECT_FALSE(hive_multipart_protocol_supported(io::ObjStorageProvider::AZURE, false));
+    EXPECT_TRUE(hive_multipart_protocol_supported(io::ObjStorageProvider::AZURE, true));
 }
 
 } // namespace doris

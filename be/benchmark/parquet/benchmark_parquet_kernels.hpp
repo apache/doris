@@ -63,6 +63,193 @@ struct NestedSelectionScratch {
     size_t ancestor_null_count = 0;
 };
 
+struct NullableSelectionScratch {
+    format::parquet::native::ColumnSelectVector legacy_selection;
+    ParquetSelection physical_selection;
+    NullMap output_nulls;
+    NullMap selected_nulls;
+    size_t num_filtered = 0;
+};
+
+inline void append_nullable_run(std::vector<uint16_t>* runs, bool is_null, size_t run_length,
+                                bool* previous_is_null) {
+    if (runs->empty()) {
+        if (is_null) {
+            runs->push_back(0);
+        }
+    } else if (*previous_is_null == is_null) {
+        runs->push_back(0);
+    }
+    while (run_length > USHRT_MAX) {
+        runs->push_back(USHRT_MAX);
+        runs->push_back(0);
+        run_length -= USHRT_MAX;
+    }
+    runs->push_back(static_cast<uint16_t>(run_length));
+    *previous_is_null = is_null;
+}
+
+inline std::vector<uint16_t> build_nullable_runs(const NullMap& nulls) {
+    std::vector<uint16_t> runs;
+    bool previous_is_null = false;
+    size_t row = 0;
+    while (row < nulls.size()) {
+        const bool is_null = nulls[row] != 0;
+        const size_t begin = row++;
+        while (row < nulls.size() && (nulls[row] != 0) == is_null) {
+            ++row;
+        }
+        append_nullable_run(&runs, is_null, row - begin, &previous_is_null);
+    }
+    return runs;
+}
+
+inline Status run_legacy_nullable_selection(NullableSelectionScratch* scratch,
+                                            const std::vector<uint16_t>& null_runs,
+                                            size_t num_values,
+                                            format::parquet::native::FilterMap* filter) {
+    using ReadType = format::parquet::native::ColumnSelectVector::DataReadType;
+    scratch->output_nulls.clear();
+    scratch->selected_nulls.clear();
+    scratch->physical_selection.ranges.clear();
+    scratch->physical_selection.total_values = 0;
+    scratch->physical_selection.selected_values = 0;
+    RETURN_IF_ERROR(scratch->legacy_selection.init(null_runs, num_values, &scratch->output_nulls,
+                                                   filter, 0));
+    scratch->num_filtered = scratch->legacy_selection.num_filtered();
+
+    size_t physical_cursor = 0;
+    ReadType type;
+    while (const size_t run_length = scratch->legacy_selection.get_next_run<true>(&type)) {
+        switch (type) {
+        case ReadType::CONTENT:
+            if (!scratch->physical_selection.ranges.empty() &&
+                scratch->physical_selection.ranges.back().first +
+                                scratch->physical_selection.ranges.back().count ==
+                        physical_cursor) {
+                scratch->physical_selection.ranges.back().count += run_length;
+            } else {
+                scratch->physical_selection.ranges.push_back(
+                        {.first = physical_cursor, .count = run_length});
+            }
+            scratch->physical_selection.selected_values += run_length;
+            scratch->selected_nulls.resize_fill(scratch->selected_nulls.size() + run_length, 0);
+            physical_cursor += run_length;
+            break;
+        case ReadType::NULL_DATA:
+            scratch->selected_nulls.resize_fill(scratch->selected_nulls.size() + run_length, 1);
+            break;
+        case ReadType::FILTERED_CONTENT:
+            physical_cursor += run_length;
+            break;
+        case ReadType::FILTERED_NULL:
+            break;
+        }
+    }
+    scratch->physical_selection.total_values = physical_cursor;
+    return Status::OK();
+}
+
+inline Status run_nullable_selection_once(NullableSelectionScratch* scratch,
+                                          const std::vector<uint16_t>& null_runs, size_t num_values,
+                                          size_t num_nulls,
+                                          format::parquet::native::FilterMap* filter,
+                                          NullableSelectionImplementation implementation) {
+    if (implementation == NullableSelectionImplementation::LEGACY) {
+        return run_legacy_nullable_selection(scratch, null_runs, num_values, filter);
+    }
+    scratch->output_nulls.clear();
+    return format::parquet::native::build_filtered_nullable_selection(
+            null_runs, num_values, num_nulls, &scratch->output_nulls, filter, 0,
+            &scratch->physical_selection, &scratch->selected_nulls, &scratch->num_filtered);
+}
+
+inline bool equal_selection(const ParquetSelection& lhs, const ParquetSelection& rhs) {
+    if (lhs.total_values != rhs.total_values || lhs.selected_values != rhs.selected_values ||
+        lhs.ranges.size() != rhs.ranges.size()) {
+        return false;
+    }
+    for (size_t range = 0; range < lhs.ranges.size(); ++range) {
+        if (lhs.ranges[range].first != rhs.ranges[range].first ||
+            lhs.ranges[range].count != rhs.ranges[range].count) {
+            return false;
+        }
+    }
+    return true;
+}
+
+inline void run_nullable_selection_kernel(benchmark::State& state,
+                                          const NullableSelectionScenario& scenario) {
+    using format::parquet::native::FilterMap;
+
+    std::vector<uint8_t> filter_data(KERNEL_ROWS, 0);
+    const auto selected = make_selection_plan(KERNEL_ROWS, scenario.selectivity_percent,
+                                              scenario.selection_pattern);
+    visit_selected_rows(selected, [&](size_t row) { filter_data[row] = 1; });
+    FilterMap filter;
+    auto status = filter.init(filter_data.data(), filter_data.size(), false);
+    if (!status.ok()) {
+        state.SkipWithError(status.to_string().c_str());
+        return;
+    }
+
+    NullMap nulls;
+    nulls.resize_fill(KERNEL_ROWS, 0);
+    const auto null_plan =
+            make_selection_plan(KERNEL_ROWS, scenario.null_percent, scenario.null_pattern);
+    visit_selected_rows(null_plan, [&](size_t row) { nulls[row] = 1; });
+    const auto null_runs = build_nullable_runs(nulls);
+
+    NullableSelectionScratch legacy;
+    NullableSelectionScratch fused;
+    status = run_nullable_selection_once(&legacy, null_runs, KERNEL_ROWS, null_plan.selected_rows,
+                                         &filter, NullableSelectionImplementation::LEGACY);
+    if (status.ok()) {
+        status =
+                run_nullable_selection_once(&fused, null_runs, KERNEL_ROWS, null_plan.selected_rows,
+                                            &filter, NullableSelectionImplementation::FUSED);
+    }
+    if (!status.ok() || !equal_selection(legacy.physical_selection, fused.physical_selection) ||
+        legacy.output_nulls != fused.output_nulls ||
+        legacy.selected_nulls != fused.selected_nulls ||
+        legacy.num_filtered != fused.num_filtered) {
+        if (status.ok()) {
+            state.SkipWithError("nullable selection implementations disagree");
+        } else {
+            state.SkipWithError(status.to_string().c_str());
+        }
+        return;
+    }
+
+    NullableSelectionScratch scratch;
+    status = run_nullable_selection_once(&scratch, null_runs, KERNEL_ROWS, null_plan.selected_rows,
+                                         &filter, scenario.implementation);
+    if (!status.ok()) {
+        state.SkipWithError(status.to_string().c_str());
+        return;
+    }
+    for (auto _ : state) {
+        status = run_nullable_selection_once(&scratch, null_runs, KERNEL_ROWS,
+                                             null_plan.selected_rows, &filter,
+                                             scenario.implementation);
+        if (!status.ok()) {
+            state.SkipWithError(status.to_string().c_str());
+            return;
+        }
+        auto* selection_ranges = scratch.physical_selection.ranges.data();
+        auto* selected_nulls = scratch.selected_nulls.data();
+        benchmark::DoNotOptimize(selection_ranges);
+        benchmark::DoNotOptimize(selected_nulls);
+        benchmark::ClobberMemory();
+    }
+
+    state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) *
+                            static_cast<int64_t>(KERNEL_ROWS));
+    state.counters["rows"] = static_cast<double>(KERNEL_ROWS);
+    state.counters["selected_rows"] = static_cast<double>(selected.selected_rows);
+    state.counters["null_rows"] = static_cast<double>(null_plan.selected_rows);
+}
+
 inline NestedSelectionOracle build_nested_selection_oracle(
         const std::vector<NestedLevel>& repetition_levels,
         const std::vector<NestedLevel>& definition_levels,
@@ -493,7 +680,24 @@ inline bool register_kernel_benchmarks() {
     return true;
 }
 
+inline bool register_nullable_selection_benchmarks() {
+    for (const auto& scenario : nullable_selection_scenarios()) {
+        const std::string name = "ParquetKernel/nullable_selection/sel_" +
+                                 std::to_string(scenario.selectivity_percent) + "/null_" +
+                                 std::to_string(scenario.null_percent) + "/selection_" +
+                                 to_string(scenario.selection_pattern) + "/nulls_" +
+                                 to_string(scenario.null_pattern) + "/impl_" +
+                                 to_string(scenario.implementation);
+        benchmark::RegisterBenchmark(name.c_str(), [=](benchmark::State& state) {
+            run_nullable_selection_kernel(state, scenario);
+        })->Unit(benchmark::kNanosecond);
+    }
+    return true;
+}
+
 inline const bool KERNEL_BENCHMARKS_REGISTERED = register_kernel_benchmarks();
+inline const bool NULLABLE_SELECTION_BENCHMARKS_REGISTERED =
+        register_nullable_selection_benchmarks();
 
 } // namespace detail
 } // namespace doris::parquet_benchmark

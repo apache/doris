@@ -111,6 +111,7 @@ import org.apache.thrift.TException;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -630,6 +631,13 @@ public class ReportHandler extends Daemon {
                 tabletToUpdate,
                 cooldownConfToPush,
                 cooldownConfToUpdate);
+
+        // The partition storage medium remains authoritative for base tablets. Let a paired base tablet
+        // migrate first, then let row-binlog locality repair move its companion to the base tablet's new
+        // exact path. A row-binlog tablet itself must never choose a storage medium independently.
+        if (!Config.disable_storage_medium_check && !tabletMigrationMap.isEmpty()) {
+            filterRowBinlogTabletMigration(tabletMigrationMap, backendId);
+        }
 
         // 2. sync
         if (!tabletSyncMap.isEmpty()) {
@@ -1271,6 +1279,34 @@ public class ReportHandler extends Daemon {
         }
 
         AgentTaskExecutor.submit(batchTask);
+    }
+
+    static void filterRowBinlogTabletMigration(
+            ListMultimap<TStorageMedium, Long> tabletMigrationMap, long backendId) {
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        List<Long> skippedTabletIds = Lists.newArrayListWithCapacity(10);
+        int skippedTabletNum = 0;
+        Iterator<Map.Entry<TStorageMedium, Long>> iterator = tabletMigrationMap.entries().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<TStorageMedium, Long> entry = iterator.next();
+            long tabletId = entry.getValue();
+            TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
+            if (tabletMeta != null && tabletMeta != TabletInvertedIndex.NOT_EXIST_TABLET_META
+                    && !tabletMeta.isRowBinlog()) {
+                continue;
+            }
+            iterator.remove();
+            skippedTabletNum++;
+            if (skippedTabletIds.size() < 10) {
+                skippedTabletIds.add(tabletId);
+            }
+        }
+        if (skippedTabletNum > 0) {
+            LOG.info("skip independent storage medium migration for {} tablets on backend {} because they are "
+                            + "row-binlog companions or their metadata is no longer available. "
+                            + "sample tablet ids: {}",
+                    skippedTabletNum, backendId, skippedTabletIds);
+        }
     }
 
     private static void handleRepublishVersionInfo(

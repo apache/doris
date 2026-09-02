@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.rpc.RpcException;
 
+import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.protobuf.DescriptorProtos;
 import com.google.protobuf.Descriptors;
@@ -44,6 +45,7 @@ public class MetaServiceProxyTest {
     private long originReconnectIntervalMs;
     private long originRetryCnt;
     private boolean originRateLimitEnabled;
+    private boolean originRateLimitDryRun;
     private int originRateLimitDefaultQpsPerCore;
     private String originRateLimitQpsPerCoreConfig;
     private int originRateLimitBurstSeconds;
@@ -55,6 +57,7 @@ public class MetaServiceProxyTest {
         originReconnectIntervalMs = Config.meta_service_rpc_reconnect_interval_ms;
         originRetryCnt = Config.meta_service_rpc_retry_cnt;
         originRateLimitEnabled = Config.meta_service_rpc_rate_limit_enabled;
+        originRateLimitDryRun = Config.meta_service_rpc_rate_limit_dry_run;
         originRateLimitDefaultQpsPerCore = Config.meta_service_rpc_rate_limit_default_qps_per_core;
         originRateLimitQpsPerCoreConfig = Config.meta_service_rpc_rate_limit_qps_per_core_config;
         originRateLimitBurstSeconds = Config.meta_service_rpc_rate_limit_burst_seconds;
@@ -64,6 +67,7 @@ public class MetaServiceProxyTest {
         Config.meta_service_rpc_reconnect_interval_ms = 0;
         Config.meta_service_rpc_retry_cnt = 1;
         Config.meta_service_rpc_rate_limit_enabled = false;
+        Config.meta_service_rpc_rate_limit_dry_run = false;
         Config.meta_service_rpc_rate_limit_default_qps_per_core = 10;
         Config.meta_service_rpc_rate_limit_qps_per_core_config = "";
         Config.meta_service_rpc_rate_limit_burst_seconds = 1;
@@ -77,6 +81,7 @@ public class MetaServiceProxyTest {
         Config.meta_service_rpc_reconnect_interval_ms = originReconnectIntervalMs;
         Config.meta_service_rpc_retry_cnt = originRetryCnt;
         Config.meta_service_rpc_rate_limit_enabled = originRateLimitEnabled;
+        Config.meta_service_rpc_rate_limit_dry_run = originRateLimitDryRun;
         Config.meta_service_rpc_rate_limit_default_qps_per_core = originRateLimitDefaultQpsPerCore;
         Config.meta_service_rpc_rate_limit_qps_per_core_config = originRateLimitQpsPerCoreConfig;
         Config.meta_service_rpc_rate_limit_burst_seconds = originRateLimitBurstSeconds;
@@ -474,11 +479,18 @@ public class MetaServiceProxyTest {
 
     @Test
     public void testGetVisibleVersionAsyncRateLimitedBeforeRpc() throws RpcException {
-        enableRateLimit(1, "", 1, 0);
+        // Consume limitForPeriod = qpsPerCore * CPU_CORES * burstSeconds in one weighted request.
+        // A long burst window also prevents a refresh before the assertion if the scheduler stalls.
+        int qpsPerCore = 1;
+        int rateLimitBurstSeconds = 60;
+        int limitForPeriod = qpsPerCore * CPU_CORES * rateLimitBurstSeconds;
+        enableRateLimit(qpsPerCore, "", rateLimitBurstSeconds, 0);
         MetaServiceProxy proxy = new MetaServiceProxy();
         MetaServiceClient client = mockNormalClient();
         putClient(proxy, client);
-        consumeRateLimitPermits(proxy, "getPartitionVersion");
+        Mockito.when(client.getVisibleVersionAsync(Mockito.any()))
+                .thenReturn(Futures.immediateFuture(okGetVersionResponse()));
+        proxy.getVisibleVersionAsync(buildBatchPartitionVersionRequest(limitForPeriod));
 
         try {
             proxy.getVisibleVersionAsync(Cloud.GetVersionRequest.newBuilder().build());
@@ -487,7 +499,7 @@ public class MetaServiceProxyTest {
             Assert.assertTrue(e.getMessage().contains("meta service rpc rate limited"));
         }
 
-        Mockito.verify(client, Mockito.never()).getVisibleVersionAsync(Mockito.any());
+        Mockito.verify(client, Mockito.times(1)).getVisibleVersionAsync(Mockito.any());
         Mockito.verify(client, Mockito.never()).shutdown(Mockito.anyBoolean());
     }
 
@@ -497,8 +509,8 @@ public class MetaServiceProxyTest {
         MetaServiceProxy proxy = new MetaServiceProxy();
         MetaServiceClient client = mockNormalClient();
         putClient(proxy, client);
-        SettableFuture<Cloud.GetVersionResponse> future = SettableFuture.create();
-        Mockito.when(client.getVisibleVersionAsync(Mockito.any())).thenReturn(future);
+        Mockito.when(client.getVisibleVersionAsync(Mockito.any()))
+                .thenReturn(Futures.immediateFuture(okGetVersionResponse()));
 
         proxy.getVisibleVersionAsync(buildBatchTableVersionRequest(CPU_CORES));
 
@@ -516,6 +528,7 @@ public class MetaServiceProxyTest {
     private void enableRateLimit(int defaultQpsPerCore, String qpsPerCoreConfig, int burstSeconds,
             long waitTimeoutMs) {
         Config.meta_service_rpc_rate_limit_enabled = true;
+        Config.meta_service_rpc_rate_limit_dry_run = false;
         Config.meta_service_rpc_rate_limit_default_qps_per_core = defaultQpsPerCore;
         Config.meta_service_rpc_rate_limit_qps_per_core_config = qpsPerCoreConfig;
         Config.meta_service_rpc_rate_limit_burst_seconds = burstSeconds;

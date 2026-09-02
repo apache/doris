@@ -34,16 +34,27 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -121,6 +132,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 add(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
                 add(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
                 add(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
+                add(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT);
             }
         };
         List<String> notAllowedProps = properties.keySet().stream().filter(s -> !allowedProps.contains(s))
@@ -136,6 +148,25 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         List<Partition> partitions = Lists.newArrayList();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         UpdatePartitionMetaParam param = new UpdatePartitionMetaParam();
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat =
+                    PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(new HashMap<>(properties));
+            if (invertedIndexFileStorageFormat == null) {
+                return;
+            }
+            olapTable.readLock();
+            try {
+                if (invertedIndexFileStorageFormat == olapTable.getPartitionInvertedIndexFileStorageFormat()) {
+                    LOG.info("partitionInvertedIndexFileStorageFormat:{} is equal with table format:{}",
+                            invertedIndexFileStorageFormat, olapTable.getPartitionInvertedIndexFileStorageFormat());
+                    return;
+                }
+            } finally {
+                olapTable.readUnlock();
+            }
+            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT,
+                    invertedIndexFileStorageFormat.name());
+        }
 
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
             long ttlSeconds = PropertyAnalyzer.analyzeTTL(properties);
@@ -372,6 +403,8 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             }
             param.verticalCompactionNumColumnsPerGroup = verticalCompactionNumColumnsPerGroup;
             param.type = UpdatePartitionMetaParam.TabletMetaType.VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
+            // Existing tablet metadata retains its creation-time format.
         } else {
             LOG.warn("invalid properties:{}", properties);
             throw new UserException("invalid properties");
@@ -538,6 +571,80 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 throw new UserException(response.getStatus().getMsg());
             }
+
+            notifyBackendsToSyncTabletMeta(tableName, updateTabletReq.getTabletMetaInfosList().stream()
+                    .map(Cloud.TabletMetaInfoPB::getTabletId)
+                    .collect(Collectors.toList()));
         }
+    }
+
+    void notifyBackendsToSyncTabletMeta(String tableName, List<Long> tabletIds) {
+        if (tabletIds.isEmpty()) {
+            return;
+        }
+        if (DebugPointUtil.isEnable("CloudSchemaChangeHandler.notifyBackendsToSyncTabletMeta.skip")) {
+            LOG.info("skip sync tablet meta rpc dispatch by debug point, tableName={}, tabletIds={}",
+                    tableName, tabletIds);
+            return;
+        }
+        List<Backend> backends;
+        try {
+            backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
+        } catch (UserException e) {
+            LOG.warn("failed to get alive backends for sync tablet meta, tableName={}, tabletIds={}",
+                    tableName, tabletIds, e);
+            return;
+        }
+
+        InternalService.PSyncTabletMetaRequest request = InternalService.PSyncTabletMetaRequest.newBuilder()
+                .addAllTabletIds(tabletIds)
+                .build();
+        long dispatchStartTimeMs = System.currentTimeMillis();
+        int sentBackends = 0;
+        int skippedBackends = 0;
+        LOG.info("start to dispatch sync tablet meta rpc, tableName={}, tabletIds={}, request={}",
+                tableName, tabletIds, request);
+        for (Backend backend : backends) {
+            if (!backend.isAlive() || backend.getBrpcPort() <= 0) {
+                skippedBackends++;
+                continue;
+            }
+            try {
+                long rpcStartTimeMs = System.currentTimeMillis();
+                ListenableFuture<InternalService.PSyncTabletMetaResponse> future =
+                        BackendServiceProxy.getInstance().syncTabletMeta(backend.getBrpcAddress(), request);
+                sentBackends++;
+                Futures.addCallback(future, new FutureCallback<InternalService.PSyncTabletMetaResponse>() {
+                    @Override
+                    public void onSuccess(InternalService.PSyncTabletMetaResponse response) {
+                        long costMs = System.currentTimeMillis() - rpcStartTimeMs;
+                        if (response == null || !response.hasStatus()
+                                || response.getStatus().getStatusCode() != TStatusCode.OK.getValue()) {
+                            LOG.warn("sync tablet meta rpc returned non-ok response, backendId={}, tabletIds={},"
+                                            + " tableName={}, response={}, costMs={}",
+                                    backend.getId(), tabletIds, tableName, response, costMs);
+                            return;
+                        }
+                        LOG.info("sync tablet meta rpc finished, backendId={}, tableName={}, tabletIds={},"
+                                        + " response={}, costMs={}",
+                                backend.getId(), tableName, tabletIds, response, costMs);
+                    }
+
+                    @Override
+                    public void onFailure(Throwable t) {
+                        LOG.warn("sync tablet meta rpc failed, backendId={}, tableName={}, tabletIds={}, costMs={}",
+                                backend.getId(), tableName, tabletIds,
+                                System.currentTimeMillis() - rpcStartTimeMs, t);
+                    }
+                }, MoreExecutors.directExecutor());
+            } catch (Exception e) {
+                LOG.warn("failed to dispatch sync tablet meta rpc, backendId={}, tableName={}, tabletIds={}",
+                        backend.getId(), tableName, tabletIds, e);
+            }
+        }
+        LOG.info("finish dispatching sync tablet meta rpc, tableName={}, tabletIds={}, backendNum={},"
+                        + " sentBackends={}, skippedBackends={}, costMs={}",
+                tableName, tabletIds, backends.size(), sentBackends, skippedBackends,
+                System.currentTimeMillis() - dispatchStartTimeMs);
     }
 }

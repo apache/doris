@@ -151,16 +151,19 @@ public class ClusterLoadStatisticsTest {
         // tablet
         invertedIndex = new LocalTabletInvertedIndex();
 
-        invertedIndex.addTablet(50000, new TabletMeta(1, 2, 3, 4, 5, TStorageMedium.HDD));
+        invertedIndex.addTablet(50000, new TabletMeta(1, 2, 3, 4, 5, TStorageMedium.HDD,
+                false /* isRowBinlog */));
         invertedIndex.addReplica(50000, new LocalReplica(50001, be1.getId(), 0, ReplicaState.NORMAL));
         invertedIndex.addReplica(50000, new LocalReplica(50002, be2.getId(), 0, ReplicaState.NORMAL));
         invertedIndex.addReplica(50000, new LocalReplica(50003, be3.getId(), 0, ReplicaState.NORMAL));
 
-        invertedIndex.addTablet(60000, new TabletMeta(1, 2, 3, 4, 5, TStorageMedium.HDD));
+        invertedIndex.addTablet(60000, new TabletMeta(1, 2, 3, 4, 5, TStorageMedium.HDD,
+                false /* isRowBinlog */));
         invertedIndex.addReplica(60000, new LocalReplica(60002, be2.getId(), 0, ReplicaState.NORMAL));
         invertedIndex.addReplica(60000, new LocalReplica(60003, be3.getId(), 0, ReplicaState.NORMAL));
 
-        invertedIndex.addTablet(70000, new TabletMeta(1, 2, 3, 4, 5, TStorageMedium.HDD));
+        invertedIndex.addTablet(70000, new TabletMeta(1, 2, 3, 4, 5, TStorageMedium.HDD,
+                false /* isRowBinlog */));
         invertedIndex.addReplica(70000, new LocalReplica(70002, be2.getId(), 0, ReplicaState.NORMAL));
         invertedIndex.addReplica(70000, new LocalReplica(70003, be3.getId(), 0, ReplicaState.NORMAL));
     }

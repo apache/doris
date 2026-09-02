@@ -51,6 +51,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_profile_counter_names.h"
+#include "storage/predicate/like_column_predicate.h"
 #include "storage/predicate/null_predicate.h"
 #include "storage/predicate/predicate_creator.h"
 
@@ -73,25 +74,26 @@ bool ScanLocalState<Derived>::should_run_serial() const {
 
 Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* state,
                                                               int& arrived_rf_num) {
-    // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
+    // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads.
     LockGuard lock(_conjuncts_lock);
     size_t conjuncts_before = _conjuncts.size();
-    RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
-                                                                   arrived_rf_num, _conjuncts));
+    RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(
+            state, _parent->operator_row_desc_before_projection(), arrived_rf_num, _conjuncts));
+    VExprContextSPtrs new_conjuncts;
+    if (_conjuncts.size() > conjuncts_before) {
+        new_conjuncts.assign(_conjuncts.begin() + conjuncts_before, _conjuncts.end());
+    }
     if (state->enable_adjust_conjunct_order_by_cost()) {
         std::ranges::stable_sort(_conjuncts, [](const auto& a, const auto& b) {
             return a->execute_cost() < b->execute_cost();
         });
-    };
-    // Only re-run partition pruning when try_append_late_arrival_runtime_filter
-    // actually appended new conjuncts. Otherwise this hook would re-scan all
-    // partition boundaries on every scheduler pass while there are still
-    // unapplied RFs (Scanner::_applied_rf_num is not advanced here), wasting
-    // CPU re-evaluating the same set of RFs against the same boundaries.
-    if (_conjuncts.size() > conjuncts_before) {
-        RETURN_IF_ERROR(_on_runtime_filter_update());
     }
-    return Status::OK();
+    if (new_conjuncts.empty()) {
+        return Status::OK();
+    }
+    // Partition projection executes the shared expression tree. Keep it serialized with
+    // clone_conjunct_ctxs(), whose VExprContext::clone() opens that same tree.
+    return _on_runtime_filter_update(new_conjuncts);
 }
 
 Status ScanLocalStateBase::clone_conjunct_ctxs(VExprContextSPtrs& scanner_conjuncts) {
@@ -104,19 +106,15 @@ Status ScanLocalStateBase::clone_conjunct_ctxs(VExprContextSPtrs& scanner_conjun
     return Status::OK();
 }
 
-bool ScanLocalStateBase::is_partition_pruned(int64_t partition_id) const {
-    return _rf_partition_pruner.is_partition_pruned(partition_id);
-}
-
-Status ScanLocalStateBase::_on_runtime_filter_update() {
+Status ScanLocalStateBase::_on_runtime_filter_update(const VExprContextSPtrs& new_conjuncts) {
     const auto* parsed = _parent->parsed_partition_boundaries();
     if (parsed != nullptr && !parsed->empty()) {
-        RETURN_IF_ERROR(_do_partition_pruning_by_rf());
+        RETURN_IF_ERROR(_do_partition_pruning_by_rf(new_conjuncts));
     }
     return Status::OK();
 }
 
-Status ScanLocalStateBase::_do_partition_pruning_by_rf() {
+Status ScanLocalStateBase::_do_partition_pruning_by_rf(const VExprContextSPtrs& conjuncts) {
     if (!_state->query_options().enable_runtime_filter_partition_prune) {
         return Status::OK();
     }
@@ -126,7 +124,7 @@ Status ScanLocalStateBase::_do_partition_pruning_by_rf() {
     }
     int64_t newly_pruned = 0;
     RETURN_IF_ERROR(_rf_partition_pruner.prune_by_runtime_filters(
-            *parsed, _conjuncts, _parent->runtime_filter_descs(), _parent->node_id(),
+            *parsed, conjuncts, _parent->runtime_filter_descs(), _parent->node_id(),
             &newly_pruned));
     if (newly_pruned > 0) {
         COUNTER_SET(_partitions_pruned_by_rf_counter,
@@ -232,9 +230,11 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
                 p._common_expr_ctxs_push_down[i]->clone(state, _common_expr_ctxs_push_down[i]));
     }
     size_t conjuncts_before = _conjuncts.size();
-    RETURN_IF_ERROR(_helper.acquire_runtime_filter(state, _conjuncts, p.row_descriptor()));
+    RETURN_IF_ERROR(_helper.acquire_runtime_filter(state, _conjuncts,
+                                                   p.operator_row_desc_before_projection()));
     if (_conjuncts.size() > conjuncts_before) {
-        RETURN_IF_ERROR(_on_runtime_filter_update());
+        VExprContextSPtrs new_conjuncts(_conjuncts.begin() + conjuncts_before, _conjuncts.end());
+        RETURN_IF_ERROR(_on_runtime_filter_update(new_conjuncts));
     }
 
     // Disable condition cache in topn filter valid. TODO:: Try to support the topn filter in condition cache
@@ -482,8 +482,10 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, cons
                     }
                     // `node_type` of function filter is FUNCTION_CALL or COMPOUND_PRED
                     if (state()->enable_function_pushdown()) {
-                        RETURN_IF_PUSH_DOWN(_normalize_function_filters(context, slot, &pdt),
-                                            status);
+                        RETURN_IF_PUSH_DOWN(
+                                _normalize_function_filters(
+                                        context, slot, _slot_id_to_predicates[slot->id()], &pdt),
+                                status);
                     }
                 },
                 *range);
@@ -529,7 +531,8 @@ Status ScanLocalStateBase::_normalize_bloom_filter(
     *pdt = _should_push_down_bloom_filter();
     if (*pdt != PushDownType::UNACCEPTABLE) {
         pred = create_bloom_filter_predicate(
-                _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
+                _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                slot->col_name(),
                 slot->type()->get_primitive_type() == TYPE_VARIANT ? expr->get_child(0)->data_type()
                                                                    : slot->type(),
                 expr->get_bloom_filter_func());
@@ -562,8 +565,9 @@ Status ScanLocalStateBase::_normalize_topn_filter(
     return Status::OK();
 }
 
-Status ScanLocalStateBase::_normalize_function_filters(VExprContext* expr_ctx, SlotDescriptor* slot,
-                                                       PushDownType* pdt) {
+Status ScanLocalStateBase::_normalize_function_filters(
+        VExprContext* expr_ctx, SlotDescriptor* slot,
+        std::vector<std::shared_ptr<ColumnPredicate>>& predicates, PushDownType* pdt) {
     auto expr = expr_ctx->root()->is_rf_wrapper() ? expr_ctx->root()->get_impl() : expr_ctx->root();
     bool opposite = false;
     VExpr* fn_expr = expr.get();
@@ -580,8 +584,10 @@ Status ScanLocalStateBase::_normalize_function_filters(VExprContext* expr_ctx, S
         RETURN_IF_ERROR(_should_push_down_function_filter(assert_cast<VectorizedFnCall*>(fn_expr),
                                                           expr_ctx, &val, &fn_ctx, temp_pdt));
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
-            std::string col = slot->col_name();
-            _push_down_functions.emplace_back(opposite, col, fn_ctx, val);
+            const auto column_id = cast_set<uint32_t>(
+                    _parent->operator_row_desc_before_projection().get_column_id(slot->id()));
+            predicates.emplace_back(LikeColumnPredicate::create_shared(
+                    opposite, column_id, slot->col_name(), fn_ctx, val));
             *pdt = temp_pdt;
         }
     }
@@ -786,14 +792,14 @@ Status ScanLocalStateBase::_normalize_in_predicate(
         }
     }
     pred = is_in ? create_in_list_predicate<PredicateType::IN_LIST>(
-                           _parent->intermediate_row_desc().get_column_id(slot->id()),
+                           _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
                            slot->col_name(),
                            slot->type()->get_primitive_type() == TYPE_VARIANT
                                    ? root->get_child(0)->data_type()
                                    : slot->type(),
                            hybrid_set, false)
                  : create_in_list_predicate<PredicateType::NOT_IN_LIST>(
-                           _parent->intermediate_row_desc().get_column_id(slot->id()),
+                           _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
                            slot->col_name(),
                            slot->type()->get_primitive_type() == TYPE_VARIANT
                                    ? root->get_child(0)->data_type()
@@ -843,7 +849,8 @@ Status ScanLocalStateBase::_normalize_binary_predicate(
         switch (op) {
         case SQLFilterOp::FILTER_EQ:
             pred = create_comparison_predicate<PredicateType::EQ>(
-                    _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
+                    _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                    slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
@@ -851,7 +858,8 @@ Status ScanLocalStateBase::_normalize_binary_predicate(
             break;
         case SQLFilterOp::FILTER_NE:
             pred = create_comparison_predicate<PredicateType::NE>(
-                    _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
+                    _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                    slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
@@ -859,7 +867,8 @@ Status ScanLocalStateBase::_normalize_binary_predicate(
             break;
         case SQLFilterOp::FILTER_LESS:
             pred = create_comparison_predicate<PredicateType::LT>(
-                    _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
+                    _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                    slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
@@ -867,7 +876,8 @@ Status ScanLocalStateBase::_normalize_binary_predicate(
             break;
         case SQLFilterOp::FILTER_LARGER:
             pred = create_comparison_predicate<PredicateType::GT>(
-                    _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
+                    _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                    slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
@@ -875,7 +885,8 @@ Status ScanLocalStateBase::_normalize_binary_predicate(
             break;
         case SQLFilterOp::FILTER_LESS_OR_EQUAL:
             pred = create_comparison_predicate<PredicateType::LE>(
-                    _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
+                    _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                    slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
@@ -883,7 +894,8 @@ Status ScanLocalStateBase::_normalize_binary_predicate(
             break;
         case SQLFilterOp::FILTER_LARGER_OR_EQUAL:
             pred = create_comparison_predicate<PredicateType::GE>(
-                    _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
+                    _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                    slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? root->get_child(0)->data_type()
                             : slot->type(),
@@ -979,16 +991,16 @@ Status ScanLocalStateBase::_normalize_is_null_predicate(
     auto fn_call = assert_cast<VectorizedFnCall*>(root.get());
     if (fn_call->fn().name.function_name == "is_null_pred") {
         pred = NullPredicate::create_shared(
-                _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(), true,
-                T);
+                _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                slot->col_name(), true, T);
         auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
                 slot->is_nullable(), range.precision(), range.scale());
         temp_range.set_contain_null(true);
         range.intersection(temp_range);
     } else if (fn_call->fn().name.function_name == "is_not_null_pred") {
         pred = NullPredicate::create_shared(
-                _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(), false,
-                T);
+                _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                slot->col_name(), false, T);
         auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
                 slot->is_nullable(), range.precision(), range.scale());
         temp_range.set_contain_null(false);
@@ -1020,7 +1032,7 @@ Status ScanLocalState<Derived>::_start_scanners(
         const std::list<std::shared_ptr<ScannerDelegate>>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
     _scanner_ctx.store(ScannerContext::create_shared(
-            state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
+            state(), this, p._output_tuple_desc, p.has_projection(), scanners, p.limit(),
             _scan_dependency, &p._shared_scan_limit, p._mem_arb, p._mem_limiter, _instance_idx,
             _state->get_query_ctx()->get_query_options().__isset.enable_adaptive_scan &&
                     _state->get_query_ctx()->get_query_options().enable_adaptive_scan
@@ -1122,7 +1134,8 @@ Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
 
         VExprContextSPtr conjunct = VExprContext::create_shared(topn_pred);
         RETURN_IF_ERROR(conjunct->prepare(
-                state, _parent->cast<typename Derived::Parent>().row_descriptor()));
+                state,
+                _parent->cast<typename Derived::Parent>().operator_row_desc_before_projection()));
         RETURN_IF_ERROR(conjunct->open(state));
         _conjuncts.emplace_back(conjunct);
     }
@@ -1133,7 +1146,8 @@ Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
 
         VExprContextSPtr conjunct = VExprContext::create_shared(topn_pred);
         RETURN_IF_ERROR(conjunct->prepare(
-                state, _parent->cast<typename Derived::Parent>().row_descriptor()));
+                state,
+                _parent->cast<typename Derived::Parent>().operator_row_desc_before_projection()));
         RETURN_IF_ERROR(conjunct->open(state));
         _conjuncts.emplace_back(conjunct);
     }
@@ -1279,8 +1293,7 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
                                                    .slot_ref.slot_id];
             DCHECK(s != nullptr);
             if (can_push_down_column_predicate(s)) {
-                auto col_name = s->col_name();
-                cid = get_column_id(col_name);
+                cid = _output_tuple_desc->get_column_id(s->id());
             }
         }
         RETURN_IF_ERROR(state->get_query_ctx()->get_runtime_predicate(id).init_target(

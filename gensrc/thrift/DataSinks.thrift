@@ -216,7 +216,7 @@ struct TMultiCastDataStreamSink {
     2: optional list<list<TPlanFragmentDestination>> destinations;
 }
 
-// [deprecated] two phase read is replaced by topn lazy materialize. TFetchOption is not used.
+// [deprecated] Two-phase read is replaced by TopN lazy materialization.
 struct TFetchOption {
     1: optional bool use_two_phase_fetch;
     // Nodes in this cluster, used for second phase fetch
@@ -230,6 +230,7 @@ struct TFetchOption {
 struct TResultSink {
     1: optional TResultSinkType type;
     2: optional TResultFileSinkOptions file_options; // deprecated
+    // [deprecated] Two-phase read is replaced by TopN lazy materialization.
     3: optional TFetchOption fetch_option;
 }
 
@@ -540,6 +541,10 @@ struct TIcebergMergeSink {
     14: optional bool collect_column_stats;
     // Unset preserves old-FE UPDATE behavior; execution version gates SQL MERGE validation.
     15: optional bool require_merge_cardinality_check;
+    // Unset preserves old-FE UPDATE behavior, which always writes replacement data rows.
+    16: optional bool writes_data_files;
+    // Whether the complete target schema contains Variant; used only to fence old-BE writer omission.
+    17: optional bool has_variant_schema;
 
     // delete side (position delete only)
     20: optional TFileContent delete_type

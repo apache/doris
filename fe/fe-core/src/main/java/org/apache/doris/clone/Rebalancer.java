@@ -126,11 +126,15 @@ public abstract class Rebalancer {
         if (!FeConstants.runningUnitTest) {
             recycleBin = Env.getCurrentRecycleBin();
         }
+        // The metadata flag rejects the companion without a catalog lookup. The dynamic check below
+        // is still required to reject its paired base tablet.
         return tabletMeta != null
+                && !tabletMeta.isRowBinlog()
                 && !alterTableIds.contains(tabletMeta.getTableId())
                 && (canBalanceColocateTable || !colocateTableIndex.isColocateTable(tabletMeta.getTableId()))
                 && (recycleBin == null || !recycleBin.isRecyclePartition(tabletMeta.getDbId(),
-                        tabletMeta.getTableId(), tabletMeta.getPartitionId()));
+                        tabletMeta.getTableId(), tabletMeta.getPartitionId()))
+                && RowBinlogTabletLocality.canMoveTabletIndependently(tabletMeta);
     }
 
     public AgentTask createBalanceTask(TabletSchedCtx tabletCtx)

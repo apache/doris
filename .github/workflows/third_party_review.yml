@@ -20,6 +20,30 @@ name: Dependency License Review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    paths:
+      # Dependency manifests scanned by dependency-review-action.
+      - 'thirdparty/**'
+      - 'env.sh'
+      - 'build.sh'
+      - '**/pom.xml'
+      - '**/go.mod'
+      - '**/go.sum'
+      - '**/Gemfile'
+      - '**/Gemfile.lock'
+      - '**/requirements*.txt'
+      - '**/package.json'
+      - '**/package-lock.json'
+      - '**/yarn.lock'
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '**/poetry.lock'
+      - '**/Pipfile'
+      - '**/Pipfile.lock'
+      - '**/build.gradle'
+      - '**/composer.json'
+      - '**/composer.lock'
+      - '**/setup.py'
+      - '.github/workflows/third_party_review.yml'
 permissions:
   contents: read
 jobs:
@@ -36,7 +60,13 @@ jobs:
           # You can only include one of these two options: `allow-licenses` and `deny-licenses`
           # ([String]). Only allow these licenses (optional)
           # Possible values: Any SPDX-compliant license identifiers or expressions from https://spdx.org/licenses/
-          allow-licenses:  BSD-2-Clause, BSD-3-Clause, MIT, Apache-2.0, EPL-2.0, MPL-2.0, CC0-1.0
+          # Project-approved licenses, including permissive Category A licenses from the ASF policy.
+          allow-licenses: >-
+            BSD-2-Clause, BSD-3-Clause, BSD-2-Clause-Views, MIT, MIT-0, ISC,
+            Apache-2.0, EPL-2.0, MPL-2.0, CC0-1.0, Python-2.0, BlueOak-1.0.0
+          # caniuse-lite is browser-compatibility data used only by the UI build toolchain.
+          # Keep this exception package-specific because CC-BY-4.0 is not generally allow-listed.
+          allow-dependencies-licenses: pkg:npm/caniuse-lite@1.0.30001809
           # ([String]). Acknowledged advisories that must not fail the review (optional)
           # org.codehaus.jackson:jackson-mapper-asl (GHSA-c27h-mcmw-48hv, GHSA-r6j9-8759-g62w):
           # legacy Jackson 1.x is EOL and neither advisory has a fixed version. Hive's metastore

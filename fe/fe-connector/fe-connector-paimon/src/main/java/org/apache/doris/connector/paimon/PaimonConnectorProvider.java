@@ -53,6 +53,13 @@ public class PaimonConnectorProvider implements ConnectorProvider {
         return Collections.singleton("paimon");
     }
 
+    @Override
+    public String displayEngineName() {
+        // System-table diagnostics use this connector-owned name; keep the canonical product spelling while
+        // catalog routing and CREATE TABLE continue to accept the lowercase type through their own contracts.
+        return "Paimon";
+    }
+
     /**
      * Binds and validates through the typed holder. {@code of(...)} carries what the connector cannot
      * run without; {@code checkCreateTimeOnlyRules()} carries the rules that only ever applied to a

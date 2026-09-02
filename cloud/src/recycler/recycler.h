@@ -22,6 +22,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -61,7 +62,6 @@ class SegmentRecyclerMetricsContext;
 int64_t calculate_tmp_rowset_expired_time(
         const std::string& instance_id_, const doris::RowsetMetaCloudPB& tmp_rowset_meta_pb,
         int64_t* earlest_ts /* tmp_rowset earliest expiration ts */);
-
 struct RecyclerThreadPoolGroup {
     RecyclerThreadPoolGroup() = default;
     RecyclerThreadPoolGroup(std::shared_ptr<SimpleThreadPool> s3_producer_pool,
@@ -254,6 +254,21 @@ public:
 
 struct OplogRecycleStats;
 
+struct RelatedTxnOrJobAbortTask {
+    enum class Type : uint8_t {
+        TXN,
+        JOB,
+    };
+
+    Type type = Type::TXN;
+    std::string key;
+    int64_t txn_id = 0;
+    int64_t tablet_id = 0;
+    int64_t start_version = 0;
+    int64_t end_version = 0;
+    std::string rowset_id;
+    std::string job_id;
+};
 class InstanceRecycler {
 public:
     struct PackedFileRecycleStats {
@@ -495,6 +510,18 @@ private:
     int delete_rowset_data(const std::string& resource_id, int64_t tablet_id,
                            const std::string& rowset_id);
 
+    bool is_tablet_recycled(int64_t tablet_id);
+
+    // Return 1 if the versioned delete bitmap should be deleted,
+    // Return 0 if it can be skipped,
+    // negative on error.
+    int should_delete_versioned_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id);
+
+    int delete_versioned_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id,
+                                           const std::string& rowset_id);
+
+    int delete_delete_bitmap_kvs(int64_t tablet_id, const std::string& rowset_id);
+
     // return 0 for success otherwise error
     int delete_rowset_data(const std::map<std::string, doris::RowsetMetaCloudPB>& rowsets,
                            RowsetRecyclingState type, RecyclerMetricsContext& metrics_context);
@@ -614,23 +641,38 @@ private:
     // reference non-existent data.
     //
     // Solution:
-    // Before recycling the rowset data, this function aborts the associated transaction/job to ensure
-    // it cannot be committed. This guarantees that:
-    // 1. The transaction/job state is marked as ABORTED
-    // 2. Any subsequent commit_rowset/commit_txn attempts will fail
-    // 3. The rowset data can be safely deleted without risk of data loss
+    // Before recycling rowset data, try to abort the associated transaction/job. A zero return only
+    // permits the caller to recheck the recycle key. Object data can be deleted only when the key
+    // still exists, still describes the same PREPARE rowset, and still belongs to the same owner.
     //
     // Parameters:
     //   txn_id: The transaction/job ID associated with the rowset to be recycled
     //
     // Returns:
-    //   0 on success, -1 on failure
+    //   0 if the recycle key may be rechecked before deletion. The caller must never delete
+    //     object data directly from the scan snapshot.
+    //   Non-zero if object data and the recycle key must be retained for a later retry.
     int abort_txn_for_related_rowset(int64_t txn_id);
-    int abort_job_for_related_rowset(const RowsetMetaCloudPB& rowset_meta);
+    int abort_job_for_related_rowset(int64_t tablet_id, const std::string& rowset_id,
+                                     const std::string& job_id);
 
     template <typename T>
-    int batch_abort_txn_or_job_for_recycle(const std::vector<std::string>& keys,
-                                           bool skip_base_version);
+    int batch_abort_txn_or_job_for_recycle(
+            const std::vector<std::string>& keys,
+            std::vector<std::pair<std::string, RelatedTxnOrJobAbortTask>>& keys_to_recheck);
+
+    template <typename T>
+    void submit_batch_mark_rowsets_as_recycled_job(SimpleThreadPool& worker_pool,
+                                                   std::vector<std::string> rowset_keys_to_mark);
+
+    void submit_recycle_prepare_rowsets_job(SimpleThreadPool& worker_pool,
+                                            std::vector<std::string> rowset_keys_to_abort,
+                                            std::atomic_long* num_recycled);
+
+    void submit_recycle_tmp_rowsets_job(SimpleThreadPool& worker_pool,
+                                        std::vector<std::string> rowset_keys_to_abort,
+                                        std::atomic_long* num_recycled,
+                                        RecyclerMetricsContext* metrics_context);
 
 private:
     std::atomic_bool stopped_ {false};
@@ -663,6 +705,12 @@ private:
 
     TabletRecyclerMetricsContext tablet_metrics_context_;
     SegmentRecyclerMetricsContext segment_metrics_context_;
+
+    // Data tablets in the same partition have the same MoW setting. Cache both true and false so
+    // subsequent rowsets can avoid reading the tablet index and tablet meta. Row-binlog tablets
+    // must not populate this cache because their MoW flag is deliberately false.
+    std::mutex partition_mow_cache_mutex;
+    std::map<int64_t, bool> partition_mow_cache;
 };
 
 struct OperationLogReferenceInfo {

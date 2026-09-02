@@ -31,6 +31,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
@@ -38,6 +39,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.tablefunction.BackendsTableValuedFunction;
 import org.apache.doris.thrift.TBackendsMetadataParams;
+import org.apache.doris.thrift.TCheckAuthRequest;
+import org.apache.doris.thrift.TCheckAuthResult;
 import org.apache.doris.thrift.TCommitTxnRequest;
 import org.apache.doris.thrift.TCreatePartitionRequest;
 import org.apache.doris.thrift.TCreatePartitionResult;
@@ -55,9 +58,13 @@ import org.apache.doris.thrift.TMaxComputeBlockIdResult;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TNullableStringLiteral;
+import org.apache.doris.thrift.TPrivilegeCtrl;
+import org.apache.doris.thrift.TPrivilegeHier;
+import org.apache.doris.thrift.TPrivilegeType;
 import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TSchemaTableRequestParams;
+import org.apache.doris.thrift.TShowProcessListRequest;
 import org.apache.doris.thrift.TShowUserRequest;
 import org.apache.doris.thrift.TShowUserResult;
 import org.apache.doris.thrift.TStatusCode;
@@ -69,6 +76,8 @@ import org.apache.doris.transaction.WriteBlockAllocatingTransaction;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.Level;
+import org.apache.thrift.TException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -118,6 +127,40 @@ public class FrontendServiceImplTest extends TestWithFeService {
         Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);
         field.set(target, value);
+    }
+
+    @Test
+    public void testCheckAuthDoesNotLogPassword() throws Exception {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TPrivilegeCtrl privilegeCtrl = new TPrivilegeCtrl();
+        privilegeCtrl.setPrivHier(TPrivilegeHier.GLOBAL);
+        TCheckAuthRequest request = new TCheckAuthRequest();
+        request.setUser("root");
+        request.setPasswd("plain_text_secret");
+        request.setUserIp("127.0.0.1");
+        request.setPrivCtrl(privilegeCtrl);
+        request.setPrivType(TPrivilegeType.LOAD);
+
+        try (TestLogAppender appender = TestLogAppender.attach(FrontendServiceImpl.class)) {
+            TCheckAuthResult result = impl.checkAuth(request);
+
+            Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, result.getStatus().getStatusCode());
+            Assertions.assertTrue(appender.contains(Level.DEBUG,
+                    "receive auth request: TCheckAuthRequest"));
+            Assertions.assertTrue(appender.contains(Level.DEBUG, "user:root"));
+            Assertions.assertTrue(appender.contains(Level.DEBUG, "passwd:***MASKED***"));
+            Assertions.assertTrue(appender.contains(Level.DEBUG, "user_ip:127.0.0.1"));
+            Assertions.assertTrue(appender.contains(Level.DEBUG, "priv_hier:GLOBAL"));
+            Assertions.assertFalse(appender.contains(Level.DEBUG, "plain_text_secret"));
+        }
+    }
+
+    public void testShowProcessListRejectsMissingUserIdentity() {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TShowProcessListRequest request = new TShowProcessListRequest();
+
+        TException exception = Assertions.assertThrows(TException.class, () -> impl.showProcessList(request));
+        Assertions.assertEquals("Current user identity is not set", exception.getMessage());
     }
 
     @Test

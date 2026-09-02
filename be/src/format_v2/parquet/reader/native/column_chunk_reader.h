@@ -177,6 +177,14 @@ public:
                               ParquetDecodeContext& context, ParquetMaterializationState& state,
                               ColumnSelectVector& select_vector);
 
+    bool supports_fused_nullable_selection(IColumn& column) const;
+
+    Status materialize_fused_nullable_values(MutableColumnPtr& doris_column,
+                                             const DataTypeSerDe& serde,
+                                             ParquetDecodeContext& context,
+                                             ParquetMaterializationState& state, size_t num_values,
+                                             size_t num_nulls, const NullMap& selected_nulls);
+
     static bool supports_raw_fixed_filter_encoding(tparquet::Encoding::type encoding,
                                                    tparquet::Type::type physical_type) {
         switch (encoding) {
@@ -463,5 +471,11 @@ private:
 };
 
 bool has_dict_page(const tparquet::ColumnMetaData& column);
+
+/// Instantiated once in column_chunk_reader.cpp; suppresses per-TU implicit instantiation.
+extern template class ColumnChunkReader<true, true>;
+extern template class ColumnChunkReader<true, false>;
+extern template class ColumnChunkReader<false, true>;
+extern template class ColumnChunkReader<false, false>;
 
 } // namespace doris::format::parquet::native
