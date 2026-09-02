@@ -136,8 +136,10 @@ Status append_variant_v2_to_shredder(VariantShredder* shredder, const VariantCol
     }
 
     auto encoded_batch = ColumnVariantV2::create();
-    RETURN_IF_CATCH_EXCEPTION(
-            { encoded_batch->insert_range_from(*source, column.row_pos, num_rows); });
+    RETURN_IF_CATCH_EXCEPTION({
+        encoded_batch->insert_range_from(*source, column.row_pos, num_rows);
+        encoded_batch->ensure_encoded();
+    });
     DORIS_CHECK(!encoded_batch->is_typed());
     return shredder->append(encoded_batch->read_view(), 0, num_rows, outer_nulls);
 }

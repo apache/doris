@@ -590,8 +590,10 @@ Status VariantSubcolumnWriter::_append_v2(const VariantColumnData& column, size_
     }
 
     auto encoded_batch = ColumnVariantV2::create();
-    RETURN_IF_CATCH_EXCEPTION(
-            { encoded_batch->insert_range_from(*source, column.row_pos, num_rows); });
+    RETURN_IF_CATCH_EXCEPTION({
+        encoded_batch->insert_range_from(*source, column.row_pos, num_rows);
+        encoded_batch->ensure_encoded();
+    });
     return append_encoded(encoded_batch->read_view(), 0);
 }
 
