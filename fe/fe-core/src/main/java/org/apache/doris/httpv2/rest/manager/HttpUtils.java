@@ -51,6 +51,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /*
@@ -61,6 +63,11 @@ public class HttpUtils {
 
     public static final int REQUEST_SUCCESS_CODE = 0;
     static final int DEFAULT_TIME_OUT_MS = 2000;
+    private static final int HTTP_RANGE_NOT_SATISFIABLE = 416;
+    private static final Pattern SATISFIED_CONTENT_RANGE =
+            Pattern.compile("^bytes\\s+(\\d+)-(\\d+)/(\\d+)$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern UNSATISFIED_CONTENT_RANGE =
+            Pattern.compile("^bytes\\s+\\*/(\\d+)$", Pattern.CASE_INSENSITIVE);
 
     public static List<Pair<String, Integer>> getFeList() {
         int port = HttpURLUtil.getHttpPort();
@@ -170,7 +177,7 @@ public class HttpUtils {
      * (206) or {@code Content-Length} (200) response header.
      *
      * @param uri the HTTP URI to get file size for
-     * @return the file size in bytes, or -1 if the size cannot be determined
+     * @return the file size in bytes
      * @throws IOException              if there's an error connecting to the HTTP resource
      * @throws IllegalArgumentException if the URI is null or invalid
      */
@@ -187,16 +194,17 @@ public class HttpUtils {
             if (size != null) {
                 return size;
             }
+            LOG.warn("HEAD response has no usable Content-Length for URI: {}, falling back to GET with Range.", uri);
         } catch (IOException e) {
             LOG.warn("HEAD request failed for URI: {}, falling back to GET with Range. {}", uri, e.getMessage());
         }
 
         try {
             Long size = tryGetFileSizeWithGetRange(uri, safeHeaders);
-            if (size != null) {
-                return size;
+            if (size == null) {
+                throw new IOException("GET-based HTTP file size probe did not return a usable size for URI: " + uri);
             }
-            return -1;
+            return size;
         } catch (IOException e) {
             LOG.warn("Failed to get file size for URI: {}", uri, e);
             throw new IOException("Failed to get file size for URI: " + uri + ". " + Util.getRootCauseMessage(e), e);
@@ -235,8 +243,8 @@ public class HttpUtils {
      * Try to get the file size via a GET request with {@code Range: bytes=0-0}, used as a
      * fallback when the HEAD request is rejected by the server.
      *
-     * @return the file size, or null if it cannot be determined from the response headers
-     * @throws IOException if the connection fails or the response code is not 2xx/206
+     * @return the file size
+     * @throws IOException if the connection fails or the response does not provide a valid size
      */
     private static Long tryGetFileSizeWithGetRange(String uri, Map<String, String> headers) throws IOException {
         HttpURLConnection connection = null;
@@ -249,28 +257,23 @@ public class HttpUtils {
 
             connection.connect();
             int responseCode = connection.getResponseCode();
-            if (responseCode != HttpURLConnection.HTTP_PARTIAL && responseCode != HttpURLConnection.HTTP_OK) {
+            if (responseCode != HttpURLConnection.HTTP_PARTIAL
+                    && responseCode != HttpURLConnection.HTTP_OK
+                    && responseCode != HTTP_RANGE_NOT_SATISFIABLE) {
                 throw new IOException("GET request with Range failed with response code: " + responseCode
                         + ", message: " + connection.getResponseMessage());
             }
 
             if (responseCode == HttpURLConnection.HTTP_PARTIAL) {
-                // Format: "bytes 0-0/12345" or "bytes 0-0/*"
-                String contentRange = connection.getHeaderField("Content-Range");
-                if (contentRange != null) {
-                    int slashIdx = contentRange.lastIndexOf('/');
-                    if (slashIdx >= 0 && slashIdx < contentRange.length() - 1) {
-                        String totalStr = contentRange.substring(slashIdx + 1).trim();
-                        if (!totalStr.equals("*")) {
-                            try {
-                                return Long.parseLong(totalStr);
-                            } catch (NumberFormatException e) {
-                                LOG.warn("Invalid Content-Range total for URI: {}: {}", uri, contentRange);
-                            }
-                        }
-                    }
+                return parseProbeContentRange(connection.getHeaderField("Content-Range"), false);
+            }
+            if (responseCode == HTTP_RANGE_NOT_SATISFIABLE) {
+                long total = parseProbeContentRange(connection.getHeaderField("Content-Range"), true);
+                if (total != 0) {
+                    throw new IOException("Range probe returned HTTP 416 for a non-empty resource of "
+                            + total + " bytes");
                 }
-                return null;
+                return 0L;
             }
             // HTTP 200: server ignored Range and returned the full content; Content-Length
             // (if present) is the full file size.
@@ -292,12 +295,45 @@ public class HttpUtils {
         }
     }
 
+    private static long parseProbeContentRange(String contentRange, boolean expectUnsatisfied)
+            throws IOException {
+        if (contentRange == null) {
+            throw new IOException("Missing Content-Range header");
+        }
+
+        Matcher matcher = (expectUnsatisfied ? UNSATISFIED_CONTENT_RANGE : SATISFIED_CONTENT_RANGE)
+                .matcher(contentRange.trim());
+        if (!matcher.matches()) {
+            throw new IOException("Invalid Content-Range header: " + contentRange);
+        }
+
+        try {
+            if (expectUnsatisfied) {
+                return Long.parseLong(matcher.group(1));
+            }
+
+            long start = Long.parseLong(matcher.group(1));
+            long end = Long.parseLong(matcher.group(2));
+            long total = Long.parseLong(matcher.group(3));
+            if (start != 0 || end != 0 || total == 0) {
+                throw new IOException("Unexpected Content-Range for bytes=0-0 probe: " + contentRange);
+            }
+            return total;
+        } catch (NumberFormatException e) {
+            throw new IOException("Invalid Content-Range header: " + contentRange, e);
+        }
+    }
+
     private static Long parseContentLength(String contentLengthStr) throws IOException {
         if (contentLengthStr == null || contentLengthStr.trim().isEmpty()) {
             return null;
         }
         try {
-            return Long.parseLong(contentLengthStr.trim());
+            long contentLength = Long.parseLong(contentLengthStr.trim());
+            if (contentLength < 0) {
+                throw new IOException("Invalid Content-Length header: " + contentLengthStr);
+            }
+            return contentLength;
         } catch (NumberFormatException e) {
             throw new IOException("Invalid Content-Length header: " + contentLengthStr, e);
         }

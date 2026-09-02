@@ -27,6 +27,7 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/cdc_client_mgr.h"
 #include "runtime/exec_env.h"
+#include "service/http/http_status.h"
 
 namespace doris::io {
 
@@ -65,6 +66,7 @@ HttpFileReader::HttpFileReader(const OpenFileInfo& fileInfo, std::string url, in
     auto size_iter = _extend_kv.find("file_size");
     if (size_iter != _extend_kv.end()) {
         _file_size = std::stoull(size_iter->second);
+        _size_known = true;
         _initialized = true;
     }
 
@@ -140,12 +142,20 @@ Status HttpFileReader::open(const FileReaderOptions& opts) {
     // See setup_cdc_client() for lifecycle details.
     RETURN_IF_ERROR(setup_cdc_client());
 
+    // Prefer metadata planned by FE. TFileRangeDesc.file_size reaches this reader through
+    // FileReaderOptions, so probing again would add two unnecessary remote requests per scan.
+    if (!_enable_chunk_response && opts.file_size >= 0) {
+        _file_size = static_cast<size_t>(opts.file_size);
+        _size_known = true;
+    }
+
+    // Metadata embedded in the file properties is authoritative and needs no probes.
     // Skip metadata detection when file size was pre-supplied by the caller.
     if (_initialized) {
         return Status::OK();
     }
 
-    // Step 1: HEAD request to get file metadata (skip for chunk response)
+    // Step 1: HEAD request to get file metadata (skip for chunk response or planned size)
     bool range_probed = false;
     if (_enable_chunk_response) {
         // Chunk streaming response: size is unknown until the stream completes.
@@ -156,7 +166,7 @@ Status HttpFileReader::open(const FileReaderOptions& opts) {
         // allocate SIZE_MAX bytes before the download completes.
         _file_size = 0;
         LOG(INFO) << "Chunk response mode enabled, skipping HEAD request for " << _url;
-    } else {
+    } else if (!_size_known) {
         // Normal mode: try a HEAD request to get file metadata (size). Some resources
         // reject HEAD requests -- most notably presigned object-storage URLs whose
         // signature covers the HTTP method, so a URL signed for GET is rejected when
@@ -166,11 +176,16 @@ Status HttpFileReader::open(const FileReaderOptions& opts) {
         RETURN_IF_ERROR(prepare_client(/*set_fail_on_error=*/false));
         _client->set_method(HttpMethod::HEAD);
         Status head_status = _client->execute();
-        if (head_status.ok() && _client->get_http_status() == 200) {
+        if (head_status.ok() && _client->get_http_status() == HttpStatus::OK) {
             uint64_t content_length = 0;
-            RETURN_IF_ERROR(_client->get_content_length(&content_length));
-            _file_size = content_length;
-            _size_known = true;
+            Status content_length_status = _client->get_content_length(&content_length);
+            if (content_length_status.ok()) {
+                _file_size = content_length;
+                _size_known = true;
+            } else {
+                LOG(INFO) << "HEAD response has no usable Content-Length for " << _url
+                          << ", falling back to GET-based probe.";
+            }
         } else {
             LOG(INFO) << "HEAD request failed for " << _url
                       << " (status: " << (head_status.ok() ? _client->get_http_status() : -1)
@@ -181,6 +196,11 @@ Status HttpFileReader::open(const FileReaderOptions& opts) {
         // detect Range support), which also recovers the size from Content-Range/Content-Length.
         if (!_size_known) {
             RETURN_IF_ERROR(detect_range_support());
+            if (!_size_known) {
+                return Status::HttpError(
+                        "GET-based HTTP file size probe did not return a usable size for {}.",
+                        _url);
+            }
             range_probed = true;
         }
     }
@@ -371,7 +391,7 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
     VLOG(2) << "HTTP response: status=" << http_status << " received_bytes=" << buf.size();
 
     // Check for HTTP error status codes (4xx, 5xx)
-    if (http_status >= 400) {
+    if (http_status >= HttpStatus::BAD_REQUEST) {
         std::string error_body;
         if (buf.empty()) {
             error_body = "(empty response body)";
@@ -392,7 +412,7 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
 
     // Defensive check: if we sent Range but server returned 200 instead of 206
     // This should rarely happen since we detect Range support in open()
-    if (with_range && offset > 0 && http_status == 200) {
+    if (with_range && offset > 0 && http_status == HttpStatus::OK) {
         LOG(ERROR) << "HTTP server unexpectedly does not support Range requests for " << _url
                    << " (this should have been detected in open()). HTTP status: " << http_status
                    << ", received: " << buf.size()
@@ -533,7 +553,7 @@ Status HttpFileReader::detect_range_support() {
 
     long http_status = _client->get_http_status();
 
-    if (http_status == 206) {
+    if (http_status == HttpStatus::PARTIAL_CONTENT) {
         // HTTP 206 Partial Content - server supports Range requests
         _range_supported = true;
         VLOG(1) << "Range support detected (HTTP 206) for " << _url << ", received "
@@ -543,14 +563,13 @@ Status HttpFileReader::detect_range_support() {
         // when it was not already obtained from a HEAD request.
         if (!_size_known) {
             uint64_t total = 0;
-            if (_client->get_content_range_total(&total).ok()) {
-                _file_size = total;
-                _size_known = true;
-                VLOG(1) << "File size recovered from Content-Range for " << _url << ": "
-                        << _file_size << " bytes";
-            }
+            RETURN_IF_ERROR(_client->get_content_range_total(&total, false));
+            _file_size = total;
+            _size_known = true;
+            VLOG(1) << "File size recovered from Content-Range for " << _url << ": " << _file_size
+                    << " bytes";
         }
-    } else if (http_status == 200) {
+    } else if (http_status == HttpStatus::OK) {
         // HTTP 200 OK - server does not support Range requests
         // It returned the full file (or a large portion)
         _range_supported = false;
@@ -566,11 +585,22 @@ Status HttpFileReader::detect_range_support() {
         // Recover the total file size from Content-Length when not already known.
         if (!_size_known) {
             uint64_t content_length = 0;
-            if (_client->get_content_length(&content_length).ok()) {
-                _file_size = content_length;
-                _size_known = true;
-            }
+            RETURN_IF_ERROR(_client->get_content_length(&content_length));
+            _file_size = content_length;
+            _size_known = true;
         }
+    } else if (http_status == HttpStatus::REQUESTED_RANGE_NOT_SATISFIED) {
+        uint64_t total = 0;
+        RETURN_IF_ERROR(_client->get_content_range_total(&total, true));
+        if (total != 0) {
+            return Status::HttpError(
+                    "Range probe for {} returned HTTP 416 for a non-empty resource of {} bytes",
+                    _url, total);
+        }
+        _file_size = 0;
+        _size_known = true;
+        // An empty resource has no satisfiable byte range, but it can be opened and read as EOF.
+        _range_supported = true;
     } else {
         // Unexpected status code
         LOG(WARNING) << "Unexpected HTTP status " << http_status << " during Range detection for "

@@ -181,22 +181,74 @@ public class HttpUtilsTest {
     }
 
     @Test
-    public void testHeadOkNoContentLengthReturnsUnknown() throws IOException {
+    public void testHeadOkNoContentLengthFallsBackToGet() throws IOException {
+        final long totalSize = 37L;
         String url = startServer(exchange -> {
             if ("HEAD".equals(exchange.getRequestMethod())) {
                 exchange.sendResponseHeaders(200, -1);
                 exchange.close();
                 return;
             }
-            exchange.getResponseHeaders().add("Content-Range", "bytes 0-0/*");
+            exchange.getResponseHeaders().add("Content-Range", "bytes 0-0/" + totalSize);
             exchange.sendResponseHeaders(206, 1);
             try (OutputStream os = exchange.getResponseBody()) {
                 os.write(new byte[] { 0 });
             }
         });
 
-        long size = HttpUtils.getHttpFileSize(url, Collections.emptyMap());
-        Assert.assertEquals(-1, size);
+        Assert.assertEquals(totalSize, HttpUtils.getHttpFileSize(url, Collections.emptyMap()));
+    }
+
+    @Test
+    public void testGetRangeMissingContentRangeRejected() throws IOException {
+        assertInvalidContentRange(null);
+    }
+
+    @Test
+    public void testGetRangeMalformedContentRangeRejected() throws IOException {
+        assertInvalidContentRange("not-a-content-range");
+    }
+
+    @Test
+    public void testGetRangeUnknownContentRangeTotalRejected() throws IOException {
+        assertInvalidContentRange("bytes 0-0/*");
+    }
+
+    @Test
+    public void testEmptyResourceReturnsZero() throws IOException {
+        String url = startServer(exchange -> {
+            if ("HEAD".equals(exchange.getRequestMethod())) {
+                sendEmpty(exchange, 403);
+                return;
+            }
+            exchange.getResponseHeaders().add("Content-Range", "bytes */0");
+            sendEmpty(exchange, 416);
+        });
+
+        Assert.assertEquals(0, HttpUtils.getHttpFileSize(url, Collections.emptyMap()));
+    }
+
+    private void assertInvalidContentRange(String contentRange) throws IOException {
+        String url = startServer(exchange -> {
+            if ("HEAD".equals(exchange.getRequestMethod())) {
+                sendEmpty(exchange, 403);
+                return;
+            }
+            if (contentRange != null) {
+                exchange.getResponseHeaders().add("Content-Range", contentRange);
+            }
+            exchange.sendResponseHeaders(206, 1);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(new byte[] { 0 });
+            }
+        });
+
+        try {
+            HttpUtils.getHttpFileSize(url, Collections.emptyMap());
+            Assert.fail("Expected IOException");
+        } catch (IOException e) {
+            Assert.assertTrue(e.getMessage().contains("Content-Range"));
+        }
     }
 
     @Test

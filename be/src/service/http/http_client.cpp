@@ -483,7 +483,7 @@ Status HttpClient::get_content_md5(std::string* md5) const {
     return Status::OK();
 }
 
-Status HttpClient::get_content_range_total(uint64_t* total) const {
+Status HttpClient::get_content_range_total(uint64_t* total, bool expect_unsatisfied) const {
     struct curl_header* header_ptr;
     auto code =
             curl_easy_header(_curl, HttpHeaders::CONTENT_RANGE, 0, CURLH_HEADER, 0, &header_ptr);
@@ -494,25 +494,60 @@ Status HttpClient::get_content_range_total(uint64_t* total) const {
                                  HttpHeaders::CONTENT_RANGE, header_error_msg(code), code);
     }
 
-    // Format: "bytes <start>-<end>/<total>", e.g. "bytes 0-0/12345".
-    // The total may be "*" when the server does not know the full size.
-    std::string_view value(header_ptr->value);
-    size_t slash_pos = value.rfind('/');
-    if (slash_pos == std::string_view::npos || slash_pos + 1 >= value.size()) {
-        return Status::NotFound("malformed Content-Range header: {}", header_ptr->value);
+    std::string_view value = trim(header_ptr->value);
+    constexpr std::string_view prefix = "bytes ";
+    if (!value.starts_with(prefix)) {
+        return Status::HttpError("malformed Content-Range header: {}", header_ptr->value);
     }
+    value.remove_prefix(prefix.size());
+
+    size_t slash_pos = value.find('/');
+    if (slash_pos == std::string_view::npos || slash_pos + 1 >= value.size() ||
+        value.find('/', slash_pos + 1) != std::string_view::npos) {
+        return Status::HttpError("malformed Content-Range header: {}", header_ptr->value);
+    }
+
+    std::string_view range_view = value.substr(0, slash_pos);
     std::string_view total_view = value.substr(slash_pos + 1);
-    if (total_view == "*") {
-        return Status::NotFound("unknown total size in Content-Range header: {}",
-                                header_ptr->value);
+    uint64_t parsed_total = 0;
+    auto total_result =
+            std::from_chars(total_view.data(), total_view.data() + total_view.size(), parsed_total);
+    if (total_result.ec != std::errc() ||
+        total_result.ptr != total_view.data() + total_view.size()) {
+        return Status::HttpError("invalid or unknown total size in Content-Range header: {}",
+                                 header_ptr->value);
     }
-    uint64_t parsed = 0;
-    auto res = std::from_chars(total_view.data(), total_view.data() + total_view.size(), parsed);
-    if (res.ec != std::errc() || res.ptr != total_view.data() + total_view.size()) {
-        return Status::NotFound("invalid total size in Content-Range header: {}",
-                                header_ptr->value);
+
+    if (expect_unsatisfied) {
+        if (range_view != "*") {
+            return Status::HttpError("expected unsatisfied Content-Range header, got: {}",
+                                     header_ptr->value);
+        }
+    } else {
+        size_t dash_pos = range_view.find('-');
+        if (dash_pos == std::string_view::npos || dash_pos == 0 ||
+            dash_pos + 1 >= range_view.size() ||
+            range_view.find('-', dash_pos + 1) != std::string_view::npos) {
+            return Status::HttpError("malformed Content-Range header: {}", header_ptr->value);
+        }
+
+        uint64_t start = 0;
+        uint64_t end = 0;
+        std::string_view start_view = range_view.substr(0, dash_pos);
+        std::string_view end_view = range_view.substr(dash_pos + 1);
+        auto start_result =
+                std::from_chars(start_view.data(), start_view.data() + start_view.size(), start);
+        auto end_result = std::from_chars(end_view.data(), end_view.data() + end_view.size(), end);
+        if (start_result.ec != std::errc() ||
+            start_result.ptr != start_view.data() + start_view.size() ||
+            end_result.ec != std::errc() || end_result.ptr != end_view.data() + end_view.size() ||
+            start != 0 || end != 0 || parsed_total == 0) {
+            return Status::HttpError("invalid byte range in Content-Range header: {}",
+                                     header_ptr->value);
+        }
     }
-    *total = parsed;
+
+    *total = parsed_total;
     return Status::OK();
 }
 

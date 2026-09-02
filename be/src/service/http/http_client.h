@@ -149,12 +149,10 @@ public:
     // Get the value of the header CONTENT-MD5. The output is empty if no such header exists.
     Status get_content_md5(std::string* md5) const;
 
-    // Parse the total resource size from the "Content-Range" response header.
-    // The header format is "bytes <start>-<end>/<total>" (e.g. "bytes 0-0/12345"),
-    // returned together with a 206 Partial Content response. On success *total is
-    // set to the parsed size. Returns an error if the header is missing or the
-    // total part is unknown ("*") or malformed.
-    Status get_content_range_total(uint64_t* total) const;
+    // Parse the total resource size from Content-Range. A satisfiable response uses
+    // "bytes <start>-<end>/<total>"; an unsatisfied response uses "bytes */<total>".
+    // The expected form is selected by expect_unsatisfied. Unknown or malformed totals fail.
+    Status get_content_range_total(uint64_t* total, bool expect_unsatisfied) const;
 
     long get_http_status() const {
         long code;
