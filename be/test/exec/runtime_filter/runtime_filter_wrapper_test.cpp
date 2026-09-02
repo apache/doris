@@ -20,11 +20,13 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include "core/data_type/data_type_date.h"
 #include "core/data_type/data_type_number.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
 #include "testutil/column_helper.h"
+#include "util/raw_value.h"
 
 namespace doris {
 
@@ -246,6 +248,35 @@ TEST_F(RuntimeFilterWrapperTest, TestInAssign) {
     APPLY_FOR_PRIMITIVE_BASE_TYPE(TYPE_IPV6);
 #undef APPLY_FOR_PRIMITIVE_TYPE
 #undef APPLY_FOR_PRIMITIVE_BASE_TYPE
+}
+
+TEST_F(RuntimeFilterWrapperTest, DateInFilterRoundTripPreservesBucketHash) {
+    RuntimeFilterParams params {.filter_id = 0,
+                                .filter_type = RuntimeFilterType::IN_FILTER,
+                                .column_return_type = TYPE_DATE,
+                                .null_aware = false,
+                                .max_in_num = 1};
+
+    VecDateTimeValue date(0, TIME_DATE, 0, 0, 0, 2026, 8, 30);
+    auto producer = std::make_shared<RuntimeFilterWrapper>(&params);
+    producer->hybrid_set()->insert(&date);
+
+    PMergeFilterRequest request;
+    ASSERT_TRUE(producer->to_protobuf(request.mutable_in_filter()).ok());
+    request.set_contain_null(false);
+    request.set_filter_type(PFilterType::IN_FILTER);
+
+    auto consumer = std::make_shared<RuntimeFilterWrapper>(&params);
+    ASSERT_TRUE(consumer->assign(request, nullptr).ok());
+    auto* iter = consumer->hybrid_set()->begin();
+    ASSERT_TRUE(iter->has_next());
+    const auto* assigned_date = static_cast<const VecDateTimeValue*>(iter->get_value());
+    EXPECT_EQ(assigned_date->type(), TIME_DATE);
+    EXPECT_EQ(*assigned_date, date);
+
+    auto hashes = consumer->get_or_compute_bucket_prune_hashes(std::make_shared<DataTypeDate>());
+    ASSERT_EQ(hashes->size(), 1);
+    EXPECT_EQ(hashes->front(), RawValue::zlib_crc32(&date, sizeof(date), TYPE_DATE, 0));
 }
 
 TEST_F(RuntimeFilterWrapperTest, TestMinMaxAssign) {
