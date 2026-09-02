@@ -72,7 +72,13 @@ public class CreateMTMVCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         createMTMVInfo.analyze(ctx);
-        Env.getCurrentEnv().createTable(this.createMTMVInfo);
+        // createTable returns true only when IF NOT EXISTS found an object that is
+        // already registered under the MTMV name and skipped the create. Return
+        // immediately: the rollback below must never drop that pre-existing object
+        // (dropMtmvForce would delete an ordinary table sharing the name).
+        if (Env.getCurrentEnv().createTable(this.createMTMVInfo)) {
+            return;
+        }
         List<String> createdStreamNames = new ArrayList<>();
         try {
             createIvmStreams(ctx, createdStreamNames);
@@ -151,37 +157,57 @@ public class CreateMTMVCommand extends Command implements ForwardWithSync {
         TableNameInfo streamTableName = new TableNameInfo(
                 InternalCatalog.INTERNAL_CATALOG_NAME, mvDbName, streamName);
         TableNameInfo baseTableName = new TableNameInfo(baseTableFullQualifiers);
-        // Drop old stream if exists, so validation always runs on the fresh stream
-        TableIf oldStream = mvDb.getTableNullable(streamName);
-        if (oldStream != null) {
-            if (!(oldStream instanceof BaseTableStream)) {
-                throw new DdlException("IVM stream name conflicts with a non-stream table: " + streamName);
+        // Stream provisioning runs on two threads: the CREATE MTMV command loop and the
+        // async IMMEDIATE refresh task's reconcile (see MTMVTask.reconcileIvmStreams).
+        // Serialize the check-drop-create under the db write lock so neither side can drop
+        // the other's freshly created stream or fail on a table-exists race. Callers do not
+        // hold the db lock when they reach this helper, so the write lock is safe to take.
+        mvDb.writeLockOrDdlException();
+        try {
+            // Drop old stream if exists, so validation always runs on the fresh stream
+            TableIf oldStream = mvDb.getTableNullable(streamName);
+            if (oldStream != null) {
+                if (!(oldStream instanceof BaseTableStream)) {
+                    throw new DdlException("IVM stream name conflicts with a non-stream table: " + streamName);
+                }
+                if (!IvmUtil.isStreamOwnedBy((BaseTableStream) oldStream, baseTableFullQualifiers)) {
+                    throw new DdlException("IVM stream name conflicts with a stream for another base table: "
+                            + streamName);
+                }
+                if (baseTable instanceof OlapTable
+                        && IvmUtil.isIvmStreamUsable((BaseTableStream) oldStream, (OlapTable) baseTable)) {
+                    // A concurrent provisioning path (the CREATE loop or the IMMEDIATE task's
+                    // reconcile) already created a fresh stream: keep it instead of recreating
+                    // it, so both paths succeed and neither rolls back the other's work. An old
+                    // but stale/disabled stream still falls through to the drop-recreate below.
+                    LOG.info("IVM: stream {} for MTMV {} base table {} already usable, skip recreation",
+                            streamName, mvId, baseTable.getName());
+                    return;
+                }
+                Env.getCurrentInternalCatalog().dropTableWithoutCheck(
+                        mvDb, (Table) oldStream, false, true /* forceDrop */);
             }
-            if (!IvmUtil.isStreamOwnedBy((BaseTableStream) oldStream, baseTableFullQualifiers)) {
-                throw new DdlException("IVM stream name conflicts with a stream for another base table: "
-                        + streamName);
+            Map<String, String> streamProps = new HashMap<>();
+            streamProps.put(PropertyAnalyzer.PROPERTIES_STREAM_SHOW_INITIAL_ROWS, "true");
+            if (baseTable instanceof OlapTable && ((OlapTable) baseTable).isUniqKeyMergeOnWrite()) {
+                streamProps.put(PropertyAnalyzer.PROPERTIES_STREAM_TYPE,
+                        StreamScanType.MIN_DELTA.name().toLowerCase());
             }
-            Env.getCurrentInternalCatalog().dropTableWithoutCheck(
-                    mvDb, (Table) oldStream, false, true /* forceDrop */);
+            CreateStreamInfo streamInfo = new CreateStreamInfo(
+                    false /* ifNotExists */, false /* orReplace */,
+                    streamTableName, baseTableName,
+                    streamProps, "" /* comment */);
+            streamInfo.validate(ctx);
+            Env.getCurrentEnv().getInternalCatalog().createTableStream(
+                    new CreateStreamCommand(streamInfo));
+            if (createdStreamNames != null) {
+                createdStreamNames.add(streamName);
+            }
+            LOG.info("IVM: auto-created stream {} for MTMV {} base table {}",
+                    streamName, mvId, baseTable.getName());
+        } finally {
+            mvDb.writeUnlock();
         }
-        Map<String, String> streamProps = new HashMap<>();
-        streamProps.put(PropertyAnalyzer.PROPERTIES_STREAM_SHOW_INITIAL_ROWS, "true");
-        if (baseTable instanceof OlapTable && ((OlapTable) baseTable).isUniqKeyMergeOnWrite()) {
-            streamProps.put(PropertyAnalyzer.PROPERTIES_STREAM_TYPE,
-                    StreamScanType.MIN_DELTA.name().toLowerCase());
-        }
-        CreateStreamInfo streamInfo = new CreateStreamInfo(
-                false /* ifNotExists */, false /* orReplace */,
-                streamTableName, baseTableName,
-                streamProps, "" /* comment */);
-        streamInfo.validate(ctx);
-        Env.getCurrentEnv().getInternalCatalog().createTableStream(
-                new CreateStreamCommand(streamInfo));
-        if (createdStreamNames != null) {
-            createdStreamNames.add(streamName);
-        }
-        LOG.info("IVM: auto-created stream {} for MTMV {} base table {}",
-                streamName, mvId, baseTable.getName());
     }
 
     private void dropStreamsForce(List<String> streamNames) {

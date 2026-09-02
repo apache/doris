@@ -173,6 +173,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -208,6 +209,11 @@ public class StmtExecutor {
     // is skipped.
     private volatile boolean deferredForArrowFlight = false;
     private MasterOpExecutor masterOpExecutor = null;
+    // Optional forward target for cancellations issued on this executor: statements that
+    // spawn a nested internal executor with its own query id (e.g. IVM dry-run delta
+    // queries) register it here so Ctrl+C / KILL QUERY / statement timeout on the outer
+    // statement also cancel the inner work, which those paths cannot address directly.
+    private volatile Consumer<Status> cancelDelegate = null;
     private RedirectStatus redirectStatus = null;
     private Planner planner;
     private boolean isProxy;
@@ -1300,7 +1306,24 @@ public class StmtExecutor {
     }
 
     // Because this is called by other thread
+    /**
+     * Routes cancellation of this (outer) executor to a nested internal executor, e.g. the
+     * delta query executor of an IVM dry-run refresh. The delegate receives the same cancel
+     * reason and must be cleared once the nested work is done.
+     */
+    public void setCancelDelegate(Consumer<Status> cancelDelegate) {
+        this.cancelDelegate = cancelDelegate;
+    }
+
+    public void clearCancelDelegate() {
+        this.cancelDelegate = null;
+    }
+
     public void cancel(Status cancelReason, boolean needWaitCancelComplete) {
+        Consumer<Status> delegate = cancelDelegate;
+        if (delegate != null) {
+            delegate.accept(cancelReason);
+        }
         if (masterOpExecutor != null) {
             try {
                 masterOpExecutor.cancel();

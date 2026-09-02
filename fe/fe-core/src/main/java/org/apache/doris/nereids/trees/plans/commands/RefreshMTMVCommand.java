@@ -111,20 +111,38 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
                             + "only supports IVM materialized views");
         }
 
-        ConnectContext internalCtx = MTMVPlanUtil.createMTMVContext(
-                mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-        StatementContext stmtCtx = createDryRunStatementContext(mtmv, internalCtx);
+        // createMTMVContext installs the internal ADMIN context as the thread-local
+        // ConnectContext. Restore the caller's context afterwards, mirroring ExplainCommand:
+        // the next statement of the same multi-statement request must not observe the
+        // internal identity/session.
+        ConnectContext previousCtx = ConnectContext.get();
+        try {
+            ConnectContext internalCtx = MTMVPlanUtil.createMTMVContext(
+                    mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+            StatementContext stmtCtx = createDryRunStatementContext(mtmv, internalCtx);
 
-        LogicalPlan queryPlan = new IvmIncrRefreshManager().buildQueryPlan(mtmv);
-        LogicalPlanAdapter adapter = new LogicalPlanAdapter(queryPlan, stmtCtx);
-        adapter.setOrigStmt(new OriginStatement(mtmv.getQuerySql(), 0));
+            LogicalPlan queryPlan = new IvmIncrRefreshManager().buildQueryPlan(mtmv);
+            LogicalPlanAdapter adapter = new LogicalPlanAdapter(queryPlan, stmtCtx);
+            adapter.setOrigStmt(new OriginStatement(mtmv.getQuerySql(), 0));
 
-        // Execute on a dedicated internal executor (admin identity, MV session variables) and
-        // stream each batch to the client's real mysql channel (see executeAndSendResult()).
-        StmtExecutor internalExecutor = new StmtExecutor(internalCtx, adapter);
-        internalCtx.setExecutor(internalExecutor);
-        internalExecutor.executeInternalQueryAndSend(adapter, ctx.getMysqlChannel());
-        ctx.getState().setEof();
+            // Execute on a dedicated internal executor (admin identity, MV session variables)
+            // and stream each batch to the client's real mysql channel. The internal executor
+            // owns a fresh query id that KILL QUERY cannot reach, so forward cancellations of
+            // the outer statement (Ctrl+C / KILL / timeout) to it while it runs.
+            StmtExecutor internalExecutor = new StmtExecutor(internalCtx, adapter);
+            internalCtx.setExecutor(internalExecutor);
+            executor.setCancelDelegate(internalExecutor::cancel);
+            internalExecutor.executeInternalQueryAndSend(adapter, ctx.getMysqlChannel());
+            ctx.getState().setEof();
+        } finally {
+            executor.clearCancelDelegate();
+            if (ConnectContext.get() != previousCtx) {
+                ConnectContext.remove();
+                if (previousCtx != null) {
+                    previousCtx.setThreadLocalInfo();
+                }
+            }
+        }
     }
 
     @VisibleForTesting
