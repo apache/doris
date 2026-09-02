@@ -336,6 +336,7 @@ suite("test_aggregate_all_functions2") {
     qt_maxminby_array_2 """SELECT max_by(arr, weight), min_by(arr, weight) from test_maxmin"""
     qt_maxminby_array_3 """SELECT max_by(mp, arr), min_by(mp, arr) from test_maxmin"""
     qt_maxminby_array_4 """SELECT max_by(st, arr), min_by(st, arr) from test_maxmin"""
+    qt_maxminby_array_null_order """SELECT max_by(arr, arr), min_by(arr, arr) from test_maxmin where id = 5"""
 
     qt_maxminby_array_5 """SELECT id, max_by(arr, weight), min_by(arr, weight) from test_maxmin group by id order by id"""
 
