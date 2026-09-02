@@ -32,7 +32,6 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
-#include <vector>
 
 #include "io/fs/file_system.h"
 #include "io/io_common.h"

@@ -18,7 +18,6 @@
 #pragma once
 
 #include <cstdint>
-#include <vector>
 
 #include "common/global_types.h"
 #include "exec/common/data_gen_functions/vdata_gen_function_inf.h"
