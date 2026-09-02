@@ -32,12 +32,14 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Positive;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -115,6 +117,79 @@ public class PushDownExpressionsInHashConditionTest extends TestWithFeService im
                                 )
                         )
                 );
+    }
+
+    @Test
+    public void testPushExpressionsThroughCrossJoin() {
+        Plan left = new LogicalOneRowRelation(new RelationId(1),
+                ImmutableList.of(new Alias(new ExprId(1), new IntegerLiteral(1), "a")));
+        Plan right = new LogicalOneRowRelation(new RelationId(2),
+                ImmutableList.of(new Alias(new ExprId(2), new IntegerLiteral(2), "b")));
+        Plan probe = new LogicalOneRowRelation(new RelationId(3),
+                ImmutableList.of(new Alias(new ExprId(3), new IntegerLiteral(3), "c")));
+        LogicalJoin<?, ?> crossJoin = new LogicalJoin<>(
+                JoinType.CROSS_JOIN, left, right, new JoinReorderContext());
+        Plan crossJoinProject = new LogicalProject<>(
+                ImmutableList.of(
+                        new Alias(new Add(left.getOutput().get(0), new IntegerLiteral(1)), "left_value"),
+                        new Alias(new Add(right.getOutput().get(0), new IntegerLiteral(2)), "right_value")),
+                crossJoin);
+        LogicalJoin<?, ?> hashJoin = new LogicalJoin<>(
+                JoinType.INNER_JOIN, crossJoinProject, probe, new JoinReorderContext());
+        hashJoin = hashJoin.withJoinConjuncts(
+                ImmutableList.of(
+                        new EqualTo(new Cast(crossJoinProject.getOutput().get(0), StringType.INSTANCE),
+                                new Cast(probe.getOutput().get(0), StringType.INSTANCE)),
+                        new EqualTo(new Cast(crossJoinProject.getOutput().get(1), BigIntType.INSTANCE),
+                                new Cast(probe.getOutput().get(0), BigIntType.INSTANCE))),
+                ImmutableList.of(), ImmutableList.of(), new JoinReorderContext());
+
+        PlanChecker.from(connectContext, hashJoin)
+                .applyTopDown(new PushDownExpressionsInHashCondition())
+                .matches(logicalJoin(
+                        logicalProject(
+                                logicalJoin(
+                                        logicalProject(logicalOneRowRelation()),
+                                        logicalProject(logicalOneRowRelation())
+                                )
+                        ),
+                        logicalProject(logicalOneRowRelation())
+                ));
+    }
+
+    @Test
+    public void testDoNotPushVolatileExpressionsThroughCrossJoin() {
+        Plan left = new LogicalOneRowRelation(new RelationId(1),
+                ImmutableList.of(new Alias(new ExprId(1), new IntegerLiteral(1), "a")));
+        Plan right = new LogicalOneRowRelation(new RelationId(2),
+                ImmutableList.of(new Alias(new ExprId(2), new IntegerLiteral(2), "b")));
+        Plan probe = new LogicalOneRowRelation(new RelationId(3),
+                ImmutableList.of(new Alias(new ExprId(3), new IntegerLiteral(3), "c")));
+        LogicalJoin<?, ?> crossJoin = new LogicalJoin<>(
+                JoinType.CROSS_JOIN, left, right, new JoinReorderContext());
+        Plan crossJoinProject = new LogicalProject<>(
+                ImmutableList.of(
+                        new Alias(new Add(left.getOutput().get(0), new Random()), "left_value"),
+                        new Alias(new Add(right.getOutput().get(0), new IntegerLiteral(2)), "right_value")),
+                crossJoin);
+        LogicalJoin<?, ?> hashJoin = new LogicalJoin<>(
+                JoinType.INNER_JOIN, crossJoinProject, probe, new JoinReorderContext());
+        hashJoin = hashJoin.withJoinConjuncts(
+                ImmutableList.of(new EqualTo(
+                        new Cast(crossJoinProject.getOutput().get(0), StringType.INSTANCE),
+                        new Cast(probe.getOutput().get(0), StringType.INSTANCE))),
+                ImmutableList.of(), ImmutableList.of(), new JoinReorderContext());
+
+        PlanChecker.from(connectContext, hashJoin)
+                .applyTopDown(new PushDownExpressionsInHashCondition())
+                .matches(logicalJoin(
+                        logicalProject(
+                                logicalProject(
+                                        logicalJoin(logicalOneRowRelation(), logicalOneRowRelation())
+                                )
+                        ),
+                        logicalProject(logicalOneRowRelation())
+                ));
     }
 
     @Test
