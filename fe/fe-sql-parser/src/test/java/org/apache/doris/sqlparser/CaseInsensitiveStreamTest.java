@@ -40,6 +40,7 @@ import java.util.Random;
 class CaseInsensitiveStreamTest {
     private static final String SOURCE_NAME = "case-insensitive-stream-test";
     private static final String DESERET_SMALL_LONG_I = new String(Character.toChars(0x10428));
+    private static final String UNPAIRED_HIGH_SURROGATE = Character.toString((char) 0xD801);
 
     @Test
     void matchesReferenceLookaheadTextAndNavigation() {
@@ -48,42 +49,55 @@ class CaseInsensitiveStreamTest {
                 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$",
                 "éÉıſß中",
                 "a" + DESERET_SMALL_LONG_I + "Z",
+                "unpaired" + UNPAIRED_HIGH_SURROGATE,
                 "select 'MiXeD 中文😀' -- comment\nfrom `Table`");
 
         for (String input : inputs) {
             CharStream actual = new CaseInsensitiveStream(CharStreams.fromString(input, SOURCE_NAME));
             CharStream reference = new ReferenceCaseInsensitiveStream(CharStreams.fromString(input, SOURCE_NAME));
+            assertEquivalentStream(input, actual, reference);
 
-            Assertions.assertEquals(reference.size(), actual.size());
-            Assertions.assertEquals(reference.getSourceName(), actual.getSourceName());
-            Assertions.assertEquals(reference.getText(Interval.of(0, reference.size() - 1)),
-                    actual.getText(Interval.of(0, actual.size() - 1)));
-            Assertions.assertEquals(reference.getText(Interval.of(0, reference.size() + 2)),
-                    actual.getText(Interval.of(0, actual.size() + 2)));
-
-            for (int position = 0; position <= reference.size(); position++) {
-                reference.seek(position);
-                actual.seek(position);
-                Assertions.assertEquals(reference.index(), actual.index());
-                for (int offset = -reference.size() - 2; offset <= reference.size() + 2; offset++) {
-                    Assertions.assertEquals(reference.LA(offset), actual.LA(offset),
-                            "input=" + input + ", position=" + actual.index() + ", offset=" + offset);
-                }
-                Assertions.assertEquals(reference.mark(), actual.mark());
-                reference.release(-1);
-                actual.release(-1);
-            }
-
-            reference.seek(0);
-            actual.seek(0);
-            while (reference.LA(1) != IntStream.EOF) {
-                Assertions.assertEquals(reference.LA(1), actual.LA(1));
-                reference.consume();
-                actual.consume();
-            }
-            Assertions.assertEquals(reference.index(), actual.index());
-            Assertions.assertEquals(IntStream.EOF, actual.LA(1));
+            CharStream stringBacked = CaseInsensitiveStream.fromString(input);
+            CharStream defaultReference = new ReferenceCaseInsensitiveStream(CharStreams.fromString(input));
+            assertEquivalentStream(input, stringBacked, defaultReference);
         }
+    }
+
+    private static void assertEquivalentStream(String input, CharStream actual, CharStream reference) {
+        Assertions.assertEquals(reference.size(), actual.size());
+        Assertions.assertEquals(reference.getSourceName(), actual.getSourceName());
+        for (int start = 0; start <= reference.size(); start++) {
+            for (int end : new int[] {start - 1, start, reference.size() - 1, reference.size() + 2}) {
+                Assertions.assertEquals(reference.getText(Interval.of(start, end)),
+                        actual.getText(Interval.of(start, end)),
+                        "input=" + input + ", interval=" + start + ".." + end);
+            }
+        }
+
+        for (int position = 0; position <= reference.size(); position++) {
+            reference.seek(position);
+            actual.seek(position);
+            Assertions.assertEquals(reference.index(), actual.index());
+            for (int offset = -reference.size() - 2; offset <= reference.size() + 2; offset++) {
+                Assertions.assertEquals(reference.LA(offset), actual.LA(offset),
+                        "input=" + input + ", position=" + actual.index() + ", offset=" + offset);
+            }
+            Assertions.assertEquals(reference.mark(), actual.mark());
+            reference.release(-1);
+            actual.release(-1);
+        }
+
+        reference.seek(0);
+        actual.seek(0);
+        while (reference.LA(1) != IntStream.EOF) {
+            Assertions.assertEquals(reference.LA(1), actual.LA(1));
+            reference.consume();
+            actual.consume();
+        }
+        Assertions.assertEquals(reference.index(), actual.index());
+        Assertions.assertEquals(IntStream.EOF, actual.LA(1));
+        Assertions.assertThrows(IllegalStateException.class, reference::consume);
+        Assertions.assertThrows(IllegalStateException.class, actual::consume);
     }
 
     @Test
