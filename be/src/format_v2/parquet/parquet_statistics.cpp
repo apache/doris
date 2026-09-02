@@ -456,9 +456,9 @@ const ParquetColumnSchema* resolve_local_leaf_schema(
     return column_schema;
 }
 
-const ParquetColumnSchema* resolve_bloom_filter_leaf_schema(
+const ParquetColumnSchema* resolve_metadata_leaf_schema(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
-        const format::LocalColumnId file_column_id, const expr_zonemap::BloomFilterProbe& probe) {
+        const format::LocalColumnId file_column_id, const expr_zonemap::MetadataProbe& probe) {
     if (probe.path.empty()) {
         return resolve_local_leaf_schema(schema, file_column_id);
     }
@@ -472,7 +472,7 @@ const ParquetColumnSchema* resolve_bloom_filter_leaf_schema(
         if (column_schema == nullptr) {
             return nullptr;
         }
-        if (path_element.kind == expr_zonemap::BloomFilterPathKind::STRUCT_FIELD) {
+        if (path_element.kind == expr_zonemap::MetadataPathKind::STRUCT_FIELD) {
             if (column_schema->kind != ParquetColumnSchemaKind::STRUCT) {
                 return nullptr;
             }
@@ -1052,21 +1052,13 @@ bool check_native_statistics(const tparquet::FileMetaData& metadata,
                              const format::FileScanRequest& request,
                              ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone) {
     const auto conjuncts = metadata_pruning_conjuncts(request);
-    const auto slot_indexes = collect_expr_zonemap_slot_indexes(conjuncts);
-    if (slot_indexes.empty()) {
-        return false;
-    }
-    ZoneMapEvalContext ctx;
-    for (const int slot_index : slot_indexes) {
-        const auto file_column_id = file_column_id_by_block_position(request, slot_index);
-        if (!file_column_id.has_value()) {
-            continue;
-        }
-        const auto* column_schema = resolve_local_leaf_schema(file_schema, *file_column_id);
+    const auto add_column_zonemap = [&](ZoneMapEvalContext* ctx, int slot_index,
+                                        const ParquetColumnSchema* column_schema) {
+        DORIS_CHECK(ctx != nullptr);
         if (column_schema == nullptr || column_schema->type == nullptr ||
             !native_metadata_predicate_is_type_safe(*column_schema) ||
             column_schema->leaf_column_id >= static_cast<int>(row_group.columns.size())) {
-            continue;
+            return;
         }
         const auto& chunk = row_group.columns[column_schema->leaf_column_id];
         std::shared_ptr<segment_v2::ZoneMap> zone_map;
@@ -1085,9 +1077,54 @@ bool check_native_statistics(const tparquet::FileMetaData& metadata,
                             safe_statistics.has_value() ? &*safe_statistics : nullptr,
                             column_metadata.num_values, timezone));
         }
-        add_slot_zonemap(&ctx, slot_index, column_schema->type, std::move(zone_map));
+        add_slot_zonemap(ctx, slot_index, column_schema->type, std::move(zone_map));
+    };
+
+    VExprContextSPtrs direct_conjuncts;
+    for (const auto& conjunct : conjuncts) {
+        if (conjunct == nullptr || conjunct->root() == nullptr ||
+            !conjunct->root()->can_evaluate_zonemap_filter()) {
+            direct_conjuncts.push_back(conjunct);
+            continue;
+        }
+        const auto probe = expr_zonemap::extract_zonemap_filter_predicate_probe(conjunct->root());
+        if (!probe.has_value() || probe->path.empty()) {
+            direct_conjuncts.push_back(conjunct);
+            continue;
+        }
+        const auto file_column_id = file_column_id_by_block_position(request, probe->slot_index);
+        // Row-group statistics safely summarize every repeated LIST value. Page-index pruning keeps
+        // using top-level leaves because repeated values do not preserve page-to-parent-row bounds.
+        const auto* column_schema =
+                file_column_id.has_value()
+                        ? resolve_metadata_leaf_schema(file_schema, *file_column_id, *probe)
+                        : nullptr;
+        ZoneMapEvalContext nested_ctx;
+        if (column_schema != nullptr &&
+            expr_zonemap::data_types_compatible(column_schema->type, probe->value_type)) {
+            add_column_zonemap(&nested_ctx, probe->slot_index, column_schema);
+        }
+        const auto result = VExprContext::evaluate_zonemap_filter({conjunct}, nested_ctx);
+        accumulate_zonemap_stats(nested_ctx, pruning_stats);
+        if (result == ZoneMapFilterResult::kNoMatch) {
+            return true;
+        }
     }
-    const auto result = VExprContext::evaluate_zonemap_filter(conjuncts, ctx);
+
+    const auto slot_indexes = collect_expr_zonemap_slot_indexes(direct_conjuncts);
+    if (slot_indexes.empty()) {
+        return false;
+    }
+    ZoneMapEvalContext ctx;
+    for (const int slot_index : slot_indexes) {
+        const auto file_column_id = file_column_id_by_block_position(request, slot_index);
+        if (!file_column_id.has_value()) {
+            continue;
+        }
+        const auto* column_schema = resolve_local_leaf_schema(file_schema, *file_column_id);
+        add_column_zonemap(&ctx, slot_index, column_schema);
+    }
+    const auto result = VExprContext::evaluate_zonemap_filter(direct_conjuncts, ctx);
     accumulate_zonemap_stats(ctx, pruning_stats);
     return result == ZoneMapFilterResult::kNoMatch;
 }
@@ -1316,9 +1353,7 @@ ParquetRowGroupPruneReason native_bloom_filter_prune_reason(
             continue;
         }
         const auto* column_schema =
-                probe->path.empty()
-                        ? resolve_local_leaf_schema(file_schema, *file_column_id)
-                        : resolve_bloom_filter_leaf_schema(file_schema, *file_column_id, *probe);
+                resolve_metadata_leaf_schema(file_schema, *file_column_id, *probe);
         if (column_schema == nullptr ||
             !expr_zonemap::data_types_compatible(column_schema->type, probe->value_type)) {
             continue;

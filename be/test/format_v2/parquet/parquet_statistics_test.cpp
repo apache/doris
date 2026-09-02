@@ -316,6 +316,39 @@ private:
     const std::string _expr_name = "MetadataAccessorExpr";
 };
 
+class MetadataArrayContainsExpr final : public VExpr {
+public:
+    MetadataArrayContainsExpr(DataTypePtr array_type, int32_t value)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false) {
+        _fn.name.function_name = "array_contains";
+        add_child(VSlotRef::create_shared(0, 0, -1, std::move(array_type), "items"));
+        add_child(VLiteral::create_shared(std::make_shared<DataTypeInt32>(),
+                                          Field::create_field<TYPE_INT>(value)));
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("MetadataArrayContainsExpr is metadata-only");
+    }
+
+    bool can_evaluate_zonemap_filter() const override {
+        return expr_zonemap::can_evaluate_array_contains_zonemap(_children);
+    }
+
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        return expr_zonemap::evaluate_array_contains_zonemap(ctx, _children);
+    }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        get_child(0)->collect_slot_column_ids(column_ids);
+    }
+
+private:
+    const std::string _expr_name = "MetadataArrayContainsExpr";
+};
+
 class DictionaryStringInExpr final : public VExpr {
 public:
     DictionaryStringInExpr() : VExpr(std::make_shared<DataTypeUInt8>(), false) {}
@@ -1818,6 +1851,105 @@ TEST(NativeParquetStatisticsTest, TypeDefinedBoundsRequireSupportedColumnOrder) 
                         &selected_ranges, &skip_plans, nullptr)
                         .ok());
     EXPECT_TRUE(selected_ranges.empty());
+}
+
+TEST(NativeParquetStatisticsTest, ArrayContainsUsesRepeatedLeafFooterStatisticsOnly) {
+    const auto encode_int32 = [](int32_t value) {
+        std::string bytes(sizeof(value), '\0');
+        memcpy(bytes.data(), &value, sizeof(value));
+        return bytes;
+    };
+
+    const auto leaf_type = std::make_shared<DataTypeInt32>();
+    const auto array_type = std::make_shared<DataTypeArray>(leaf_type);
+    auto root_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+    root_schema->kind = format::parquet::ParquetColumnSchemaKind::LIST;
+    root_schema->local_id = 0;
+    root_schema->name = "items";
+    root_schema->type = array_type;
+    root_schema->max_repetition_level = 1;
+    auto leaf_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+    leaf_schema->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+    leaf_schema->local_id = 0;
+    leaf_schema->name = "element";
+    leaf_schema->leaf_column_id = 0;
+    leaf_schema->type = leaf_type;
+    leaf_schema->type_descriptor.doris_type = leaf_type;
+    leaf_schema->type_descriptor.physical_type = tparquet::Type::INT32;
+    leaf_schema->max_repetition_level = 1;
+    root_schema->children.push_back(std::move(leaf_schema));
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    schema.push_back(std::move(root_schema));
+
+    tparquet::Statistics statistics;
+    statistics.__set_min_value(encode_int32(10));
+    statistics.__set_max_value(encode_int32(20));
+    statistics.__set_null_count(0);
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.__set_type(tparquet::Type::INT32);
+    column_metadata.__set_num_values(2);
+    column_metadata.__set_statistics(statistics);
+    tparquet::ColumnChunk chunk;
+    chunk.__set_meta_data(column_metadata);
+    tparquet::RowGroup row_group;
+    row_group.__set_columns({chunk});
+    row_group.__set_num_rows(1);
+    tparquet::ColumnOrder order;
+    order.__set_TYPE_ORDER(tparquet::TypeDefinedOrder());
+    tparquet::FileMetaData metadata;
+    metadata.__set_column_orders({order});
+    metadata.__set_row_groups({row_group});
+
+    const auto select_for_value = [&](int32_t value,
+                                      format::parquet::ParquetPruningStats* pruning_stats) {
+        format::FileScanRequest request;
+        request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+        request.predicate_columns = {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+        request.conjuncts = {VExprContext::create_shared(
+                std::make_shared<MetadataArrayContainsExpr>(array_type, value))};
+        std::vector<int> selected_row_groups;
+        EXPECT_TRUE(format::parquet::select_row_groups_by_metadata(metadata, schema, request,
+                                                                   nullptr, &selected_row_groups,
+                                                                   false, pruning_stats)
+                            .ok());
+        return selected_row_groups;
+    };
+
+    format::parquet::ParquetPruningStats disjoint_stats;
+    EXPECT_TRUE(select_for_value(7, &disjoint_stats).empty());
+    EXPECT_EQ(disjoint_stats.filtered_row_groups_by_statistics, 1);
+    format::parquet::ParquetPruningStats overlap_stats;
+    EXPECT_EQ(select_for_value(15, &overlap_stats), std::vector<int>({0}));
+    metadata.row_groups[0].columns[0].meta_data.__isset.statistics = false;
+    format::parquet::ParquetPruningStats missing_stats;
+    EXPECT_EQ(select_for_value(7, &missing_stats), std::vector<int>({0}));
+    EXPECT_EQ(missing_stats.expr_zonemap_unusable_evals, 1);
+
+    format::FileScanRequest page_request;
+    page_request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    page_request.conjuncts = {VExprContext::create_shared(
+            std::make_shared<MetadataArrayContainsExpr>(array_type, 7))};
+    format::parquet::NativeParquetPageIndex page_index;
+    page_index.column_index.__set_min_values({encode_int32(10)});
+    page_index.column_index.__set_max_values({encode_int32(20)});
+    page_index.column_index.__set_null_pages({false});
+    page_index.column_index.__set_null_counts({0});
+    tparquet::PageLocation location;
+    location.__set_offset(0);
+    location.__set_compressed_page_size(10);
+    location.__set_first_row_index(0);
+    page_index.offset_index.__set_page_locations({location});
+    std::unordered_map<int, format::parquet::NativeParquetPageIndex> page_indexes;
+    page_indexes.emplace(0, std::move(page_index));
+    std::vector<format::parquet::RowRange> selected_ranges;
+    std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, metadata.row_groups[0], page_indexes, schema, page_request, 1,
+                        &selected_ranges, &skip_plans, nullptr)
+                        .ok());
+    ASSERT_EQ(selected_ranges.size(), 1);
+    EXPECT_EQ(selected_ranges[0].start, 0);
+    EXPECT_EQ(selected_ranges[0].length, 1);
 }
 
 TEST(NativeParquetStatisticsTest, ZonemapPruningIgnoresDisabledSessionSwitch) {

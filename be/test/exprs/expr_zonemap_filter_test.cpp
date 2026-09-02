@@ -832,11 +832,11 @@ TEST(ExprZonemapFilterTest, EqualityBloomAcceptsStructAndListLeafAccessors) {
             "element_at", list_type, make_slot(0, nested_type), make_string_literal("items"));
     auto nested_leaf = std::make_shared<MetadataAccessorExpr>(
             "element_at", leaf_type, std::move(nested_list), make_int_literal(1));
-    auto nested_probe = expr_zonemap::extract_bloom_filter_probe(nested_leaf);
+    auto nested_probe = expr_zonemap::extract_metadata_probe(nested_leaf);
     ASSERT_TRUE(nested_probe.has_value());
     ASSERT_EQ(nested_probe->path.size(), 2);
-    EXPECT_EQ(nested_probe->path[0].kind, expr_zonemap::BloomFilterPathKind::STRUCT_FIELD);
-    EXPECT_EQ(nested_probe->path[1].kind, expr_zonemap::BloomFilterPathKind::LIST_ELEMENT);
+    EXPECT_EQ(nested_probe->path[0].kind, expr_zonemap::MetadataPathKind::STRUCT_FIELD);
+    EXPECT_EQ(nested_probe->path[1].kind, expr_zonemap::MetadataPathKind::LIST_ELEMENT);
     EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
               equals.evaluate_bloom_filter(bloom_ctx, {nested_leaf, make_int_literal(2)}));
 }
@@ -1033,6 +1033,48 @@ TEST(ExprZonemapFilterTest, FunctionStringStartsWithZonemapUsesPrefixRange) {
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
               starts_with->evaluate_zonemap_filter(max_prefix_ctx,
                                                    {slot, make_string_literal(max_byte_prefix)}));
+}
+
+TEST(ExprZonemapFilterTest, FunctionArrayContainsZonemapUsesElementRange) {
+    auto element_type = int_type();
+    auto array_type = std::make_shared<DataTypeArray>(make_nullable(element_type));
+    auto slot = make_slot(0, array_type);
+    auto array_contains = SimpleFunctionFactory::instance().get_function(
+            "array_contains",
+            ColumnsWithTypeAndName {{nullptr, array_type, "slot"},
+                                    {nullptr, element_type, "needle"}},
+            std::make_shared<DataTypeUInt8>());
+    ASSERT_NE(array_contains, nullptr);
+    EXPECT_EQ("array_contains", array_contains->get_name());
+
+    EXPECT_TRUE(array_contains->can_evaluate_zonemap_filter({slot, make_int_literal(7)}));
+    EXPECT_FALSE(array_contains->can_evaluate_zonemap_filter({slot, make_null_int_literal()}));
+    EXPECT_FALSE(array_contains->can_evaluate_zonemap_filter(
+            {make_int_literal(7), make_int_literal(7)}));
+
+    auto below_range_ctx = make_context(make_int_zonemap(10, 20), element_type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch, array_contains->evaluate_zonemap_filter(
+                                                     below_range_ctx, {slot, make_int_literal(7)}));
+
+    auto above_range_ctx = make_context(make_int_zonemap(10, 20), element_type);
+    EXPECT_EQ(
+            ZoneMapFilterResult::kNoMatch,
+            array_contains->evaluate_zonemap_filter(above_range_ctx, {slot, make_int_literal(21)}));
+
+    auto overlap_ctx = make_context(make_int_zonemap(10, 20), element_type);
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              array_contains->evaluate_zonemap_filter(overlap_ctx, {slot, make_int_literal(15)}));
+
+    segment_v2::ZoneMap only_null;
+    only_null.has_null = true;
+    auto null_ctx = make_context(only_null, element_type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              array_contains->evaluate_zonemap_filter(null_ctx, {slot, make_int_literal(15)}));
+
+    auto missing_ctx = ZoneMapEvalContext {};
+    EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+              array_contains->evaluate_zonemap_filter(missing_ctx, {slot, make_int_literal(15)}));
+    EXPECT_EQ(1, missing_ctx.stats.unusable_zonemap_eval_count);
 }
 
 TEST(ExprZonemapFilterTest, CharZonemapUsesTrimmedLogicalBounds) {
