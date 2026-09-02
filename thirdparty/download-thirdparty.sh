@@ -85,6 +85,15 @@ while [[ $# -gt 0 ]]; do
     )
 done
 if [[ "${SPEC_LIB}" != "" ]]; then
+    # Arrow builds xsimd and Brotli from their source archives.
+    if [[ " ${SPEC_ARCHIVES[*]} " == *' ARROW '* ]]; then
+        for arrow_companion in XSIMD BROTLI; do
+            if [[ " ${SPEC_ARCHIVES[*]} " != *" ${arrow_companion} "* ]]; then
+                SPEC_ARCHIVES+=("${arrow_companion}")
+            fi
+        done
+    fi
+
     # ARROW_ADBC_FLIGHTSQL is a companion archive of arrow_adbc rather than a
     # package of its own: it has no build function, build_arrow_adbc() only copies
     # the prebuilt driver out of it. Its name therefore never appears on a command
@@ -367,20 +376,6 @@ echo "===== Patching thirdparty archives..."
 # This is to avoid duplicated patch.
 ###################################################################################
 PATCHED_MARK="patched_mark"
-ARROW_PAIMON_PATCH_FINGERPRINT_MARK="patched_mark_arrow_paimon_fingerprint"
-ARROW_PAIMON_BUILD_FINGERPRINT=""
-if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ||
-      " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
-    ARROW_PAIMON_BUILD_FINGERPRINT="$(arrow_paimon_build_fingerprint)"
-fi
-
-reset_arrow_paimon_source() {
-    local archive_name="$1"
-    local source_name="$2"
-    echo "Resetting ${source_name} because its patch state is incomplete or stale"
-    rm -rf "${TP_SOURCE_DIR:?}/${source_name}"
-    "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${archive_name}" -C "${TP_SOURCE_DIR}/"
-}
 
 # glog patch
 if [[ " ${TP_ARCHIVES[*]} " =~ " GLOG " ]]; then
@@ -486,12 +481,8 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
         cd -
     fi
     if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-24.0.0" ]]; then
-        arrow_fingerprint_mark="${TP_SOURCE_DIR}/${ARROW_SOURCE}/${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
-        if ! [[ -f "${TP_SOURCE_DIR}/${ARROW_SOURCE}/${PATCHED_MARK}" &&
-               -f "${arrow_fingerprint_mark}" ]] ||
-           [[ "$(<"${arrow_fingerprint_mark}")" != "${ARROW_PAIMON_BUILD_FINGERPRINT}" ]]; then
-            reset_arrow_paimon_source "${ARROW_NAME}" "${ARROW_SOURCE}"
-            cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
+        cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
             # Paimon-cpp parquet patches: row-group-aware batch reader, max_row_group_size,
             # GetBufferedSize(), int96 NANO guard, and Thrift_VERSION empty fix.
             patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-paimon.patch"
@@ -503,10 +494,8 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
             # Add Parquet LZO page decompression support used by file scanner v2.
             patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-lzo.patch"
             touch "${PATCHED_MARK}"
-            printf '%s\n' "${ARROW_PAIMON_BUILD_FINGERPRINT}" \
-                >"${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
-            cd -
         fi
+        cd -
     fi
     echo "Finished patching ${ARROW_SOURCE}"
 fi
@@ -780,24 +769,17 @@ fi
 
 # patch paimon-cpp
 if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
-    PAIMON_CPP_ARROW_24_PATCHED_MARK="patched_mark_arrow_24"
-    PAIMON_CPP_ARROW_24_COMPUTE_PATCHED_MARK="patched_mark_arrow_24_compute"
-    paimon_fingerprint_mark="${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
+    PAIMON_CPP_PATCHED_MARK="patched_mark_arrow_24_compute"
     if ! [[ -f "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${PATCHED_MARK}" &&
-           -f "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${PAIMON_CPP_ARROW_24_PATCHED_MARK}" &&
-           -f "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${PAIMON_CPP_ARROW_24_COMPUTE_PATCHED_MARK}" &&
-           -f "${paimon_fingerprint_mark}" ]] ||
-       [[ "$(<"${paimon_fingerprint_mark}")" != "${ARROW_PAIMON_BUILD_FINGERPRINT}" ]]; then
-        reset_arrow_paimon_source "${PAIMON_CPP_NAME}" "${PAIMON_CPP_SOURCE}"
+        -f "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}/${PAIMON_CPP_PATCHED_MARK}" ]]; then
+        rm -rf "${TP_SOURCE_DIR:?}/${PAIMON_CPP_SOURCE}"
+        "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${PAIMON_CPP_NAME}" -C "${TP_SOURCE_DIR}/"
         cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
         patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch"
         patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-arrow-24-compatibility.patch"
         patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-arrow-24-compute.patch"
         touch "${PATCHED_MARK}"
-        touch "${PAIMON_CPP_ARROW_24_PATCHED_MARK}"
-        touch "${PAIMON_CPP_ARROW_24_COMPUTE_PATCHED_MARK}"
-        printf '%s\n' "${ARROW_PAIMON_BUILD_FINGERPRINT}" \
-            >"${ARROW_PAIMON_PATCH_FINGERPRINT_MARK}"
+        touch "${PAIMON_CPP_PATCHED_MARK}"
         cd -
     fi
     echo "Finished patching ${PAIMON_CPP_SOURCE}"

@@ -100,23 +100,6 @@ jobs:
               -o doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           fi
           tar -xvf doris-thirdparty-prebuilt-darwin-arm64.tar.xz
-
-          # Rebuild the Arrow/Paimon stack when the shared prebuilt predates the
-          # selected Arrow version/component closure.
-          # shellcheck source=thirdparty/arrow-paimon-vars.sh
-          . ./arrow-paimon-vars.sh
-          arrow_paimon_prebuilt_is_valid=false
-          if arrow_paimon_prebuilt_valid installed; then
-            arrow_paimon_prebuilt_is_valid=true
-          fi
-          if [[ "${arrow_paimon_prebuilt_is_valid}" != "true" ]]; then
-            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz \
-              -o doris-thirdparty-source.tgz
-            tar -zxvf doris-thirdparty-source.tgz
-            ./download-thirdparty.sh arrow paimon_cpp xsimd brotli
-            export MACOSX_DEPLOYMENT_TARGET=12.0
-            ./build-thirdparty.sh -j "$(nproc)" arrow paimon_cpp
-          fi
           popd
 
           # macos-15 runners are Apple Silicon (arm64), so the JDK env var is
