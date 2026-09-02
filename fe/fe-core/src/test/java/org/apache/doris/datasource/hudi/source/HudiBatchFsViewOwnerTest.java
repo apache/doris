@@ -46,7 +46,8 @@ class HudiBatchFsViewOwnerTest {
     void statementCloseReturnsWhileRunningTaskKeepsLeasePinned() throws Exception {
         SplitAssignment assignment = Mockito.mock(SplitAssignment.class);
         HudiFsViewCacheValue.Lease lease = Mockito.mock(HudiFsViewCacheValue.Lease.class);
-        HudiScanNode.BatchFsViewOwner owner = new HudiScanNode.BatchFsViewOwner(assignment, lease);
+        HudiScanNode.BatchFsViewOwner owner = new HudiScanNode.BatchFsViewOwner(
+                assignment, lease, Runnable::run, Runnable::run);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<?> close = executor.submit(owner::close);
@@ -66,7 +67,8 @@ class HudiBatchFsViewOwnerTest {
     void normalCompletionDoesNotStopFinishedAssignment() {
         SplitAssignment assignment = Mockito.mock(SplitAssignment.class);
         HudiFsViewCacheValue.Lease lease = Mockito.mock(HudiFsViewCacheValue.Lease.class);
-        HudiScanNode.BatchFsViewOwner owner = new HudiScanNode.BatchFsViewOwner(assignment, lease);
+        HudiScanNode.BatchFsViewOwner owner = new HudiScanNode.BatchFsViewOwner(
+                assignment, lease, Runnable::run, Runnable::run);
 
         owner.finish();
         owner.close();
@@ -79,10 +81,12 @@ class HudiBatchFsViewOwnerTest {
     void statementCloseCancelsAcceptedTaskBeforeItStarts() {
         SplitAssignment assignment = Mockito.mock(SplitAssignment.class);
         HudiFsViewCacheValue.Lease lease = Mockito.mock(HudiFsViewCacheValue.Lease.class);
-        HudiScanNode.BatchFsViewOwner owner = new HudiScanNode.BatchFsViewOwner(assignment, lease);
+        List<Runnable> submitted = new ArrayList<>();
+        HudiScanNode.BatchFsViewOwner owner = new HudiScanNode.BatchFsViewOwner(
+                assignment, lease, submitted::add, submitted::add);
         HudiScanNode.TerminalTask task = new HudiScanNode.TerminalTask(
                 () -> Assertions.fail("cancelled task must not run"), owner::finish);
-        owner.track(task);
+        Assertions.assertTrue(owner.submitPartition(task));
 
         owner.close();
 
@@ -92,10 +96,49 @@ class HudiBatchFsViewOwnerTest {
     }
 
     @Test
+    void statementCloseRemovesQueuedBatchTasksFromBothExecutors() throws Exception {
+        SplitAssignment assignment = Mockito.mock(SplitAssignment.class);
+        HudiFsViewCacheValue.Lease lease = Mockito.mock(HudiFsViewCacheValue.Lease.class);
+        CountDownLatch workersStarted = new CountDownLatch(2);
+        CountDownLatch releaseWorkers = new CountDownLatch(1);
+        ThreadPoolExecutor scheduleExecutor = blockedExecutor(workersStarted, releaseWorkers);
+        ThreadPoolExecutor producerExecutor = blockedExecutor(workersStarted, releaseWorkers);
+        HudiScanNode.BatchFsViewOwner owner = new HudiScanNode.BatchFsViewOwner(
+                assignment, lease, scheduleExecutor, producerExecutor);
+        HudiScanNode.TerminalTask partitionTask = new HudiScanNode.TerminalTask(
+                () -> Assertions.fail("cancelled partition task must not run"), () -> { });
+        HudiScanNode.TerminalTask producerTask = new HudiScanNode.TerminalTask(
+                () -> Assertions.fail("cancelled producer task must not run"), () -> { });
+        try {
+            Assertions.assertTrue(workersStarted.await(3, TimeUnit.SECONDS));
+            Assertions.assertTrue(owner.submitPartition(partitionTask));
+            Assertions.assertTrue(owner.submitProducer(producerTask));
+            Assertions.assertEquals(1, scheduleExecutor.getQueue().size());
+            Assertions.assertEquals(1, producerExecutor.getQueue().size());
+
+            owner.close();
+
+            Assertions.assertTrue(partitionTask.isCancelled());
+            Assertions.assertTrue(producerTask.isCancelled());
+            Assertions.assertTrue(scheduleExecutor.getQueue().isEmpty());
+            Assertions.assertTrue(producerExecutor.getQueue().isEmpty());
+            Mockito.verify(assignment).stop();
+        } finally {
+            owner.finish();
+            releaseWorkers.countDown();
+            scheduleExecutor.shutdownNow();
+            producerExecutor.shutdownNow();
+        }
+        Mockito.verify(lease).close();
+    }
+
+    @Test
     void statementCloseDoesNotWaitForAlreadyStartedBlockedTask() throws Exception {
         SplitAssignment assignment = Mockito.mock(SplitAssignment.class);
         HudiFsViewCacheValue.Lease lease = Mockito.mock(HudiFsViewCacheValue.Lease.class);
-        HudiScanNode.BatchFsViewOwner owner = new HudiScanNode.BatchFsViewOwner(assignment, lease);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        HudiScanNode.BatchFsViewOwner owner = new HudiScanNode.BatchFsViewOwner(
+                assignment, lease, executor, executor);
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch interrupted = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
@@ -113,10 +156,8 @@ class HudiBatchFsViewOwnerTest {
             owner.finish();
             terminal.countDown();
         });
-        owner.track(task);
-        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Assertions.assertTrue(owner.submitPartition(task));
         try {
-            executor.execute(task);
             Assertions.assertTrue(started.await(3, TimeUnit.SECONDS));
 
             owner.close();
@@ -138,7 +179,9 @@ class HudiBatchFsViewOwnerTest {
         SplitAssignment assignment = new SplitAssignment(
                 null, null, null, Collections.emptyMap(), Collections.emptyList(), false);
         HudiFsViewCacheValue.Lease lease = Mockito.mock(HudiFsViewCacheValue.Lease.class);
-        HudiScanNode.BatchFsViewOwner owner = new HudiScanNode.BatchFsViewOwner(assignment, lease);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        HudiScanNode.BatchFsViewOwner owner = new HudiScanNode.BatchFsViewOwner(
+                assignment, lease, executor, executor);
         assignment.addCloseable(owner);
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch interrupted = new CountDownLatch(1);
@@ -157,10 +200,8 @@ class HudiBatchFsViewOwnerTest {
             owner.finish();
             terminal.countDown();
         });
-        owner.track(task);
-        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Assertions.assertTrue(owner.submitPartition(task));
         try {
-            executor.execute(task);
             Assertions.assertTrue(started.await(3, TimeUnit.SECONDS));
 
             assignment.stop();
@@ -353,5 +394,20 @@ class HudiBatchFsViewOwnerTest {
         owner.submissionDone();
         Mockito.verify(lease).close();
         Assertions.assertThrows(CancellationException.class, owner::awaitCompletion);
+    }
+
+    private static ThreadPoolExecutor blockedExecutor(
+            CountDownLatch workersStarted, CountDownLatch releaseWorkers) {
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(
+                1, 1, 0, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
+        executor.execute(() -> {
+            workersStarted.countDown();
+            try {
+                releaseWorkers.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        return executor;
     }
 }

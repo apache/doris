@@ -659,7 +659,8 @@ public class HudiScanNode extends HiveScanNode {
         ExecutorService scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         Executor producerExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getFileListingExecutor();
         long startTime = System.currentTimeMillis();
-        BatchFsViewOwner createdOwner = new BatchFsViewOwner(splitAssignment, fsViewLease);
+        BatchFsViewOwner createdOwner = new BatchFsViewOwner(
+                splitAssignment, fsViewLease, scheduleExecutor, producerExecutor);
         BatchFsViewOwner batchOwner = createdOwner;
         ConnectContext connectContext = ConnectContext.get();
         StatementContext statementContext = connectContext == null ? null : connectContext.getStatementContext();
@@ -723,12 +724,13 @@ public class HudiScanNode extends HiveScanNode {
                         splittersOnFlight.release();
                         taskFinished.run();
                     });
-                    finalBatchOwner.track(partitionTask);
                     try {
-                        scheduleExecutor.execute(partitionTask);
+                        if (!finalBatchOwner.submitPartition(partitionTask)) {
+                            break;
+                        }
                     } catch (RuntimeException e) {
                         recordBatchException(e);
-                        partitionTask.cancelBeforeStart();
+                        finalBatchOwner.cancelPartition(partitionTask);
                         break;
                     }
                 }
@@ -736,12 +738,11 @@ public class HudiScanNode extends HiveScanNode {
                 recordBatchException(t);
             }
         }, taskFinished);
-        finalBatchOwner.track(producerTask);
         try {
-            producerExecutor.execute(producerTask);
+            finalBatchOwner.submitProducer(producerTask);
         } catch (RuntimeException e) {
             recordBatchException(e);
-            producerTask.cancelBeforeStart();
+            finalBatchOwner.cancelProducer(producerTask);
         }
     }
 
@@ -830,13 +831,18 @@ public class HudiScanNode extends HiveScanNode {
     static class BatchFsViewOwner implements Closeable {
         private final SplitAssignment splitAssignment;
         private final HudiFsViewCacheValue.Lease lease;
+        private final Executor scheduleExecutor;
+        private final Executor producerExecutor;
         private final AtomicBoolean finished = new AtomicBoolean();
-        private final ConcurrentLinkedQueue<TerminalTask> tasks = new ConcurrentLinkedQueue<>();
+        private final ConcurrentHashMap<TerminalTask, Executor> tasks = new ConcurrentHashMap<>();
         private final AtomicBoolean stopping = new AtomicBoolean();
 
-        BatchFsViewOwner(SplitAssignment splitAssignment, HudiFsViewCacheValue.Lease lease) {
+        BatchFsViewOwner(SplitAssignment splitAssignment, HudiFsViewCacheValue.Lease lease,
+                Executor scheduleExecutor, Executor producerExecutor) {
             this.splitAssignment = splitAssignment;
             this.lease = lease;
+            this.scheduleExecutor = scheduleExecutor;
+            this.producerExecutor = producerExecutor;
         }
 
         void finish() {
@@ -849,12 +855,46 @@ public class HudiScanNode extends HiveScanNode {
             }
         }
 
-        void track(TerminalTask task) {
+        boolean submitPartition(TerminalTask task) {
+            return submit(task, scheduleExecutor);
+        }
+
+        boolean submitProducer(TerminalTask task) {
+            return submit(task, producerExecutor);
+        }
+
+        private boolean submit(TerminalTask task, Executor executor) {
             task.setOwnerDone(() -> tasks.remove(task));
-            tasks.add(task);
+            tasks.put(task, executor);
             if (stopping.get()) {
-                task.requestStop();
+                stopTask(task, executor);
+                return false;
             }
+            executor.execute(task);
+            if (stopping.get()) {
+                stopTask(task, executor);
+                return false;
+            }
+            return true;
+        }
+
+        void cancelPartition(TerminalTask task) {
+            stopTask(task, scheduleExecutor);
+        }
+
+        void cancelProducer(TerminalTask task) {
+            stopTask(task, producerExecutor);
+        }
+
+        private void stopTask(TerminalTask task, Executor executor) {
+            task.requestStop();
+            if (executor instanceof ThreadPoolExecutor) {
+                ((ThreadPoolExecutor) executor).remove(task);
+            }
+        }
+
+        private void stopTasks() {
+            tasks.forEach(this::stopTask);
         }
 
         @Override
@@ -865,10 +905,10 @@ public class HudiScanNode extends HiveScanNode {
             try {
                 splitAssignment.stop();
             } catch (RuntimeException e) {
-                tasks.forEach(TerminalTask::requestStop);
+                stopTasks();
                 throw e;
             }
-            tasks.forEach(TerminalTask::requestStop);
+            stopTasks();
             // Already-started filesystem calls may be blocked in storage code that does not respond to
             // interruption. Their TerminalTask.done callbacks retain exact task accounting and eventually call
             // finish(), which releases the fs-view lease only after the last task exits. Cancellation must return

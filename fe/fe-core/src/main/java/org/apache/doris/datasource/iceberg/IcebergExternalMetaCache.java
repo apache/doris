@@ -588,6 +588,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         if (catalog instanceof HMSExternalCatalog) {
             HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
             try (HMSExternalCatalog.IcebergTableLoadContext context = hmsCatalog.beginIcebergTableLoad()) {
+                IcebergMetadataOps ops = context.getOps();
                 boolean enableMappingVarbinary = context.isEnableMappingVarbinary();
                 boolean enableMappingTimestampTz = context.isEnableMappingTimestampTz();
                 Table table;
@@ -597,6 +598,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                     throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
                 }
                 try (TableResourceOwner owner = new TableResourceOwner(() -> { })) {
+                    ensureCatalogGenerationStable(catalog, ops, context.getAuthenticator(), nameMapping,
+                            enableMappingVarbinary, enableMappingTimestampTz);
                     try (TableResourceOwner catalogOwner = new TableResourceOwner(context.promote()::close)) {
                         IcebergTableCacheValue value = execute(context.getAuthenticator(), () -> createLoadedTableValue(
                                 nameMapping, table, context.getExecutor(), context.getAuthenticator(),
