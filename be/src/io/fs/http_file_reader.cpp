@@ -28,6 +28,7 @@
 #include "runtime/cdc_client_mgr.h"
 #include "runtime/exec_env.h"
 #include "service/http/http_status.h"
+#include "util/security.h"
 
 namespace doris::io {
 
@@ -114,7 +115,7 @@ Status HttpFileReader::setup_cdc_client() {
         return Status::OK();
     }
 
-    LOG(INFO) << "CDC client is enabled, starting CDC client for " << _url;
+    LOG(INFO) << "CDC client is enabled, starting CDC client for " << mask_token(_url);
     ExecEnv* env = ExecEnv::GetInstance();
     if (env == nullptr || env->cdc_client_mgr() == nullptr) {
         return Status::InternalError("ExecEnv or CdcClientMgr is not initialized");
@@ -133,7 +134,7 @@ Status HttpFileReader::setup_cdc_client() {
     if (pos != std::string::npos) {
         _url.replace(pos, placeholder.size(), std::to_string(doris::config::cdc_client_port));
     }
-    LOG(INFO) << "CDC client started successfully for " << _url;
+    LOG(INFO) << "CDC client started successfully for " << mask_token(_url);
     return Status::OK();
 }
 
@@ -165,7 +166,7 @@ Status HttpFileReader::open(const FileReaderOptions& opts) {
         // size() (e.g. NewJsonReader::_read_one_message) does not attempt to
         // allocate SIZE_MAX bytes before the download completes.
         _file_size = 0;
-        LOG(INFO) << "Chunk response mode enabled, skipping HEAD request for " << _url;
+        LOG(INFO) << "Chunk response mode enabled, skipping HEAD request for " << mask_token(_url);
     } else if (!_size_known) {
         // Normal mode: try a HEAD request to get file metadata (size). Some resources
         // reject HEAD requests -- most notably presigned object-storage URLs whose
@@ -183,11 +184,11 @@ Status HttpFileReader::open(const FileReaderOptions& opts) {
                 _file_size = content_length;
                 _size_known = true;
             } else {
-                LOG(INFO) << "HEAD response has no usable Content-Length for " << _url
+                LOG(INFO) << "HEAD response has no usable Content-Length for " << mask_token(_url)
                           << ", falling back to GET-based probe.";
             }
         } else {
-            LOG(INFO) << "HEAD request failed for " << _url
+            LOG(INFO) << "HEAD request failed for " << mask_token(_url)
                       << " (status: " << (head_status.ok() ? _client->get_http_status() : -1)
                       << ", err: " << head_status << "), falling back to GET-based probe.";
         }
@@ -199,7 +200,7 @@ Status HttpFileReader::open(const FileReaderOptions& opts) {
             if (!_size_known) {
                 return Status::HttpError(
                         "GET-based HTTP file size probe did not return a usable size for {}.",
-                        _url);
+                        mask_token(_url));
             }
             range_probed = true;
         }
@@ -212,20 +213,21 @@ Status HttpFileReader::open(const FileReaderOptions& opts) {
         // Nothing to do: _range_supported already false, size check not applicable
     } else if (!_enable_range_request) {
         _range_supported = false;
-        LOG(INFO) << "Range requests disabled by configuration for " << _url;
+        LOG(INFO) << "Range requests disabled by configuration for " << mask_token(_url);
         if (_size_known && _file_size > _max_request_size_bytes) {
             return Status::InternalError(
                     "Non-Range mode: file size ({} bytes) exceeds maximum allowed size ({} "
                     "bytes, configured by http.max.request.size.bytes). URL: {}",
-                    _file_size, _max_request_size_bytes, _url);
+                    _file_size, _max_request_size_bytes, mask_token(_url));
         }
-        LOG(INFO) << "Non-Range mode validated for " << _url << ", file size: " << _file_size
+        LOG(INFO) << "Non-Range mode validated for " << mask_token(_url)
+                  << ", file size: " << _file_size
                   << " bytes, max allowed: " << _max_request_size_bytes << " bytes";
     } else {
         // Step 3: Range request is enabled (default), detect Range support if not already
         // done above during the size-probing fallback.
         if (!range_probed) {
-            VLOG(1) << "Detecting Range support for URL: " << _url;
+            VLOG(1) << "Detecting Range support for URL: " << mask_token(_url);
             RETURN_IF_ERROR(detect_range_support());
         }
 
@@ -239,10 +241,10 @@ Status HttpFileReader::open(const FileReaderOptions& opts) {
                     "'http.enable.range.request'='false' "
                     "in properties and configure 'http.max.request.size.bytes' appropriately "
                     "(note: this may cause high memory usage for large files).",
-                    _file_size, _url);
+                    _file_size, mask_token(_url));
         }
 
-        LOG(INFO) << "HTTP server supports Range requests for " << _url;
+        LOG(INFO) << "HTTP server supports Range requests for " << mask_token(_url);
     }
 
     _initialized = true;
@@ -252,7 +254,7 @@ Status HttpFileReader::open(const FileReaderOptions& opts) {
 Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                     const IOContext* /*io_ctx*/) {
     VLOG(2) << "HttpFileReader::read_at_impl offset=" << offset << " size=" << result.size
-            << " url=" << _url << " range_supported=" << _range_supported;
+            << " url=" << mask_token(_url) << " range_supported=" << _range_supported;
 
     if (_read_buffer.empty()) {
         _read_buffer.resize(READ_BUFFER_SIZE);
@@ -381,7 +383,7 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         return Status::InternalError(
                 "HTTP response too large: received {} bytes, exceeds maximum allowed size {} "
                 "bytes (configured by max.request.size.bytes). URL: {}",
-                total_received, _max_request_size_bytes, _url);
+                total_received, _max_request_size_bytes, mask_token(_url));
     }
 
     // If there's an error and it's not due to our size limit check, return it
@@ -413,7 +415,8 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
     // Defensive check: if we sent Range but server returned 200 instead of 206
     // This should rarely happen since we detect Range support in open()
     if (with_range && offset > 0 && http_status == HttpStatus::OK) {
-        LOG(ERROR) << "HTTP server unexpectedly does not support Range requests for " << _url
+        LOG(ERROR) << "HTTP server unexpectedly does not support Range requests for "
+                   << mask_token(_url)
                    << " (this should have been detected in open()). HTTP status: " << http_status
                    << ", received: " << buf.size()
                    << " bytes. This indicates a server behavior change.";
@@ -422,7 +425,7 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
                 "HTTP server does not support Range requests but this was not detected during "
                 "file open. This may indicate the server behavior has changed. "
                 "HTTP status: {}, received: {} bytes. URL: {}",
-                http_status, buf.size(), _url);
+                http_status, buf.size(), mask_token(_url));
     }
 
     // Handle non-Range mode: cache the full file on first download
@@ -556,7 +559,7 @@ Status HttpFileReader::detect_range_support() {
     if (http_status == HttpStatus::PARTIAL_CONTENT) {
         // HTTP 206 Partial Content - server supports Range requests
         _range_supported = true;
-        VLOG(1) << "Range support detected (HTTP 206) for " << _url << ", received "
+        VLOG(1) << "Range support detected (HTTP 206) for " << mask_token(_url) << ", received "
                 << test_buf.size() << " bytes";
 
         // Recover the total file size from the Content-Range header (e.g. "bytes 0-1/12345")
@@ -566,20 +569,20 @@ Status HttpFileReader::detect_range_support() {
             RETURN_IF_ERROR(_client->get_content_range_total(&total, false));
             _file_size = total;
             _size_known = true;
-            VLOG(1) << "File size recovered from Content-Range for " << _url << ": " << _file_size
-                    << " bytes";
+            VLOG(1) << "File size recovered from Content-Range for " << mask_token(_url) << ": "
+                    << _file_size << " bytes";
         }
     } else if (http_status == HttpStatus::OK) {
         // HTTP 200 OK - server does not support Range requests
         // It returned the full file (or a large portion)
         _range_supported = false;
-        VLOG(1) << "Range not supported (HTTP 200) for " << _url << ", received " << test_buf.size()
-                << " bytes in test";
+        VLOG(1) << "Range not supported (HTTP 200) for " << mask_token(_url) << ", received "
+                << test_buf.size() << " bytes in test";
 
         // If we received a lot of data, it's likely the full file
         if (test_buf.size() >= MAX_TEST_SIZE || stopped_by_limit) {
             LOG(WARNING) << "Server returned " << received << "+ bytes for Range test, "
-                         << "indicating no Range support for " << _url;
+                         << "indicating no Range support for " << mask_token(_url);
         }
 
         // Recover the total file size from Content-Length when not already known.
@@ -595,7 +598,7 @@ Status HttpFileReader::detect_range_support() {
         if (total != 0) {
             return Status::HttpError(
                     "Range probe for {} returned HTTP 416 for a non-empty resource of {} bytes",
-                    _url, total);
+                    mask_token(_url), total);
         }
         _file_size = 0;
         _size_known = true;
@@ -604,7 +607,7 @@ Status HttpFileReader::detect_range_support() {
     } else {
         // Unexpected status code
         LOG(WARNING) << "Unexpected HTTP status " << http_status << " during Range detection for "
-                     << _url << ", assuming Range is not supported";
+                     << mask_token(_url) << ", assuming Range is not supported";
         _range_supported = false;
     }
 

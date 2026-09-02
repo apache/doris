@@ -447,7 +447,8 @@ Status HttpClient::execute_delete_request(const std::string& payload, std::strin
 
 Status HttpClient::execute(const std::function<bool(const void* data, size_t length)>& callback) {
     if (VLOG_DEBUG_IS_ON) {
-        VLOG_DEBUG << "execute http " << to_method_desc(_method) << " request, url " << _get_url();
+        VLOG_DEBUG << "execute http " << to_method_desc(_method) << " request, url "
+                   << mask_token(_get_url());
     }
     _callback = &callback;
     auto code = curl_easy_perform(_curl);
@@ -459,8 +460,8 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
         return Status::HttpError(std::move(errmsg));
     }
     if (VLOG_DEBUG_IS_ON) {
-        VLOG_DEBUG << "execute http " << to_method_desc(_method) << " request, url " << _get_url()
-                   << " done";
+        VLOG_DEBUG << "execute http " << to_method_desc(_method) << " request, url "
+                   << mask_token(_get_url()) << " done";
     }
     return Status::OK();
 }
