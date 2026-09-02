@@ -621,7 +621,8 @@ public class NestedColumnPruning implements CustomRewriter {
                 List<StructField> fields = ((StructType) cast.type).getFields();
                 for (int i = 0; i < fields.size(); i++) {
                     String castFieldName = path.get(index);
-                    if (fields.get(i).getName().equalsIgnoreCase(castFieldName)) {
+                    // Struct runtime keys are ROOT-normalized; broad folding can merge distinct siblings.
+                    if (fields.get(i).getName().equals(castFieldName)) {
                         String originFieldName = ((StructType) type).getFields().get(i).getName();
                         path.set(index, originFieldName);
                         return children.get(originFieldName).replacePathByAnotherTree(

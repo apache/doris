@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.analysis.ColumnAccessPathType;
 import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.CollectAccessPathResult;
 import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning.DataTypeAccessTree;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -69,5 +70,33 @@ public class AccessPathExpressionCollectorTest {
         } finally {
             Locale.setDefault(originalLocale);
         }
+    }
+
+    @Test
+    public void testCastStructAccessPathKeepsRootKeyIdentity() {
+        StructType originType = new StructType(ImmutableList.of(
+                new StructField("first", IntegerType.INSTANCE, true, ""),
+                new StructField("second", StringType.INSTANCE, true, "")));
+        StructType castType = new StructType(ImmutableList.of(
+                new StructField("I", IntegerType.INSTANCE, true, ""),
+                new StructField("ı", StringType.INSTANCE, true, "")));
+        SlotReference slot = new SlotReference("s", originType);
+        Multimap<Integer, CollectAccessPathResult> accessPaths = ArrayListMultimap.create();
+        AccessPathExpressionCollector collector =
+                new AccessPathExpressionCollector(null, accessPaths, false, false);
+
+        collector.collect(new ElementAt(new Cast(slot, castType), new StringLiteral("ı")));
+
+        List<CollectAccessPathResult> results = new ArrayList<>(
+                accessPaths.get(slot.getExprId().asInt()));
+        Assertions.assertEquals(1, results.size());
+        Assertions.assertEquals(ImmutableList.of("s", "second"), results.get(0).getPath());
+
+        DataTypeAccessTree tree = DataTypeAccessTree.ofRoot(slot, ColumnAccessPathType.DATA);
+        tree.setAccessByPath(results.get(0).getPath(), 0, ColumnAccessPathType.DATA);
+        StructType prunedType = (StructType) tree.pruneDataType().orElseThrow();
+        Assertions.assertEquals(1, prunedType.getFields().size());
+        Assertions.assertEquals("second", prunedType.getFields().get(0).getName());
+        Assertions.assertEquals(StringType.INSTANCE, prunedType.getFields().get(0).getDataType());
     }
 }

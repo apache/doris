@@ -77,8 +77,20 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
         return nameToFields;
     }
 
+    /** Get a field by its case-insensitive runtime name. */
     public StructField getField(String name) {
-        return nameToFields.get(name.toLowerCase(Locale.ROOT));
+        StructField field = nameToFields.get(name.toLowerCase(Locale.ROOT));
+        if (field != null) {
+            return field;
+        }
+        for (int i = fields.size() - 1; i >= 0; i--) {
+            StructField legacyField = fields.get(i);
+            // Limit broad case folding to old replayed fields so new ROOT-distinct names remain distinct.
+            if (legacyField.isLegacyLocaleDependentName() && legacyField.getName().equalsIgnoreCase(name)) {
+                return legacyField;
+            }
+        }
+        return null;
     }
 
     @Override

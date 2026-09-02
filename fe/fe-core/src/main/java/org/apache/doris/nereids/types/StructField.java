@@ -38,6 +38,7 @@ public class StructField {
     private final boolean nullable;
     private final String comment;
     private final boolean commentSpecified;
+    private final boolean legacyLocaleDependentName;
 
     /**
      * StructField Constructor
@@ -66,6 +67,11 @@ public class StructField {
      */
     public StructField(String name, String originalName, DataType dataType, boolean nullable, String comment,
             boolean commentSpecified) {
+        this(name, originalName, dataType, nullable, comment, commentSpecified, false);
+    }
+
+    StructField(String name, String originalName, DataType dataType, boolean nullable, String comment,
+            boolean commentSpecified, boolean legacyLocaleDependentName) {
         // Runtime field identity must stay stable across FE locales and match external schema lookup keys.
         this.name = Objects.requireNonNull(name, "name should not be null").toLowerCase(Locale.ROOT);
         this.originalName = Objects.requireNonNull(originalName, "originalName should not be null");
@@ -73,6 +79,7 @@ public class StructField {
         this.nullable = nullable;
         this.comment = Objects.requireNonNull(comment, "comment should not be null");
         this.commentSpecified = commentSpecified;
+        this.legacyLocaleDependentName = legacyLocaleDependentName;
     }
 
     public String getName() {
@@ -99,6 +106,10 @@ public class StructField {
         return commentSpecified;
     }
 
+    boolean isLegacyLocaleDependentName() {
+        return legacyLocaleDependentName;
+    }
+
     public StructField conversion() {
         if (this.dataType.equals(dataType.conversion())) {
             return this;
@@ -107,16 +118,19 @@ public class StructField {
     }
 
     public StructField withDataType(DataType dataType) {
-        return new StructField(name, originalName, dataType, nullable, comment, commentSpecified);
+        return new StructField(name, originalName, dataType, nullable, comment, commentSpecified,
+                legacyLocaleDependentName);
     }
 
     public StructField withDataTypeAndNullable(DataType dataType, boolean nullable) {
-        return new StructField(name, originalName, dataType, nullable, comment, commentSpecified);
+        return new StructField(name, originalName, dataType, nullable, comment, commentSpecified,
+                legacyLocaleDependentName);
     }
 
     public org.apache.doris.catalog.StructField toCatalogDataType() {
         return new org.apache.doris.catalog.StructField(
-                name, originalName, dataType.toCatalogDataType(), comment, nullable, commentSpecified);
+                name, legacyLocaleDependentName ? null : originalName,
+                dataType.toCatalogDataType(), comment, nullable, commentSpecified);
     }
 
     public String toSql() {

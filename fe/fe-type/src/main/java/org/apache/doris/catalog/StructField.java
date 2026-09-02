@@ -108,6 +108,11 @@ public class StructField {
         return originalName == null ? name : originalName;
     }
 
+    /** Whether this field was persisted with its external schema spelling. */
+    public boolean hasOriginalName() {
+        return originalName != null;
+    }
+
     public Type getType() {
         return type;
     }

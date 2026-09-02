@@ -23,6 +23,10 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.annotations.SerializedName;
 import org.junit.After;
 import org.junit.Assert;
@@ -119,6 +123,47 @@ public class ColumnGsonSerializationTest {
         Assert.assertEquals(c3, columns.get(2));
         // 3.close
         in.close();
+    }
+
+    @Test
+    public void testReplayPreRootTurkishStructFieldName() {
+        StructType structType = new StructType(new StructField("I", Type.INT));
+        JsonObject legacyJson = JsonParser.parseString(
+                GsonUtils.GSON.toJson(structType, Type.class)).getAsJsonObject();
+
+        JsonObject fieldMap = legacyJson.getAsJsonObject("fieldMap");
+        JsonElement legacyMapField = fieldMap.remove("i");
+        setLegacyTurkishFieldName(legacyMapField.getAsJsonObject());
+        fieldMap.add("ı", legacyMapField);
+        JsonArray fields = legacyJson.getAsJsonArray("fields");
+        setLegacyTurkishFieldName(fields.get(0).getAsJsonObject());
+
+        StructType replayed = (StructType) GsonUtils.GSON.fromJson(legacyJson, Type.class);
+        Assert.assertEquals("ı", replayed.getField("I").getName());
+
+        org.apache.doris.nereids.types.StructType nereidsType =
+                (org.apache.doris.nereids.types.StructType)
+                        org.apache.doris.nereids.types.DataType.fromCatalogType(replayed);
+        Assert.assertEquals("ı", nereidsType.getField("I").getName());
+
+        StructType roundTrip = (StructType) nereidsType.toCatalogDataType();
+        Assert.assertEquals("ı", roundTrip.getField("I").getName());
+    }
+
+    @Test
+    public void testCurrentDotlessStructFieldDoesNotMatchAsciiI() {
+        StructType structType = new StructType(new StructField("ı", Type.INT));
+        Assert.assertNull(structType.getField("I"));
+
+        org.apache.doris.nereids.types.StructType nereidsType =
+                (org.apache.doris.nereids.types.StructType)
+                        org.apache.doris.nereids.types.DataType.fromCatalogType(structType);
+        Assert.assertNull(nereidsType.getField("I"));
+    }
+
+    private static void setLegacyTurkishFieldName(JsonObject field) {
+        field.addProperty("name", "ı");
+        field.remove("originalName");
     }
 
 }
