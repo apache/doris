@@ -139,6 +139,13 @@ Status TypedZoneMapIndexWriter<Type>::flush() {
         _segment_zone_map.has_nan = true;
     }
 
+    // NaN and infinity only set the flags above, never min/max, so a page holding nothing else
+    // leaves both at the values add_values() starts from: min = DBL_MAX and max = -DBL_MAX,
+    // neither of which is a value in the page.
+    if (_page_zone_map.has_not_null && _bounds_reversed(_page_zone_map)) {
+        _page_zone_map.pass_all = true;
+    }
+
     ZoneMapPB zone_map_pb;
     moidfy_index_before_flush(_page_zone_map);
     _page_zone_map.to_proto(&zone_map_pb, _field);
@@ -160,6 +167,9 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     index_meta->set_type(ZONE_MAP_INDEX);
     ZoneMapIndexPB* meta = index_meta->mutable_zone_map_index();
     // store segment zone map
+    if (_segment_zone_map.has_not_null && _bounds_reversed(_segment_zone_map)) {
+        _segment_zone_map.pass_all = true;
+    }
     moidfy_index_before_flush(_segment_zone_map);
     _segment_zone_map.to_proto(meta->mutable_segment_zone_map(), _field);
 

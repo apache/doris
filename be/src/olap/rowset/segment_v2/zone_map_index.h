@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <fmt/format.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -32,6 +33,7 @@
 #include "runtime/define_primitive_type.h"
 #include "util/once.h"
 #include "vec/common/arena.h"
+#include "vec/common/unaligned.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -65,13 +67,29 @@ struct ZoneMap {
 
     bool has_nan = false;
 
+    // Field::to_string renders FLOAT/DOUBLE with digits10 + 1 significant digits, which does not
+    // round-trip: DBL_MAX comes back as infinity and FLT_MAX loses precision. Zone map bounds have
+    // to survive the round trip, so write the shortest form that does. inf and NaN are recorded in
+    // the flags rather than the bounds, and keep the spelling Field::to_string uses.
+    static std::string bound_to_string(Field* field, const char* value) {
+        if (field->type() == FieldType::OLAP_FIELD_TYPE_FLOAT) {
+            auto v = unaligned_load<float>(value);
+            return std::isfinite(v) ? fmt::format("{}", v) : field->to_string(value);
+        }
+        if (field->type() == FieldType::OLAP_FIELD_TYPE_DOUBLE) {
+            auto v = unaligned_load<double>(value);
+            return std::isfinite(v) ? fmt::format("{}", v) : field->to_string(value);
+        }
+        return field->to_string(value);
+    }
+
     void to_proto(ZoneMapPB* dst, Field* field) const {
         if (pass_all) {
             dst->set_min("");
             dst->set_max("");
         } else {
-            dst->set_min(field->to_string(min_value));
-            dst->set_max(field->to_string(max_value));
+            dst->set_min(bound_to_string(field, min_value));
+            dst->set_max(bound_to_string(field, max_value));
         }
         dst->set_has_null(has_null);
         dst->set_has_not_null(has_not_null);
@@ -131,6 +149,14 @@ public:
     void reset_page_zone_map() override;
 
 private:
+    // Only FLOAT and DOUBLE can come out reversed: any value of any other type moves both bounds.
+    bool _bounds_reversed(const ZoneMap& zone_map) const {
+        if constexpr (Type == TYPE_FLOAT || Type == TYPE_DOUBLE) {
+            return _field->compare(zone_map.min_value, zone_map.max_value) > 0;
+        }
+        return false;
+    }
+
     void _reset_zone_map(ZoneMap* zone_map) {
         // we should allocate max varchar length and set to max for min value
         _field->set_to_zone_map_max(zone_map->min_value);

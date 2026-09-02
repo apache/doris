@@ -25,6 +25,20 @@
 #include <thread>
 #include <vector>
 
+// Use #define private public to reach ColumnReader::_parse_zone_map, which has no public entry
+// point. It must come before any header that pulls in column_reader.h.
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wkeyword-macro"
+#endif
+#define private public
+#include "olap/column_predicate.h"
+#include "olap/rowset/segment_v2/column_reader.h"
+#undef private
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
+
 #include "agent/be_exec_version_manager.h"
 #include "common/config.h"
 #include "gen_cpp/olap_file.pb.h"
@@ -35,6 +49,7 @@
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/variant/variant_column_reader.h"
 #include "olap/tablet_schema.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/json/path_in_data.h"
 
 namespace doris::segment_v2 {
@@ -43,6 +58,97 @@ protected:
     void SetUp() override {}
     void TearDown() override {}
 };
+
+// A zone map whose bounds come back reversed describes a page that held no finite value: NaN and
+// infinity only set the flags, so min stays at DBL_MAX and max at -DBL_MAX.
+TEST_F(ColumnReaderTest, ReversedBoundsDegradeToPassAll) {
+    auto make_zone_map = [](const std::string& min, const std::string& max) {
+        ZoneMapPB pb;
+        pb.set_min(min);
+        pb.set_max(max);
+        pb.set_has_null(false);
+        pb.set_has_not_null(true);
+        pb.set_pass_all(false);
+        return pb;
+    };
+    const std::string double_lowest = "-1.7976931348623157e+308";
+    const std::string double_highest = "1.7976931348623157e+308";
+    const std::string float_lowest = "-3.4028235e+38";
+    const std::string float_highest = "3.4028235e+38";
+
+    for (bool nullable : {false, true}) {
+        for (auto type : {TYPE_DOUBLE, TYPE_FLOAT}) {
+            const bool is_double = type == TYPE_DOUBLE;
+            auto reader = std::make_shared<ColumnReader>();
+            reader->_meta_type = is_double ? FieldType::OLAP_FIELD_TYPE_DOUBLE
+                                           : FieldType::OLAP_FIELD_TYPE_FLOAT;
+            reader->_data_type =
+                    vectorized::DataTypeFactory::instance().create_data_type(type, nullable);
+            const auto& lowest = is_double ? double_lowest : float_lowest;
+            const auto& highest = is_double ? double_highest : float_highest;
+
+            ZoneMapInfo reversed;
+            ASSERT_TRUE(reader->_parse_zone_map(make_zone_map(highest, lowest), reversed).ok());
+            EXPECT_TRUE(reversed.pass_all) << "nullable=" << nullable << ", double=" << is_double;
+
+            // The same bounds the right way round stay usable.
+            ZoneMapInfo sound;
+            ASSERT_TRUE(reader->_parse_zone_map(make_zone_map(lowest, highest), sound).ok());
+            EXPECT_FALSE(sound.pass_all) << "nullable=" << nullable << ", double=" << is_double;
+        }
+    }
+
+    auto reader = std::make_shared<ColumnReader>();
+    reader->_meta_type = FieldType::OLAP_FIELD_TYPE_DOUBLE;
+    reader->_data_type =
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
+
+    // A flag says what the page held, but the bounds are still the reversed pair whatever it says.
+    for (bool nan : {false, true}) {
+        for (bool pos_inf : {false, true}) {
+            for (bool neg_inf : {false, true}) {
+                auto pb = make_zone_map(double_highest, double_lowest);
+                pb.set_has_nan(nan);
+                pb.set_has_positive_inf(pos_inf);
+                pb.set_has_negative_inf(neg_inf);
+                ZoneMapInfo flagged;
+                ASSERT_TRUE(reader->_parse_zone_map(pb, flagged).ok());
+                EXPECT_TRUE(flagged.pass_all)
+                        << "nan=" << nan << ", +inf=" << pos_inf << ", -inf=" << neg_inf;
+            }
+        }
+    }
+
+    // 4.0 wrote bounds with digits10 + 1 digits, so a FLOAT page of only NaN recorded
+    // 3.402823e+38 rather than FLT_MAX. It parses back finite and no longer equals the value the
+    // writer starts from -- the reversal survives the lossy round trip where the value does not.
+    auto float_reader = std::make_shared<ColumnReader>();
+    float_reader->_meta_type = FieldType::OLAP_FIELD_TYPE_FLOAT;
+    float_reader->_data_type =
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_FLOAT, false);
+    auto truncated = make_zone_map("3.402823e+38", "-3.402823e+38");
+    truncated.set_has_nan(true);
+    ZoneMapInfo from_4_0;
+    ASSERT_TRUE(float_reader->_parse_zone_map(truncated, from_4_0).ok());
+    EXPECT_TRUE(from_4_0.pass_all);
+
+    // A bound that reads back as infinity is no use either, and must not fail the scan.
+    ZoneMapInfo overflowed;
+    ASSERT_TRUE(reader->_parse_zone_map(
+                              make_zone_map("-1.797693134862316e+308", "1.797693134862316e+308"),
+                              overflowed)
+                        .ok());
+    EXPECT_TRUE(overflowed.pass_all);
+
+    // A flag on top of bounds that do describe finite values leaves the zone map usable.
+    auto pb = make_zone_map("1.5", "20.5");
+    pb.set_has_nan(true);
+    ZoneMapInfo partly_nan;
+    ASSERT_TRUE(reader->_parse_zone_map(pb, partly_nan).ok());
+    EXPECT_FALSE(partly_nan.pass_all);
+    EXPECT_TRUE(std::isnan(partly_nan.max_value.get<TYPE_DOUBLE>()));
+    EXPECT_EQ(partly_nan.min_value.get<TYPE_DOUBLE>(), 1.5);
+}
 
 TEST_F(ColumnReaderTest, StructAccessPaths) {
     auto create_struct_iterator = []() {
