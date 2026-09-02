@@ -23,6 +23,7 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -542,6 +543,90 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfCredentialValidation) {
         ASSERT_TRUE(
                 S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
     }
+}
+
+TEST_F(S3ClientFactoryTest, ConvertNativeAzureSasProperties) {
+    const auto expiry = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count() +
+                        3600000;
+    std::map<std::string, std::string> properties {
+            {"AZURE_AUTH_TYPE", "SAS"},
+            {"AZURE_ENDPOINT", "account.dfs.core.windows.net"},
+            {"AZURE_ACCOUNT_NAME", "account"},
+            {"AZURE_CONTAINER", "container"},
+            {"AZURE_SAS_TOKEN", "sv=2024-01-01&sr=c&sig=temporary"},
+            {"AZURE_SAS_EXPIRY_MS", std::to_string(expiry)},
+    };
+    S3URI azure_uri("abfss://container@account.dfs.core.windows.net/path/file.parquet");
+    ASSERT_TRUE(azure_uri.parse().ok());
+
+    S3Conf s3_conf;
+    ASSERT_TRUE(
+            S3ClientFactory::convert_properties_to_s3_conf(properties, azure_uri, &s3_conf).ok());
+    EXPECT_EQ(s3_conf.client_conf.provider, ObjStorageProvider::AZURE);
+    EXPECT_EQ(s3_conf.client_conf.endpoint, "account.dfs.core.windows.net");
+    EXPECT_EQ(s3_conf.client_conf.ak, "account");
+    EXPECT_TRUE(s3_conf.client_conf.sk.empty());
+    EXPECT_EQ(s3_conf.client_conf.bucket, "container");
+    EXPECT_EQ(s3_conf.bucket, "container");
+    EXPECT_EQ(s3_conf.client_conf.token, "sv=2024-01-01&sr=c&sig=temporary");
+    EXPECT_EQ(s3_conf.client_conf.azure_auth_type, "SAS");
+    EXPECT_EQ(s3_conf.client_conf.token_expiration_time_ms, expiry);
+}
+
+TEST_F(S3ClientFactoryTest, NativeAzureOAuth2IsExplicitlyUnsupported) {
+    std::map<std::string, std::string> properties {
+            {"AZURE_AUTH_TYPE", "OAUTH2"},
+            {"AZURE_ENDPOINT", "account.blob.core.windows.net"},
+            {"AZURE_ACCOUNT_NAME", "account"},
+            {"AZURE_CONTAINER", "container"},
+    };
+    S3URI azure_uri("abfss://container@account.dfs.core.windows.net/path/file.parquet");
+    ASSERT_TRUE(azure_uri.parse().ok());
+
+    S3Conf s3_conf;
+    auto status = S3ClientFactory::convert_properties_to_s3_conf(properties, azure_uri, &s3_conf);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("OAuth2"), std::string::npos);
+}
+
+TEST_F(S3ClientFactoryTest, LegacyAzureSasAliasesRemainNative) {
+    std::map<std::string, std::string> properties {
+            {"provider", "azure"},
+            {"AWS_TOKEN", "sv=2024-01-01&sig=temporary"},
+    };
+    S3URI azure_uri("abfss://container@account.dfs.core.windows.net/path/file.parquet");
+    ASSERT_TRUE(azure_uri.parse().ok());
+
+    S3Conf s3_conf;
+    ASSERT_TRUE(
+            S3ClientFactory::convert_properties_to_s3_conf(properties, azure_uri, &s3_conf).ok());
+    EXPECT_EQ(s3_conf.client_conf.provider, ObjStorageProvider::AZURE);
+    EXPECT_EQ(s3_conf.client_conf.endpoint, "account.dfs.core.windows.net");
+    EXPECT_EQ(s3_conf.client_conf.ak, "account");
+    EXPECT_TRUE(s3_conf.client_conf.sk.empty());
+    EXPECT_EQ(s3_conf.client_conf.azure_auth_type, "SAS");
+}
+
+TEST_F(S3ClientFactoryTest, NonAzurePropertiesKeepLegacyCredentialContract) {
+    std::map<std::string, std::string> properties {
+            {"AWS_ENDPOINT", "s3.us-west-2.amazonaws.com"},
+            {"AWS_REGION", "us-west-2"},
+            {"AWS_ACCESS_KEY", "ak"},
+            {"AWS_SECRET_KEY", "sk"},
+            // Azure-only expiry metadata must not change an ordinary S3 binding.
+            {"AZURE_SAS_EXPIRY_MS", "not-a-number"},
+    };
+    S3URI s3_uri("s3://test-bucket/path/file");
+    ASSERT_TRUE(s3_uri.parse().ok());
+
+    S3Conf s3_conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+    EXPECT_EQ(s3_conf.client_conf.provider, ObjStorageProvider::AWS);
+    EXPECT_EQ(s3_conf.client_conf.ak, "ak");
+    EXPECT_EQ(s3_conf.client_conf.sk, "sk");
+    EXPECT_EQ(s3_conf.client_conf.token_expiration_time_ms, 0);
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2ProviderTypeWithoutRoleArn) {

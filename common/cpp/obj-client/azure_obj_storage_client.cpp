@@ -47,6 +47,14 @@ std::string to_lower_ascii(std::string_view input) {
     return lowered;
 }
 
+std::string redact_azure_url(std::string_view url) {
+    const auto query = url.find('?');
+    if (query == std::string_view::npos) {
+        return std::string(url);
+    }
+    return fmt::format("{}?<redacted>", url.substr(0, query));
+}
+
 std::string encode_azure_block_id(std::string_view upload_id, int part_num) {
     // Azure has no multipart upload namespace. Include the writer UUID in every block ID so
     // concurrent writers for the same key cannot stage interchangeable blocks.
@@ -398,8 +406,8 @@ ObjStorageListPageResult AzureObjStorageClient::list_objects_page(
         auto tls_debug_suffix = build_azure_tls_debug_suffix(
                 fmt::format("{} {}", e.what(), e.Message), _config.tls_debug_context);
         LOG(WARNING) << fmt::format("Azure request failed because {}, url: {}, prefix: {}{}",
-                                    e.what(), _client->GetUrl(), request.Prefix.Value(),
-                                    tls_debug_suffix);
+                                    e.what(), redact_azure_url(_client->GetUrl()),
+                                    request.Prefix.Value(), tls_debug_suffix);
         return {
                 .resp = {.status = obj_storage_status_from_http_code(static_cast<int>(e.StatusCode),
                                                                      e.Message + tls_debug_suffix),
@@ -408,7 +416,8 @@ ObjStorageListPageResult AzureObjStorageClient::list_objects_page(
         };
     } catch (std::exception& e) {
         LOG(WARNING) << fmt::format("Azure request failed because {}, url: {}, prefix: {}",
-                                    e.what(), _client->GetUrl(), request.Prefix.Value());
+                                    e.what(), redact_azure_url(_client->GetUrl()),
+                                    request.Prefix.Value());
         return {
                 .resp = {.status = {ObjStorageStatus::INTERNAL_ERROR, e.what()},
                          .http_code = 0,
@@ -496,6 +505,12 @@ ObjStorageResponse AzureObjStorageClient::delete_object(const ObjStoragePath& op
 
 std::string AzureObjStorageClient::generate_presigned_url(const ObjStoragePath& opts,
                                                           int64_t expiration_secs) {
+    // A vended SAS is already a signed URL.  It cannot be extended without an
+    // account key, so return the SDK URL unchanged and let the caller observe
+    // the token's original expiry rather than manufacturing an empty key.
+    if (_credential == nullptr && _client->GetUrl().find('?') != std::string::npos) {
+        return _client->GetBlockBlobClient(opts.key).GetUrl();
+    }
     Azure::Storage::Sas::BlobSasBuilder sas_builder;
     sas_builder.ExpiresOn =
             std::chrono::system_clock::now() + std::chrono::seconds(expiration_secs);

@@ -123,6 +123,10 @@ public:
         case TStorageBackendType::S3:
             return TFileType::FILE_S3;
         case TStorageBackendType::AZURE:
+            // Keep the shipped FILE_S3 wire slot for compatibility.  The
+            // provider field in the storage properties selects the native
+            // Azure client inside S3ClientFactory; this must never fall back
+            // to FILE_HDFS for an Azure URI.
             return TFileType::FILE_S3;
         case TStorageBackendType::BROKER:
             return TFileType::FILE_BROKER;
