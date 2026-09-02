@@ -266,6 +266,36 @@ Status SegmentReadAhead::create_for_query(io::FileReaderSPtr source_reader, Exec
     return Status::OK();
 }
 
+SegmentReadAheadResult SegmentReadAhead::prefetch_by_rowids(
+        const rowid_t* rowids, size_t count, std::span<ColumnIterator* const> columns) {
+    DORIS_CHECK(rowids != nullptr);
+    DORIS_CHECK(count > 0);
+    DORIS_CHECK(std::is_sorted(rowids, rowids + count));
+    DORIS_CHECK(std::adjacent_find(rowids, rowids + count) == rowids + count);
+
+    roaring::Roaring scan_rowids;
+    scan_rowids.addMany(count, rowids);
+    std::vector<ColumnReadAheadPlan> plans;
+    const ColumnReadAheadRequest request {
+            .current_rowids = rowids,
+            .current_rowid_count = count,
+            .scan_rowids = &scan_rowids,
+            .context = &_column_context,
+            .role = ColumnReadAheadRole::EAGER,
+            .reverse = false,
+    };
+    for (auto* column : columns) {
+        DORIS_CHECK(column != nullptr);
+        const auto status = column->prepare_read_ahead(request, &plans);
+        if (!status.ok()) {
+            LOG_EVERY_N(WARNING, 100)
+                    << "failed to prepare exact row-id read-ahead; use the original read path: "
+                    << status;
+        }
+    }
+    return apply_plans(std::move(plans));
+}
+
 SegmentReadAheadResult SegmentReadAhead::apply_plans(std::vector<ColumnReadAheadPlan> plans) {
     SegmentReadAheadResult result;
     std::vector<PendingPage> misses;
