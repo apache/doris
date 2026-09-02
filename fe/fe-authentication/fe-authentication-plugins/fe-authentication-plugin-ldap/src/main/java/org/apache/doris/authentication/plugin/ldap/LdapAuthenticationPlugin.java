@@ -67,7 +67,16 @@ import java.util.Set;
  *     'user_filter' = '(uid={login})',
  *     'group_base_dn' = 'ou=groups,dc=example,dc=com',
  *     'bind_dn' = 'cn=admin,dc=example,dc=com',
- *     'bind_password' = 'admin_password'
+ *     'bind_password' = 'admin_password',
+ *     'pool_max_size' = '8',
+ *     'pool_min_idle_per_key' = '0',
+ *     'pool_min_idle_per_key' = '2',
+ *     'pool_max_wait_millis' = '5000',
+ *     'pool_test_on_borrow' = 'true',
+ *     'pool_test_while_idle' = 'true',
+ *     'pool_time_between_eviction_runs_millis' = '30000',
+ *     'pool_validator_base' = '',
+ *     'pool_validator_filter' = '(objectClass=*)'
  *   );
  * </pre>
  */
