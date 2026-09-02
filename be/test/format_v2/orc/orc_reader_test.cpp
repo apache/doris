@@ -149,8 +149,9 @@ DateV2Value<DateV2ValueType> make_date_v2(uint16_t year, uint8_t month, uint8_t 
 }
 
 int64_t orc_date_offset(uint16_t year, uint8_t month, uint8_t day) {
-    static constexpr int32_t DATE_THRESHOLD = 719528;
-    return make_date_v2(year, month, day).daynr() - DATE_THRESHOLD;
+    // ORC DATE is days since 1970-01-01 in the proleptic Gregorian calendar, which is not the
+    // same as Doris's daynr minus the epoch daynr for year-zero dates.
+    return daynr_to_epoch_days(make_date_v2(year, month, day).daynr());
 }
 
 DateV2Value<DateTimeV2ValueType> make_datetime_v2(uint16_t year, uint8_t month, uint8_t day,

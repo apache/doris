@@ -546,4 +546,273 @@ TEST_F(PartitionTransformersTest, test_nullable_column_string_truncate_transform
     EXPECT_EQ("db", result_strings->get_data_at(2).to_string());
 }
 
+// The expected values below were produced with the Apache Iceberg reference implementation
+// (iceberg-api 1.10.1, the version fe/pom.xml depends on) via DateTimeUtil / Transforms /
+// BucketUtil. They pin two spec requirements that Doris used to violate:
+//   * the day ordinal is proleptic Gregorian, in which year 0 IS a leap year, so 0000-01-01 is
+//     -719528 and not the -719527 that Doris's MySQL-calendar `daynr()` implies;
+//   * `day` and `hour` floor towards negative infinity rather than truncating towards the epoch.
+namespace {
+
+ColumnWithTypeAndName make_date_column(const std::vector<std::tuple<int, int, int>>& dates,
+                                       ColumnDateV2::MutablePtr& column) {
+    auto& data = column->get_data();
+    for (const auto& [y, m, d] : dates) {
+        DateV2Value<DateV2ValueType> value;
+        value.unchecked_set_time(y, m, d, 0, 0, 0, 0);
+        data.push_back(*reinterpret_cast<UInt32*>(&value));
+    }
+    return {column->get_ptr(), std::make_shared<DataTypeDateV2>(), "test_date"};
+}
+
+ColumnWithTypeAndName make_timestamp_column(
+        const std::vector<std::tuple<int, int, int, int, int, int>>& timestamps,
+        ColumnDateTimeV2::MutablePtr& column) {
+    auto& data = column->get_data();
+    for (const auto& [y, mo, d, h, mi, se] : timestamps) {
+        DateV2Value<DateTimeV2ValueType> value;
+        value.unchecked_set_time(y, mo, d, h, mi, se, 0);
+        data.push_back(*reinterpret_cast<UInt64*>(&value));
+    }
+    return {column->get_ptr(), std::make_shared<DataTypeDateTimeV2>(), "test_timestamp"};
+}
+
+} // namespace
+
+TEST_F(PartitionTransformersTest, test_date_day_transform_proleptic_gregorian) {
+    auto column = ColumnDateV2::create();
+    auto test_date = make_date_column({{0, 1, 1},
+                                       {0, 2, 28},
+                                       {0, 3, 1},
+                                       {1, 1, 1},
+                                       {1969, 6, 15},
+                                       {1969, 12, 31},
+                                       {1970, 1, 1},
+                                       {2017, 11, 16},
+                                       {9999, 12, 31}},
+                                      column);
+
+    Block block({test_date});
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATEV2, false);
+    DateDayPartitionColumnTransform transform(source_type);
+
+    auto result = transform.apply(block, 0);
+
+    const auto& result_data = assert_cast<const ColumnInt32*>(result.column.get())->get_data();
+    std::vector<int32_t> expected_data = {-719528, -719470, -719468, -719162, -200,
+                                          -1,      0,       17486,   2932896};
+    std::vector<std::string> expected_human_string = {"0000-01-01", "0000-02-28", "0000-03-01",
+                                                      "0001-01-01", "1969-06-15", "1969-12-31",
+                                                      "1970-01-01", "2017-11-16", "9999-12-31"};
+    ASSERT_EQ(expected_data.size(), result_data.size());
+    for (size_t i = 0; i < result_data.size(); ++i) {
+        EXPECT_EQ(expected_data[i], result_data[i]) << "row " << i;
+        EXPECT_EQ(expected_human_string[i],
+                  transform.to_human_string(transform.get_result_type(), result_data[i]));
+    }
+}
+
+TEST_F(PartitionTransformersTest, test_timestamp_day_transform_floors_before_epoch) {
+    auto column = ColumnDateTimeV2::create();
+    auto test_timestamp = make_timestamp_column({{0, 1, 1, 0, 0, 0},
+                                                 {0, 1, 1, 12, 34, 56},
+                                                 {0, 2, 28, 0, 0, 0},
+                                                 {1969, 12, 31, 0, 0, 0},
+                                                 {1969, 12, 31, 12, 0, 0},
+                                                 {1969, 12, 31, 23, 59, 59},
+                                                 {1970, 1, 1, 0, 0, 0},
+                                                 {2017, 11, 16, 22, 31, 8}},
+                                                column);
+
+    Block block({test_timestamp});
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
+    TimestampDayPartitionColumnTransform transform(source_type);
+
+    auto result = transform.apply(block, 0);
+
+    const auto& result_data = assert_cast<const ColumnInt32*>(result.column.get())->get_data();
+    // Every 1969-12-31 timestamp must land on -1: Iceberg floors, it does not round towards the
+    // epoch the way SQL DATEDIFF does.
+    std::vector<int32_t> expected_data = {-719528, -719528, -719470, -1, -1, -1, 0, 17486};
+    ASSERT_EQ(expected_data.size(), result_data.size());
+    for (size_t i = 0; i < result_data.size(); ++i) {
+        EXPECT_EQ(expected_data[i], result_data[i]) << "row " << i;
+    }
+}
+
+TEST_F(PartitionTransformersTest, test_timestamp_hour_transform_floors_before_epoch) {
+    auto column = ColumnDateTimeV2::create();
+    auto test_timestamp = make_timestamp_column({{0, 1, 1, 0, 0, 0},
+                                                 {0, 1, 1, 12, 34, 56},
+                                                 {0, 2, 28, 0, 0, 0},
+                                                 {1, 1, 1, 0, 0, 0},
+                                                 {1969, 6, 15, 10, 0, 0},
+                                                 {1969, 12, 31, 0, 0, 0},
+                                                 {1969, 12, 31, 12, 0, 0},
+                                                 {1969, 12, 31, 23, 30, 0},
+                                                 {1970, 1, 1, 0, 0, 0},
+                                                 {1970, 1, 1, 12, 0, 0},
+                                                 {2017, 11, 16, 22, 31, 8},
+                                                 {9999, 12, 31, 23, 59, 59}},
+                                                column);
+
+    Block block({test_timestamp});
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
+    TimestampHourPartitionColumnTransform transform(source_type);
+
+    auto result = transform.apply(block, 0);
+
+    const auto& result_data = assert_cast<const ColumnInt32*>(result.column.get())->get_data();
+    std::vector<int32_t> expected_data = {-17268672, -17268660, -17267280, -17259888,
+                                          -4790,     -24,       -12,       -1,
+                                          0,         12,        419686,    70389527};
+    // The partition path must floor as well: hour ordinal -1 is 1969-12-31-23.
+    std::vector<std::string> expected_human_string = {
+            "0000-01-01-00", "0000-01-01-12", "0000-02-28-00", "0001-01-01-00",
+            "1969-06-15-10", "1969-12-31-00", "1969-12-31-12", "1969-12-31-23",
+            "1970-01-01-00", "1970-01-01-12", "2017-11-16-22", "9999-12-31-23"};
+    ASSERT_EQ(expected_data.size(), result_data.size());
+    for (size_t i = 0; i < result_data.size(); ++i) {
+        EXPECT_EQ(expected_data[i], result_data[i]) << "row " << i;
+        EXPECT_EQ(expected_human_string[i],
+                  transform.to_human_string(transform.get_result_type(), result_data[i]))
+                << "row " << i;
+    }
+}
+
+TEST_F(PartitionTransformersTest, test_date_bucket_transform_year_zero) {
+    auto column = ColumnDateV2::create();
+    auto test_date = make_date_column({{0, 1, 1}, {0, 2, 28}, {0, 3, 1}, {2017, 11, 16}}, column);
+
+    Block block({test_date});
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATEV2, false);
+    DateBucketPartitionColumnTransform transform(source_type, 16);
+
+    auto result = transform.apply(block, 0);
+
+    const auto& result_data = assert_cast<const ColumnInt32*>(result.column.get())->get_data();
+    // Buckets for the proleptic day ordinals -719528, -719470, -719468 and 17486. Hashing the
+    // Doris daynr instead would put 0000-01-01 in bucket 6.
+    std::vector<int32_t> expected_data = {1, 0, 7, 10};
+    ASSERT_EQ(expected_data.size(), result_data.size());
+    for (size_t i = 0; i < result_data.size(); ++i) {
+        EXPECT_EQ(expected_data[i], result_data[i]) << "row " << i;
+    }
+}
+
+TEST_F(PartitionTransformersTest, test_date_year_month_transform_floors_before_epoch) {
+    auto column = ColumnDateV2::create();
+    auto test_date = make_date_column({{0, 1, 1},
+                                       {0, 2, 28},
+                                       {0, 3, 1},
+                                       {1, 1, 1},
+                                       {1899, 12, 31},
+                                       {1969, 6, 15},
+                                       {1969, 12, 31},
+                                       {1970, 1, 1},
+                                       {2024, 2, 29},
+                                       {9999, 12, 31}},
+                                      column);
+    Block block({test_date});
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATEV2, false);
+
+    {
+        DateYearPartitionColumnTransform transform(source_type);
+        auto result = transform.apply(block, 0);
+        const auto& data = assert_cast<const ColumnInt32*>(result.column.get())->get_data();
+        // Whole calendar years from 1970, floored. Rounding towards zero would report 0 for
+        // 1969-06-15 and -1969 for 0000-02-28.
+        std::vector<int32_t> expected = {-1970, -1970, -1970, -1969, -71, -1, -1, 0, 54, 8029};
+        ASSERT_EQ(expected.size(), data.size());
+        for (size_t i = 0; i < data.size(); ++i) {
+            EXPECT_EQ(expected[i], data[i]) << "row " << i;
+        }
+    }
+    {
+        DateMonthPartitionColumnTransform transform(source_type);
+        auto result = transform.apply(block, 0);
+        const auto& data = assert_cast<const ColumnInt32*>(result.column.get())->get_data();
+        std::vector<int32_t> expected = {-23640, -23639, -23638, -23628, -841,
+                                         -7,     -1,     0,      649,    96359};
+        ASSERT_EQ(expected.size(), data.size());
+        for (size_t i = 0; i < data.size(); ++i) {
+            EXPECT_EQ(expected[i], data[i]) << "row " << i;
+        }
+    }
+}
+
+TEST_F(PartitionTransformersTest, test_timestamp_year_month_transform_floors_before_epoch) {
+    auto column = ColumnDateTimeV2::create();
+    auto test_timestamp = make_timestamp_column({{0, 1, 1, 12, 34, 56},
+                                                 {0, 2, 28, 0, 0, 0},
+                                                 {1, 1, 1, 0, 0, 0},
+                                                 {1969, 6, 15, 10, 0, 0},
+                                                 {1969, 12, 31, 23, 59, 59},
+                                                 {1970, 1, 1, 0, 0, 0},
+                                                 {2024, 1, 1, 12, 0, 0},
+                                                 {9999, 12, 31, 23, 59, 59}},
+                                                column);
+    Block block({test_timestamp});
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
+
+    {
+        TimestampYearPartitionColumnTransform transform(source_type);
+        auto result = transform.apply(block, 0);
+        const auto& data = assert_cast<const ColumnInt32*>(result.column.get())->get_data();
+        std::vector<int32_t> expected = {-1970, -1970, -1969, -1, -1, 0, 54, 8029};
+        ASSERT_EQ(expected.size(), data.size());
+        for (size_t i = 0; i < data.size(); ++i) {
+            EXPECT_EQ(expected[i], data[i]) << "row " << i;
+        }
+    }
+    {
+        TimestampMonthPartitionColumnTransform transform(source_type);
+        auto result = transform.apply(block, 0);
+        const auto& data = assert_cast<const ColumnInt32*>(result.column.get())->get_data();
+        std::vector<int32_t> expected = {-23640, -23639, -23628, -7, -1, 0, 648, 96359};
+        ASSERT_EQ(expected.size(), data.size());
+        for (size_t i = 0; i < data.size(); ++i) {
+            EXPECT_EQ(expected[i], data[i]) << "row " << i;
+        }
+    }
+}
+
+// The exact row the iceberg write regression suite stores: before the fix, 1969-12-31 23:59:59 and
+// 1970-01-01 00:00:00 collapsed into the same day and hour partition.
+TEST_F(PartitionTransformersTest, test_epoch_boundary_rows_land_in_distinct_partitions) {
+    auto column = ColumnDateTimeV2::create();
+    auto test_timestamp = make_timestamp_column(
+            {{1969, 12, 31, 23, 59, 59}, {1970, 1, 1, 0, 0, 0}, {2024, 2, 29, 12, 34, 56}}, column);
+    Block block({test_timestamp});
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
+
+    TimestampDayPartitionColumnTransform day_transform(source_type);
+    // Keep the result alive: it owns the ColumnPtr the data reference points into.
+    auto day_result = day_transform.apply(block, 0);
+    const auto& days = assert_cast<const ColumnInt32*>(day_result.column.get())->get_data();
+    EXPECT_EQ(-1, days[0]);
+    EXPECT_EQ(0, days[1]);
+    EXPECT_EQ(19782, days[2]);
+    EXPECT_NE(days[0], days[1]) << "before-epoch and epoch rows must not share a day partition";
+    EXPECT_EQ("1969-12-31",
+              day_transform.to_human_string(day_transform.get_result_type(), days[0]));
+
+    TimestampHourPartitionColumnTransform hour_transform(source_type);
+    auto hour_result = hour_transform.apply(block, 0);
+    const auto& hours = assert_cast<const ColumnInt32*>(hour_result.column.get())->get_data();
+    EXPECT_EQ(-1, hours[0]);
+    EXPECT_EQ(0, hours[1]);
+    EXPECT_EQ(474780, hours[2]);
+    EXPECT_NE(hours[0], hours[1]) << "before-epoch and epoch rows must not share an hour partition";
+    EXPECT_EQ("1969-12-31-23",
+              hour_transform.to_human_string(hour_transform.get_result_type(), hours[0]));
+}
+
 } // namespace doris

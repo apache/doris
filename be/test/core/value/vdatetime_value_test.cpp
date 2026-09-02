@@ -17,10 +17,15 @@
 
 #include "core/value/vdatetime_value.h"
 
+#include <cctz/civil_time.h>
+#include <cctz/time_zone.h>
+#include <fmt/format.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <limits>
 #include <string>
+#include <vector>
 
 #include "common/exception.h"
 #include "core/data_type_serde/datelike_serde_common.hpp"
@@ -1585,6 +1590,87 @@ TEST(VDateTimeValueTest, date_add_days_matches_date_add_interval) {
         }
     }
     EXPECT_GT(compared, 900000);
+}
+
+// `daynr_to_epoch_days()` / `epoch_days_to_daynr()` bridge Doris's MySQL calendar and the
+// proleptic Gregorian calendar that Arrow date32, Parquet/ORC DATE and Iceberg are defined in.
+// cctz is the oracle here: cctz::civil_day is proleptic Gregorian, so its epoch-day offset is
+// exactly what those formats expect.
+TEST(VDateTimeValueTest, epoch_days_conversion_boundaries) {
+    struct Case {
+        int year;
+        int month;
+        int day;
+        int64_t daynr;
+        int32_t epoch_days;
+    };
+    // 0000-01-01 .. 0000-02-28 are the only dates where the two calendars disagree: Doris has no
+    // 0000-02-29, so its day numbers run one ahead until 0000-03-01.
+    const std::vector<Case> cases = {
+            {0, 1, 1, 1, -719528},           {0, 1, 31, 31, -719498},
+            {0, 2, 28, 59, -719470},         {0, 3, 1, 60, -719468},
+            {1, 1, 1, 366, -719162},         {1899, 12, 31, 693960, -25568},
+            {1900, 1, 1, 693961, -25567},    {1969, 12, 31, 719527, -1},
+            {1970, 1, 1, 719528, 0},         {2024, 1, 1, 739251, 19723},
+            {9999, 12, 31, 3652424, 2932896}};
+
+    for (const auto& c : cases) {
+        const int64_t daynr = calc_daynr(c.year, c.month, c.day);
+        EXPECT_EQ(c.daynr, daynr) << c.year << "-" << c.month << "-" << c.day;
+        EXPECT_EQ(c.epoch_days, daynr_to_epoch_days(daynr))
+                << c.year << "-" << c.month << "-" << c.day;
+        EXPECT_EQ(daynr, epoch_days_to_daynr(c.epoch_days))
+                << c.year << "-" << c.month << "-" << c.day;
+    }
+}
+
+TEST(VDateTimeValueTest, epoch_days_conversion_rejects_unrepresentable) {
+    // Before 0000-01-01.
+    EXPECT_EQ(0, epoch_days_to_daynr(-719529));
+    EXPECT_EQ(0, epoch_days_to_daynr(std::numeric_limits<int32_t>::min()));
+    // 0000-02-29 exists in the proleptic Gregorian calendar but not in Doris.
+    EXPECT_EQ(0, epoch_days_to_daynr(-719469));
+    // After 9999-12-31.
+    EXPECT_EQ(0, epoch_days_to_daynr(2932897));
+    EXPECT_EQ(0, epoch_days_to_daynr(std::numeric_limits<int32_t>::max()));
+    // The two days on either side of the proleptic-only leap day still convert.
+    EXPECT_EQ(59, epoch_days_to_daynr(-719470));
+    EXPECT_EQ(60, epoch_days_to_daynr(-719468));
+}
+
+TEST(VDateTimeValueTest, epoch_days_conversion_matches_cctz_over_full_range) {
+    const cctz::time_zone utc = cctz::utc_time_zone();
+    int64_t mismatches = 0;
+    int64_t round_trip_failures = 0;
+    for (int year = 0; year <= 9999; ++year) {
+        for (int month = 1; month <= 12; ++month) {
+            const int days_in_month =
+                    S_DAYS_IN_MONTH[month] + ((month == 2 && is_leap(year)) ? 1 : 0);
+            for (int day = 1; day <= days_in_month; ++day) {
+                const int64_t daynr = calc_daynr(year, month, day);
+                const int32_t epoch_days = daynr_to_epoch_days(daynr);
+                const int64_t expected = cctz::convert(cctz::civil_day(year, month, day), utc)
+                                                 .time_since_epoch()
+                                                 .count() /
+                                         (24 * 60 * 60);
+                if (epoch_days != expected) {
+                    if (++mismatches <= 5) {
+                        ADD_FAILURE() << fmt::format("{:04d}-{:02d}-{:02d}: got {}, cctz says {}",
+                                                     year, month, day, epoch_days, expected);
+                    }
+                }
+                if (epoch_days_to_daynr(epoch_days) != daynr) {
+                    if (++round_trip_failures <= 5) {
+                        ADD_FAILURE()
+                                << fmt::format("{:04d}-{:02d}-{:02d}: round trip lost daynr {}",
+                                               year, month, day, daynr);
+                    }
+                }
+            }
+        }
+    }
+    EXPECT_EQ(0, mismatches);
+    EXPECT_EQ(0, round_trip_failures);
 }
 
 } // namespace doris

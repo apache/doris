@@ -44,6 +44,9 @@ public:
             const doris::iceberg::PartitionField& field, const DataTypePtr& source_type);
 };
 
+// Iceberg time transforms are all defined relative to 1970-01-01 (spec: Partition Transforms).
+inline constexpr int ICEBERG_EPOCH_YEAR = 1970;
+
 class PartitionColumnTransformUtils {
 public:
     static DateV2Value<DateV2ValueType>& epoch_date() {
@@ -89,13 +92,15 @@ public:
     }
 
     static std::string human_hour(int hour_ordinal) {
-        int day_value = hour_ordinal / 24;
-        int housr_value = hour_ordinal % 24;
+        // Hour ordinals are negative before 1970-01-01, so the split must floor rather than
+        // truncate towards zero: -1 is 1969-12-31-23, not 1970-01-01 minus one hour.
+        int day_value = (hour_ordinal >= 0 ? hour_ordinal : hour_ordinal - 23) / 24;
+        int hour_value = hour_ordinal - day_value * 24;
         auto ymd = std::chrono::year_month_day(std::chrono::sys_days(
                 std::chrono::floor<std::chrono::days>(EPOCH + std::chrono::days(day_value))));
         return fmt::format("{:04d}-{:02d}-{:02d}-{:02d}", static_cast<int>(ymd.year()),
                            static_cast<unsigned>(ymd.month()), static_cast<unsigned>(ymd.day()),
-                           housr_value);
+                           hour_value);
     }
 
 private:
@@ -615,7 +620,7 @@ public:
             DateV2Value<DateV2ValueType> value =
                     binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
 
-            int64_t days_from_unix_epoch = value.daynr() - 719528;
+            int64_t days_from_unix_epoch = daynr_to_epoch_days(value.daynr());
             uint32_t hash_value = HashUtil::murmur_hash3_32(&days_from_unix_epoch,
                                                             sizeof(days_from_unix_epoch), 0);
 
@@ -820,9 +825,10 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateV2ValueType> value =
                     binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
-            // datetime_diff<YEAR> actually returns int
-            *p_out = cast_set<int, int64_t, false>(
-                    datetime_diff<YEAR>(PartitionColumnTransformUtils::epoch_date(), value));
+            // Iceberg's `year` transform counts whole calendar years from 1970 and floors:
+            // 1969-06-15 is -1, not the 0 that `datetime_diff<YEAR>` returns by rounding towards
+            // zero. Taking the calendar year directly is exactly that floor.
+            *p_out = value.year() - ICEBERG_EPOCH_YEAR;
             ++p_in;
             ++p_out;
         }
@@ -889,9 +895,10 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateTimeV2ValueType> value =
                     binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-            // datetime_diff<YEAR> actually returns int
-            *p_out = cast_set<int, int64_t, false>(
-                    datetime_diff<YEAR>(PartitionColumnTransformUtils::epoch_datetime(), value));
+            // Iceberg's `year` transform counts whole calendar years from 1970 and floors:
+            // 1969-06-15 is -1, not the 0 that `datetime_diff<YEAR>` returns by rounding towards
+            // zero. Taking the calendar year directly is exactly that floor.
+            *p_out = value.year() - ICEBERG_EPOCH_YEAR;
             ++p_in;
             ++p_out;
         }
@@ -958,9 +965,10 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateV2ValueType> value =
                     binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
-            // datetime_diff<MONTH> actually returns int
-            *p_out = cast_set<int, int64_t, false>(
-                    datetime_diff<MONTH>(PartitionColumnTransformUtils::epoch_date(), value));
+            // Iceberg's `month` transform counts whole calendar months from 1970-01 and floors,
+            // so 1969-06-15 is -7 rather than the -6 that `datetime_diff<MONTH>` produces by
+            // rounding towards zero. The day of month never participates.
+            *p_out = (value.year() - ICEBERG_EPOCH_YEAR) * 12 + (value.month() - 1);
             ++p_in;
             ++p_out;
         }
@@ -1027,9 +1035,10 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateTimeV2ValueType> value =
                     binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-            // datetime_diff<MONTH> actually returns int
-            *p_out = cast_set<int, int64_t, false>(
-                    datetime_diff<MONTH>(PartitionColumnTransformUtils::epoch_datetime(), value));
+            // Iceberg's `month` transform counts whole calendar months from 1970-01 and floors,
+            // so 1969-06-15 is -7 rather than the -6 that `datetime_diff<MONTH>` produces by
+            // rounding towards zero. The day of month never participates.
+            *p_out = (value.year() - ICEBERG_EPOCH_YEAR) * 12 + (value.month() - 1);
             ++p_in;
             ++p_out;
         }
@@ -1096,9 +1105,10 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateV2ValueType> value =
                     binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
-            // datetime_diff<DAY> actually returns int
-            *p_out = cast_set<int, int64_t, false>(
-                    datetime_diff<DAY>(PartitionColumnTransformUtils::epoch_date(), value));
+            // Iceberg's `day` transform is "days from 1970-01-01" in the proleptic Gregorian
+            // calendar (spec: Partition Transforms). `datetime_diff<DAY>` cannot be used here: it
+            // counts in Doris's MySQL calendar, which is one day ahead for year-zero dates.
+            *p_out = daynr_to_epoch_days(value.daynr());
             ++p_in;
             ++p_out;
         }
@@ -1170,9 +1180,10 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateTimeV2ValueType> value =
                     binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-            // datetime_diff<DAY> actually returns int
-            *p_out = cast_set<int, int64_t, false>(
-                    datetime_diff<DAY>(PartitionColumnTransformUtils::epoch_datetime(), value));
+            // Same as the DATE variant: the partition value is the proleptic-Gregorian ordinal
+            // of the calendar day. Note this is a floor, not a truncation towards the epoch, so
+            // `datetime_diff<DAY>` (which rounds towards zero by the time part) is not usable.
+            *p_out = daynr_to_epoch_days(value.daynr());
             ++p_in;
             ++p_out;
         }
@@ -1243,9 +1254,12 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateTimeV2ValueType> value =
                     binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-            // hour diff would't overflow int32
+            // Iceberg's `hour` transform floors to the hour boundary. Deriving it from the
+            // proleptic day ordinal plus the wall-clock hour is exact for every representable
+            // timestamp and, unlike `datetime_diff<HOUR>`, floors instead of truncating towards
+            // the epoch. The product cannot overflow int32: 2932896 * 24 + 23 == 70389527.
             *p_out = cast_set<int, int64_t, false>(
-                    datetime_diff<HOUR>(PartitionColumnTransformUtils::epoch_datetime(), value));
+                    static_cast<int64_t>(daynr_to_epoch_days(value.daynr())) * 24 + value.hour());
             ++p_in;
             ++p_out;
         }
