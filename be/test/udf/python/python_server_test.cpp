@@ -60,8 +60,7 @@ public:
 
     ~ActionResultFlightServer() override { static_cast<void>(Shutdown()); }
 
-    arrow::Status DoAction(const arrow::flight::ServerCallContext&,
-                           const arrow::flight::Action&,
+    arrow::Status DoAction(const arrow::flight::ServerCallContext&, const arrow::flight::Action&,
                            std::unique_ptr<arrow::flight::ResultStream>* result) override {
         std::vector<arrow::flight::Result> flight_results;
         flight_results.reserve(_results.size());
@@ -267,8 +266,8 @@ protected:
         try {
             bp::child child(python, "-u", get_fight_server_path(), get_base_unix_socket_path(),
                             bp::std_out > output_stream);
-            auto candidate = std::make_shared<PythonUDFProcess>(std::move(child),
-                                                                std::move(output_stream));
+            auto candidate =
+                    std::make_shared<PythonUDFProcess>(std::move(child), std::move(output_stream));
             auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
             while (std::chrono::steady_clock::now() < deadline) {
                 if (fs::exists(candidate->get_socket_file_path())) {
