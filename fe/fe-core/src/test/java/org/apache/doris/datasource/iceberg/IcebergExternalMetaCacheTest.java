@@ -638,6 +638,10 @@ public class IcebergExternalMetaCacheTest {
                     cache.getSnapshotCacheWithRetainedTableForTest(dorisTable).getCapturedAuthenticator());
             Assert.assertFalse("background snapshots must not expose an unowned table",
                     cache.getSnapshotCache(dorisTable).getIcebergTable().isPresent());
+            Assert.assertTrue(cache.withSnapshotCacheValue(dorisTable, snapshotValue -> {
+                Assert.assertSame(authenticator, snapshotValue.getCapturedAuthenticator());
+                return snapshotValue.getIcebergTable().isPresent();
+            }));
 
             initialized.set(false);
             Assert.assertSame(table, cache.getWritableIcebergTable(dorisTable));
