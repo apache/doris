@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hudi;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
@@ -67,6 +68,7 @@ public class HudiConnector implements Connector {
     private final HudiCatalogProperties props;
     private final Map<String, String> properties;
     private final ConnectorContext context;
+    private final CatalogMetaCache metaCache = new CatalogMetaCache();
     private volatile HmsClient hmsClient;
 
     // HMS and storage deliberately have separate authenticators: hive.metastore.username must affect set_ugi
@@ -139,7 +141,7 @@ public class HudiConnector implements Connector {
     }
 
     /**
-     * REFRESH TABLE hook: flush this table's cached HMS metadata ({@link CachingHmsClient#flush}: table info +
+     * REFRESH TABLE hook: invalidate this table's cached HMS metadata (table info +
      * partition names) so the next query re-reads it live. Reads the client field WITHOUT building it
      * (getOrCreateClient would force a real client just to flush an empty cache; a never-queried catalog has no
      * cache to flush). hudi is a leaf sibling (no siblings of its own) holding no file/partition-view caches, so
@@ -149,47 +151,23 @@ public class HudiConnector implements Connector {
      */
     @Override
     public void invalidateTable(String dbName, String tableName) {
-        invalidateTable(hmsClient, dbName, tableName);
-    }
-
-    // Package-private seam: a unit test can pass an observable CachingHmsClient (the hmsClient field is
-    // otherwise only set by getOrCreateClient building a real pooled client).
-    void invalidateTable(HmsClient client, String dbName, String tableName) {
-        if (client instanceof CachingHmsClient) {
-            ((CachingHmsClient) client).flush(dbName, tableName);
-        }
+        metaCache.invalidateTable(dbName, tableName);
     }
 
     /**
-     * REFRESH DATABASE hook: flush every cached table in this database ({@link CachingHmsClient#flushDb}). Same
-     * no-force-build read of the client as {@link #invalidateTable(String, String)}.
+     * REFRESH DATABASE hook: invalidate every cached table in this database.
      */
     @Override
     public void invalidateDb(String dbName) {
-        invalidateDb(hmsClient, dbName);
-    }
-
-    // Package-private seam (see invalidateTable above).
-    void invalidateDb(HmsClient client, String dbName) {
-        if (client instanceof CachingHmsClient) {
-            ((CachingHmsClient) client).flushDb(dbName);
-        }
+        metaCache.invalidateDatabase(dbName);
     }
 
     /**
-     * REFRESH CATALOG hook: flush this catalog's entire HMS metadata cache ({@link CachingHmsClient#flushAll}).
-     * Same no-force-build read of the client as {@link #invalidateTable(String, String)}.
+     * REFRESH CATALOG hook: invalidate this catalog's entire HMS metadata cache.
      */
     @Override
     public void invalidateAll() {
-        invalidateAll(hmsClient);
-    }
-
-    // Package-private seam (see invalidateTable above).
-    void invalidateAll(HmsClient client) {
-        if (client instanceof CachingHmsClient) {
-            ((CachingHmsClient) client).flushAll();
-        }
+        metaCache.invalidateCatalog();
     }
 
     private HmsClient getOrCreateClient() {
@@ -251,7 +229,7 @@ public class HudiConnector implements Connector {
      * assert the cache decoration.
      */
     HmsClient wrapWithCache(HmsClient raw) {
-        return new CachingHmsClient(raw, properties);
+        return new CachingHmsClient(metaCache, raw, properties);
     }
 
     /**
@@ -338,6 +316,7 @@ public class HudiConnector implements Connector {
 
     @Override
     public void close() throws IOException {
+        metaCache.close();
         HmsClient c = hmsClient;
         if (c != null) {
             c.close();

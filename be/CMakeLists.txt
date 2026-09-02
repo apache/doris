@@ -200,7 +200,6 @@ option(BUILD_FILE_CACHE_LRU_TOOL "ON for building file cache lru tool or OFF for
 message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
 
 option(ENABLE_PAIMON_CPP "Enable Paimon C++ integration" ON)
-set(PAIMON_HOME "" CACHE PATH "Paimon install prefix")
 option(ENABLE_TDE "Enable TDE feature module" OFF)
 set(TDE_MODULE_DIR "" CACHE STRING "TDE feature module directory under be/src")
 option(ENABLE_TLS "Enable TLS feature module" OFF)
@@ -222,8 +221,31 @@ endif()
 if (DEFINED ENV{ENABLE_PAIMON_CPP})
     set(ENABLE_PAIMON_CPP "$ENV{ENABLE_PAIMON_CPP}" CACHE BOOL "" FORCE)
 endif()
-if (DEFINED ENV{PAIMON_HOME} AND NOT PAIMON_HOME)
-    set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "" FORCE)
+
+# Refresh automatic selections on every configure so a reused CMake cache
+# follows the current DORIS_THIRDPARTY. Environment overrides are explicit and
+# likewise replace any earlier automatic or explicit cache value.
+if (DEFINED ENV{ARROW_HOME})
+    set(ARROW_HOME "$ENV{ARROW_HOME}" CACHE PATH "Selected Arrow install prefix" FORCE)
+else()
+    set(ARROW_HOME "${THIRDPARTY_DIR}/arrow-24.0.0" CACHE PATH
+        "Selected Arrow install prefix" FORCE)
+endif()
+if (DEFINED ENV{PAIMON_HOME})
+    set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "Selected Paimon install prefix" FORCE)
+else()
+    set(PAIMON_HOME "${ARROW_HOME}" CACHE PATH "Selected Paimon install prefix" FORCE)
+endif()
+
+if (NOT EXISTS "${ARROW_HOME}/include/arrow/util/config.h")
+    message(FATAL_ERROR "Selected Arrow installation is incomplete: ${ARROW_HOME}")
+endif()
+message(STATUS "ARROW_HOME is ${ARROW_HOME}")
+if (ENABLE_PAIMON_CPP AND NOT EXISTS "${PAIMON_HOME}/include/paimon")
+    message(FATAL_ERROR "Selected Paimon installation is incomplete: ${PAIMON_HOME}")
+endif()
+if (ENABLE_PAIMON_CPP)
+    message(STATUS "PAIMON_HOME is ${PAIMON_HOME}")
 endif()
 
 set(CMAKE_SKIP_RPATH TRUE)
@@ -351,6 +373,26 @@ install(DIRECTORY
 install(DIRECTORY
     ${BASE_DIR}/dict/pinyin
     DESTINATION ${OUTPUT_DIR}/dict)
+
+# Japanese kuromoji dictionary. A real build always requires it the
+# binary files. However, Unit-test builds (MAKE_TEST=ON) skip it entirely as they don't
+# package for real use.
+if (NOT MAKE_TEST)
+    install(CODE "
+        foreach(_kmj_f
+                \"${BASE_DIR}/dict/kuromoji/system.bin\"
+                \"${BASE_DIR}/dict/kuromoji/matrix.bin\"
+                \"${BASE_DIR}/dict/kuromoji/chardef.bin\"
+                \"${BASE_DIR}/dict/kuromoji/unkdict.bin\")
+            if(NOT EXISTS \"\${_kmj_f}\")
+                message(FATAL_ERROR \"kuromoji dictionary file \${_kmj_f} is missing; build the 'kuromoji_dict' target (stage mecab-ipadic via thirdparty) before packaging.\")
+            endif()
+        endforeach()
+    ")
+    install(DIRECTORY
+        ${BASE_DIR}/dict/kuromoji
+        DESTINATION ${OUTPUT_DIR}/dict)
+endif()
 
 # Check if functions are supported in this platform. All flags will generated
 # in gensrc/build/common/env_config.h.
@@ -597,6 +639,12 @@ include_directories(
 )
 
 include_directories(
+    BEFORE SYSTEM
+    ${ARROW_HOME}/include
+    ${PAIMON_HOME}/include
+)
+
+include_directories(
     SYSTEM
     ${COMMON_SRC_DIR}
     ${GENSRC_DIR}/
@@ -741,10 +789,10 @@ endif()
 
 set(PAIMON_FACTORY_REGISTRY_LIBS)
 if (ENABLE_PAIMON_CPP)
-    # Plan B: Doris Arrow is now built with COMPUTE/DATASET/ACERO/FILESYSTEM,
-    # so arrow, arrow_compute, arrow_dataset, arrow_acero are all in COMMON_THIRDPARTY via
-    # thirdparty.cmake.  paimon-cpp reuses the same Arrow (no paimon_deps).
-    # No dual-stack selection needed — single Arrow for everything.
+    # The Arrow selected for this BE build includes COMPUTE/DATASET/ACERO/FILESYSTEM,
+    # so arrow, arrow_compute, arrow_dataset, arrow_acero are all in COMMON_THIRDPARTY
+    # via thirdparty.cmake. Paimon uses this same selected Arrow (no paimon_deps);
+    # the legacy Arrow 17 stack remains installed only for pre-upgrade branch-4.1 consumers.
 
     # paimon_parquet_file_format depends on Arrow Dataset symbols.
     # Force-link it with --whole-archive so its factory registration runs.
@@ -1069,6 +1117,49 @@ option(BUILD_META_TOOL "Build meta tool" OFF)
 option(BUILD_INDEX_TOOL "Build index tool" OFF)
 if (BUILD_META_TOOL OR BUILD_INDEX_TOOL)
     add_subdirectory(${SRC_DIR}/tools)
+endif()
+
+if (NOT MAKE_TEST)
+    # Offline generator: compiles the UTF-8 mecab-ipadic source into binary files.
+    add_executable(kuromoji_build_dict EXCLUDE_FROM_ALL ${SRC_DIR}/tools/kuromoji_build_dict.cpp)
+    target_include_directories(kuromoji_build_dict PRIVATE ${PROJECT_SOURCE_DIR}/..)
+    pch_reuse(kuromoji_build_dict)
+    set_target_properties(kuromoji_build_dict PROPERTIES ENABLE_EXPORTS 1)
+    if (COMPILER_CLANG)
+        target_compile_options(kuromoji_build_dict PRIVATE
+            -Wno-implicit-int-conversion
+            -Wno-shorten-64-to-32)
+    endif()
+    target_link_libraries(kuromoji_build_dict ${DORIS_LINK_LIBS})
+
+    set(KUROMOJI_IPADIC_SRC "${THIRDPARTY_DIR}/share/mecab-ipadic-2.7.0-20250920"
+        CACHE PATH "UTF-8 mecab-ipadic source directory used to generate the kuromoji dictionary")
+    set(KUROMOJI_DICT_OUT "${BASE_DIR}/dict/kuromoji")
+    file(GLOB KUROMOJI_IPADIC_SRC_FILES CONFIGURE_DEPENDS
+         "${KUROMOJI_IPADIC_SRC}/*.csv"
+         "${KUROMOJI_IPADIC_SRC}/*.def")
+    get_filename_component(KUROMOJI_LIBJVM_DIR "${LIB_JVM}" DIRECTORY)
+    set(KUROMOJI_DYLD_PATH "${KUROMOJI_LIBJVM_DIR}")
+    set(KUROMOJI_LD_PATH "${KUROMOJI_LIBJVM_DIR}")
+    if (NOT "$ENV{DYLD_LIBRARY_PATH}" STREQUAL "")
+        set(KUROMOJI_DYLD_PATH "${KUROMOJI_LIBJVM_DIR}:$ENV{DYLD_LIBRARY_PATH}")
+    endif()
+    if (NOT "$ENV{LD_LIBRARY_PATH}" STREQUAL "")
+        set(KUROMOJI_LD_PATH "${KUROMOJI_LIBJVM_DIR}:$ENV{LD_LIBRARY_PATH}")
+    endif()
+    add_custom_command(
+        OUTPUT "${KUROMOJI_DICT_OUT}/system.bin" "${KUROMOJI_DICT_OUT}/matrix.bin"
+               "${KUROMOJI_DICT_OUT}/chardef.bin" "${KUROMOJI_DICT_OUT}/unkdict.bin"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${KUROMOJI_DICT_OUT}"
+        COMMAND ${CMAKE_COMMAND} -E env
+                "DYLD_LIBRARY_PATH=${KUROMOJI_DYLD_PATH}"
+                "LD_LIBRARY_PATH=${KUROMOJI_LD_PATH}"
+                $<TARGET_FILE:kuromoji_build_dict> "${KUROMOJI_IPADIC_SRC}" "${KUROMOJI_DICT_OUT}"
+        DEPENDS kuromoji_build_dict ${KUROMOJI_IPADIC_SRC_FILES}
+        COMMENT "Generating kuromoji IPADIC dictionary from ${KUROMOJI_IPADIC_SRC}"
+        VERBATIM)
+    # ALL so a real build generates the dictionary before the install step runs.
+    add_custom_target(kuromoji_dict ALL DEPENDS "${KUROMOJI_DICT_OUT}/system.bin")
 endif()
 
 option(BUILD_FILE_CACHE_MICROBENCH_TOOL "Build file cache mirobench Tool" OFF)

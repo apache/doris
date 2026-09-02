@@ -18,13 +18,14 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CacheSpec;
-import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.ScopePath;
 
-import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 
 import java.util.Objects;
-import java.util.concurrent.ForkJoinPool;
 import java.util.function.Supplier;
 
 /**
@@ -52,7 +53,7 @@ import java.util.function.Supplier;
  * value is a bare format-name {@link String} with no {@code FileIO} / credential, so it is safe to share across
  * users and is built unconditionally (only the TTL knob disables it).
  *
- * <p>Backed identically to {@link IcebergPartitionCache}: a contextual, access-TTL {@link MetaCacheEntry} with
+ * <p>Backed identically to {@link IcebergPartitionCache}: a contextual, access-TTL {@link MetaCache} with
  * manual miss-load, so the inference runs OUTSIDE Caffeine's compute lock and a failed scan's exception
  * propagates verbatim and is NOT cached (the next query retries — legacy parity). TTL is
  * {@code meta.cache.iceberg.table.ttl-second}; {@code <= 0} disables (read live). Lives on the long-lived
@@ -88,18 +89,25 @@ final class IcebergFormatCache {
         }
     }
 
-    private final MetaCacheEntry<Key, String> entry;
+    private final CatalogMetaCache owner;
+    private final MetaCache<Key, String> entry;
 
     IcebergFormatCache(long ttlSeconds, int maxSize) {
+        this(new CatalogMetaCache(), ttlSeconds, maxSize);
+    }
+
+    IcebergFormatCache(CatalogMetaCache owner, long ttlSeconds, int maxSize) {
+        this.owner = owner;
         // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
         CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
-        this.entry = new MetaCacheEntry<>("iceberg-format", null, spec,
-                ForkJoinPool.commonPool(), false, true, 0L, true);
+        this.entry = owner.create(MetaCacheDefinition
+                .<Key, String>builder("iceberg-format", spec, IcebergFormatCache::scope)
+                .build());
     }
 
     /** Caching is on only when the TTL is positive; ttl-second &lt;= 0 means "always infer live". */
     boolean isEnabled() {
-        return entry.stats().isEffectiveEnabled();
+        return entry.isEnabled();
     }
 
     /**
@@ -114,29 +122,30 @@ final class IcebergFormatCache {
 
     /** Drops every cached snapshot entry for one table so the next read infers live (REFRESH TABLE). */
     void invalidate(TableIdentifier id) {
-        entry.invalidateIf(key -> key.id.equals(id));
+        owner.invalidateTable(id.namespace().toString(), id.name());
     }
 
     /** Drops every cached entry for one database (REFRESH DATABASE / DROP DATABASE); db match = namespace equality. */
     void invalidateDb(String dbName) {
-        Namespace ns = Namespace.of(dbName);
-        entry.invalidateIf(key -> key.id.namespace().equals(ns));
+        owner.invalidateDatabase(dbName);
     }
 
     /** Drops all cached entries (REFRESH CATALOG). */
     void invalidateAll() {
-        entry.invalidateAll();
+        owner.invalidateCatalog();
     }
 
     /** Test-only: current number of cached entries (accurate map membership, not Caffeine's estimate). */
     int size() {
-        int[] count = {0};
-        entry.forEach((key, value) -> count[0]++);
-        return count[0];
+        return Math.toIntExact(entry.size());
     }
 
     /** Test-only: how many times the live loader (the whole-table format inference) actually ran — the metric gate. */
     long loadCountForTest() {
-        return entry.stats().getLoadSuccessCount();
+        return entry.loadSuccessCount();
+    }
+
+    private static ScopePath scope(Key key) {
+        return ScopePath.table(key.id.namespace().toString(), key.id.name());
     }
 }

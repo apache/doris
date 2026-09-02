@@ -23,12 +23,15 @@ import org.apache.doris.cloud.common.util.CloudPropertyAnalyzer;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ConfigBase;
+import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
@@ -42,6 +45,8 @@ import org.mockito.Mockito;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -51,6 +56,92 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class OlapTableTest {
+
+    @Test
+    public void testPartitionFormatChangeDoesNotChangeLogicalSchemaVersion() {
+        List<Column> schema = Lists.newArrayList(new Column("k1", PrimitiveType.INT));
+        OlapTable table = new OlapTable(1L, "tbl", schema, KeysType.DUP_KEYS,
+                new SinglePartitionInfo(), new RandomDistributionInfo(1));
+        table.setBaseIndexId(10L);
+        table.setIndexMeta(10L, "tbl", schema, 7, 1, (short) 1,
+                TStorageType.COLUMN, KeysType.DUP_KEYS);
+
+        table.setPartitionInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.SNII);
+
+        Assert.assertEquals(7, table.getBaseSchemaVersion());
+    }
+
+    @Test
+    public void testGetInvertedIndexFileStorageFormatForPartition() {
+        PartitionInfo partitionInfo = new PartitionInfo(PartitionType.RANGE);
+        OlapTable table = new OlapTable(1L, "tbl", Lists.newArrayList(), KeysType.DUP_KEYS, partitionInfo, null);
+        table.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V2);
+        table.setPartitionInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.SNII);
+
+        partitionInfo.setInvertedIndexFileStorageFormat(10L, TInvertedIndexFileStorageFormat.SNII);
+        boolean original = Config.enable_partition_inverted_index_storage_format_rollout;
+        try {
+            Config.enable_partition_inverted_index_storage_format_rollout = true;
+            Assert.assertEquals(TInvertedIndexFileStorageFormat.SNII,
+                    table.getInvertedIndexFileStorageFormatForPartition(10L));
+
+            Assert.assertEquals(TInvertedIndexFileStorageFormat.V2,
+                    table.getInvertedIndexFileStorageFormatForPartition(11L));
+        } finally {
+            Config.enable_partition_inverted_index_storage_format_rollout = original;
+        }
+    }
+
+    @Test
+    public void testPartitionInvertedIndexStorageFormatRolloutSwitch() {
+        OlapTable table = new OlapTable(1L, "tbl", Lists.newArrayList(), KeysType.DUP_KEYS,
+                new SinglePartitionInfo(), new RandomDistributionInfo(1));
+        table.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V2);
+        table.setPartitionInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.SNII);
+        table.getPartitionInfo().setInvertedIndexFileStorageFormat(10L, TInvertedIndexFileStorageFormat.SNII);
+
+        boolean original = Config.enable_partition_inverted_index_storage_format_rollout;
+        try {
+            Config.enable_partition_inverted_index_storage_format_rollout = false;
+            Assert.assertEquals(TInvertedIndexFileStorageFormat.V2,
+                    table.getPartitionInvertedIndexFileStorageFormat());
+            Assert.assertEquals(TInvertedIndexFileStorageFormat.V2,
+                    table.getInvertedIndexFileStorageFormatForPartition(10L));
+
+            Config.enable_partition_inverted_index_storage_format_rollout = true;
+            Assert.assertEquals(TInvertedIndexFileStorageFormat.SNII,
+                    table.getPartitionInvertedIndexFileStorageFormat());
+            Assert.assertEquals(TInvertedIndexFileStorageFormat.SNII,
+                    table.getInvertedIndexFileStorageFormatForPartition(10L));
+        } finally {
+            Config.enable_partition_inverted_index_storage_format_rollout = original;
+        }
+    }
+
+    @Test
+    public void testPartitionInvertedIndexStorageFormatRolloutCannotBeDisabled() throws Exception {
+        boolean original = Config.enable_partition_inverted_index_storage_format_rollout;
+        Path configFile = Files.createTempFile("doris-fe-config", ".conf");
+        try {
+            new Config().init(configFile.toString());
+            Config.enable_partition_inverted_index_storage_format_rollout = false;
+            ConfigBase.setMutableConfig("enable_partition_inverted_index_storage_format_rollout", " false ");
+            Assert.assertFalse(Config.enable_partition_inverted_index_storage_format_rollout);
+
+            ConfigBase.setMutableConfig("enable_partition_inverted_index_storage_format_rollout", "true");
+            Assert.assertTrue(Config.enable_partition_inverted_index_storage_format_rollout);
+
+            try {
+                ConfigBase.setMutableConfig("enable_partition_inverted_index_storage_format_rollout", "false");
+                Assert.fail("enabled rollout switch must not be disabled");
+            } catch (ConfigException e) {
+                Assert.assertTrue(e.getMessage().contains("can only be enabled and cannot be disabled"));
+            }
+        } finally {
+            Config.enable_partition_inverted_index_storage_format_rollout = original;
+            Files.deleteIfExists(configFile);
+        }
+    }
 
     @Test
     public void testGetTableStatusStatsUsesSinglePassSemantics() {
@@ -74,6 +165,35 @@ public class OlapTableTest {
         Assert.assertEquals(909L, stats.getDataLength());
         Assert.assertEquals(3L, stats.getAvgRowLength());
         Assert.assertEquals(132L, stats.getIndexLength());
+    }
+
+    @Test
+    public void testPartitionTopologyVersionChangesWithPartitionIdSet() {
+        OlapTable olapTable = new OlapTable();
+        olapTable.setPartitionInfo(new SinglePartitionInfo());
+
+        long version = olapTable.getPartitionTopologyVersion();
+        addPartitionForTopologyVersionTest(olapTable, 1L, "p1");
+        Assert.assertEquals(version + 1, olapTable.getPartitionTopologyVersion());
+
+        version = olapTable.getPartitionTopologyVersion();
+        olapTable.replacePartition(newPartitionForTopologyVersionTest(2L, "p1"), new RecyclePartitionParam());
+        Assert.assertEquals(version + 1, olapTable.getPartitionTopologyVersion());
+
+        version = olapTable.getPartitionTopologyVersion();
+        olapTable.dropPartitionAndReserveTablet("p1");
+        Assert.assertEquals(version + 1, olapTable.getPartitionTopologyVersion());
+    }
+
+    private void addPartitionForTopologyVersionTest(OlapTable olapTable, long partitionId, String partitionName) {
+        olapTable.getPartitionInfo().addPartition(partitionId, new DataProperty(TStorageMedium.HDD),
+                new ReplicaAllocation((short) 1), false, true);
+        olapTable.addPartition(newPartitionForTopologyVersionTest(partitionId, partitionName));
+    }
+
+    private Partition newPartitionForTopologyVersionTest(long partitionId, String partitionName) {
+        MaterializedIndex index = new MaterializedIndex(partitionId, MaterializedIndex.IndexState.NORMAL);
+        return new Partition(partitionId, partitionName, index, new RandomDistributionInfo(1));
     }
 
     private Replica mockReplica(Replica.ReplicaState state, long dataSize, long localSegmentSize,

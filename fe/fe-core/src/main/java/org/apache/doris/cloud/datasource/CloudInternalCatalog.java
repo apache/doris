@@ -324,6 +324,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         MaterializedIndex baseIndex = new MaterializedIndex(tbl.getBaseIndexId(), IndexState.NORMAL);
+        TInvertedIndexFileStorageFormat partitionInvertedIndexFileStorageFormat =
+                tbl.getPartitionInvertedIndexFileStorageFormat();
 
         LOG.info("begin create cloud partition");
         // create partition with base index
@@ -403,7 +405,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getTimeSeriesCompactionLevelThreshold(),
                         tbl.disableAutoCompaction(),
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                        tbl.getInvertedIndexFileStorageFormat(),
+                        indexId == tbl.getBaseIndexId() ? partitionInvertedIndexFileStorageFormat : null,
                         tbl.rowStorePageSize(),
                         tbl.variantEnableFlattenNested(), clusterKeyUids,
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
@@ -647,6 +649,12 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
         builder.setSchema(schema);
+        // schema KV is shared by (index_id, schema_version). Persist the physical tablet format
+        // separately only after partition-level format rollout is enabled.
+        if (Config.enable_partition_inverted_index_storage_format_rollout
+                && schema.hasInvertedIndexStorageFormat()) {
+            builder.setInvertedIndexStorageFormat(schema.getInvertedIndexStorageFormat());
+        }
         if (createInitialRowset) {
             // rowset
             OlapFile.RowsetMetaCloudPB.Builder rowsetBuilder = createInitialRowset(tablet, partitionId,
@@ -683,6 +691,10 @@ public class CloudInternalCatalog extends InternalCatalog {
         rowsetBuilder.setRowsetIdV2(rowsetIdV2Str);
 
         rowsetBuilder.setTabletSchema(schema);
+        if (Config.enable_partition_inverted_index_storage_format_rollout
+                && schema.hasInvertedIndexStorageFormat()) {
+            rowsetBuilder.setInvertedIndexStorageFormat(schema.getInvertedIndexStorageFormat());
+        }
         return rowsetBuilder;
     }
 

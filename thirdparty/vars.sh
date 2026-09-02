@@ -72,10 +72,10 @@ OPENSSL_SOURCE=openssl-OpenSSL_1_1_1s
 OPENSSL_MD5SUM="7e79a7560dee77c0758baa33c61af4b4"
 
 # thrift
-THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.16.0/thrift-0.16.0.tar.gz"
-THRIFT_NAME=thrift-0.16.0.tar.gz
-THRIFT_SOURCE=thrift-0.16.0
-THRIFT_MD5SUM="44cf1b54b4ec1890576c85804acfa637"
+THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.24.0/thrift-0.24.0.tar.gz"
+THRIFT_NAME=thrift-0.24.0.tar.gz
+THRIFT_SOURCE=thrift-0.24.0
+THRIFT_MD5SUM="232e035ff80c5fb4b7243f0be3a76b02"
 
 # protobuf
 # brpc is not yet compatible with protobuf >= 22
@@ -563,6 +563,12 @@ ICU_NAME=release-69-1.tar.gz
 ICU_SOURCE=icu-release-69-1
 ICU_MD5SUM="135125f633864285d637db5c01e0388b"
 
+# mecab-ipadic (UTF-8) for the Japanese kuromoji analyzer
+MECAB_IPADIC_DOWNLOAD="https://github.com/lindera/mecab-ipadic/archive/refs/tags/2.7.0-20250920.tar.gz"
+MECAB_IPADIC_NAME="mecab-ipadic-2.7.0-20250920.tar.gz"
+MECAB_IPADIC_SOURCE="mecab-ipadic-2.7.0-20250920"
+MECAB_IPADIC_MD5SUM="a95c409f12f1023fce8ef91f991ef042"
+
 # jindofs
 JINDOFS_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/alibabacloud-jindodata-releases/jindofs-6.10.4-libs-0.1.tar.gz"
 JINDOFS_NAME=jindofs-6.10.4-libs-0.1.tar.gz
@@ -590,6 +596,7 @@ LANCE_C_MD5SUM="15ef7cd20a2e1606384251cb2d41d42f"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
+    'MECAB_IPADIC'
     'LIBEVENT'
     'OPENSSL'
     'THRIFT'
@@ -618,6 +625,7 @@ export TP_ARCHIVES=(
     'CYRUS_SASL'
     'LIBRDKAFKA'
     'FLATBUFFERS'
+    'ARROW_17'
     'ARROW'
     'ARROW_ADBC'
     'BROTLI'
@@ -650,6 +658,7 @@ export TP_ARCHIVES=(
     'PDQSORT'
     'TIMSORT'
     'BENCHMARK'
+    'XSIMD_17'
     'XSIMD'
     'SIMDJSON'
     'NLOHMANN_JSON'
@@ -672,6 +681,7 @@ export TP_ARCHIVES=(
     'JINDOFS'
     'JUICEFS'
     'PUGIXML'
+    'PAIMON_CPP_17'
     'PAIMON_CPP'
     'LANCE_C'
 )

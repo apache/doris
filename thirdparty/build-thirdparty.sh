@@ -354,18 +354,24 @@ else
     echo "Do not strip thirdparty libraries"
 fi
 
-strip_lib() {
+strip_lib_at() {
+    local install_dir="$1"
+    local library="$2"
     if [[ "${STRIP_TP_LIB}" = "ON" ]]; then
-        if [[ -z $1 ]]; then
+        if [[ -z "${library}" ]]; then
             echo "Must specify the library to be stripped."
             exit 1
         fi
-        if [[ ! -f "${TP_LIB_DIR}/$1" ]]; then
-            echo "Library to be stripped (${TP_LIB_DIR}/$1) does not exist."
+        if [[ ! -f "${install_dir}/lib/${library}" ]]; then
+            echo "Library to be stripped (${install_dir}/lib/${library}) does not exist."
             exit 1
         fi
-        strip --strip-debug --strip-unneeded "${TP_LIB_DIR}/$1"
+        strip --strip-debug --strip-unneeded "${install_dir}/lib/${library}"
     fi
+}
+
+strip_lib() {
+    strip_lib_at "${TP_INSTALL_DIR}" "$1"
 }
 
 #libbacktrace
@@ -441,6 +447,10 @@ build_thrift() {
     check_if_source_exist "${THRIFT_SOURCE}"
     cd "${TP_SOURCE_DIR}/${THRIFT_SOURCE}"
 
+    # Headers of a previously installed thrift would shadow the in-tree ones
+    # via -I${TP_INCLUDE_DIR} and break an in-place version upgrade.
+    rm -rf "${TP_INSTALL_DIR}/include/thrift"
+
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         cflags="-I${TP_INCLUDE_DIR}"
         cxxflags="-I${TP_INCLUDE_DIR} ${warning_unused_but_set_variable} -Wno-inconsistent-missing-override"
@@ -454,9 +464,9 @@ build_thrift() {
     # NOTE(amos): libtool discard -static. --static works.
     ./configure CFLAGS="${cflags}" CXXFLAGS="${cxxflags}" LDFLAGS="${ldflags}" LIBS="-lcrypto -ldl -lssl" \
         --prefix="${TP_INSTALL_DIR}" --docdir="${TP_INSTALL_DIR}/doc" --enable-static --disable-shared --disable-tests \
-        --disable-tutorial --without-qt4 --without-qt5 --without-csharp --without-erlang --without-nodejs --without-nodets --without-swift \
-        --without-lua --without-perl --without-php --without-php_extension --without-dart --without-ruby --without-cl \
-        --without-haskell --without-go --without-haxe --without-d --without-python -without-java --without-dotnetcore -without-rs --with-cpp \
+        --disable-tutorial --without-qt5 --without-c_glib --without-java --without-kotlin --without-erlang --without-nodejs --without-nodets \
+        --without-lua --without-python --without-py3 --without-perl --without-php --without-php_extension \
+        --without-dart --without-ruby --without-go --without-rs --without-cl --without-netstd --without-d --with-cpp \
         --with-libevent="${TP_INSTALL_DIR}" --with-boost="${TP_INSTALL_DIR}" --with-openssl="${TP_INSTALL_DIR}"
 
     if [[ -f compiler/cpp/thrifty.hh ]]; then
@@ -1103,11 +1113,19 @@ build_grpc() {
     # sed -i 's/find_dependency/find_package/g' "${TP_INSTALL_DIR}"/lib64/cmake/grpc/gRPCConfig.cmake
 }
 
-# arrow
-build_arrow() {
-    check_if_source_exist "${ARROW_SOURCE}"
-    invalidate_arrow_prebuilt_marker "${TP_INSTALL_DIR}"
-    cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}/cpp"
+# Arrow 17 is installed in the legacy unversioned prefix for pre-upgrade
+# branch-4.1 revisions, while Arrow 24 is installed in a versioned prefix
+# selected by master.
+build_arrow_stack() {
+    local arrow_source="$1"
+    local xsimd_archive="$2"
+    local install_dir="$3"
+    local has_separate_compute_archive="$4"
+
+    check_if_source_exist "${arrow_source}"
+    mkdir -p "${install_dir}/lib64"
+    ln -sfn lib64 "${install_dir}/lib"
+    cd "${TP_SOURCE_DIR}/${arrow_source}/cpp"
 
     mkdir -p release
     cd release
@@ -1120,7 +1138,7 @@ build_arrow() {
     export ARROW_Thrift_URL="${TP_SOURCE_DIR}/${THRIFT_NAME}"
     export ARROW_SNAPPY_URL="${TP_SOURCE_DIR}/${SNAPPY_NAME}"
     export ARROW_ZLIB_URL="${TP_SOURCE_DIR}/${ZLIB_NAME}"
-    export ARROW_XSIMD_URL="${TP_SOURCE_DIR}/${XSIMD_NAME}"
+    export ARROW_XSIMD_URL="${TP_SOURCE_DIR}/${xsimd_archive}"
     export ARROW_ORC_URL="${TP_SOURCE_DIR}/${ORC_NAME}"
     export ARROW_GRPC_URL="${TP_SOURCE_DIR}/${GRPC_NAME}"
     export ARROW_PROTOBUF_URL="${TP_SOURCE_DIR}/${PROTOBUF_NAME}"
@@ -1142,7 +1160,7 @@ build_arrow() {
         -DARROW_FILESYSTEM=ON \
         -DARROW_DATASET=ON \
         -DARROW_ACERO=ON \
-        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_INSTALL_PREFIX="${install_dir}" \
         -DCMAKE_INSTALL_LIBDIR=lib64 \
         -DARROW_BOOST_USE_SHARED=OFF \
         -DARROW_WITH_GRPC=ON \
@@ -1185,15 +1203,30 @@ build_arrow() {
     "${BUILD_SYSTEM}" install
 
     #copy dep libs
-    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a "${TP_INSTALL_DIR}/lib64/libbrotlienc.a"
-    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a "${TP_INSTALL_DIR}/lib64/libbrotlidec.a"
-    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${TP_INSTALL_DIR}/lib64/libbrotlicommon.a"
-    strip_lib libarrow.a
-    strip_lib libarrow_compute.a
-    strip_lib libparquet.a
-    strip_lib libarrow_dataset.a
-    strip_lib libarrow_acero.a
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a "${install_dir}/lib64/libbrotlienc.a"
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a "${install_dir}/lib64/libbrotlidec.a"
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${install_dir}/lib64/libbrotlicommon.a"
+    strip_lib_at "${install_dir}" libarrow.a
+    if [[ "${has_separate_compute_archive}" == "true" ]]; then
+        strip_lib_at "${install_dir}" libarrow_compute.a
+    fi
+    strip_lib_at "${install_dir}" libparquet.a
+    strip_lib_at "${install_dir}" libarrow_dataset.a
+    strip_lib_at "${install_dir}" libarrow_acero.a
+}
 
+build_arrow_17() {
+    prepare_arrow_17_install_prefix "${TP_INSTALL_DIR}"
+    build_arrow_stack "${ARROW_17_SOURCE}" "${XSIMD_17_NAME}" "${TP_INSTALL_DIR}" false
+    publish_arrow_17_prebuilt_marker "${TP_INSTALL_DIR}"
+}
+
+build_arrow() {
+    local install_dir
+    install_dir="$(arrow_install_dir "${TP_INSTALL_DIR}")"
+    invalidate_arrow_prebuilt_marker "${TP_INSTALL_DIR}"
+    clean_arrow_artifacts_in "${install_dir}"
+    build_arrow_stack "${ARROW_SOURCE}" "${XSIMD_NAME}" "${install_dir}" true
     publish_arrow_prebuilt_marker "${TP_INSTALL_DIR}"
 }
 
@@ -2253,6 +2286,18 @@ build_icu() {
     make install
 }
 
+# mecab-ipadic
+build_mecab_ipadic() {
+    check_if_source_exist "${MECAB_IPADIC_SOURCE}"
+    mkdir -p "${TP_INSTALL_DIR}/share"
+    local dest="${TP_INSTALL_DIR}/share/${MECAB_IPADIC_SOURCE}"
+    # Copy into a temporary directory and publish with an atomic rename, so an
+    # interrupted copy never leaves a half-populated.
+    rm -rf "${dest}" "${dest}.tmp"
+    cp -r "${TP_SOURCE_DIR}/${MECAB_IPADIC_SOURCE}" "${dest}.tmp"
+    mv "${dest}.tmp" "${dest}"
+}
+
 # jindofs
 build_jindofs() {
     check_if_source_exist "${JINDOFS_SOURCE}"
@@ -2289,12 +2334,18 @@ build_pugixml() {
     cp "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/pugiconfig.hpp" "${TP_INSTALL_DIR}/include/"
 }
 
-# paimon-cpp
-build_paimon_cpp() {
-    check_if_source_exist "${PAIMON_CPP_SOURCE}"
-    require_arrow_prebuilt_for_paimon "${TP_INSTALL_DIR}"
-    invalidate_paimon_prebuilt_marker "${TP_INSTALL_DIR}"
-    cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
+# Build each Paimon variant against the matching Arrow prefix and install it
+# beside that Arrow version. Arrow types cross Paimon's public C++ boundary, so
+# mixing the two versions is not ABI-safe.
+build_paimon_cpp_stack() {
+    local paimon_source="$1"
+    local arrow_install_dir="$2"
+    local install_dir="$3"
+
+    check_if_source_exist "${paimon_source}"
+    mkdir -p "${install_dir}/lib64"
+    ln -sfn lib64 "${install_dir}/lib"
+    cd "${TP_SOURCE_DIR}/${paimon_source}"
 
     rm -rf "${BUILD_DIR}"
     mkdir -p "${BUILD_DIR}"
@@ -2306,12 +2357,13 @@ build_paimon_cpp() {
         paimon_linker_flags="${paimon_linker_flags} -lunwind"
     fi
 
+    PAIMON_ARROW_INSTALL_DIR="${arrow_install_dir}" \
     CXXFLAGS="-Wno-nontrivial-memcall" \
     "${CMAKE_CMD}" -C "${TP_DIR}/paimon-cpp-cache.cmake" \
         -G "${GENERATOR}" \
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
-        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_INSTALL_PREFIX="${install_dir}" \
         -DPAIMON_BUILD_SHARED=OFF \
         -DPAIMON_BUILD_STATIC=ON \
         -DPAIMON_BUILD_TESTS=OFF \
@@ -2335,7 +2387,7 @@ build_paimon_cpp() {
     # reuses Doris's Arrow and does NOT build arrow_ep, so the paimon_deps
     # directory is not needed.  When building its own Arrow (legacy), copy
     # arrow artefacts into an isolated directory to avoid clashing with Doris.
-    local paimon_deps_dir="${TP_INSTALL_DIR}/paimon-cpp/lib64/paimon_deps"
+    local paimon_deps_dir="${install_dir}/paimon-cpp/lib64/paimon_deps"
     if [ -d "arrow_ep-install/lib" ]; then
         mkdir -p "${paimon_deps_dir}"
         for paimon_arrow_dep in \
@@ -2355,25 +2407,42 @@ build_paimon_cpp() {
 
     # Install roaring_bitmap, renamed to avoid conflict with Doris's croaringbitmap
     if [ -f "release/libroaring_bitmap.a" ]; then
-        cp -v "release/libroaring_bitmap.a" "${TP_INSTALL_DIR}/lib64/libroaring_bitmap_paimon.a"
+        cp -v "release/libroaring_bitmap.a" "${install_dir}/lib64/libroaring_bitmap_paimon.a"
     fi
 
     # Install xxhash, renamed to avoid conflict with Doris's xxhash
     if [ -f "release/libxxhash.a" ]; then
-        cp -v "release/libxxhash.a" "${TP_INSTALL_DIR}/lib64/libxxhash_paimon.a"
+        cp -v "release/libxxhash.a" "${install_dir}/lib64/libxxhash_paimon.a"
     fi
 
     # Install fmt v11 (from fmt_ep-install directory, renamed to avoid conflict with Doris's fmt v7)
     if [ -f "fmt_ep-install/lib/libfmt.a" ]; then
-        cp -v "fmt_ep-install/lib/libfmt.a" "${TP_INSTALL_DIR}/lib64/libfmt_paimon.a"
+        cp -v "fmt_ep-install/lib/libfmt.a" "${install_dir}/lib64/libfmt_paimon.a"
     fi
 
     # Install tbb (from tbb_ep-install directory, renamed to avoid conflict with Doris's tbb)
     if [ -f "tbb_ep-install/lib/libtbb.a" ]; then
-        cp -v "tbb_ep-install/lib/libtbb.a" "${TP_INSTALL_DIR}/lib64/libtbb_paimon.a"
+        cp -v "tbb_ep-install/lib/libtbb.a" "${install_dir}/lib64/libtbb_paimon.a"
     fi
 
     echo "Paimon-cpp internal dependencies installed successfully"
+}
+
+build_paimon_cpp_17() {
+    require_arrow_17_prebuilt_for_paimon "${TP_INSTALL_DIR}"
+    invalidate_paimon_17_prebuilt_marker "${TP_INSTALL_DIR}"
+    clean_paimon_artifacts_in "${TP_INSTALL_DIR}"
+    build_paimon_cpp_stack "${PAIMON_CPP_17_SOURCE}" "${TP_INSTALL_DIR}" "${TP_INSTALL_DIR}"
+    publish_paimon_17_prebuilt_marker "${TP_INSTALL_DIR}"
+}
+
+build_paimon_cpp() {
+    local install_dir
+    install_dir="$(arrow_install_dir "${TP_INSTALL_DIR}")"
+    require_arrow_prebuilt_for_paimon "${TP_INSTALL_DIR}"
+    invalidate_paimon_prebuilt_marker "${TP_INSTALL_DIR}"
+    clean_paimon_artifacts_in "${install_dir}"
+    build_paimon_cpp_stack "${PAIMON_CPP_SOURCE}" "${install_dir}" "${install_dir}"
     publish_paimon_prebuilt_marker "${TP_INSTALL_DIR}"
 }
 
@@ -2478,6 +2547,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         orc
         cares
         grpc # after cares, protobuf
+        arrow_17
         arrow
         arrow_adbc
         lance_c
@@ -2514,7 +2584,9 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         azure
         brotli
         icu
+        mecab_ipadic
         pugixml
+        paimon_cpp_17
         paimon_cpp
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
@@ -2570,6 +2642,7 @@ cleanup_package_source() {
         cyrus_sasl)      src_var="CYRUS_SASL_SOURCE" ;;
         librdkafka)      src_var="LIBRDKAFKA_SOURCE" ;;
         flatbuffers)     src_var="FLATBUFFERS_SOURCE" ;;
+        arrow_17)        src_var="ARROW_17_SOURCE" ;;
         arrow)           src_var="ARROW_SOURCE" ;;
         arrow_adbc)
             # arrow_adbc also unpacks the prebuilt flightsql driver, clean both
@@ -2619,9 +2692,11 @@ cleanup_package_source() {
         azure)           src_var="AZURE_SOURCE" ;;
         dragonbox)       src_var="DRAGONBOX_SOURCE" ;;
         icu)             src_var="ICU_SOURCE" ;;
+        mecab_ipadic)    src_var="MECAB_IPADIC_SOURCE" ;;
         jindofs)         src_var="JINDOFS_SOURCE" ;;
         juicefs)         src_var="JUICEFS_SOURCE" ;;
         pugixml)         src_var="PUGIXML_SOURCE" ;;
+        paimon_cpp_17)   src_var="PAIMON_CPP_17_SOURCE" ;;
         paimon_cpp)      src_var="PAIMON_CPP_SOURCE" ;;
         lance_c)         src_var="LANCE_C_SOURCE" ;;
         aws_sdk)         src_var="AWS_SDK_SOURCE" ;;

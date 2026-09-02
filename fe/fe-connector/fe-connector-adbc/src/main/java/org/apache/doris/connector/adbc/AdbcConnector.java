@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.adbc;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetadata;
@@ -46,6 +47,7 @@ public class AdbcConnector implements Connector {
     private final AdbcSchemaStrategy schemaStrategy = new AdbcSchemaStrategy();
     private final AdbcPartitionedReadSupport partitionedRead = new AdbcPartitionedReadSupport();
     private final AdbcDialectSelector dialectSelector;
+    private final CatalogMetaCache metaCache = new CatalogMetaCache();
     private final AdbcMetadataCache metadataCache;
 
     private volatile AdbcClient client;
@@ -65,7 +67,7 @@ public class AdbcConnector implements Connector {
         // The raw map, because the cache knobs are the shared framework's keys rather than this
         // connector's: CacheSpec owns their names, and mirroring them as fields here would give the
         // validator and the reader two things to drift apart.
-        this.metadataCache = new AdbcMetadataCache(props.getRaw());
+        this.metadataCache = new AdbcMetadataCache(metaCache, props.getRaw());
     }
 
     @Override
@@ -212,6 +214,7 @@ public class AdbcConnector implements Connector {
     @Override
     public synchronized void close() throws IOException {
         closed = true;
+        metaCache.close();
         if (client != null) {
             client.close();
             client = null;
