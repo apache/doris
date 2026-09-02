@@ -76,4 +76,21 @@ suite("aggregate_without_roll_up_projection") {
             + "group by date_trunc(ts, 'day'), id;", "sync_tz_day_id")
     order_qt_select_mv_leading_subset """select date_trunc(ts, 'day') from sync_tz_base
             where ts is not null group by date_trunc(ts, 'day'), id order by 1;"""
+
+    // Multiple query top plan expressions can be rewritten to the same aggregate output slot
+    // (`sum(v) as s1` and `sum(v) as s2` both reference the same bottom sum slot). Each top
+    // project position must keep a distinct output expr id, otherwise the rewritten output set
+    // collapses and the rewritten plan is skipped before normalization.
+    mv_rewrite_success("select cast(date_trunc(ts, 'day') as string) as day_ts, sum(v) as s1, "
+            + "sum(v) as s2 from sync_tz_base where ts is not null "
+            + "group by date_trunc(ts, 'day');", "sync_tz_day")
+    order_qt_select_mv_dup_sum """select cast(date_trunc(ts, 'day') as string) as day_ts, sum(v) as s1,
+            sum(v) as s2 from sync_tz_base where ts is not null group by date_trunc(ts, 'day') order by 1;"""
+
+    // The same duplicate-collapse can also happen for separately aliased duplicates of the group by
+    // expression itself.
+    mv_rewrite_success("select date_trunc(ts, 'day') as d1, date_trunc(ts, 'day') as d2, sum(v) as s "
+            + "from sync_tz_base where ts is not null group by date_trunc(ts, 'day');", "sync_tz_day")
+    order_qt_select_mv_dup_group """select date_trunc(ts, 'day') as d1, date_trunc(ts, 'day') as d2, sum(v) as s
+            from sync_tz_base where ts is not null group by date_trunc(ts, 'day') order by 1;"""
 }

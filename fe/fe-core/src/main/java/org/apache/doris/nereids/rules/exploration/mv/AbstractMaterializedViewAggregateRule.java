@@ -170,11 +170,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             ExpressionRewriteMode groupByMode,
             ExpressionRewriteMode aggregateFunctionMode) {
         // try to roll up.
-        // split the query top plan expressions to group expressions and functions, if can not, bail out.
-        Pair<Set<? extends Expression>, Set<? extends Expression>> queryGroupAndFunctionPair
-                = topPlanSplitToGroupAndFunction(queryTopPlanAndAggPair, queryStructInfo);
-        Set<? extends Expression> queryTopPlanGroupBySet = queryGroupAndFunctionPair.key();
-        Set<? extends Expression> queryTopPlanFunctionSet = queryGroupAndFunctionPair.value();
         // try to rewrite, contains both roll up aggregate functions and aggregate group expression
         List<NamedExpression> finalOutputExpressions = new ArrayList<>();
         List<Expression> finalGroupExpressions = new ArrayList<>();
@@ -186,6 +181,14 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         LogicalAggregate<Plan> queryAggregate = queryTopPlanAndAggPair.value();
         List<Expression> queryGroupByExpressions = queryAggregate.getGroupByExpressions();
         if (queryAggregate.getSourceRepeat().isPresent()) {
+            // The group by/function classification of the query top plan output expressions is only
+            // used by the repeat rewrite, so it is computed lazily inside this branch to avoid paying
+            // the full plan lineage walk for every ordinary aggregate rewrite.
+            // split the query top plan expressions to group expressions and functions, if can not, bail out.
+            Pair<Set<? extends Expression>, Set<? extends Expression>> queryGroupAndFunctionPair
+                    = topPlanSplitToGroupAndFunction(queryTopPlanAndAggPair, queryStructInfo);
+            Set<? extends Expression> queryTopPlanGroupBySet = queryGroupAndFunctionPair.key();
+            Set<? extends Expression> queryTopPlanFunctionSet = queryGroupAndFunctionPair.value();
             // try to rewrite the query top plan expressions, the query top plan output expressions
             // are used as the repeat output expressions directly
             for (Expression topExpression : queryTopPlan.getOutput()) {
@@ -276,17 +279,24 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // be wrongly treated as a group by key of the rewritten aggregate.
         // The mapping from the query bottom aggregate output slot to the new aggregate output expression
         // is used to rewrite the query top plan output expressions to reference the new aggregate output.
+        // The shuttled query bottom aggregate outputs are used as the map keys and are passed to the
+        // rewriter directly, and the shuttled query top plan outputs restore the projection expressions,
+        // so the whole top plan is traversed only twice instead of once per output expression.
+        List<? extends Expression> shuttledBottomAggOutputs = ExpressionUtils.shuttleExpressionWithLineage(
+                queryAggregate.getOutputExpressions(), queryTopPlan);
+        List<? extends Expression> shuttledTopPlanOutputs = ExpressionUtils.shuttleExpressionWithLineage(
+                queryTopPlan.getOutput(), queryTopPlan);
         Map<Expression, Expression> bottomAggOutputToNewExprMap = new HashMap<>();
         Set<Expression> queryGroupByExpressionSet = new HashSet<>(queryGroupByExpressions);
-        for (NamedExpression queryAggregateOutput : queryAggregate.getOutputExpressions()) {
-            // The shuttled query bottom aggregate output is used as the map key, so that the shuttled
-            // query top plan output expressions can be rewritten to reference the new aggregate output.
-            Expression shuttledQueryAggregateOutput = ExpressionUtils.shuttleExpressionWithLineage(
-                    queryAggregateOutput, queryTopPlan);
+        List<NamedExpression> queryAggregateOutputs = queryAggregate.getOutputExpressions();
+        for (int i = 0; i < queryAggregateOutputs.size(); i++) {
+            NamedExpression queryAggregateOutput = queryAggregateOutputs.get(i);
+            Expression shuttledQueryAggregateOutput = shuttledBottomAggOutputs.get(i);
             if (queryGroupByExpressionSet.contains(queryAggregateOutput)) {
                 // if it is a group by expression, rewrite it to the new aggregate group by key
-                Expression rewrittenGroupByExpression = tryRewriteExpression(queryStructInfo,
-                        queryAggregateOutput, mvExprToMvScanExprQueryBased, groupByMode, materializationContext,
+                Expression rewrittenGroupByExpression = rewriteShuttledExpression(queryStructInfo,
+                        shuttledQueryAggregateOutput, mvExprToMvScanExprQueryBased, groupByMode,
+                        materializationContext,
                         "View dimensions doesn't not cover the query dimensions",
                         () -> String.format("mvExprToMvScanExprQueryBased is %s,\n queryExpression is %s",
                                 mvExprToMvScanExprQueryBased, queryAggregateOutput));
@@ -300,8 +310,9 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 bottomAggOutputToNewExprMap.put(shuttledQueryAggregateOutput, groupByOutput.toSlot());
             } else {
                 // if it is an aggregate function, try to roll up and rewrite
-                Expression rewrittenFunction = tryRewriteExpression(queryStructInfo, queryAggregateOutput,
-                        mvExprToMvScanExprQueryBased, aggregateFunctionMode, materializationContext,
+                Expression rewrittenFunction = rewriteShuttledExpression(queryStructInfo,
+                        shuttledQueryAggregateOutput, mvExprToMvScanExprQueryBased, aggregateFunctionMode,
+                        materializationContext,
                         "Query function roll up fail",
                         () -> String.format("queryExpression = %s,\n mvExprToMvScanExprQueryBased = %s",
                                 queryAggregateOutput, mvExprToMvScanExprQueryBased));
@@ -322,13 +333,20 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // expression, so a projection of the group by key in the query top plan can be recomputed
         // by a project above the rewritten aggregate.
         List<NamedExpression> topProjectExpressions = new ArrayList<>();
-        for (Expression topExpression : queryTopPlan.getOutput()) {
-            Expression shuttledTopExpression = ExpressionUtils.shuttleExpressionWithLineage(
-                    topExpression, queryTopPlan);
+        Set<ExprId> usedTopProjectExprIds = new HashSet<>();
+        for (Expression shuttledTopExpression : shuttledTopPlanOutputs) {
             Expression replacedExpression = ExpressionUtils.replace(shuttledTopExpression,
                     bottomAggOutputToNewExprMap);
-            topProjectExpressions.add(replacedExpression instanceof NamedExpression
-                    ? (NamedExpression) replacedExpression : new Alias(replacedExpression));
+            if (replacedExpression instanceof NamedExpression
+                    && usedTopProjectExprIds.add(((NamedExpression) replacedExpression).getExprId())) {
+                topProjectExpressions.add((NamedExpression) replacedExpression);
+            } else {
+                // Keep a distinct output expr id for each top project position: multiple query top plan
+                // expressions can be rewritten to the same aggregate output slot, for example
+                // `select sum(v) as s1, sum(v) as s2 from t group by a`. Collapsing them would make the
+                // rewritten output set smaller than the query output set and skip the plan normalization.
+                topProjectExpressions.add(new Alias(replacedExpression));
+            }
         }
         // If the query top plan output expressions can be produced by the rewritten aggregate directly,
         // return the aggregate, otherwise compute them by a project above the rewritten aggregate.
@@ -395,10 +413,22 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         Expression queryFunctionShuttled = ExpressionUtils.shuttleExpressionWithLineage(
                 queryExpression,
                 queryStructInfo.getTopPlan());
+        return rewriteShuttledExpression(queryStructInfo, queryFunctionShuttled, mvShuttledExprToMvScanExprQueryBased,
+                rewriteMode, materializationContext, summaryIfFail, detailIfFail);
+    }
+
+    /**
+     * Rewrite the shuttled query expression by view, contains both group by dimension and aggregate
+     * function. The query expression is expected to be shuttled by lineage already, so the top plan is
+     * not traversed again here and the batched lineage result can be reused.
+     */
+    private Expression rewriteShuttledExpression(StructInfo queryStructInfo, Expression queryShuttledExpression,
+            Map<Expression, Expression> mvShuttledExprToMvScanExprQueryBased, ExpressionRewriteMode rewriteMode,
+            MaterializationContext materializationContext, String summaryIfFail, Supplier<String> detailIfFail) {
         AggregateExpressionRewriteContext expressionRewriteContext = new AggregateExpressionRewriteContext(
                 rewriteMode, mvShuttledExprToMvScanExprQueryBased, queryStructInfo.getTopPlan(),
                 queryStructInfo.getGroupingId());
-        Expression rewrittenExpression = queryFunctionShuttled.accept(AGGREGATE_EXPRESSION_REWRITER,
+        Expression rewrittenExpression = queryShuttledExpression.accept(AGGREGATE_EXPRESSION_REWRITER,
                 expressionRewriteContext);
         if (!expressionRewriteContext.isValid()) {
             materializationContext.recordFailReason(queryStructInfo, summaryIfFail, detailIfFail);
