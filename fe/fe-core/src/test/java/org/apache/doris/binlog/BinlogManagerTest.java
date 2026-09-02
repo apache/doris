@@ -26,6 +26,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.BinlogGcInfo;
+import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
@@ -33,6 +34,7 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -52,6 +54,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class BinlogManagerTest {
     private Map<Long, List<Long>> frameWork;
@@ -66,6 +69,8 @@ public class BinlogManagerTest {
     private long ttl = 3;
 
     private boolean enableDbBinlog = false;
+    private Set<Long> coldTableIds;
+    private Set<Long> missingDbIds;
 
     private MockedConstruction<BinlogConfigCache> mockedBinlogConfigCacheConstruction;
     private MockedConstruction<BinlogConfig> mockedBinlogConfigConstruction;
@@ -81,6 +86,8 @@ public class BinlogManagerTest {
     @Before
     public void setUp() {
         Assert.assertTrue(tableNumPerDb < 100);
+        coldTableIds = Sets.newHashSet();
+        missingDbIds = Sets.newHashSet();
         frameWork = Maps.newHashMap();
         for (int dbOff = 1; dbOff <= dbNum; ++dbOff) {
             long dbId = dbOff * dbBaseId;
@@ -104,12 +111,29 @@ public class BinlogManagerTest {
         mockedBinlogConfigCacheConstruction = Mockito.mockConstruction(BinlogConfigCache.class,
                 Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
                 (mock, context) -> {
-                    Mockito.doAnswer(inv -> new BinlogConfig()).when(mock)
-                            .getDBBinlogConfig(Mockito.anyLong());
-                    Mockito.doAnswer(inv -> new BinlogConfig()).when(mock)
-                            .getTableBinlogConfig(Mockito.anyLong(), Mockito.anyLong());
-                    Mockito.doReturn(true).when(mock)
-                            .isEnableTable(Mockito.anyLong(), Mockito.anyLong());
+                    Map<Long, BinlogConfig> tableBinlogConfigs = Maps.newHashMap();
+                    Mockito.doAnswer(inv -> new BinlogConfig()).when(mock).getDBBinlogConfig(Mockito.anyLong());
+                    Mockito.doAnswer(inv -> {
+                        long tableId = inv.getArgument(1);
+                        BinlogConfig config = tableBinlogConfigs.get(tableId);
+                        if (config != null || coldTableIds.contains(tableId)) {
+                            return config;
+                        }
+                        return new BinlogConfig();
+                    }).when(mock).getTableBinlogConfig(Mockito.anyLong(), Mockito.anyLong());
+                    Mockito.doAnswer(inv -> {
+                        long tableId = inv.getArgument(0);
+                        tableBinlogConfigs.put(tableId, inv.getArgument(1));
+                        return null;
+                    }).when(mock).putTableBinlogConfig(Mockito.anyLong(), Mockito.any());
+                    Mockito.doAnswer(inv -> {
+                        long tableId = inv.getArgument(1);
+                        BinlogConfig config = tableBinlogConfigs.get(tableId);
+                        if (config != null) {
+                            return config.isEnableForCCR();
+                        }
+                        return !coldTableIds.contains(tableId);
+                    }).when(mock).isEnableTable(Mockito.anyLong(), Mockito.anyLong());
                     Mockito.doAnswer(inv -> enableDbBinlog).when(mock)
                             .isEnableDB(Mockito.anyLong());
                     Mockito.doReturn(false).when(mock)
@@ -127,8 +151,8 @@ public class BinlogManagerTest {
         mockedInternalCatalogConstruction = Mockito.mockConstruction(InternalCatalog.class,
                 Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
                 (mock, context) -> {
-                    Mockito.doAnswer(inv -> new Database()).when(mock)
-                            .getDbNullable(Mockito.anyLong());
+                    Mockito.doAnswer(inv -> missingDbIds.contains((long) inv.getArgument(0))
+                            ? null : new Database()).when(mock).getDbNullable(Mockito.anyLong());
                 });
 
         mockedEnv = Mockito.mockStatic(Env.class);
@@ -303,6 +327,118 @@ public class BinlogManagerTest {
                         newBinlogList.get(i).getCommitSeq());
             }
         }
+    }
+
+    @Test
+    public void testReplaceTableWithColdConfigCachePersists() throws IOException {
+        mockedBinlogConfigConstruction.close();
+        mockedBinlogConfigConstruction = null;
+
+        long dbId = dbBaseId;
+        long origTableId = tableBaseId;
+        coldTableIds.add(origTableId);
+        BinlogConfig config = new BinlogConfig(true, 11L, 22L, 33L,
+                BinlogConfig.BinlogFormat.STATEMENT_AND_SNAPSHOT, false);
+        ReplaceTableOperationLog log = new ReplaceTableOperationLog(dbId, origTableId, "old_table",
+                tableBaseId + 1, "new_table", false, false, config);
+
+        BinlogManager manager = new BinlogManager();
+        manager.addReplaceTable(log, baseNum);
+        assertReplaceTableBinlog(manager, dbId, origTableId);
+
+        BinlogConfigCache cache = mockedBinlogConfigCacheConstruction.constructed().get(0);
+        Assert.assertEquals(config, cache.getTableBinlogConfig(dbId, origTableId));
+
+        ByteArrayOutputStream arrayOutputStream = new ByteArrayOutputStream();
+        manager.write(new DataOutputStream(arrayOutputStream), 0L);
+
+        BinlogManager recoveredManager = new BinlogManager();
+        recoveredManager.read(new DataInputStream(new ByteArrayInputStream(arrayOutputStream.toByteArray())), 0L);
+        assertReplaceTableBinlog(recoveredManager, dbId, origTableId);
+
+        BinlogConfigCache recoveredCache = mockedBinlogConfigCacheConstruction.constructed().get(1);
+        Assert.assertEquals(config, recoveredCache.getTableBinlogConfig(dbId, origTableId));
+    }
+
+    @Test
+    public void testLegacyReplaceTableWithColdConfigCacheKeepsLegacyBehavior() {
+        long dbId = dbBaseId;
+        long origTableId = tableBaseId;
+        coldTableIds.add(origTableId);
+        ReplaceTableOperationLog log = new ReplaceTableOperationLog(dbId, origTableId, "old_table",
+                tableBaseId + 1, "new_table", false, false);
+
+        BinlogManager manager = new BinlogManager();
+        manager.addReplaceTable(log, baseNum);
+
+        Pair<TStatus, TBinlog> result = manager.getBinlog(dbId, origTableId, 0L);
+        Assert.assertEquals(TStatusCode.BINLOG_NOT_FOUND_DB, result.first.getStatusCode());
+        Assert.assertNull(result.second);
+    }
+
+    @Test
+    public void testImageRecoveryAcrossMissingDatabaseRegion() throws Exception {
+        mockedBinlogConfigConstruction.close();
+        mockedBinlogConfigConstruction = null;
+
+        long firstDbId = dbBaseId;
+        long missingDbId = dbBaseId + 1;
+        long lastDbId = dbBaseId + 2;
+        long missingTableId = tableBaseId + 1;
+        missingDbIds.add(missingDbId);
+        coldTableIds.add(missingTableId);
+
+        BinlogConfig config = new BinlogConfig(true, 11L, 22L, 33L,
+                BinlogConfig.BinlogFormat.STATEMENT_AND_SNAPSHOT, false);
+        ReplaceTableOperationLog replaceLog = new ReplaceTableOperationLog(missingDbId, missingTableId, "old_table",
+                missingTableId + 1, "new_table", false, false, config);
+        TBinlog replaceBinlog = new TBinlog();
+        replaceBinlog.setDbId(missingDbId);
+        replaceBinlog.setTableIds(Lists.newArrayList(missingTableId));
+        replaceBinlog.setType(TBinlogType.REPLACE_TABLE);
+        replaceBinlog.setCommitSeq(20L);
+        replaceBinlog.setTimestamp(20L);
+        replaceBinlog.setData(replaceLog.toJson());
+        replaceBinlog.setTableRef(0);
+
+        List<TBinlog> imageBinlogs = Lists.newArrayList(
+                BinlogUtils.newDummyBinlog(firstDbId, -1),
+                BinlogTestUtils.newBinlog(firstDbId, tableBaseId, 10L, 10L),
+                BinlogUtils.newDummyBinlog(missingDbId, -1),
+                replaceBinlog,
+                BinlogUtils.newDummyBinlog(lastDbId, -1),
+                BinlogTestUtils.newBinlog(lastDbId, tableBaseId + 2, 30L, 30L));
+        ByteArrayOutputStream arrayOutputStream = new ByteArrayOutputStream();
+        DataOutputStream outputStream = new DataOutputStream(arrayOutputStream);
+        outputStream.writeInt(imageBinlogs.size());
+        Method writeBinlog = BinlogManager.class.getDeclaredMethod(
+                "writeTBinlogToStream", DataOutputStream.class, TBinlog.class);
+        writeBinlog.setAccessible(true);
+        for (TBinlog binlog : imageBinlogs) {
+            writeBinlog.invoke(null, outputStream, binlog);
+        }
+
+        BinlogManager manager = new BinlogManager();
+        manager.read(new DataInputStream(new ByteArrayInputStream(arrayOutputStream.toByteArray())), 0L);
+
+        assertTableBinlogType(manager, firstDbId, tableBaseId, TBinlogType.ALTER_JOB);
+        Pair<TStatus, TBinlog> missingResult = manager.getBinlog(missingDbId, missingTableId, 0L);
+        Assert.assertEquals(TStatusCode.BINLOG_NOT_FOUND_DB, missingResult.first.getStatusCode());
+        Assert.assertNull(missingResult.second);
+        BinlogConfigCache cache = mockedBinlogConfigCacheConstruction.constructed().get(0);
+        Assert.assertNull(cache.getTableBinlogConfig(missingDbId, missingTableId));
+        assertTableBinlogType(manager, lastDbId, tableBaseId + 2, TBinlogType.ALTER_JOB);
+    }
+
+    private void assertReplaceTableBinlog(BinlogManager manager, long dbId, long tableId) {
+        assertTableBinlogType(manager, dbId, tableId, TBinlogType.REPLACE_TABLE);
+    }
+
+    private void assertTableBinlogType(BinlogManager manager, long dbId, long tableId, TBinlogType type) {
+        Pair<TStatus, TBinlog> result = manager.getBinlog(dbId, tableId, 0L);
+        Assert.assertEquals(TStatusCode.OK, result.first.getStatusCode());
+        Assert.assertNotNull(result.second);
+        Assert.assertEquals(type, result.second.getType());
     }
 
     @Test
