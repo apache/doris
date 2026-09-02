@@ -46,4 +46,11 @@ inline bool should_sync_outfile_marker(TStorageBackendType::type storage_type) {
     return storage_type == TStorageBackendType::LOCAL;
 }
 
+inline bool should_check_outfile_marker_existence(const TResultFileSinkOptions& file_options,
+                                                  TStorageBackendType::type storage_type) {
+    // Legacy remote writers keep their historical overwrite/append semantics during rolling
+    // upgrades; only atomic requests opt into the cross-storage ownership check.
+    return storage_type == TStorageBackendType::LOCAL || file_options.enable_atomic_outfile;
+}
+
 } // namespace doris

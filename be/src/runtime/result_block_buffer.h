@@ -147,6 +147,7 @@ protected:
 
     enum class OutfileState : uint8_t { PENDING, PREPARED, COMMITTED, ABORTED };
     OutfileState _outfile_state = OutfileState::PENDING;
+    std::mutex _outfile_cleanup_drain_lock;
     std::vector<OutfileCleanup> _outfile_cleanups;
 };
 

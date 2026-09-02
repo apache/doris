@@ -162,6 +162,12 @@ Status ResultBlockBuffer<ResultCtxType>::add_outfile_cleanup(OutfileCleanup clea
 template <typename ResultCtxType>
 Status ResultBlockBuffer<ResultCtxType>::finish_outfile(OutfileOperation operation) {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    std::unique_lock<std::mutex> drain_guard(_outfile_cleanup_drain_lock, std::defer_lock);
+    if (operation == OutfileOperation::ABORT) {
+        // An empty callback vector is only terminal after the active drain returns; serializing
+        // drains preserves failed cleanup ownership for a concurrent timeout or shutdown retry.
+        drain_guard.lock();
+    }
     std::vector<OutfileCleanup> cleanups;
     {
         std::lock_guard<std::mutex> l(_lock);

@@ -773,11 +773,12 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
         std::stringstream ss;
         ss << file_options.file_path << file_options.success_file_name;
         std::string file_name = ss.str();
+        const bool atomic_outfile_marker = file_options.enable_atomic_outfile;
         const std::string marker_token =
                 request->marker_token().empty() ? file_name : request->marker_token();
         const auto now = std::chrono::steady_clock::now();
         std::shared_ptr<std::mutex> operation_lock;
-        {
+        if (atomic_outfile_marker) {
             std::lock_guard marker_guard(outfile_marker_lock);
             cleanup_expired_outfile_marker_states(now);
             operation_lock = outfile_marker_operation_locks[marker_token].lock();
@@ -789,9 +790,12 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
 
         // Serialize only requests for the same query marker. Remote file-system calls can be slow,
         // so unrelated OUTFILE queries must not block behind them.
-        std::unique_lock operation_guard(*operation_lock);
+        std::unique_lock<std::mutex> operation_guard;
+        if (atomic_outfile_marker) {
+            operation_guard = std::unique_lock(*operation_lock);
+        }
         std::string owned_marker_path;
-        {
+        if (atomic_outfile_marker) {
             std::lock_guard marker_guard(outfile_marker_lock);
             auto& marker_state = outfile_marker_states[marker_token];
             marker_state.updated_at = now;
@@ -833,6 +837,11 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
         auto file_system = std::move(fs_res).value();
 
         if (request->operation() == OUTFILE_MARKER_DELETE) {
+            if (!atomic_outfile_marker) {
+                Status::InvalidArgument("legacy OUTFILE has no marker rollback operation")
+                        .to_protobuf(result->mutable_status());
+                return;
+            }
             // Delete only a path created by this token. A blind rollback could otherwise remove a
             // pre-existing user file when CREATE failed before acquiring ownership.
             if (owned_marker_path.empty()) {
@@ -859,15 +868,18 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
             return;
         }
 
-        // Never claim an existing marker path; rollback is restricted to token-owned paths below.
-        bool exists = true;
-        st = file_system->exists(file_name, &exists);
-        if (st.ok() && exists) {
-            st = Status::InternalError("File already exists: {}", file_name);
-        }
-        if (!st.ok()) {
-            st.to_protobuf(result->mutable_status());
-            return;
+        if (should_check_outfile_marker_existence(file_options,
+                                                  result_file_sink.storage_backend_type)) {
+            // Never claim an existing marker path; rollback is restricted to token-owned paths.
+            bool exists = true;
+            st = file_system->exists(file_name, &exists);
+            if (st.ok() && exists) {
+                st = Status::InternalError("File already exists: {}", file_name);
+            }
+            if (!st.ok()) {
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
         }
 
         io::FileWriterPtr file_writer;
@@ -904,7 +916,7 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
             st.to_protobuf(result->mutable_status());
             return;
         }
-        {
+        if (atomic_outfile_marker) {
             std::lock_guard marker_guard(outfile_marker_lock);
             auto& marker_state = outfile_marker_states[marker_token];
             marker_state.updated_at = std::chrono::steady_clock::now();

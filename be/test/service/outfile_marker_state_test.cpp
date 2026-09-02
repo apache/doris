@@ -47,4 +47,22 @@ TEST(OutfileMarkerStateTest, SyncsOnlyLocalSuccessMarker) {
     EXPECT_FALSE(should_sync_outfile_marker(TStorageBackendType::S3));
 }
 
+TEST(OutfileMarkerStateTest, ExistingMarkerPolicyPreservesLegacyRemoteBehavior) {
+    TResultFileSinkOptions legacy_options;
+    EXPECT_TRUE(should_check_outfile_marker_existence(legacy_options, TStorageBackendType::LOCAL));
+    EXPECT_FALSE(should_check_outfile_marker_existence(legacy_options, TStorageBackendType::S3));
+    EXPECT_FALSE(should_check_outfile_marker_existence(legacy_options, TStorageBackendType::HDFS));
+    EXPECT_FALSE(
+            should_check_outfile_marker_existence(legacy_options, TStorageBackendType::BROKER));
+
+    legacy_options.__set_enable_atomic_outfile(false);
+    EXPECT_FALSE(should_check_outfile_marker_existence(legacy_options, TStorageBackendType::S3));
+
+    TResultFileSinkOptions atomic_options;
+    atomic_options.__set_enable_atomic_outfile(true);
+    EXPECT_TRUE(should_check_outfile_marker_existence(atomic_options, TStorageBackendType::S3));
+    EXPECT_TRUE(should_check_outfile_marker_existence(atomic_options, TStorageBackendType::HDFS));
+    EXPECT_TRUE(should_check_outfile_marker_existence(atomic_options, TStorageBackendType::BROKER));
+}
+
 } // namespace doris

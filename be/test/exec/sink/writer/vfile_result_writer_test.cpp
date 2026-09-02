@@ -17,13 +17,18 @@
 
 #include "exec/sink/writer/vfile_result_writer.h"
 
+#include <fmt/format.h>
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <set>
+#include <type_traits>
 
 #include "exec/operator/result_sink_operator.h"
 #include "format/transformer/vorc_transformer.h"
 #include "format/transformer/vparquet_transformer.h"
+#include "io/file_factory.h"
+#include "io/fs/broker_file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/local_file_writer.h"
@@ -108,7 +113,8 @@ TEST(VFileResultWriterTest, FailedCloseRemovesOnlyOwnedOutputFiles) {
     VFileResultWriter writer(TDataSink {}, {}, nullptr, nullptr);
     writer._storage_type = TStorageBackendType::LOCAL;
     writer._file_system = io::global_local_filesystem();
-    writer._created_files = {{writer._file_system, first_path}, {writer._file_system, second_path}};
+    writer._created_file_systems.emplace(0, writer._file_system);
+    writer._created_files = {{0, first_path}, {0, second_path}};
 
     ASSERT_FALSE(writer.close(Status::IOError("injected outfile failure")).ok());
 
@@ -162,6 +168,44 @@ TEST(VFileResultWriterTest, LocalOutfilePreservesSynchronousClose) {
 
     ASSERT_FALSE(writer.close(Status::Cancelled("test cleanup")).ok());
     std::filesystem::remove_all(directory);
+}
+
+TEST(VFileResultWriterTest, DeferredBrokerCleanupOwnsConfiguration) {
+    EXPECT_FALSE((std::is_reference_v<decltype(io::BrokerFileSystem::_broker_addr)>));
+    EXPECT_FALSE((std::is_reference_v<decltype(io::BrokerFileSystem::_broker_prop)>));
+
+    std::unique_ptr<io::BrokerFileSystem> file_system;
+    {
+        TNetworkAddress address;
+        address.__set_hostname("broker.test");
+        address.__set_port(8000);
+        std::map<std::string, std::string> properties {{"key", "value"}};
+        file_system.reset(new io::BrokerFileSystem(address, properties, "test"));
+    }
+    EXPECT_EQ(file_system->_broker_addr.hostname, "broker.test");
+    EXPECT_EQ(file_system->_broker_prop.at("key"), "value");
+}
+
+TEST(VFileResultWriterTest, ManyRotationsRetainBoundedFileSystems) {
+    VFileResultWriter writer(TDataSink {}, {}, nullptr, nullptr);
+    auto file_system = io::global_local_filesystem();
+    std::vector<TNetworkAddress> brokers(2);
+    brokers[0].__set_hostname("broker-a.test");
+    brokers[0].__set_port(8000);
+    brokers[1].__set_hostname("broker-b.test");
+    brokers[1].__set_port(8001);
+    std::set<int32_t> selected_brokers;
+
+    for (int part = 0; part < 1000; ++part) {
+        std::string path = fmt::format("part-{}.csv", part);
+        int32_t broker_index = get_broker_index(brokers, path);
+        selected_brokers.emplace(broker_index);
+        writer._record_created_file(broker_index, file_system, path);
+    }
+
+    ASSERT_EQ(selected_brokers.size(), brokers.size());
+    EXPECT_EQ(writer._created_files.size(), 1000);
+    EXPECT_EQ(writer._created_file_systems.size(), brokers.size());
 }
 
 } // namespace doris

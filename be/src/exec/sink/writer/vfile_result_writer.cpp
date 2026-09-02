@@ -69,10 +69,12 @@ static double nons_to_second = 1000000000.00;
 
 namespace {
 
-using OwnedOutfile = std::pair<std::shared_ptr<io::FileSystem>, io::Path>;
+using OutfileFileSystemId = int32_t;
+using OwnedOutfile = std::pair<OutfileFileSystemId, io::Path>;
 
 struct OutfileCleanupState {
     std::shared_ptr<io::FileWriter> writer;
+    std::unordered_map<OutfileFileSystemId, std::shared_ptr<io::FileSystem>> file_systems;
     std::vector<OwnedOutfile> files;
 
     Status cleanup() {
@@ -87,13 +89,18 @@ struct OutfileCleanupState {
         }
 
         std::vector<OwnedOutfile> failed_files;
-        for (auto& [file_system, path] : files) {
-            Status status = file_system->delete_file(path);
+        for (auto& [file_system_id, path] : files) {
+            auto file_system = file_systems.find(file_system_id);
+            Status status = file_system == file_systems.end()
+                                    ? Status::InternalError(
+                                              "missing filesystem for OUTFILE cleanup path {}",
+                                              path.string())
+                                    : file_system->second->delete_file(path);
             if (!status.ok() && !status.is<ErrorCode::NOT_FOUND>()) {
                 if (first_failure.ok()) {
                     first_failure = status;
                 }
-                failed_files.emplace_back(file_system, path);
+                failed_files.emplace_back(file_system_id, path);
             }
         }
         files = std::move(failed_files);
@@ -170,15 +177,29 @@ Status VFileResultWriter::_create_next_file_writer() {
 
 Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
     auto file_type = DORIS_TRY(FileFactory::convert_storage_type(_storage_type));
-    io::FSPropertiesRef properties(file_type);
-    properties.broker_addresses = &_file_opts->broker_addresses;
-    properties.properties = &_file_opts->broker_properties;
-    io::FileDescription file_description;
-    file_description.path = file_name;
-    _file_system = DORIS_TRY(FileFactory::create_fs(properties, file_description));
+    int32_t file_system_id = 0;
+    if (_storage_type == TStorageBackendType::BROKER) {
+        file_system_id = get_broker_index(_file_opts->broker_addresses, file_name);
+        if (file_system_id < 0) {
+            return Status::InternalError("empty broker_addresses");
+        }
+    }
+    auto file_system = _created_file_systems.find(file_system_id);
+    if (file_system == _created_file_systems.end()) {
+        io::FSPropertiesRef properties(file_type);
+        properties.broker_addresses = &_file_opts->broker_addresses;
+        properties.properties = &_file_opts->broker_properties;
+        io::FileDescription file_description;
+        file_description.path = file_name;
+        auto new_file_system = DORIS_TRY(FileFactory::create_fs(properties, file_description));
+        file_system =
+                _created_file_systems.emplace(file_system_id, std::move(new_file_system)).first;
+    }
+    _file_system = file_system->second;
     // Create/open can publish a path before returning an error, so claim deterministic ownership
-    // first. A separate filesystem preserves Broker's existing per-path endpoint selection.
-    _created_files.emplace_back(_file_system, file_name);
+    // first. Reuse one owned filesystem per storage identity or selected Broker endpoint so the
+    // deferred manifest grows only by paths, not initialized client wrappers.
+    _record_created_file(file_system_id, _file_system, file_name);
     // Local OUTFILE historically synced successful closes; preserve that durability while remote
     // writers keep the existing no-sync option to avoid redundant flushes.
     const io::FileWriterOptions options {
@@ -566,10 +587,11 @@ Status VFileResultWriter::_cleanup_created_files() {
                 file_system = io::global_local_filesystem();
             }
             if (file_system != nullptr) {
-                _created_files.emplace_back(std::move(file_system), cleanup_state->writer->path());
+                _record_created_file(0, std::move(file_system), cleanup_state->writer->path());
             }
         }
     }
+    cleanup_state->file_systems = std::move(_created_file_systems);
     cleanup_state->files = std::move(_created_files);
     Status status = run_cleanup_with_retries(cleanup_state);
     if (!status.ok() && _file_opts != nullptr && _file_opts->enable_atomic_outfile &&
@@ -586,15 +608,24 @@ Status VFileResultWriter::_cleanup_created_files() {
 Status VFileResultWriter::_register_created_files_cleanup() {
     if (_file_opts == nullptr || !_file_opts->enable_atomic_outfile) {
         _created_files.clear();
+        _created_file_systems.clear();
         return Status::OK();
     }
     if (_sinker == nullptr || _created_files.empty()) {
         return Status::InternalError("atomic OUTFILE has no result buffer cleanup owner");
     }
     auto cleanup_state = std::make_shared<OutfileCleanupState>();
+    cleanup_state->file_systems = std::move(_created_file_systems);
     cleanup_state->files = std::move(_created_files);
     return _sinker->add_outfile_cleanup(
             [cleanup_state] { return run_cleanup_with_retries(cleanup_state); });
+}
+
+void VFileResultWriter::_record_created_file(int32_t file_system_id,
+                                             std::shared_ptr<io::FileSystem> file_system,
+                                             const io::Path& path) {
+    _created_file_systems.try_emplace(file_system_id, std::move(file_system));
+    _created_files.emplace_back(file_system_id, path);
 }
 
 } // namespace doris

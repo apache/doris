@@ -20,6 +20,11 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
+#include <future>
+#include <thread>
+
 #include "core/block/block.h"
 #include "exec/sink/writer/varrow_flight_result_writer.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
@@ -288,6 +293,49 @@ TEST_F(ResultBufferMgrTest, OutfileAbortRetainsFailedCleanupForRetry) {
     EXPECT_FALSE(buffer_mgr.finish_outfile(query_id, OutfileOperation::ABORT).ok());
     EXPECT_TRUE(buffer_mgr.finish_outfile(query_id, OutfileOperation::ABORT).ok());
     EXPECT_EQ(cleanup_count, 2);
+}
+
+TEST_F(ResultBufferMgrTest, ConcurrentCancellationWaitsForOutfileAbortDrain) {
+    ResultBufferMgr buffer_mgr;
+    TUniqueId query_id;
+    query_id.lo = 80;
+    query_id.hi = 800;
+
+    std::shared_ptr<ResultBlockBufferBase> buffer;
+    ASSERT_TRUE(buffer_mgr.create_sender(query_id, 1024, &buffer, &_state, false).ok());
+    CountDownLatch cleanup_started(1);
+    CountDownLatch release_cleanup(1);
+    std::atomic<int> cleanup_attempts = 0;
+    ASSERT_TRUE(buffer->add_outfile_cleanup([&] {
+                          int attempt = ++cleanup_attempts;
+                          if (attempt == 1) {
+                              cleanup_started.count_down();
+                              release_cleanup.wait();
+                              return Status::IOError("injected cleanup failure");
+                          }
+                          return Status::OK();
+                      }).ok());
+
+    auto abort_future = std::async(std::launch::async, [&] {
+        return buffer_mgr.finish_outfile(query_id, OutfileOperation::ABORT);
+    });
+    ASSERT_TRUE(cleanup_started.wait_for(std::chrono::seconds(5)));
+    auto cancel_future = std::async(std::launch::async, [&] {
+        return buffer_mgr.cancel(query_id, Status::Cancelled("injected cancellation"));
+    });
+
+    std::shared_ptr<MySQLResultBlockBuffer> observed_buffer;
+    for (int attempt = 0; attempt < 5000 && buffer_mgr.find_buffer(query_id, observed_buffer).ok();
+         ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    bool buffer_removed = !buffer_mgr.find_buffer(query_id, observed_buffer).ok();
+    release_cleanup.count_down();
+
+    ASSERT_TRUE(buffer_removed);
+    EXPECT_FALSE(abort_future.get().ok());
+    EXPECT_TRUE(cancel_future.get());
+    EXPECT_EQ(cleanup_attempts.load(), 2);
 }
 
 } // namespace doris
