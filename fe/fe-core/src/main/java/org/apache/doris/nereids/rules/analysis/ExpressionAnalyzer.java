@@ -124,6 +124,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -309,14 +310,31 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
         Optional<Scope> outerScope = getScope().getOuterScope();
-        Optional<List<? extends Expression>> boundedOpt = Optional.of(bindSlotByThisScope(unboundSlot));
-        boolean foundInThisScope = !boundedOpt.get().isEmpty();
+        List<? extends Expression> bounded = ImmutableList.of();
+        boolean foundInThisScope = false;
+        boolean canBindOuterScope = bindSlotInOuterScope && outerScope.isPresent();
+
+        // A multipart name can be either a relation-qualified column (t.col) or a nested field
+        // reference (col.field). In a correlated subquery, try the relation-qualified interpretation
+        // in both visible scopes first, so an inner column named "t" does not hide an outer alias "t".
+        if (canBindOuterScope && shouldPrioritizeRelationQualifier()
+                && unboundSlot.getNameParts().size() > 1) {
+            bounded = bindSlotByRelationQualifierInThisScope(unboundSlot);
+            foundInThisScope = !bounded.isEmpty();
+            if (!foundInThisScope) {
+                bounded = bindSlotByRelationQualifier(unboundSlot, outerScope.get());
+            }
+        }
+
+        if (bounded.isEmpty()) {
+            bounded = bindSlotByThisScope(unboundSlot);
+            foundInThisScope = !bounded.isEmpty();
+        }
         // Currently only looking for symbols on the previous level.
-        if (bindSlotInOuterScope && !foundInThisScope && outerScope.isPresent()) {
-            boundedOpt = Optional.of(bindSlotByScope(unboundSlot, outerScope.get()));
+        if (canBindOuterScope && bounded.isEmpty()) {
+            bounded = bindSlotByScope(unboundSlot, outerScope.get());
         }
         // it is heavy to deduplicate slots in scope. So we deduplicates bounded here
-        List<? extends Expression> bounded = boundedOpt.get();
         if (bounded.size() > 1) {
             bounded = bounded.stream().distinct().collect(Collectors.toList());
         }
@@ -330,14 +348,15 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 return unboundSlot;
             case 1:
                 Expression firstBound = bounded.get(0);
-                if (!foundInThisScope && firstBound instanceof Slot
-                        && !outerScope.get().getCorrelatedSlots().contains(firstBound)) {
+                Set<Slot> inputSlots = firstBound.getInputSlots();
+                if (!foundInThisScope
+                        && !outerScope.get().getCorrelatedSlots().containsAll(inputSlots)) {
                     if (currentPlan instanceof LogicalJoin) {
                         throw new AnalysisException(
                                 "Unsupported correlated subquery with correlated slot in join conjuncts "
                                         + currentPlan);
                     }
-                    outerScope.get().getCorrelatedSlots().add((Slot) firstBound);
+                    outerScope.get().getCorrelatedSlots().addAll(inputSlots);
                 }
                 if (firstBound.getDataType() instanceof NestedColumnPrunable
                         || firstBound.getDataType().isVariantType()) {
@@ -454,6 +473,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 boundedSlots), context == null ? null : context.cascadesContext,
                 true, true) {
             @Override
+            protected boolean shouldPrioritizeRelationQualifier() {
+                return false;
+            }
+
+            @Override
             protected void couldNotFoundColumn(UnboundSlot unboundSlot, String tableName) {
                 throw new AnalysisException("Unknown lambda slot '"
                         + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
@@ -461,6 +485,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }
         };
         return lambdaAnalyzer.analyze(lambdaFunction, context);
+    }
+
+    /** Whether relation-qualified columns should be resolved across scopes before nested fields. */
+    protected boolean shouldPrioritizeRelationQualifier() {
+        return true;
     }
 
     UnboundFunction preProcessUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
@@ -1143,8 +1172,17 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return bindSlotByScope(unboundSlot, getScope());
     }
 
+    protected List<? extends Expression> bindSlotByRelationQualifierInThisScope(UnboundSlot unboundSlot) {
+        return bindSlotByRelationQualifier(unboundSlot, getScope());
+    }
+
     protected List<Expression> bindExactSlotsByThisScope(UnboundSlot unboundSlot, Scope scope) {
-        List<Expression> candidates = bindSlotByScope(unboundSlot, scope);
+        return bindExactSlotsByThisScope(unboundSlot, scope, false);
+    }
+
+    protected List<Expression> bindExactSlotsByThisScope(
+            UnboundSlot unboundSlot, Scope scope, boolean bindRelationQualifierOnly) {
+        List<Expression> candidates = bindSlotByScope(unboundSlot, scope, bindRelationQualifierOnly);
         if (candidates.size() == 1) {
             return candidates;
         }
@@ -1192,12 +1230,44 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
     }
 
+    protected List<Expression> bindSlotByScope(
+            UnboundSlot unboundSlot, Scope scope, boolean bindRelationQualifierOnly) {
+        return bindRelationQualifierOnly
+                ? bindSlotByRelationQualifier(unboundSlot, scope)
+                : bindSlotByScope(unboundSlot, scope);
+    }
+
+    /** Bind a multipart slot as a relation-qualified column, without treating its first part as a column. */
+    protected List<Expression> bindSlotByRelationQualifier(UnboundSlot unboundSlot, Scope scope) {
+        List<String> nameParts = unboundSlot.getNameParts();
+        Optional<Pair<Integer, Integer>> idxInSql = unboundSlot.getIndexInSqlString();
+        switch (nameParts.size()) {
+            case 1:
+                return ImmutableList.of();
+            case 2:
+                return (List<Expression>) bindExpressionByTableColumn(
+                        unboundSlot, nameParts, idxInSql, scope, false);
+            case 3:
+                return (List<Expression>) bindExpressionByDbTableColumn(
+                        unboundSlot, nameParts, idxInSql, scope, false);
+            default:
+                return (List<Expression>) bindExpressionByCatalogDbTableColumn(
+                        unboundSlot, nameParts, idxInSql, scope, false);
+        }
+    }
+
     private List<? extends Expression> bindExpressionByCatalogDbTableColumn(
             UnboundSlot unboundSlot, List<String> nameParts, Optional<Pair<Integer, Integer>> idxInSql, Scope scope) {
+        return bindExpressionByCatalogDbTableColumn(unboundSlot, nameParts, idxInSql, scope, true);
+    }
+
+    private List<? extends Expression> bindExpressionByCatalogDbTableColumn(
+            UnboundSlot unboundSlot, List<String> nameParts, Optional<Pair<Integer, Integer>> idxInSql,
+            Scope scope, boolean fallbackToColumn) {
         List<Slot> slots = bindSingleSlotByCatalog(
                         nameParts.get(0), nameParts.get(1), nameParts.get(2), nameParts.get(3), scope);
         if (slots.isEmpty()) {
-            return bindExpressionByDbTableColumn(unboundSlot, nameParts, idxInSql, scope);
+            return bindExpressionByDbTableColumn(unboundSlot, nameParts, idxInSql, scope, fallbackToColumn);
         } else if (slots.size() > 1) {
             return addSqlIndexInfo(slots, idxInSql);
         }
@@ -1216,9 +1286,15 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     private List<? extends Expression> bindExpressionByDbTableColumn(
             UnboundSlot unboundSlot, List<String> nameParts, Optional<Pair<Integer, Integer>> idxInSql, Scope scope) {
+        return bindExpressionByDbTableColumn(unboundSlot, nameParts, idxInSql, scope, true);
+    }
+
+    private List<? extends Expression> bindExpressionByDbTableColumn(
+            UnboundSlot unboundSlot, List<String> nameParts, Optional<Pair<Integer, Integer>> idxInSql,
+            Scope scope, boolean fallbackToColumn) {
         List<Slot> slots = bindSingleSlotByDb(nameParts.get(0), nameParts.get(1), nameParts.get(2), scope);
         if (slots.isEmpty()) {
-            return bindExpressionByTableColumn(unboundSlot, nameParts, idxInSql, scope);
+            return bindExpressionByTableColumn(unboundSlot, nameParts, idxInSql, scope, fallbackToColumn);
         } else if (slots.size() > 1) {
             return addSqlIndexInfo(slots, idxInSql);
         }
@@ -1237,9 +1313,17 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     private List<? extends Expression> bindExpressionByTableColumn(
             UnboundSlot unboundSlot, List<String> nameParts, Optional<Pair<Integer, Integer>> idxInSql, Scope scope) {
+        return bindExpressionByTableColumn(unboundSlot, nameParts, idxInSql, scope, true);
+    }
+
+    private List<? extends Expression> bindExpressionByTableColumn(
+            UnboundSlot unboundSlot, List<String> nameParts, Optional<Pair<Integer, Integer>> idxInSql,
+            Scope scope, boolean fallbackToColumn) {
         List<Slot> slots = bindSingleSlotByTable(nameParts.get(0), nameParts.get(1), scope);
         if (slots.isEmpty()) {
-            return bindExpressionByColumn(unboundSlot, nameParts, idxInSql, scope);
+            return fallbackToColumn
+                    ? bindExpressionByColumn(unboundSlot, nameParts, idxInSql, scope)
+                    : ImmutableList.of();
         } else if (slots.size() > 1) {
             return addSqlIndexInfo(slots, idxInSql);
         }

@@ -66,4 +66,116 @@ suite("test_dereference") {
         sql "select s.a from test_dereference2"
         exception "No such struct field 'a' in 's'"
     }
+
+    multi_sql """
+        drop table if exists test_correlated_dereference_outer;
+        drop table if exists test_correlated_dereference_inner_scalar;
+        drop table if exists test_correlated_dereference_inner_struct;
+        create table test_correlated_dereference_outer(
+          id int,
+          value int,
+          `@event_name` varchar(32),
+          payload struct<k:int>,
+          items array<struct<value:int>>
+        )
+        distributed by hash(id)
+        properties('replication_num'='1');
+
+        create table test_correlated_dereference_inner_scalar(
+          id int,
+          t1 int
+        )
+        distributed by hash(id)
+        properties('replication_num'='1');
+
+        create table test_correlated_dereference_inner_struct(
+          id int,
+          outer_alias struct<value:int>
+        )
+        distributed by hash(id)
+        properties('replication_num'='1');
+
+        insert into test_correlated_dereference_outer values
+            (1, 10, 'blocked', struct(1), array(struct(1), struct(2))),
+            (2, 20, 'kept', struct(2), array(struct(3)));
+        insert into test_correlated_dereference_inner_scalar values (1, 0);
+        insert into test_correlated_dereference_inner_struct values (1, struct(10));
+        """
+
+    test {
+        sql """
+            select t1.id, t1.`@event_name`
+            from test_correlated_dereference_outer t1
+            where not exists (
+                select 1 from test_correlated_dereference_inner_scalar inner_alias
+                where t1.`@event_name` = 'blocked'
+            )
+            order by t1.id
+            """
+        result([[2, 'kept']])
+    }
+
+    test {
+        sql """
+            select outer_alias.id, outer_alias.value
+            from test_correlated_dereference_outer outer_alias
+            where not exists (
+                select 1 from test_correlated_dereference_inner_struct inner_alias
+                where outer_alias.value = 10
+            )
+            order by outer_alias.id
+        """
+        result([[2, 20]])
+    }
+
+    test {
+        sql """
+            select x.id, array_map(x -> x.value, x.items)
+            from test_correlated_dereference_outer x
+            order by x.id
+            """
+        result([[1, '[1, 2]'], [2, '[3]']])
+    }
+
+    test {
+        sql """
+            select outer_alias.id
+            from test_correlated_dereference_outer outer_alias
+            where exists (
+                select 1 from test_correlated_dereference_inner_struct inner_alias
+                where outer_alias.payload.k = 1
+            )
+            order by outer_alias.id
+            """
+        result([[1]])
+    }
+
+    test {
+        sql """
+            select t.id
+            from test_correlated_dereference_outer t
+            where exists (
+                select 1
+                from test_correlated_dereference_inner_scalar t
+                having max(t.id) < 2
+            )
+            order by t.id
+            """
+        result([[1], [2]])
+    }
+
+    test {
+        sql """
+            select t.id
+            from test_correlated_dereference_outer t
+            where exists (
+                select 1
+                from test_correlated_dereference_inner_scalar t
+                group by t.id
+                qualify row_number() over (order by id) = t.id
+            )
+            order by t.id
+            """
+        result([[1], [2]])
+    }
 }
