@@ -815,6 +815,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support create ExternalCatalog Tables");
         }
+        HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
         DatabaseIf db = catalog.getDbNullable(dbName);
         if (db == null) {
             if (!ignoreIfExists) {
@@ -822,9 +823,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             return;
         }
+        long metadataLoadEpoch = ((HMSExternalDatabase) db).acquireTableMetadataLoadEpoch();
 
         long tblId;
-        HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
         tblId = Util.genIdByName(catalogName, dbName, tableName);
         // -1L means it will be dropped later, ignore
         if (tblId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
@@ -836,7 +837,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             HMSExternalTable namedTable = ((HMSExternalDatabase) db)
                     .buildTableForInit(tableName, tableName, tblId, hmsCatalog, (HMSExternalDatabase) db, false);
             namedTable.setUpdateTime(updateTime);
-            db.registerTable(namedTable);
+            if (!((HMSExternalDatabase) db).registerTableFromEvent(namedTable, metadataLoadEpoch)) {
+                throw new DdlException("External table metadata changed while processing create event");
+            }
         } finally {
             db.writeUnlock();
         }
@@ -865,13 +868,16 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
 
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
+        long metadataLoadEpoch = hmsCatalog.acquireMetadataLoadEpoch();
         long dbId = Util.genIdByName(catalogName, dbName);
         // -1L means it will be dropped later, ignore
         if (dbId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
             return;
         }
 
-        hmsCatalog.registerDatabase(dbId, dbName);
+        if (!hmsCatalog.registerDatabaseFromEvent(dbId, dbName, metadataLoadEpoch)) {
+            throw new DdlException("External catalog metadata changed while processing create database event");
+        }
     }
 
     public void addExternalPartitions(String catalogName, String dbName, String tableName,
