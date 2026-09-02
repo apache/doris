@@ -71,6 +71,11 @@ ARROW_LEGACY_BUILD_FINGERPRINTS=(
     9d03645dd1cded5184a8126f5c7f4a6eb9b92b53
 )
 PAIMON_LEGACY_BUILD_FINGERPRINTS=(
+    # semantic marker stamped by the prebuilt currently shipped in the compile
+    # image, published from master before apache/doris#67158; that change only
+    # reorders the Paimon codec dependencies and does not alter installed
+    # artifacts, so this prebuilt remains compatible with the new inputs
+    cb82e41ba46f534e611cdd52e66b53c227d49bf8
     # published 2026-08-19, master after apache/doris#66842
     2bbf52e719bdbc8aaa428caab200ac13848f92e5
     # published 2026-08-05, master after apache/doris#66221
