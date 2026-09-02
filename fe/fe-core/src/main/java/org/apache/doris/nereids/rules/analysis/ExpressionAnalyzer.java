@@ -297,6 +297,14 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }
         }
         Expression right = elementAt.right().accept(this, context);
+        if (left.getDataType() instanceof StructType && right instanceof StringLikeLiteral) {
+            String selector = ((StringLikeLiteral) right).getStringValue();
+            StructField field = ((StructType) left.getDataType()).getField(selector);
+            if (field != null && !field.getName().equals(selector)) {
+                // BE struct names use the normalized thrift identity and cannot Unicode-fold external spelling.
+                right = new StringLiteral(field.getName());
+            }
+        }
         elementAt = (ElementAt) elementAt.withChildren(left, right);
         Expression coerced = TypeCoercionUtils.processBoundFunction(elementAt);
         if (isEnableVariantSchemaAutoCast(context)) {
@@ -1277,7 +1285,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     throw new AnalysisException("No such struct field '" + fieldName + "' in '" + lastFieldName + "'");
                 }
                 lastFieldName = fieldName;
-                expression = new ElementAt(expression, new StringLiteral(fieldName));
+                // Dereference-created selectors also cross the thrift boundary and must use runtime identity.
+                expression = new ElementAt(expression, new StringLiteral(field.getName()));
                 continue;
             } else if (dataType.isMapType()) {
                 expression = new ElementAt(expression, new StringLiteral(fieldName));

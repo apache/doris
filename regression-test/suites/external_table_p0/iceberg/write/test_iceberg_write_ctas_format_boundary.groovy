@@ -213,7 +213,32 @@ suite("test_iceberg_write_ctas_format_boundary",
     """
     assertEquals([[7L, 8L, 9L]], nestedValues)
 
-    // WC01-S04: Iceberg allows Avro, but the current Doris writer supports
+    // WC01-S04: Names displayed from external metadata must remain executable even when Java ROOT lowercasing
+    // changes their Unicode bytes or UTF-8 length before thrift reaches the BE.
+    spark_iceberg_multi """
+        DROP TABLE IF EXISTS demo.${dbName}.unicode_struct_fields;
+        CREATE TABLE demo.${dbName}.unicode_struct_fields (
+            id INT,
+            payload STRUCT<`Σ`:BIGINT, `ẞ`:BIGINT>
+        ) USING iceberg;
+        INSERT INTO demo.${dbName}.unicode_struct_fields VALUES (
+            1, NAMED_STRUCT('Σ', CAST(10 AS BIGINT), 'ẞ', CAST(11 AS BIGINT))
+        );
+    """
+    sql """refresh catalog ${catalogName}"""
+    def unicodeSchema = sql """describe unicode_struct_fields"""
+    def unicodePayloadRow = unicodeSchema.find { row -> row[0].toString() == "payload" }
+    assertNotNull(unicodePayloadRow, "payload column should exist in the Unicode Iceberg schema")
+    String unicodePayloadType = unicodePayloadRow[1].toString()
+    assertTrue(unicodePayloadType.contains("Σ"), unicodePayloadType)
+    assertTrue(unicodePayloadType.contains("ẞ"), unicodePayloadType)
+    def unicodeValues = sql """
+        select element_at(payload, 'Σ'), element_at(payload, 'ẞ')
+        from unicode_struct_fields
+    """
+    assertEquals([[10L, 11L]], unicodeValues)
+
+    // WC01-S05: Iceberg allows Avro, but the current Doris writer supports
     // Parquet and ORC only. Reject Avro explicitly instead of silently falling back.
     sql """drop table if exists avro_write_boundary"""
     sql """

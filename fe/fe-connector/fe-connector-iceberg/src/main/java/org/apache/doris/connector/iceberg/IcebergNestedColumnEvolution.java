@@ -496,6 +496,15 @@ public final class IcebergNestedColumnEvolution {
         return schema.asStruct().caseInsensitiveField(columnName);
     }
 
+    static NestedField findFieldForErrorUpgrade(Schema schema, ConnectorColumnPath columnPath) {
+        try {
+            return resolveColumnPath(schema, columnPath, "modify").getField();
+        } catch (DorisConnectorException ignored) {
+            // Error-message upgrading is best-effort and must not replace the original type-build failure.
+            return null;
+        }
+    }
+
     /**
      * Resolves {@code columnPath}'s parent (which must be a struct) and its leaf within that struct
      * (case-insensitive). Used by nested DROP / RENAME, which target an existing struct field.
