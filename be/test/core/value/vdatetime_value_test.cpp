@@ -1642,6 +1642,7 @@ TEST(VDateTimeValueTest, epoch_days_conversion_matches_cctz_over_full_range) {
     const cctz::time_zone utc = cctz::utc_time_zone();
     int64_t mismatches = 0;
     int64_t round_trip_failures = 0;
+    int64_t decode_failures = 0;
     for (int year = 0; year <= 9999; ++year) {
         for (int month = 1; month <= 12; ++month) {
             const int days_in_month =
@@ -1666,11 +1667,30 @@ TEST(VDateTimeValueTest, epoch_days_conversion_matches_cctz_over_full_range) {
                                                year, month, day, daynr);
                     }
                 }
+                // The ordinal is only half the contract: readers hand the recovered daynr to
+                // `get_date_from_daynr()`, which takes a non-dictionary path for daynr 1..59 and
+                // for everything outside 1900..2039. Close the loop on the civil date itself.
+                DateV2Value<DateV2ValueType> restored;
+                if (!restored.get_date_from_daynr(
+                            static_cast<uint64_t>(epoch_days_to_daynr(epoch_days)))) {
+                    if (++decode_failures <= 5) {
+                        ADD_FAILURE() << fmt::format("{:04d}-{:02d}-{:02d}: daynr {} not decodable",
+                                                     year, month, day, daynr);
+                    }
+                } else if (restored.year() != year || restored.month() != month ||
+                           restored.day() != day) {
+                    if (++decode_failures <= 5) {
+                        ADD_FAILURE() << fmt::format(
+                                "{:04d}-{:02d}-{:02d}: decoded back as {:04d}-{:02d}-{:02d}", year,
+                                month, day, restored.year(), restored.month(), restored.day());
+                    }
+                }
             }
         }
     }
     EXPECT_EQ(0, mismatches);
     EXPECT_EQ(0, round_trip_failures);
+    EXPECT_EQ(0, decode_failures);
 }
 
 } // namespace doris

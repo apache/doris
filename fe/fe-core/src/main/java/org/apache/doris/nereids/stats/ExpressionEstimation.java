@@ -121,11 +121,6 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     public static final long DAYS_FROM_0_TO_1970 = 719528;
     public static final long DAYS_FROM_0_TO_9999 = 3652424;
     public static final ExpressionEstimation INSTANCE = new ExpressionEstimation();
-    // java.time uses the proleptic Gregorian calendar, in which year 0 is a leap year. Doris
-    // follows MySQL, where it is not, so Doris day numbers run one ahead of LocalDate.toEpochDay()
-    // for 0000-01-01 .. 0000-02-28 and agree from 0000-03-01 (Doris day number 60) onwards.
-    private static final long EPOCH_DAYS_0000_02_29 = -719469;
-    private static final long DAY_NUMBER_OF_0000_03_01 = 60;
 
     /**
      * returned columnStat is newly created or a copy of stats
@@ -687,10 +682,10 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         double minValue;
         double maxValue;
         try {
-            minValue = toDorisDayNumber(
-                    getDatetimeFromLong((long) childColumnStats.minValue).toLocalDate().toEpochDay());
-            maxValue = toDorisDayNumber(
-                    getDatetimeFromLong((long) childColumnStats.maxValue).toLocalDate().toEpochDay());
+            minValue = getDatetimeFromLong((long) childColumnStats.minValue).toLocalDate().toEpochDay()
+                    + (double) DAYS_FROM_0_TO_1970;
+            maxValue = getDatetimeFromLong((long) childColumnStats.maxValue).toLocalDate().toEpochDay()
+                    + (double) DAYS_FROM_0_TO_1970;
         } catch (Exception e) {
             // ignore DateTimeException
             minValue = Double.NEGATIVE_INFINITY;
@@ -699,21 +694,6 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         return columnStatisticBuilder.setMaxValue(maxValue)
                 .setMinValue(minValue)
                 .build();
-    }
-
-    /**
-     * Converts a proleptic Gregorian epoch day, as produced by {@link LocalDate#toEpochDay()}, into
-     * the day number Doris {@code to_days()} returns. The two numberings differ only for
-     * 0000-01-01 .. 0000-02-28, where Doris has no 0000-02-29 and therefore runs one day ahead.
-     */
-    private static double toDorisDayNumber(long epochDay) {
-        return epochDay + DAYS_FROM_0_TO_1970 + (epochDay < EPOCH_DAYS_0000_02_29 ? 1 : 0);
-    }
-
-    /** Inverse of {@link #toDorisDayNumber(long)}. */
-    private static long toEpochDay(long dorisDayNumber) {
-        return dorisDayNumber - DAYS_FROM_0_TO_1970
-                - (dorisDayNumber < DAY_NUMBER_OF_0000_03_01 ? 1 : 0);
     }
 
     @Override
@@ -725,10 +705,10 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
             minValue = LocalDate.ofEpochDay(0).atStartOfDay(ZoneId.systemDefault()).toEpochSecond();
         } else {
             if (minValue > DAYS_FROM_0_TO_9999) {
-                minValue = LocalDate.ofEpochDay(toEpochDay(DAYS_FROM_0_TO_9999))
+                minValue = LocalDate.ofEpochDay(DAYS_FROM_0_TO_9999 - DAYS_FROM_0_TO_1970)
                         .atStartOfDay(ZoneId.systemDefault()).toEpochSecond();
             } else {
-                minValue = LocalDate.ofEpochDay(toEpochDay((long) minValue))
+                minValue = LocalDate.ofEpochDay((long) (minValue - DAYS_FROM_0_TO_1970))
                         .atStartOfDay(ZoneId.systemDefault()).toEpochSecond();
             }
         }
@@ -737,10 +717,10 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
             maxValue = LocalDate.ofEpochDay(0).atStartOfDay(ZoneId.systemDefault()).toEpochSecond();
         } else {
             if (maxValue > DAYS_FROM_0_TO_9999) {
-                maxValue = LocalDate.ofEpochDay(toEpochDay(DAYS_FROM_0_TO_9999))
+                maxValue = LocalDate.ofEpochDay(DAYS_FROM_0_TO_9999 - DAYS_FROM_0_TO_1970)
                         .atStartOfDay(ZoneId.systemDefault()).toEpochSecond();
             } else {
-                maxValue = LocalDate.ofEpochDay(toEpochDay((long) maxValue))
+                maxValue = LocalDate.ofEpochDay((long) (maxValue - DAYS_FROM_0_TO_1970))
                         .atStartOfDay(ZoneId.systemDefault()).toEpochSecond();
             }
         }

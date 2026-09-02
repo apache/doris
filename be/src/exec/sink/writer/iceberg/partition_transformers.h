@@ -20,9 +20,10 @@
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "exec/common/stringop_substring.h"
-#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
-#include "exprs/function/cast/cast_to_datev2_impl.hpp"
+#include "exprs/function/function_helpers.h"
 #include "util/bit_util.h"
 
 namespace doris {
@@ -49,33 +50,11 @@ inline constexpr int ICEBERG_EPOCH_YEAR = 1970;
 
 class PartitionColumnTransformUtils {
 public:
-    static DateV2Value<DateV2ValueType>& epoch_date() {
-        static DateV2Value<DateV2ValueType> epoch_date;
-        static bool initialized = false;
-        if (!initialized) {
-            CastParameters params;
-            DORIS_CHECK((CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
-                    {"1970-01-01 00:00:00", 19}, epoch_date, nullptr, params)));
-            initialized = true;
-        }
-        return epoch_date;
-    }
-
-    static DateV2Value<DateTimeV2ValueType>& epoch_datetime() {
-        static DateV2Value<DateTimeV2ValueType> epoch_datetime;
-        static bool initialized = false;
-        if (!initialized) {
-            CastParameters params;
-            DORIS_CHECK((CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
-                    {"1970-01-01 00:00:00", 19}, epoch_datetime, nullptr, -1, params)));
-            initialized = true;
-        }
-        return epoch_datetime;
-    }
-
     static std::string human_year(int year_ordinal) {
         auto ymd = std::chrono::year_month_day {EPOCH} + std::chrono::years(year_ordinal);
-        return std::to_string(static_cast<int>(ymd.year()));
+        // iceberg-api's TransformUtil.humanYear is String.format("%04d", ...): year 0 has to be
+        // "0000", not "0", or the partition directory differs from the one Spark writes.
+        return fmt::format("{:04d}", static_cast<int>(ymd.year()));
     }
 
     static std::string human_month(int month_ordinal) {
@@ -691,7 +670,12 @@ public:
                 LOG(WARNING) << "Failed to call unix_timestamp :" << value.debug_string();
                 timestamp = 0;
             }
-            Int64 long_value = static_cast<Int64>(timestamp) * 1000000;
+            // Iceberg hashes the full microsecond value of a timestamp (spec: Partition
+            // Transforms, `bucket` over `timestamp`), so the sub-second part must be carried
+            // along; dropping it puts a DATETIME(6) row in a different bucket than Spark does.
+            // `unix_timestamp()` returns whole seconds floored towards negative infinity, so
+            // adding the wall-clock microseconds is exact before the epoch as well.
+            Int64 long_value = static_cast<Int64>(timestamp) * 1000000 + value.microsecond();
             uint32_t hash_value = HashUtil::murmur_hash3_32(&long_value, sizeof(long_value), 0);
 
             *p_out = (hash_value & INT32_MAX) % _bucket_num;

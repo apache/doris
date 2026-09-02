@@ -181,6 +181,43 @@ suite("test_iceberg_write_partition_epoch_boundary",
                           cast(p_ts_day as string)
                    from epoch_boundary_spark order by 1"""))
 
-    sql """drop database if exists ${dbName} force"""
-    sql """drop catalog if exists ${catalogName}"""
+    // Everything above writes parquet. ORC has its own DATE encoder and, more importantly, its own
+    // statistics decoder: a pushed-down MIN/MAX is answered from ORC stripe statistics without
+    // reading a row, so a statistics decoder that disagrees with the row decoder returns a value
+    // that appears in no row at all. Keep the format-specific coverage on DATE, which is where the
+    // two calendars differ.
+    sql """drop table if exists epoch_boundary_orc"""
+    sql """
+        create table epoch_boundary_orc (
+            id int not null,
+            d date
+        )
+        properties (
+            "format-version" = "2",
+            "write.format.default" = "orc"
+        )
+    """
+    sql """
+        insert into epoch_boundary_orc values
+            (1, date '0000-01-01'), (2, date '0000-02-28'), (3, date '0000-03-01'),
+            (4, date '1969-12-31'), (5, date '1970-01-01'), (6, date '2024-02-29')
+    """
+    sql """refresh table epoch_boundary_orc"""
+    spark_iceberg """refresh table demo.${dbName}.epoch_boundary_orc"""
+    assertSparkDorisResultEquals(
+            spark_iceberg("""select cast(id as string), cast(d as string)
+                             from demo.${dbName}.epoch_boundary_orc order by 1"""),
+            sql("""select cast(id as string), cast(d as string)
+                   from epoch_boundary_orc order by 1"""))
+
+    // MIN/MAX without GROUP BY is pushed into the file scan and answered from stripe statistics
+    // alone. It must agree with what the rows say: before the fix the ORC statistics went through
+    // Doris's day dictionary and reported 1900-01-01 as the minimum of a file whose smallest row
+    // is 0000-01-01.
+    def orcMinMax = sql """select cast(min(d) as string), cast(max(d) as string)
+                           from epoch_boundary_orc"""
+    def orcSmallest = sql """select cast(d as string) from epoch_boundary_orc order by d limit 1"""
+    def orcLargest = sql """select cast(d as string) from epoch_boundary_orc order by d desc limit 1"""
+    assertEquals([[orcSmallest[0][0], orcLargest[0][0]]].toString(), orcMinMax.toString(),
+                 "pushed-down MIN/MAX disagrees with the rows of the ORC file")
 }

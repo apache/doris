@@ -29,13 +29,11 @@ suite("test_outfile_datetime_year_zero", "p0") {
     String region = getS3Region()
     String bucket = context.config.otherConfigs.get("s3BucketName")
 
-    def tableName = "test_outfile_datetime_year_zero_table"
-    def restoreName = "test_outfile_datetime_year_zero_restore"
     def outFilePath = "${bucket}/outfile/datetime_year_zero/exp_"
 
-    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ DROP TABLE IF EXISTS test_outfile_datetime_year_zero_table """
     sql """
-        CREATE TABLE ${tableName} (
+        CREATE TABLE test_outfile_datetime_year_zero_table (
             `id` INT NOT NULL,
             `ts` DATETIME(6) NULL
         ) ENGINE=OLAP
@@ -49,7 +47,7 @@ suite("test_outfile_datetime_year_zero", "p0") {
     // 0000-01-01 .. 0000-02-28, the window where Doris's day numbering and the proleptic
     // Gregorian ordinal disagree, and rows 2, 5, 7 and 9 are the ones from the report.
     sql """
-        INSERT INTO ${tableName} VALUES
+        INSERT INTO test_outfile_datetime_year_zero_table VALUES
             (1,  '0000-01-01 00:00:00'),        (2,  '0000-01-01 12:34:56'),
             (3,  '0000-01-02 00:00:00'),        (4,  '0000-02-28 23:59:59.999999'),
             (5,  '0000-03-01 00:00:00'),        (6,  '0001-01-01 00:00:00'),
@@ -66,13 +64,14 @@ suite("test_outfile_datetime_year_zero", "p0") {
                     ['11', null]]
 
     def readSource = { ->
-        return sql("""SELECT CAST(id AS STRING), CAST(ts AS STRING) FROM ${tableName} ORDER BY id""")
+        return sql("""SELECT CAST(id AS STRING), CAST(ts AS STRING)
+                      FROM test_outfile_datetime_year_zero_table ORDER BY id""")
     }
     assertEquals(expected, readSource(), "the table itself does not hold the values under test")
 
     def outfile_to_S3 = { format ->
         def res = sql """
-            SELECT * FROM ${tableName} t
+            SELECT * FROM test_outfile_datetime_year_zero_table t
             INTO OUTFILE "s3://${outFilePath}"
             FORMAT AS ${format}
             PROPERTIES (
@@ -161,9 +160,9 @@ suite("test_outfile_datetime_year_zero", "p0") {
         // A conversion failure is materialized, not raised, so it persists into whatever table the
         // scan feeds. This is the shape that turns a read bug into stored bad data.
         def parquetUri = uriOf(outfile_to_S3("parquet"), "parquet")
-        sql """ DROP TABLE IF EXISTS ${restoreName} """
+        sql """ DROP TABLE IF EXISTS test_outfile_datetime_year_zero_restore """
         sql """
-            CREATE TABLE ${restoreName} (
+            CREATE TABLE test_outfile_datetime_year_zero_restore (
                 `id` INT NOT NULL,
                 `ts` DATETIME(6) NULL
             ) ENGINE=OLAP
@@ -171,9 +170,13 @@ suite("test_outfile_datetime_year_zero", "p0") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES ("replication_num" = "1");
         """
-        sql """ INSERT INTO ${restoreName} SELECT id, ts FROM ${s3Table(parquetUri, "parquet")} """
+        sql """
+            INSERT INTO test_outfile_datetime_year_zero_restore
+            SELECT id, ts FROM ${s3Table(parquetUri, "parquet")}
+        """
         def restored = sql """
-            SELECT CAST(id AS STRING), CAST(ts AS STRING) FROM ${restoreName} ORDER BY id
+            SELECT CAST(id AS STRING), CAST(ts AS STRING)
+            FROM test_outfile_datetime_year_zero_restore ORDER BY id
         """
         assertEquals(expected, restored, "loading the exported file back stored different values")
     } finally {
@@ -181,6 +184,4 @@ suite("test_outfile_datetime_year_zero", "p0") {
         sql """ set enable_file_scanner_v2 = ${originalScannerV2} """
     }
 
-    sql """ DROP TABLE IF EXISTS ${restoreName} """
-    sql """ DROP TABLE IF EXISTS ${tableName} """
 }

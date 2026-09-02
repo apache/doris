@@ -22,11 +22,9 @@
 // difference between the two protocols means the Arrow day ordinal is wrong.
 // See https://github.com/apache/doris/issues/67366
 suite("test_date_year_zero", "arrow_flight_sql") {
-    def tableName = "test_date_year_zero"
-
-    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql "DROP TABLE IF EXISTS test_date_year_zero"
     sql """
-        CREATE TABLE ${tableName} (
+        CREATE TABLE test_date_year_zero (
             id INT,
             d DATE,
             d_null DATE NULL,
@@ -36,7 +34,7 @@ suite("test_date_year_zero", "arrow_flight_sql") {
         PROPERTIES ("replication_num" = "1");
     """
     sql """
-        INSERT INTO ${tableName} VALUES
+        INSERT INTO test_date_year_zero VALUES
             (1, '0000-01-01', '0000-01-01', ['0000-01-01', '0000-02-28']),
             (2, '0000-02-28', NULL,         ['0000-03-01']),
             (3, '0000-03-01', '0000-03-01', ['0001-01-01']),
@@ -47,9 +45,15 @@ suite("test_date_year_zero", "arrow_flight_sql") {
             (8, '9999-12-31', '9999-12-31', NULL);
     """
 
-    // Read through the driver's own rendering rather than getObject(): java.sql.Date runs year-zero
-    // values through the Julian/Gregorian hybrid calendar, which would mask the difference we care
-    // about behind an unrelated client-side shift.
+    // The absolute anchor. The MySQL protocol carries year/month/day verbatim, so these strings
+    // are what the Arrow path below must reproduce. Cast to string: java.sql.Date runs year-zero
+    // values through the Julian/Gregorian hybrid calendar.
+    order_qt_source """
+        SELECT CAST(id AS STRING), CAST(d AS STRING), CAST(d_null AS STRING)
+        FROM test_date_year_zero
+    """
+
+    // Read through the driver's own rendering rather than getObject(), for the same reason.
     def fetchStrings = { java.sql.Connection conn, String stmtSql ->
         def rows = []
         conn.prepareStatement(stmtSql).withCloseable { st ->
@@ -67,33 +71,25 @@ suite("test_date_year_zero", "arrow_flight_sql") {
         return rows
     }
 
-    def query = "SELECT id, d, d_null FROM ${tableName} ORDER BY id"
+    def query = "SELECT id, d, d_null FROM test_date_year_zero ORDER BY id"
     def viaMysql = fetchStrings(context.getConnection(), query)
     def viaFlight = fetchStrings(context.getArrowFlightSqlConnection(),
                                  "USE ${context.dbName};" + query)
     assertEquals(8, viaMysql.size())
-    assertEquals(viaMysql, viaFlight)
-
-    // Absolute anchor: the MySQL protocol carries year/month/day verbatim, so these strings are
-    // what both protocols must produce. Before the fix, Arrow reported 0000-01-02 and 0000-02-29.
-    assertEquals("0000-01-01", viaFlight[0][1])
-    assertEquals("0000-01-01", viaFlight[0][2])
-    assertEquals("0000-02-28", viaFlight[1][1])
-    assertEquals("0000-03-01", viaFlight[2][1])
-    assertEquals("9999-12-31", viaFlight[7][1])
+    // Before the fix, Arrow reported 0000-01-02 for row 1 and 0000-02-29 for row 2.
+    assertEquals(viaMysql, viaFlight,
+                 "the Arrow and MySQL protocols disagree on the DATE values")
 
     // ARRAY<DATE> has no encoding of its own, it delegates each element to the DATE SerDe. The
     // Arrow Flight JDBC driver renders a list<date32> as its raw day counts rather than as dates,
     // which makes this the strictest check available here: it pins the exact wire values.
     // 0000-01-01 is -719528 and 0000-02-28 is -719470 in the proleptic Gregorian calendar; the
     // pre-fix encoding produced -719527 and -719469.
-    def arrayQuery = "SELECT arr FROM ${tableName} WHERE id = 1"
+    def arrayQuery = "SELECT arr FROM test_date_year_zero WHERE id = 1"
     def arrayViaFlight =
             fetchStrings(context.getArrowFlightSqlConnection(),
                          "USE ${context.dbName};" + arrayQuery)[0][0].toString()
     def arrayElements = arrayViaFlight.replaceAll(/[\[\]\s"]/, "").split(",") as List
     assertEquals(["-719528", "-719470"], arrayElements,
                  "ARRAY<DATE> elements are not proleptic Gregorian day counts, got: ${arrayViaFlight}")
-
-    sql "DROP TABLE IF EXISTS ${tableName}"
 }

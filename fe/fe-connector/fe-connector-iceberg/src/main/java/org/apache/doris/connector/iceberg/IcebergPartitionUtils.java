@@ -507,8 +507,11 @@ final class IcebergPartitionUtils {
     // Master IcebergUtils.UNKNOWN_SNAPSHOT_ID: an empty table / a null last_updated_snapshot_id row.
     private static final long UNKNOWN_SNAPSHOT_ID = -1;
 
-    private static final DateTimeFormatter RANGE_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-    private static final DateTimeFormatter RANGE_DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    // Pattern letter `u` (proleptic year), not `y` (year-of-era): Iceberg day/hour ordinals are
+    // proleptic Gregorian, so a year-zero partition bound is 0000-01-01. `yyyy` would render it as
+    // 0001-01-01 (year 1 of the BCE era) and collide with the real 0001-01-01 partition.
+    private static final DateTimeFormatter RANGE_DATE_FORMAT = DateTimeFormatter.ofPattern("uuuu-MM-dd");
+    private static final DateTimeFormatter RANGE_DATETIME_FORMAT = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss");
 
     // Sort by partition-range LOW ascending; ties broken by HIGH descending (larger range first), so an
     // enclosing partition precedes the ones it encloses. Parity with master IcebergUtils.RangeComparator.

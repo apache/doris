@@ -36,6 +36,7 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type_serde/data_type_datev2_serde.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/value/vdatetime_value.h"
 
 namespace doris {
@@ -182,8 +183,8 @@ TEST_F(DataTypeDateV2SerDeCalendarTest, ReadDate32RejectsUnrepresentableDays) {
     };
 
     expect_rejected(-719529, "one day before 0000-01-01");
-    // 0000-02-29 exists in the proleptic Gregorian calendar but Doris has no such date, so it
-    // must be rejected instead of silently colliding with 0000-03-01.
+    // 0000-02-29 exists in the proleptic Gregorian calendar but Doris has no such date. The old
+    // `encoded + 719528` mapping decoded it as 0000-02-28; it must be rejected instead.
     expect_rejected(-719469, "proleptic-only leap day 0000-02-29");
     expect_rejected(2932897, "one day after 9999-12-31");
 }
@@ -241,6 +242,87 @@ TEST_F(DataTypeDateV2SerDeCalendarTest, NestedArrayOfDateUsesTheSameCalendar) {
         EXPECT_EQ(boundary_cases()[i].epoch_days, values.Value(static_cast<int64_t>(i)))
                 << "element " << i;
     }
+}
+
+// The Parquet and ORC readers do not go through Arrow: rows, dictionary entries and column
+// statistics all land in `read_column_from_decoded_values()`. Cover that entry point with the same
+// boundary set, in both the strict and the null-on-failure mode the file scanners use.
+TEST_F(DataTypeDateV2SerDeCalendarTest, ReadDecodedValuesUsesTheSameCalendar) {
+    std::vector<int32_t> values;
+    for (const auto& c : boundary_cases()) {
+        values.push_back(c.epoch_days);
+    }
+    values.push_back(0); // payload of the null row below, never decoded
+    std::vector<uint8_t> null_map(values.size(), 0);
+    null_map.back() = 1;
+
+    DecodedColumnView view;
+    view.value_kind = DecodedValueKind::INT32;
+    view.row_count = static_cast<int64_t>(values.size());
+    view.values = reinterpret_cast<const uint8_t*>(values.data());
+    view.null_map = null_map.data();
+
+    auto column = ColumnDateV2::create();
+    ASSERT_TRUE(serde.read_column_from_decoded_values(*column, view).ok());
+    ASSERT_EQ(values.size(), column->size());
+    const auto& data = column->get_data();
+    for (size_t i = 0; i < boundary_cases().size(); ++i) {
+        const auto& c = boundary_cases()[i];
+        EXPECT_EQ(c.year, data[i].year()) << "row " << i;
+        EXPECT_EQ(c.month, data[i].month()) << "row " << i;
+        EXPECT_EQ(c.day, data[i].day()) << "row " << i;
+    }
+}
+
+TEST_F(DataTypeDateV2SerDeCalendarTest, ReadDecodedValuesRejectsUnrepresentableDaysWhenStrict) {
+    // -719469 is the proleptic-only 0000-02-29: the only value inside the file-format range that
+    // Doris cannot represent, and the one the old dictionary fallback decoded as 0000-02-28.
+    const std::vector<int32_t> values = {-719528, -719470, -719469, -719468, 19723};
+    DecodedColumnView view;
+    view.value_kind = DecodedValueKind::INT32;
+    view.row_count = static_cast<int64_t>(values.size());
+    view.values = reinterpret_cast<const uint8_t*>(values.data());
+    view.enable_strict_mode = true;
+
+    auto column = ColumnDateV2::create();
+    const auto status = serde.read_column_from_decoded_values(*column, view);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("outside the Doris DATE range"))
+            << status.to_string();
+    EXPECT_NE(std::string::npos, status.to_string().find("-719469")) << status.to_string();
+    // A failed batch must not leave a half-written column behind.
+    EXPECT_EQ(0, column->size());
+}
+
+TEST_F(DataTypeDateV2SerDeCalendarTest, ReadDecodedValuesNullsOnlyTheUnrepresentableRow) {
+    const std::vector<int32_t> values = {-719528, -719470, -719469, -719468, 19723};
+    NullMap conversion_failures;
+    conversion_failures.resize_fill(values.size(), 0);
+
+    DecodedColumnView view;
+    view.value_kind = DecodedValueKind::INT32;
+    view.row_count = static_cast<int64_t>(values.size());
+    view.values = reinterpret_cast<const uint8_t*>(values.data());
+    view.conversion_failure_null_map = &conversion_failures;
+
+    auto column = ColumnDateV2::create();
+    ASSERT_TRUE(serde.read_column_from_decoded_values(*column, view).ok());
+    ASSERT_EQ(values.size(), column->size());
+    const std::vector<uint8_t> expected_failures = {0, 0, 1, 0, 0};
+    for (size_t i = 0; i < expected_failures.size(); ++i) {
+        EXPECT_EQ(expected_failures[i], conversion_failures[i]) << "row " << i;
+    }
+    const auto& data = column->get_data();
+    EXPECT_EQ(0, data[0].year());
+    EXPECT_EQ(1, data[0].month());
+    EXPECT_EQ(1, data[0].day());
+    EXPECT_EQ(0, data[1].year());
+    EXPECT_EQ(2, data[1].month());
+    EXPECT_EQ(28, data[1].day());
+    EXPECT_EQ(0, data[3].year());
+    EXPECT_EQ(3, data[3].month());
+    EXPECT_EQ(1, data[3].day());
+    EXPECT_EQ(2024, data[4].year());
 }
 
 } // namespace doris

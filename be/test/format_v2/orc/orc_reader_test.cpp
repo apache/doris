@@ -3339,7 +3339,6 @@ void write_complex_orc_file(const std::string& file_path) {
 
 void write_map_decimal_date_orc_file(const std::string& file_path) {
     constexpr size_t ROWS = 4;
-    constexpr int64_t HIVE_012_1900_DAY_OFFSET = -719530;
     constexpr int64_t YEAR_0000_12_29_DAY_OFFSET = -719165;
     constexpr int64_t YEAR_1000_10_16_DAY_OFFSET = -353997;
 
@@ -3371,7 +3370,9 @@ void write_map_decimal_date_orc_file(const std::string& file_path) {
     key_batch.values[1] = 9999999999L;
     key_batch.values[2] = 0;
     key_batch.values[3] = 1;
-    value_batch.data[0] = HIVE_012_1900_DAY_OFFSET;
+    // The smallest DATE Doris can represent: -719528 in the proleptic Gregorian calendar the ORC
+    // spec defines DATE in, one day below what Doris's own MySQL-calendar daynr would suggest.
+    value_batch.data[0] = orc_date_offset(0, 1, 1);
     value_batch.data[1] = orc_date_offset(9999, 12, 31);
     value_batch.data[2] = YEAR_0000_12_29_DAY_OFFSET;
     value_batch.data[3] = YEAR_1000_10_16_DAY_OFFSET;
@@ -3382,6 +3383,42 @@ void write_map_decimal_date_orc_file(const std::string& file_path) {
     key_batch.numElements = ROWS;
     value_batch.numElements = ROWS;
 
+    writer->add(*batch);
+    writer->close();
+
+    std::ofstream out(file_path, std::ios::binary);
+    out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
+}
+
+// A flat `struct<id:int,d:date>` file whose DATE ordinals are written verbatim, so a test can
+// place a value that no Doris DATE maps to (the proleptic-only 0000-02-29, or an ordinal outside
+// the type's range) next to representable ones.
+void write_date_orc_file(const std::string& file_path,
+                         const std::vector<std::optional<int64_t>>& day_offsets) {
+    auto type =
+            std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString("struct<id:int,d:date>"));
+
+    MemoryOutputStream memory_stream(1024 * 1024);
+    ::orc::WriterOptions options;
+    options.setCompression(::orc::CompressionKind_NONE);
+    options.setMemoryPool(::orc::getDefaultPool());
+    auto writer = ::orc::createWriter(*type, &memory_stream, options);
+    auto batch = writer->createRowBatch(day_offsets.size());
+    auto& struct_batch = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+    auto& id_batch = dynamic_cast<::orc::LongVectorBatch&>(*struct_batch.fields[0]);
+    auto& date_batch = dynamic_cast<::orc::LongVectorBatch&>(*struct_batch.fields[1]);
+
+    date_batch.hasNulls = true;
+    for (size_t row = 0; row < day_offsets.size(); ++row) {
+        id_batch.data[row] = static_cast<int64_t>(row) + 1;
+        date_batch.notNull[row] = day_offsets[row].has_value() ? 1 : 0;
+        // Deliberately garbage under a null slot: a decoder must never look at it.
+        date_batch.data[row] = day_offsets[row].value_or(std::numeric_limits<int64_t>::min());
+    }
+
+    struct_batch.numElements = day_offsets.size();
+    id_batch.numElements = day_offsets.size();
+    date_batch.numElements = day_offsets.size();
     writer->add(*batch);
     writer->close();
 
@@ -10865,10 +10902,138 @@ TEST_F(NewOrcReaderTest, ReadMapDecimalDateWithCenturyBoundary) {
     const auto& map_column = assert_cast<const ColumnMap&>(map_nullable.get_nested_column());
     ASSERT_EQ(map_column.get_offsets().size(), 4);
     ASSERT_EQ(map_column.get_values().size(), 4);
-    EXPECT_EQ(schema[1].children[1].type->to_string(map_column.get_values(), 0), "1900-01-01");
+    EXPECT_EQ(schema[1].children[1].type->to_string(map_column.get_values(), 0), "0000-01-01");
     EXPECT_EQ(schema[1].children[1].type->to_string(map_column.get_values(), 1), "9999-12-31");
     EXPECT_EQ(schema[1].children[1].type->to_string(map_column.get_values(), 2), "0000-12-29");
     EXPECT_EQ(schema[1].children[1].type->to_string(map_column.get_values(), 3), "1000-10-16");
+}
+
+// ORC DATE is a proleptic Gregorian day ordinal, so year zero is the window where Doris's own
+// MySQL-calendar day number disagrees with the file. Pin the decode there, including a null row
+// whose payload must never be looked at.
+TEST_F(NewOrcReaderTest, ReadDateYearZeroWindow) {
+    const auto file_path = (_test_dir / "date_year_zero.orc").string();
+    write_date_orc_file(file_path, {orc_date_offset(0, 1, 1), orc_date_offset(0, 2, 28),
+                                    orc_date_offset(0, 3, 1), std::nullopt,
+                                    orc_date_offset(1970, 1, 1), orc_date_offset(2024, 1, 1)});
+    auto reader = create_reader_for_path(file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    Block block = build_file_block(schema);
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0), field_projection(1)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 6);
+
+    const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    const std::vector<std::string> expected = {"0000-01-01", "0000-02-28", "0000-03-01",
+                                               "",           "1970-01-01", "2024-01-01"};
+    for (size_t row = 0; row < expected.size(); ++row) {
+        if (expected[row].empty()) {
+            EXPECT_TRUE(nullable.is_null_at(row)) << "row " << row;
+            continue;
+        }
+        ASSERT_FALSE(nullable.is_null_at(row)) << "row " << row;
+        EXPECT_EQ(expected[row], schema[1].type->to_string(nullable, row)) << "row " << row;
+    }
+}
+
+TEST_F(NewOrcReaderTest, ReadDateRejectsUnrepresentableOrdinals) {
+    // -719469 is 0000-02-29, which exists in the proleptic Gregorian calendar but not in Doris;
+    // -719530 is below 0000-01-01. Both used to decode as 1900-01-01 through the day dictionary.
+    for (const int64_t bad_offset : {int64_t {-719469}, int64_t {-719530}, int64_t {2932897}}) {
+        const auto file_path = (_test_dir / fmt::format("date_bad_{}.orc", bad_offset)).string();
+        write_date_orc_file(file_path, {orc_date_offset(2024, 1, 1), bad_offset});
+        auto reader = create_reader_for_path(file_path);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        Block block = build_file_block(schema);
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->non_predicate_columns = {field_projection(0), field_projection(1)};
+        ASSERT_TRUE(reader->open(request).ok());
+
+        size_t rows = 0;
+        bool eof = false;
+        const auto status = reader->get_block(&block, &rows, &eof);
+        EXPECT_FALSE(status.ok()) << "offset " << bad_offset;
+        // The message must name the column and the offending value, and must not claim a format
+        // it did not come from: the helper is shared with Parquet.
+        EXPECT_NE(std::string::npos, status.to_string().find("outside the Doris DATE range"))
+                << status.to_string();
+        EXPECT_NE(std::string::npos, status.to_string().find(std::to_string(bad_offset)))
+                << status.to_string();
+        EXPECT_NE(std::string::npos, status.to_string().find("'d'")) << status.to_string();
+        EXPECT_EQ(std::string::npos, status.to_string().find("Parquet")) << status.to_string();
+    }
+}
+
+// A pushed-down MIN/MAX is answered from stripe statistics without reading a row, so the
+// statistics have to be decoded with exactly the same calendar as the rows. Decoding them through
+// the day dictionary used to report 1900-01-01 as the minimum of a file whose smallest row is
+// 0000-01-01 -- a value present in no row at all.
+TEST_F(NewOrcReaderTest, AggregatePushdownDateMinMaxAgreesWithRowDecode) {
+    const auto file_path = (_test_dir / "date_year_zero_minmax.orc").string();
+    write_date_orc_file(file_path, {orc_date_offset(0, 1, 1), orc_date_offset(0, 2, 28),
+                                    std::nullopt, orc_date_offset(2024, 1, 1)});
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+
+    auto reader = create_reader_for_path(file_path);
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(1)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    format::FileAggregateRequest aggregate_request;
+    aggregate_request.agg_type = TPushAggOp::type::MINMAX;
+    aggregate_request.columns.push_back(
+            {.projection = format::LocalColumnIndex::top_level(format::LocalColumnId(1))});
+    format::FileAggregateResult aggregate_result;
+    const auto status = reader->get_aggregate_result(aggregate_request, &aggregate_result);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(aggregate_result.columns.size(), 1);
+    EXPECT_EQ(aggregate_result.count, 4);
+    ASSERT_TRUE(aggregate_result.columns[0].has_min);
+    ASSERT_TRUE(aggregate_result.columns[0].has_max);
+    EXPECT_EQ(aggregate_result.columns[0].min_value.get<TYPE_DATEV2>(), make_date_v2(0, 1, 1));
+    EXPECT_EQ(aggregate_result.columns[0].max_value.get<TYPE_DATEV2>(), make_date_v2(2024, 1, 1));
+}
+
+TEST_F(NewOrcReaderTest, AggregatePushdownDateMinMaxFallsBackForUnrepresentableBound) {
+    const auto file_path = (_test_dir / "date_minmax_fallback.orc").string();
+    // The minimum is the proleptic-only 0000-02-29: no Doris DATE bounds this file, so the
+    // statistics must be refused rather than silently rounded onto a neighbouring day.
+    write_date_orc_file(file_path, {std::optional<int64_t> {-719469}, orc_date_offset(2024, 1, 1)});
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+
+    auto reader = create_reader_for_path(file_path);
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(1)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    format::FileAggregateRequest aggregate_request;
+    aggregate_request.agg_type = TPushAggOp::type::MINMAX;
+    aggregate_request.columns.push_back(
+            {.projection = format::LocalColumnIndex::top_level(format::LocalColumnId(1))});
+    format::FileAggregateResult aggregate_result;
+    const auto status = reader->get_aggregate_result(aggregate_request, &aggregate_result);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
 }
 
 TEST_F(NewOrcReaderTest, ReadDeepNestedComplexTypes) {

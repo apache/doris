@@ -22,6 +22,7 @@
 #include <limits>
 
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_decimal.h"
 
 namespace doris {
 
@@ -565,13 +566,16 @@ ColumnWithTypeAndName make_date_column(const std::vector<std::tuple<int, int, in
     return {column->get_ptr(), std::make_shared<DataTypeDateV2>(), "test_date"};
 }
 
+// The microsecond field is part of the tuple on purpose: Iceberg's timestamp transforms are
+// defined on the full microsecond value, so a test that only ever passes 0 cannot tell flooring
+// from truncation, nor a bucket that keeps the sub-second part from one that drops it.
 ColumnWithTypeAndName make_timestamp_column(
-        const std::vector<std::tuple<int, int, int, int, int, int>>& timestamps,
+        const std::vector<std::tuple<int, int, int, int, int, int, int>>& timestamps,
         ColumnDateTimeV2::MutablePtr& column) {
     auto& data = column->get_data();
-    for (const auto& [y, mo, d, h, mi, se] : timestamps) {
+    for (const auto& [y, mo, d, h, mi, se, us] : timestamps) {
         DateV2Value<DateTimeV2ValueType> value;
-        value.unchecked_set_time(y, mo, d, h, mi, se, 0);
+        value.unchecked_set_time(y, mo, d, h, mi, se, us);
         data.push_back(*reinterpret_cast<UInt64*>(&value));
     }
     return {column->get_ptr(), std::make_shared<DataTypeDateTimeV2>(), "test_timestamp"};
@@ -615,14 +619,16 @@ TEST_F(PartitionTransformersTest, test_date_day_transform_proleptic_gregorian) {
 
 TEST_F(PartitionTransformersTest, test_timestamp_day_transform_floors_before_epoch) {
     auto column = ColumnDateTimeV2::create();
-    auto test_timestamp = make_timestamp_column({{0, 1, 1, 0, 0, 0},
-                                                 {0, 1, 1, 12, 34, 56},
-                                                 {0, 2, 28, 0, 0, 0},
-                                                 {1969, 12, 31, 0, 0, 0},
-                                                 {1969, 12, 31, 12, 0, 0},
-                                                 {1969, 12, 31, 23, 59, 59},
-                                                 {1970, 1, 1, 0, 0, 0},
-                                                 {2017, 11, 16, 22, 31, 8}},
+    auto test_timestamp = make_timestamp_column({{0, 1, 1, 0, 0, 0, 0},
+                                                 {0, 1, 1, 12, 34, 56, 0},
+                                                 {0, 2, 28, 0, 0, 0, 0},
+                                                 {0, 2, 28, 23, 59, 59, 999999},
+                                                 {1969, 12, 31, 0, 0, 0, 0},
+                                                 {1969, 12, 31, 12, 0, 0, 0},
+                                                 {1969, 12, 31, 23, 59, 59, 0},
+                                                 {1969, 12, 31, 23, 59, 59, 999999},
+                                                 {1970, 1, 1, 0, 0, 0, 0},
+                                                 {2017, 11, 16, 22, 31, 8, 0}},
                                                 column);
 
     Block block({test_timestamp});
@@ -634,8 +640,9 @@ TEST_F(PartitionTransformersTest, test_timestamp_day_transform_floors_before_epo
 
     const auto& result_data = assert_cast<const ColumnInt32*>(result.column.get())->get_data();
     // Every 1969-12-31 timestamp must land on -1: Iceberg floors, it does not round towards the
-    // epoch the way SQL DATEDIFF does.
-    std::vector<int32_t> expected_data = {-719528, -719528, -719470, -1, -1, -1, 0, 17486};
+    // epoch the way SQL DATEDIFF does. The last microsecond of a day belongs to that same day.
+    std::vector<int32_t> expected_data = {-719528, -719528, -719470, -719470, -1,
+                                          -1,      -1,      -1,      0,       17486};
     ASSERT_EQ(expected_data.size(), result_data.size());
     for (size_t i = 0; i < result_data.size(); ++i) {
         EXPECT_EQ(expected_data[i], result_data[i]) << "row " << i;
@@ -644,18 +651,20 @@ TEST_F(PartitionTransformersTest, test_timestamp_day_transform_floors_before_epo
 
 TEST_F(PartitionTransformersTest, test_timestamp_hour_transform_floors_before_epoch) {
     auto column = ColumnDateTimeV2::create();
-    auto test_timestamp = make_timestamp_column({{0, 1, 1, 0, 0, 0},
-                                                 {0, 1, 1, 12, 34, 56},
-                                                 {0, 2, 28, 0, 0, 0},
-                                                 {1, 1, 1, 0, 0, 0},
-                                                 {1969, 6, 15, 10, 0, 0},
-                                                 {1969, 12, 31, 0, 0, 0},
-                                                 {1969, 12, 31, 12, 0, 0},
-                                                 {1969, 12, 31, 23, 30, 0},
-                                                 {1970, 1, 1, 0, 0, 0},
-                                                 {1970, 1, 1, 12, 0, 0},
-                                                 {2017, 11, 16, 22, 31, 8},
-                                                 {9999, 12, 31, 23, 59, 59}},
+    auto test_timestamp = make_timestamp_column({{0, 1, 1, 0, 0, 0, 0},
+                                                 {0, 1, 1, 12, 34, 56, 0},
+                                                 {0, 2, 28, 0, 0, 0, 0},
+                                                 {0, 2, 28, 23, 59, 59, 999999},
+                                                 {1, 1, 1, 0, 0, 0, 0},
+                                                 {1969, 6, 15, 10, 0, 0, 0},
+                                                 {1969, 12, 31, 0, 0, 0, 0},
+                                                 {1969, 12, 31, 12, 0, 0, 0},
+                                                 {1969, 12, 31, 23, 30, 0, 0},
+                                                 {1969, 12, 31, 23, 59, 59, 999999},
+                                                 {1970, 1, 1, 0, 0, 0, 0},
+                                                 {1970, 1, 1, 12, 0, 0, 0},
+                                                 {2017, 11, 16, 22, 31, 8, 0},
+                                                 {9999, 12, 31, 23, 59, 59, 999999}},
                                                 column);
 
     Block block({test_timestamp});
@@ -666,13 +675,13 @@ TEST_F(PartitionTransformersTest, test_timestamp_hour_transform_floors_before_ep
     auto result = transform.apply(block, 0);
 
     const auto& result_data = assert_cast<const ColumnInt32*>(result.column.get())->get_data();
-    std::vector<int32_t> expected_data = {-17268672, -17268660, -17267280, -17259888,
-                                          -4790,     -24,       -12,       -1,
+    std::vector<int32_t> expected_data = {-17268672, -17268660, -17267280, -17267257, -17259888,
+                                          -4790,     -24,       -12,       -1,        -1,
                                           0,         12,        419686,    70389527};
     // The partition path must floor as well: hour ordinal -1 is 1969-12-31-23.
     std::vector<std::string> expected_human_string = {
-            "0000-01-01-00", "0000-01-01-12", "0000-02-28-00", "0001-01-01-00",
-            "1969-06-15-10", "1969-12-31-00", "1969-12-31-12", "1969-12-31-23",
+            "0000-01-01-00", "0000-01-01-12", "0000-02-28-00", "0000-02-28-23", "0001-01-01-00",
+            "1969-06-15-10", "1969-12-31-00", "1969-12-31-12", "1969-12-31-23", "1969-12-31-23",
             "1970-01-01-00", "1970-01-01-12", "2017-11-16-22", "9999-12-31-23"};
     ASSERT_EQ(expected_data.size(), result_data.size());
     for (size_t i = 0; i < result_data.size(); ++i) {
@@ -728,9 +737,16 @@ TEST_F(PartitionTransformersTest, test_date_year_month_transform_floors_before_e
         // Whole calendar years from 1970, floored. Rounding towards zero would report 0 for
         // 1969-06-15 and -1969 for 0000-02-28.
         std::vector<int32_t> expected = {-1970, -1970, -1970, -1969, -71, -1, -1, 0, 54, 8029};
+        // iceberg-api's TransformUtil.humanYear zero-pads to four digits, so the partition
+        // directory of a year-zero row is `..._year=0000`, not `..._year=0`.
+        std::vector<std::string> expected_human_string = {"0000", "0000", "0000", "0001", "1899",
+                                                          "1969", "1969", "1970", "2024", "9999"};
         ASSERT_EQ(expected.size(), data.size());
         for (size_t i = 0; i < data.size(); ++i) {
             EXPECT_EQ(expected[i], data[i]) << "row " << i;
+            EXPECT_EQ(expected_human_string[i],
+                      transform.to_human_string(transform.get_result_type(), data[i]))
+                    << "row " << i;
         }
     }
     {
@@ -748,14 +764,14 @@ TEST_F(PartitionTransformersTest, test_date_year_month_transform_floors_before_e
 
 TEST_F(PartitionTransformersTest, test_timestamp_year_month_transform_floors_before_epoch) {
     auto column = ColumnDateTimeV2::create();
-    auto test_timestamp = make_timestamp_column({{0, 1, 1, 12, 34, 56},
-                                                 {0, 2, 28, 0, 0, 0},
-                                                 {1, 1, 1, 0, 0, 0},
-                                                 {1969, 6, 15, 10, 0, 0},
-                                                 {1969, 12, 31, 23, 59, 59},
-                                                 {1970, 1, 1, 0, 0, 0},
-                                                 {2024, 1, 1, 12, 0, 0},
-                                                 {9999, 12, 31, 23, 59, 59}},
+    auto test_timestamp = make_timestamp_column({{0, 1, 1, 12, 34, 56, 0},
+                                                 {0, 2, 28, 0, 0, 0, 0},
+                                                 {1, 1, 1, 0, 0, 0, 0},
+                                                 {1969, 6, 15, 10, 0, 0, 0},
+                                                 {1969, 12, 31, 23, 59, 59, 999999},
+                                                 {1970, 1, 1, 0, 0, 0, 0},
+                                                 {2024, 1, 1, 12, 0, 0, 0},
+                                                 {9999, 12, 31, 23, 59, 59, 999999}},
                                                 column);
     Block block({test_timestamp});
     auto source_type =
@@ -787,8 +803,10 @@ TEST_F(PartitionTransformersTest, test_timestamp_year_month_transform_floors_bef
 // 1970-01-01 00:00:00 collapsed into the same day and hour partition.
 TEST_F(PartitionTransformersTest, test_epoch_boundary_rows_land_in_distinct_partitions) {
     auto column = ColumnDateTimeV2::create();
-    auto test_timestamp = make_timestamp_column(
-            {{1969, 12, 31, 23, 59, 59}, {1970, 1, 1, 0, 0, 0}, {2024, 2, 29, 12, 34, 56}}, column);
+    auto test_timestamp = make_timestamp_column({{1969, 12, 31, 23, 59, 59, 999999},
+                                                 {1970, 1, 1, 0, 0, 0, 0},
+                                                 {2024, 2, 29, 12, 34, 56, 123456}},
+                                                column);
     Block block({test_timestamp});
     auto source_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
@@ -813,6 +831,42 @@ TEST_F(PartitionTransformersTest, test_epoch_boundary_rows_land_in_distinct_part
     EXPECT_NE(hours[0], hours[1]) << "before-epoch and epoch rows must not share an hour partition";
     EXPECT_EQ("1969-12-31-23",
               hour_transform.to_human_string(hour_transform.get_result_type(), hours[0]));
+}
+
+// Iceberg buckets a timestamp by hashing its full microsecond value (spec: Partition Transforms;
+// iceberg-api 1.10.1 `Bucket.BucketLong` over `BucketUtil.hash(long)`). Doris used to hash whole
+// seconds times a million, so a DATETIME(6) row landed in a different bucket than the same row
+// written by Spark, and bucket pruning on it skipped the Doris-written file.
+TEST_F(PartitionTransformersTest, test_timestamp_bucket_transform_keeps_microseconds) {
+    auto column = ColumnDateTimeV2::create();
+    auto test_timestamp = make_timestamp_column({{2024, 2, 29, 12, 34, 56, 123456},
+                                                 {2024, 2, 29, 12, 34, 56, 0},
+                                                 {1969, 12, 31, 23, 59, 59, 999999},
+                                                 {1969, 12, 31, 23, 59, 59, 0},
+                                                 {0, 1, 1, 12, 34, 56, 654321},
+                                                 {1970, 1, 1, 0, 0, 0, 0}},
+                                                column);
+
+    Block block({test_timestamp});
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
+    TimestampBucketPartitionColumnTransform transform(source_type, 16);
+
+    auto result = transform.apply(block, 0);
+
+    const auto& result_data = assert_cast<const ColumnInt32*>(result.column.get())->get_data();
+    // Buckets of the micros-since-epoch values 1709210096123456, 1709210096000000, -1, -1000000,
+    // -62167173903345679 and 0. Truncating to whole seconds would report 12, 12, 15, 15, 8 and 12,
+    // i.e. rows 0, 2 and 4 would collide with (or move onto) their truncated twins.
+    std::vector<int32_t> expected_data = {8, 12, 8, 15, 12, 12};
+    ASSERT_EQ(expected_data.size(), result_data.size());
+    for (size_t i = 0; i < result_data.size(); ++i) {
+        EXPECT_EQ(expected_data[i], result_data[i]) << "row " << i;
+    }
+    EXPECT_NE(result_data[0], result_data[1])
+            << "a sub-second timestamp must not share a bucket with its truncated value";
+    EXPECT_NE(result_data[2], result_data[3])
+            << "a sub-second timestamp must not share a bucket with its truncated value";
 }
 
 } // namespace doris

@@ -1694,8 +1694,6 @@ private:
 
     static constexpr int START_YEAR = 1900; // 1900-01-01
     static constexpr int END_YEAR = 2039;   // 2039-10-24
-    static constexpr int DAY_OFFSET_CAL_START_POINT_DAYNR =
-            719528; // 1970-01-01 (start from 0000-01-01, 0000-01-01 is day 1, returns 1)
 
     static std::array<DateV2Value<DateV2ValueType>, DICT_DAYS> DATE_DAY_OFFSET_ITEMS;
     static std::array<std::array<std::array<int, 31>, 12>, 140> DATE_DAY_OFFSET_DICT;
@@ -1710,6 +1708,9 @@ private:
     date_day_offset_dict& operator=(const date_day_offset_dict&) = default;
 
 public:
+    static constexpr int DAY_OFFSET_CAL_START_POINT_DAYNR =
+            719528; // 1970-01-01 (start from 0000-01-01, 0000-01-01 is day 1, returns 1)
+
     static bool can_speed_up_calc_daynr(int year) { return year >= START_YEAR && year <= END_YEAR; }
 
     static int get_offset_by_daynr(int daynr) { return daynr - DAY_OFFSET_CAL_START_POINT_DAYNR; }
@@ -1777,17 +1778,28 @@ inline uint32_t calc_daynr(uint16_t year, uint8_t month, uint8_t day) {
 // numberings coincide from 0000-03-01 (daynr 60) onwards, so the whole difference is the missing
 // 0000-02-29. Every conversion between a Doris DATE and an external "days since 1970-01-01" value
 // must go through the two helpers below instead of adding/subtracting the epoch daynr directly.
-inline constexpr int64_t DAYNR_OF_UNIX_EPOCH = 719528;    // calc_daynr(1970, 1, 1)
-inline constexpr int64_t DAYNR_OF_0000_03_01 = 60;        // first daynr shared by both calendars
-inline constexpr int64_t EPOCH_DAYS_MIN = -719528;        // 0000-01-01, the smallest Doris DATE
-inline constexpr int64_t EPOCH_DAYS_0000_02_29 = -719469; // exists in proleptic Gregorian only
-inline constexpr int64_t EPOCH_DAYS_MAX = 2932896;        // 9999-12-31, the largest Doris DATE
+inline constexpr int64_t DAYNR_OF_UNIX_EPOCH =
+        date_day_offset_dict::DAY_OFFSET_CAL_START_POINT_DAYNR;
+inline constexpr int64_t DAYNR_OF_0000_03_01 = 60; // first daynr shared by both calendars
 
 // Doris daynr -> days since 1970-01-01 in the proleptic Gregorian calendar.
 inline constexpr int32_t daynr_to_epoch_days(int64_t daynr) {
     return static_cast<int32_t>(daynr - DAYNR_OF_UNIX_EPOCH -
                                 (daynr < DAYNR_OF_0000_03_01 ? 1 : 0));
 }
+
+// The three boundaries of the external ordinal domain, derived from the daynr domain rather than
+// typed out, so a change to either calendar constant cannot leave them behind.
+inline constexpr int64_t EPOCH_DAYS_MIN = daynr_to_epoch_days(1); // 0000-01-01, smallest Doris DATE
+inline constexpr int64_t EPOCH_DAYS_0000_02_29 =
+        daynr_to_epoch_days(DAYNR_OF_0000_03_01) - 1; // exists in proleptic Gregorian only
+inline constexpr int64_t EPOCH_DAYS_MAX =
+        daynr_to_epoch_days(DATE_MAX_DAYNR); // 9999-12-31, the largest Doris DATE
+
+static_assert(DAYNR_OF_UNIX_EPOCH == 719528, "calc_daynr(1970, 1, 1)");
+static_assert(EPOCH_DAYS_MIN == -719528);
+static_assert(EPOCH_DAYS_0000_02_29 == -719469);
+static_assert(EPOCH_DAYS_MAX == 2932896);
 
 // Inverse of `daynr_to_epoch_days()`. Returns 0, which is never a valid daynr, when the value has
 // no Doris DATE representation: before 0000-01-01, after 9999-12-31, or the proleptic-only
