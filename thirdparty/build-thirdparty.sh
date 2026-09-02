@@ -1090,7 +1090,10 @@ build_arrow() {
         ldflags="-L${TP_LIB_DIR}"
     fi
 
-    LDFLAGS="${ldflags}" \
+    # The top-level CI may set a vcpkg toolchain for its own dependencies. Arrow's
+    # Flight libraries must instead use the gRPC/Protobuf versions built below in
+    # thirdparty; mixing those with vcpkg's newer ABI breaks the final doris_be link.
+    env -u CMAKE_TOOLCHAIN_FILE LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
         -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
