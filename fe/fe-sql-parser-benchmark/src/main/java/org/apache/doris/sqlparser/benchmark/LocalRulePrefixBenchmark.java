@@ -63,6 +63,7 @@ public class LocalRulePrefixBenchmark {
 
     private String sql;
     private List<Token> tokens;
+    private List<Token> targetTokens;
 
     @Setup(Level.Trial)
     public void setUp() {
@@ -70,6 +71,9 @@ public class LocalRulePrefixBenchmark {
         CommonTokenStream stream = new CommonTokenStream(facade.newLexer(sql));
         stream.fill();
         tokens = List.copyOf(stream.getTokens());
+        CommonTokenStream targetStream = new CommonTokenStream(facade.newLexer(target(workload)));
+        targetStream.fill();
+        targetTokens = List.copyOf(targetStream.getTokens());
     }
 
     @Benchmark
@@ -79,13 +83,41 @@ public class LocalRulePrefixBenchmark {
 
     @Benchmark
     public Object parsePreTokenized() {
-        CommonTokenStream stream = new CommonTokenStream(new ListTokenSource(tokens));
+        return newParser(tokens).multiStatements();
+    }
+
+    @Benchmark
+    public Object parseTargetRule() {
+        DorisParser parser = newParser(targetTokens);
+        switch (workload) {
+            case "control":
+                return parser.singleStatement();
+            case "limit":
+                return parser.limitClause();
+            case "predicate":
+                return parser.predicate();
+            case "relation":
+            case "tvf":
+                return parser.relationPrimary();
+            case "primary":
+                return parser.primaryExpression();
+            case "show":
+                return parser.showStatement();
+            case "ddl":
+                return parser.createStatement();
+            default:
+                throw new IllegalArgumentException("Unknown workload: " + workload);
+        }
+    }
+
+    private DorisParser newParser(List<Token> input) {
+        CommonTokenStream stream = new CommonTokenStream(new ListTokenSource(input));
         DorisParser parser = new DorisParser(stream);
         parser.addParseListener(postProcessor);
         parser.removeErrorListeners();
         parser.addErrorListener(errorListener);
         parser.getInterpreter().setPredictionMode(PredictionMode.SLL);
-        return parser.multiStatements();
+        return parser;
     }
 
     private static String statement(String workload) {
@@ -132,5 +164,30 @@ public class LocalRulePrefixBenchmark {
         return IntStream.range(0, STATEMENT_COUNT)
                 .mapToObj(ignored -> statement)
                 .collect(Collectors.joining("; "));
+    }
+
+    private static String target(String workload) {
+        switch (workload) {
+            case "control":
+                return "SELECT 1";
+            case "limit":
+                return "LIMIT 100 OFFSET 20";
+            case "predicate":
+                return "NOT IN (1, 2, 3)";
+            case "relation":
+                return "catalog.db.t AS t";
+            case "tvf":
+                return "numbers(\"number\" = \"100\") AS n";
+            case "primary":
+                return "db.fn(c)[1].field";
+            case "show":
+                return "SHOW TABLES FROM db LIKE 'fact%'";
+            case "ddl":
+                return "CREATE TABLE IF NOT EXISTS db.t (k BIGINT, v VARCHAR(32))"
+                        + " DISTRIBUTED BY HASH(k) BUCKETS 8"
+                        + " PROPERTIES (\"replication_num\" = \"1\")";
+            default:
+                throw new IllegalArgumentException("Unknown workload: " + workload);
+        }
     }
 }
