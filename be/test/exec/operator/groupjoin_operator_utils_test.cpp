@@ -28,7 +28,7 @@
 #include "core/data_type/data_type_number.h"
 #include "exec/common/hash_table/hash_map_util.h"
 #include "exec/common/template_helpers.hpp"
-#include "exec/pipeline/dependency.h"
+#include "exec/operator/groupjoin_shared_state.h"
 #include "testutil/column_helper.h"
 
 namespace doris {
