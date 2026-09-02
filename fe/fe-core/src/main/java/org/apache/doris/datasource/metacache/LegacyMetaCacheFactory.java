@@ -26,6 +26,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import java.util.function.LongPredicate;
+import java.util.function.LongSupplier;
 
 /**
  * Bridge factory for legacy {@link MetaCache} users.
@@ -40,10 +44,29 @@ public class LegacyMetaCacheFactory {
     public <T> MetaCache<T> build(String name,
             OptionalLong expireAfterAccessSec, OptionalLong refreshAfterWriteSec, long maxSize,
             CacheLoader<String, List<Pair<String, String>>> namesCacheLoader,
+            Consumer<List<Pair<String, String>>> namesCacheUpdateAction,
+            BiConsumer<String, String> nameUpdateAction,
+            Consumer<String> nameInvalidationAction,
             CacheLoader<String, Optional<T>> metaObjCacheLoader,
             RemovalListener<String, Optional<T>> removalListener) {
+        return build(name, expireAfterAccessSec, refreshAfterWriteSec, maxSize, namesCacheLoader,
+                namesCacheUpdateAction, nameUpdateAction, nameInvalidationAction, metaObjCacheLoader,
+                removalListener, () -> 0L, ignored -> true);
+    }
+
+    public <T> MetaCache<T> build(String name,
+            OptionalLong expireAfterAccessSec, OptionalLong refreshAfterWriteSec, long maxSize,
+            CacheLoader<String, List<Pair<String, String>>> namesCacheLoader,
+            Consumer<List<Pair<String, String>>> namesCacheUpdateAction,
+            BiConsumer<String, String> nameUpdateAction,
+            Consumer<String> nameInvalidationAction,
+            CacheLoader<String, Optional<T>> metaObjCacheLoader,
+            RemovalListener<String, Optional<T>> removalListener,
+            LongSupplier namesLoadEpochSupplier,
+            LongPredicate namesLoadEpochValidator) {
         return new MetaCache<>(
                 name, refreshExecutor, expireAfterAccessSec, refreshAfterWriteSec,
-                maxSize, namesCacheLoader, metaObjCacheLoader, removalListener);
+                maxSize, namesCacheLoader, namesCacheUpdateAction, nameUpdateAction, nameInvalidationAction,
+                metaObjCacheLoader, removalListener, namesLoadEpochSupplier, namesLoadEpochValidator);
     }
 }
