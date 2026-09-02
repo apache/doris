@@ -83,7 +83,8 @@ suite("test_dereference") {
 
         create table test_correlated_dereference_inner_scalar(
           id int,
-          t1 int
+          t1 int,
+          t struct<value:int>
         )
         distributed by hash(id)
         properties('replication_num'='1');
@@ -98,12 +99,11 @@ suite("test_dereference") {
         insert into test_correlated_dereference_outer values
             (1, 10, 'blocked', struct(1), array(struct(1), struct(2))),
             (2, 20, 'kept', struct(2), array(struct(3)));
-        insert into test_correlated_dereference_inner_scalar values (1, 0);
+        insert into test_correlated_dereference_inner_scalar values (1, 0, struct(1));
         insert into test_correlated_dereference_inner_struct values (1, struct(10));
         """
 
-    test {
-        sql """
+    order_qt_correlated_scalar_alias """
             select t1.id, t1.`@event_name`
             from test_correlated_dereference_outer t1
             where not exists (
@@ -112,11 +112,8 @@ suite("test_dereference") {
             )
             order by t1.id
             """
-        result([[2, 'kept']])
-    }
 
-    test {
-        sql """
+    order_qt_correlated_complex_alias """
             select outer_alias.id, outer_alias.value
             from test_correlated_dereference_outer outer_alias
             where not exists (
@@ -124,21 +121,15 @@ suite("test_dereference") {
                 where outer_alias.value = 10
             )
             order by outer_alias.id
-        """
-        result([[2, 20]])
-    }
+            """
 
-    test {
-        sql """
+    order_qt_lambda_alias """
             select x.id, array_map(x -> x.value, x.items)
             from test_correlated_dereference_outer x
             order by x.id
             """
-        result([[1, '[1, 2]'], [2, '[3]']])
-    }
 
-    test {
-        sql """
+    order_qt_nested_correlation """
             select outer_alias.id
             from test_correlated_dereference_outer outer_alias
             where exists (
@@ -147,11 +138,8 @@ suite("test_dereference") {
             )
             order by outer_alias.id
             """
-        result([[1]])
-    }
 
-    test {
-        sql """
+    order_qt_having_inner_alias """
             select t.id
             from test_correlated_dereference_outer t
             where exists (
@@ -161,11 +149,8 @@ suite("test_dereference") {
             )
             order by t.id
             """
-        result([[1], [2]])
-    }
 
-    test {
-        sql """
+    order_qt_qualify_inner_alias """
             select t.id
             from test_correlated_dereference_outer t
             where exists (
@@ -176,6 +161,39 @@ suite("test_dereference") {
             )
             order by t.id
             """
-        result([[1], [2]])
+
+    order_qt_filter_inner_alias """
+            select t.id
+            from test_correlated_dereference_outer t
+            where exists (
+                select 1
+                from test_correlated_dereference_inner_scalar t
+                where t.id = 1
+            )
+            order by t.id
+            """
+
+    order_qt_filter_inner_nested_field """
+            select t.id
+            from test_correlated_dereference_outer t
+            where exists (
+                select 1
+                from test_correlated_dereference_inner_scalar t
+                where t.value = 1
+            )
+            order by t.id
+            """
+
+    test {
+        sql """
+            select t1.id
+            from test_correlated_dereference_outer t1
+            where exists (
+                select 1
+                from test_correlated_dereference_inner_scalar t1
+                where t1.`@event_name` = 'blocked'
+            )
+            """
+        exception "No such field '@event_name' in 't1'"
     }
 }

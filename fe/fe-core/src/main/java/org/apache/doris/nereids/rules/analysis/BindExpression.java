@@ -642,21 +642,22 @@ public class BindExpression implements AnalysisRuleFactory {
             Scope groupBySlotsScope = toScope(cascadesContext, groupBySlots.build());
 
             return (analyzer, unboundSlot, bindRelationQualifierOnly) -> {
-                List<Expression> boundInGroupBy = analyzer.bindSlotByScope(
+                ExpressionAnalyzer.SlotBinding boundInGroupBy = analyzer.bindSlotByScope(
                         unboundSlot, groupBySlotsScope, bindRelationQualifierOnly);
-                if (!boundInGroupBy.isEmpty()) {
-                    return ImmutableList.of(boundInGroupBy.get(0));
+                if (!boundInGroupBy.getBoundSlots().isEmpty()) {
+                    return boundInGroupBy.firstOrEmpty();
                 }
 
-                List<Expression> boundInAggOutput = analyzer.bindSlotByScope(
+                ExpressionAnalyzer.SlotBinding boundInAggOutput = analyzer.bindSlotByScope(
                         unboundSlot, aggOutputScope, bindRelationQualifierOnly);
-                if (!boundInAggOutput.isEmpty()) {
-                    return ImmutableList.of(boundInAggOutput.get(0));
+                if (!boundInAggOutput.getBoundSlots().isEmpty()) {
+                    return boundInAggOutput.firstOrEmpty().withQualifierOccupancyFrom(boundInGroupBy);
                 }
 
-                List<? extends Expression> expressions = bindByAggChild.get().bindSlot(
-                        analyzer, unboundSlot, bindRelationQualifierOnly);
-                return expressions.isEmpty() ? expressions : ImmutableList.of(expressions.get(0));
+                return bindByAggChild.get().bindSlot(analyzer, unboundSlot, bindRelationQualifierOnly)
+                        .firstOrEmpty()
+                        .withQualifierOccupancyFrom(boundInGroupBy)
+                        .withQualifierOccupancyFrom(boundInAggOutput);
             };
         });
 
@@ -697,14 +698,15 @@ public class BindExpression implements AnalysisRuleFactory {
             @Override
             protected List<? extends Expression> bindSlotByThisScope(UnboundSlot unboundSlot) {
                 if (currentIsInAggregateFunction) {
-                    return bindByAggChild.get().bindSlot(this, unboundSlot, false);
+                    return bindByAggChild.get().bindSlot(this, unboundSlot, false).getBoundSlots();
                 } else {
-                    return bindByGroupByThenAggOutputThenAggChild.get().bindSlot(this, unboundSlot, false);
+                    return bindByGroupByThenAggOutputThenAggChild.get()
+                            .bindSlot(this, unboundSlot, false).getBoundSlots();
                 }
             }
 
             @Override
-            protected List<? extends Expression> bindSlotByRelationQualifierInThisScope(UnboundSlot unboundSlot) {
+            protected SlotBinding bindSlotByRelationQualifierInThisScope(UnboundSlot unboundSlot) {
                 if (currentIsInAggregateFunction) {
                     return bindByAggChild.get().bindSlot(this, unboundSlot, true);
                 } else {
@@ -738,12 +740,13 @@ public class BindExpression implements AnalysisRuleFactory {
         SimpleExprAnalyzer analyzer = buildCustomSlotBinderAnalyzer(
                 having, cascadesContext, defaultScope, false, true,
                 (self, unboundSlot, bindRelationQualifierOnly) -> {
-                    List<Expression> slots = self.bindSlotByScope(
+                    ExpressionAnalyzer.SlotBinding slots = self.bindSlotByScope(
                             unboundSlot, defaultScope, bindRelationQualifierOnly);
-                    if (!slots.isEmpty()) {
+                    if (!slots.getBoundSlots().isEmpty()) {
                         return slots;
                     }
-                    return self.bindSlotByScope(unboundSlot, backupScope.get(), bindRelationQualifierOnly);
+                    return self.bindSlotByScope(unboundSlot, backupScope.get(), bindRelationQualifierOnly)
+                            .withQualifierOccupancyFrom(slots);
                 });
         ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builder();
         Map<Expression, Expression> bindUniqueIdReplaceMap = getBelowAggregateGroupByUniqueFuncReplaceMap(having);
@@ -1373,12 +1376,13 @@ public class BindExpression implements AnalysisRuleFactory {
         SimpleExprAnalyzer analyzer = buildCustomSlotBinderAnalyzer(
                 qualify, cascadesContext, defaultScope.get(), true, true,
                 (self, unboundSlot, bindRelationQualifierOnly) -> {
-                List<Expression> slots = self.bindSlotByScope(
-                        unboundSlot, defaultScope.get(), bindRelationQualifierOnly);
-                if (!slots.isEmpty()) {
-                    return slots;
-                }
-                return self.bindSlotByScope(unboundSlot, backupScope, bindRelationQualifierOnly);
+                    ExpressionAnalyzer.SlotBinding slots = self.bindSlotByScope(
+                            unboundSlot, defaultScope.get(), bindRelationQualifierOnly);
+                    if (!slots.getBoundSlots().isEmpty()) {
+                        return slots;
+                    }
+                    return self.bindSlotByScope(unboundSlot, backupScope, bindRelationQualifierOnly)
+                            .withQualifierOccupancyFrom(slots);
                 });
         Map<Expression, Expression> bindUniqueIdReplaceMap = getBelowAggregateGroupByUniqueFuncReplaceMap(qualify);
         for (Expression expr : qualify.getConjuncts()) {
@@ -1413,19 +1417,20 @@ public class BindExpression implements AnalysisRuleFactory {
             Scope groupBySlotsScope = toScope(cascadesContext, groupBySlots.build());
 
             return (analyzer, unboundSlot, bindRelationQualifierOnly) -> {
-                List<Expression> boundInGroupBy = analyzer.bindSlotByScope(
+                ExpressionAnalyzer.SlotBinding boundInGroupBy = analyzer.bindSlotByScope(
                         unboundSlot, groupBySlotsScope, bindRelationQualifierOnly);
-                if (!boundInGroupBy.isEmpty()) {
-                    return ImmutableList.of(boundInGroupBy.get(0));
+                if (!boundInGroupBy.getBoundSlots().isEmpty()) {
+                    return boundInGroupBy.firstOrEmpty();
                 }
-                List<Expression> boundInAggOutput = analyzer.bindSlotByScope(
+                ExpressionAnalyzer.SlotBinding boundInAggOutput = analyzer.bindSlotByScope(
                         unboundSlot, aggOutputScope, bindRelationQualifierOnly);
-                if (!boundInAggOutput.isEmpty()) {
-                    return ImmutableList.of(boundInAggOutput.get(0));
+                if (!boundInAggOutput.getBoundSlots().isEmpty()) {
+                    return boundInAggOutput.firstOrEmpty().withQualifierOccupancyFrom(boundInGroupBy);
                 }
-                List<? extends Expression> expressions = bindByAggChild.get().bindSlot(
-                        analyzer, unboundSlot, bindRelationQualifierOnly);
-                return expressions.isEmpty() ? expressions : ImmutableList.of(expressions.get(0));
+                return bindByAggChild.get().bindSlot(analyzer, unboundSlot, bindRelationQualifierOnly)
+                        .firstOrEmpty()
+                        .withQualifierOccupancyFrom(boundInGroupBy)
+                        .withQualifierOccupancyFrom(boundInAggOutput);
             };
         });
 
@@ -1433,11 +1438,12 @@ public class BindExpression implements AnalysisRuleFactory {
                 true, true) {
             @Override
             protected List<? extends Expression> bindSlotByThisScope(UnboundSlot unboundSlot) {
-                return bindByGroupByThenAggOutputThenAggChildOutput.get().bindSlot(this, unboundSlot, false);
+                return bindByGroupByThenAggOutputThenAggChildOutput.get()
+                        .bindSlot(this, unboundSlot, false).getBoundSlots();
             }
 
             @Override
-            protected List<? extends Expression> bindSlotByRelationQualifierInThisScope(UnboundSlot unboundSlot) {
+            protected SlotBinding bindSlotByRelationQualifierInThisScope(UnboundSlot unboundSlot) {
                 return bindByGroupByThenAggOutputThenAggChildOutput.get().bindSlot(this, unboundSlot, true);
             }
         };
@@ -1732,25 +1738,26 @@ public class BindExpression implements AnalysisRuleFactory {
                     // see: https://github.com/apache/doris/pull/15240
                     //
                     // first, try to bind by agg.child.output
-                    List<Expression> slotsInChildren = self.bindExactSlotsByThisScope(
+                    ExpressionAnalyzer.SlotBinding slotsInChildren = self.bindExactSlotsByThisScope(
                             unboundSlot, childOutputScope, bindRelationQualifierOnly);
-                    if (slotsInChildren.size() == 1) {
+                    if (slotsInChildren.getBoundSlots().size() == 1) {
                         // bind succeed
                         return slotsInChildren;
                     }
                     // second, bind failed:
                     // if the slot not found, or more than one candidate slots found in agg.child.output,
                     // then try to bind by agg.output
-                    List<Expression> slotsInOutput = self.bindExactSlotsByThisScope(
+                    ExpressionAnalyzer.SlotBinding slotsInOutput = self.bindExactSlotsByThisScope(
                             unboundSlot, aggOutputScope.get(), bindRelationQualifierOnly);
-                    if (slotsInOutput.isEmpty()) {
+                    if (slotsInOutput.getBoundSlots().isEmpty()) {
                         // if slotsInChildren.size() > 1 && slotsInOutput.isEmpty(),
                         // we return slotsInChildren to throw an ambiguous slots exception
-                        return slotsInChildren;
+                        return slotsInChildren.withQualifierOccupancyFrom(slotsInOutput);
                     }
 
-                    Builder<Expression> useOutputExpr = ImmutableList.builderWithExpectedSize(slotsInOutput.size());
-                    for (Expression slotInOutput : slotsInOutput) {
+                    Builder<Expression> useOutputExpr = ImmutableList.builderWithExpectedSize(
+                            slotsInOutput.getBoundSlots().size());
+                    for (Expression slotInOutput : slotsInOutput.getBoundSlots()) {
                         // mappingSlot is provided by aggOutputScope
                         // and no non-MappingSlot slot exist in the Scope, so we
                         // can direct cast it safely
@@ -1767,7 +1774,9 @@ public class BindExpression implements AnalysisRuleFactory {
                         // we should rewrite to: select k + 1 as k1 from tbl group by k + 1
                         useOutputExpr.add(mappingSlot.getMappingExpression());
                     }
-                    return useOutputExpr.build();
+                    return new ExpressionAnalyzer.SlotBinding(useOutputExpr.build(), false)
+                            .withQualifierOccupancyFrom(slotsInChildren)
+                            .withQualifierOccupancyFrom(slotsInOutput);
                 });
 
         ImmutableList.Builder<Expression> boundGroupByBuilder = ImmutableList.builderWithExpectedSize(groupBy.size());
@@ -1844,17 +1853,18 @@ public class BindExpression implements AnalysisRuleFactory {
                 sort, cascadesContext, inputScope, true, false,
                 (self, unboundSlot, bindRelationQualifierOnly) -> {
                     // first, try to bind slot in Scope(input.output)
-                    List<Expression> slotsInInput = self.bindExactSlotsByThisScope(
+                    ExpressionAnalyzer.SlotBinding slotsInInput = self.bindExactSlotsByThisScope(
                             unboundSlot, inputScope, bindRelationQualifierOnly);
-                    if (!slotsInInput.isEmpty()) {
+                    if (!slotsInInput.getBoundSlots().isEmpty()) {
                         // bind succeed
-                        return ImmutableList.of(slotsInInput.get(0));
+                        return slotsInInput.firstOrEmpty();
                     }
                     // second, bind failed:
                     // if the slot not found, or more than one candidate slots found in input.output,
                     // then try to bind by input.children.output
                     return self.bindExactSlotsByThisScope(
-                            unboundSlot, inputChildrenScope.get(), bindRelationQualifierOnly);
+                            unboundSlot, inputChildrenScope.get(), bindRelationQualifierOnly)
+                            .withQualifierOccupancyFrom(slotsInInput);
                 });
 
         SimpleExprAnalyzer bindInInputChildScope = getAnalyzerForOrderByAggFunc(finalInput, cascadesContext, sort,
@@ -1979,11 +1989,11 @@ public class BindExpression implements AnalysisRuleFactory {
                 enableExactMatch, bindSlotInOuterScope) {
             @Override
             protected List<? extends Expression> bindSlotByThisScope(UnboundSlot unboundSlot) {
-                return customSlotBinder.bindSlot(this, unboundSlot, false);
+                return customSlotBinder.bindSlot(this, unboundSlot, false).getBoundSlots();
             }
 
             @Override
-            protected List<? extends Expression> bindSlotByRelationQualifierInThisScope(UnboundSlot unboundSlot) {
+            protected SlotBinding bindSlotByRelationQualifierInThisScope(UnboundSlot unboundSlot) {
                 return customSlotBinder.bindSlot(this, unboundSlot, true);
             }
         };
@@ -2012,7 +2022,7 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     private interface CustomSlotBinderAnalyzer {
-        List<? extends Expression> bindSlot(
+        ExpressionAnalyzer.SlotBinding bindSlot(
                 ExpressionAnalyzer analyzer, UnboundSlot unboundSlot, boolean bindRelationQualifierOnly);
     }
 
@@ -2055,11 +2065,14 @@ public class BindExpression implements AnalysisRuleFactory {
                 sort, cascadesContext, inputScope, true, false,
                 (analyzer, unboundSlot, bindRelationQualifierOnly) -> {
                     if (finalInput instanceof LogicalAggregate) {
-                        List<Expression> boundInOutputWithoutAggFunc = analyzer.bindSlotByScope(
+                        ExpressionAnalyzer.SlotBinding boundInOutputWithoutAggFunc = analyzer.bindSlotByScope(
                                 unboundSlot, outputWithoutAggFunc, bindRelationQualifierOnly);
-                        if (!boundInOutputWithoutAggFunc.isEmpty()) {
-                            return ImmutableList.of(boundInOutputWithoutAggFunc.get(0));
+                        if (!boundInOutputWithoutAggFunc.getBoundSlots().isEmpty()) {
+                            return boundInOutputWithoutAggFunc.firstOrEmpty();
                         }
+                        return analyzer.bindExactSlotsByThisScope(
+                                unboundSlot, inputChildrenScope.get(), bindRelationQualifierOnly)
+                                .withQualifierOccupancyFrom(boundInOutputWithoutAggFunc);
                     }
                     return analyzer.bindExactSlotsByThisScope(
                             unboundSlot, inputChildrenScope.get(), bindRelationQualifierOnly);

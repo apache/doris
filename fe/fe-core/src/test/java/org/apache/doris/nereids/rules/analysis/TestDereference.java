@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.test.TestExternalCatalog.TestCatalogProvider;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
@@ -61,7 +62,8 @@ public class TestDereference extends TestWithFeService {
                     ),
                     "inner_table", ImmutableList.of(
                             new Column("id", PrimitiveType.INT),
-                            new Column("t1", PrimitiveType.INT)
+                            new Column("t1", PrimitiveType.INT),
+                            new Column("t", new StructType(new StructField("value", Type.INT)))
                     ),
                     "inner_variant_table", ImmutableList.of(
                             new Column("id", PrimitiveType.INT),
@@ -115,6 +117,35 @@ public class TestDereference extends TestWithFeService {
         Assertions.assertEquals("value", apply.getCorrelationSlot().get(0).getName());
         List<String> qualifier = apply.getCorrelationSlot().get(0).getQualifier();
         Assertions.assertEquals("outer_alias", qualifier.get(qualifier.size() - 1));
+    }
+
+    @Test
+    public void testInnerAliasShadowsOuterAliasInFilter() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("select t.id from outer_table t where exists ("
+                        + "select 1 from inner_table t where t.id = 1)")
+                .getPlan();
+
+        Assertions.assertTrue(getOnlyApply(plan).getCorrelationSlot().isEmpty());
+    }
+
+    @Test
+    public void testInnerAliasKeepsNestedFieldFallback() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("select t.id from outer_table t where exists ("
+                        + "select 1 from inner_table t where t.value = 1)")
+                .getPlan();
+
+        Assertions.assertTrue(getOnlyApply(plan).getCorrelationSlot().isEmpty());
+    }
+
+    @Test
+    public void testInnerAliasKeepsScalarFieldError() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext)
+                        .analyze("select t1.id from outer_table t1 where exists ("
+                                + "select 1 from inner_table t1 where t1.`@event_name` = 'click')"));
+        Assertions.assertTrue(exception.getMessage().contains("No such field '@event_name' in 't1'"));
     }
 
     @Test
