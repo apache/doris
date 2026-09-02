@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.ProjectMergeable;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.base.Preconditions;
@@ -157,13 +158,48 @@ public class PushDownExpressionsInHashCondition extends OneRewriteRuleFactory {
 
     }
 
-    private static LogicalProject createChildProjectPlan(Plan plan, LogicalJoin join,
+    private static Plan createChildProjectPlan(Plan plan, LogicalJoin join,
             Set<NamedExpression> conditionUsedExprs) {
         Set<NamedExpression> intersectionSlots = Sets.newHashSet(plan.getOutputSet());
         intersectionSlots.retainAll(join.getOutputSet());
         intersectionSlots.addAll(conditionUsedExprs);
-        return new LogicalProject(intersectionSlots.stream()
-                .collect(ImmutableList.toImmutableList()), plan);
+        List<NamedExpression> projects = intersectionSlots.stream().collect(ImmutableList.toImmutableList());
+        LogicalProject<Plan> project = new LogicalProject<>(projects, plan);
+        if (!(plan instanceof ProjectMergeable)) {
+            return project;
+        }
+        Plan merged = MergeProjectable.mergeProjectable(project);
+        if (!(merged instanceof LogicalProject)
+                || !(((LogicalProject<?>) merged).child() instanceof LogicalJoin)
+                || !((LogicalJoin<?, ?>) ((LogicalProject<?>) merged).child()).getJoinType().isCrossJoin()) {
+            return project;
+        }
+
+        LogicalProject<?> mergedProject = (LogicalProject<?>) merged;
+        LogicalJoin<? extends Plan, ? extends Plan> crossJoin
+                = (LogicalJoin<? extends Plan, ? extends Plan>) mergedProject.child();
+        Set<ExprId> leftOutputExprIds = crossJoin.left().getOutputExprIdSet();
+        Set<ExprId> rightOutputExprIds = crossJoin.right().getOutputExprIdSet();
+        ImmutableList.Builder<NamedExpression> leftProjects = ImmutableList.builder();
+        ImmutableList.Builder<NamedExpression> rightProjects = ImmutableList.builder();
+        for (NamedExpression expression : mergedProject.getProjects()) {
+            if (expression.containsVolatileExpression()) {
+                return project;
+            }
+            Set<ExprId> inputExprIds = expression.getInputSlotExprIds();
+            if (leftOutputExprIds.containsAll(inputExprIds)) {
+                leftProjects.add(expression);
+            } else if (rightOutputExprIds.containsAll(inputExprIds)) {
+                rightProjects.add(expression);
+            } else {
+                return project;
+            }
+        }
+
+        Plan newCrossJoin = crossJoin.withChildren(
+                new LogicalProject<>(leftProjects.build(), crossJoin.left()),
+                new LogicalProject<>(rightProjects.build(), crossJoin.right()));
+        return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()), newCrossJoin);
     }
 
     private static void generateReplaceMapAndProjectExprs(Expression expr, Map<Expression, NamedExpression> replaceMap,
