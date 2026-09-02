@@ -24,9 +24,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 
-import org.junit.Before;
-import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 public class InsertOverwriteManagerTest {
@@ -36,7 +36,7 @@ public class InsertOverwriteManagerTest {
 
     private MTMV mtmv = Mockito.mock(MTMV.class);
 
-    @Before
+    @BeforeEach
     public void setUp()
             throws NoSuchMethodException, SecurityException, AnalysisException, DdlException, MetaNotFoundException {
 

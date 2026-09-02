@@ -17,8 +17,8 @@
 
 package org.apache.doris.load;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -73,16 +73,16 @@ public class PartitionLoadInfoTest {
 
         List<Source> sources1 = partitionLoadInfo1.getSources();
 
-        Assert.assertEquals(partitionLoadInfo1.getVersion(), 100000);
-        Assert.assertEquals(sources1.size(), 2);
-        Assert.assertEquals(sources1.get(0).getFileUrls().size(), 10);
-        Assert.assertEquals(sources1.get(0).getColumnNames().size(), 10);
-        Assert.assertEquals(sources1.get(1).getFileUrls().size(), 30);
-        Assert.assertEquals(sources1.get(1).getColumnNames().size(), 30);
+        Assertions.assertEquals(partitionLoadInfo1.getVersion(), 100000);
+        Assertions.assertEquals(sources1.size(), 2);
+        Assertions.assertEquals(sources1.get(0).getFileUrls().size(), 10);
+        Assertions.assertEquals(sources1.get(0).getColumnNames().size(), 10);
+        Assertions.assertEquals(sources1.get(1).getFileUrls().size(), 30);
+        Assertions.assertEquals(sources1.get(1).getColumnNames().size(), 30);
 
-        Assert.assertEquals(partitionLoadInfo1, partitionLoadInfo);
-        Assert.assertEquals(rPartitionLoadInfo0, partitionLoadInfo0);
-        Assert.assertNotEquals(partitionLoadInfo0, partitionLoadInfo1);
+        Assertions.assertEquals(partitionLoadInfo1, partitionLoadInfo);
+        Assertions.assertEquals(rPartitionLoadInfo0, partitionLoadInfo0);
+        Assertions.assertNotEquals(partitionLoadInfo0, partitionLoadInfo1);
 
         dis.close();
         file.delete();

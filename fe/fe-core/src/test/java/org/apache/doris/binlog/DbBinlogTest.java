@@ -22,10 +22,10 @@ import org.apache.doris.thrift.TBinlogType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -46,12 +46,12 @@ public class DbBinlogTest {
     private int expiredBinlogNum = 3;
     private long baseNum = 30000L;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         // check args valid
-        Assert.assertTrue(totalBinlogNum > 0);
-        Assert.assertTrue(gcTableNum <= tableNum);
-        Assert.assertTrue(expiredBinlogNum <= totalBinlogNum);
+        Assertions.assertTrue(totalBinlogNum > 0);
+        Assertions.assertTrue(gcTableNum <= tableNum);
+        Assertions.assertTrue(expiredBinlogNum <= totalBinlogNum);
 
         // gen tableIds
         tableIds = Lists.newArrayList();
@@ -64,7 +64,7 @@ public class DbBinlogTest {
                 .thenAnswer(invocation -> (long) invocation.getArgument(0));
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedBinlogUtils != null) {
             mockedBinlogUtils.close();
@@ -120,9 +120,9 @@ public class DbBinlogTest {
         // check binlog status
         for (TBinlog binlog : testBinlogs) {
             if (binlog.getTableIds().get(0) <= baseTableId + gcTableNum) {
-                Assert.assertEquals(0, binlog.getTableRef());
+                Assertions.assertEquals(0, binlog.getTableRef());
             } else {
-                Assert.assertEquals(1, binlog.getTableRef());
+                Assertions.assertEquals(1, binlog.getTableRef());
             }
         }
 
@@ -135,18 +135,18 @@ public class DbBinlogTest {
             }
             long belong = binlog.getBelong();
             if (belong < 0) {
-                Assert.assertEquals(expiredCommitSeq, binlog.getCommitSeq());
+                Assertions.assertEquals(expiredCommitSeq, binlog.getCommitSeq());
             } else if (belong <= maxGcTableId) {
                 int offset = (int) (belong - baseTableId);
-                Assert.assertEquals((long) tableLastCommitInfo[offset], binlog.getCommitSeq());
+                Assertions.assertEquals((long) tableLastCommitInfo[offset], binlog.getCommitSeq());
             } else {
-                Assert.assertEquals(-1, binlog.getCommitSeq());
+                Assertions.assertEquals(-1, binlog.getCommitSeq());
             }
         }
 
         // check tombstone
-        Assert.assertFalse(tombstone.isDbBinlogTomstone());
-        Assert.assertEquals(expiredCommitSeq, tombstone.getCommitSeq());
+        Assertions.assertFalse(tombstone.isDbBinlogTomstone());
+        Assertions.assertEquals(expiredCommitSeq, tombstone.getCommitSeq());
     }
 
     @Test
@@ -201,9 +201,9 @@ public class DbBinlogTest {
         long unGcTableId = baseTableId + tableNum - 1;
         for (TBinlog binlog : testBinlogs) {
             if (binlog.getTableIds().contains(unGcTableId)) {
-                Assert.assertEquals(1, binlog.getTableRef());
+                Assertions.assertEquals(1, binlog.getTableRef());
             } else {
-                Assert.assertEquals(0, binlog.getTableRef());
+                Assertions.assertEquals(0, binlog.getTableRef());
             }
         }
     }
@@ -251,9 +251,9 @@ public class DbBinlogTest {
         // check binlog status
         for (TBinlog binlog : testBinlogs) {
             if (binlog.getTimestamp() <= expiredTime) {
-                Assert.assertEquals(0, binlog.getTableRef());
+                Assertions.assertEquals(0, binlog.getTableRef());
             } else {
-                Assert.assertTrue(binlog.getTableRef() != 0);
+                Assertions.assertTrue(binlog.getTableRef() != 0);
             }
         }
     }
@@ -288,15 +288,15 @@ public class DbBinlogTest {
 
             TreeSet<TBinlog> allbinlogs = (TreeSet<TBinlog>) allBinlogsField.get(dbBinlog);
             Map<Long, TableBinlog> tableBinlogMap = (Map<Long, TableBinlog>) tableBinlogMapField.get(dbBinlog);
-            Assert.assertTrue(allbinlogs.contains(binlog));
+            Assertions.assertTrue(allbinlogs.contains(binlog));
             switch (type) {
                 case CREATE_TABLE:
                 case DROP_TABLE: {
-                    Assert.assertTrue(tableBinlogMap.isEmpty());
+                    Assertions.assertTrue(tableBinlogMap.isEmpty());
                     break;
                 }
                 default: {
-                    Assert.assertTrue(tableBinlogMap.containsKey(baseTableId));
+                    Assertions.assertTrue(tableBinlogMap.containsKey(baseTableId));
                     break;
                 }
             }
@@ -351,20 +351,20 @@ public class DbBinlogTest {
             long tableId = binlog.getTableIds().get(0);
             if (tableId <= maxGcTableId) {
                 // For disabled tables, all binlogs should be cleared
-                Assert.assertEquals(0, binlog.getTableRef());
+                Assertions.assertEquals(0, binlog.getTableRef());
             } else {
                 // For enabled tables, only expired binlogs should be cleared
                 if (binlog.getTimestamp() <= expiredTime) {
-                    Assert.assertEquals(0, binlog.getTableRef());
+                    Assertions.assertEquals(0, binlog.getTableRef());
                 } else {
-                    Assert.assertEquals(1, binlog.getTableRef());
+                    Assertions.assertEquals(1, binlog.getTableRef());
                 }
             }
         }
 
         // check tombstone
-        Assert.assertFalse(tombstone.isDbBinlogTomstone());
-        Assert.assertEquals(baseNum + totalBinlogNum - 1, tombstone.getCommitSeq());
+        Assertions.assertFalse(tombstone.isDbBinlogTomstone());
+        Assertions.assertEquals(baseNum + totalBinlogNum - 1, tombstone.getCommitSeq());
     }
 
     @Test
@@ -410,14 +410,14 @@ public class DbBinlogTest {
         // check binlog status - only expired binlogs should be cleared
         for (TBinlog binlog : testBinlogs) {
             if (binlog.getTimestamp() <= expiredTime) {
-                Assert.assertEquals(0, binlog.getTableRef());
+                Assertions.assertEquals(0, binlog.getTableRef());
             } else {
-                Assert.assertEquals(1, binlog.getTableRef());
+                Assertions.assertEquals(1, binlog.getTableRef());
             }
         }
 
         // check tombstone
-        Assert.assertTrue(tombstone.isDbBinlogTomstone());
-        Assert.assertEquals(expiredTime, tombstone.getCommitSeq());
+        Assertions.assertTrue(tombstone.isDbBinlogTomstone());
+        Assertions.assertEquals(expiredTime, tombstone.getCommitSeq());
     }
 }

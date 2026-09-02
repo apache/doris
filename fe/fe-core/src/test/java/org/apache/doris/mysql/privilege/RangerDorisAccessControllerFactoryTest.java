@@ -19,8 +19,8 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
@@ -36,8 +36,8 @@ public class RangerDorisAccessControllerFactoryTest {
             RangerDorisAccessController second = new RangerDorisAccessControllerFactory()
                     .createAccessController(Collections.emptyMap());
 
-            Assert.assertEquals(1, mockedConstruction.constructed().size());
-            Assert.assertSame(first, second);
+            Assertions.assertEquals(1, mockedConstruction.constructed().size());
+            Assertions.assertSame(first, second);
         }
     }
 }

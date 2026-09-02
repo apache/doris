@@ -18,8 +18,8 @@
 package org.apache.doris.catalog.authorizer.ranger.hive;
 
 import org.apache.ranger.audit.model.AuthzAuditEvent;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.List;
@@ -65,7 +65,7 @@ public class RangerHiveAuditLogFlusherTest {
 
         try {
             Future<?> flush = executor.submit(auditHandler::flushAudit);
-            Assert.assertTrue(auditHandler.deliveryStarted.await(10, TimeUnit.SECONDS));
+            Assertions.assertTrue(auditHandler.deliveryStarted.await(10, TimeUnit.SECONDS));
 
             Future<?> producer = executor.submit(() -> auditHandler.addAuthzAuditEvent(second));
             producer.get(2, TimeUnit.SECONDS);
@@ -74,7 +74,7 @@ public class RangerHiveAuditLogFlusherTest {
             flush.get(10, TimeUnit.SECONDS);
             auditHandler.flushAudit();
 
-            Assert.assertEquals(List.of(first, second), auditHandler.delivered);
+            Assertions.assertEquals(List.of(first, second), auditHandler.delivered);
         } finally {
             auditHandler.allowDelivery.countDown();
             executor.shutdownNow();
@@ -88,14 +88,14 @@ public class RangerHiveAuditLogFlusherTest {
         AuthzAuditEvent second = allowedEvent();
         auditHandler.addAuthzAuditEvent(first);
 
-        Assert.assertThrows(RuntimeException.class, auditHandler::flushAudit);
-        Assert.assertEquals(1, auditHandler.getPendingAuditEventCountForTest());
+        Assertions.assertThrows(RuntimeException.class, auditHandler::flushAudit);
+        Assertions.assertEquals(1, auditHandler.getPendingAuditEventCountForTest());
 
         auditHandler.addAuthzAuditEvent(second);
         auditHandler.flushAudit();
 
-        Assert.assertEquals(List.of(first, second), auditHandler.delivered);
-        Assert.assertEquals(0, auditHandler.getPendingAuditEventCountForTest());
+        Assertions.assertEquals(List.of(first, second), auditHandler.delivered);
+        Assertions.assertEquals(0, auditHandler.getPendingAuditEventCountForTest());
     }
 
     private static AuthzAuditEvent allowedEvent() {

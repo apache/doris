@@ -23,9 +23,9 @@ import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -37,7 +37,7 @@ public class MTMVRelationManagerTest {
     private BaseTableInfo t3 = Mockito.mock(BaseTableInfo.class);
     private BaseTableInfo t4 = Mockito.mock(BaseTableInfo.class);
 
-    @Before
+    @BeforeEach
     public void setUp() throws NoSuchMethodException, SecurityException, AnalysisException {
         Mockito.when(mv1.getCtlName()).thenReturn("ctl1");
         Mockito.when(mv1.getDbName()).thenReturn("db1");
@@ -69,13 +69,13 @@ public class MTMVRelationManagerTest {
         manager.refreshMTMVCache(mv1Relation, mv1);
         // should return mv2
         Set<BaseTableInfo> mv1OneLevel = manager.getMtmvsByBaseTableOneLevelAndFromView(mv1);
-        Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), mv1OneLevel));
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), mv1OneLevel));
         // should return mv2
         Set<BaseTableInfo> t3OneLevel = manager.getMtmvsByBaseTableOneLevelAndFromView(t3);
-        Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), t3OneLevel));
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), t3OneLevel));
         // should return mv1
         Set<BaseTableInfo> t4OneLevel = manager.getMtmvsByBaseTableOneLevelAndFromView(t4);
-        Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1), t4OneLevel));
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1), t4OneLevel));
 
         // update mv2 only use t3,remove mv1
         mv2Relation = new MTMVRelation(Sets.newHashSet(t3), Sets.newHashSet(t3), Sets.newHashSet(t3),
@@ -83,13 +83,13 @@ public class MTMVRelationManagerTest {
         manager.refreshMTMVCache(mv2Relation, mv2);
         // should return empty
         mv1OneLevel = manager.getMtmvsByBaseTableOneLevelAndFromView(mv1);
-        Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(), mv1OneLevel));
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(), mv1OneLevel));
         // should return mv2
         t3OneLevel = manager.getMtmvsByBaseTableOneLevelAndFromView(t3);
-        Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), t3OneLevel));
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), t3OneLevel));
         // should return mv1
         t4OneLevel = manager.getMtmvsByBaseTableOneLevelAndFromView(t4);
-        Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1), t4OneLevel));
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1), t4OneLevel));
     }
 
     @Test
@@ -105,13 +105,13 @@ public class MTMVRelationManagerTest {
         manager.refreshMTMVCache(mv1Relation, mv1);
         // should return mv2
         Set<BaseTableInfo> mv1All = manager.getMtmvsByBaseTable(mv1);
-        Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), mv1All));
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), mv1All));
         // should return mv2
         Set<BaseTableInfo> t3All = manager.getMtmvsByBaseTable(t3);
-        Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), t3All));
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), t3All));
         // should return mv1
         Set<BaseTableInfo> t4All = manager.getMtmvsByBaseTable(t4);
-        Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1, mv2), t4All));
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1, mv2), t4All));
 
         // update mv2 only use t3,remove mv1
         mv2Relation = new MTMVRelation(Sets.newHashSet(t3), Sets.newHashSet(t3), Sets.newHashSet(t3),
@@ -119,13 +119,13 @@ public class MTMVRelationManagerTest {
         manager.refreshMTMVCache(mv2Relation, mv2);
         // should return empty
         mv1All = manager.getMtmvsByBaseTableOneLevelAndFromView(mv1);
-        Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(), mv1All));
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(), mv1All));
         // should return mv2
         t3All = manager.getMtmvsByBaseTableOneLevelAndFromView(t3);
-        Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), t3All));
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), t3All));
         // should return mv1
         t4All = manager.getMtmvsByBaseTableOneLevelAndFromView(t4);
-        Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1), t4All));
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1), t4All));
     }
 
     @Test
@@ -139,9 +139,9 @@ public class MTMVRelationManagerTest {
         manager.refreshMTMVCache(oldRelation, mv1);
         manager.refreshMTMVCache(newRelation, mv1);
 
-        Assert.assertTrue(manager.getMtmvsByBaseTable(t3).isEmpty());
-        Assert.assertTrue(manager.getMtmvsByBaseTableOneLevelAndFromView(t3).isEmpty());
-        Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1),
+        Assertions.assertTrue(manager.getMtmvsByBaseTable(t3).isEmpty());
+        Assertions.assertTrue(manager.getMtmvsByBaseTableOneLevelAndFromView(t3).isEmpty());
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1),
                 manager.getMtmvsByBaseTable(t4)));
     }
 

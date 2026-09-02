@@ -25,10 +25,10 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -44,14 +44,14 @@ public class TimeUtilsTest {
 
     private MockedStatic<TimeUtils> mockedTimeUtils;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         TimeZone tz = TimeZone.getTimeZone(ZoneId.of("Asia/Shanghai"));
         mockedTimeUtils = Mockito.mockStatic(TimeUtils.class, Mockito.CALLS_REAL_METHODS);
         mockedTimeUtils.when(TimeUtils::getTimeZone).thenReturn(tz);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedTimeUtils != null) {
             mockedTimeUtils.close();
@@ -60,9 +60,9 @@ public class TimeUtilsTest {
 
     @Test
     public void testNormal() {
-        Assert.assertNotNull(TimeUtils.getCurrentFormatTime());
-        Assert.assertNotNull(TimeUtils.getStartTimeMs());
-        Assert.assertTrue(TimeUtils.getElapsedTimeMs(0L) > 0);
+        Assertions.assertNotNull(TimeUtils.getCurrentFormatTime());
+        Assertions.assertNotNull(TimeUtils.getStartTimeMs());
+        Assertions.assertTrue(TimeUtils.getElapsedTimeMs(0L) > 0);
     }
 
     @Test
@@ -83,7 +83,7 @@ public class TimeUtilsTest {
             } catch (AnalysisException e) {
                 e.printStackTrace();
                 System.out.println(validDate);
-                Assert.fail();
+                Assertions.fail();
             }
         }
 
@@ -98,9 +98,9 @@ public class TimeUtilsTest {
         for (String invalidDate : invalidDateList) {
             try {
                 TimeUtils.parseDate(invalidDate, PrimitiveType.DATE);
-                Assert.fail();
+                Assertions.fail();
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("Invalid"));
+                Assertions.assertTrue(e.getMessage().contains("Invalid"));
             }
         }
 
@@ -122,7 +122,7 @@ public class TimeUtilsTest {
             } catch (AnalysisException e) {
                 e.printStackTrace();
                 System.out.println(validDateTime);
-                Assert.fail();
+                Assertions.fail();
             }
         }
 
@@ -138,46 +138,46 @@ public class TimeUtilsTest {
         for (String invalidDateTime : invalidDateTimeList) {
             try {
                 TimeUtils.parseDate(invalidDateTime, PrimitiveType.DATETIME);
-                Assert.fail();
+                Assertions.fail();
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("Invalid"));
+                Assertions.assertTrue(e.getMessage().contains("Invalid"));
             }
         }
     }
 
     @Test
     public void testDateTrans() throws AnalysisException {
-        Assert.assertEquals(FeConstants.null_string, TimeUtils.longToTimeString(-2L));
+        Assertions.assertEquals(FeConstants.null_string, TimeUtils.longToTimeString(-2L));
 
         long timestamp = 1426125600000L;
-        Assert.assertEquals("2015-03-12 10:00:00", TimeUtils.longToTimeString(timestamp));
+        Assertions.assertEquals("2015-03-12 10:00:00", TimeUtils.longToTimeString(timestamp));
 
         DateLiteral date = new DateLiteral(2015, 3, 1, ScalarType.DATE);
-        Assert.assertEquals(1031777L, date.getRealValue());
+        Assertions.assertEquals(1031777L, date.getRealValue());
 
         DateLiteral datetime = new DateLiteral(2015, 3, 1, 12, 0, 0, ScalarType.DATETIME);
-        Assert.assertEquals(20150301120000L, datetime.getRealValue());
+        Assertions.assertEquals(20150301120000L, datetime.getRealValue());
     }
 
     @Test
     public void testTimezone() throws AnalysisException {
         try {
-            Assert.assertEquals("CST", TimeUtils.checkTimeZoneValidAndStandardize("CST"));
-            Assert.assertEquals("EST", TimeUtils.checkTimeZoneValidAndStandardize("EST"));
-            Assert.assertEquals("GMT+08:00", TimeUtils.checkTimeZoneValidAndStandardize("GMT+8:00"));
-            Assert.assertEquals("UTC+08:00", TimeUtils.checkTimeZoneValidAndStandardize("UTC+8:00"));
-            Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("+08:00"));
-            Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("+8:00"));
-            Assert.assertEquals("-08:00", TimeUtils.checkTimeZoneValidAndStandardize("-8:00"));
-            Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("8:00"));
+            Assertions.assertEquals("CST", TimeUtils.checkTimeZoneValidAndStandardize("CST"));
+            Assertions.assertEquals("EST", TimeUtils.checkTimeZoneValidAndStandardize("EST"));
+            Assertions.assertEquals("GMT+08:00", TimeUtils.checkTimeZoneValidAndStandardize("GMT+8:00"));
+            Assertions.assertEquals("UTC+08:00", TimeUtils.checkTimeZoneValidAndStandardize("UTC+8:00"));
+            Assertions.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("+08:00"));
+            Assertions.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("+8:00"));
+            Assertions.assertEquals("-08:00", TimeUtils.checkTimeZoneValidAndStandardize("-8:00"));
+            Assertions.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("8:00"));
         } catch (DdlException ex) {
-            Assert.assertTrue(ex.getMessage(), false);
+            Assertions.assertTrue(false, ex.getMessage());
         }
         try {
             TimeUtils.checkTimeZoneValidAndStandardize("FOO");
-            Assert.fail();
+            Assertions.fail();
         } catch (DdlException ex) {
-            Assert.assertTrue(ex.getMessage().contains("Unknown or incorrect time zone: 'FOO'"));
+            Assertions.assertTrue(ex.getMessage().contains("Unknown or incorrect time zone: 'FOO'"));
         }
     }
 
@@ -186,36 +186,36 @@ public class TimeUtilsTest {
         Calendar calendar = Calendar.getInstance();
         Date date = TimeUtils.getHourAsDate("1");
         calendar.setTime(date);
-        Assert.assertEquals(1, calendar.get(Calendar.HOUR_OF_DAY));
+        Assertions.assertEquals(1, calendar.get(Calendar.HOUR_OF_DAY));
         date = TimeUtils.getHourAsDate("10");
         calendar.setTime(date);
-        Assert.assertEquals(10, calendar.get(Calendar.HOUR_OF_DAY));
+        Assertions.assertEquals(10, calendar.get(Calendar.HOUR_OF_DAY));
         date = TimeUtils.getHourAsDate("24");
         calendar.setTime(date);
-        Assert.assertEquals(0, calendar.get(Calendar.HOUR_OF_DAY));
+        Assertions.assertEquals(0, calendar.get(Calendar.HOUR_OF_DAY));
         date = TimeUtils.getHourAsDate("05");
         calendar.setTime(date);
-        Assert.assertEquals(5, calendar.get(Calendar.HOUR_OF_DAY));
+        Assertions.assertEquals(5, calendar.get(Calendar.HOUR_OF_DAY));
         date = TimeUtils.getHourAsDate("0");
         calendar.setTime(date);
-        Assert.assertEquals(0, calendar.get(Calendar.HOUR_OF_DAY));
+        Assertions.assertEquals(0, calendar.get(Calendar.HOUR_OF_DAY));
         date = TimeUtils.getHourAsDate("13");
         calendar.setTime(date);
-        Assert.assertEquals(13, calendar.get(Calendar.HOUR_OF_DAY));
-        Assert.assertNull(TimeUtils.getHourAsDate("111"));
-        Assert.assertNull(TimeUtils.getHourAsDate("-1"));
+        Assertions.assertEquals(13, calendar.get(Calendar.HOUR_OF_DAY));
+        Assertions.assertNull(TimeUtils.getHourAsDate("111"));
+        Assertions.assertNull(TimeUtils.getHourAsDate("-1"));
     }
 
     @Test
     public void testConvertToBEDateType() {
         long result = TimeUtils.convertStringToDateV2("2021-01-01");
-        Assert.assertEquals(1034785, result);
+        Assertions.assertEquals(1034785, result);
         result = TimeUtils.convertStringToDateV2("1900-01-01");
-        Assert.assertEquals(972833, result);
+        Assertions.assertEquals(972833, result);
         result = TimeUtils.convertStringToDateV2("1899-12-31");
-        Assert.assertEquals(972703, result);
+        Assertions.assertEquals(972703, result);
         result = TimeUtils.convertStringToDateV2("9999-12-31");
-        Assert.assertEquals(5119903, result);
+        Assertions.assertEquals(5119903, result);
 
         ExceptionChecker.expectThrows(DateTimeParseException.class, () -> TimeUtils.convertStringToDateV2("2021-1-1"));
         ExceptionChecker.expectThrows(DateTimeParseException.class, () -> TimeUtils.convertStringToDateV2("1900-01-1"));
@@ -229,13 +229,13 @@ public class TimeUtilsTest {
     @Test
     public void testConvertToBEDatetimeV2Type() {
         long result = TimeUtils.convertStringToDateTimeV2("2021-01-01 10:10:10", 0);
-        Assert.assertEquals(142219811099770880L, result);
+        Assertions.assertEquals(142219811099770880L, result);
         result = TimeUtils.convertStringToDateTimeV2("1900-01-01 00:00:00.12", 2);
-        Assert.assertEquals(133705149423146176L, result);
+        Assertions.assertEquals(133705149423146176L, result);
         result = TimeUtils.convertStringToDateTimeV2("1899-12-31 23:59:59.000", 3);
-        Assert.assertEquals(133687385164611584L, result);
+        Assertions.assertEquals(133687385164611584L, result);
         result = TimeUtils.convertStringToDateTimeV2("9999-12-31 23:59:59.123456", 6);
-        Assert.assertEquals(703674213003812984L, result);
+        Assertions.assertEquals(703674213003812984L, result);
 
         ExceptionChecker.expectThrows(DateTimeParseException.class,
                 () -> TimeUtils.convertStringToDateTimeV2("2021-1-1", 0));
@@ -258,29 +258,29 @@ public class TimeUtilsTest {
     @Test
     public void testLongToTimeStringWithTimeZoneAndOffset() {
         // null/zero/negative → null_string
-        Assert.assertEquals(FeConstants.null_string,
+        Assertions.assertEquals(FeConstants.null_string,
                 TimeUtils.longToTimeStringWithTimeZoneAndOffset(null, "UTC"));
-        Assert.assertEquals(FeConstants.null_string,
+        Assertions.assertEquals(FeConstants.null_string,
                 TimeUtils.longToTimeStringWithTimeZoneAndOffset(0L, "UTC"));
-        Assert.assertEquals(FeConstants.null_string,
+        Assertions.assertEquals(FeConstants.null_string,
                 TimeUtils.longToTimeStringWithTimeZoneAndOffset(-1L, "Asia/Shanghai"));
 
         long ts = org.apache.doris.catalog.DataProperty.MAX_COOLDOWN_TIME_MS;
 
         // UTC → "9999-12-31 15:59:59Z"
         String utcResult = TimeUtils.longToTimeStringWithTimeZoneAndOffset(ts, "UTC");
-        Assert.assertEquals("9999-12-31 15:59:59Z", utcResult);
+        Assertions.assertEquals("9999-12-31 15:59:59Z", utcResult);
 
         // Asia/Shanghai (+08:00) → "9999-12-31 23:59:59+08:00"
         String shanghaiResult = TimeUtils.longToTimeStringWithTimeZoneAndOffset(ts, "Asia/Shanghai");
-        Assert.assertEquals("9999-12-31 23:59:59+08:00", shanghaiResult);
+        Assertions.assertEquals("9999-12-31 23:59:59+08:00", shanghaiResult);
 
         // America/New_York (-05:00) → "9999-12-31 10:59:59-05:00"
         String nyResult = TimeUtils.longToTimeStringWithTimeZoneAndOffset(ts, "America/New_York");
-        Assert.assertEquals("9999-12-31 10:59:59-05:00", nyResult);
+        Assertions.assertEquals("9999-12-31 10:59:59-05:00", nyResult);
 
         // America/Chicago (-06:00) → "9999-12-31 09:59:59-06:00"
         String chicagoResult = TimeUtils.longToTimeStringWithTimeZoneAndOffset(ts, "America/Chicago");
-        Assert.assertEquals("9999-12-31 09:59:59-06:00", chicagoResult);
+        Assertions.assertEquals("9999-12-31 09:59:59-06:00", chicagoResult);
     }
 }

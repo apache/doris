@@ -38,7 +38,6 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -76,7 +75,7 @@ public class StmtExecutorTest extends TestWithFeService {
     public void testShowNull() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     // Arrow Flight SQL keeps a query's coordinator alive across GetFlightInfo -> DoGet (see #62259);
@@ -98,47 +97,47 @@ public class StmtExecutorTest extends TestWithFeService {
 
         // Simulate the in-flight query whose results DoGet is still pulling.
         QeProcessorImpl.INSTANCE.registerQuery(queryId, new QeProcessorImpl.QueryInfo(coord));
-        Assert.assertNotNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
+        Assertions.assertNotNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
 
         try {
             stmtExecutor.finalizeArrowFlightQuery();
-            Assert.fail("expected coord.close() failure to propagate after the query is unregistered");
+            Assertions.fail("expected coord.close() failure to propagate after the query is unregistered");
         } catch (RuntimeException e) {
-            Assert.assertEquals("coord close failed", e.getMessage());
+            Assertions.assertEquals("coord close failed", e.getMessage());
         }
 
         // The coordinator close was attempted (releases SplitSource + query queue slot) ...
         Mockito.verify(coord).close();
         // ... and despite it failing, the query registration was still released (no leak).
-        Assert.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
+        Assertions.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
     }
 
     @Test
     public void testKill() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
     public void testKillOtherFail() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "kill 1000");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
     public void testKillNoCtx() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "kill 1");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
     public void testSet() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
@@ -150,35 +149,35 @@ public class StmtExecutorTest extends TestWithFeService {
                 + "                + \"   \\\"catalog\\\" = \\\"kafka\\\"\\n\"\n"
                 + "                + \");");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
     public void testUse() throws Exception {
         StmtExecutor executor = new StmtExecutor(connectContext, "use testDb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
     public void testUseFail() throws Exception {
         StmtExecutor executor = new StmtExecutor(connectContext, "use nondb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
     public void testUseWithCatalog() throws Exception {
         StmtExecutor executor = new StmtExecutor(connectContext, "use internal.testDb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
     public void testUseWithCatalogFail() throws Exception {
         StmtExecutor executor = new StmtExecutor(connectContext, "use internal.nondb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
@@ -197,7 +196,7 @@ public class StmtExecutorTest extends TestWithFeService {
         } catch (Exception ignore) {
             // do nothing
             ignore.printStackTrace();
-            Assert.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
+            Assertions.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
         }
 
         Config.block_sql_ast_names = "AlterStmt, CreateFileCommand";
@@ -209,7 +208,7 @@ public class StmtExecutorTest extends TestWithFeService {
             executor.execute();
         } catch (Exception ignore) {
             ignore.printStackTrace();
-            Assert.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
+            Assertions.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
         }
 
         Config.block_sql_ast_names = "CreateFunctionStmt, CreateFileCommand";
@@ -224,18 +223,18 @@ public class StmtExecutorTest extends TestWithFeService {
             executor.execute();
         } catch (Exception ignore) {
             ignore.printStackTrace();
-            Assert.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
+            Assertions.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
         }
 
         executor = new StmtExecutor(connectContext, "use testDb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
 
         Config.block_sql_ast_names = "";
         StmtExecutor.initBlockSqlAstNames();
         executor = new StmtExecutor(connectContext, "use testDb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test

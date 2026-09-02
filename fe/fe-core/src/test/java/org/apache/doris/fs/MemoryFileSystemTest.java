@@ -21,9 +21,9 @@ import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.Location;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -36,7 +36,7 @@ public class MemoryFileSystemTest {
 
     private MemoryFileSystem fs;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         fs = new MemoryFileSystem();
     }
@@ -45,20 +45,20 @@ public class MemoryFileSystemTest {
 
     @Test
     public void testExistsReturnsFalseForMissingFile() throws IOException {
-        Assert.assertFalse(fs.exists(Location.of("memory://bucket/missing.txt")));
+        Assertions.assertFalse(fs.exists(Location.of("memory://bucket/missing.txt")));
     }
 
     @Test
     public void testExistsReturnsTrueAfterPut() throws IOException {
         Location loc = Location.of("memory://bucket/file.txt");
         fs.put(loc, "hello".getBytes(StandardCharsets.UTF_8));
-        Assert.assertTrue(fs.exists(loc));
+        Assertions.assertTrue(fs.exists(loc));
     }
 
     @Test
     public void testExistsReturnsTrueForDirectoryViaChild() throws IOException {
         fs.put(Location.of("memory://bucket/dir/child.txt"), new byte[0]);
-        Assert.assertTrue(fs.exists(Location.of("memory://bucket/dir")));
+        Assertions.assertTrue(fs.exists(Location.of("memory://bucket/dir")));
     }
 
     // ─────────────────────────── newOutputFile / newInputFile ───────────────────────────
@@ -73,7 +73,7 @@ public class MemoryFileSystemTest {
         }
 
         byte[] stored = fs.get(loc);
-        Assert.assertArrayEquals(data, stored);
+        Assertions.assertArrayEquals(data, stored);
     }
 
     @Test
@@ -84,10 +84,10 @@ public class MemoryFileSystemTest {
         try (OutputStream out = fs.newOutputFile(loc).create()) {
             out.write(1);
         } catch (IOException e) {
-            Assert.assertTrue(e.getMessage().contains("already exists"));
+            Assertions.assertTrue(e.getMessage().contains("already exists"));
             return;
         }
-        Assert.fail("Expected IOException for overwriting existing file via create()");
+        Assertions.fail("Expected IOException for overwriting existing file via create()");
     }
 
     @Test
@@ -99,7 +99,7 @@ public class MemoryFileSystemTest {
             out.write("new".getBytes(StandardCharsets.UTF_8));
         }
 
-        Assert.assertArrayEquals("new".getBytes(StandardCharsets.UTF_8), fs.get(loc));
+        Assertions.assertArrayEquals("new".getBytes(StandardCharsets.UTF_8), fs.get(loc));
     }
 
     @Test
@@ -108,7 +108,7 @@ public class MemoryFileSystemTest {
         byte[] data = new byte[42];
         fs.put(loc, data);
 
-        Assert.assertEquals(42L, fs.newInputFile(loc).length());
+        Assertions.assertEquals(42L, fs.newInputFile(loc).length());
     }
 
     @Test
@@ -116,7 +116,7 @@ public class MemoryFileSystemTest {
         Location loc = Location.of("memory://bucket/hinted.bin");
         fs.put(loc, new byte[10]);
 
-        Assert.assertEquals(99L, fs.newInputFile(loc, 99L).length());
+        Assertions.assertEquals(99L, fs.newInputFile(loc, 99L).length());
     }
 
     @Test
@@ -125,20 +125,20 @@ public class MemoryFileSystemTest {
         Location absent = Location.of("memory://bucket/absent.txt");
         fs.put(present, new byte[0]);
 
-        Assert.assertTrue(fs.newInputFile(present).exists());
-        Assert.assertFalse(fs.newInputFile(absent).exists());
+        Assertions.assertTrue(fs.newInputFile(present).exists());
+        Assertions.assertFalse(fs.newInputFile(absent).exists());
     }
 
     @Test
     public void testInputFileLocationRoundtrip() throws IOException {
         Location loc = Location.of("memory://bucket/path/file.txt");
-        Assert.assertEquals(loc, fs.newInputFile(loc).location());
+        Assertions.assertEquals(loc, fs.newInputFile(loc).location());
     }
 
     @Test
     public void testOutputFileLocationRoundtrip() throws IOException {
         Location loc = Location.of("memory://bucket/path/out.txt");
-        Assert.assertEquals(loc, fs.newOutputFile(loc).location());
+        Assertions.assertEquals(loc, fs.newOutputFile(loc).location());
     }
 
     // ─────────────────────────── deleteFile ───────────────────────────
@@ -148,16 +148,16 @@ public class MemoryFileSystemTest {
         Location loc = Location.of("memory://bucket/del.txt");
         fs.put(loc, new byte[1]);
         fs.delete(loc, false);
-        Assert.assertFalse(fs.exists(loc));
+        Assertions.assertFalse(fs.exists(loc));
     }
 
     @Test
     public void testDeleteFileMissingThrows() {
         try {
             fs.delete(Location.of("memory://bucket/ghost.txt"), false);
-            Assert.fail("Expected IOException");
+            Assertions.fail("Expected IOException");
         } catch (IOException e) {
-            Assert.assertTrue(e.getMessage().contains("not found"));
+            Assertions.assertTrue(e.getMessage().contains("not found"));
         }
     }
 
@@ -172,8 +172,8 @@ public class MemoryFileSystemTest {
 
         fs.rename(src, dst);
 
-        Assert.assertFalse(fs.exists(src));
-        Assert.assertArrayEquals(data, fs.get(dst));
+        Assertions.assertFalse(fs.exists(src));
+        Assertions.assertArrayEquals(data, fs.get(dst));
     }
 
     @Test
@@ -182,9 +182,9 @@ public class MemoryFileSystemTest {
             fs.rename(
                     Location.of("memory://bucket/missing.txt"),
                     Location.of("memory://bucket/target.txt"));
-            Assert.fail("Expected IOException");
+            Assertions.fail("Expected IOException");
         } catch (IOException e) {
-            Assert.assertTrue(e.getMessage().contains("not found"));
+            Assertions.assertTrue(e.getMessage().contains("not found"));
         }
     }
 
@@ -198,9 +198,9 @@ public class MemoryFileSystemTest {
 
         fs.delete(Location.of("memory://bucket/dirA"), true);
 
-        Assert.assertFalse(fs.exists(Location.of("memory://bucket/dirA/f1.txt")));
-        Assert.assertFalse(fs.exists(Location.of("memory://bucket/dirA/f2.txt")));
-        Assert.assertTrue(fs.exists(Location.of("memory://bucket/dirB/f3.txt")));
+        Assertions.assertFalse(fs.exists(Location.of("memory://bucket/dirA/f1.txt")));
+        Assertions.assertFalse(fs.exists(Location.of("memory://bucket/dirA/f2.txt")));
+        Assertions.assertTrue(fs.exists(Location.of("memory://bucket/dirB/f3.txt")));
     }
 
     // ─────────────────────────── createDirectory ───────────────────────────
@@ -209,7 +209,7 @@ public class MemoryFileSystemTest {
     public void testCreateDirectory() throws IOException {
         Location dir = Location.of("memory://bucket/newdir");
         fs.mkdirs(dir);
-        Assert.assertTrue(fs.exists(dir));
+        Assertions.assertTrue(fs.exists(dir));
     }
 
     // ─────────────────────────── renameDirectory ───────────────────────────
@@ -223,10 +223,10 @@ public class MemoryFileSystemTest {
                 Location.of("memory://bucket/src"),
                 Location.of("memory://bucket/dst"));
 
-        Assert.assertFalse(fs.exists(Location.of("memory://bucket/src/a.txt")));
-        Assert.assertArrayEquals("a".getBytes(StandardCharsets.UTF_8),
+        Assertions.assertFalse(fs.exists(Location.of("memory://bucket/src/a.txt")));
+        Assertions.assertArrayEquals("a".getBytes(StandardCharsets.UTF_8),
                 fs.get(Location.of("memory://bucket/dst/a.txt")));
-        Assert.assertArrayEquals("b".getBytes(StandardCharsets.UTF_8),
+        Assertions.assertArrayEquals("b".getBytes(StandardCharsets.UTF_8),
                 fs.get(Location.of("memory://bucket/dst/b.txt")));
     }
 
@@ -236,9 +236,9 @@ public class MemoryFileSystemTest {
             fs.rename(
                     Location.of("memory://bucket/nosuchdir"),
                     Location.of("memory://bucket/target"));
-            Assert.fail("Expected IOException");
+            Assertions.fail("Expected IOException");
         } catch (IOException e) {
-            Assert.assertTrue(e.getMessage().contains("not found"));
+            Assertions.assertTrue(e.getMessage().contains("not found"));
         }
     }
 
@@ -259,12 +259,11 @@ public class MemoryFileSystemTest {
                 names.add(e.name());
             }
         }
-        Assert.assertTrue(names.contains("a.txt"));
-        Assert.assertTrue(names.contains("b.txt"));
+        Assertions.assertTrue(names.contains("a.txt"));
+        Assertions.assertTrue(names.contains("b.txt"));
         for (FileEntry e : entries) {
             if (e.isFile()) {
-                Assert.assertFalse("sub/c.txt must not appear at top level",
-                        e.name().equals("c.txt"));
+                Assertions.assertFalse(e.name().equals("c.txt"), "sub/c.txt must not appear at top level");
             }
         }
     }
@@ -283,23 +282,23 @@ public class MemoryFileSystemTest {
                 fileNames.add(e.name());
             }
         }
-        Assert.assertTrue(fileNames.contains("a.txt"));
-        Assert.assertTrue(fileNames.contains("b.txt"));
-        Assert.assertTrue(fileNames.contains("c.txt"));
+        Assertions.assertTrue(fileNames.contains("a.txt"));
+        Assertions.assertTrue(fileNames.contains("b.txt"));
+        Assertions.assertTrue(fileNames.contains("c.txt"));
     }
 
     @Test
     public void testListFilesEmptyDirectory() throws IOException {
         fs.mkdirs(Location.of("memory://bucket/empty"));
         List<FileEntry> entries = drain(fs.list(Location.of("memory://bucket/empty")));
-        Assert.assertTrue(entries.isEmpty());
+        Assertions.assertTrue(entries.isEmpty());
     }
 
     @Test
     public void testListFilesCloseable() throws IOException {
         fs.put(Location.of("memory://bucket/closeable/x.txt"), new byte[0]);
         try (FileIterator it = fs.list(Location.of("memory://bucket/closeable"))) {
-            Assert.assertTrue(it.hasNext());
+            Assertions.assertTrue(it.hasNext());
         }
         // no exception on close
     }
@@ -313,7 +312,7 @@ public class MemoryFileSystemTest {
 
         Set<String> dirs = fs.listDirectories(Location.of("memory://bucket/parent"));
 
-        Assert.assertEquals(2, dirs.size());
+        Assertions.assertEquals(2, dirs.size());
         boolean hasA = false;
         boolean hasB = false;
         for (String d : dirs) {
@@ -324,15 +323,15 @@ public class MemoryFileSystemTest {
                 hasB = true;
             }
         }
-        Assert.assertTrue(hasA);
-        Assert.assertTrue(hasB);
+        Assertions.assertTrue(hasA);
+        Assertions.assertTrue(hasB);
     }
 
     @Test
     public void testListDirectoriesEmptyParent() throws IOException {
         fs.mkdirs(Location.of("memory://bucket/leafdir"));
         Set<String> dirs = fs.listDirectories(Location.of("memory://bucket/leafdir"));
-        Assert.assertTrue(dirs.isEmpty());
+        Assertions.assertTrue(dirs.isEmpty());
     }
 
     // ─────────────────────────── deleteFiles (default batch) ───────────────────────────
@@ -349,8 +348,8 @@ public class MemoryFileSystemTest {
         toDelete.add(b);
         fs.deleteFiles(toDelete);
 
-        Assert.assertFalse(fs.exists(a));
-        Assert.assertFalse(fs.exists(b));
+        Assertions.assertFalse(fs.exists(a));
+        Assertions.assertFalse(fs.exists(b));
     }
 
     @Test

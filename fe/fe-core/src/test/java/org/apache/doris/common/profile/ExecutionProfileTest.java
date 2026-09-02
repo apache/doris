@@ -23,8 +23,8 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
@@ -51,14 +51,14 @@ public class ExecutionProfileTest {
         // Must not throw despite the uneven pipeline counts.
         RuntimeProfile result = executionProfile.getPipelineAggregatedProfile(Maps.newHashMap());
 
-        Assert.assertNotNull(result);
-        Assert.assertEquals("Fragments", result.getName());
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals("Fragments", result.getName());
         // The max pipeline count (2) is used, so both pipelines are represented.
         List<Pair<RuntimeProfile, Boolean>> fragments = result.getChildList();
-        Assert.assertEquals(1, fragments.size());
+        Assertions.assertEquals(1, fragments.size());
         RuntimeProfile fragment0 = fragments.get(0).first;
-        Assert.assertEquals("Fragment 0", fragment0.getName());
-        Assert.assertEquals(2, fragment0.getChildList().size());
+        Assertions.assertEquals("Fragment 0", fragment0.getName());
+        Assertions.assertEquals(2, fragment0.getChildList().size());
     }
 
     private RuntimeProfile pipelineWithTasks(String name, int taskNum) {

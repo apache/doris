@@ -19,16 +19,16 @@ package org.apache.doris.mysql;
 
 import org.apache.doris.qe.QueryState;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
 
 public class MysqlOkPacketTest {
     private MysqlCapability capability;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         capability = new MysqlCapability(MysqlCapability.Flag.CLIENT_PROTOCOL_41.getFlagBit());
     }
@@ -42,26 +42,26 @@ public class MysqlOkPacketTest {
         ByteBuffer buffer = serializer.toByteBuffer();
 
         // assert OK packet indicator 0x00
-        Assert.assertEquals(0x00, MysqlProto.readInt1(buffer));
+        Assertions.assertEquals(0x00, MysqlProto.readInt1(buffer));
 
         // assert affect rows vint: 0
-        Assert.assertEquals(0x00, MysqlProto.readVInt(buffer));
+        Assertions.assertEquals(0x00, MysqlProto.readVInt(buffer));
 
         // assert last insert id, vint: 0
-        Assert.assertEquals(0x00, MysqlProto.readVInt(buffer));
+        Assertions.assertEquals(0x00, MysqlProto.readVInt(buffer));
 
         // assert status flags, int2: 0
-        Assert.assertEquals(0x00, MysqlProto.readInt2(buffer));
+        Assertions.assertEquals(0x00, MysqlProto.readInt2(buffer));
 
         // assert warnings, int2: 0
-        Assert.assertEquals(0x00, MysqlProto.readInt2(buffer));
+        Assertions.assertEquals(0x00, MysqlProto.readInt2(buffer));
 
         // When infoMessage is empty, an empty len-encoded string (0x00) should still be written.
         // This is required because OkPacket.parse() in MySQL Connector/J unconditionally reads
         // STRING_LENENC for info. Without this byte, the driver throws
         // ArrayIndexOutOfBoundsException when CLIENT_DEPRECATE_EOF is negotiated.
-        Assert.assertEquals(0x00, MysqlProto.readVInt(buffer));
-        Assert.assertEquals(0, buffer.remaining());
+        Assertions.assertEquals(0x00, MysqlProto.readVInt(buffer));
+        Assertions.assertEquals(0, buffer.remaining());
     }
 
     @Test
@@ -76,7 +76,7 @@ public class MysqlOkPacketTest {
 
         ByteBuffer buffer = serializer.toByteBuffer();
         int payloadLength = buffer.remaining();
-        Assert.assertTrue("OK packet payload should be > 5 for CLIENT_DEPRECATE_EOF compatibility, got: "
-                + payloadLength, payloadLength > 5);
+        Assertions.assertTrue(payloadLength > 5, "OK packet payload should be > 5 for CLIENT_DEPRECATE_EOF compatibility, got: "
+                + payloadLength);
     }
 }

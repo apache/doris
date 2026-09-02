@@ -22,13 +22,13 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.metric.MetricRepo;
 
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 public class AuditLogHelperTest {
 
-    @BeforeClass
+    @BeforeAll
     public static void setUp() {
         FeConstants.runningUnitTest = true;
         MetricRepo.init();
@@ -52,7 +52,7 @@ public class AuditLogHelperTest {
         AuditLogHelper.updateMetrics(ctx);
         long after = MetricRepo.COUNTER_QUERY_ALL.getValue();
 
-        Assert.assertEquals(1, after - before);
+        Assertions.assertEquals(1, after - before);
     }
 
     @Test
@@ -66,8 +66,8 @@ public class AuditLogHelperTest {
         long afterAll = MetricRepo.COUNTER_QUERY_ALL.getValue();
         long afterErr = MetricRepo.COUNTER_QUERY_ERR.getValue();
 
-        Assert.assertEquals(1, afterAll - beforeAll);
-        Assert.assertEquals(1, afterErr - beforeErr);
+        Assertions.assertEquals(1, afterAll - beforeAll);
+        Assertions.assertEquals(1, afterErr - beforeErr);
     }
 
     @Test
@@ -80,7 +80,7 @@ public class AuditLogHelperTest {
         AuditLogHelper.updateMetrics(ctx);
         long after = MetricRepo.COUNTER_QUERY_ALL.getValue();
 
-        Assert.assertEquals(0, after - before);
+        Assertions.assertEquals(0, after - before);
     }
 
     @Test
@@ -96,7 +96,7 @@ public class AuditLogHelperTest {
             AuditLogHelper.updateMetrics(ctx);
             long after = MetricRepo.COUNTER_QUERY_ALL.getValue();
 
-            Assert.assertEquals(0, after - before);
+            Assertions.assertEquals(0, after - before);
         } finally {
             Config.enable_bdbje_debug_mode = original;
         }
@@ -108,6 +108,6 @@ public class AuditLogHelperTest {
         ctx.getSessionVariable().setCloudCluster("session_cluster");
         ctx.setEffectiveCloudCluster("hint_cluster");
 
-        Assert.assertEquals("hint_cluster", AuditLogHelper.getCloudClusterForAudit(ctx));
+        Assertions.assertEquals("hint_cluster", AuditLogHelper.getCloudClusterForAudit(ctx));
     }
 }

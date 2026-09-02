@@ -30,10 +30,10 @@ import org.apache.doris.nereids.trees.plans.commands.info.SetPassVarOp;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -45,7 +45,7 @@ public class SetPasswordTest {
     private MockedStatic<Env> mockedEnvStatic;
     private MockedStatic<MysqlPassword> mockedMysqlPassword;
 
-    @Before
+    @BeforeEach
     public void setUp() throws NoSuchMethodException, SecurityException, AnalysisException {
         auth = new Auth();
         mockedEnvStatic = Mockito.mockStatic(Env.class);
@@ -57,7 +57,7 @@ public class SetPasswordTest {
         mockedMysqlPassword.when(() -> MysqlPassword.checkPassword(Mockito.anyString())).thenReturn(new byte[10]);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         mockedEnvStatic.close();
         mockedMysqlPassword.close();
@@ -84,7 +84,7 @@ public class SetPasswordTest {
             setPassVarOp.validate(ctx);
         } catch (UserException e) {
             e.printStackTrace();
-            Assert.fail();
+            Assertions.fail();
         }
 
         // set password without for
@@ -93,7 +93,7 @@ public class SetPasswordTest {
             setPassVarOp2.validate(ctx);
         } catch (UserException e) {
             e.printStackTrace();
-            Assert.fail();
+            Assertions.fail();
         }
 
         // create user cmy2@'192.168.1.1'
@@ -113,7 +113,7 @@ public class SetPasswordTest {
             setPassVarOp3.validate(ctx);
         } catch (UserException e) {
             e.printStackTrace();
-            Assert.fail();
+            Assertions.fail();
         }
 
         // set password for cmy2@'192.168.1.1'
@@ -124,7 +124,7 @@ public class SetPasswordTest {
             setPassVarOp4.validate(ctx);
         } catch (UserException e) {
             e.printStackTrace();
-            Assert.fail();
+            Assertions.fail();
         }
     }
 }

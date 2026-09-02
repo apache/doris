@@ -37,11 +37,8 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.junit.Assert;
-import org.junit.Rule;
-import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
-import org.junit.rules.ExpectedException;
+import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.time.ZoneId;
@@ -56,9 +53,6 @@ import java.util.TimeZone;
 
 
 public class PropertyAnalyzerTest {
-    @Rule
-    public ExpectedException expectedEx = ExpectedException.none();
-
     @Test
     public void testBfColumns() throws AnalysisException {
         List<Column> columns = Lists.newArrayList();
@@ -75,7 +69,7 @@ public class PropertyAnalyzerTest {
         properties.put(PropertyAnalyzer.PROPERTIES_BF_COLUMNS, "k1");
 
         Set<String> bfColumns = PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns, KeysType.AGG_KEYS);
-        Assert.assertEquals(Sets.newHashSet("k1"), bfColumns);
+        Assertions.assertEquals(Sets.newHashSet("k1"), bfColumns);
     }
 
     @Test
@@ -95,10 +89,10 @@ public class PropertyAnalyzerTest {
         // no bf columns
         properties.put(PropertyAnalyzer.PROPERTIES_BF_COLUMNS, "");
         try {
-            Assert.assertEquals(Sets.newHashSet(), PropertyAnalyzer.analyzeBloomFilterColumns(
+            Assertions.assertEquals(Sets.newHashSet(), PropertyAnalyzer.analyzeBloomFilterColumns(
                     properties, columns, KeysType.AGG_KEYS));
         } catch (AnalysisException e) {
-            Assert.fail();
+            Assertions.fail();
         }
 
         // k4 not exist
@@ -106,7 +100,7 @@ public class PropertyAnalyzerTest {
         try {
             PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns, KeysType.AGG_KEYS);
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("column does not exist in table"));
+            Assertions.assertTrue(e.getMessage().contains("column does not exist in table"));
         }
 
         // tinyint not supported
@@ -114,7 +108,7 @@ public class PropertyAnalyzerTest {
         try {
             PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns, KeysType.AGG_KEYS);
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("TINYINT is not supported"));
+            Assertions.assertTrue(e.getMessage().contains("TINYINT is not supported"));
         }
 
         // bool not supported
@@ -122,7 +116,7 @@ public class PropertyAnalyzerTest {
         try {
             PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns, KeysType.AGG_KEYS);
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("BOOLEAN is not supported"));
+            Assertions.assertTrue(e.getMessage().contains("BOOLEAN is not supported"));
         }
 
         // not replace value
@@ -130,7 +124,7 @@ public class PropertyAnalyzerTest {
         try {
             PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns, KeysType.AGG_KEYS);
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Bloom filter index should only be used"));
+            Assertions.assertTrue(e.getMessage().contains("Bloom filter index should only be used"));
         }
 
         // reduplicated column
@@ -138,7 +132,7 @@ public class PropertyAnalyzerTest {
         try {
             PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns, KeysType.AGG_KEYS);
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Reduplicated bloom filter column"));
+            Assertions.assertTrue(e.getMessage().contains("Reduplicated bloom filter column"));
         }
     }
 
@@ -146,44 +140,44 @@ public class PropertyAnalyzerTest {
     public void testBfFpp() throws AnalysisException {
         Map<String, String> properties = Maps.newHashMap();
         properties.put(PropertyAnalyzer.PROPERTIES_BF_FPP, "0.05");
-        Assert.assertEquals(0.05, PropertyAnalyzer.analyzeBloomFilterFpp(properties), 0.0001);
+        Assertions.assertEquals(0.05, PropertyAnalyzer.analyzeBloomFilterFpp(properties), 0.0001);
     }
 
     @Test
     public void testAnalyzeFileCacheTtlSeconds() throws AnalysisException {
         Map<String, String> properties = Maps.newHashMap();
         properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, "0");
-        Assert.assertEquals(0L, PropertyAnalyzer.analyzeTTL(properties));
+        Assertions.assertEquals(0L, PropertyAnalyzer.analyzeTTL(properties));
 
         properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS,
                 String.valueOf(PropertyAnalyzer.MAX_FILE_CACHE_TTL_SECONDS));
-        Assert.assertEquals(PropertyAnalyzer.MAX_FILE_CACHE_TTL_SECONDS, PropertyAnalyzer.analyzeTTL(properties));
+        Assertions.assertEquals(PropertyAnalyzer.MAX_FILE_CACHE_TTL_SECONDS, PropertyAnalyzer.analyzeTTL(properties));
 
         properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS,
                 String.valueOf(PropertyAnalyzer.MAX_FILE_CACHE_TTL_SECONDS + 1L));
         try {
             PropertyAnalyzer.analyzeTTL(properties);
-            Assert.fail("Expected an AnalysisException to be thrown");
+            Assertions.fail("Expected an AnalysisException to be thrown");
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("please use "
+            Assertions.assertTrue(e.getMessage().contains("please use "
                     + PropertyAnalyzer.MAX_FILE_CACHE_TTL_SECONDS));
         }
 
         properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, String.valueOf(Long.MAX_VALUE));
         try {
             PropertyAnalyzer.analyzeTTL(properties);
-            Assert.fail("Expected an AnalysisException to be thrown");
+            Assertions.fail("Expected an AnalysisException to be thrown");
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Larger values may overflow in BE"));
-            Assert.assertTrue(e.getMessage().contains("please use"));
+            Assertions.assertTrue(e.getMessage().contains("Larger values may overflow in BE"));
+            Assertions.assertTrue(e.getMessage().contains("please use"));
         }
 
         properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, "invalid");
         try {
             PropertyAnalyzer.analyzeTTL(properties);
-            Assert.fail("Expected an AnalysisException to be thrown");
+            Assertions.fail("Expected an AnalysisException to be thrown");
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("formats error or is out of range"));
+            Assertions.assertTrue(e.getMessage().contains("formats error or is out of range"));
         }
     }
 
@@ -199,7 +193,7 @@ public class PropertyAnalyzerTest {
         DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.SSD));
         // avoid UT fail because time zone different
         DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(tomorrowTimeStr, Type.DATETIME);
-        Assert.assertEquals(dateLiteral.unixTimestamp(TimeUtils.getTimeZone()), dataProperty.getCooldownTimeMs());
+        Assertions.assertEquals(dateLiteral.unixTimestamp(TimeUtils.getTimeZone()), dataProperty.getCooldownTimeMs());
     }
 
     @Test
@@ -210,13 +204,14 @@ public class PropertyAnalyzerTest {
         propertiesV1.put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "v1");
         propertiesV2.put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "v2");
         propertiesDefault.put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "default");
-        Assert.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(null));
-        Assert.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(propertiesV2));
-        Assert.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(propertiesDefault));
-        expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage(
-                "Storage format V1 has been deprecated since version 0.14," + " please use V2 instead");
-        PropertyAnalyzer.analyzeStorageFormat(propertiesV1);
+        Assertions.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(null));
+        Assertions.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(propertiesV2));
+        Assertions.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(propertiesDefault));
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class, () -> {
+            PropertyAnalyzer.analyzeStorageFormat(propertiesV1);
+        });
+        Assertions.assertTrue(e.getMessage().contains("Storage format V1 has been deprecated since version 0.14," + " please use V2 instead"),
+                "unexpected message: " + e.getMessage());
     }
 
     @Test
@@ -225,14 +220,14 @@ public class PropertyAnalyzerTest {
         properties.put("tag.location", "l1");
         properties.put("other", "prop");
         Map<String, String> tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties, null);
-        Assert.assertEquals("l1", tagMap.get("location"));
-        Assert.assertEquals(1, tagMap.size());
-        Assert.assertEquals(1, properties.size());
+        Assertions.assertEquals("l1", tagMap.get("location"));
+        Assertions.assertEquals(1, tagMap.size());
+        Assertions.assertEquals(1, properties.size());
 
         properties.clear();
         tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties, Tag.DEFAULT_BACKEND_TAG);
-        Assert.assertEquals(1, tagMap.size());
-        Assert.assertEquals(Tag.DEFAULT_BACKEND_TAG.value, tagMap.get(Tag.TYPE_LOCATION));
+        Assertions.assertEquals(1, tagMap.size());
+        Assertions.assertEquals(Tag.DEFAULT_BACKEND_TAG.value, tagMap.get(Tag.TYPE_LOCATION));
     }
 
     @Test
@@ -240,46 +235,46 @@ public class PropertyAnalyzerTest {
         Map<String, String> properties = Maps.newHashMap();
 
         // Test default value
-        Assert.assertEquals(PropertyAnalyzer.STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE,
+        Assertions.assertEquals(PropertyAnalyzer.STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE,
                 PropertyAnalyzer.analyzeStorageDictPageSize(properties));
 
         // Test valid value
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE, "8192"); // 8KB
-        Assert.assertEquals(8192, PropertyAnalyzer.analyzeStorageDictPageSize(properties));
+        Assertions.assertEquals(8192, PropertyAnalyzer.analyzeStorageDictPageSize(properties));
 
         // Test lower boundary value
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE, "4096"); // 4KB
-        Assert.assertEquals(4096, PropertyAnalyzer.analyzeStorageDictPageSize(properties));
+        Assertions.assertEquals(4096, PropertyAnalyzer.analyzeStorageDictPageSize(properties));
 
         // Test upper boundary value
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE, "10485760"); // 10MB
-        Assert.assertEquals(10485760, PropertyAnalyzer.analyzeStorageDictPageSize(properties));
+        Assertions.assertEquals(10485760, PropertyAnalyzer.analyzeStorageDictPageSize(properties));
 
         // Test invalid number format
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE, "invalid");
         try {
             PropertyAnalyzer.analyzeStorageDictPageSize(properties);
-            Assert.fail("Expected an AnalysisException to be thrown");
+            Assertions.fail("Expected an AnalysisException to be thrown");
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Invalid storage dict page size"));
+            Assertions.assertTrue(e.getMessage().contains("Invalid storage dict page size"));
         }
 
         // Test value below minimum limit
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE, "-1024"); // 1KB
         try {
             PropertyAnalyzer.analyzeStorageDictPageSize(properties);
-            Assert.fail("Expected an AnalysisException to be thrown");
+            Assertions.fail("Expected an AnalysisException to be thrown");
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Storage dict page size must be between 0 and 100MB"));
+            Assertions.assertTrue(e.getMessage().contains("Storage dict page size must be between 0 and 100MB"));
         }
 
         // Test value above maximum limit
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE, "209715200"); // 200MB
         try {
             PropertyAnalyzer.analyzeStorageDictPageSize(properties);
-            Assert.fail("Expected an AnalysisException to be thrown");
+            Assertions.fail("Expected an AnalysisException to be thrown");
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Storage dict page size must be between 0 and 100MB"));
+            Assertions.assertTrue(e.getMessage().contains("Storage dict page size must be between 0 and 100MB"));
         }
     }
 
@@ -288,46 +283,46 @@ public class PropertyAnalyzerTest {
         Map<String, String> properties = Maps.newHashMap();
 
         // Test default value
-        Assert.assertEquals(PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE,
+        Assertions.assertEquals(PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE,
                 PropertyAnalyzer.analyzeStoragePageSize(properties));
 
         // Test valid value
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE, "8192"); // 8KB
-        Assert.assertEquals(8192, PropertyAnalyzer.analyzeStoragePageSize(properties));
+        Assertions.assertEquals(8192, PropertyAnalyzer.analyzeStoragePageSize(properties));
 
         // Test lower boundary value
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE, "4096"); // 4KB
-        Assert.assertEquals(4096, PropertyAnalyzer.analyzeStoragePageSize(properties));
+        Assertions.assertEquals(4096, PropertyAnalyzer.analyzeStoragePageSize(properties));
 
         // Test upper boundary value
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE, "10485760"); // 10MB
-        Assert.assertEquals(10485760, PropertyAnalyzer.analyzeStoragePageSize(properties));
+        Assertions.assertEquals(10485760, PropertyAnalyzer.analyzeStoragePageSize(properties));
 
         // Test invalid number format
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE, "invalid");
         try {
             PropertyAnalyzer.analyzeStoragePageSize(properties);
-            Assert.fail("Expected an AnalysisException to be thrown");
+            Assertions.fail("Expected an AnalysisException to be thrown");
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Invalid storage page size"));
+            Assertions.assertTrue(e.getMessage().contains("Invalid storage page size"));
         }
 
         // Test value below minimum limit
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE, "1024"); // 1KB
         try {
             PropertyAnalyzer.analyzeStoragePageSize(properties);
-            Assert.fail("Expected an AnalysisException to be thrown");
+            Assertions.fail("Expected an AnalysisException to be thrown");
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Storage page size must be between 4KB and 10MB"));
+            Assertions.assertTrue(e.getMessage().contains("Storage page size must be between 4KB and 10MB"));
         }
 
         // Test value above maximum limit
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE, "20971520"); // 20MB
         try {
             PropertyAnalyzer.analyzeStoragePageSize(properties);
-            Assert.fail("Expected an AnalysisException to be thrown");
+            Assertions.fail("Expected an AnalysisException to be thrown");
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Storage page size must be between 4KB and 10MB"));
+            Assertions.assertTrue(e.getMessage().contains("Storage page size must be between 4KB and 10MB"));
         }
     }
 
@@ -571,7 +566,7 @@ public class PropertyAnalyzerTest {
         try {
             PropertyAnalyzer.analyzeSeqMapping(properties, columns, KeysType.UNIQUE_KEYS);
         } catch (AnalysisException e) {
-            Assert.fail();
+            Assertions.fail();
         }
     }
 
@@ -588,8 +583,7 @@ public class PropertyAnalyzerTest {
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, cooldownStr);
         DataProperty dp = PropertyAnalyzer.analyzeDataProperty(properties,
                 new DataProperty(TStorageMedium.SSD));
-        Assert.assertEquals("TZ offset +00:00 should parse as exact UTC instant",
-                expectedMillis, dp.getCooldownTimeMs());
+        Assertions.assertEquals(expectedMillis, dp.getCooldownTimeMs(), "TZ offset +00:00 should parse as exact UTC instant");
 
         // -05:00 offset — same instant, different representation
         String cooldownStr2 = "2027-06-15 07:30:00-05:00";
@@ -598,8 +592,7 @@ public class PropertyAnalyzerTest {
         properties2.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, cooldownStr2);
         DataProperty dp2 = PropertyAnalyzer.analyzeDataProperty(properties2,
                 new DataProperty(TStorageMedium.SSD));
-        Assert.assertEquals("TZ offset -05:00 should parse as same UTC instant",
-                expectedMillis, dp2.getCooldownTimeMs());
+        Assertions.assertEquals(expectedMillis, dp2.getCooldownTimeMs(), "TZ offset -05:00 should parse as same UTC instant");
     }
 
     @Test
@@ -615,8 +608,7 @@ public class PropertyAnalyzerTest {
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, cooldownStr);
         DataProperty dp = PropertyAnalyzer.analyzeDataProperty(properties,
                 new DataProperty(TStorageMedium.SSD));
-        Assert.assertEquals("Fractional seconds with TZ offset should parse correctly",
-                expectedMillis, dp.getCooldownTimeMs());
+        Assertions.assertEquals(expectedMillis, dp.getCooldownTimeMs(), "Fractional seconds with TZ offset should parse correctly");
 
         // TIMESTAMPTZ(0) — no fractional seconds, with +00:00
         String cooldownStr2 = "2027-06-15 12:30:00+00:00";
@@ -625,10 +617,8 @@ public class PropertyAnalyzerTest {
         properties2.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, cooldownStr2);
         DataProperty dp2 = PropertyAnalyzer.analyzeDataProperty(properties2,
                 new DataProperty(TStorageMedium.SSD));
-        Assert.assertEquals("No fractional seconds (precision 0) should still parse",
-                ZonedDateTime.of(2027, 6, 15, 12, 30, 0, 0, ZoneOffset.UTC)
-                        .toInstant().toEpochMilli(),
-                dp2.getCooldownTimeMs());
+        Assertions.assertEquals(ZonedDateTime.of(2027, 6, 15, 12, 30, 0, 0, ZoneOffset.UTC)
+                        .toInstant().toEpochMilli(), dp2.getCooldownTimeMs(), "No fractional seconds (precision 0) should still parse");
     }
 
     @Test
@@ -641,8 +631,7 @@ public class PropertyAnalyzerTest {
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, "2027-06-15 12:30:00+00");
         DataProperty dp = PropertyAnalyzer.analyzeDataProperty(properties,
                 new DataProperty(TStorageMedium.SSD));
-        Assert.assertEquals("Malformed TZ offset should fall back to MAX",
-                DataProperty.MAX_COOLDOWN_TIME_MS, dp.getCooldownTimeMs());
+        Assertions.assertEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dp.getCooldownTimeMs(), "Malformed TZ offset should fall back to MAX");
     }
 
     @Test
@@ -657,8 +646,7 @@ public class PropertyAnalyzerTest {
                 "2027-02-29 00:00:00+00:00");
         DataProperty dp = PropertyAnalyzer.analyzeDataProperty(properties,
                 new DataProperty(TStorageMedium.SSD));
-        Assert.assertEquals("Invalid date (Feb 29 in non-leap year) should fall back to MAX",
-                DataProperty.MAX_COOLDOWN_TIME_MS, dp.getCooldownTimeMs());
+        Assertions.assertEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dp.getCooldownTimeMs(), "Invalid date (Feb 29 in non-leap year) should fall back to MAX");
 
         // Also test an impossible month (month=13)
         Map<String, String> properties2 = Maps.newHashMap();
@@ -667,8 +655,7 @@ public class PropertyAnalyzerTest {
                 "2027-13-01 00:00:00+00:00");
         DataProperty dp2 = PropertyAnalyzer.analyzeDataProperty(properties2,
                 new DataProperty(TStorageMedium.SSD));
-        Assert.assertEquals("Invalid month (13) should fall back to MAX",
-                DataProperty.MAX_COOLDOWN_TIME_MS, dp2.getCooldownTimeMs());
+        Assertions.assertEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dp2.getCooldownTimeMs(), "Invalid month (13) should fall back to MAX");
     }
 
     @Test
@@ -693,8 +680,7 @@ public class PropertyAnalyzerTest {
         DataProperty dpEarlier = PropertyAnalyzer.analyzeDataProperty(propsEarlier,
                 new DataProperty(TStorageMedium.SSD));
         long earlierMillis = baseUtc.toInstant().toEpochMilli();
-        Assert.assertEquals("Explicit +00:00 should parse earlier DST hour correctly",
-                earlierMillis, dpEarlier.getCooldownTimeMs());
+        Assertions.assertEquals(earlierMillis, dpEarlier.getCooldownTimeMs(), "Explicit +00:00 should parse earlier DST hour correctly");
 
         // Later instant (1 hour later, e.g. 07:30 UTC)
         ZonedDateTime laterUtc = baseUtc.plusHours(1);
@@ -705,12 +691,10 @@ public class PropertyAnalyzerTest {
         DataProperty dpLater = PropertyAnalyzer.analyzeDataProperty(propsLater,
                 new DataProperty(TStorageMedium.SSD));
         long laterMillis = laterUtc.toInstant().toEpochMilli();
-        Assert.assertEquals("Explicit +00:00 should parse later DST hour correctly",
-                laterMillis, dpLater.getCooldownTimeMs());
+        Assertions.assertEquals(laterMillis, dpLater.getCooldownTimeMs(), "Explicit +00:00 should parse later DST hour correctly");
 
         // The two instants must be distinct (1 hour apart).
-        Assert.assertEquals("DST fall-back hours must differ by exactly 1 hour",
-                3600000L, laterMillis - earlierMillis);
+        Assertions.assertEquals(3600000L, laterMillis - earlierMillis, "DST fall-back hours must differ by exactly 1 hour");
     }
 
     @Test
@@ -743,8 +727,7 @@ public class PropertyAnalyzerTest {
                     "2027-01-01 00:00:00Z");
             DataProperty dpZ = PropertyAnalyzer.analyzeDataProperty(propsZ,
                     new DataProperty(TStorageMedium.SSD));
-            Assert.assertEquals("'Z' suffix winter target must parse as UTC instant",
-                    expectedMillis, dpZ.getCooldownTimeMs());
+            Assertions.assertEquals(expectedMillis, dpZ.getCooldownTimeMs(), "'Z' suffix winter target must parse as UTC instant");
 
             // Test with UTC suffix
             Map<String, String> propsUtc = Maps.newHashMap();
@@ -753,8 +736,7 @@ public class PropertyAnalyzerTest {
                     "2027-01-01 00:00:00UTC");
             DataProperty dpUtc = PropertyAnalyzer.analyzeDataProperty(propsUtc,
                     new DataProperty(TStorageMedium.SSD));
-            Assert.assertEquals("'UTC' suffix winter target must parse as UTC instant",
-                    expectedMillis, dpUtc.getCooldownTimeMs());
+            Assertions.assertEquals(expectedMillis, dpUtc.getCooldownTimeMs(), "'UTC' suffix winter target must parse as UTC instant");
 
             // Test with GMT suffix
             Map<String, String> propsGmt = Maps.newHashMap();
@@ -763,8 +745,7 @@ public class PropertyAnalyzerTest {
                     "2027-01-01 00:00:00GMT");
             DataProperty dpGmt = PropertyAnalyzer.analyzeDataProperty(propsGmt,
                     new DataProperty(TStorageMedium.SSD));
-            Assert.assertEquals("'GMT' suffix winter target must parse as UTC instant",
-                    expectedMillis, dpGmt.getCooldownTimeMs());
+            Assertions.assertEquals(expectedMillis, dpGmt.getCooldownTimeMs(), "'GMT' suffix winter target must parse as UTC instant");
 
             // Summer-target Z with summer-time JVM must also work (baseline).
             ZonedDateTime summerZdt = ZonedDateTime.of(
@@ -776,8 +757,7 @@ public class PropertyAnalyzerTest {
                     "2027-07-01 00:00:00Z");
             DataProperty dpSummer = PropertyAnalyzer.analyzeDataProperty(propsSummer,
                     new DataProperty(TStorageMedium.SSD));
-            Assert.assertEquals("Summer target with JVM summer must also work",
-                    expectedSummer, dpSummer.getCooldownTimeMs());
+            Assertions.assertEquals(expectedSummer, dpSummer.getCooldownTimeMs(), "Summer target with JVM summer must also work");
         } finally {
             TimeZone.setDefault(originalTimezone);
         }

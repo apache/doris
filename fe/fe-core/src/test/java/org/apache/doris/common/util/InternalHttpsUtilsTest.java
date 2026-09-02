@@ -19,10 +19,10 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.Config;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 
@@ -30,14 +30,14 @@ public class InternalHttpsUtilsTest {
 
     private String originalKeyStorePath;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         originalKeyStorePath = Config.key_store_path;
         // Reset the cached SSLContext before each test so tests are independent.
         resetCachedSslContext();
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         Config.key_store_path = originalKeyStorePath;
         resetCachedSslContext();
@@ -54,12 +54,11 @@ public class InternalHttpsUtilsTest {
         Config.key_store_path = "/non/existent/path/doris_ssl_certificate.keystore";
         try {
             InternalHttpsUtils.getSslContext();
-            Assert.fail("Expected RuntimeException when cert file does not exist");
+            Assertions.fail("Expected RuntimeException when cert file does not exist");
         } catch (RuntimeException e) {
             // Error message must mention the cert path so operators know what to fix.
-            Assert.assertTrue("Error message should contain cert path",
-                    e.getMessage() != null
-                            && e.getMessage().contains("/non/existent/path/doris_ssl_certificate.keystore"));
+            Assertions.assertTrue(e.getMessage() != null
+                            && e.getMessage().contains("/non/existent/path/doris_ssl_certificate.keystore"), "Error message should contain cert path");
         }
     }
 }

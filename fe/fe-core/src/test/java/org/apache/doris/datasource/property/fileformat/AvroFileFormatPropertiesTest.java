@@ -17,8 +17,8 @@
 
 package org.apache.doris.datasource.property.fileformat;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -28,7 +28,7 @@ public class AvroFileFormatPropertiesTest {
 
     private AvroFileFormatProperties avroFileFormatProperties;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         avroFileFormatProperties = new AvroFileFormatProperties();
     }

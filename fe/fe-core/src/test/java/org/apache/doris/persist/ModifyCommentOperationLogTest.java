@@ -18,8 +18,8 @@
 package org.apache.doris.persist;
 
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -49,11 +49,11 @@ public class ModifyCommentOperationLogTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
         ModifyCommentOperationLog readLog = ModifyCommentOperationLog.read(dis);
-        Assert.assertTrue(readLog.getType() == ModifyCommentOperationLog.Type.COLUMN);
-        Assert.assertTrue(readLog.getDbId() == log.getDbId());
-        Assert.assertTrue(readLog.getTblId() == log.getTblId());
-        Assert.assertTrue(readLog.getTblComment() == null);
-        Assert.assertTrue(readLog.getColToComment().size() == 2);
+        Assertions.assertTrue(readLog.getType() == ModifyCommentOperationLog.Type.COLUMN);
+        Assertions.assertTrue(readLog.getDbId() == log.getDbId());
+        Assertions.assertTrue(readLog.getTblId() == log.getTblId());
+        Assertions.assertTrue(readLog.getTblComment() == null);
+        Assertions.assertTrue(readLog.getColToComment().size() == 2);
 
         // 3. delete files
         dis.close();
@@ -77,11 +77,11 @@ public class ModifyCommentOperationLogTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
         ModifyCommentOperationLog readLog = ModifyCommentOperationLog.read(dis);
-        Assert.assertTrue(readLog.getType() == ModifyCommentOperationLog.Type.TABLE);
-        Assert.assertTrue(readLog.getDbId() == log.getDbId());
-        Assert.assertTrue(readLog.getTblId() == log.getTblId());
-        Assert.assertEquals("comment", readLog.getTblComment());
-        Assert.assertTrue(readLog.getColToComment() == null);
+        Assertions.assertTrue(readLog.getType() == ModifyCommentOperationLog.Type.TABLE);
+        Assertions.assertTrue(readLog.getDbId() == log.getDbId());
+        Assertions.assertTrue(readLog.getTblId() == log.getTblId());
+        Assertions.assertEquals("comment", readLog.getTblComment());
+        Assertions.assertTrue(readLog.getColToComment() == null);
 
         // 3. delete files
         dis.close();
