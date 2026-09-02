@@ -107,9 +107,9 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getSnapshotCacheValue(
-                MvccUtil.getSnapshotFromContext(this), this);
-        return Optional.of(IcebergUtils.getSchemaCacheValue(this, snapshotValue));
+        return Optional.of(IcebergUtils.withSnapshotCacheValue(
+                MvccUtil.getSnapshotFromContext(this), this,
+                snapshotValue -> IcebergUtils.getSchemaCacheValue(this, snapshotValue)));
     }
 
     @Override
@@ -278,21 +278,21 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
-        List<Column> schema = IcebergUtils.getIcebergSchema(this, snapshot);
+        return IcebergUtils.withSnapshotCacheValue(snapshot, this, this::projectFullSchema);
+    }
+
+    private List<Column> projectFullSchema(IcebergSnapshotCacheValue snapshotValue) {
+        List<Column> schema = IcebergUtils.getSchemaCacheValue(this, snapshotValue).getSchema();
         schema = new ArrayList<>(schema);
 
         if (Util.showHiddenColumns() || needInternalHiddenColumns()) {
             schema.add(createIcebergRowIdColumn());
         }
 
-        Optional<Table> snapshotTable = snapshot
-                .filter(IcebergMvccSnapshot.class::isInstance)
-                .map(IcebergMvccSnapshot.class::cast)
-                .flatMap(value -> value.getSnapshotCacheValue().getIcebergTable());
         // Row-lineage fields are part of the pinned schema generation, not the refreshable table.
-        schema = IcebergUtils.appendRowLineageColumnsForV3(
-                schema, snapshotTable.orElseGet(this::getIcebergTable));
-        return schema;
+        return IcebergUtils.appendRowLineageColumnsForV3(schema,
+                snapshotValue.getIcebergTable().orElseThrow(
+                        () -> new IllegalStateException("Iceberg schema projection lost its table generation")));
     }
 
     private Column createIcebergRowIdColumn() {
