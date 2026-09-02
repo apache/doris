@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -51,7 +52,7 @@ public class StructType extends Type {
         this.fields = fields;
         for (int i = 0; i < this.fields.size(); ++i) {
             this.fields.get(i).setPosition(i);
-            fieldMap.put(this.fields.get(i).getName().toLowerCase(), this.fields.get(i));
+            fieldMap.put(this.fields.get(i).getName().toLowerCase(Locale.ROOT), this.fields.get(i));
         }
     }
 
@@ -122,7 +123,7 @@ public class StructType extends Type {
     public void addField(StructField field) {
         field.setPosition(fields.size());
         fields.add(field);
-        fieldMap.put(field.getName().toLowerCase(), field);
+        fieldMap.put(field.getName().toLowerCase(Locale.ROOT), field);
     }
 
     public ArrayList<StructField> getFields() {
@@ -130,7 +131,7 @@ public class StructType extends Type {
     }
 
     public StructField getField(String fieldName) {
-        return fieldMap.get(fieldName.toLowerCase());
+        return fieldMap.get(fieldName.toLowerCase(Locale.ROOT));
     }
 
     @Override

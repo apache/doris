@@ -1336,7 +1336,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         try {
             Types.NestedField current = executeAuthenticated(() ->
                     catalogOps.withTable(handle.getDbName(), handle.getTableName(),
-                            table -> table.schema().findField(column.getName())));
+                            table -> IcebergNestedColumnEvolution.findTopLevelField(
+                                    table.schema(), column.getName())));
             if (current != null && !current.type().isPrimitiveType()) {
                 IcebergComplexTypeDiff.validateNestedModifyRepresentable(current.type(), column.getType());
             }

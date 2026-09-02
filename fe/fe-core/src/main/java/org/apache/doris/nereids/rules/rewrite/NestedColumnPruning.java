@@ -56,6 +56,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -662,7 +663,7 @@ public class NestedColumnPruning implements CustomRewriter {
             accessPartialChild = true;
 
             if (this.type.isStructType()) {
-                String fieldName = path.get(accessIndex).toLowerCase();
+                String fieldName = path.get(accessIndex).toLowerCase(Locale.ROOT);
                 DataTypeAccessTree child = children.get(fieldName);
                 if (child != null) {
                     child.setAccessByPath(path, accessIndex + 1, pathType);
@@ -730,7 +731,8 @@ public class NestedColumnPruning implements CustomRewriter {
                 accessAll = true;
                 return;
             } else if (isRoot) {
-                children.get(path.get(accessIndex).toLowerCase()).setAccessByPath(path, accessIndex + 1, pathType);
+                children.get(path.get(accessIndex).toLowerCase(Locale.ROOT))
+                        .setAccessByPath(path, accessIndex + 1, pathType);
                 return;
             }
             throw new AnalysisException("unsupported data type: " + this.type);
@@ -739,7 +741,7 @@ public class NestedColumnPruning implements CustomRewriter {
         public static DataTypeAccessTree ofRoot(Slot slot, ColumnAccessPathType pathType) {
             DataTypeAccessTree child = of(slot.getDataType(), pathType);
             DataTypeAccessTree root = new DataTypeAccessTree(true, NullType.INSTANCE, pathType);
-            root.children.put(slot.getName().toLowerCase(), child);
+            root.children.put(slot.getName().toLowerCase(Locale.ROOT), child);
             return root;
         }
 
@@ -749,7 +751,8 @@ public class NestedColumnPruning implements CustomRewriter {
             if (type instanceof StructType) {
                 StructType structType = (StructType) type;
                 for (Entry<String, StructField> kv : structType.getNameToFields().entrySet()) {
-                    root.children.put(kv.getKey().toLowerCase(), of(kv.getValue().getDataType(), pathType));
+                    root.children.put(kv.getKey().toLowerCase(Locale.ROOT),
+                            of(kv.getValue().getDataType(), pathType));
                 }
             } else if (type instanceof ArrayType) {
                 root.children.put(AccessPathInfo.ACCESS_ALL, of(((ArrayType) type).getItemType(), pathType));

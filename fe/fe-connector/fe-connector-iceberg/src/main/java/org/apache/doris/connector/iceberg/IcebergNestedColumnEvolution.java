@@ -492,6 +492,10 @@ public final class IcebergNestedColumnEvolution {
         return new ResolvedColumnPath(ConnectorColumnPath.of(canonicalParts), currentType, currentField);
     }
 
+    static NestedField findTopLevelField(Schema schema, String columnName) {
+        return schema.asStruct().caseInsensitiveField(columnName);
+    }
+
     /**
      * Resolves {@code columnPath}'s parent (which must be a struct) and its leaf within that struct
      * (case-insensitive). Used by nested DROP / RENAME, which target an existing struct field.
@@ -581,6 +585,13 @@ public final class IcebergNestedColumnEvolution {
             updateSchema.moveFirst(columnName);
         } else {
             updateSchema.moveAfter(columnName, getPositionReferencePath(schema, columnPath, position, operation));
+        }
+    }
+
+    static void applyTopLevelPosition(UpdateSchema updateSchema, ConnectorColumnPosition position,
+            String columnName, Schema schema, String operation) {
+        if (position != null) {
+            applyPosition(updateSchema, position, ConnectorColumnPath.of(columnName), schema, operation);
         }
     }
 

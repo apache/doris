@@ -24,6 +24,8 @@ import org.apache.doris.thrift.TTypeNode;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
+import java.util.Locale;
+
 public class StructField {
     @SerializedName(value = "name")
     protected final String name;
@@ -69,9 +71,8 @@ public class StructField {
      */
     public StructField(String name, String originalName, Type type, String comment, boolean containsNull,
             boolean commentSpecified) {
-        this.name = name.toLowerCase();
-        // Runtime struct lookup is case-insensitive, but external schemas such as Iceberg must preserve the
-        // original spelling. Keep both so metadata writes never leak the normalized lookup key.
+        // Keep runtime identity locale-independent while preserving external schema spelling separately.
+        this.name = name.toLowerCase(Locale.ROOT);
         this.originalName = originalName;
         this.type = type;
         this.comment = comment;

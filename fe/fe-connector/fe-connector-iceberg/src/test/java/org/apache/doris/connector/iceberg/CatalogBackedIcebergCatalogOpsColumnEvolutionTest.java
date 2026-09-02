@@ -368,6 +368,32 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
     }
 
     @Test
+    public void testModifyColumnsCanonicalizeMixedCaseRootAndPosition() {
+        createMixedCaseTable();
+        ops.modifyColumn("db1", "mixed", change("id", Types.LongType.get(), "identifier", true), true, null);
+
+        ConnectorType requestedType = structType(
+                Arrays.asList("metric"), Arrays.asList(ConnectorType.of("BIGINT")),
+                Arrays.asList(true), Arrays.asList((String) null));
+
+        ops.modifyColumn("db1", "mixed",
+                new IcebergColumnChange("info", IcebergSchemaBuilder.buildColumnType(requestedType),
+                        "updated", null, true, requestedType),
+                true, ConnectorColumnPosition.after("id"));
+
+        Schema schema = reload("mixed");
+        Assertions.assertEquals(Arrays.asList("Id", "Info", "Label"), schema.columns().stream()
+                .map(Types.NestedField::name).collect(Collectors.toList()));
+        Assertions.assertEquals(Type.TypeID.LONG, schema.findField("Id").type().typeId());
+        Assertions.assertEquals("identifier", schema.findField("Id").doc());
+        Types.NestedField info = schema.findField("Info");
+        Assertions.assertEquals("updated", info.doc());
+        Types.NestedField metric = info.type().asStructType().fields().get(0);
+        Assertions.assertEquals("Metric", metric.name());
+        Assertions.assertEquals(Type.TypeID.LONG, metric.type().typeId());
+    }
+
+    @Test
     public void testModifyStructAddsNullableField() {
         createTable("s_add", new ConnectorColumn("st",
                 structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("INT")),

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.nereids.util.Utils;
 
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -65,7 +66,8 @@ public class StructField {
      */
     public StructField(String name, String originalName, DataType dataType, boolean nullable, String comment,
             boolean commentSpecified) {
-        this.name = Objects.requireNonNull(name, "name should not be null").toLowerCase();
+        // Runtime field identity must stay stable across FE locales and match external schema lookup keys.
+        this.name = Objects.requireNonNull(name, "name should not be null").toLowerCase(Locale.ROOT);
         this.originalName = Objects.requireNonNull(originalName, "originalName should not be null");
         this.dataType = Objects.requireNonNull(dataType, "dataType should not be null");
         this.nullable = nullable;

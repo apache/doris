@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -60,7 +61,7 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
         // ATTN: should use LinkedHashMap to keep order
         this.nameToFields = new LinkedHashMap<>();
         for (StructField field : this.fields) {
-            String fieldName = field.getName().toLowerCase();
+            String fieldName = field.getName().toLowerCase(Locale.ROOT);
             StructField existingField = this.nameToFields.put(fieldName, field);
             if (existingField != null) {
                 throw new AnalysisException("Duplicate field name found: " + fieldName);
@@ -77,7 +78,7 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
     }
 
     public StructField getField(String name) {
-        return nameToFields.get(name.toLowerCase());
+        return nameToFields.get(name.toLowerCase(Locale.ROOT));
     }
 
     @Override
