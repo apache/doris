@@ -679,15 +679,17 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     }
 
     /// Step 4: save meta
+    RowsetMetaPB visible_meta = rowset->rowset_meta()->get_rowset_pb();
+    visible_meta.clear_row_binlog_column_mappings();
     int64_t t5 = MonotonicMicros();
-    auto status = RowsetMetaManager::save(meta, tablet_uid, rowset->rowset_id(),
-                                          rowset->rowset_meta()->get_rowset_pb(), binlog_format,
-                                          attach_row_binlog_rowset_meta);
+    auto status = RowsetMetaManager::save(meta, tablet_uid, rowset->rowset_id(), visible_meta,
+                                          binlog_format, attach_row_binlog_rowset_meta);
     stats->save_meta_time_us += MonotonicMicros() - t5;
     if (!status.ok()) {
         status.append(fmt::format(", txn id: {}", transaction_id));
         return status;
     }
+    rowset->rowset_meta()->clear_row_binlog_column_mappings();
 
     if (tablet_txn_info->unique_key_merge_on_write && tablet_txn_info->partial_update_info &&
         tablet_txn_info->partial_update_info->is_partial_update()) {

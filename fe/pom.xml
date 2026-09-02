@@ -451,8 +451,8 @@ under the License.
         <flatbuffers.version>1.12.0</flatbuffers.version>
         <jacoco.version>0.8.10</jacoco.version>
         <!-- Maven Shade 3.4.1 cannot parse the Java 21 multi-release classes shipped by
-             Jackson 2.21.x. Version 3.6.2 uses a current ASM release that supports them. -->
-        <maven-shade-plugin.version>3.6.2</maven-shade-plugin.version>
+             Jackson 2.21.x. Version 3.5.1 uses ASM 9.5, which supports Java 21. -->
+        <maven-shade-plugin.version>3.5.1</maven-shade-plugin.version>
         <argLine></argLine>
         <trino.version>435</trino.version>
         <nimbusds.version>10.0.1</nimbusds.version>

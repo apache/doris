@@ -90,7 +90,10 @@ protected:
         ctx->partial_update_info = info;
         ctx->write_type = DataWriteType::TYPE_DIRECT;
         ctx->write_binlog_opt().enable = true;
-        ctx->write_binlog_opt().set_need_before(need_before);
+        ctx->write_binlog_opt().write_binlog_config().need_historical_value = need_before;
+        if (need_before) {
+            ctx->write_binlog_opt().write_binlog_config().column_mappings = {{0, 0, 1}};
+        }
     }
 
     // A block holding the key column and the sequence column, in that order.
@@ -151,7 +154,7 @@ TEST_F(HistoricalRowRetrieverTest, UpdateReadsHistoryAndAppendTakesDefault) {
 }
 
 // A delete-signed row: without the BEFORE image there is nothing to read back, with it the old row
-// must still be fetched so __BEFORE__* can be filled.
+// must still be fetched so __DORIS_BEFORE__* can be filled.
 TEST_F(HistoricalRowRetrieverTest, DeleteReadsHistoryOnlyWhenBeforeImageIsWanted) {
     for (bool need_before : {false, true}) {
         auto schema = create_mow_schema(/*has_seq=*/false);

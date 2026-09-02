@@ -17,8 +17,12 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.planner.OlapTableSink.AdaptiveBucketAssignment;
 import org.apache.doris.planner.OlapTableSink.AdaptiveIndexBucketAssignment;
 import org.apache.doris.system.Backend;
@@ -26,6 +30,8 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TOlapTableIndexTablets;
 import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TOlapTablePartition;
+import org.apache.doris.thrift.TRowBinlogWriteColumnMapping;
+import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletLocation;
 
 import com.google.common.collect.ImmutableMap;
@@ -40,6 +46,43 @@ import java.util.List;
 import java.util.Map;
 
 public class OlapTableSinkTest {
+    @Test
+    public void testCreateHistoricalRowBinlogColumnMappings() throws Exception {
+        MaterializedIndexMeta sourceMeta = indexMeta(1L, Arrays.asList(
+                column("K1", 1, true, true),
+                column("hidden_value", 2, false, false),
+                column(Column.SHADOW_NAME_PREFIX + "v1", 3, false, true),
+                column("HIDDEN_KEY", 4, true, false)));
+        MaterializedIndexMeta rowBinlogMeta = indexMeta(2L, Arrays.asList(
+                column("k1", 11, true, true),
+                column("V1", 13, false, true),
+                column("hidden_key", 14, true, false),
+                column(Column.generateBeforeColName("v1"), 23, false, true)));
+
+        List<TRowBinlogWriteColumnMapping> mappings = OlapTableSink.createRowBinlogColumnMappings(
+                sourceMeta, rowBinlogMeta, true);
+
+        Assert.assertEquals(3, mappings.size());
+        assertMapping(mappings.get(0), 1, 11, null);
+        assertMapping(mappings.get(1), 3, 13, 23);
+        assertMapping(mappings.get(2), 4, 14, null);
+    }
+
+    @Test
+    public void testCreateNonHistoricalRowBinlogColumnMappings() throws Exception {
+        MaterializedIndexMeta sourceMeta = indexMeta(1L, Arrays.asList(
+                column("k1", 1, true, true), column("v1", 2, false, true)));
+        MaterializedIndexMeta rowBinlogMeta = indexMeta(2L, Arrays.asList(
+                column("k1", 11, true, true), column("v1", 12, false, true)));
+
+        List<TRowBinlogWriteColumnMapping> mappings = OlapTableSink.createRowBinlogColumnMappings(
+                sourceMeta, rowBinlogMeta, false);
+
+        Assert.assertEquals(2, mappings.size());
+        assertMapping(mappings.get(0), 1, 11, null);
+        assertMapping(mappings.get(1), 2, 12, null);
+    }
+
     @Test
     public void testCreateDummyLocationUsesLoadAvailableBackendInCurrentComputeGroup() throws Exception {
         SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
@@ -194,5 +237,28 @@ public class OlapTableSinkTest {
         Assert.assertEquals(indexId, indexAssignment.getIndexId());
         Assert.assertEquals(bucketBeId, indexAssignment.getBucketBeId());
         Assert.assertEquals(localBucketSeqs, indexAssignment.getLocalBucketSeqs());
+    }
+
+    private static Column column(String name, int uniqueId, boolean isKey, boolean isVisible) {
+        Column column = new Column(name, PrimitiveType.INT);
+        column.setUniqueId(uniqueId);
+        column.setIsKey(isKey);
+        column.setIsVisible(isVisible);
+        return column;
+    }
+
+    private static MaterializedIndexMeta indexMeta(long indexId, List<Column> columns) {
+        return new MaterializedIndexMeta(indexId, columns, 1, 1, (short) 1, TStorageType.COLUMN,
+                KeysType.PRIMARY_KEYS, null);
+    }
+
+    private static void assertMapping(TRowBinlogWriteColumnMapping mapping, int sourceUniqueId,
+            int currentUniqueId, Integer beforeUniqueId) {
+        Assert.assertEquals(sourceUniqueId, mapping.getSourceColumnUniqueId());
+        Assert.assertEquals(currentUniqueId, mapping.getCurrentColumnUniqueId());
+        Assert.assertEquals(beforeUniqueId != null, mapping.isSetBeforeColumnUniqueId());
+        if (beforeUniqueId != null) {
+            Assert.assertEquals(beforeUniqueId.intValue(), mapping.getBeforeColumnUniqueId());
+        }
     }
 }

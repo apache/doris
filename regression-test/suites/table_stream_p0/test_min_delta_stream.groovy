@@ -131,7 +131,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
 
         // 1.1) Stream hidden columns:
         // - __DORIS_STREAM_CHANGE_TYPE_COL__/__DORIS_STREAM_SEQUENCE_COL__ must be queryable;
-        // - SELECT * should not expose hidden columns or __BEFORE__ columns by default.
+        // - SELECT * should not expose hidden columns or __DORIS_BEFORE__ columns by default.
         def ukMetaRows = sql """
             SELECT id, v1, __DORIS_STREAM_CHANGE_TYPE_COL__, __DORIS_STREAM_SEQUENCE_COL__
             FROM ${ukStream}
@@ -147,13 +147,13 @@ suite("test_min_delta_stream", "nonConcurrent") {
             ORDER BY id, v1
         """
         assertEquals(2, ukAllRows.size())
-        // Base table has 2 visible columns; hidden columns and __BEFORE__v1__ must not be included by default.
+        // Base table has 2 visible columns; hidden columns and __DORIS_BEFORE__v1__ must not be included by default.
         assertEquals(2, ukAllRows[0].size())
         assertEquals(2, ukAllRows[1].size())
 
         sql "SET show_hidden_columns=true"
         def ukDescRows = sql "DESC ${ukStream}"
-        def hasBeforeCol = ukDescRows.any { it[0].toString().startsWith("__BEFORE__") }
+        def hasBeforeCol = ukDescRows.any { it[0].toString().startsWith("__DORIS_BEFORE__") }
         def hasChangeTypeCol = ukDescRows.any { it[0].toString().equalsIgnoreCase("__DORIS_STREAM_CHANGE_TYPE_COL__") }
         def hasSequenceCol = ukDescRows.any { it[0].toString().equalsIgnoreCase("__DORIS_STREAM_SEQUENCE_COL__") }
         assertEquals(false, hasBeforeCol)
@@ -494,7 +494,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
         assertEquals("91", ukPendingRows[3][1].toString())
         assertEquals("UPDATE_AFTER", ukPendingRows[3][2].toString())
 
-        // 8) UPDATE then DELETE: min_delta result is DELETE, and value columns should use __BEFORE__ (pre-delete snapshot).
+        // 8) UPDATE then DELETE: min_delta result is DELETE, and value columns should use __DORIS_BEFORE__ (pre-delete snapshot).
         sql """
             CREATE TABLE ${ukDeleteBeforeBase} (
                 id BIGINT,

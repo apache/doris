@@ -122,4 +122,77 @@ TEST(TabletSchemaCacheTest, InsertAndLookupLoadSchema) {
     TabletSchemaCache::instance()->release(cached.first);
 }
 
+TEST(TabletSchemaCacheTest, RowBinlogColumnMappingsRoundTrip) {
+    POlapTableSchemaParam pschema;
+    pschema.set_db_id(10);
+    pschema.set_table_id(20);
+    pschema.set_version(3);
+    auto* pindex = pschema.add_indexes();
+    pindex->set_id(100);
+    pindex->set_schema_hash(200);
+    pindex->set_row_binlog_id(101);
+    auto* mappings = pindex->mutable_row_binlog_column_mappings();
+    mappings->set_need_historical_value(true);
+    auto* mapping = mappings->add_entries();
+    mapping->set_source_column_unique_id(1);
+    mapping->set_current_column_unique_id(11);
+    mapping->set_before_column_unique_id(12);
+
+    OlapTableSchemaParam param;
+    ASSERT_TRUE(param.init(pschema).ok());
+    ASSERT_EQ(1, param.indexes().size());
+    EXPECT_TRUE(param.indexes()[0]->row_binlog_need_historical_value);
+    ASSERT_EQ(1, param.indexes()[0]->row_binlog_column_mappings.size());
+    const auto& internal_mapping = param.indexes()[0]->row_binlog_column_mappings[0];
+    EXPECT_EQ(1, internal_mapping.source_uid);
+    EXPECT_EQ(11, internal_mapping.current_uid);
+    ASSERT_TRUE(internal_mapping.before_uid.has_value());
+    EXPECT_EQ(12, *internal_mapping.before_uid);
+
+    POlapTableSchemaParam round_trip;
+    param.to_protobuf(&round_trip);
+    ASSERT_EQ(1, round_trip.indexes_size());
+    ASSERT_TRUE(round_trip.indexes(0).has_row_binlog_column_mappings());
+    const auto& round_trip_mappings = round_trip.indexes(0).row_binlog_column_mappings();
+    ASSERT_TRUE(round_trip_mappings.has_need_historical_value());
+    EXPECT_TRUE(round_trip_mappings.need_historical_value());
+    ASSERT_EQ(1, round_trip_mappings.entries_size());
+    const auto& round_trip_mapping = round_trip_mappings.entries(0);
+    EXPECT_EQ(1, round_trip_mapping.source_column_unique_id());
+    EXPECT_EQ(11, round_trip_mapping.current_column_unique_id());
+    ASSERT_TRUE(round_trip_mapping.has_before_column_unique_id());
+    EXPECT_EQ(12, round_trip_mapping.before_column_unique_id());
+}
+
+TEST(TabletSchemaCacheTest, RejectsMissingRowBinlogHistoricalValueFlag) {
+    POlapTableSchemaParam pschema;
+    pschema.set_db_id(10);
+    pschema.set_table_id(20);
+    pschema.set_version(3);
+    auto* pindex = pschema.add_indexes();
+    pindex->set_id(100);
+    pindex->set_schema_hash(200);
+    pindex->set_row_binlog_id(101);
+    auto* mapping = pindex->mutable_row_binlog_column_mappings()->add_entries();
+    mapping->set_source_column_unique_id(1);
+    mapping->set_current_column_unique_id(11);
+
+    OlapTableSchemaParam param;
+    EXPECT_FALSE(param.init(pschema).ok());
+}
+
+TEST(TabletSchemaCacheTest, RejectsMissingRowBinlogColumnMappings) {
+    POlapTableSchemaParam pschema;
+    pschema.set_db_id(10);
+    pschema.set_table_id(20);
+    pschema.set_version(3);
+    auto* pindex = pschema.add_indexes();
+    pindex->set_id(100);
+    pindex->set_schema_hash(200);
+    pindex->set_row_binlog_id(101);
+
+    OlapTableSchemaParam param;
+    EXPECT_FALSE(param.init(pschema).ok());
+}
+
 } // namespace doris

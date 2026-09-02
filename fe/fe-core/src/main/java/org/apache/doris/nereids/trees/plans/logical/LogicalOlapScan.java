@@ -955,7 +955,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
     }
 
     /**
-     * BE needs the {@code __BEFORE__} columns to build before-images on an {@code @incr} read, but
+     * BE needs the {@code __DORIS_BEFORE__} columns to build before-images on an {@code @incr} read, but
      * they are storage bookkeeping: {@code SELECT * FROM t@incr(...)} should return t's own columns,
      * not the mirrors behind them. The flag is set on a copy because these Column instances belong
      * to the table's persisted metadata and are shared across statements.

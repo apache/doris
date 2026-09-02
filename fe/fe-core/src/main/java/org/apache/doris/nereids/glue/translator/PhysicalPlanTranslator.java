@@ -3124,7 +3124,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         boolean preserveCompleteRow = scanType == TBinlogScanType.MIN_DELTA;
         for (SlotDescriptor slot : scanSlots) {
             Column column = slot.getColumn();
-            if (column == null || column.isKey() || isRowBinlogInternalColumn(column)
+            if (column == null || column.isKey()
+                    || RowBinlogTableWrapper.isRowBinlogInternalColumn(column)
                     || (!preserveCompleteRow && !requiredSlotIds.contains(slot.getId()))) {
                 continue;
             }
@@ -3132,14 +3133,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             preserveStorageSlot(slotByName.get(Column.generateBeforeColName(column.getName())),
                     requiredSlotIds);
         }
-    }
-
-    private boolean isRowBinlogInternalColumn(Column column) {
-        String columnName = column.getName();
-        return columnName.startsWith(Column.BINLOG_BEFORE_PREFIX)
-                || columnName.equals(Column.BINLOG_LSN_COL)
-                || columnName.equals(Column.BINLOG_OPERATION_COL)
-                || columnName.equals(Column.BINLOG_TSO_COL);
     }
 
     /**

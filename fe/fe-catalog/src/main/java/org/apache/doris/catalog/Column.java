@@ -88,7 +88,7 @@ public class Column implements GsonPostProcessable {
     public static final String BINLOG_LSN_COL = "__DORIS_BINLOG_LSN__";
     // implicit columns
     public static final String BINLOG_OPERATION_COL = "__DORIS_BINLOG_OP__";
-    public static final String BINLOG_BEFORE_PREFIX = "__BEFORE__";
+    public static final String BINLOG_BEFORE_PREFIX = "__DORIS_BEFORE__";
 
     public static String generateBeforeColName(String colName) {
         return BINLOG_BEFORE_PREFIX + colName + "__";

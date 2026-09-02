@@ -2074,11 +2074,6 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
 
     context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
-
-    if (context.write_binlog_opt().enable) {
-        context.write_binlog_opt().set_need_before(
-                tablet_meta()->binlog_config().need_historical_value());
-    }
 }
 
 Status Tablet::create_rowset(const RowsetMetaSharedPtr& rowset_meta, RowsetSharedPtr* rowset) {

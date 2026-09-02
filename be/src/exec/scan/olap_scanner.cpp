@@ -28,6 +28,7 @@
 #include <atomic>
 #include <ostream>
 #include <set>
+#include <unordered_map>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_hotspot.h"
@@ -583,8 +584,10 @@ Status OlapScanner::_init_read_schema() {
     // an extra column and can be removed by the projection output tuple.
     std::vector<TabletColumnPtr> read_columns;
     std::vector<DataTypePtr> expected_types;
+    std::unordered_map<TSlotId, ColumnId> slot_id_to_ordinal;
     read_columns.reserve(_output_tuple_desc->slots().size());
     expected_types.reserve(_output_tuple_desc->slots().size());
+    slot_id_to_ordinal.reserve(_output_tuple_desc->slots().size());
     for (uint32_t ordinal = 0; auto* slot : _output_tuple_desc->slots()) {
         // variant column using path to index a column
         int32_t index = 0;
@@ -630,6 +633,7 @@ Status OlapScanner::_init_read_schema() {
 
         read_columns.push_back(tablet_schema->columns()[index]);
         expected_types.push_back(slot->get_data_type_ptr());
+        slot_id_to_ordinal.emplace(slot->id(), ordinal);
         if (!slot->is_nullable() && tablet_schema->column(index).is_nullable()) {
             return Status::Error<ErrorCode::INVALID_SCHEMA>(
                     "slot(id: {}, name: {})'s nullable does not match "
@@ -646,8 +650,57 @@ Status OlapScanner::_init_read_schema() {
 
     // The FE physical scan tuple is the read-path schema. It already includes
     // every storage key, sequence, TSO and binlog column required below.
-    _tablet_reader_params.read_schema =
+    auto read_schema =
             std::make_shared<ReadSchema>(std::move(read_columns), std::move(expected_types));
+    if (_tablet_reader_params.read_row_binlog) {
+        const auto* olap_local_state = static_cast<OlapScanLocalState*>(_local_state);
+        const auto& olap_scan_node = olap_local_state->olap_scan_node();
+        const bool merge_changes =
+                _tablet_reader_params.binlog_scan_type == TBinlogScanType::MIN_DELTA ||
+                _tablet_reader_params.binlog_scan_type == TBinlogScanType::DETAIL;
+        ReadSchema::RowBinlogValueColumnPairs value_pairs;
+        if (merge_changes) {
+            if (!olap_scan_node.__isset.row_binlog_current_slot_ids ||
+                !olap_scan_node.__isset.row_binlog_before_slot_ids ||
+                olap_scan_node.row_binlog_current_slot_ids.size() !=
+                        olap_scan_node.row_binlog_before_slot_ids.size()) {
+                return Status::InvalidArgument(
+                        "Row-binlog current/before slot mappings must be present and aligned");
+            }
+            value_pairs.reserve(olap_scan_node.row_binlog_current_slot_ids.size());
+            for (size_t i = 0; i < olap_scan_node.row_binlog_current_slot_ids.size(); ++i) {
+                const auto current =
+                        slot_id_to_ordinal.find(olap_scan_node.row_binlog_current_slot_ids[i]);
+                const auto before =
+                        slot_id_to_ordinal.find(olap_scan_node.row_binlog_before_slot_ids[i]);
+                if (current == slot_id_to_ordinal.end() || before == slot_id_to_ordinal.end()) {
+                    return Status::InvalidArgument(
+                            "Row-binlog current/before slot mapping references an unknown slot");
+                }
+                value_pairs.emplace_back(current->second, before->second);
+            }
+        }
+
+        const auto& tablet_schema = *_tablet_reader_params.tablet_schema;
+        const int32_t tso_ordinal = read_ordinal_by_tablet_cid(*read_schema, tablet_schema,
+                                                               tablet_schema.binlog_tso_col_idx());
+        const int32_t lsn_ordinal = read_ordinal_by_tablet_cid(*read_schema, tablet_schema,
+                                                               tablet_schema.binlog_lsn_col_idx());
+        const int32_t op_ordinal = read_ordinal_by_tablet_cid(*read_schema, tablet_schema,
+                                                              tablet_schema.binlog_op_col_idx());
+        if (merge_changes && (tso_ordinal < 0 || op_ordinal < 0)) {
+            return Status::InvalidArgument(
+                    "Row-binlog TSO and OP columns must be present for change merging");
+        }
+        RETURN_IF_ERROR(read_schema->init_row_binlog_column_mappings(
+                std::move(value_pairs), tso_ordinal, lsn_ordinal, op_ordinal));
+        if (_tablet_reader_params.binlog_scan_type == TBinlogScanType::MIN_DELTA &&
+            !read_schema->row_binlog_value_pairs_complete()) {
+            return Status::InvalidArgument(
+                    "MIN_DELTA requires mappings for every materialized row-binlog value column");
+        }
+    }
+    _tablet_reader_params.read_schema = std::move(read_schema);
 
     return Status::OK();
 }

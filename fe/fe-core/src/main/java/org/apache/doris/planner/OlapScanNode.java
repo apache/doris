@@ -1428,6 +1428,7 @@ public class OlapScanNode extends ScanNode {
         msg.olap_scan_node.setIndexesDesc(indexDesc);
         if (olapTable instanceof RowBinlogTableWrapper) {
             msg.olap_scan_node.setReadRowBinlog(true);
+            setRowBinlogColumnMappings(msg.olap_scan_node);
         }
         if (selectedIndexId != -1) {
             msg.olap_scan_node.setSchemaVersion(olapTable.getIndexSchemaVersion(selectedIndexId));
@@ -1524,6 +1525,38 @@ public class OlapScanNode extends ScanNode {
             setRuntimeFilterBucketPruneParameters();
         }
         super.toThrift(msg);
+    }
+
+    private void setRowBinlogColumnMappings(TOlapScanNode olapScanNode) {
+        RowBinlogTableWrapper wrapper = (RowBinlogTableWrapper) olapTable;
+        TBinlogScanType scanType = parseBinlogScanType(scanParams, wrapper.getOriginTable());
+        if (scanType != TBinlogScanType.DETAIL && scanType != TBinlogScanType.MIN_DELTA) {
+            return;
+        }
+
+        Map<String, SlotDescriptor> slotByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        for (SlotDescriptor slot : desc.getSlots()) {
+            if (slot.getColumn() != null) {
+                slotByName.put(slot.getColumn().getName(), slot);
+            }
+        }
+
+        List<Integer> currentSlotIds = new ArrayList<>();
+        List<Integer> beforeSlotIds = new ArrayList<>();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            Column column = slot.getColumn();
+            if (column == null || column.isKey()
+                    || RowBinlogTableWrapper.isRowBinlogInternalColumn(column)) {
+                continue;
+            }
+            SlotDescriptor beforeSlot = slotByName.get(Column.generateBeforeColName(column.getName()));
+            if (beforeSlot != null) {
+                currentSlotIds.add(slot.getId().asInt());
+                beforeSlotIds.add(beforeSlot.getId().asInt());
+            }
+        }
+        olapScanNode.setRowBinlogCurrentSlotIds(currentSlotIds);
+        olapScanNode.setRowBinlogBeforeSlotIds(beforeSlotIds);
     }
 
     private boolean hasRfDrivingPartitionPruning() {
