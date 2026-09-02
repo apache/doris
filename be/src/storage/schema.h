@@ -51,11 +51,6 @@ std::vector<TabletColumnPtr> project_columns_by_ordinal(
         const std::vector<TabletColumnPtr>& columns,
         const std::vector<ColumnId>& source_column_ordinals);
 
-// Resolve a physical TabletSchema column id to its dense ReadSchema ordinal. Returns -1 when the
-// physical column is absent or not projected.
-int32_t read_ordinal_by_tablet_cid(const ReadSchema& read_schema, const TabletSchema& tablet_schema,
-                                   int32_t tablet_cid);
-
 // The dense, ordered column layout consumed by one storage reader. For example, if the caller's
 // Block is [k1, v1] and a historical delete predicate needs dropped_v2, the layout is
 // [k1, v1, dropped_v2]: num_block_columns() is 2, num_read_columns() is 3, and every reader-side
@@ -99,6 +94,10 @@ public:
     Status init_row_binlog_column_mappings(RowBinlogValueColumnPairs value_pairs,
                                            int32_t tso_ordinal, int32_t lsn_ordinal,
                                            int32_t op_ordinal);
+
+    // Resolve TabletSchema special columns to dense ReadSchema ordinals by unique id.
+    Status init_row_binlog_column_mappings(RowBinlogValueColumnPairs value_pairs,
+                                           const TabletSchema& tablet_schema);
 
     // Return the matching before-image ordinal for a Row Binlog value column. For example, in
     // [v1, v2, __DORIS_BEFORE__v1__, __DORIS_BEFORE__v2__], 0 maps to 2 and 1 maps to 3.

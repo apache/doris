@@ -148,6 +148,22 @@ TEST(ReadSchemaTest, RowBinlogMappingsUseExplicitReadOrdinals) {
     EXPECT_EQ(2, read_schema.op_ordinal());
 }
 
+TEST(ReadSchemaTest, RowBinlogSpecialOrdinalsUseTabletColumnUids) {
+    TabletSchema tablet_schema;
+    tablet_schema.append_column(*create_int_column(10, "key", true));
+    tablet_schema.append_column(*create_int_column(11, BINLOG_TSO_COL));
+    tablet_schema.append_column(*create_int_column(12, BINLOG_LSN_COL));
+    tablet_schema.append_column(*create_int_column(13, BINLOG_OP_COL));
+
+    ReadSchema read_schema(
+            project_columns_by_ordinal(tablet_schema.columns(), std::vector<ColumnId> {3, 0, 1}));
+
+    ASSERT_TRUE(read_schema.init_row_binlog_column_mappings({}, tablet_schema).ok());
+    EXPECT_EQ(2, read_schema.tso_ordinal());
+    EXPECT_EQ(-1, read_schema.lsn_ordinal());
+    EXPECT_EQ(0, read_schema.op_ordinal());
+}
+
 TEST(ReadSchemaTest, RowBinlogMappingReportsIncompleteProjection) {
     ReadSchema read_schema({create_int_column(10, "key", true), create_int_column(11, "current"),
                             create_int_column(12, "unpaired"), create_int_column(13, "tso"),

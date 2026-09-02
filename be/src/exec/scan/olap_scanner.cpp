@@ -682,18 +682,12 @@ Status OlapScanner::_init_read_schema() {
         }
 
         const auto& tablet_schema = *_tablet_reader_params.tablet_schema;
-        const int32_t tso_ordinal = read_ordinal_by_tablet_cid(*read_schema, tablet_schema,
-                                                               tablet_schema.binlog_tso_col_idx());
-        const int32_t lsn_ordinal = read_ordinal_by_tablet_cid(*read_schema, tablet_schema,
-                                                               tablet_schema.binlog_lsn_col_idx());
-        const int32_t op_ordinal = read_ordinal_by_tablet_cid(*read_schema, tablet_schema,
-                                                              tablet_schema.binlog_op_col_idx());
-        if (merge_changes && (tso_ordinal < 0 || op_ordinal < 0)) {
+        RETURN_IF_ERROR(read_schema->init_row_binlog_column_mappings(std::move(value_pairs),
+                                                                     tablet_schema));
+        if (merge_changes && (read_schema->tso_ordinal() < 0 || read_schema->op_ordinal() < 0)) {
             return Status::InvalidArgument(
                     "Row-binlog TSO and OP columns must be present for change merging");
         }
-        RETURN_IF_ERROR(read_schema->init_row_binlog_column_mappings(
-                std::move(value_pairs), tso_ordinal, lsn_ordinal, op_ordinal));
         if (_tablet_reader_params.binlog_scan_type == TBinlogScanType::MIN_DELTA &&
             !read_schema->row_binlog_value_pairs_complete()) {
             return Status::InvalidArgument(
