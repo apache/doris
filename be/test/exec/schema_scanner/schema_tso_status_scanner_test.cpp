@@ -18,6 +18,7 @@
 #include "information_schema/schema_tso_status_scanner.h"
 
 #include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/Status_types.h>
 #include <gtest/gtest.h>
 
 #include <array>
