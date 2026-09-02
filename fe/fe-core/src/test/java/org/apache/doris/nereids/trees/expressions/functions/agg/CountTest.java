@@ -86,13 +86,11 @@ class CountTest {
     }
 
     @Test
-    void testMultiDistinctCountRejectsArray() {
+    void testMultiDistinctCountAllowsArray() {
         MultiDistinctCount count = new MultiDistinctCount(
                 SlotReference.of("arr", ArrayType.of(IntegerType.INSTANCE)));
 
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, count::checkLegalityAfterRewrite);
-        Assertions.assertTrue(exception.getMessage().contains("COUNT DISTINCT could not process type"));
-        Assertions.assertTrue(exception.getMessage().contains("count(DISTINCT arr)"));
+        Assertions.assertDoesNotThrow(count::checkLegalityAfterRewrite);
     }
 
     @Test
