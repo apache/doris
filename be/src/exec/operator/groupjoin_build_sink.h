@@ -25,8 +25,8 @@
 #include "core/block/block.h"
 #include "core/column/column_vector.h"
 #include "exec/common/groupjoin_utils.h"
+#include "exec/operator/groupjoin_shared_state.h"
 #include "exec/operator/operator.h"
-#include "exec/pipeline/dependency.h"
 #include "exec/runtime_filter/runtime_filter_producer_helper_groupjoin.h"
 
 namespace doris {
@@ -100,5 +100,7 @@ private:
     TupleId _output_tuple_id;
     TupleDescriptor* _output_tuple_desc = nullptr;
 };
+
+extern template class PipelineXSinkLocalState<GroupJoinSharedState>;
 
 } // namespace doris
