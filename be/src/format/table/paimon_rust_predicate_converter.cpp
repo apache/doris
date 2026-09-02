@@ -111,6 +111,21 @@ PaimonRustPredicateConverter::PaimonRustPredicateConverter(
     }
 }
 
+PaimonRustPredicateConverter::PaimonRustPredicateConverter(
+        const std::vector<std::string>& column_names, const std::vector<DataTypePtr>& column_types,
+        const paimon_table* table)
+        : _table(table) {
+    DORIS_CHECK(column_names.size() == column_types.size());
+    _columns_by_name.reserve(column_names.size());
+    for (size_t i = 0; i < column_names.size(); ++i) {
+        _columns_by_name.emplace(_normalize_name(column_names[i]),
+                                 std::make_pair(column_names[i], column_types[i]));
+    }
+    if (!TimezoneUtils::find_cctz_time_zone("GMT", _gmt_tz)) {
+        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _gmt_tz);
+    }
+}
+
 paimon_predicate* PaimonRustPredicateConverter::build(const VExprContextSPtrs& conjuncts) {
     if (_table == nullptr) {
         return nullptr;
@@ -233,7 +248,7 @@ paimon_predicate* PaimonRustPredicateConverter::_convert_in(const VExprSPtr& exp
     storages.reserve(num_values);
     datums.reserve(num_values);
     for (uint16_t i = 1; i < expr->get_num_children(); ++i) {
-        auto holder = _convert_literal(expr->get_child(i), *field_meta->slot_desc);
+        auto holder = _convert_literal(expr->get_child(i), field_meta->type);
         if (!holder) {
             return nullptr;
         }
@@ -268,7 +283,7 @@ paimon_predicate* PaimonRustPredicateConverter::_convert_binary(const VExprSPtr&
         return _take(paimon_predicate_is_null(_table, column));
     }
 
-    auto holder = _convert_literal(expr->get_child(1), *field_meta->slot_desc);
+    auto holder = _convert_literal(expr->get_child(1), field_meta->type);
     if (!holder) {
         return nullptr;
     }
@@ -315,8 +330,7 @@ paimon_predicate* PaimonRustPredicateConverter::_convert_like_prefix(const VExpr
         return nullptr;
     }
     auto field_meta = _resolve_field(expr->get_child(0));
-    if (!field_meta ||
-        !_is_string_type(field_meta->slot_desc->type()->get_primitive_type())) {
+    if (!field_meta || !_is_string_type(field_meta->type->get_primitive_type())) {
         return nullptr;
     }
 
@@ -364,12 +378,32 @@ paimon_predicate* PaimonRustPredicateConverter::_convert_like_prefix(const VExpr
 
 std::optional<PaimonRustPredicateConverter::FieldMeta> PaimonRustPredicateConverter::_resolve_field(
         const VExprSPtr& expr) const {
-    if (!_state || !expr) {
+    if (!expr) {
         return std::nullopt;
     }
     auto slot_expr = VExpr::expr_without_cast(expr);
     auto* slot_ref = dynamic_cast<VSlotRef*>(slot_expr.get());
     if (!slot_ref) {
+        return std::nullopt;
+    }
+
+    if (!_columns_by_name.empty()) {
+        // V2 mode: the conjunct VSlotRefs were rewritten to table global indices, so
+        // slot_id is a position, not a slot id; resolve by the carried column name
+        // against the projected-column registry instead of the desc table.
+        auto it = _columns_by_name.find(_normalize_name(slot_ref->column_name()));
+        if (it == _columns_by_name.end()) {
+            return std::nullopt;
+        }
+        const auto& [column, type] = it->second;
+        if (!_is_supported_slot_type(type->get_primitive_type(), type->get_precision())) {
+            return std::nullopt;
+        }
+        return FieldMeta {column, type};
+    }
+
+    // V1 mode: resolve through the desc table.
+    if (!_state) {
         return std::nullopt;
     }
     auto* slot_desc = _state->desc_tbl().get_slot_descriptor(slot_ref->slot_id());
@@ -383,12 +417,12 @@ std::optional<PaimonRustPredicateConverter::FieldMeta> PaimonRustPredicateConver
     if (!_is_supported_slot_type(slot_type->get_primitive_type(), slot_type->get_precision())) {
         return std::nullopt;
     }
-    return FieldMeta {slot_desc->col_name(), slot_desc};
+    return FieldMeta {slot_desc->col_name(), slot_type};
 }
 
 std::optional<PaimonRustPredicateConverter::DatumHolder>
 PaimonRustPredicateConverter::_convert_literal(const VExprSPtr& expr,
-                                               const SlotDescriptor& slot_desc) const {
+                                               const DataTypePtr& column_type) const {
     auto literal_expr = VExpr::expr_without_cast(expr);
     auto* literal = dynamic_cast<VLiteral*>(literal_expr.get());
     if (!literal) {
@@ -397,7 +431,7 @@ PaimonRustPredicateConverter::_convert_literal(const VExprSPtr& expr,
 
     auto literal_type = remove_nullable(literal->get_data_type());
     PrimitiveType literal_primitive = literal_type->get_primitive_type();
-    PrimitiveType slot_primitive = slot_desc.type()->get_primitive_type();
+    PrimitiveType slot_primitive = column_type->get_primitive_type();
 
     ColumnPtr col = literal->get_column_ptr()->convert_to_full_column_if_const();
     if (const auto* nullable = check_and_get_column<ColumnNullable>(*col)) {
