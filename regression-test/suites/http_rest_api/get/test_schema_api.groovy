@@ -33,7 +33,13 @@ suite("test_schema_api") {
             `c2` date NOT NULL COMMENT "date columns",
             `c3` VARCHAR(20) COMMENT "nullable columns",
             `c4` VARCHAR COMMENT "varchar columns",
-            `c5` BIGINT DEFAULT "0" COMMENT "test columns"
+            `c5` BIGINT DEFAULT "0" COMMENT "test columns",
+            `c6` ARRAY<DECIMAL(18, 4)> COMMENT "array column",
+            `c7` MAP<VARCHAR(16), BIGINT> COMMENT "map column",
+            `c8` STRUCT<
+                price:DECIMAL(18, 4) COMMENT 'unit price',
+                tags:ARRAY<VARCHAR(32)>
+            > COMMENT "struct column"
         )
         UNIQUE KEY(`id`)
         DISTRIBUTED BY HASH(`id`) BUCKETS 8
@@ -62,7 +68,54 @@ suite("test_schema_api") {
     assertEquals(result.msg, "success")
     // parsing
     def resultList = result.data.properties
-    assertTrue(resultList.size() == 6)
+    assertEquals(9, resultList.size())
+
+    def columns = resultList.collectEntries { [(it.name): it] }
+
+    def arrayColumn = columns.c6
+    assertEquals("ARRAY", arrayColumn.type)
+    assertEquals("array<decimalv3(18,4)>", arrayColumn.type_sql)
+    def arrayDesc = arrayColumn.type_desc
+    assertEquals("ARRAY", arrayDesc.kind)
+    assertTrue(arrayDesc.containsKey("contains_null"))
+    assertFalse(arrayDesc.containsKey("containsNull"))
+    assertTrue(arrayDesc.contains_null)
+    assertEquals("DECIMAL64", arrayDesc.element.kind)
+    assertEquals(18, arrayDesc.element.precision)
+    assertEquals(4, arrayDesc.element.scale)
+
+    def mapColumn = columns.c7
+    assertEquals("MAP", mapColumn.type)
+    assertEquals("map<varchar(16),bigint>", mapColumn.type_sql)
+    def mapDesc = mapColumn.type_desc
+    assertEquals("MAP", mapDesc.kind)
+    assertTrue(mapDesc.containsKey("key_contains_null"))
+    assertTrue(mapDesc.containsKey("value_contains_null"))
+    assertFalse(mapDesc.containsKey("keyContainsNull"))
+    assertFalse(mapDesc.containsKey("valueContainsNull"))
+    assertTrue(mapDesc.key_contains_null)
+    assertTrue(mapDesc.value_contains_null)
+    assertEquals("VARCHAR", mapDesc.key.kind)
+    assertEquals(16, mapDesc.key.length)
+    assertEquals("BIGINT", mapDesc.value.kind)
+
+    def structColumn = columns.c8
+    assertEquals("STRUCT", structColumn.type)
+    def structDesc = structColumn.type_desc
+    assertEquals("STRUCT", structDesc.kind)
+    def structFields = structDesc.fields.collectEntries { [(it.name): it] }
+    assertTrue(structFields.price.containsKey("contains_null"))
+    assertFalse(structFields.price.containsKey("containsNull"))
+    assertTrue(structFields.price.contains_null)
+    assertEquals("unit price", structFields.price.comment)
+    assertEquals("DECIMAL64", structFields.price.type.kind)
+    assertEquals(18, structFields.price.type.precision)
+    assertEquals(4, structFields.price.type.scale)
+    assertEquals("ARRAY", structFields.tags.type.kind)
+    assertTrue(structFields.tags.type.containsKey("contains_null"))
+    assertFalse(structFields.tags.type.containsKey("containsNull"))
+    assertEquals("VARCHAR", structFields.tags.type.element.kind)
+    assertEquals(32, structFields.tags.type.element.length)
 
     // not exist catalog
     def url2 = String.format("http://%s/api/%s/%s/%s/_schema", context.config.feHttpAddress, "notexistctl", thisDb, tbName)
@@ -71,4 +124,3 @@ suite("test_schema_api") {
     assertTrue(result2.data.contains("Unknown catalog"))
 
 }
-
