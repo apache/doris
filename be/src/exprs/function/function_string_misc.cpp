@@ -100,7 +100,7 @@ public:
     size_t get_number_of_arguments() const override { return 0; }
     bool is_variadic() const override { return true; }
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_constants() const override { return false; }
+    
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeString>();
     }
@@ -119,11 +119,13 @@ public:
         std::vector<const ColumnUInt8::Container*> null_list(argument_size);
 
         std::vector<ColumnPtr> argument_columns(argument_size);
+        std::vector<ColumnPtr> argument_null_columns(argument_size);
         for (int i = 0; i < argument_size; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
             if (const auto* nullable =
                         check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
+                argument_null_columns[i] = nullable->get_null_map_column_ptr();
                 null_list[i] = &nullable->get_null_map_data();
                 argument_columns[i] = nullable->get_nested_column_ptr();
             } else {
@@ -144,7 +146,7 @@ public:
             block.get_by_position(result).column = std::move(res);
             return Status::OK();
         }
-        if (!is_const_args[0]) {
+        if (!context->is_col_constant(0)) {
             return Status::InvalidArgument(
                     "auto_partition_name must accept literal for 1st argument");
         }
@@ -162,9 +164,9 @@ public:
                                                 res_offset, input_rows_count, argument_size, block,
                                                 result, res);
         } else if (partition_type == "range") {
-            return _auto_partition_type_of_range(string_columns, is_const_args, null_list, res_data,
-                                                 res_offset, input_rows_count, argument_size, block,
-                                                 result, res);
+            return _auto_partition_type_of_range(context, string_columns, is_const_args, null_list,
+                                                 res_data, res_offset, input_rows_count,
+                                                 argument_size, block, result, res);
         }
         return Status::InvalidArgument(
                 "function auto_partition_name must accept range|list for 1st argument");
@@ -260,7 +262,8 @@ private:
     }
 
     Status _auto_partition_type_of_range(
-            std::vector<const ColumnString*>& string_columns, std::vector<bool>& is_const_args,
+            FunctionContext* context, std::vector<const ColumnString*>& string_columns,
+            std::vector<bool>& is_const_args,
             const std::vector<const ColumnUInt8::Container*>& null_list, auto& res_data,
             auto& res_offset, size_t input_rows_count, size_t argument_size, Block& block,
             uint32_t result, auto& res) const {
@@ -268,7 +271,11 @@ private:
             return Status::InvalidArgument(
                     "range auto_partition_name must contains three arguments");
         }
-        if (!is_const_args[1]) {
+        // See the comment on is_col_constant(0) above: query FunctionContext's constant-column
+        // metadata instead of is_column_const() on the current block, since the latter can report
+        // false for a literal 2nd argument once all arguments are constant and get unwrapped by
+        // default_implementation_for_constant_arguments().
+        if (!context->is_col_constant(1)) {
             return Status::InvalidArgument(
                     "auto_partition_name must accept literal for 2nd argument");
         }
