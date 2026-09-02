@@ -78,6 +78,28 @@ ColumnPtr make_int_float_map(const std::vector<std::optional<int32_t>>& keys,
                              make_nullable_vector<ColumnFloat32>(values), make_offsets(offsets));
 }
 
+ColumnPtr make_high_cardinality_map_with_shadowed_nulls(size_t key_count) {
+    std::vector<std::optional<int32_t>> keys;
+    std::vector<std::optional<float>> values;
+    keys.reserve(key_count + 3);
+    values.reserve(key_count + 3);
+    for (size_t key = 0; key < key_count; ++key) {
+        keys.emplace_back(static_cast<int32_t>(key));
+        if (key == 5) {
+            values.emplace_back(std::nullopt);
+        } else {
+            values.emplace_back(1.0F);
+        }
+    }
+    keys.emplace_back(5);
+    values.emplace_back(2.0F);
+    keys.emplace_back(std::nullopt);
+    values.emplace_back(std::nullopt);
+    keys.emplace_back(std::nullopt);
+    values.emplace_back(4.0F);
+    return make_int_float_map(keys, values, {key_count + 3});
+}
+
 ColumnPtr make_largeint_float_map(const std::vector<std::optional<Int128>>& keys,
                                   const std::vector<std::optional<float>>& values,
                                   const std::vector<size_t>& offsets) {
@@ -146,6 +168,114 @@ TEST(FunctionMapInnerProductTest, const_map) {
     ASSERT_EQ(result.size(), 2);
     EXPECT_FLOAT_EQ(result[0], 12.0F);
     EXPECT_FLOAT_EQ(result[1], 10.0F);
+}
+
+TEST(FunctionMapInnerProductTest, reuses_high_cardinality_const_map) {
+    constexpr size_t key_count = 1024;
+    constexpr size_t row_count = 3;
+    auto map_type = std::make_shared<DataTypeMap>(nullable_int_type(), nullable_float_type());
+    auto return_type = std::make_shared<DataTypeFloat32>();
+    auto constant_map = make_high_cardinality_map_with_shadowed_nulls(key_count);
+
+    std::vector<std::optional<int32_t>> varying_keys;
+    std::vector<std::optional<float>> varying_values;
+    std::vector<size_t> varying_offsets;
+    varying_keys.reserve(row_count * (key_count + 2));
+    varying_values.reserve(row_count * (key_count + 2));
+    varying_offsets.reserve(row_count);
+    for (size_t row = 0; row < row_count; ++row) {
+        for (size_t key = 0; key < key_count; ++key) {
+            varying_keys.emplace_back(static_cast<int32_t>(key));
+            varying_values.emplace_back(1.0F);
+        }
+        varying_keys.emplace_back(5);
+        varying_values.emplace_back(3.0F);
+        varying_keys.emplace_back(std::nullopt);
+        varying_values.emplace_back(static_cast<float>(row + 1));
+        varying_offsets.emplace_back(varying_keys.size());
+    }
+    auto varying_map = make_int_float_map(varying_keys, varying_values, varying_offsets);
+
+    auto expect_results = [&](bool constant_is_left) {
+        Block block;
+        ColumnPtr constant = ColumnConst::create(constant_map, row_count);
+        block.insert({constant_is_left ? constant : varying_map, map_type, "left"});
+        block.insert({constant_is_left ? varying_map : constant, map_type, "right"});
+        block.insert({nullptr, return_type, "result"});
+
+        ASSERT_TRUE(execute_inner_product(block, return_type).ok());
+        const auto& result =
+                assert_cast<const ColumnFloat32&>(*block.get_by_position(2).column).get_data();
+        ASSERT_EQ(result.size(), row_count);
+        EXPECT_FLOAT_EQ(result[0], 1033.0F);
+        EXPECT_FLOAT_EQ(result[1], 1037.0F);
+        EXPECT_FLOAT_EQ(result[2], 1041.0F);
+    };
+
+    expect_results(true);
+    expect_results(false);
+}
+
+TEST(FunctionMapInnerProductTest, avoids_caching_oversized_const_map) {
+    constexpr size_t key_count = 1024;
+    constexpr size_t row_count = 3;
+    auto map_type = std::make_shared<DataTypeMap>(nullable_int_type(), nullable_float_type());
+    auto return_type = std::make_shared<DataTypeFloat32>();
+    std::vector<std::optional<int32_t>> constant_keys;
+    std::vector<std::optional<float>> constant_values;
+    constant_keys.reserve(key_count);
+    constant_values.reserve(key_count);
+    for (size_t key = 0; key < key_count; ++key) {
+        constant_keys.emplace_back(static_cast<int32_t>(key));
+        constant_values.emplace_back(1.0F);
+    }
+    auto constant_map = make_int_float_map(constant_keys, constant_values, {key_count});
+    auto varying_map = make_int_float_map({5, 7, -1}, {3.0F, 2.0F, 7.0F}, {1, 2, 3});
+
+    auto expect_results = [&](bool constant_is_left) {
+        Block block;
+        ColumnPtr constant = ColumnConst::create(constant_map, row_count);
+        block.insert({constant_is_left ? constant : varying_map, map_type, "left"});
+        block.insert({constant_is_left ? varying_map : constant, map_type, "right"});
+        block.insert({nullptr, return_type, "result"});
+
+        ASSERT_TRUE(execute_inner_product(block, return_type).ok());
+        const auto& result =
+                assert_cast<const ColumnFloat32&>(*block.get_by_position(2).column).get_data();
+        ASSERT_EQ(result.size(), row_count);
+        EXPECT_FLOAT_EQ(result[0], 3.0F);
+        EXPECT_FLOAT_EQ(result[1], 2.0F);
+        EXPECT_FLOAT_EQ(result[2], 0.0F);
+    };
+
+    expect_results(true);
+    expect_results(false);
+}
+
+TEST(FunctionMapInnerProductTest, empty_map_short_circuits_high_cardinality_row) {
+    constexpr size_t key_count = 4096;
+    auto map_type = std::make_shared<DataTypeMap>(nullable_int_type(), nullable_float_type());
+    auto return_type = std::make_shared<DataTypeFloat32>();
+    std::vector<std::optional<int32_t>> keys;
+    std::vector<std::optional<float>> values;
+    keys.reserve(key_count);
+    values.reserve(key_count);
+    for (size_t key = 0; key < key_count; ++key) {
+        keys.emplace_back(static_cast<int32_t>(key));
+        values.emplace_back(1.0F);
+    }
+
+    Block block;
+    block.insert({make_int_float_map(keys, values, {0, key_count}), map_type, "left"});
+    block.insert({make_int_float_map(keys, values, {key_count, key_count}), map_type, "right"});
+    block.insert({nullptr, return_type, "result"});
+
+    ASSERT_TRUE(execute_inner_product(block, return_type).ok());
+    const auto& result =
+            assert_cast<const ColumnFloat32&>(*block.get_by_position(2).column).get_data();
+    ASSERT_EQ(result.size(), 2);
+    EXPECT_FLOAT_EQ(result[0], 0.0F);
+    EXPECT_FLOAT_EQ(result[1], 0.0F);
 }
 
 TEST(FunctionMapInnerProductTest, largeint_keys) {
@@ -273,6 +403,12 @@ TEST(FunctionMapInnerProductTest, rejects_retained_null_values) {
                     second_argument_error);
     expect_rejected(make_int_float_map({2, 3}, {2.0F, 3.0F}, {2}),
                     make_int_float_map({1}, {std::nullopt}, {1}), second_argument_error);
+
+    // Empty-map short-circuiting must not hide a retained NULL in the nonempty map.
+    expect_rejected(make_int_float_map({1}, {std::nullopt}, {1}), make_int_float_map({}, {}, {0}),
+                    first_argument_error);
+    expect_rejected(make_int_float_map({}, {}, {0}), make_int_float_map({1}, {std::nullopt}, {1}),
+                    second_argument_error);
 }
 
 TEST(FunctionMapInnerProductTest, rejects_unsupported_key_type) {

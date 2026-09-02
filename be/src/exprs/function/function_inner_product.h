@@ -142,7 +142,7 @@ private:
     }
 
     static const ColumnMap& _get_map_column(const ColumnPtr& column, const char* argument_name,
-                                            const String& function_name, bool& is_const) {
+                                            bool& is_const) {
         const IColumn* raw_column = column.get();
         is_const = is_column_const(*raw_column);
         if (is_const) {
@@ -153,7 +153,7 @@ private:
             if (raw_column->has_null()) {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                        "{} for function {} cannot be null", argument_name,
-                                       function_name);
+                                       InnerProduct::name);
             }
             raw_column = nullable->get_nested_column_ptr().get();
         }
@@ -222,6 +222,83 @@ private:
         }
     }
 
+    template <typename KeyTraits>
+    struct MapData {
+        typename KeyTraits::KeyAccessor keys;
+        const UInt8* key_null_map;
+        const float* values;
+        const ColumnNullable* nullable_values;
+    };
+
+    template <typename KeyTraits>
+    static void _execute_map_with_cached_constant(const MapData<KeyTraits>& constant,
+                                                  MapRange constant_range,
+                                                  const MapData<KeyTraits>& varying,
+                                                  const ColumnMap& varying_map,
+                                                  const char* varying_argument_name,
+                                                  ColumnType::Container& destination_data,
+                                                  size_t input_rows_count) {
+        using Key = typename KeyTraits::Key;
+        struct CachedValue {
+            float value;
+            size_t last_matched_row;
+        };
+
+        doris::flat_hash_map<Key, CachedValue, typename KeyTraits::Hash> constant_values_by_key;
+        constant_values_by_key.reserve(constant_range.size);
+        bool has_null_key = false;
+        float null_key_value = 0.0F;
+        size_t null_key_last_matched_row = input_rows_count;
+
+        for (size_t i = constant_range.begin + constant_range.size; i > constant_range.begin; --i) {
+            const size_t index = i - 1;
+            if (constant.key_null_map != nullptr && constant.key_null_map[index]) {
+                if (!has_null_key) {
+                    has_null_key = true;
+                    null_key_value = constant.values[index];
+                }
+            } else {
+                constant_values_by_key.emplace(
+                        KeyTraits::get_key(constant.keys, index),
+                        CachedValue {constant.values[index], input_rows_count});
+            }
+        }
+
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            const MapRange varying_range = _get_map_range(varying_map, false, row);
+            if (varying.nullable_values != nullptr) {
+                _validate_retained_values<KeyTraits>(varying.keys, varying.key_null_map,
+                                                     *varying.nullable_values, varying_range,
+                                                     varying_argument_name);
+            }
+            if (constant_range.size == 0 || varying_range.size == 0) {
+                destination_data[row] = 0.0F;
+                continue;
+            }
+
+            float inner_product = 0.0F;
+            for (size_t i = varying_range.begin + varying_range.size; i > varying_range.begin;
+                 --i) {
+                const size_t index = i - 1;
+                if (varying.key_null_map != nullptr && varying.key_null_map[index]) {
+                    if (has_null_key && null_key_last_matched_row != row) {
+                        inner_product += null_key_value * varying.values[index];
+                        null_key_last_matched_row = row;
+                    }
+                    continue;
+                }
+
+                const auto it =
+                        constant_values_by_key.find(KeyTraits::get_key(varying.keys, index));
+                if (it != constant_values_by_key.end() && it->second.last_matched_row != row) {
+                    inner_product += it->second.value * varying.values[index];
+                    it->second.last_matched_row = row;
+                }
+            }
+            destination_data[row] = inner_product;
+        }
+    }
+
     template <PrimitiveType KeyType>
     static void _execute_map_typed(const ColumnMap& left, bool left_is_const,
                                    const ColumnMap& right, bool right_is_const,
@@ -229,8 +306,8 @@ private:
                                    size_t input_rows_count) {
         using KeyTraits = detail::InnerProductMapKeyTraits<KeyType>;
         using Key = typename KeyTraits::Key;
-        using KeyAccessor = typename KeyTraits::KeyAccessor;
         using KeyColumn = typename KeyTraits::ColumnType;
+        using TypedMapData = MapData<KeyTraits>;
 
         const UInt8* left_key_null_map = nullptr;
         const UInt8* right_key_null_map = nullptr;
@@ -249,36 +326,64 @@ private:
                         _get_value_column(right.get_values(), right_nullable_values))
                         .get_data();
 
-        struct MapData {
-            KeyAccessor keys;
-            const UInt8* key_null_map;
-            const float* values;
-            const ColumnNullable* nullable_values;
-        };
+        const TypedMapData left_data {KeyTraits::get_key_accessor(left_keys), left_key_null_map,
+                                      left_values.data(), left_nullable_values};
+        const TypedMapData right_data {KeyTraits::get_key_accessor(right_keys), right_key_null_map,
+                                       right_values.data(), right_nullable_values};
 
-        const MapData left_data {KeyTraits::get_key_accessor(left_keys), left_key_null_map,
-                                 left_values.data(), left_nullable_values};
-        const MapData right_data {KeyTraits::get_key_accessor(right_keys), right_key_null_map,
-                                  right_values.data(), right_nullable_values};
+        if (left_is_const && left_data.nullable_values != nullptr) {
+            _validate_retained_values<KeyTraits>(left_data.keys, left_data.key_null_map,
+                                                 *left_data.nullable_values,
+                                                 _get_map_range(left, true, 0), "First argument");
+        }
+        if (right_is_const && right_data.nullable_values != nullptr) {
+            _validate_retained_values<KeyTraits>(right_data.keys, right_data.key_null_map,
+                                                 *right_data.nullable_values,
+                                                 _get_map_range(right, true, 0), "Second argument");
+        }
+
+        if (left_is_const != right_is_const && input_rows_count > 1) {
+            const bool constant_is_left = left_is_const;
+            const TypedMapData constant = constant_is_left ? left_data : right_data;
+            const TypedMapData varying = constant_is_left ? right_data : left_data;
+            const auto& varying_map = constant_is_left ? right : left;
+            const MapRange constant_range =
+                    _get_map_range(constant_is_left ? left : right, true, 0);
+
+            // Reuse the constant side only when its scratch space does not exceed the total
+            // varying input. Otherwise the per-row path below keeps memory bounded by the smaller
+            // map in each row.
+            if (constant_range.size <= varying_map.get_keys().size()) {
+                _execute_map_with_cached_constant<KeyTraits>(
+                        constant, constant_range, varying, varying_map,
+                        constant_is_left ? "Second argument" : "First argument", destination_data,
+                        input_rows_count);
+                return;
+            }
+        }
 
         // Build the hash table from the smaller map row to minimize temporary memory.
         doris::flat_hash_map<Key, float, typename KeyTraits::Hash> values_by_key;
         for (size_t row = 0; row < input_rows_count; ++row) {
             const MapRange left_range = _get_map_range(left, left_is_const, row);
             const MapRange right_range = _get_map_range(right, right_is_const, row);
-            if (left_data.nullable_values != nullptr) {
+            if (!left_is_const && left_data.nullable_values != nullptr) {
                 _validate_retained_values<KeyTraits>(left_data.keys, left_data.key_null_map,
                                                      *left_data.nullable_values, left_range,
                                                      "First argument");
             }
-            if (right_data.nullable_values != nullptr) {
+            if (!right_is_const && right_data.nullable_values != nullptr) {
                 _validate_retained_values<KeyTraits>(right_data.keys, right_data.key_null_map,
                                                      *right_data.nullable_values, right_range,
                                                      "Second argument");
             }
+            if (left_range.size == 0 || right_range.size == 0) {
+                destination_data[row] = 0.0F;
+                continue;
+            }
             const bool build_left = left_range.size <= right_range.size;
-            const MapData build = build_left ? left_data : right_data;
-            const MapData probe = build_left ? right_data : left_data;
+            const TypedMapData build = build_left ? left_data : right_data;
+            const TypedMapData probe = build_left ? right_data : left_data;
             const MapRange build_range = build_left ? left_range : right_range;
             const MapRange probe_range = build_left ? right_range : left_range;
 
@@ -326,9 +431,9 @@ private:
         bool left_is_const = false;
         bool right_is_const = false;
         const auto& left = _get_map_column(block.get_by_position(arguments[0]).column,
-                                           "First argument", get_name(), left_is_const);
+                                           "First argument", left_is_const);
         const auto& right = _get_map_column(block.get_by_position(arguments[1]).column,
-                                            "Second argument", get_name(), right_is_const);
+                                            "Second argument", right_is_const);
 
         auto destination = ColumnType::create(input_rows_count);
         auto& destination_data = destination->get_data();
