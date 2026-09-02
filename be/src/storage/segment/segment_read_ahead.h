@@ -22,6 +22,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <vector>
 
 #include "io/cache/file_range_planner.h"
@@ -171,6 +172,10 @@ public:
     /// Planning or admission failure completes those pages and leaves PageIO to read them through
     /// the original reader.
     SegmentReadAheadResult apply_plans(std::vector<ColumnReadAheadPlan> plans);
+
+    /// Plans all data pages touched by one exact row-id batch before any column starts decoding.
+    SegmentReadAheadResult prefetch_by_rowids(const rowid_t* rowids, size_t count,
+                                              std::span<ColumnIterator* const> columns);
 
     const std::shared_ptr<SegmentReadAheadFileReader>& file_reader() const { return _reader; }
 
