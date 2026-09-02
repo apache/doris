@@ -60,6 +60,8 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -93,6 +95,77 @@ public class RuntimeFilterTest extends SSBTestBase {
         Assertions.assertEquals(1, filters.size());
         checkRuntimeFilterExprs(filters, ImmutableList.of(
                 Pair.of("c_custkey", "lo_custkey")));
+    }
+
+    @Test
+    public void testKeepRuntimeFiltersThatCanPruneScanRangesWhenStatsUnknown() {
+        boolean oldEnableRuntimeFilterPrune = connectContext.getSessionVariable().isEnableRuntimeFilterPrune();
+        boolean oldEnablePartitionPrune =
+                connectContext.getSessionVariable().isEnableRuntimeFilterPartitionPrune();
+        boolean oldEnableBucketPrune =
+                connectContext.getSessionVariable().isEnableRuntimeFilterBucketPrune();
+        int oldRuntimeFilterType = connectContext.getSessionVariable().getRuntimeFilterType();
+        try {
+            connectContext.getSessionVariable().setEnableRuntimeFilterPrune(true);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(true);
+            connectContext.getSessionVariable().setEnableRuntimeFilterBucketPrune(true);
+            connectContext.getSessionVariable().setRuntimeFilterType(TRuntimeFilterType.IN.getValue());
+
+            // SSB test tables have no analyzed column statistics. Scan-range pruning
+            // capability must therefore keep these filters alive on the unknown-stats path.
+            List<RuntimeFilter> bucketFilters = getRuntimeFilters(
+                    "SELECT lo_orderkey FROM lineorder LEFT SEMI JOIN dates "
+                            + "ON lo_orderkey = d_datekey").get();
+            Assertions.assertEquals(1, bucketFilters.size());
+            Assertions.assertTrue(bucketFilters.get(0).canPruneBuckets());
+
+            List<RuntimeFilter> partitionFilters = getRuntimeFilters(
+                    "SELECT lo_orderdate FROM lineorder LEFT SEMI JOIN dates "
+                            + "ON lo_orderdate = d_datekey").get();
+            Assertions.assertEquals(1, partitionFilters.size());
+            Assertions.assertTrue(partitionFilters.get(0).canPrunePartitions());
+
+            List<RuntimeFilter> nonPruningFilters = getRuntimeFilters(
+                    "SELECT lo_custkey FROM lineorder LEFT SEMI JOIN dates "
+                            + "ON lo_custkey = d_datekey").get();
+            Assertions.assertTrue(nonPruningFilters.isEmpty());
+        } finally {
+            connectContext.getSessionVariable().setEnableRuntimeFilterPrune(oldEnableRuntimeFilterPrune);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(oldEnablePartitionPrune);
+            connectContext.getSessionVariable().setEnableRuntimeFilterBucketPrune(oldEnableBucketPrune);
+            connectContext.getSessionVariable().setRuntimeFilterType(oldRuntimeFilterType);
+        }
+    }
+
+    @Test
+    public void testKeepScanRangePruningFiltersWhenStatsShowNoRowFilteringBenefit() {
+        boolean oldEnableRuntimeFilterPrune = connectContext.getSessionVariable().isEnableRuntimeFilterPrune();
+        boolean oldEnablePartitionPrune =
+                connectContext.getSessionVariable().isEnableRuntimeFilterPartitionPrune();
+        boolean oldEnableBucketPrune =
+                connectContext.getSessionVariable().isEnableRuntimeFilterBucketPrune();
+        int oldRuntimeFilterType = connectContext.getSessionVariable().getRuntimeFilterType();
+        try {
+            connectContext.getSessionVariable().setEnableRuntimeFilterPrune(true);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(true);
+            connectContext.getSessionVariable().setEnableRuntimeFilterBucketPrune(true);
+            connectContext.getSessionVariable().setRuntimeFilterType(TRuntimeFilterType.IN.getValue());
+
+            List<RuntimeFilter> bucketFilters = getRuntimeFiltersWithNonSelectiveJoinStats(
+                    "SELECT lo_orderkey FROM lineorder INNER JOIN dates ON lo_orderkey = d_datekey");
+            Assertions.assertEquals(1, bucketFilters.size());
+            Assertions.assertTrue(bucketFilters.get(0).canPruneBuckets());
+
+            List<RuntimeFilter> partitionFilters = getRuntimeFiltersWithNonSelectiveJoinStats(
+                    "SELECT lo_orderdate FROM lineorder INNER JOIN dates ON lo_orderdate = d_datekey");
+            Assertions.assertEquals(1, partitionFilters.size());
+            Assertions.assertTrue(partitionFilters.get(0).canPrunePartitions());
+        } finally {
+            connectContext.getSessionVariable().setEnableRuntimeFilterPrune(oldEnableRuntimeFilterPrune);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(oldEnablePartitionPrune);
+            connectContext.getSessionVariable().setEnableRuntimeFilterBucketPrune(oldEnableBucketPrune);
+            connectContext.getSessionVariable().setRuntimeFilterType(oldRuntimeFilterType);
+        }
     }
 
     @Test
@@ -327,6 +400,47 @@ public class RuntimeFilterTest extends SSBTestBase {
                 Pair.of("p_partkey", "lo_partkey")));
         connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
 
+    }
+
+    private List<RuntimeFilter> getRuntimeFiltersWithNonSelectiveJoinStats(String sql) {
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .optimize();
+        PhysicalPlan plan = checker.getBestPlanTree();
+        PhysicalHashJoin<? extends Plan, ? extends Plan> join = findFirstHashJoin(plan);
+        Assertions.assertNotNull(join);
+
+        EqualTo equalTo = (EqualTo) join.getEqualToConjuncts().get(0);
+        Slot probeSlot = equalTo.child(0).getInputSlots().iterator().next();
+        Slot buildSlot = equalTo.child(1).getInputSlots().iterator().next();
+        ColumnStatistic nonSelectiveStats = new ColumnStatisticBuilder(1)
+                .setNdv(1)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(1)
+                .setMaxValue(1)
+                .build();
+        join.left().getStats().addColumnStats(probeSlot, nonSelectiveStats);
+        join.right().getStats().addColumnStats(buildSlot, nonSelectiveStats);
+
+        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+        RuntimeFilterContext runtimeFilterContext = checker.getCascadesContext().getRuntimeFilterContext();
+        new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
+        return runtimeFilterContext.getNereidsRuntimeFilter();
+    }
+
+    private PhysicalHashJoin<? extends Plan, ? extends Plan> findFirstHashJoin(Plan plan) {
+        if (plan instanceof PhysicalHashJoin) {
+            return (PhysicalHashJoin<? extends Plan, ? extends Plan>) plan;
+        }
+        for (Plan child : plan.children()) {
+            PhysicalHashJoin<? extends Plan, ? extends Plan> join = findFirstHashJoin(child);
+            if (join != null) {
+                return join;
+            }
+        }
+        return null;
     }
 
     private RuntimeFilterContext getRuntimeFilterContext(String sql) {
