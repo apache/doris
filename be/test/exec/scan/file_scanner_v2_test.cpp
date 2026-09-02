@@ -876,6 +876,22 @@ TEST(FileScannerV2Test, GeneratedChildrenKeepOneGlobalRowIdSourceMapping) {
     EXPECT_EQ(first_id, second_id);
 }
 
+TFileRangeDesc paimon_rust_jni_range(bool with_schema_json = true) {
+    auto range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
+    TPaimonFileDesc paimon_params;
+    paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_RUST);
+    paimon_params.__set_file_format("parquet");
+    paimon_params.__set_paimon_split("serialized-rust-split");
+    paimon_params.__set_paimon_table("/paimon/warehouse/db.db/t");
+    paimon_params.__set_db_name("db");
+    paimon_params.__set_table_name("t");
+    if (with_schema_json) {
+        paimon_params.__set_paimon_table_schema_json("{}");
+    }
+    range.table_format_params.__set_paimon_params(std::move(paimon_params));
+    return range;
+}
+
 TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
     TQueryOptions query_options;
     query_options.__set_enable_file_scanner_v2(true);
@@ -893,6 +909,25 @@ TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
     query_options.__set_enable_paimon_cpp_reader(false);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     EXPECT_TRUE(FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
+}
+
+TEST(FileScannerV2Test, PaimonRustSplitUsesV2Scanner) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_JNI);
+
+    // A complete rust split (schema json + serialized split) is supported by V2.
+    EXPECT_TRUE(FileScannerV2::is_supported(params, paimon_rust_jni_range()));
+    EXPECT_TRUE(FileScannerV2::TEST_validate_scan_range(params, paimon_rust_jni_range()).ok());
+
+    // The schema-json pipeline field is required: a rust split without it cannot open the
+    // table and is rejected at validation instead of failing deep inside the reader.
+    const auto rust_range_without_schema = paimon_rust_jni_range(/*with_schema_json=*/false);
+    EXPECT_FALSE(FileScannerV2::is_supported(params, rust_range_without_schema));
+    const auto status = FileScannerV2::TEST_validate_scan_range(params, rust_range_without_schema);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+
+    // Regression guard: PAIMON_CPP splits must remain on the V1 fallback.
+    EXPECT_FALSE(FileScannerV2::is_supported(params, paimon_cpp_jni_range()));
 }
 
 TEST(FileScannerV2Test, IcebergDeleteSplitKeepsInitialScannerCountCap) {

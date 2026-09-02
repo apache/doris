@@ -355,6 +355,7 @@ enum TPaimonReaderType {
     PAIMON_NATIVE = 0,
     PAIMON_JNI = 1,
     PAIMON_CPP = 2,
+    PAIMON_RUST = 3,
 }
 
 struct TPaimonFileDesc {
@@ -376,6 +377,12 @@ struct TPaimonFileDesc {
     16: optional i64 schema_id; // for schema change.
     // Reader implementation for logical paimon split. Native file split uses range format type.
     17: optional TPaimonReaderType reader_type;
+    // paimon-rust: TableSchema serialized via JsonSerdeUtil.toJson(table.schema()).
+    // Consumed by paimon_table_from_schema_json on BE; skips catalog/warehouse resolution.
+    18: optional string paimon_table_schema_json
+    // paimon-rust: non-default branch name. Unset means main branch (matches
+    // upstream paimon commit 742da63: null-if-DEFAULT_MAIN_BRANCH).
+    19: optional string paimon_branch
 }
 
 struct TTrinoConnectorFileDesc {

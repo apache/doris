@@ -89,6 +89,7 @@ public:
 
 #ifdef BE_TEST
     static bool TEST_is_jni_split(const TFileRangeDesc& range) { return _is_jni_split(range); }
+    static bool TEST_is_rust_split(const TFileRangeDesc& range) { return _is_rust_split(range); }
     static Status TEST_to_file_format(const TFileRangeDesc& range,
                                       format::FileFormat* file_format) {
         return _to_file_format(range, file_format);
@@ -96,19 +97,25 @@ public:
     void TEST_install_batch_size_children() {
         _native_reader = std::make_unique<format::TableReader>();
         _jni_reader = std::make_unique<format::TableReader>();
+        _rust_reader = std::make_unique<format::TableReader>();
     }
-    std::pair<size_t, size_t> TEST_child_batch_sizes() const {
-        return {_native_reader->TEST_batch_size(), _jni_reader->TEST_batch_size()};
+    std::tuple<size_t, size_t, size_t> TEST_child_batch_sizes() const {
+        return {_native_reader->TEST_batch_size(), _jni_reader->TEST_batch_size(),
+                _rust_reader->TEST_batch_size()};
     }
-    void TEST_set_child_condition_cache_hits(int64_t native_hits, int64_t jni_hits) {
+    void TEST_set_child_condition_cache_hits(int64_t native_hits, int64_t jni_hits,
+                                             int64_t rust_hits) {
         _native_reader->TEST_set_condition_cache_hit_count(native_hits);
         _jni_reader->TEST_set_condition_cache_hit_count(jni_hits);
+        _rust_reader->TEST_set_condition_cache_hit_count(rust_hits);
     }
     void TEST_set_child_reader_factories(
             std::function<std::unique_ptr<format::TableReader>()> native_factory,
-            std::function<std::unique_ptr<format::TableReader>()> jni_factory) {
+            std::function<std::unique_ptr<format::TableReader>()> jni_factory,
+            std::function<std::unique_ptr<format::TableReader>()> rust_factory) {
         _test_native_reader_factory = std::move(native_factory);
         _test_jni_reader_factory = std::move(jni_factory);
+        _test_rust_reader_factory = std::move(rust_factory);
     }
 #endif
 
@@ -117,14 +124,17 @@ private:
     Status _init_child_reader(format::TableReader* reader, format::FileFormat file_format);
     Status _clone_conjuncts(VExprContextSPtrs* conjuncts) const;
     static bool _is_jni_split(const TFileRangeDesc& range);
+    static bool _is_rust_split(const TFileRangeDesc& range);
     static Status _to_file_format(const TFileRangeDesc& range, format::FileFormat* file_format);
 
     std::unique_ptr<format::TableReader> _native_reader; // handle parquet/orc native splits
     std::unique_ptr<format::TableReader> _jni_reader;    // handle serialized JNI splits
+    std::unique_ptr<format::TableReader> _rust_reader;   // handle serialized rust splits
     format::TableReader* _current_split_reader = nullptr;
 #ifdef BE_TEST
     std::function<std::unique_ptr<format::TableReader>()> _test_native_reader_factory;
     std::function<std::unique_ptr<format::TableReader>()> _test_jni_reader_factory;
+    std::function<std::unique_ptr<format::TableReader>()> _test_rust_reader_factory;
 #endif
 };
 
