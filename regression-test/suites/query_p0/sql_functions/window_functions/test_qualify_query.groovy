@@ -209,7 +209,7 @@ suite("test_qualify_query") {
     // qualify -> having -> agg where both the having and the qualify reference correlated outer
     // columns. The window in qualify is extracted into a project above the having, so the having's
     // correlated predicate must be conjoined into the qualify to be decorrelated together.
-    // o.h = 0 for k = 10 while o.flag = 1: the having predicate must still filter it out.
+    // o.h = 1 for k = 10 while o.flag = 1: the having predicate must still filter it out.
     qt_select_40 """
         SELECT o.k
         FROM (
