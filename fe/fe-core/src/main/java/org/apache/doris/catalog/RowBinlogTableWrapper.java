@@ -60,6 +60,14 @@ public class RowBinlogTableWrapper extends OlapTableWrapper {
                 || column.getName().equals(Column.BINLOG_LSN_COL);
     }
 
+    public static boolean isRowBinlogInternalColumn(Column column) {
+        String columnName = column.getName();
+        return columnName.startsWith(Column.BINLOG_BEFORE_PREFIX)
+                || columnName.equals(Column.BINLOG_LSN_COL)
+                || columnName.equals(Column.BINLOG_OPERATION_COL)
+                || columnName.equals(Column.BINLOG_TSO_COL);
+    }
+
     @Override
     public MaterializedIndex getPartitionIndex(Partition partition, long indexId) {
         MaterializedIndex index = partition.getIndex(indexId);

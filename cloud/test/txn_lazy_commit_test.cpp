@@ -926,6 +926,12 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
+        auto* mappings = tmp_rowset.mutable_row_binlog_column_mappings();
+        mappings->set_need_historical_value(true);
+        auto* mapping = mappings->add_entries();
+        mapping->set_source_column_unique_id(1);
+        mapping->set_current_column_unique_id(10);
+        mapping->set_before_column_unique_id(11);
         CreateRowsetResponse res;
         prepare_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -963,7 +969,12 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
             int64_t tablet_id = tablet_id_base + i;
             check_tablet_idx_db_id(txn, db_id, tablet_id);
             check_tmp_rowset_not_exist(txn, tablet_id, txn_id);
-            check_rowset_meta_exist(txn, tablet_id, 2);
+            std::string legacy_rowset_val;
+            ASSERT_EQ(txn->get(meta_rowset_key({mock_instance, tablet_id, 2}), &legacy_rowset_val),
+                      TxnErrorCode::TXN_OK);
+            RowsetMetaCloudPB legacy_rowset_meta;
+            ASSERT_TRUE(legacy_rowset_meta.ParseFromString(legacy_rowset_val));
+            ASSERT_FALSE(legacy_rowset_meta.has_row_binlog_column_mappings());
 
             // Check versioned rowset meta exists.
             std::string rowset_key = versioned::meta_rowset_load_key({mock_instance, tablet_id, 2});
@@ -971,6 +982,7 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
             Versionstamp versionstamp;
             ASSERT_EQ(versioned::document_get(txn.get(), rowset_key, &rowset_val, &versionstamp),
                       TxnErrorCode::TXN_OK);
+            ASSERT_FALSE(rowset_val.has_row_binlog_column_mappings());
         }
     }
 

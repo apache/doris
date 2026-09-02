@@ -51,6 +51,11 @@ std::vector<TabletColumnPtr> project_columns_by_ordinal(
         const std::vector<TabletColumnPtr>& columns,
         const std::vector<ColumnId>& source_column_ordinals);
 
+// Resolve a physical TabletSchema column id to its dense ReadSchema ordinal. Returns -1 when the
+// physical column is absent or not projected.
+int32_t read_ordinal_by_tablet_cid(const ReadSchema& read_schema, const TabletSchema& tablet_schema,
+                                   int32_t tablet_cid);
+
 // The dense, ordered column layout consumed by one storage reader. For example, if the caller's
 // Block is [k1, v1] and a historical delete predicate needs dropped_v2, the layout is
 // [k1, v1, dropped_v2]: num_block_columns() is 2, num_read_columns() is 3, and every reader-side
@@ -89,15 +94,15 @@ public:
 
     const SequenceMap& sequence_map() const { return _sequence_map; }
 
-    // Initialize all row-binlog column relationships from the physical tablet schema and map
-    // them to this ReadSchema's dense ordinals. Physical pairing avoids ambiguous column-name
-    // lookup, while schemas without a complete physical layout retain the name-based BEFORE
-    // mapping initialized by the constructor.
-    void init_row_binlog_column_mappings(const TabletSchema& tablet_schema);
+    // Initialize row-binlog relationships using dense ordinals in this ReadSchema. Special
+    // ordinals are -1 when absent.
+    Status init_row_binlog_column_mappings(RowBinlogValueColumnPairs value_pairs,
+                                           int32_t tso_ordinal, int32_t lsn_ordinal,
+                                           int32_t op_ordinal);
 
     // Return the matching before-image ordinal for a Row Binlog value column. For example, in
-    // [v1, v2, __BEFORE__v1__, __BEFORE__v2__], 0 maps to 2 and 1 maps to 3. Columns without a
-    // before image, including TSO/LSN/OP, map to themselves.
+    // [v1, v2, __DORIS_BEFORE__v1__, __DORIS_BEFORE__v2__], 0 maps to 2 and 1 maps to 3.
+    // Columns without a before image, including TSO/LSN/OP, map to themselves.
     ColumnId before_column_ordinal(ColumnId ordinal) const {
         DCHECK_LT(ordinal, _before_column_ordinals.size());
         return _before_column_ordinals[ordinal];
@@ -125,7 +130,7 @@ public:
     size_t num_key_columns() const { return _num_key_columns; }
 
     // All special-column ordinals below address the caller-visible Block prefix and are -1 when
-    // absent. A Row Binlog layout may be [k1, v1, __BEFORE__v1__, TSO, LSN, OP]; a snapshot layout
+    // absent. A Row Binlog layout may be [k1, v1, __DORIS_BEFORE__v1__, TSO, LSN, OP]; a snapshot layout
     // may instead contain COMMIT_TSO.
     // Logical-delete marker used by unique-key reads.
     int32_t delete_sign_ordinal() const { return _delete_sign_ordinal; }
@@ -152,7 +157,6 @@ public:
 
 private:
     void _init_read_types();
-    void _init_before_column_ordinals();
 
     void _init_descriptors() {
         DORIS_CHECK_LE(_num_block_columns, _read_columns.size());
@@ -166,7 +170,7 @@ private:
         _lsn_ordinal = -1;
         _op_ordinal = -1;
         _commit_tso_ordinal = -1;
-        _before_column_ordinals.clear();
+        _before_column_ordinals.resize(_num_block_columns);
         _uid_to_ordinal.clear();
         for (uint32_t i = 0; i < _read_columns.size(); ++i) {
             const auto& col = *_read_columns[i];
@@ -176,6 +180,7 @@ private:
         }
         for (uint32_t i = 0; i < _num_block_columns; ++i) {
             const auto& col = *_read_columns[i];
+            _before_column_ordinals[i] = i;
             if (col.is_key()) {
                 ++_num_key_columns;
             }
@@ -191,21 +196,9 @@ private:
             if (col.name() == VERSION_COL) {
                 _version_ordinal = i;
             }
-            if (col.name() == BINLOG_TSO_COL) {
-                _tso_ordinal = i;
-            }
-            if (col.name() == BINLOG_LSN_COL) {
-                _lsn_ordinal = i;
-            }
-            if (col.name() == BINLOG_OP_COL) {
-                _op_ordinal = i;
-            }
             if (col.name() == COMMIT_TSO_COL) {
                 _commit_tso_ordinal = i;
             }
-        }
-        if (_op_ordinal >= 0) {
-            _init_before_column_ordinals();
         }
     }
 

@@ -2068,6 +2068,7 @@ void MetaServiceImpl::commit_txn_immediately(
             commit_txn_log.mutable_tablet_to_partition_map()->insert({tablet_id, partition_id});
             commit_txn_log.mutable_partition_version_map()->insert({partition_id, new_version});
 
+            i.clear_row_binlog_column_mappings();
             rowsets.emplace_back(std::make_tuple(tablet_id, i.end_version()), i);
         } // for tmp_rowsets_meta
 
@@ -3283,6 +3284,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                 stats.index_size += i.index_disk_size();
                 stats.segment_size += i.data_disk_size();
 
+                i.clear_row_binlog_column_mappings();
                 rowsets.emplace_back(std::make_tuple(tablet_id, i.end_version()), std::move(i));
                 commit_txn_log.mutable_tablet_to_partition_map()->insert({tablet_id, partition_id});
             } // for tmp_rowsets_meta

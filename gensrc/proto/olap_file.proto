@@ -80,6 +80,17 @@ message TsoRangePB {
     optional int64 end_tso = 2 [default = -1];
 }
 
+message PRowBinlogWriteColumnMapping {
+    required int32 source_column_unique_id = 1;
+    required int32 current_column_unique_id = 2;
+    optional int32 before_column_unique_id = 3;
+}
+
+message PRowBinlogWriteColumnMappings {
+    repeated PRowBinlogWriteColumnMapping entries = 1;
+    optional bool need_historical_value = 2;
+}
+
 // ATTN: When adding or deleting fields, please update `message RowsetMetaCloudPB`
 // simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message RowsetMetaPB {
@@ -155,6 +166,7 @@ message RowsetMetaPB {
     optional bool segments_key_bounds_aggregated = 57;
 
     optional bool is_row_binlog = 58 [default = false];
+    optional PRowBinlogWriteColumnMappings row_binlog_column_mappings = 60;
 
     // Valid only when segments_overlap_pb is NONOVERLAPPING_WITHIN_GROUP.
     // Each value is the number of consecutive output segments in one non-overlapping group.
@@ -285,6 +297,7 @@ message RowsetMetaCloudPB {
     optional bool segments_key_bounds_aggregated = 57;
 
     optional bool is_row_binlog = 58 [default = false];
+    optional PRowBinlogWriteColumnMappings row_binlog_column_mappings = 60;
 
     // Valid only when segments_overlap_pb is NONOVERLAPPING_WITHIN_GROUP.
     // Each value is the number of consecutive output segments in one non-overlapping group.

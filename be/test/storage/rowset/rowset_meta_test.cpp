@@ -190,6 +190,41 @@ TEST_F(RowsetMetaTest, LegacyEmbeddedSchemaInvertedIndexFormatIsFallback) {
               rowset_meta.tablet_schema()->get_inverted_index_storage_format());
 }
 
+TEST_F(RowsetMetaTest, RowBinlogColumnMappings) {
+    RowsetMeta rowset_meta;
+    EXPECT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
+    EXPECT_FALSE(rowset_meta.has_row_binlog_column_mappings());
+
+    rowset_meta.mutable_row_binlog_column_mappings();
+    EXPECT_TRUE(rowset_meta.has_row_binlog_column_mappings());
+    EXPECT_EQ(rowset_meta.row_binlog_column_mappings().entries_size(), 0);
+
+    std::string serialized;
+    ASSERT_TRUE(rowset_meta.serialize(&serialized));
+    RowsetMeta restored;
+    ASSERT_TRUE(restored.init(serialized));
+    EXPECT_TRUE(restored.has_row_binlog_column_mappings());
+    EXPECT_EQ(restored.row_binlog_column_mappings().entries_size(), 0);
+
+    auto* mapping = restored.mutable_row_binlog_column_mappings()->add_entries();
+    mapping->set_source_column_unique_id(1);
+    mapping->set_current_column_unique_id(10);
+    mapping->set_before_column_unique_id(11);
+
+    ASSERT_TRUE(restored.serialize(&serialized));
+    RowsetMeta restored_with_mapping;
+    ASSERT_TRUE(restored_with_mapping.init(serialized));
+    ASSERT_TRUE(restored_with_mapping.has_row_binlog_column_mappings());
+    ASSERT_EQ(restored_with_mapping.row_binlog_column_mappings().entries_size(), 1);
+    const auto& restored_mapping = restored_with_mapping.row_binlog_column_mappings().entries(0);
+    EXPECT_EQ(restored_mapping.source_column_unique_id(), 1);
+    EXPECT_EQ(restored_mapping.current_column_unique_id(), 10);
+    EXPECT_EQ(restored_mapping.before_column_unique_id(), 11);
+
+    restored_with_mapping.clear_row_binlog_column_mappings();
+    EXPECT_FALSE(restored_with_mapping.has_row_binlog_column_mappings());
+}
+
 TEST_F(RowsetMetaTest, TestInitWithInvalidData) {
     RowsetMeta rowset_meta;
     EXPECT_FALSE(rowset_meta.init_from_json("invalid json meta data"));

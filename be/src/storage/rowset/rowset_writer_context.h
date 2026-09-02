@@ -321,11 +321,6 @@ struct RowsetWriterContext {
     public:
         bool enable = false;
 
-        void set_need_before(bool need_before) {
-            this->_need_before = need_before;
-            _segment_write_binlog_opt.write_before = need_before;
-        }
-
         segment_v2::SegmentWriteBinlogOptions& write_binlog_config() {
             return _segment_write_binlog_opt;
         }
@@ -335,7 +330,6 @@ struct RowsetWriterContext {
         }
 
     private:
-        bool _need_before = false;
         segment_v2::SegmentWriteBinlogOptions _segment_write_binlog_opt;
     } _write_binlog_opt;
 

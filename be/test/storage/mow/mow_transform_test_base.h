@@ -504,6 +504,8 @@ protected:
             c->set_is_key(is_key);
             c->set_length(type == "TINYINT" ? 1 : 4);
             c->set_index_length(type == "TINYINT" ? 1 : 4);
+            c->set_precision(0);
+            c->set_frac(0);
             c->set_is_nullable(nullable);
             c->set_aggregation("NONE");
             c->set_visible(visible);

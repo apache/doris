@@ -26,7 +26,6 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
-#include "storage/binlog.h"
 #include "storage/schema.h"
 
 namespace doris {
@@ -53,20 +52,6 @@ TabletColumnPtr create_struct_column(int32_t unique_id) {
     column->add_sub_column(*first_child);
     column->add_sub_column(*second_child);
     return column;
-}
-
-TabletSchemaSPtr create_row_binlog_schema_with_colliding_names() {
-    auto schema = std::make_shared<TabletSchema>();
-    schema->append_column(*create_int_column(10, "key", true));
-    schema->append_column(*create_int_column(11, "v"));
-    schema->append_column(*create_int_column(12, "__BEFORE__v__"));
-    schema->append_column(*create_int_column(13, binlog::build_before_column_name("v")));
-    schema->append_column(
-            *create_int_column(14, binlog::build_before_column_name("__BEFORE__v__")));
-    schema->append_column(*create_int_column(15, BINLOG_TSO_COL));
-    schema->append_column(*create_int_column(16, BINLOG_LSN_COL));
-    schema->append_column(*create_int_column(17, BINLOG_OP_COL));
-    return schema;
 }
 
 TEST(ReadSchemaTest, DefaultColumnsAreVisible) {
@@ -140,41 +125,68 @@ TEST(ReadSchemaTest, AppendedDroppedColumnDoesNotExtendReadBlock) {
     EXPECT_EQ(2, read_schema.create_read_block().columns());
 }
 
-TEST(ReadSchemaTest, RowBinlogMappingsUsePhysicalSchemaOrdinals) {
-    auto tablet_schema = create_row_binlog_schema_with_colliding_names();
-    // Reorder the two AFTER values and their BEFORE companions to verify that ReadSchema stores
-    // dense read ordinals resolved by unique id, rather than physical tablet column ids or names.
-    ReadSchema read_schema(project_columns_by_ordinal(
-            tablet_schema->columns(), std::vector<ColumnId> {0, 2, 1, 4, 3, 5, 6, 7}));
+TEST(ReadSchemaTest, RowBinlogMappingsUseExplicitReadOrdinals) {
+    // Names and layout deliberately carry no row-binlog meaning. The supplied read ordinals are
+    // the only source of truth for current/before and special-column relationships.
+    ReadSchema read_schema({create_int_column(10, "key", true), create_int_column(11, "first"),
+                            create_int_column(12, "second"), create_int_column(13, "third"),
+                            create_int_column(14, "fourth"), create_int_column(15, "fifth"),
+                            create_int_column(16, "sixth")});
 
-    read_schema.init_row_binlog_column_mappings(*tablet_schema);
+    ASSERT_TRUE(read_schema.init_row_binlog_column_mappings({{4, 1}, {5, 6}}, 3, -1, 2).ok());
 
     EXPECT_TRUE(read_schema.row_binlog_value_pairs_complete());
     EXPECT_EQ(read_schema.row_binlog_value_column_pairs(),
-              (ReadSchema::RowBinlogValueColumnPairs {{2, 4}, {1, 3}}));
-    EXPECT_EQ(4, read_schema.before_column_ordinal(2));
-    EXPECT_EQ(3, read_schema.before_column_ordinal(1));
-    for (ColumnId ordinal : {0, 3, 4, 5, 6, 7}) {
+              (ReadSchema::RowBinlogValueColumnPairs {{4, 1}, {5, 6}}));
+    EXPECT_EQ(1, read_schema.before_column_ordinal(4));
+    EXPECT_EQ(6, read_schema.before_column_ordinal(5));
+    for (ColumnId ordinal : {0, 1, 2, 3, 6}) {
         EXPECT_EQ(ordinal, read_schema.before_column_ordinal(ordinal));
     }
+    EXPECT_EQ(3, read_schema.tso_ordinal());
+    EXPECT_EQ(-1, read_schema.lsn_ordinal());
+    EXPECT_EQ(2, read_schema.op_ordinal());
 }
 
-TEST(ReadSchemaTest, MalformedRowBinlogLayoutKeepsConservativeNameMapping) {
-    TabletSchema tablet_schema;
-    tablet_schema.append_column(*create_int_column(10, "key", true));
-    tablet_schema.append_column(*create_int_column(11, "v"));
-    tablet_schema.append_column(*create_int_column(12, binlog::build_before_column_name("v")));
-    tablet_schema.append_column(*create_int_column(13, "orphan"));
-    tablet_schema.append_column(*create_int_column(14, BINLOG_TSO_COL));
-    tablet_schema.append_column(*create_int_column(15, BINLOG_LSN_COL));
-    tablet_schema.append_column(*create_int_column(16, BINLOG_OP_COL));
-    ReadSchema read_schema(tablet_schema.columns());
+TEST(ReadSchemaTest, RowBinlogMappingReportsIncompleteProjection) {
+    ReadSchema read_schema({create_int_column(10, "key", true), create_int_column(11, "current"),
+                            create_int_column(12, "unpaired"), create_int_column(13, "tso"),
+                            create_int_column(14, "op")});
 
-    read_schema.init_row_binlog_column_mappings(tablet_schema);
+    ASSERT_TRUE(read_schema.init_row_binlog_column_mappings({}, 3, -1, 4).ok());
 
     EXPECT_FALSE(read_schema.row_binlog_value_pairs_complete());
     EXPECT_TRUE(read_schema.row_binlog_value_column_pairs().empty());
-    EXPECT_EQ(2, read_schema.before_column_ordinal(1));
+    EXPECT_EQ(1, read_schema.before_column_ordinal(1));
+}
+
+TEST(ReadSchemaTest, RowBinlogMappingRejectsInvalidOrdinals) {
+    const std::vector<TabletColumnPtr> columns {
+            create_int_column(10, "key", true), create_int_column(11, "before"),
+            create_int_column(12, "op"),        create_int_column(13, "tso"),
+            create_int_column(14, "current"),   create_int_column(15, "other")};
+    const std::vector<ReadSchema::RowBinlogValueColumnPairs> invalid_pairs {
+            {{6, 1}}, {{4, 4}}, {{4, 1}, {4, 5}}, {{4, 1}, {5, 1}}, {{4, 2}}, {{0, 1}}};
+
+    for (const auto& pairs : invalid_pairs) {
+        ReadSchema read_schema(columns);
+        EXPECT_TRUE(read_schema.init_row_binlog_column_mappings(pairs, 3, -1, 2)
+                            .is<ErrorCode::INVALID_ARGUMENT>());
+    }
+
+    ReadSchema read_schema(columns);
+    EXPECT_TRUE(read_schema.init_row_binlog_column_mappings({{4, 1}}, 3, -1, 3)
+                        .is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_TRUE(read_schema.init_row_binlog_column_mappings({{4, 1}}, 0, -1, 2)
+                        .is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_TRUE(read_schema.init_row_binlog_column_mappings({{4, 1}}, 6, -1, 2)
+                        .is<ErrorCode::INVALID_ARGUMENT>());
+
+    auto mismatched_columns = columns;
+    mismatched_columns[1] = create_struct_column(11);
+    ReadSchema mismatched_read_schema(std::move(mismatched_columns));
+    EXPECT_TRUE(mismatched_read_schema.init_row_binlog_column_mappings({{4, 1}}, 3, -1, 2)
+                        .is<ErrorCode::INVALID_ARGUMENT>());
 }
 
 } // namespace
