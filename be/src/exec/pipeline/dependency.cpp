@@ -26,7 +26,6 @@
 #include "exec/common/join_utils.h"
 #include "exec/common/set_utils.h"
 #include "exec/common/template_helpers.hpp"
-#include "exec/operator/groupjoin_operator_utils.h"
 #include "exec/operator/multi_cast_data_streamer.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/pipeline/pipeline_task.h"
@@ -496,10 +495,6 @@ void BucketedAggSharedState::_destroy_agg_status(AggregateDataPtr data) {
 }
 
 LocalExchangeSharedState::~LocalExchangeSharedState() = default;
-
-GroupJoinSharedState::~GroupJoinSharedState() {
-    groupjoin::destroy_agg_states(this);
-}
 
 Status SetSharedState::update_build_not_ignore_null(const VExprContextSPtrs& ctxs) {
     if (ctxs.size() > build_not_ignore_null.size()) {
