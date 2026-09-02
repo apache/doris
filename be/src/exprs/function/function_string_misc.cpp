@@ -271,10 +271,6 @@ private:
             return Status::InvalidArgument(
                     "range auto_partition_name must contains three arguments");
         }
-        // See the comment on is_col_constant(0) above: query FunctionContext's constant-column
-        // metadata instead of is_column_const() on the current block, since the latter can report
-        // false for a literal 2nd argument once all arguments are constant and get unwrapped by
-        // default_implementation_for_constant_arguments().
         if (!context->is_col_constant(1)) {
             return Status::InvalidArgument(
                     "auto_partition_name must accept literal for 2nd argument");
