@@ -45,6 +45,9 @@ public class CaseInsensitiveStream implements CharStream {
     public int LA(int i) {
         int result = stream.LA(i);
 
+        if (result >= 'a' && result <= 'z') {
+            return result - ('a' - 'A');
+        }
         switch (result) {
             case 0:
             case IntStream.EOF:
