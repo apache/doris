@@ -127,8 +127,8 @@ import org.apache.doris.nereids.DorisParser.AlterWorkloadGroupContext;
 import org.apache.doris.nereids.DorisParser.AlterWorkloadPolicyContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
+import org.apache.doris.nereids.DorisParser.ArrayAccessContext;
 import org.apache.doris.nereids.DorisParser.ArrayLiteralContext;
-import org.apache.doris.nereids.DorisParser.ArraySliceContext;
 import org.apache.doris.nereids.DorisParser.BaseTableRefContext;
 import org.apache.doris.nereids.DorisParser.BooleanExpressionContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
@@ -216,7 +216,6 @@ import org.apache.doris.nereids.DorisParser.DropTableContext;
 import org.apache.doris.nereids.DorisParser.DropUserContext;
 import org.apache.doris.nereids.DorisParser.DropWorkloadGroupContext;
 import org.apache.doris.nereids.DorisParser.DropWorkloadPolicyContext;
-import org.apache.doris.nereids.DorisParser.ElementAtContext;
 import org.apache.doris.nereids.DorisParser.EnableFeatureClauseContext;
 import org.apache.doris.nereids.DorisParser.ExceptContext;
 import org.apache.doris.nereids.DorisParser.ExceptOrReplaceContext;
@@ -300,6 +299,8 @@ import org.apache.doris.nereids.DorisParser.PlanTypeContext;
 import org.apache.doris.nereids.DorisParser.PositionContext;
 import org.apache.doris.nereids.DorisParser.PredicateContext;
 import org.apache.doris.nereids.DorisParser.PredicatedContext;
+import org.apache.doris.nereids.DorisParser.PrimaryExpressionContext;
+import org.apache.doris.nereids.DorisParser.PrimaryExpressionSuffixContext;
 import org.apache.doris.nereids.DorisParser.PrimitiveDataTypeContext;
 import org.apache.doris.nereids.DorisParser.PropertyClauseContext;
 import org.apache.doris.nereids.DorisParser.PropertyItemContext;
@@ -463,7 +464,6 @@ import org.apache.doris.nereids.DorisParser.StepPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
 import org.apache.doris.nereids.DorisParser.StructLiteralContext;
 import org.apache.doris.nereids.DorisParser.SubqueryContext;
-import org.apache.doris.nereids.DorisParser.SubqueryExpressionContext;
 import org.apache.doris.nereids.DorisParser.SubstringContext;
 import org.apache.doris.nereids.DorisParser.SwitchCatalogContext;
 import org.apache.doris.nereids.DorisParser.SyncContext;
@@ -3304,7 +3304,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     /**
-     * Create a value based [[CaseWhen]] expression. This has the following SQL form:
+     * Create a condition or value based [[CaseWhen]] expression. This has the following SQL form:
      * {{{
      * CASE [expression]
      * WHEN [value] THEN [expression]
@@ -3314,29 +3314,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * }}}
      */
     @Override
+    public Expression visitCaseExpressionBase(DorisParser.CaseExpressionBaseContext context) {
+        return typedVisit(context.caseExpression());
+    }
+
+    @Override
     public Expression visitSimpleCase(DorisParser.SimpleCaseContext context) {
-        Expression e = getExpression(context.value);
+        Expression value = getExpression(context.value);
         List<WhenClause> whenClauses = context.whenClause().stream()
                 .map(w -> new WhenClause(getExpression(w.condition), getExpression(w.result)))
                 .collect(ImmutableList.toImmutableList());
         if (context.elseExpression == null) {
-            return new CaseWhen(e, whenClauses);
+            return new CaseWhen(value, whenClauses);
         }
-        return new CaseWhen(e, whenClauses, getExpression(context.elseExpression));
+        return new CaseWhen(value, whenClauses, getExpression(context.elseExpression));
     }
 
-    /**
-     * Create a condition based [[CaseWhen]] expression. This has the following SQL syntax:
-     * {{{
-     * CASE
-     * WHEN [predicate] THEN [expression]
-     * ...
-     * ELSE [expression]
-     * END
-     * }}}
-     *
-     * @param context the parse tree
-     */
     @Override
     public Expression visitSearchedCase(DorisParser.SearchedCaseContext context) {
         List<WhenClause> whenClauses = context.whenClause().stream()
@@ -3400,13 +3393,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Expression visitConvertCharSet(DorisParser.ConvertCharSetContext ctx) {
-        return ParserUtils.withOrigin(ctx,
-                () -> new ConvertTo(getExpression(ctx.argument), new StringLiteral(ctx.charSet.getText())));
-    }
-
-    @Override
-    public Expression visitConvertType(DorisParser.ConvertTypeContext ctx) {
+    public Expression visitConvertExpression(DorisParser.ConvertExpressionContext ctx) {
+        if (ctx.charSet != null) {
+            return ParserUtils.withOrigin(ctx,
+                    () -> new ConvertTo(getExpression(ctx.argument), new StringLiteral(ctx.charSet.getText())));
+        }
         return ParserUtils.withOrigin(ctx, () -> processCast(getExpression(ctx.argument), ctx.castDataType()));
     }
 
@@ -3691,33 +3682,42 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Expression visitDereference(DereferenceContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> {
-            Expression e = getExpression(ctx.base);
-            if (e instanceof UnboundSlot) {
-                UnboundSlot unboundAttribute = (UnboundSlot) e;
+    public Expression visitPrimaryExpression(PrimaryExpressionContext ctx) {
+        Expression expression = typedVisit(ctx.primaryExpressionBase());
+        for (PrimaryExpressionSuffixContext suffix : ctx.primaryExpressionSuffix()) {
+            if (suffix instanceof ArrayAccessContext) {
+                ArrayAccessContext arrayAccess = (ArrayAccessContext) suffix;
+                if (arrayAccess.COLON() == null) {
+                    expression = new ElementAt(expression, typedVisit(arrayAccess.begin));
+                } else if (arrayAccess.end == null) {
+                    expression = new ArraySlice(expression, typedVisit(arrayAccess.begin));
+                } else {
+                    expression = new ArraySlice(
+                            expression, typedVisit(arrayAccess.begin), typedVisit(arrayAccess.end));
+                }
+            } else if (suffix instanceof DereferenceContext) {
+                expression = buildDereference(expression, (DereferenceContext) suffix, ctx);
+            } else {
+                // COLLATE is accepted syntactically but does not change the Nereids expression.
+                Preconditions.checkState(suffix instanceof CollateContext);
+            }
+        }
+        return expression;
+    }
+
+    protected Expression buildDereference(
+            Expression base, DereferenceContext ctx, PrimaryExpressionContext originContext) {
+        return ParserUtils.withOrigin(originContext, () -> {
+            if (base instanceof UnboundSlot) {
+                UnboundSlot unboundAttribute = (UnboundSlot) base;
                 List<String> nameParts = Lists.newArrayList(unboundAttribute.getNameParts());
                 nameParts.add(ctx.fieldName.getText());
                 UnboundSlot slot = new UnboundSlot(nameParts, Optional.empty());
                 return slot;
             } else {
-                return new DereferenceExpression(e, new StringLiteral(ctx.identifier().getText()));
+                return new DereferenceExpression(base, new StringLiteral(ctx.identifier().getText()));
             }
         });
-    }
-
-    @Override
-    public Expression visitElementAt(ElementAtContext ctx) {
-        return new ElementAt(typedVisit(ctx.value), typedVisit(ctx.index));
-    }
-
-    @Override
-    public Expression visitArraySlice(ArraySliceContext ctx) {
-        if (ctx.end != null) {
-            return new ArraySlice(typedVisit(ctx.value), typedVisit(ctx.begin), typedVisit(ctx.end));
-        } else {
-            return new ArraySlice(typedVisit(ctx.value), typedVisit(ctx.begin));
-        }
     }
 
     @Override
@@ -3845,6 +3845,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitParenthesizedExpression(ParenthesizedExpressionContext ctx) {
+        if (ctx.query() != null) {
+            return ParserUtils.withOrigin(ctx, () -> new ScalarSubquery(typedVisit(ctx.query())));
+        }
         return getExpression(ctx.expression());
     }
 
@@ -5191,11 +5194,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Expression visitSubqueryExpression(SubqueryExpressionContext subqueryExprCtx) {
-        return ParserUtils.withOrigin(subqueryExprCtx, () -> new ScalarSubquery(typedVisit(subqueryExprCtx.query())));
-    }
-
-    @Override
     public Expression visitExist(ExistContext context) {
         return ParserUtils.withOrigin(context, () -> new Exists(typedVisit(context.query()), false));
     }
@@ -5493,11 +5491,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return ((Literal) constant).getStringValue();
         }
         return context.getText();
-    }
-
-    @Override
-    public Object visitCollate(CollateContext ctx) {
-        return visit(ctx.primaryExpression());
     }
 
     @Override
