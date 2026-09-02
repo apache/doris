@@ -172,6 +172,19 @@ public class DefaultConnectorContextNormalizeUriTest {
                 restCtx.getBackendFileType("oss://bkt/warehouse/db/t/data", ossVendedToken()));
     }
 
+    @Test
+    public void azureVendedPathKeepsAccountAuthorityAndUsesS3Family() {
+        String accountHost = "account.dfs.core.windows.net";
+        Map<String, String> token = Map.of(
+                "adls.sas-token." + accountHost, "sv=2024-01-01&sig=temporary",
+                "adls.sas-token-expires-at-ms." + accountHost, "4102444800000");
+        String path = "abfss://container@account.dfs.core.windows.net/table/data.parquet";
+        DefaultConnectorContext restCtx = new DefaultConnectorContext("c", 1L);
+
+        Assertions.assertEquals(path, restCtx.normalizeStorageUri(path, token));
+        Assertions.assertEquals(TFileType.FILE_S3.name(), restCtx.getBackendFileType(path, token));
+    }
+
     // ---- FIX-PERF-06: newStorageUriNormalizer hoists the (scan-invariant) token->storage-config
     //      derivation to ONCE per scan; every application must stay byte-identical to a per-call
     //      normalizeStorageUri(uri, token), across all four cases the per-call form covers. ----

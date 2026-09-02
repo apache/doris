@@ -60,7 +60,8 @@ public interface ConnectorStorageContext {
      * Normalizes raw per-table vended cloud-storage credentials (the token map a REST catalog
      * returns, e.g. {@code fs.oss.accessKeyId} / {@code s3.access-key}) into the BE-facing storage
      * property map ({@code AWS_ACCESS_KEY} / {@code AWS_SECRET_KEY} / {@code AWS_TOKEN} /
-     * {@code AWS_ENDPOINT} / {@code AWS_REGION}). The connector extracts the raw token from the live
+     * {@code AWS_ENDPOINT} / {@code AWS_REGION}; Azure uses its provider-owned
+     * {@code AZURE_*} equivalents). The connector extracts the raw token from the live
      * table (paimon SDK only); the engine performs the same {@code StorageProperties} normalization
      * it uses for static catalog credentials (the connector cannot import fe-core).
      *
@@ -203,7 +204,8 @@ public interface ConnectorStorageContext {
     /**
      * Returns the catalog's static storage credentials/config normalized to BE-canonical scan
      * properties: object-store creds as {@code AWS_ACCESS_KEY} / {@code AWS_SECRET_KEY} /
-     * {@code AWS_TOKEN} / {@code AWS_ENDPOINT} / {@code AWS_REGION}, and HDFS config as the resolved
+     * {@code AWS_TOKEN} / {@code AWS_ENDPOINT} / {@code AWS_REGION} (Azure uses provider-owned
+     * {@code AZURE_*} keys), and HDFS config as the resolved
      * {@code hadoop.*} / {@code dfs.*} keys (user overrides plus the legacy-derived defaults). The
      * engine runs the same {@code CredentialUtils.getBackendPropertiesFromStorageMap} that legacy /
      * iceberg / hive use over the catalog's parsed {@code StorageProperties} map — the single source of

@@ -93,6 +93,40 @@ public class CredentialUtilsTest {
     }
 
     @Test
+    public void testNormalizeAdlsSasCredentialsToNativeAzureProperties() {
+        String accountHost = "account.dfs.core.windows.net";
+        Map<String, String> rawCredentials = new HashMap<>();
+        rawCredentials.put("adls.sas-token." + accountHost, "?sv=2024-01-01&sig=temporary");
+        rawCredentials.put("adls.sas-token-expires-at-ms." + accountHost, "4102444800000");
+        rawCredentials.put("table.name", "ignored");
+
+        Map<String, String> normalized = CredentialUtils.normalizeCloudStorageProperties(rawCredentials);
+
+        Assertions.assertEquals("azure", normalized.get("provider"));
+        Assertions.assertEquals("SAS", normalized.get("AZURE_AUTH_TYPE"));
+        Assertions.assertEquals("account", normalized.get("AZURE_ACCOUNT_NAME"));
+        Assertions.assertEquals("https://account.blob.core.windows.net", normalized.get("AZURE_ENDPOINT"));
+        Assertions.assertEquals("sv=2024-01-01&sig=temporary", normalized.get("AZURE_SAS_TOKEN"));
+        Assertions.assertEquals("4102444800000", normalized.get("AZURE_SAS_EXPIRY_MS"));
+        Assertions.assertFalse(normalized.keySet().stream().anyMatch(key -> key.startsWith("adls.")));
+        Assertions.assertFalse(normalized.containsKey("table.name"));
+    }
+
+    @Test
+    public void testNormalizeAdlsSasCredentialsRejectsExpiredToken() {
+        String accountHost = "account.dfs.core.windows.net";
+        Map<String, String> rawCredentials = Map.of(
+                "adls.sas-token." + accountHost, "sv=2024-01-01&sig=expired",
+                "adls.sas-token-expires-at-ms." + accountHost, "1");
+
+        CredentialUtils.AzureSasCredentialException exception = Assertions.assertThrows(
+                CredentialUtils.AzureSasCredentialException.class,
+                () -> CredentialUtils.normalizeCloudStorageProperties(rawCredentials));
+
+        Assertions.assertTrue(exception.getMessage().contains("expired"), exception.getMessage());
+    }
+
+    @Test
     public void testFilterCloudStoragePropertiesWithEmptyInput() {
         Map<String, String> filtered = CredentialUtils.filterCloudStorageProperties(new HashMap<>());
         Assertions.assertTrue(filtered.isEmpty());

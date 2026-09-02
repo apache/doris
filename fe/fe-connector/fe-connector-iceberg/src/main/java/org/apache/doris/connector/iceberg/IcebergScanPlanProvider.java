@@ -1938,7 +1938,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         // Static storage credentials (T09, all flavors): the catalog's bound fe-filesystem StorageProperties,
-        // normalized to BE-canonical scan keys (AWS_* for object stores, hadoop/dfs for HDFS) and shipped under
+        // normalized to BE-canonical scan keys (AWS_* for generic object stores, AZURE_* for Azure,
+        // hadoop/dfs for HDFS) and shipped under
         // location.*. BLOCKER: BE's native (FILE_S3) reader understands ONLY the canonical keys, so the raw
         // catalog aliases (s3.access_key, oss.access_key, …) must be translated before they leave FE — copying
         // them verbatim gives BE no usable creds (403 on a private bucket). Mirrors paimon getScanNodeProperties
@@ -1955,8 +1956,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         // Vended-credential overlay (T09, REST per-table token): the raw token is extracted from the live,
         // snapshot-pinned table's FileIO (gated on the catalog flag iceberg.rest.vended-credentials-enabled,
-        // legacy IcebergVendedCredentialsProvider parity), then normalized to BE-facing AWS_* keys by the engine
-        // (the connector cannot import fe-core's StorageProperties). Vended overlays static (legacy precedence —
+        // legacy IcebergVendedCredentialsProvider parity), then normalized to BE-facing canonical keys by the
+        // engine (AWS_* for generic object stores, AZURE_* for Azure; the connector cannot import fe-core's
+        // StorageProperties). Vended overlays static (legacy precedence —
         // a colliding location.* key takes the vended value). Skipped when no context (offline tests) or the
         // table yields no vended token (flag off / non-REST -> empty -> no-op).
         if (context != null) {

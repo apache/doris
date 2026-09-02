@@ -28,8 +28,8 @@ import java.util.Map;
  * FIX-REST-VENDED fe-core bridge test: pins that
  * {@link DefaultConnectorContext#vendStorageCredentials} reuses the engine's
  * {@code StorageProperties} normalization (the same chain legacy
- * {@code AbstractVendedCredentialsProvider} runs) to turn a raw per-table OSS vended token into the
- * BE-facing {@code AWS_*} storage properties. The connector cannot import that machinery, so this
+ * {@code AbstractVendedCredentialsProvider} runs) to turn raw per-table vended tokens into the
+ * BE-facing canonical storage properties. The connector cannot import that machinery, so this
  * hook is the single source of truth — without it a REST native-reader table reaches BE with no
  * usable credentials (403). FAILS before the fix (the method is a no-op default returning empty).
  */
@@ -58,6 +58,35 @@ public class DefaultConnectorContextVendTest {
         Assertions.assertEquals("STS.testAccessKey123", be.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("testSecretKey456", be.get("AWS_SECRET_KEY"));
         Assertions.assertEquals("testSessionToken789", be.get("AWS_TOKEN"));
+    }
+
+    @Test
+    public void normalizesAdlsTokenToNativeAzureProps() {
+        String accountHost = "account.dfs.core.windows.net";
+        Map<String, String> token = Map.of(
+                "adls.sas-token." + accountHost, "?sv=2024-01-01&sig=temporary",
+                "adls.sas-token-expires-at-ms." + accountHost, "4102444800000");
+
+        Map<String, String> be = context().vendStorageCredentials(token);
+
+        Assertions.assertEquals("azure", be.get("provider"));
+        Assertions.assertEquals("SAS", be.get("AZURE_AUTH_TYPE"));
+        Assertions.assertEquals("account", be.get("AZURE_ACCOUNT_NAME"));
+        Assertions.assertEquals("https://account.blob.core.windows.net", be.get("AZURE_ENDPOINT"));
+        Assertions.assertEquals("sv=2024-01-01&sig=temporary", be.get("AZURE_SAS_TOKEN"));
+        Assertions.assertEquals("4102444800000", be.get("AZURE_SAS_EXPIRY_MS"));
+        Assertions.assertFalse(be.keySet().stream().anyMatch(key -> key.startsWith("adls.")));
+        Assertions.assertFalse(be.keySet().stream().anyMatch(key -> key.startsWith("fs.azure.")));
+    }
+
+    @Test
+    public void expiredAdlsTokenIsNotSilentlyDowngraded() {
+        String accountHost = "account.dfs.core.windows.net";
+        Map<String, String> token = Map.of(
+                "adls.sas-token." + accountHost, "sv=2024-01-01&sig=expired",
+                "adls.sas-token-expires-at-ms." + accountHost, "1");
+
+        Assertions.assertThrows(RuntimeException.class, () -> context().vendStorageCredentials(token));
     }
 
     @Test

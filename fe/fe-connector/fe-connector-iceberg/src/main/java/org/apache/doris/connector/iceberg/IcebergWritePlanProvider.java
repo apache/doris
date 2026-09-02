@@ -737,7 +737,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         tSink.setFileFormat(toTFileFormatType(schemaContext.getFileFormat()));
         tSink.setCompressionType(toTFileCompressType(schemaContext.getFileCompression()));
 
-        // Hadoop config: BE-canonical static catalog creds (AWS_*/dfs) plus the REST per-table vended overlay
+        // Backend config: BE-canonical static catalog creds (AWS_* for generic object stores, AZURE_* for
+        // Azure, dfs/hadoop for HDFS) plus the REST per-table vended overlay
         // (see buildHadoopConfig), mirroring legacy IcebergTableSink + the scan-side credential assembly.
         tSink.setHadoopConfig(buildHadoopConfig(table));
 
@@ -1015,14 +1016,15 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     private Map<String, String> buildHadoopConfig(Table table) {
         Map<String, String> merged = new HashMap<>();
         if (context != null) {
-            // Static catalog credentials in BE-canonical form (AWS_* for object stores, dfs/hadoop for HDFS),
+            // Static catalog credentials in BE-canonical form (AWS_* for generic object stores, AZURE_* for
+            // Azure, dfs/hadoop for HDFS),
             // sourced from the typed fe-filesystem StorageProperties bound by the catalog and handed over via
             // storage().getStorageProperties(): each backend's toBackendProperties().toMap() yields the canonical map
             // (design S3 — the write derives its BE creds from the SAME typed fe-filesystem source as the scan
             // path IcebergScanPlanProvider.getScanNodeProperties, retiring the redundant fe-core
-            // getBackendStorageProperties() second parse). The BE S3 sink (s3_util.cpp
-            // convert_properties_to_s3_conf) reads ONLY AWS_*, so the fs.s3a.* hadoop form (correct for the FE
-            // iceberg-catalog Configuration) would leave the BE writer with no creds.
+            // getBackendStorageProperties() second parse). The BE object-storage sink consumes AWS_* for
+            // generic S3-compatible stores and AZURE_* for provider=azure; the fs.s3a.* Hadoop form (correct
+            // for the FE iceberg-catalog Configuration) would leave a native writer with no usable creds.
             for (StorageProperties sp : IcebergCatalogFactory.selectEffectiveStorages(
                     storage().getStorageProperties())) {
                 sp.toBackendProperties().ifPresent(b -> merged.putAll(b.toMap()));

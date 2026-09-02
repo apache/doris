@@ -33,9 +33,8 @@ import java.util.Set;
  *
  * <p>Registered via META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider.
  *
- * <p>Identified by the presence of {@code AZURE_ACCOUNT_NAME}, {@code azure.account_name},
- * or an endpoint that contains a known Azure Blob Storage host suffix from one of the
- * sovereign clouds.
+ * <p>Identified by the presence of Azure provider-owned account/SAS properties, or an endpoint
+ * that contains a known Azure Blob Storage host suffix from one of the sovereign clouds.
  */
 public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSystemProperties> {
 
@@ -44,6 +43,8 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
     private static final String PROVIDER_KEY = "provider";
     private static final String[] ACCOUNT_NAME_KEYS = {
             AzureFileSystemProperties.ACCOUNT_NAME, "azure.access_key", "AZURE_ACCOUNT_NAME"};
+    private static final String[] SAS_TOKEN_KEYS = {
+            AzureFileSystemProperties.SAS_TOKEN, "azure.sas-token", "AZURE_SAS_TOKEN"};
     private static final String[] ENDPOINT_KEYS = {
             AzureFileSystemProperties.ENDPOINT, "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
             "AZURE_ENDPOINT"};
@@ -65,6 +66,9 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
             return true;
         }
         if (firstPresent(properties, ACCOUNT_NAME_KEYS) != null) {
+            return true;
+        }
+        if (firstPresent(properties, SAS_TOKEN_KEYS) != null) {
             return true;
         }
         String endpoint = firstPresent(properties, ENDPOINT_KEYS);
@@ -91,7 +95,12 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
 
     @Override
     public boolean supportsExplicit(Map<String, String> properties) {
-        return Boolean.parseBoolean(properties.getOrDefault("fs.azure.support", "false"));
+        // Native backend maps carry an explicit provider marker. Keep those maps selectable even
+        // when another connector property disables heuristic guesses for the whole binding pass.
+        return Boolean.parseBoolean(properties.getOrDefault("fs.azure.support", "false"))
+                || isExplicitAzure(properties)
+                || firstPresent(properties, ACCOUNT_NAME_KEYS) != null
+                || firstPresent(properties, SAS_TOKEN_KEYS) != null;
     }
 
     /**

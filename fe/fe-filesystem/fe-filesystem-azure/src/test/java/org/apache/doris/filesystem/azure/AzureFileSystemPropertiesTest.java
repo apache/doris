@@ -23,6 +23,7 @@ import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.StorageKind;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -54,13 +55,16 @@ class AzureFileSystemPropertiesTest {
                 "azure.endpoint", "account.blob.core.windows.net",
                 "azure.account_name", "azure-account",
                 "azure.account_key", "azure-key-plain",
+                "AZURE_SAS_TOKEN", "sas-token-plain",
                 "AZURE_CLIENT_SECRET", "azure-clientsecret-plain"));
 
         String rendered = properties.toString();
 
         Assertions.assertFalse(rendered.contains("azure-key-plain"), rendered);
         Assertions.assertFalse(rendered.contains("azure-clientsecret-plain"), rendered);
+        Assertions.assertFalse(rendered.contains("sas-token-plain"), rendered);
         Assertions.assertTrue(rendered.contains("accountKey=***"), rendered);
+        Assertions.assertTrue(rendered.contains("sasToken=***"), rendered);
         Assertions.assertTrue(rendered.contains("clientSecret=***"), rendered);
         // accountName is the storage account identifier (also appears in the endpoint), not a secret.
         Assertions.assertTrue(rendered.contains("accountName=azure-account"), rendered);
@@ -111,25 +115,53 @@ class AzureFileSystemPropertiesTest {
         Map<String, String> backendMap = backend.toMap();
 
         Assertions.assertEquals(BackendStorageKind.S3_COMPATIBLE, backend.backendKind());
-        Assertions.assertEquals("https://account.blob.core.windows.net", backendMap.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("dummy_region", backendMap.get("AWS_REGION"));
-        Assertions.assertEquals("account", backendMap.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("key", backendMap.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("true", backendMap.get("AWS_NEED_OVERRIDE_ENDPOINT"));
+        Assertions.assertEquals("SHARED_KEY", backendMap.get("AZURE_AUTH_TYPE"));
+        Assertions.assertEquals("https://account.blob.core.windows.net", backendMap.get("AZURE_ENDPOINT"));
+        Assertions.assertEquals("account", backendMap.get("AZURE_ACCOUNT_NAME"));
+        Assertions.assertEquals("key", backendMap.get("AZURE_ACCOUNT_KEY"));
         Assertions.assertEquals("azure", backendMap.get("provider"));
         Assertions.assertEquals("true", backendMap.get("use_path_style"));
-        Assertions.assertFalse(backendMap.keySet().stream().anyMatch(keyName -> keyName.startsWith("AZURE_")));
-        // The hadoop Configuration dump is the OAuth2 arm ONLY: SharedKey must stay the exact
-        // 7-key S3-style map, so a regression that applies the dump unconditionally shows up here.
-        Assertions.assertEquals(7, backendMap.size(), backendMap.toString());
+        Assertions.assertFalse(backendMap.keySet().stream().anyMatch(keyName -> keyName.startsWith("AWS_")));
+        Assertions.assertFalse(backendMap.containsKey("AZURE_SAS_TOKEN"));
+    }
+
+    @Test
+    void toBackendProperties_emitsNativeSasCredentialsAndExpiry() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "AZURE_AUTH_TYPE", "SAS",
+                "AZURE_ENDPOINT", "account.blob.core.windows.net",
+                "AZURE_ACCOUNT_NAME", "account",
+                "AZURE_CONTAINER", "container",
+                "AZURE_SAS_TOKEN", "?sv=2024-01-01&sig=temporary",
+                "AZURE_SAS_EXPIRY_MS", "4102444800000"));
+
+        Map<String, String> backendMap = properties.toBackendProperties().orElseThrow().toMap();
+
+        Assertions.assertEquals("SAS", backendMap.get("AZURE_AUTH_TYPE"));
+        Assertions.assertEquals("https://account.blob.core.windows.net", backendMap.get("AZURE_ENDPOINT"));
+        Assertions.assertEquals("account", backendMap.get("AZURE_ACCOUNT_NAME"));
+        Assertions.assertEquals("container", backendMap.get("AZURE_CONTAINER"));
+        Assertions.assertEquals("sv=2024-01-01&sig=temporary", backendMap.get("AZURE_SAS_TOKEN"));
+        Assertions.assertEquals("4102444800000", backendMap.get("AZURE_SAS_EXPIRY_MS"));
+        Assertions.assertFalse(backendMap.keySet().stream().anyMatch(keyName -> keyName.startsWith("AWS_")));
+    }
+
+    @Test
+    void bind_rejectsExpiredSasBeforeClientCreation() {
+        StoragePropertiesException exception = Assertions.assertThrows(StoragePropertiesException.class,
+                () -> AzureFileSystemProperties.of(Map.of(
+                        "AZURE_AUTH_TYPE", "SAS",
+                        "AZURE_ENDPOINT", "account.blob.core.windows.net",
+                        "AZURE_SAS_TOKEN", "sv=2024-01-01&sig=expired",
+                        "AZURE_SAS_EXPIRY_MS", "1")));
+
+        Assertions.assertTrue(exception.getMessage().contains("expired"), exception.getMessage());
     }
 
     /**
-     * Pins the OAuth2 backend map that moved here from fe-core {@code StorageAdapter} (which built a
-     * hadoop {@code Configuration} and dumped it). BE's live consumer is Microsoft Fabric OneLake:
-     * {@code abfs[s]://...dfs.fabric.microsoft.com} routes to {@code FILE_HDFS} and every entry is
-     * fed into BE's JNI hadoop builder, so dropping the hadoop-resolved keys silently changes what
-     * the ABFS connector is configured with.
+     * Pins the compatibility OAuth2 map used by genuine Microsoft Fabric OneLake locations. Native
+     * FILE_S3 Azure OAuth2 is marked explicitly and rejected by BE until a complete Entra-ID path is
+     * available; OneLake remains FILE_HDFS and consumes the Hadoop settings below.
      */
     @Test
     void toBackendProperties_oauth2DumpsHadoopResolvedConfig() {
@@ -163,9 +195,10 @@ class AzureFileSystemPropertiesTest {
         Assertions.assertTrue(backendMap.size() > 100,
                 "expected a resolved hadoop config, got " + backendMap.size() + " keys");
 
-        // 3. Never S3-style: OAuth2 has no AK/SK the BE S3 adapter could consume.
-        Assertions.assertFalse(backendMap.containsKey("AWS_ACCESS_KEY"), backendMap.toString());
-        Assertions.assertFalse(backendMap.containsKey("provider"), backendMap.toString());
+        // 3. Native attempts carry an explicit unsupported marker, never an AK/SK or SAS fallback.
+        Assertions.assertEquals("OAUTH2", backendMap.get("AZURE_AUTH_TYPE"), backendMap.toString());
+        Assertions.assertFalse(backendMap.containsKey("AZURE_ACCOUNT_KEY"), backendMap.toString());
+        Assertions.assertFalse(backendMap.containsKey("AZURE_SAS_TOKEN"), backendMap.toString());
     }
 
     @Test

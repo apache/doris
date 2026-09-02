@@ -293,9 +293,34 @@ public class LocationPathTest {
         Assertions.assertEquals(FileSystemType.HDFS, locationPath.getFileSystemType());
         location = "abfss://mycontainer@mystorageaccount.dfs.core.windows.net/data/2025/11/11/";
         locationPath = LocationPath.ofAdapters(location, STORAGE_PROPERTIES_MAP);
+        // Native Azure keeps the account authority and object path; converting to s3:// would
+        // discard the account host needed by the BE Azure client.
+        Assertions.assertEquals(location, locationPath.getNormalizedLocation());
         Assertions.assertEquals(TFileType.FILE_S3, locationPath.getTFileTypeForBE());
         Assertions.assertEquals(FileSystemType.S3, locationPath.getFileSystemType());
 
+    }
+
+    @Test
+    public void testAzureNativeLocationKeepsAuthorityAndUsesS3ReaderFamily() {
+        Map<String, String> azure = new HashMap<>();
+        azure.put("provider", "azure");
+        azure.put("AZURE_AUTH_TYPE", "SAS");
+        azure.put("AZURE_ENDPOINT", "account.blob.core.windows.net");
+        azure.put("AZURE_ACCOUNT_NAME", "account");
+        azure.put("AZURE_SAS_TOKEN", "sv=2024-01-01&sig=temporary");
+        azure.put("AZURE_SAS_EXPIRY_MS", "4102444800000");
+        StorageAdapter adapter = StorageAdapter.of(azure);
+        Map<StorageTypeId, StorageAdapter> adapters = new HashMap<>();
+        adapters.put(StorageTypeId.AZURE, adapter);
+
+        String location = "abfss://container@account.dfs.core.windows.net/path/file.parquet";
+        LocationPath path = LocationPath.ofAdapters(location, adapters);
+
+        Assertions.assertEquals(location, path.getNormalizedLocation());
+        Assertions.assertEquals(TFileType.FILE_S3, path.getTFileTypeForBE());
+        Assertions.assertEquals(FileSystemType.S3, path.getFileSystemType());
+        Assertions.assertEquals("SAS", adapter.getBackendConfigProperties().get("AZURE_AUTH_TYPE"));
     }
 
     @Test

@@ -27,11 +27,13 @@ import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -46,9 +48,10 @@ import java.util.Set;
 /**
  * Provider-owned Azure Blob Storage properties.
  *
- * <p>The public aliases, endpoint formatting, shared-key validation, and backend
- * map match fe-core AzureProperties. Legacy uppercase aliases remain accepted so
- * existing FE filesystem callers can migrate through {@link AzureFileSystemProvider#bind(Map)}.
+ * <p>The public aliases, endpoint formatting, and shared-key validation retain fe-core Azure
+ * compatibility. Backend maps use provider-owned {@code AZURE_*} keys; legacy uppercase input
+ * aliases remain accepted so existing FE filesystem callers can migrate through
+ * {@link AzureFileSystemProvider#bind(Map)}.
  */
 public final class AzureFileSystemProperties
         implements FileSystemProperties, BackendStorageProperties, HadoopStorageProperties {
@@ -62,13 +65,26 @@ public final class AzureFileSystemProperties
     public static final String OAUTH_ACCOUNT_HOST = "azure.oauth2_account_host";
     public static final String TENANT_ID = "azure.oauth2_client_tenant_id";
     public static final String AUTH_TYPE = "azure.auth_type";
+    public static final String SAS_TOKEN = "azure.sas_token";
+    public static final String SAS_EXPIRY_MS = "azure.sas_expiry_ms";
     public static final String CONTAINER = "container";
     public static final String USE_PATH_STYLE = "use_path_style";
     public static final String FORCE_PARSING_BY_STANDARD_URI = "force_parsing_by_standard_uri";
 
     public static final String SHARED_KEY_AUTH = "SharedKey";
+    public static final String SAS_AUTH = "SAS";
     public static final String OAUTH2_AUTH = "OAuth2";
     public static final String AZURE_ENDPOINT_TEMPLATE = "https://%s.blob.core.windows.net";
+
+    // Provider-owned backend keys. Azure keeps the existing FILE_S3 wire slot for compatibility,
+    // while these names prevent Azure credentials from inheriting AWS/S3 parameter semantics.
+    public static final String BACKEND_AUTH_TYPE = "AZURE_AUTH_TYPE";
+    public static final String BACKEND_ENDPOINT = "AZURE_ENDPOINT";
+    public static final String BACKEND_ACCOUNT_NAME = "AZURE_ACCOUNT_NAME";
+    public static final String BACKEND_ACCOUNT_KEY = "AZURE_ACCOUNT_KEY";
+    public static final String BACKEND_CONTAINER = "AZURE_CONTAINER";
+    public static final String BACKEND_SAS_TOKEN = "AZURE_SAS_TOKEN";
+    public static final String BACKEND_SAS_EXPIRY_MS = "AZURE_SAS_EXPIRY_MS";
 
     private static final String[] AZURE_BLOB_HOST_SUFFIXES = {
             "blob.core.windows.net",
@@ -126,10 +142,21 @@ public final class AzureFileSystemProperties
             description = "The Azure AD tenant id used by the native Azure SDK.")
     private String tenantId = "";
 
-    @ConnectorProperty(names = {AUTH_TYPE},
+    @ConnectorProperty(names = {AUTH_TYPE, "AZURE_AUTH_TYPE"},
             required = false,
             description = "The auth type of Azure Blob Storage.")
     private String azureAuthType = SHARED_KEY_AUTH;
+
+    @ConnectorProperty(names = {SAS_TOKEN, "azure.sas-token", "AZURE_SAS_TOKEN"},
+            required = false,
+            sensitive = true,
+            description = "A provider-issued Azure SAS token.")
+    private String sasToken = "";
+
+    @ConnectorProperty(names = {SAS_EXPIRY_MS, "azure.sas-token-expires-at-ms", "AZURE_SAS_EXPIRY_MS"},
+            required = false,
+            description = "The expiry time of the Azure SAS token in Unix milliseconds.")
+    private String sasExpiryMs = "";
 
     @ConnectorProperty(names = {CONTAINER, "azure.bucket", "azure.container", "s3.bucket",
             "AZURE_CONTAINER", "AZURE_BUCKET", "AWS_BUCKET"},
@@ -168,11 +195,13 @@ public final class AzureFileSystemProperties
     @Override
     public void validate() {
         new ParamRules()
-                .check(() -> !isSharedKeyAuth() && !isOauth2Auth(),
+                .check(() -> !isSharedKeyAuth() && !isSasAuth() && !isOauth2Auth(),
                         "Unsupported Azure auth_type: " + azureAuthType)
                 .check(() -> isSharedKeyAuth()
                                 && (StringUtils.isBlank(accountName) || StringUtils.isBlank(accountKey)),
                         "When auth_type is SharedKey, account_name and account_key are required.")
+                .check(() -> isSasAuth() && StringUtils.isBlank(sasToken),
+                        "When auth_type is SAS, sas_token is required.")
                 .check(() -> isOauth2Auth()
                                 && (StringUtils.isBlank(oauthAccountHost)
                                 || StringUtils.isBlank(clientId)
@@ -181,6 +210,7 @@ public final class AzureFileSystemProperties
                         "When auth_type is OAuth2, oauth2_account_host, oauth2_client_id, "
                                 + "oauth2_client_secret, and oauth2_server_uri are required.")
                 .validate("Invalid Azure filesystem properties");
+        validateSasExpiry();
     }
 
     @Override
@@ -226,28 +256,49 @@ public final class AzureFileSystemProperties
 
     @Override
     public BackendStorageKind backendKind() {
+        // Azure keeps FILE_S3 for the existing Thrift contract. provider=azure and the
+        // provider-owned AZURE_* map make the BE select its native Azure SDK client.
         return BackendStorageKind.S3_COMPATIBLE;
     }
 
     @Override
     public Map<String, String> toMap() {
-        // OAuth2 has no AK/SK equivalent that the BE S3-compatible adapter can consume;
-        // OAuth2 access currently only works through the Hadoop ABFS connector (the Iceberg
-        // REST catalog / OneLake path), so hand over the fs.azure.* OAuth config instead of
-        // S3-style params. Mirrors legacy AzureProperties.getBackendConfigProperties();
-        // native-SDK OAuth2 support may replace this in the future.
+        // Keep Azure's native credential vocabulary at the FE→BE boundary. The BE still receives
+        // FILE_S3, but its provider marker dispatches this map to the Azure SDK. In particular,
+        // an Azure SAS is not an AWS session token.
+        Map<String, String> azureProps = new HashMap<>();
+        azureProps.put("provider", "azure");
+        azureProps.put(BACKEND_AUTH_TYPE, backendAuthType());
         if (isOauth2Auth()) {
-            return oauth2BackendProperties();
+            // Genuine Fabric OneLake locations are still Hadoop-routed until the native Entra-ID
+            // path is complete. Keep the account-scoped fs.azure.* settings available to that
+            // explicitly HDFS-bound path, while the OAUTH2 marker makes a native FILE_S3 attempt
+            // fail closed instead of treating the credentials as SharedKey.
+            azureProps.putAll(oauth2BackendProperties());
         }
-        Map<String, String> s3Props = new HashMap<>();
-        s3Props.put("AWS_ENDPOINT", endpoint);
-        s3Props.put("AWS_REGION", "dummy_region");
-        s3Props.put("AWS_ACCESS_KEY", accountName);
-        s3Props.put("AWS_SECRET_KEY", accountKey);
-        s3Props.put("AWS_NEED_OVERRIDE_ENDPOINT", "true");
-        s3Props.put("provider", "azure");
-        s3Props.put("use_path_style", usePathStyle);
-        return Collections.unmodifiableMap(s3Props);
+        if (StringUtils.isNotBlank(endpoint)) {
+            azureProps.put(BACKEND_ENDPOINT, endpoint);
+        }
+        String backendAccountName = resolveBackendAccountName();
+        if (StringUtils.isNotBlank(backendAccountName)) {
+            azureProps.put(BACKEND_ACCOUNT_NAME, backendAccountName);
+        }
+        if (isSharedKeyAuth() && StringUtils.isNotBlank(accountKey)) {
+            azureProps.put(BACKEND_ACCOUNT_KEY, accountKey);
+        }
+        if (StringUtils.isNotBlank(container)) {
+            azureProps.put(BACKEND_CONTAINER, container);
+        }
+        if (isSasAuth() && StringUtils.isNotBlank(sasToken)) {
+            azureProps.put(BACKEND_SAS_TOKEN, stripSasPrefix(sasToken));
+            if (StringUtils.isNotBlank(sasExpiryMs)) {
+                azureProps.put(BACKEND_SAS_EXPIRY_MS, sasExpiryMs);
+            }
+        }
+        // Keep this generic option for existing Azure callers that persist it. Native Azure does
+        // not use path-style addressing, but removing the key would change old maps.
+        azureProps.put(USE_PATH_STYLE, usePathStyle);
+        return Collections.unmodifiableMap(azureProps);
     }
 
     @Override
@@ -269,6 +320,12 @@ public final class AzureFileSystemProperties
             cfg.put("fs.azure.account.oauth2.client.id." + oauthAccountHost, clientId);
             cfg.put("fs.azure.account.oauth2.client.secret." + oauthAccountHost, clientSecret);
             cfg.put("fs.azure.account.oauth2.client.endpoint." + oauthAccountHost, oauthServerUri);
+        } else if (isSasAuth()) {
+            String accountHost = resolveAccountHost();
+            if (StringUtils.isNotBlank(accountHost)) {
+                cfg.put("fs.azure.account.auth.type." + accountHost, SAS_AUTH);
+                cfg.put("fs.azure.sas.fixed.token." + accountHost, stripSasPrefix(sasToken));
+            }
         } else {
             for (String suffix : normalizedAzureBlobHostSuffixes()) {
                 cfg.put("fs.azure.account.key." + accountName + "." + suffix, accountKey);
@@ -279,30 +336,10 @@ public final class AzureFileSystemProperties
     }
 
     /**
-     * BE property map for OAuth2, key-for-key equal to what legacy fe-core
-     * {@code AzureProperties.getBackendConfigProperties()} produced: it dumped its whole
-     * {@link Configuration}, so on top of {@link #toHadoopConfigurationMap()} the map also carries
-     * hadoop's {@code core-default.xml} and any {@code core-site.xml} reachable on the FE
-     * classpath ({@code start_fe.sh} puts {@code ${DORIS_HOME}/conf} and {@code ${HADOOP_CONF_DIR}}
-     * there, so this is a real operator-facing channel, not just hadoop's built-in defaults).
-     *
-     * <p>The live consumer is Microsoft Fabric OneLake: {@code LocationPath.getTFileTypeForBE()}
-     * routes {@code abfs[s]://...dfs.fabric.microsoft.com} to {@code FILE_HDFS}, and BE's
-     * {@code hdfs_builder.cpp} feeds every entry of this map into its JNI hadoop builder — which is
-     * how the {@code fs.azure.account.oauth2.*} keys reach the ABFS connector.
-     *
-     * <p>Ordering is load-bearing and mirrors the legacy sequence: hadoop defaults first, then the
-     * provider's own {@code fs.azure.*} view (which carries the per-scheme cache fingerprint), then
-     * user {@code fs.*} passthrough (so an explicit user value wins), then cache-disable
-     * normalization last.
-     *
-     * <p>The plugin bundles hadoop, but {@code FileSystemPluginManager.FS_PARENT_FIRST_PREFIXES}
-     * makes {@code org.apache.hadoop.} parent-first, so whenever the FE host ships hadoop this
-     * resolves to the host copy and the bundled one is only a {@code findClass} fallback. That also
-     * means the XML defaults below come from wherever the context classloader finds them — hadoop's
-     * {@code Configuration} looks up {@code core-default.xml}/{@code core-site.xml} through the
-     * TCCL, not through this class's loader. A host that stops shipping hadoop would therefore need
-     * the TCCL pinned to the plugin loader here, not just the bundled jars.
+     * Legacy Hadoop configuration view retained for genuine Fabric OneLake locations. OneLake
+     * remains explicitly FILE_HDFS-routed while native Azure OAuth2 support is pending; retaining
+     * the resolved Configuration preserves its existing defaults and fs.azure.* account settings.
+     * Native FILE_S3 attempts still carry an explicit OAUTH2 marker and are rejected by BE.
      */
     private Map<String, String> oauth2BackendProperties() {
         Configuration conf = new Configuration();
@@ -315,9 +352,6 @@ public final class AzureFileSystemProperties
         for (String scheme : legacyCacheSchemes()) {
             String key = "fs." + scheme + ".impl.disable.cache";
             String userValue = rawProperties.get(key);
-            // No blanket disable any more (the fingerprint in toHadoopConfigurationMap() isolates
-            // credentials instead); an explicit user value is still honored, normalized to
-            // true/false ("yes"/"1" would reach BE verbatim through the fs.* passthrough above).
             if (StringUtils.isNotBlank(userValue)) {
                 conf.setBoolean(key, BooleanUtils.toBoolean(userValue));
             }
@@ -325,6 +359,38 @@ public final class AzureFileSystemProperties
         Map<String, String> dump = new HashMap<>();
         conf.forEach(entry -> dump.put(entry.getKey(), entry.getValue()));
         return Collections.unmodifiableMap(dump);
+    }
+
+    /**
+     * Keeps Azure's account authority and object path intact for the BE native reader. The old
+     * fe-core adapter rewrote these locations to {@code s3://container/path}, which discarded the
+     * account host and forced Azure data through an HDFS/S3 compatibility interpretation.
+     */
+    @Override
+    public String validateAndNormalizeUri(String path) {
+        if (StringUtils.isBlank(path)) {
+            throw new StoragePropertiesException("Path cannot be null or empty");
+        }
+        int delimiter = path.indexOf("://");
+        if (delimiter <= 0) {
+            throw new StoragePropertiesException("Azure URI must contain a scheme: " + path);
+        }
+        String scheme = path.substring(0, delimiter).toLowerCase(Locale.ROOT);
+        if (!(scheme.equals("wasb") || scheme.equals("wasbs")
+                || scheme.equals("abfs") || scheme.equals("abfss")
+                || scheme.equals("http") || scheme.equals("https")
+                || scheme.equals("s3"))) {
+            throw new StoragePropertiesException("Unsupported Azure URI scheme: " + path);
+        }
+        // Parse account/container/path now so malformed locations fail before a scan reaches BE;
+        // return the original path (apart from a case-insensitive scheme) to preserve object keys.
+        try {
+            AzureUri.parse(path);
+        } catch (IOException e) {
+            throw new StoragePropertiesException("Invalid Azure URI: " + path, e);
+        }
+        return path.substring(0, delimiter).equals(scheme)
+                ? path : scheme + path.substring(delimiter);
     }
 
     public String getEndpoint() {
@@ -337,6 +403,14 @@ public final class AzureFileSystemProperties
 
     public String getAccountKey() {
         return accountKey;
+    }
+
+    public String getSasToken() {
+        return sasToken;
+    }
+
+    public String getSasExpiryMs() {
+        return sasExpiryMs;
     }
 
     public String getClientId() {
@@ -379,6 +453,10 @@ public final class AzureFileSystemProperties
         return SHARED_KEY_AUTH.equalsIgnoreCase(azureAuthType);
     }
 
+    public boolean isSasAuth() {
+        return SAS_AUTH.equalsIgnoreCase(azureAuthType);
+    }
+
     public boolean isOauth2Auth() {
         return OAUTH2_AUTH.equalsIgnoreCase(azureAuthType);
     }
@@ -415,10 +493,90 @@ public final class AzureFileSystemProperties
         if (StringUtils.isNotBlank(azureAuthType)) {
             if (SHARED_KEY_AUTH.equalsIgnoreCase(azureAuthType)) {
                 azureAuthType = SHARED_KEY_AUTH;
+            } else if (SAS_AUTH.equalsIgnoreCase(azureAuthType)) {
+                azureAuthType = SAS_AUTH;
             } else if (OAUTH2_AUTH.equalsIgnoreCase(azureAuthType)) {
                 azureAuthType = OAUTH2_AUTH;
             }
         }
+        // A token-only binding is unambiguously SAS. This supports provider-owned
+        // AZURE_SAS_TOKEN input without requiring a second auth-type key.
+        if (StringUtils.isNotBlank(sasToken) && StringUtils.isBlank(accountKey)
+                && SHARED_KEY_AUTH.equalsIgnoreCase(azureAuthType)) {
+            azureAuthType = SAS_AUTH;
+        }
+    }
+
+    private String backendAuthType() {
+        if (isSharedKeyAuth()) {
+            return "SHARED_KEY";
+        }
+        if (isSasAuth()) {
+            return SAS_AUTH;
+        }
+        // OAuth2 remains an explicit value so the native BE returns a
+        // diagnostic unsupported-auth error instead of treating it as SharedKey.
+        return "OAUTH2";
+    }
+
+    private String resolveBackendAccountName() {
+        if (StringUtils.isNotBlank(accountName)) {
+            return accountName;
+        }
+        String host = resolveAccountHost();
+        if (StringUtils.isBlank(host)) {
+            return "";
+        }
+        int dot = host.indexOf('.');
+        return dot > 0 ? host.substring(0, dot) : host;
+    }
+
+    private String resolveAccountHost() {
+        if (StringUtils.isNotBlank(oauthAccountHost)) {
+            return oauthAccountHost;
+        }
+        if (StringUtils.isBlank(endpoint)) {
+            return "";
+        }
+        try {
+            String host = new URI(endpoint).getHost();
+            if (StringUtils.isBlank(host)) {
+                return "";
+            }
+            String lowerHost = host.toLowerCase(Locale.ROOT);
+            int blobMarker = lowerHost.indexOf(".blob.");
+            return blobMarker >= 0
+                    ? host.substring(0, blobMarker) + ".dfs" + host.substring(blobMarker + 5)
+                    : host;
+        } catch (URISyntaxException | IllegalArgumentException e) {
+            return "";
+        }
+    }
+
+    private void validateSasExpiry() {
+        if (!isSasAuth() || StringUtils.isBlank(sasExpiryMs)) {
+            return;
+        }
+        final long expiry;
+        try {
+            expiry = Long.parseLong(sasExpiryMs.trim());
+        } catch (NumberFormatException e) {
+            throw new StoragePropertiesException("Invalid Azure SAS expiry value: " + sasExpiryMs, e);
+        }
+        if (expiry <= 0) {
+            throw new StoragePropertiesException("Azure SAS expiry must be a positive Unix timestamp");
+        }
+        if (expiry <= System.currentTimeMillis()) {
+            throw new StoragePropertiesException("Azure SAS credential is expired");
+        }
+    }
+
+    private static String stripSasPrefix(String token) {
+        String normalized = token == null ? "" : token.trim();
+        while (normalized.startsWith("?") || normalized.startsWith("&")) {
+            normalized = normalized.substring(1);
+        }
+        return normalized;
     }
 
     private static String formatAzureEndpoint(String endpoint, String accountName, String accountHost) {

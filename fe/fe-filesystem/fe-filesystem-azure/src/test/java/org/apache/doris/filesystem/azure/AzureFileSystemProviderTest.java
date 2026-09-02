@@ -50,6 +50,13 @@ class AzureFileSystemProviderTest {
     }
 
     @Test
+    void supports_recognizesProviderOwnedSasToken() {
+        Map<String, String> props = new HashMap<>();
+        props.put("AZURE_SAS_TOKEN", "sv=2024-01-01&sig=temporary");
+        Assertions.assertTrue(provider.supports(props));
+    }
+
+    @Test
     void supports_returnsFalseForUnknownEndpointSuffix() {
         Map<String, String> props = new HashMap<>();
         props.put("AZURE_ENDPOINT", "https://myaccount.s3.amazonaws.com");
