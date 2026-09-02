@@ -46,6 +46,7 @@ class PUniqueId;
 class RuntimeState;
 class MemTrackerLimiter;
 class Thread;
+class PendingOutfileCleanupRegistry;
 class GetArrowResultBatchCtx;
 class GetResultBatchCtx;
 class Block;
@@ -101,6 +102,7 @@ private:
 
     CountDownLatch _stop_background_threads_latch;
     std::shared_ptr<Thread> _clean_thread;
+    std::shared_ptr<PendingOutfileCleanupRegistry> _pending_outfile_cleanup_registry;
 };
 
 } // namespace doris

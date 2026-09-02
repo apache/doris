@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -45,32 +46,45 @@ public class LogicalFileSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_
     private final String filePath;
     private final String format;
     private final Map<String, String> properties;
+    private final int beExecVersion;
 
     public LogicalFileSink(String filePath, String format,
             Map<String, String> properties, List<NamedExpression> outputExprs, CHILD_TYPE child) {
-        this(filePath, format, properties, outputExprs, Optional.empty(), Optional.empty(), child);
+        this(filePath, format, properties, Config.be_exec_version, outputExprs,
+                Optional.empty(), Optional.empty(), child);
     }
 
     public LogicalFileSink(String filePath, String format, Map<String, String> properties,
             List<NamedExpression> outputExprs,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child) {
+        this(filePath, format, properties, Config.be_exec_version, outputExprs,
+                groupExpression, logicalProperties, child);
+    }
+
+    private LogicalFileSink(String filePath, String format, Map<String, String> properties,
+            int beExecVersion, List<NamedExpression> outputExprs,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            CHILD_TYPE child) {
         super(PlanType.LOGICAL_FILE_SINK, outputExprs, groupExpression, logicalProperties, child);
         this.filePath = Objects.requireNonNull(filePath);
         this.format = Objects.requireNonNull(format);
         this.properties = ImmutableMap.copyOf(Objects.requireNonNull(properties));
+        this.beExecVersion = beExecVersion;
     }
 
     public LogicalFileSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalFileSink<>(filePath, format, properties, outputExprs, child()));
+                new LogicalFileSink<>(filePath, format, properties, beExecVersion, outputExprs,
+                        Optional.empty(), Optional.empty(), child()));
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalFileSink<>(filePath, format, properties, outputExprs, children.get(0)));
+                new LogicalFileSink<>(filePath, format, properties, beExecVersion, outputExprs,
+                        Optional.empty(), Optional.empty(), children.get(0)));
     }
 
     @Override
@@ -90,19 +104,20 @@ public class LogicalFileSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_
             return false;
         }
         LogicalFileSink<?> that = (LogicalFileSink<?>) o;
-        return Objects.equals(filePath, that.filePath) && Objects.equals(format, that.format)
+        return beExecVersion == that.beExecVersion
+                && Objects.equals(filePath, that.filePath) && Objects.equals(format, that.format)
                 && Objects.equals(properties, that.properties);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), filePath, format, properties);
+        return Objects.hash(super.hashCode(), filePath, format, properties, beExecVersion);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalFileSink<>(filePath, format, properties, outputExprs,
+                new LogicalFileSink<>(filePath, format, properties, beExecVersion, outputExprs,
                 groupExpression, Optional.of(getLogicalProperties()), child()));
     }
 
@@ -111,7 +126,7 @@ public class LogicalFileSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalFileSink<>(filePath, format, properties, outputExprs,
+                new LogicalFileSink<>(filePath, format, properties, beExecVersion, outputExprs,
                 groupExpression, logicalProperties, children.get(0)));
     }
 
@@ -125,6 +140,10 @@ public class LogicalFileSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public int getBeExecVersion() {
+        return beExecVersion;
     }
 
     @Override

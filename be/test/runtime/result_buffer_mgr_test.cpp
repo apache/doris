@@ -28,9 +28,12 @@
 #include "core/block/block.h"
 #include "exec/sink/writer/varrow_flight_result_writer.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
+#include "runtime/exec_env.h"
 #include "runtime/result_block_buffer.h"
 #include "util/cpu_info.h"
+#include "util/defer_op.h"
 #include "util/thread.h"
+#include "util/threadpool.h"
 
 namespace doris {
 
@@ -336,6 +339,52 @@ TEST_F(ResultBufferMgrTest, ConcurrentCancellationWaitsForOutfileAbortDrain) {
     EXPECT_FALSE(abort_future.get().ok());
     EXPECT_TRUE(cancel_future.get());
     EXPECT_EQ(cleanup_attempts.load(), 2);
+}
+
+TEST_F(ResultBufferMgrTest, StopDrainsCleanupQueuedBehindBlockedWorker) {
+    ExecEnv* exec_env = ExecEnv::GetInstance();
+    auto original_pool = std::move(exec_env->_lazy_release_obj_pool);
+    CountDownLatch release_worker(1);
+    Defer restore_pool {[&] {
+        release_worker.count_down();
+        if (exec_env->_lazy_release_obj_pool != nullptr) {
+            exec_env->_lazy_release_obj_pool->shutdown();
+        }
+        exec_env->_lazy_release_obj_pool = std::move(original_pool);
+    }};
+    ASSERT_TRUE(ThreadPoolBuilder("outfile-cleanup-shutdown-test")
+                        .set_min_threads(1)
+                        .set_max_threads(1)
+                        .build(&exec_env->_lazy_release_obj_pool)
+                        .ok());
+
+    CountDownLatch worker_started(1);
+    ASSERT_TRUE(exec_env->_lazy_release_obj_pool
+                        ->submit_func([&] {
+                            worker_started.count_down();
+                            release_worker.wait();
+                        })
+                        .ok());
+    ASSERT_TRUE(worker_started.wait_for(std::chrono::seconds(5)));
+
+    ResultBufferMgr buffer_mgr;
+    TUniqueId query_id;
+    query_id.lo = 90;
+    query_id.hi = 900;
+    std::shared_ptr<ResultBlockBufferBase> buffer;
+    ASSERT_TRUE(buffer_mgr.create_sender(query_id, 1024, &buffer, &_state, false).ok());
+    std::atomic<int> cleanup_count = 0;
+    ASSERT_TRUE(buffer->add_outfile_cleanup([&] {
+                          ++cleanup_count;
+                          return Status::OK();
+                      }).ok());
+
+    ASSERT_TRUE(buffer_mgr.cancel(query_id, Status::Cancelled("injected expiration"), true));
+    ASSERT_EQ(exec_env->_lazy_release_obj_pool->get_queue_size(), 1);
+
+    buffer_mgr.stop();
+
+    EXPECT_EQ(cleanup_count.load(), 1);
 }
 
 } // namespace doris

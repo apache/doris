@@ -41,6 +41,27 @@ inline bool should_expire_outfile_marker_state(const OutfileMarkerState& state,
     return !state.tombstoned || state.owned_path.empty();
 }
 
+inline void record_outfile_marker_ownership(OutfileMarkerState* state, const std::string& path,
+                                            std::chrono::steady_clock::time_point now) {
+    state->updated_at = now;
+    state->owned_path = path;
+}
+
+inline void complete_outfile_marker_delete(OutfileMarkerState* state, const std::string& path,
+                                           bool delete_succeeded,
+                                           std::chrono::steady_clock::time_point now) {
+    if (state->owned_path != path) {
+        return;
+    }
+    state->updated_at = now;
+    // A failed delete must retain ownership so a later compensating DELETE can retry it.
+    if (!delete_succeeded) {
+        state->tombstoned = true;
+        return;
+    }
+    state->owned_path.clear();
+}
+
 inline bool should_sync_outfile_marker(TStorageBackendType::type storage_type) {
     // Local OUTFILE historically made the completion marker durable before acknowledging it.
     return storage_type == TStorageBackendType::LOCAL;

@@ -42,6 +42,23 @@ TEST(OutfileMarkerStateTest, RetainsFailedDeleteTombstone) {
     EXPECT_TRUE(should_expire_outfile_marker_state(state, now));
 }
 
+TEST(OutfileMarkerStateTest, AppendFailureRetainsOwnershipUntilDeleteRetrySucceeds) {
+    const auto created_at = std::chrono::steady_clock::now();
+    OutfileMarkerState state {.updated_at = created_at, .owned_path = "", .tombstoned = false};
+    record_outfile_marker_ownership(&state, "success-marker", created_at);
+
+    const auto failed_delete_at = created_at + std::chrono::seconds(1);
+    complete_outfile_marker_delete(&state, "success-marker", false, failed_delete_at);
+    EXPECT_EQ(state.owned_path, "success-marker");
+    EXPECT_TRUE(state.tombstoned);
+    EXPECT_EQ(state.updated_at, failed_delete_at);
+
+    const auto successful_retry_at = failed_delete_at + std::chrono::seconds(1);
+    complete_outfile_marker_delete(&state, "success-marker", true, successful_retry_at);
+    EXPECT_TRUE(state.owned_path.empty());
+    EXPECT_EQ(state.updated_at, successful_retry_at);
+}
+
 TEST(OutfileMarkerStateTest, SyncsOnlyLocalSuccessMarker) {
     EXPECT_TRUE(should_sync_outfile_marker(TStorageBackendType::LOCAL));
     EXPECT_FALSE(should_sync_outfile_marker(TStorageBackendType::S3));

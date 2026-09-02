@@ -773,7 +773,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         OutFileClause outFile = new OutFileClause(
                 fileSink.getFilePath(),
                 fileSink.getFormat(),
-                fileSink.getProperties()
+                fileSink.getProperties(),
+                fileSink.getBeExecVersion()
         );
 
         List<Expr> outputExprs = Lists.newArrayList();

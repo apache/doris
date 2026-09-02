@@ -849,14 +849,17 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
                 return;
             }
             st = file_system->delete_file(owned_marker_path);
-            if (st.ok() || st.is<ErrorCode::NOT_FOUND>()) {
+            const bool delete_succeeded = st.ok() || st.is<ErrorCode::NOT_FOUND>();
+            {
                 std::lock_guard marker_guard(outfile_marker_lock);
                 auto state_it = outfile_marker_states.find(marker_token);
-                if (state_it != outfile_marker_states.end() &&
-                    state_it->second.owned_path == owned_marker_path) {
-                    state_it->second.owned_path.clear();
-                    state_it->second.updated_at = std::chrono::steady_clock::now();
+                if (state_it != outfile_marker_states.end()) {
+                    complete_outfile_marker_delete(&state_it->second, owned_marker_path,
+                                                   delete_succeeded,
+                                                   std::chrono::steady_clock::now());
                 }
+            }
+            if (delete_succeeded) {
                 st = Status::OK();
             }
             st.to_protobuf(result->mutable_status());
@@ -896,14 +899,35 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
             return;
         }
 
+        if (atomic_outfile_marker) {
+            // Claim the path before append/close because either call can publish data before
+            // reporting failure, and a failed immediate delete must remain retryable.
+            std::lock_guard marker_guard(outfile_marker_lock);
+            record_outfile_marker_ownership(&outfile_marker_states[marker_token], file_name,
+                                            std::chrono::steady_clock::now());
+        }
+
+        auto remove_incomplete_marker = [&]() {
+            Status delete_status = file_system->delete_file(file_name);
+            if (atomic_outfile_marker) {
+                std::lock_guard marker_guard(outfile_marker_lock);
+                auto state_it = outfile_marker_states.find(marker_token);
+                if (state_it != outfile_marker_states.end()) {
+                    complete_outfile_marker_delete(
+                            &state_it->second, file_name,
+                            delete_status.ok() || delete_status.is<ErrorCode::NOT_FOUND>(),
+                            std::chrono::steady_clock::now());
+                }
+            }
+            WARN_IF_ERROR(delete_status, "failed to remove incomplete outfile success file");
+        };
+
         // must write somthing because s3 file writer can not writer empty file
         st = file_writer->append({"success"});
         if (!st.ok()) {
             LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
             WARN_IF_ERROR(file_writer->abort(), "failed to abort outfile success file writer");
-            // The marker belongs to this request, so a failed write must not outlive the query.
-            WARN_IF_ERROR(file_system->delete_file(file_name),
-                          "failed to remove incomplete outfile success file");
+            remove_incomplete_marker();
             st.to_protobuf(result->mutable_status());
             return;
         }
@@ -911,16 +935,9 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
         if (!st.ok()) {
             LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
             WARN_IF_ERROR(file_writer->abort(), "failed to abort outfile success file writer");
-            WARN_IF_ERROR(file_system->delete_file(file_name),
-                          "failed to remove incomplete outfile success file");
+            remove_incomplete_marker();
             st.to_protobuf(result->mutable_status());
             return;
-        }
-        if (atomic_outfile_marker) {
-            std::lock_guard marker_guard(outfile_marker_lock);
-            auto& marker_state = outfile_marker_states[marker_token];
-            marker_state.updated_at = std::chrono::steady_clock::now();
-            marker_state.owned_path = file_name;
         }
         Status::OK().to_protobuf(result->mutable_status());
     });

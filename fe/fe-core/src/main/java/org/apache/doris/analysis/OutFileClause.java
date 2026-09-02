@@ -145,12 +145,19 @@ public class OutFileClause {
     private boolean isAnalyzed = false;
 
     private FileFormatProperties fileFormatProperties;
-    private Integer beExecVersion;
+    private final int beExecVersion;
 
     public OutFileClause(String filePath, String format, Map<String, String> properties) {
+        // One statement must keep the same capability decision even if the mutable cluster
+        // protocol version changes while the statement is being planned.
+        this(filePath, format, properties, Config.be_exec_version);
+    }
+
+    public OutFileClause(String filePath, String format, Map<String, String> properties, int beExecVersion) {
         this.filePath = filePath;
         this.properties = properties;
         this.isAnalyzed = false;
+        this.beExecVersion = beExecVersion;
         if (Strings.isNullOrEmpty(format)) {
             fileFormatProperties = FileFormatProperties.createFileFormatProperties("csv");
         } else {
@@ -195,10 +202,6 @@ public class OutFileClause {
     }
 
     public int getBeExecVersion() {
-        if (beExecVersion == null) {
-            // Planning and finalization must use one snapshot of the mutable protocol version.
-            beExecVersion = Config.be_exec_version;
-        }
         return beExecVersion;
     }
 

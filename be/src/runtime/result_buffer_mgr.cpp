@@ -24,10 +24,11 @@
 #include <cstdint>
 
 // IWYU pragma: no_include <bits/chrono.h>
-#include <atomic>
 #include <chrono> // IWYU pragma: keep
+#include <condition_variable>
 #include <memory>
 #include <ostream>
+#include <unordered_set>
 #include <utility>
 
 #include "arrow/type_fwd.h"
@@ -44,9 +45,45 @@
 
 namespace doris {
 
+class PendingOutfileCleanup {
+public:
+    explicit PendingOutfileCleanup(std::shared_ptr<ResultBlockBufferBase> buffer)
+            : _buffer(std::move(buffer)) {}
+
+    void mark_ready() {
+        std::lock_guard lock(_lock);
+        _ready = true;
+        _ready_condition.notify_all();
+    }
+
+    void run() {
+        std::unique_lock lock(_lock);
+        _ready_condition.wait(lock, [this] { return _ready; });
+        if (_buffer == nullptr) {
+            return;
+        }
+        _buffer->release_outfile_cleanup();
+        _buffer.reset();
+    }
+
+private:
+    std::mutex _lock;
+    std::condition_variable _ready_condition;
+    bool _ready = false;
+    std::shared_ptr<ResultBlockBufferBase> _buffer;
+};
+
+class PendingOutfileCleanupRegistry {
+public:
+    std::mutex lock;
+    std::unordered_set<std::shared_ptr<PendingOutfileCleanup>> cleanups;
+};
+
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(result_buffer_block_count, MetricUnit::NOUNIT);
 
-ResultBufferMgr::ResultBufferMgr() : _stop_background_threads_latch(1) {
+ResultBufferMgr::ResultBufferMgr()
+        : _stop_background_threads_latch(1),
+          _pending_outfile_cleanup_registry(std::make_shared<PendingOutfileCleanupRegistry>()) {
     // Each ResultBlockBufferBase has a limited queue size of 1024, it's not needed to count the
     // actual size of all ResultBlockBufferBase.
     REGISTER_HOOK_METRIC(result_buffer_block_count, [this]() {
@@ -75,6 +112,20 @@ void ResultBufferMgr::stop() {
         // Shutdown must retain cleanup ownership until rollback finishes; the lazy-release pool may
         // already be stopping and cannot provide that guarantee.
         cancel(id, Status::Cancelled("ResultBufferMgr is stopping"));
+    }
+
+    std::vector<std::shared_ptr<PendingOutfileCleanup>> pending_cleanups;
+    {
+        std::lock_guard lock(_pending_outfile_cleanup_registry->lock);
+        pending_cleanups.assign(_pending_outfile_cleanup_registry->cleanups.begin(),
+                                _pending_outfile_cleanup_registry->cleanups.end());
+    }
+    for (const auto& cleanup : pending_cleanups) {
+        cleanup->run();
+    }
+    {
+        std::lock_guard lock(_pending_outfile_cleanup_registry->lock);
+        _pending_outfile_cleanup_registry->cleanups.clear();
     }
 }
 
@@ -155,6 +206,7 @@ Status ResultBufferMgr::find_buffer(const TUniqueId& finst_id,
 
 bool ResultBufferMgr::cancel(const TUniqueId& unique_id, const Status& reason, bool cleanup_async) {
     std::shared_ptr<ResultBlockBufferBase> buffer;
+    std::shared_ptr<PendingOutfileCleanup> pending_cleanup;
     {
         std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
         auto iter = _buffer_map.find(unique_id);
@@ -162,13 +214,29 @@ bool ResultBufferMgr::cancel(const TUniqueId& unique_id, const Status& reason, b
             return false;
         }
         buffer = std::move(iter->second);
+        cleanup_async = cleanup_async && !_stopping;
+        if (cleanup_async) {
+            // Register ownership before removing the buffer so shutdown cannot miss a cleanup
+            // that has not reached the lazy-release worker yet.
+            pending_cleanup = std::make_shared<PendingOutfileCleanup>(buffer);
+            std::lock_guard cleanup_lock(_pending_outfile_cleanup_registry->lock);
+            _pending_outfile_cleanup_registry->cleanups.emplace(pending_cleanup);
+        }
         _buffer_map.erase(iter);
     }
     buffer->cancel(reason, false);
-    auto cleanup_started = std::make_shared<std::atomic<bool>>(false);
-    auto cleanup = [buffer = std::move(buffer), cleanup_started] {
-        if (!cleanup_started->exchange(true)) {
-            buffer->release_outfile_cleanup();
+    if (!cleanup_async) {
+        buffer->release_outfile_cleanup();
+        return true;
+    }
+
+    pending_cleanup->mark_ready();
+    std::weak_ptr<PendingOutfileCleanupRegistry> weak_registry = _pending_outfile_cleanup_registry;
+    auto cleanup = [pending_cleanup, weak_registry] {
+        pending_cleanup->run();
+        if (auto registry = weak_registry.lock()) {
+            std::lock_guard lock(registry->lock);
+            registry->cleanups.erase(pending_cleanup);
         }
     };
     ThreadPool* pool = ExecEnv::GetInstance()->lazy_release_obj_pool();
