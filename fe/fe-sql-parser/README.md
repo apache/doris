@@ -35,7 +35,7 @@ fe-sql-parser/
     ├── org/apache/doris/nereids/
     │   ├── parser/                 # Parser support: CaseInsensitiveStream,
     │   │                           # Origin, OriginAware, ParserUtils,
-    │   │                           # ParseErrorListener, PostProcessor
+    │   │                           # ParseErrorListener
     │   ├── exceptions/             # ParseException, SyntaxParseException
     │   └── errors/QueryParsingErrors.java
     └── org/apache/doris/sqlparser/
@@ -423,7 +423,7 @@ public class AuditListener extends DorisParserBaseListener {
 
 ### Example 3: Live `ParseTreeListener` — fire during parsing
 
-Most cases are covered by Examples 1 and 2. If you need to intervene **while the parser is building each node** (mutating tokens, injecting metadata, streaming work), attach a listener with `parser.addParseListener(...)`. This is exactly how `fe-sql-parser`'s internal `PostProcessor` rewrites identifier case at parse time.
+Most cases are covered by Examples 1 and 2. If you need to intervene **while the parser is building each node** (mutating tokens, injecting metadata, streaming work), attach a listener with `parser.addParseListener(...)`.
 
 `DorisSqlParser.parseStatement` does not expose the parser instance; use `newLexer` + `newParser` to take ownership:
 
@@ -453,7 +453,7 @@ DorisParser.SingleStatementContext tree = parser.singleStatement();
 System.out.println(hintListener.hints);
 ```
 
-`newParser` already attaches `PostProcessor` and `ParseErrorListener`; your listener is added on top.
+`newParser` already attaches `ParseErrorListener`; your listener is added on top. Identifier normalization is handled locally by the grammar.
 
 ### Example 4: Wrap the facade — metrics, caching, rewriting
 

@@ -72,7 +72,6 @@ import javax.annotation.Nullable;
 public class NereidsParser {
     public static final Logger LOG = LogManager.getLogger(NereidsParser.class);
     private static final ParseErrorListener PARSE_ERROR_LISTENER = new ParseErrorListener();
-    private static final PostProcessor POST_PROCESSOR = new PostProcessor();
 
     private static final BitSet EXPLAIN_TOKENS = new BitSet();
 
@@ -409,7 +408,6 @@ public class NereidsParser {
             CommonTokenStream tokenStream, Function<DorisParser, ParserRuleContext> parseFunction) {
         DorisParser parser = new DorisParser(tokenStream);
         parser.ansiSQLSyntax = GlobalVariable.enable_ansi_query_organization_behavior;
-        parser.addParseListener(POST_PROCESSOR);
         parser.removeErrorListeners();
         parser.addErrorListener(PARSE_ERROR_LISTENER);
 
