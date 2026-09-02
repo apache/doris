@@ -245,8 +245,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
 
     ReadSchemaSPtr read_schema = std::make_shared<ReadSchema>(_base_tablet_schema->columns());
     RETURN_IF_ERROR(read_schema->init_from_tablet_schema(*_base_tablet_schema,
-                                                         /*merge_by_sequence_mapping=*/false,
-                                                         /*map_row_binlog_columns=*/false));
+                                                         /*merge_by_sequence_mapping=*/false));
 
     // delete handlers to filter out deleted rows
     DeleteHandler delete_handler;

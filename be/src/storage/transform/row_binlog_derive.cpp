@@ -18,6 +18,7 @@
 #include "storage/transform/row_binlog_derive.h"
 
 #include <algorithm>
+#include <array>
 #include <optional>
 #include <span>
 
@@ -35,6 +36,7 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/historical_row_retriever.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/tablet_info.h"
 #include "storage/transform/transform_util.h"
 #include "util/time.h"
 
@@ -42,8 +44,105 @@ namespace doris::segment_v2 {
 
 namespace {
 
-// Number of row-binlog system columns: TSO, LSN, op.
-constexpr uint32_t BINLOG_COLNUM = 3;
+bool row_binlog_columns_have_compatible_shape(const TabletColumn& source,
+                                              const TabletColumn& target,
+                                              bool allow_top_level_nullable_widening) {
+    if (source.type() != target.type() || source.length() != target.length() ||
+        source.precision() != target.precision() || source.frac() != target.frac() ||
+        source.get_subtype_count() != target.get_subtype_count() ||
+        (source.is_nullable() != target.is_nullable() &&
+         !(allow_top_level_nullable_widening && !source.is_nullable() && target.is_nullable()))) {
+        return false;
+    }
+    for (uint32_t i = 0; i < source.get_subtype_count(); ++i) {
+        if (!row_binlog_columns_have_compatible_shape(source.get_sub_column(i),
+                                                      target.get_sub_column(i), false)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+Result<std::vector<RowBinlogColumnCidMapping>> resolve_row_binlog_column_mappings(
+        const TabletSchema& source_schema, const TabletSchema& row_binlog_schema,
+        const std::vector<RowBinlogColumnUidMapping>& uid_mappings) {
+    const std::array<int32_t, 3> special_cids {row_binlog_schema.binlog_tso_col_idx(),
+                                               row_binlog_schema.binlog_lsn_col_idx(),
+                                               row_binlog_schema.binlog_op_col_idx()};
+    std::vector<bool> used_target_cids(row_binlog_schema.num_columns(), false);
+    for (int32_t cid : special_cids) {
+        if (cid < 0 || std::cmp_greater_equal(cid, row_binlog_schema.num_columns()) ||
+            row_binlog_schema.column(cid).is_key() || used_target_cids[cid]) {
+            return ResultError(
+                    Status::InvalidArgument("Invalid row-binlog special column cid {}", cid));
+        }
+        used_target_cids[cid] = true;
+    }
+
+    std::vector<bool> used_source_cids(source_schema.num_columns(), false);
+    std::vector<RowBinlogColumnCidMapping> cid_mappings;
+    cid_mappings.reserve(uid_mappings.size());
+    for (const auto& uid_mapping : uid_mappings) {
+        const int32_t source_cid = source_schema.field_index(uid_mapping.source_uid);
+        const int32_t current_cid = row_binlog_schema.field_index(uid_mapping.current_uid);
+        const int32_t before_cid = uid_mapping.before_uid.has_value()
+                                           ? row_binlog_schema.field_index(*uid_mapping.before_uid)
+                                           : -1;
+        if (source_cid < 0 || current_cid < 0 ||
+            (uid_mapping.before_uid.has_value() && before_cid < 0)) {
+            return ResultError(Status::InvalidArgument(
+                    "Row-binlog mapping references a missing column uid ({}, {}, {})",
+                    uid_mapping.source_uid, uid_mapping.current_uid,
+                    uid_mapping.before_uid.value_or(-1)));
+        }
+
+        const auto& source_column = source_schema.column(source_cid);
+        const auto& current_column = row_binlog_schema.column(current_cid);
+        if ((!source_column.visible() && !source_column.is_key()) || used_source_cids[source_cid] ||
+            used_target_cids[current_cid] || source_column.is_key() != current_column.is_key() ||
+            !row_binlog_columns_have_compatible_shape(source_column, current_column,
+                                                      !source_column.is_key())) {
+            return ResultError(Status::InvalidArgument(
+                    "Invalid row-binlog source/current mapping ({}, {})", source_cid, current_cid));
+        }
+        used_source_cids[source_cid] = true;
+        used_target_cids[current_cid] = true;
+
+        std::optional<ColumnId> resolved_before_cid;
+        if (before_cid >= 0) {
+            const auto& before_column = row_binlog_schema.column(before_cid);
+            if (source_column.is_key() || !source_column.visible() || before_column.is_key() ||
+                used_target_cids[before_cid] ||
+                !row_binlog_columns_have_compatible_shape(current_column, before_column, false)) {
+                return ResultError(Status::InvalidArgument(
+                        "Invalid row-binlog before mapping ({}, {})", source_cid, before_cid));
+            }
+            used_target_cids[before_cid] = true;
+            resolved_before_cid = cast_set<ColumnId>(before_cid);
+        }
+        cid_mappings.push_back({cast_set<ColumnId>(source_cid), cast_set<ColumnId>(current_cid),
+                                resolved_before_cid});
+    }
+
+    for (ColumnId cid = 0; cid < source_schema.num_columns(); ++cid) {
+        const auto& column = source_schema.column(cid);
+        if ((column.visible() || column.is_key()) && !used_source_cids[cid]) {
+            return ResultError(Status::InvalidArgument(
+                    "Row-binlog mapping does not cover source cid {}", cid));
+        }
+    }
+    for (ColumnId cid = 0; cid < row_binlog_schema.num_columns(); ++cid) {
+        if (!used_target_cids[cid]) {
+            return ResultError(Status::InvalidArgument(
+                    "Row-binlog mapping does not cover target cid {}", cid));
+        }
+    }
+    return cid_mappings;
+}
+
+namespace {
 
 // Runs the primary-key historical lookup over `block`'s source key (+seq)
 // columns, leaving the planned reads and the op for each row in `retriever` for
@@ -88,21 +187,23 @@ Status setup_retriever_and_lookup(TransformExecContext& ctx, const SegmentWriteB
 // reads. No-op when the source schema has no value columns. The retriever is
 // not const: reading BEFORE also loads the old delete signs it keeps.
 Status fill_before_columns(Block& out, const TabletSchema& binlog_schema,
-                           PrimaryKeyModelRowRetriever* retriever, uint32_t before_col_start,
-                           const std::vector<uint32_t>& value_source_cids, size_t num_rows) {
-    size_t value_column_num = value_source_cids.size();
-    if (value_column_num == 0) {
-        return Status::OK();
-    }
+                           PrimaryKeyModelRowRetriever* retriever,
+                           const std::vector<RowBinlogColumnCidMapping>& column_mappings,
+                           size_t num_rows) {
+    std::vector<uint32_t> source_cids;
     std::vector<uint32_t> before_cids;
-    for (uint32_t cid = before_col_start;
-         cid < before_col_start + cast_set<uint32_t>(value_column_num); ++cid) {
-        before_cids.emplace_back(cid);
+    for (const auto& mapping : column_mappings) {
+        if (mapping.before_cid.has_value()) {
+            source_cids.push_back(mapping.source_cid);
+            before_cids.push_back(*mapping.before_cid);
+        }
+    }
+    if (before_cids.empty()) {
+        return Status::OK();
     }
     Block before_block = binlog_schema.create_storage_block(before_cids);
     DCHECK(retriever != nullptr);
-    DCHECK_EQ(before_cids.size(), value_source_cids.size());
-    RETURN_IF_ERROR(retriever->build_before_block(&before_block, value_source_cids, 0, num_rows));
+    RETURN_IF_ERROR(retriever->build_before_block(&before_block, source_cids, 0, num_rows));
     size_t col_pos_in_block = 0;
     for (auto cid : before_cids) {
         out.replace_by_position(cid, before_block.get_by_position(col_pos_in_block++).column);
@@ -195,9 +296,6 @@ Status resolve_binlog_context(TransformExecContext& ctx, const Block* block,
     ctx.rowset_ctx->remove_segment_allocated_lsns(ctx.segment_id);
     CHECK(c->lsn_ids->size() >= c->num_rows) << c->lsn_ids->size() << " vs " << c->num_rows;
 
-    // Preserve the source writer's layout: system columns may be a prefix or
-    // suffix, and source hidden non-key columns are omitted while hidden keys
-    // remain part of the normal row image.
     int tso_col_id = c->binlog_schema->binlog_tso_col_idx();
     int lsn_col_id = c->binlog_schema->binlog_lsn_col_idx();
     int op_col_id = c->binlog_schema->binlog_op_col_idx();
@@ -207,33 +305,8 @@ Status resolve_binlog_context(TransformExecContext& ctx, const Block* block,
     c->binlog_tso_cid = cast_set<uint32_t>(tso_col_id);
     c->binlog_lsn_cid = cast_set<uint32_t>(lsn_col_id);
     c->binlog_op_cid = cast_set<uint32_t>(op_col_id);
-    c->normal_col_start = tso_col_id == 0 ? BINLOG_COLNUM : 0;
-    for (uint32_t cid = 0; cid < c->source_schema->num_columns(); ++cid) {
-        const auto& column = c->source_schema->column(cid);
-        if (column.visible() || column.is_key()) {
-            c->normal_source_cids.emplace_back(cid);
-        }
-        if (column.visible() && !column.is_key()) {
-            c->value_source_cids.emplace_back(cid);
-        }
-    }
-    c->before_col_start = c->normal_col_start + cast_set<uint32_t>(c->normal_source_cids.size());
-    c->write_before = cfg.write_before;
-    // The schema must carry exactly the BEFORE columns this flush fills: one per
-    // source value column when write_before is on, none otherwise. Too few and
-    // the BEFORE fill would write over the TSO/LSN columns; too many and those
-    // columns would stay empty in an otherwise full block, leaving the writer a
-    // block whose columns hold different row counts.
-    const size_t expected_before_columns = c->write_before ? c->value_source_cids.size() : 0;
-    const size_t expected_columns =
-            c->normal_source_cids.size() + expected_before_columns + BINLOG_COLNUM;
-    if (c->binlog_schema->num_columns() != expected_columns) {
-        return Status::InternalError<false>(
-                "binlog<row> schema does not match the derived block: num_columns={}, expected={} "
-                "(normal={}, before={}, system={}), write_before={}, tablet_id={}",
-                c->binlog_schema->num_columns(), expected_columns, c->normal_source_cids.size(),
-                expected_before_columns, BINLOG_COLNUM, c->write_before, ctx.rowset_ctx->tablet_id);
-    }
+    c->column_mappings = cfg.column_mappings;
+    DORIS_CHECK(!c->column_mappings.empty());
     return Status::OK();
 }
 
@@ -265,21 +338,19 @@ Status emit_binlog_block(const BinlogDeriveContext& c, const Block* after_src,
                 "binlog<row> block width {} does not match its schema's {} columns", out.columns(),
                 c.binlog_schema->num_columns());
     }
-    // key + AFTER columns: COW pointers of the source-layout visible columns
-    for (size_t ordinal = 0; ordinal < c.normal_source_cids.size(); ++ordinal) {
-        const uint32_t source_cid = c.normal_source_cids[ordinal];
+    for (const auto& mapping : c.column_mappings) {
+        const uint32_t source_cid = mapping.source_cid;
         ColumnPtr after_column = after_src->get_by_position(source_cid).column;
-        // The binlog schema declares every AFTER value column nullable, so a NOT
-        // NULL source column has to be wrapped: the segment writer converts by
-        // the binlog schema. Keys keep their own nullability.
-        if (!c.source_schema->column(source_cid).is_key()) {
+        if (!c.source_schema->column(source_cid).is_nullable() &&
+            c.binlog_schema->column(mapping.current_cid).is_nullable()) {
             after_column = make_nullable(after_column);
         }
-        out.replace_by_position(c.normal_col_start + ordinal, std::move(after_column));
+        out.replace_by_position(mapping.current_cid, std::move(after_column));
     }
-    if (c.write_before) {
-        RETURN_IF_ERROR(fill_before_columns(out, *c.binlog_schema, retriever, c.before_col_start,
-                                            c.value_source_cids, c.num_rows));
+    if (std::ranges::any_of(c.column_mappings,
+                            [](const auto& mapping) { return mapping.before_cid.has_value(); })) {
+        RETURN_IF_ERROR(fill_before_columns(out, *c.binlog_schema, retriever, c.column_mappings,
+                                            c.num_rows));
     }
     // An insert whose old row is a tombstone is an append, not an update. Run
     // this after the BEFORE read, which already loaded the old delete signs.
@@ -306,7 +377,7 @@ bool binlog_needs_historical_lookup(const RowsetWriterContext& context) {
     const bool is_partial_update = cfg.source.partial_update_info != nullptr &&
                                    cfg.source.partial_update_info->is_partial_update() &&
                                    is_source_direct_write;
-    return is_partial_update || cfg.write_before;
+    return is_partial_update || cfg.need_historical_value;
 }
 
 Status RowBinlogDeriveStage::apply(TransformExecContext& ctx, Block* block) const {
@@ -317,7 +388,8 @@ Status RowBinlogDeriveStage::apply(TransformExecContext& ctx, Block* block) cons
 
 Status PlainRowBinlogDeriveStage::derive(TransformExecContext& /*ctx*/, Block* block,
                                          const BinlogDeriveContext& c) const {
-    DCHECK(!c.write_before);
+    DCHECK(std::ranges::none_of(
+            c.column_mappings, [](const auto& mapping) { return mapping.before_cid.has_value(); }));
 
     // No probe: op is APPEND, or DELETE when the row carries a delete sign. DUP
     // tables have no delete-sign column, so every row is APPEND.

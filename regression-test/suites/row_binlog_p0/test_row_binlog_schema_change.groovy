@@ -56,9 +56,9 @@ suite("test_row_binlog_schema_change", "nonConcurrent") {
                v1,
                v2,
                v3,
-               __BEFORE__v1__,
-               __BEFORE__v2__,
-               __BEFORE__v3__
+               __DORIS_BEFORE__v1__,
+               __DORIS_BEFORE__v2__,
+               __DORIS_BEFORE__v3__
         FROM binlog("table" = "test_mow_schema_change_with_binlog")
         ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
@@ -73,8 +73,8 @@ suite("test_row_binlog_schema_change", "nonConcurrent") {
                k3,
                v2,
                v3,
-               __BEFORE__v2__,
-               __BEFORE__v3__
+               __DORIS_BEFORE__v2__,
+               __DORIS_BEFORE__v3__
         FROM binlog("table" = "test_mow_schema_change_with_binlog")
         ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
@@ -91,9 +91,9 @@ suite("test_row_binlog_schema_change", "nonConcurrent") {
                v1,
                v2,
                v3,
-               __BEFORE__v1__,
-               __BEFORE__v2__,
-               __BEFORE__v3__
+               __DORIS_BEFORE__v1__,
+               __DORIS_BEFORE__v2__,
+               __DORIS_BEFORE__v3__
         FROM binlog("table" = "test_mow_schema_change_with_binlog")
         ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """

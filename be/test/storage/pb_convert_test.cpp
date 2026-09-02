@@ -201,17 +201,26 @@ TEST(PbConvert, ensure_all_fields_converted_correctly) {
     // rowset meta
     RowsetMetaPB rs;
     set_all_fields_to_default(&rs);
+    auto* rs_mapping = rs.mutable_row_binlog_column_mappings()->mutable_entries(0);
+    rs_mapping->set_source_column_unique_id(1);
+    rs_mapping->set_current_column_unique_id(10);
+    rs_mapping->set_before_column_unique_id(11);
     auto rowset_meta_set_fields = get_set_fields(rs);
     EXPECT_EQ(rowset_meta_set_fields.size(), RowsetMetaPB::GetDescriptor()->field_count()) << print(rowset_meta_set_fields);
 
     RowsetMetaCloudPB rs_cloud;
     set_all_fields_to_default(&rs_cloud);
+    auto* rs_cloud_mapping = rs_cloud.mutable_row_binlog_column_mappings()->mutable_entries(0);
+    rs_cloud_mapping->set_source_column_unique_id(2);
+    rs_cloud_mapping->set_current_column_unique_id(20);
     auto rowset_meta_cloud_set_fields = get_set_fields(rs_cloud);
     EXPECT_EQ(rowset_meta_cloud_set_fields.size(), RowsetMetaCloudPB::GetDescriptor()->field_count()) << print(rowset_meta_cloud_set_fields);
     EXPECT_EQ(rowset_meta_set_fields.size(), rowset_meta_cloud_set_fields.size());
 
     RowsetMetaCloudPB rowset_meta_cloud_out;
     doris_rowset_meta_to_cloud(&rowset_meta_cloud_out, rs);
+    EXPECT_EQ(rowset_meta_cloud_out.row_binlog_column_mappings().SerializeAsString(),
+              rs.row_binlog_column_mappings().SerializeAsString());
     auto rowset_meta_cloud_out_set_fields = get_set_fields(rowset_meta_cloud_out);
     EXPECT_EQ(rowset_meta_set_fields.size(), rowset_meta_cloud_out_set_fields.size())
         << "doris_rowset_meta_to_cloud() missing output fields,"
@@ -221,6 +230,8 @@ TEST(PbConvert, ensure_all_fields_converted_correctly) {
 
     RowsetMetaPB rowset_meta_out;
     cloud_rowset_meta_to_doris(&rowset_meta_out, rs_cloud);
+    EXPECT_EQ(rowset_meta_out.row_binlog_column_mappings().SerializeAsString(),
+              rs_cloud.row_binlog_column_mappings().SerializeAsString());
     auto rowset_meta_out_set_fields = get_set_fields(rowset_meta_out);
     EXPECT_EQ(rowset_meta_cloud_set_fields.size(), rowset_meta_out_set_fields.size())
         << "cloud_rowset_meta_to_doris() missing output fields,"

@@ -129,6 +129,14 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 + "'enable_unique_key_merge_on_write' = 'true',"
                 + "'binlog.enable' = 'true','binlog.format' = 'ROW',"
                 + "'binlog.need_historical_value' = 'true');");
+        createTable("create table test_db.binlog_scan_schema_no_history_t(\n"
+                + "k1 int, k2 int, v1 int, v2 int)\n"
+                + "unique key(k1, k2)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1',"
+                + "'enable_unique_key_merge_on_write' = 'true',"
+                + "'binlog.enable' = 'true','binlog.format' = 'ROW',"
+                + "'binlog.need_historical_value' = 'false');");
         createTable("create table test_db.sequence_scan_schema_t(\n"
                 + "k1 int, k2 int, v1 int, v2 int)\n"
                 + "unique key(k1, k2)\n"
@@ -158,6 +166,9 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         // beyond the recorded consumption offset, driving the snapshot scan down the rebuild path
         // (base scan wrapped in OlapTableWrapper unioned with the binlog before-image).
         bumpPartitionsAndReplicas(binlogScanSchemaTable, 3L, 200L);
+        bumpPartitionsAndReplicas(
+                (OlapTable) database.getTableOrMetaException("binlog_scan_schema_no_history_t"),
+                2L, 100L);
         createTable("create table test_db.t_topn_lazy(c1 int, c2 int, c3 int) "
                 + "duplicate key(c1) distributed by hash(c1) buckets 1 "
                 + "properties('replication_num' = '1', 'light_schema_change' = 'true');");
@@ -269,6 +280,38 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 .collect(Collectors.toSet());
         Assertions.assertTrue(dependencyUniqueIds.stream()
                 .noneMatch(thriftScanNode.olap_scan_node.getOutputColumnUniqueIds()::contains));
+        Assertions.assertEquals(ImmutableList.of(slotId(scanNode, "v1"), slotId(scanNode, "v2")),
+                thriftScanNode.olap_scan_node.getRowBinlogCurrentSlotIds());
+        Assertions.assertEquals(ImmutableList.of(
+                        slotId(scanNode, Column.generateBeforeColName("v1")),
+                        slotId(scanNode, Column.generateBeforeColName("v2"))),
+                thriftScanNode.olap_scan_node.getRowBinlogBeforeSlotIds());
+    }
+
+    @Test
+    public void testDetailBinlogPhysicalScanColumnMappings() throws Exception {
+        OlapScanNode scanNode = getFirstOlapScanNode(
+                "select v1 from test_db.binlog_scan_schema_t"
+                        + "@incr(\"incrementType\" = \"DETAIL\")");
+
+        TPlanNode thriftScanNode = scanNode.treeToThrift().getNodes().get(0);
+        Assertions.assertEquals(ImmutableList.of(slotId(scanNode, "v1")),
+                thriftScanNode.olap_scan_node.getRowBinlogCurrentSlotIds());
+        Assertions.assertEquals(ImmutableList.of(slotId(scanNode, Column.generateBeforeColName("v1"))),
+                thriftScanNode.olap_scan_node.getRowBinlogBeforeSlotIds());
+    }
+
+    @Test
+    public void testDetailBinlogPhysicalScanWithoutHistorySendsEmptyMappings() throws Exception {
+        OlapScanNode scanNode = getFirstOlapScanNode(
+                "select v1 from test_db.binlog_scan_schema_no_history_t"
+                        + "@incr(\"incrementType\" = \"DETAIL\")");
+
+        TPlanNode thriftScanNode = scanNode.treeToThrift().getNodes().get(0);
+        Assertions.assertTrue(thriftScanNode.olap_scan_node.isSetRowBinlogCurrentSlotIds());
+        Assertions.assertTrue(thriftScanNode.olap_scan_node.getRowBinlogCurrentSlotIds().isEmpty());
+        Assertions.assertTrue(thriftScanNode.olap_scan_node.isSetRowBinlogBeforeSlotIds());
+        Assertions.assertTrue(thriftScanNode.olap_scan_node.getRowBinlogBeforeSlotIds().isEmpty());
     }
 
     @Test
@@ -283,6 +326,9 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 "v1", Column.BINLOG_OPERATION_COL, Column.BINLOG_TSO_COL), scanColumns);
 
         Assertions.assertTrue(scanNode.getExtraKeyColumnSlotIds().isEmpty());
+        TPlanNode thriftScanNode = scanNode.treeToThrift().getNodes().get(0);
+        Assertions.assertFalse(thriftScanNode.olap_scan_node.isSetRowBinlogCurrentSlotIds());
+        Assertions.assertFalse(thriftScanNode.olap_scan_node.isSetRowBinlogBeforeSlotIds());
     }
 
     @Test
@@ -537,6 +583,14 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
 
     private OlapScanNode getFirstOlapScanNode(String sql) throws Exception {
         return getOlapScanNodes(sql).get(0);
+    }
+
+    private static int slotId(OlapScanNode scanNode, String columnName) {
+        return scanNode.getTupleDesc().getSlots().stream()
+                .filter(slot -> slot.getColumn().getName().equalsIgnoreCase(columnName))
+                .findFirst()
+                .orElseThrow()
+                .getId().asInt();
     }
 
     private List<OlapScanNode> getOlapScanNodes(String sql) throws Exception {

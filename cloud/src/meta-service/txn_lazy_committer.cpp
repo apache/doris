@@ -392,6 +392,7 @@ void convert_tmp_rowsets(
         tmp_rowset_pb.set_visible_ts_ms(rowsets_visible_ts_ms);
         tmp_rowset_pb.mutable_commit_tso()->set_start_tso(commit_tso);
         tmp_rowset_pb.mutable_commit_tso()->set_end_tso(commit_tso);
+        tmp_rowset_pb.clear_row_binlog_column_mappings();
 
         rowset_val.clear();
         if (!tmp_rowset_pb.SerializeToString(&rowset_val)) {

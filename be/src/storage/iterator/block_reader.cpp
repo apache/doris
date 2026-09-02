@@ -113,7 +113,7 @@ Status BlockReader::_write_binlog_op(IColumn& col, int64_t op) const {
 }
 
 // Resolves which source-block column to read from for a given binlog row position.
-// When use_before is true, return the ordinal of its __BEFORE__ mirror.
+// When use_before is true, return the ordinal of its __DORIS_BEFORE__ mirror.
 // Binlog meta columns map to themselves.
 uint32_t BlockReader::_resolve_source_column_ordinal(uint32_t ordinal, bool use_before) const {
     return use_before ? _read_schema->before_column_ordinal(ordinal) : ordinal;
@@ -552,19 +552,17 @@ Status BlockReader::init(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_timer_ns);
     RETURN_IF_ERROR(TabletReader::init(read_params));
 
-    // A Row Binlog scan maps the before-image columns; every other read of this reader, which is
-    // the one that merges rows across rowsets, builds the sequence mapping instead.
-    const bool map_row_binlog_columns =
+    const bool read_row_binlog_changes =
             read_params.binlog_scan_type == TBinlogScanType::MIN_DELTA ||
             read_params.binlog_scan_type == TBinlogScanType::DETAIL;
     const bool merge_by_sequence_mapping =
-            !map_row_binlog_columns && _tablet_schema->has_seq_map() &&
+            !read_row_binlog_changes && _tablet_schema->has_seq_map() &&
             _tablet_schema->keys_type() == UNIQUE_KEYS && !_direct_mode &&
             !(read_params.reader_type == ReaderType::READER_QUERY &&
               _tablet->enable_unique_key_merge_on_write());
     RETURN_IF_ERROR(_read_schema->init_from_tablet_schema(
-            *_tablet_schema, merge_by_sequence_mapping, map_row_binlog_columns));
-    if (map_row_binlog_columns) {
+            *_tablet_schema, merge_by_sequence_mapping));
+    if (read_row_binlog_changes) {
         _min_delta_value_compare_unsupported = false;
     }
 

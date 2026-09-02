@@ -311,7 +311,7 @@ TEST_F(KeyProbeTest, DeleteSignTakesDefaultsOnlyWithoutSequenceColumn) {
 }
 
 // The row binlog retriever keeps the old values of a delete-signed row so it can emit the
-// __BEFORE__ image: use_defaults_for_delete_signed off flips that same case.
+// __DORIS_BEFORE__ image: use_defaults_for_delete_signed off flips that same case.
 TEST_F(KeyProbeTest, DeleteSignReadsHistoryWhenDefaultsForDeleteSignedIsOff) {
     auto schema = create_mow_schema(/*has_seq=*/false);
     TabletSharedPtr tablet;
@@ -348,7 +348,7 @@ TEST_F(KeyProbeTest, MarkNoneLeavesTheDeleteBitmapAlone) {
     PartialUpdateStats stats;
     // through the factory the row binlog retriever calls, so its MarkDeleted::NONE is pinned here
     auto probe = MowKeyProbe::for_row_binlog(tablet.get(), schema.get(), schema->has_sequence_col(),
-                                             mow, /*write_before=*/true);
+                                             mow, /*need_historical_value=*/true);
 
     // a replaced row ...
     auto found = probe.probe(encode_key_with_seq(schema, encoder, 1, 20), /*segment_pos=*/0,

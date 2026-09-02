@@ -115,8 +115,8 @@ suite("test_cloud_row_binlog_publish_conflict", "nonConcurrent") {
                    k3,
                    v1,
                    v2,
-                   __BEFORE__v1__,
-                   __BEFORE__v2__
+                   __DORIS_BEFORE__v1__,
+                   __DORIS_BEFORE__v2__
             FROM binlog("table" = "test_mow_publish_conflict_with_binlog")
             WHERE k1 IN (1, 2, 3)
             ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
@@ -130,8 +130,8 @@ suite("test_cloud_row_binlog_publish_conflict", "nonConcurrent") {
                    k3,
                    v1,
                    v2,
-                   __BEFORE__v1__,
-                   __BEFORE__v2__
+                   __DORIS_BEFORE__v1__,
+                   __DORIS_BEFORE__v2__
             FROM binlog("table" = "test_mow_publish_conflict_with_binlog")
             WHERE k1 IN (1, 2, 3)
             ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
@@ -178,8 +178,8 @@ suite("test_cloud_row_binlog_publish_conflict", "nonConcurrent") {
                    k3,
                    v1,
                    v2,
-                   __BEFORE__v1__,
-                   __BEFORE__v2__
+                   __DORIS_BEFORE__v1__,
+                   __DORIS_BEFORE__v2__
             FROM binlog("table" = "test_mow_publish_conflict_with_binlog")
             WHERE k1 IN (2, 3)
             ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
@@ -193,8 +193,8 @@ suite("test_cloud_row_binlog_publish_conflict", "nonConcurrent") {
                    k3,
                    v1,
                    v2,
-                   __BEFORE__v1__,
-                   __BEFORE__v2__
+                   __DORIS_BEFORE__v1__,
+                   __DORIS_BEFORE__v2__
             FROM binlog("table" = "test_mow_publish_conflict_with_binlog")
             WHERE k1 IN (2, 3)
             ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
