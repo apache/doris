@@ -65,6 +65,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -128,6 +129,9 @@ import java.util.stream.Collectors;
 // Full scan of an Olap table.
 public class OlapScanNode extends ScanNode {
     private static final Logger LOG = LogManager.getLogger(OlapScanNode.class);
+    @VisibleForTesting
+    static final String MISSING_RF_BUCKET_METADATA_DEBUG_POINT =
+            "OlapScanNode.setRuntimeFilterBucketPruneParameters.missingBucketMetadata";
 
     // average compression ratio in doris storage engine
     private static final int COMPRESSION_RATIO = 5;
@@ -210,7 +214,9 @@ public class OlapScanNode extends ScanNode {
     private Set<Long> nereidsPrunedTabletIds = Sets.newHashSet();
     private TableSample tableSample;
 
-    private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
+    // Pack bucket number and sequence into one value to avoid retaining two all-tablet maps.
+    private Map<Long, Long> tabletId2BucketInfo = Maps.newHashMap();
+    private boolean runtimeFilterBucketPruneParametersSet = false;
     // a bucket seq may map to many tablets, and each tablet has a
     // TScanRangeLocations.
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
@@ -416,7 +422,7 @@ public class OlapScanNode extends ScanNode {
 
     private Collection<Long> distributionPrune(
             List<Column> schema,
-            List<Long> tabletIdsInOrder,
+            MaterializedIndex index,
             DistributionInfo distributionInfo,
             boolean pruneTablesByNereids) throws AnalysisException {
         if (pruneTablesByNereids) {
@@ -428,7 +434,8 @@ public class OlapScanNode extends ScanNode {
             // getTablet hash lookups (most returning null), which dominates plan time
             // when both partition count and pruned tablet count are large.
             List<Long> result = new ArrayList<>();
-            for (Long id : tabletIdsInOrder) {
+            for (Tablet tablet : index.getTablets()) {
+                long id = tablet.getId();
                 if (nereidsPrunedTabletIds.contains(id)) {
                     result.add(id);
                 }
@@ -439,7 +446,7 @@ public class OlapScanNode extends ScanNode {
         switch (distributionInfo.getType()) {
             case HASH: {
                 HashDistributionInfo info = (HashDistributionInfo) distributionInfo;
-                distributionPruner = new HashDistributionPruner(schema, tabletIdsInOrder,
+                distributionPruner = new HashDistributionPruner(schema, index,
                         info.getDistributionColumns(),
                         columnFilters,
                         info.getBucketNum(),
@@ -654,9 +661,9 @@ public class OlapScanNode extends ScanNode {
                     }
                     Backend backend = allBackends.get(beId);
                     // If the fixed replica is bad, then not clear the replicas using random replica
-                    if (backend == null || !backend.isAlive()) {
+                    if (backend == null || !backend.isQueryAvailable()) {
                         if (LOG.isDebugEnabled()) {
-                            LOG.debug("backend {} not exists or is not alive for replica {}", beId,
+                            LOG.debug("backend {} not exists or is not query available for replica {}", beId,
                                     replica.getId());
                         }
                         Collections.shuffle(replicas);
@@ -685,7 +692,7 @@ public class OlapScanNode extends ScanNode {
                     if (replicaOptional.isPresent()) {
                         Replica replica = replicaOptional.get();
                         Backend backend = allBackends.get(replica.getBackendIdWithoutException());
-                        if (backend != null && backend.isAlive()) {
+                        if (backend != null && backend.isQueryAvailable()) {
                             replicas.clear();
                             replicas.add(replica);
                         }
@@ -720,14 +727,14 @@ public class OlapScanNode extends ScanNode {
                     clusterException = true;
                     continue;
                 }
-                if (backend == null || !backend.isAlive()) {
+                if (backend == null || !backend.isQueryAvailable()) {
                     if (LOG.isDebugEnabled()) {
-                        LOG.debug("backend {} not exists or is not alive for replica {}", backendId,
+                        LOG.debug("backend {} not exists or is not query available for replica {}", backendId,
                                 replica.getId());
                     }
                     String err = "replica " + replica.getId() + "'s backend " + backendId
                             + (backend != null ? " with tag " + backend.getLocationTag() : "")
-                            + " does not exist or not alive";
+                            + " does not exist or is not query available";
                     errs.add(err);
                     continue;
                 }
@@ -797,7 +804,9 @@ public class OlapScanNode extends ScanNode {
 
     private void addBucketSeqStatsIfNeeded(long tabletId, TScanRangeLocations locations, long oneReplicaBytes) {
         if (!isPointQuery()) {
-            Integer bucketSeq = tabletId2BucketSeq.get(tabletId);
+            long bucketInfo = Preconditions.checkNotNull(tabletId2BucketInfo.get(tabletId),
+                    "missing bucket metadata for tablet %s", tabletId);
+            int bucketSeq = decodeBucketSeq(bucketInfo);
             bucketSeq2locations.put(bucketSeq, locations);
             bucketSeq2Bytes.merge(bucketSeq, oneReplicaBytes, Long::sum);
         }
@@ -999,30 +1008,21 @@ public class OlapScanNode extends ScanNode {
          */
         Preconditions.checkState(scanBackendIds.isEmpty());
         Preconditions.checkState(scanTabletIds.isEmpty());
-        Map<Long, Set<Long>> backendAlivePathHashs = Maps.newHashMap();
-        for (Backend backend : olapTable.getAllBackendsByAllCluster().values()) {
-            Set<Long> hashSet = Sets.newLinkedHashSet();
-            for (DiskInfo diskInfo : backend.getDisks().values()) {
-                if (diskInfo.isAlive()) {
-                    hashSet.add(diskInfo.getPathHash());
-                }
-            }
-            backendAlivePathHashs.put(backend.getId(), hashSet);
-        }
-
         ConnectContext connectContext = ConnectContext.get();
         boolean isNereids = connectContext != null && connectContext.getState().isNereids();
         boolean isPointQuery = connectContext != null
                 && connectContext.getStatementContext() != null
                 && connectContext.getStatementContext().isShortCircuitQuery();
+        ImmutableMap<Long, Backend> allBackends = olapTable.getAllBackendsByAllCluster();
+        Map<Long, Set<Long>> backendAlivePathHashes = isPointQuery
+                ? null : getBackendAlivePathHashes(allBackends.values());
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedTable = olapTable.getPartitionIndex(partition, selectedIndexId);
             final List<Tablet> tablets = Lists.newArrayList();
-            List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
             // point query need prune tablets at this place
             Collection<Long> prunedTabletIds = distributionPrune(olapTable.getSchemaByIndexId(selectedIndexId),
-                    allTabletIds, partition.getDistributionInfo(), isNereids && !isPointQuery);
+                    selectedTable, partition.getDistributionInfo(), isNereids && !isPointQuery);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("distribution prune tablets: {}", prunedTabletIds);
             }
@@ -1058,20 +1058,62 @@ public class OlapScanNode extends ScanNode {
                     }
                 }
             } else {
-                tablets.addAll(selectedTable.getTablets());
-                scanTabletIds.addAll(allTabletIds);
+                for (Tablet tablet : selectedTable.getTablets()) {
+                    tablets.add(tablet);
+                    scanTabletIds.add(tablet.getId());
+                }
             }
 
-            if (!isPointQuery()) {
-                for (int i = 0; i < allTabletIds.size(); i++) {
-                    tabletId2BucketSeq.put(allTabletIds.get(i), i);
+            if (!isPointQuery) {
+                List<Tablet> allTablets = selectedTable.getTablets();
+                int bucketNum = partition.getDistributionInfo().getBucketNum();
+                for (int i = 0; i < allTablets.size(); i++) {
+                    tabletId2BucketInfo.put(allTablets.get(i).getId(), encodeBucketInfo(i, bucketNum));
                 }
             }
 
             totalTabletsNum += selectedTable.getTablets().size();
             selectedSplitNum += tablets.size();
-            addScanRangeLocations(partition, tablets, backendAlivePathHashs);
+            Map<Long, Set<Long>> currentBackendAlivePathHashes = isPointQuery
+                    ? getBackendAlivePathHashes(allBackends, tablets) : backendAlivePathHashes;
+            addScanRangeLocations(partition, tablets, currentBackendAlivePathHashes);
         }
+    }
+
+    private static Map<Long, Set<Long>> getBackendAlivePathHashes(Collection<Backend> backends) {
+        Map<Long, Set<Long>> backendAlivePathHashes = Maps.newHashMap();
+        for (Backend backend : backends) {
+            backendAlivePathHashes.put(backend.getId(), getBackendAlivePathHashes(backend));
+        }
+        return backendAlivePathHashes;
+    }
+
+    @VisibleForTesting
+    static Map<Long, Set<Long>> getBackendAlivePathHashes(
+            Map<Long, Backend> backends, List<Tablet> tablets) {
+        Map<Long, Set<Long>> backendAlivePathHashes = Maps.newHashMap();
+        for (Tablet tablet : tablets) {
+            for (Replica replica : tablet.getReplicas()) {
+                long backendId = replica.getBackendIdWithoutException();
+                Backend backend = backends.get(backendId);
+                if (backend != null) {
+                    backendAlivePathHashes.computeIfAbsent(
+                            backendId, id -> getBackendAlivePathHashes(backend));
+                }
+            }
+        }
+        return backendAlivePathHashes;
+    }
+
+    private static Set<Long> getBackendAlivePathHashes(Backend backend) {
+        Map<String, DiskInfo> disks = backend.getDisks();
+        Set<Long> alivePathHashes = Sets.newHashSetWithExpectedSize(disks.size());
+        for (DiskInfo diskInfo : disks.values()) {
+            if (diskInfo.isAlive()) {
+                alivePathHashes.add(diskInfo.getPathHash());
+            }
+        }
+        return alivePathHashes;
     }
 
     /**
@@ -1094,7 +1136,7 @@ public class OlapScanNode extends ScanNode {
         selectionHint = null;
         scanBackendOrderBySelection = false;
         scanTabletIds.clear();
-        tabletId2BucketSeq.clear();
+        tabletId2BucketInfo.clear();
         bucketSeq2locations.clear();
         bucketSeq2Bytes.clear();
         scanReplicaIds.clear();
@@ -1475,14 +1517,12 @@ public class OlapScanNode extends ScanNode {
         // filter whose target expression can drive partition pruning according
         // to the FE-side classifier, so we don't bloat thrift for tables with
         // many partitions but no usable RF target.
-        // Gated by session variable `enable_runtime_filter_partition_prune`.
-        ConnectContext rfPruneCtx = ConnectContext.get();
-        if (rfPruneCtx != null
-                && rfPruneCtx.getSessionVariable().isEnableRuntimeFilterPartitionPrune()
-                && hasRfDrivingPartitionPruning()) {
+        if (hasRfDrivingPartitionPruning()) {
             setPartitionBoundariesForRuntimeFilter(msg.olap_scan_node);
         }
-
+        if (hasRfDrivingBucketPruning()) {
+            setRuntimeFilterBucketPruneParameters();
+        }
         super.toThrift(msg);
     }
 
@@ -1530,6 +1570,58 @@ public class OlapScanNode extends ScanNode {
         if (!runtimeFilterPartitionBoundaries.isEmpty()) {
             olapScanNode.setPartitionBoundaries(new ArrayList<>(runtimeFilterPartitionBoundaries));
         }
+    }
+
+    private boolean hasRfDrivingBucketPruning() {
+        PlanNodeId myId = this.getId();
+        for (RuntimeFilter rf : runtimeFilters) {
+            if (rf.canPruneBucketsFor(myId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @VisibleForTesting
+    synchronized void setRuntimeFilterBucketPruneParameters() {
+        if (runtimeFilterBucketPruneParametersSet) {
+            return;
+        }
+        long debugMissingTabletId = DebugPointUtil.getDebugParamOrDefault(
+                MISSING_RF_BUCKET_METADATA_DEBUG_POINT, -1L);
+        for (TScanRangeLocations locations : scanRangeLocations) {
+            TPaloScanRange scanRange = locations.getScanRange().getPaloScanRange();
+            Long bucketInfo = tabletId2BucketInfo.get(scanRange.getTabletId());
+            if (scanRange.getTabletId() == debugMissingTabletId) {
+                bucketInfo = null;
+            }
+            if (bucketInfo == null || decodeBucketNum(bucketInfo) <= 0) {
+                LOG.warn("missing bucket metadata for runtime-filter bucket pruning, "
+                                + "scanNode={}, tablet={}; disable pruning for this scan node",
+                        getId(), scanRange.getTabletId());
+                runtimeFilterBucketPruneParametersSet = true;
+                return;
+            }
+        }
+        for (TScanRangeLocations locations : scanRangeLocations) {
+            TPaloScanRange scanRange = locations.getScanRange().getPaloScanRange();
+            long bucketInfo = tabletId2BucketInfo.get(scanRange.getTabletId());
+            scanRange.setBucketSeq(decodeBucketSeq(bucketInfo));
+            scanRange.setBucketNum(decodeBucketNum(bucketInfo));
+        }
+        runtimeFilterBucketPruneParametersSet = true;
+    }
+
+    private static long encodeBucketInfo(int bucketSeq, int bucketNum) {
+        return ((long) bucketNum << Integer.SIZE) | Integer.toUnsignedLong(bucketSeq);
+    }
+
+    private static int decodeBucketSeq(long bucketInfo) {
+        return (int) bucketInfo;
+    }
+
+    private static int decodeBucketNum(long bucketInfo) {
+        return (int) (bucketInfo >>> Integer.SIZE);
     }
 
     private List<TPartitionBoundary> buildPartitionBoundariesForRuntimeFilter() {
@@ -1866,6 +1958,10 @@ public class OlapScanNode extends ScanNode {
 
     public void setScanParams(TableScanParams scanParams) {
         this.scanParams = scanParams;
+    }
+
+    public TableScanParams getScanParams() {
+        return scanParams;
     }
 
     public long getIncrementalScanEndTime() {

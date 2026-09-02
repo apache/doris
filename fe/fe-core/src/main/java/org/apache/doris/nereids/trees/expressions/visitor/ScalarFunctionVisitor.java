@@ -350,10 +350,16 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.LtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeTime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapAll;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapApply;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapEntries;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapExists;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapFilter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapFromArrays;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapFromEntries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapValues;
@@ -558,6 +564,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileSta
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToSeconds;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TopLevelDomain;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TransformKeys;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TransformValues;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Translate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Trim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimIn;
@@ -2826,6 +2834,14 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(createMap, context);
     }
 
+    default R visitMapAll(MapAll mapAll, C context) {
+        return visitScalarFunction(mapAll, context);
+    }
+
+    default R visitMapApply(MapApply mapApply, C context) {
+        return visitScalarFunction(mapApply, context);
+    }
+
     default R visitMapContainsKey(MapContainsKey mapContainsKey, C context) {
         return visitScalarFunction(mapContainsKey, context);
     }
@@ -2842,6 +2858,22 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(mapEntries, context);
     }
 
+    default R visitMapExists(MapExists mapExists, C context) {
+        return visitScalarFunction(mapExists, context);
+    }
+
+    default R visitMapFilter(MapFilter mapFilter, C context) {
+        return visitScalarFunction(mapFilter, context);
+    }
+
+    default R visitMapFromArrays(MapFromArrays mapFromArrays, C context) {
+        return visitScalarFunction(mapFromArrays, context);
+    }
+
+    default R visitMapFromEntries(MapFromEntries mapFromEntries, C context) {
+        return visitScalarFunction(mapFromEntries, context);
+    }
+
     default R visitMapKeys(MapKeys mapKeys, C context) {
         return visitScalarFunction(mapKeys, context);
     }
@@ -2852,6 +2884,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMapValues(MapValues mapValues, C context) {
         return visitScalarFunction(mapValues, context);
+    }
+
+    default R visitTransformKeys(TransformKeys transformKeys, C context) {
+        return visitScalarFunction(transformKeys, context);
+    }
+
+    default R visitTransformValues(TransformValues transformValues, C context) {
+        return visitScalarFunction(transformValues, context);
     }
 
     default R visitXor(Xor xor, C context) {

@@ -1028,6 +1028,10 @@ DECLARE_String(thrift_server_type_of_fe);
 // disable zone map index when page row is too few
 DECLARE_mInt32(zone_map_row_num_threshold);
 
+// Maximum number of IN values checked exactly against a zone map. For larger sets, only the
+// IN-set min/max range is checked.
+DECLARE_mInt32(in_zonemap_point_check_threshold);
+
 // aws sdk log level
 //    Off = 0,
 //    Fatal = 1,
@@ -1456,6 +1460,8 @@ DECLARE_mInt64(snii_forced_spill_min_arena_bytes);
 DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
+// The kuromoji (Japanese) analyzer
+DECLARE_mBool(enable_kuromoji_analyzer);
 DECLARE_Int32(inverted_index_read_buffer_size);
 // tree depth for bkd index
 DECLARE_Int32(max_depth_in_bkd_tree);
@@ -1978,6 +1984,7 @@ DECLARE_mInt32(concurrency_stats_dump_interval_ms);
 DECLARE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin);
 
 DECLARE_mBool(enable_cloud_make_rs_visible_on_be);
+DECLARE_mBool(enable_cloud_random_segment_id);
 DECLARE_mInt32(file_handles_deplenish_frequency_times);
 
 #ifdef BE_TEST

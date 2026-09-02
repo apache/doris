@@ -96,6 +96,9 @@ DECLARE_mInt32(max_base_compaction_task_num_per_disk);
 DECLARE_mBool(prioritize_query_perf_in_compaction);
 DECLARE_mInt32(compaction_max_rowset_count);
 DECLARE_mInt64(compaction_txn_max_size_bytes);
+DECLARE_mBool(enable_cloud_single_rowset_compaction);
+DECLARE_mInt32(cloud_single_rowset_compaction_min_segments);
+DECLARE_mInt32(cloud_single_rowset_compaction_segment_group_size);
 
 // CloudStorageEngine config
 DECLARE_mInt32(refresh_s3_info_interval_s);
@@ -233,6 +236,10 @@ DECLARE_mBool(enable_file_cache_write_cumu_compaction_index_only);
 // MS RPC rate limiting config
 // Enable host-level rate limiting for MS RPCs to prevent burst traffic
 DECLARE_mBool(enable_ms_rpc_host_level_rate_limit);
+// Evaluate and record host-level MS RPC rate limits without delaying requests.
+// Dry-run evaluation is independent of enable_ms_rpc_host_level_rate_limit.
+// When both are enabled, dry-run takes precedence and requests are not delayed.
+DECLARE_mBool(enable_ms_rpc_host_level_rate_limit_dry_run);
 
 // Per-RPC QPS limit configs (per CPU core)
 // QPS limit = config_value * num_cores
@@ -266,6 +273,10 @@ DECLARE_mInt32(ms_rpc_qps_update_packed_file_info);
 
 // Enable MS backpressure response handling (table-level adaptive throttling)
 DECLARE_mBool(enable_ms_backpressure_handling);
+// Evaluate and record table-level adaptive throttling without delaying requests.
+// Dry-run evaluation is independent of enable_ms_backpressure_handling.
+// When both are enabled, dry-run takes precedence and requests are not delayed.
+DECLARE_mBool(enable_ms_backpressure_handling_dry_run);
 
 // Time window (seconds) for computing per-table QPS via bvar::PerSecond.
 // Larger window smooths out short-term spikes; smaller window reacts faster.

@@ -112,17 +112,6 @@ public:
         return _batch_split_mode ? 1 : ScanOperatorX<FileScanLocalState>::parallelism(state);
     }
 
-    int get_column_id(const std::string& col_name) const override {
-        int column_id_counter = 0;
-        for (const auto& slot : _output_tuple_desc->slots()) {
-            if (slot->col_name() == col_name) {
-                return column_id_counter;
-            }
-            column_id_counter++;
-        }
-        return column_id_counter;
-    }
-
     bool can_push_down_column_predicate(const SlotDescriptor* slot) const override;
 
 private:

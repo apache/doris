@@ -28,6 +28,7 @@
 #include "exprs/function/function_test_util.h"
 #include "exprs/mock_vexpr.h"
 #include "exprs/table_function/vexplode.h"
+#include "exprs/table_function/vexplode_bitmap.h"
 #include "exprs/table_function/vexplode_numbers.h"
 #include "exprs/table_function/vexplode_v2.h"
 #include "exprs/table_function/vjson_each.h"
@@ -1402,6 +1403,69 @@ TEST_F(TableFunctionTest, vjson_each_get_same_many_values_non_nullable) {
     for (size_t i = 0; i < 2; ++i) {
         StringRef k = key_col.get_nested_column().get_data_at(i);
         EXPECT_EQ("x", std::string(k.data, k.size));
+    }
+
+    fn.process_close();
+}
+
+// Regression test for a BE core crash when exploding a bitmap whose cardinality
+// exceeds INT_MAX. VExplodeBitmapTableFunction::get_value used to compute the
+// batch size as `std::min(max_step, (int)(_cur_size - _cur_offset))`. Both
+// `_cur_size` (the bitmap cardinality) and `_cur_offset` are int64_t, so when
+// the cardinality is above INT_MAX the C-style `(int)` cast overflows to a
+// NEGATIVE value, which is then fed into `target->resize(origin_size + max_step)`
+// and underflows -> crash. The overflow happens on the FIRST get_value call
+// (_cur_offset == 0), before any element is materialized, so we only need a
+// bitmap whose *cardinality* exceeds INT_MAX -- built cheaply here from a
+// Roaring range (a few KB, microseconds), not billions of individual inserts.
+TEST_F(TableFunctionTest, vexplode_bitmap_cardinality_exceeds_int_max) {
+    // Build a bitmap holding [0, 3'000'000'000) via a Roaring range. All values
+    // are < 2^32 so a plain 32-bit Roaring suffices; the range is stored as run
+    // containers (a few KB). Cardinality 3e9 > INT_MAX (2^31 - 1). Serialize to
+    // the Doris BITMAP wire format and deserialize into a BitmapValue, since
+    // BitmapValue has no public addRange.
+    roaring::Roaring inner;
+    inner.addRange(0, 3000000000ULL); // [0, 3e9)
+    detail::Roaring64Map r64(inner);
+    const int serialize_version = config::bitmap_serialize_version;
+    const size_t nbytes = r64.getSizeInBytes(serialize_version);
+    std::string buffer;
+    buffer.resize(nbytes);
+    r64.write(buffer.data(), serialize_version);
+    BitmapValue bv(buffer.data());
+    // Fail fast if the cheap build path did not actually exceed INT_MAX.
+    ASSERT_GT(bv.cardinality(), static_cast<uint64_t>(std::numeric_limits<int>::max()));
+
+    // One-column bitmap input block; the MockVExpr child returns column at pos 0.
+    init_expr_context(1);
+    auto bitmap_col = ColumnBitmap::create();
+    bitmap_col->insert_value(std::move(bv));
+    auto block = Block::create_unique();
+    block->insert({std::move(bitmap_col), std::make_shared<DataTypeBitMap>(), "bm"});
+
+    VExplodeBitmapTableFunction fn;
+    fn.set_expr_context(_ctx);
+
+    TQueryOptions q_opts;
+    TQueryGlobals q_globals;
+    RuntimeState rs(q_opts, q_globals);
+    ASSERT_TRUE(fn.process_init(block.get(), &rs).ok());
+    fn.process_row(0);
+    ASSERT_FALSE(fn.current_empty());
+
+    // Non-nullable path (_is_nullable == false): request exactly ONE batch.
+    // Pre-fix: (int)(_cur_size - _cur_offset) overflows to a negative max_step
+    //          -> target->resize underflow -> crash (caught by ASAN).
+    // Fixed:   the std::min is done in int64_t then cast back -> positive batch.
+    MutableColumnPtr out = ColumnInt64::create();
+    int ret = fn.get_value(out, 4096);
+    EXPECT_EQ(ret, 4096);
+    EXPECT_EQ(out->size(), 4096);
+
+    // The first batch materializes the smallest elements 0,1,2,... in order.
+    const auto& data = assert_cast<const ColumnInt64&>(*out).get_data();
+    for (int i = 0; i < 10; ++i) {
+        EXPECT_EQ(data[i], static_cast<int64_t>(i));
     }
 
     fn.process_close();

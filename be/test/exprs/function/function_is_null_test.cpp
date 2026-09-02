@@ -167,7 +167,7 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
     EXPECT_TRUE(res.has_value()) << res.error();
     const auto& rowset_writer = res.value();
 
-    Block block = _tablet_schema->create_block();
+    Block block = _tablet_schema->create_storage_block();
     auto columns = std::move(block).mutate_columns();
 
     Field key = Field::create_field<TYPE_INT>(10);
@@ -225,8 +225,8 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
         }
     };
 
-    for (int i = 0; i < rowset->num_segments(); i++) {
-        auto segment_path = rowset->segment_path(i);
+    for (auto seg : rowset->segments()) {
+        auto segment_path = seg.path();
         EXPECT_TRUE(segment_path.has_value());
         std::string index_prefix = std::string(
                 InvertedIndexDescriptor::get_index_file_path_prefix(segment_path.value()));
@@ -333,7 +333,7 @@ TEST_F(FunctionIsNullTest, evaluate_inverted_index_corner_cases) {
     EXPECT_TRUE(res.has_value()) << res.error();
     const auto& rowset_writer = res.value();
 
-    Block block = _tablet_schema->create_block();
+    Block block = _tablet_schema->create_storage_block();
     auto columns = std::move(block).mutate_columns();
 
     // Create block with NO null values to test the scenario where
@@ -359,8 +359,8 @@ TEST_F(FunctionIsNullTest, evaluate_inverted_index_corner_cases) {
     // Test with data that has no nulls
     // This will exercise the code path where has_null() might return false
     // or null_bitmap might be nullptr
-    for (int i = 0; i < rowset->num_segments(); i++) {
-        auto segment_path = rowset->segment_path(i);
+    for (auto seg : rowset->segments()) {
+        auto segment_path = seg.path();
         EXPECT_TRUE(segment_path.has_value());
         std::string index_prefix = std::string(
                 InvertedIndexDescriptor::get_index_file_path_prefix(segment_path.value()));

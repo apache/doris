@@ -20,6 +20,12 @@ package org.apache.doris.cloud.rpc;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.MetaServiceRpcRateLimitConfigValidator;
+import org.apache.doris.metric.AutoMappedMetric;
+import org.apache.doris.metric.CloudMetrics;
+import org.apache.doris.metric.HistogramMetric;
+import org.apache.doris.metric.LongCounterMetric;
+import org.apache.doris.metric.Metric.MetricUnit;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.rpc.RpcException;
 
 import org.junit.After;
@@ -28,26 +34,45 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.lang.reflect.Field;
+import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
 public class MetaServiceRpcRateLimiterTest {
     private static final int CPU_CORES = Runtime.getRuntime().availableProcessors();
 
     private boolean originRateLimitEnabled;
+    private boolean originRateLimitDryRun;
     private int originRateLimitDefaultQpsPerCore;
     private String originRateLimitQpsPerCoreConfig;
     private int originRateLimitBurstSeconds;
     private long originRateLimitWaitTimeoutMs;
+    private boolean originMetricRepoIsInit;
+    private AutoMappedMetric<LongCounterMetric> originRateLimitedMetric;
+    private AutoMappedMetric<HistogramMetric> originRateLimitWaitLatencyMetric;
+    private LongCounterMetric originAllRateLimitedMetric;
 
     private MetaServiceRpcRateLimiter rateLimiter;
 
     @Before
     public void setUp() {
         originRateLimitEnabled = Config.meta_service_rpc_rate_limit_enabled;
+        originRateLimitDryRun = Config.meta_service_rpc_rate_limit_dry_run;
         originRateLimitDefaultQpsPerCore = Config.meta_service_rpc_rate_limit_default_qps_per_core;
         originRateLimitQpsPerCoreConfig = Config.meta_service_rpc_rate_limit_qps_per_core_config;
         originRateLimitBurstSeconds = Config.meta_service_rpc_rate_limit_burst_seconds;
         originRateLimitWaitTimeoutMs = Config.meta_service_rpc_rate_limit_wait_timeout_ms;
+        originMetricRepoIsInit = MetricRepo.isInit;
+        originRateLimitedMetric = CloudMetrics.META_SERVICE_RPC_RATE_LIMITED;
+        originRateLimitWaitLatencyMetric = CloudMetrics.META_SERVICE_RPC_RATE_LIMIT_WAIT_LATENCY;
+        originAllRateLimitedMetric = CloudMetrics.META_SERVICE_RPC_ALL_RATE_LIMITED;
+
+        CloudMetrics.META_SERVICE_RPC_RATE_LIMITED = new AutoMappedMetric<>(methodName ->
+                new LongCounterMetric("meta_service_rpc_rate_limited", MetricUnit.NOUNIT, ""));
+        CloudMetrics.META_SERVICE_RPC_RATE_LIMIT_WAIT_LATENCY = new AutoMappedMetric<>(methodName ->
+                new HistogramMetric("meta_service_rpc_rate_limit_wait_latency", Collections.emptyList()));
+        CloudMetrics.META_SERVICE_RPC_ALL_RATE_LIMITED = new LongCounterMetric(
+                "meta_service_rpc_all_rate_limited", MetricUnit.NOUNIT, "");
+        MetricRepo.isInit = true;
 
         rateLimiter = new MetaServiceRpcRateLimiter();
         enableRateLimit(1, "", 1, 0);
@@ -56,10 +81,15 @@ public class MetaServiceRpcRateLimiterTest {
     @After
     public void tearDown() {
         Config.meta_service_rpc_rate_limit_enabled = originRateLimitEnabled;
+        Config.meta_service_rpc_rate_limit_dry_run = originRateLimitDryRun;
         Config.meta_service_rpc_rate_limit_default_qps_per_core = originRateLimitDefaultQpsPerCore;
         Config.meta_service_rpc_rate_limit_qps_per_core_config = originRateLimitQpsPerCoreConfig;
         Config.meta_service_rpc_rate_limit_burst_seconds = originRateLimitBurstSeconds;
         Config.meta_service_rpc_rate_limit_wait_timeout_ms = originRateLimitWaitTimeoutMs;
+        CloudMetrics.META_SERVICE_RPC_RATE_LIMITED = originRateLimitedMetric;
+        CloudMetrics.META_SERVICE_RPC_RATE_LIMIT_WAIT_LATENCY = originRateLimitWaitLatencyMetric;
+        CloudMetrics.META_SERVICE_RPC_ALL_RATE_LIMITED = originAllRateLimitedMetric;
+        MetricRepo.isInit = originMetricRepoIsInit;
         rateLimiter.reset();
     }
 
@@ -79,6 +109,34 @@ public class MetaServiceRpcRateLimiterTest {
 
         Config.meta_service_rpc_rate_limit_enabled = false;
         rateLimiter.acquire("disabledSwitch");
+    }
+
+    @Test
+    public void testDryRunDoesNotReject() throws RpcException {
+        Config.meta_service_rpc_rate_limit_dry_run = true;
+        consumePermits("dryRun", CPU_CORES);
+
+        rateLimiter.acquire("dryRun");
+        Assert.assertEquals(1L, CloudMetrics.META_SERVICE_RPC_ALL_RATE_LIMITED.getValue().longValue());
+        Assert.assertEquals(1L,
+                CloudMetrics.META_SERVICE_RPC_RATE_LIMITED.getOrAdd("dryRun").getValue().longValue());
+
+        Config.meta_service_rpc_rate_limit_dry_run = false;
+        assertRateLimited("dryRun");
+        Assert.assertEquals(2L, CloudMetrics.META_SERVICE_RPC_ALL_RATE_LIMITED.getValue().longValue());
+        Assert.assertEquals(2L,
+                CloudMetrics.META_SERVICE_RPC_RATE_LIMITED.getOrAdd("dryRun").getValue().longValue());
+    }
+
+    @Test
+    public void testDryRunDoesNotWait() throws RpcException {
+        enableRateLimit(1, "", 1, 2000);
+        Config.meta_service_rpc_rate_limit_dry_run = true;
+        consumePermits("dryRunWait", CPU_CORES);
+
+        Assert.assertEquals(0, rateLimiter.acquire("dryRunWait"));
+        Assert.assertEquals(1L, CloudMetrics.META_SERVICE_RPC_RATE_LIMIT_WAIT_LATENCY.getOrAdd("dryRunWait")
+                .getHistogram().getCount());
     }
 
     @Test
@@ -233,6 +291,7 @@ public class MetaServiceRpcRateLimiterTest {
     private void enableRateLimit(int defaultQpsPerCore, String qpsPerCoreConfig, int burstSeconds,
             long waitTimeoutMs) {
         Config.meta_service_rpc_rate_limit_enabled = true;
+        Config.meta_service_rpc_rate_limit_dry_run = false;
         Config.meta_service_rpc_rate_limit_default_qps_per_core = defaultQpsPerCore;
         Config.meta_service_rpc_rate_limit_qps_per_core_config = qpsPerCoreConfig;
         Config.meta_service_rpc_rate_limit_burst_seconds = burstSeconds;

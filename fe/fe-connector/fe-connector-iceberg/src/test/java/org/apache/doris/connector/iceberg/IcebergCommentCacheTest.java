@@ -157,7 +157,7 @@ public class IcebergCommentCacheTest {
     public void loaderFailureIsNotCachedSoNextQueryRetries() {
         // A view handle (loadTable throws NoSuchTableException) must NOT be cached, so getTableComment keeps
         // degrading to "" via the caller's catch on every call (and a real table appearing later loads fresh). The
-        // MetaCacheEntry manual-miss-load path re-throws the loader's exception verbatim and does not store it.
+        // MetaCache manual-miss-load path re-throws the loader's exception verbatim and does not store it.
         // MUTATION: caching on failure -> the second call would not re-run the loader / size==1 -> red.
         IcebergCommentCache c = new IcebergCommentCache(100, 1000);
         AtomicInteger loads = new AtomicInteger();

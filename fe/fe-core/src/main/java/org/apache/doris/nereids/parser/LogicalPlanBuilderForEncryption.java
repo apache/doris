@@ -227,8 +227,8 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     // create job select tvf
     @Override
     public LogicalPlan visitCreateScheduledJob(DorisParser.CreateScheduledJobContext ctx) {
-        if (ctx.supportedDmlStatement() instanceof InsertTableContext) {
-            visitInsertTable((InsertTableContext) ctx.supportedDmlStatement());
+        if (ctx.dmlStatement() instanceof InsertTableContext) {
+            visitInsertTable((InsertTableContext) ctx.dmlStatement());
         } else if (ctx.jobFromToClause() != null) {
             JobFromToClauseContext jobFromToClauseContext = ctx.jobFromToClause();
             encryptProperty(visitPropertyItemList(jobFromToClauseContext.sourceProperties),
@@ -242,8 +242,8 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     // alter job select tvf
     @Override
     public LogicalPlan visitAlterJob(DorisParser.AlterJobContext ctx) {
-        if (ctx.supportedDmlStatement() instanceof InsertTableContext) {
-            visitInsertTable((InsertTableContext) ctx.supportedDmlStatement());
+        if (ctx.dmlStatement() instanceof InsertTableContext) {
+            visitInsertTable((InsertTableContext) ctx.dmlStatement());
         } else if (ctx.jobFromToClause() != null) {
             JobFromToClauseContext jobFromToClauseContext = ctx.jobFromToClause();
             encryptProperty(visitPropertyItemList(jobFromToClauseContext.sourceProperties),

@@ -27,11 +27,14 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Unit tests for {@link IcebergTableCache} (PERF-01). The cross-query RAW-table cache mirrors
- * {@link IcebergLatestSnapshotCache} exactly (same {@link org.apache.doris.connector.cache.MetaCacheEntry}
+ * {@link IcebergLatestSnapshotCache} exactly (same {@link org.apache.doris.connector.cache.MetaCache}
  * backing) but stores the whole {@link Table} instead of the {@code (snapshotId, schemaId)} pin, restoring the
  * table-caching half of the legacy {@code IcebergExternalMetaCache}. These tests cover the adapter's contract —
  * within-TTL stability, the {@code ttl <= 0} disable, invalidation, and the exception-propagation guarantee the
@@ -113,6 +116,102 @@ public class IcebergTableCacheTest {
     }
 
     @Test
+    public void invalidateWaitsForActiveBorrowerBeforeCleaning() {
+        AtomicInteger cleanerCalls = new AtomicInteger();
+        IcebergTableCache c = new IcebergTableCache(100, 1000, table -> cleanerCalls::incrementAndGet);
+        IcebergTableCache.TableLease lease = c.borrow(id(), () -> table("first"));
+        c.invalidate(id());
+        Assertions.assertEquals(0, cleanerCalls.get(), "invalidation must not close an active statement table");
+        Assertions.assertEquals("first", lease.table().name());
+        lease.close();
+        Assertions.assertEquals(1, cleanerCalls.get(), "removing a cached table must release its resources");
+    }
+
+    @Test
+    public void disabledCacheCleansAfterBorrowerRelease() {
+        AtomicInteger cleanerCalls = new AtomicInteger();
+        IcebergTableCache c = new IcebergTableCache(0, 1000, table -> cleanerCalls::incrementAndGet);
+        IcebergTableCache.TableLease lease = c.borrow(id(), () -> table("uncached"));
+        Assertions.assertEquals(0, c.size());
+        Assertions.assertEquals(0, cleanerCalls.get(), "the returned uncached table is still borrowed");
+        lease.close();
+        Assertions.assertEquals(1, cleanerCalls.get());
+    }
+
+    @Test
+    public void capacityEvictionWaitsForActiveBorrower() {
+        AtomicInteger cleanerCalls = new AtomicInteger();
+        IcebergTableCache c = new IcebergTableCache(100, 1, table -> cleanerCalls::incrementAndGet);
+        IcebergTableCache.TableLease first = c.borrow(
+                TableIdentifier.of("db", "first"), () -> table("first"));
+        IcebergTableCache.TableLease second = c.borrow(
+                TableIdentifier.of("db", "second"), () -> table("second"));
+        Assertions.assertEquals(0, cleanerCalls.get(), "an evicted active table must remain usable");
+        Assertions.assertEquals("first", first.table().name());
+        Assertions.assertEquals("second", second.table().name());
+        first.close();
+        second.close();
+        c.invalidateAll();
+        Assertions.assertEquals(2, cleanerCalls.get());
+    }
+
+    @Test
+    public void connectorCloseWaitsForActiveBorrowerBeforeClosingCatalogResources() {
+        AtomicInteger tableCleanerCalls = new AtomicInteger();
+        AtomicInteger catalogCleanerCalls = new AtomicInteger();
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        IcebergTableCache c = new IcebergTableCache(
+                100, 1000, table -> tableCleanerCalls::incrementAndGet, tracker);
+
+        IcebergTableCache.TableLease lease = c.borrow(id(), () -> table("first"));
+        c.invalidateAll();
+        tracker.close(catalogCleanerCalls::incrementAndGet);
+
+        Assertions.assertEquals(0, tableCleanerCalls.get(),
+                "cache invalidation must not clean a table still borrowed by a statement");
+        Assertions.assertEquals(0, catalogCleanerCalls.get(),
+                "connector close must not close catalog resources used by that table");
+        Assertions.assertEquals("first", lease.table().name());
+
+        lease.close();
+        Assertions.assertEquals(1, tableCleanerCalls.get());
+        Assertions.assertEquals(1, catalogCleanerCalls.get());
+    }
+
+    @Test
+    public void closeRejectsAndCleansLoaderThatPublishesLate() throws Exception {
+        AtomicInteger tableCleanerCalls = new AtomicInteger();
+        AtomicInteger catalogCleanerCalls = new AtomicInteger();
+        CountDownLatch loaderEntered = new CountDownLatch(1);
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        IcebergTableCache cache = new IcebergTableCache(
+                100, 1000, table -> tableCleanerCalls::incrementAndGet, tracker);
+
+        CompletableFuture<Void> load = CompletableFuture.runAsync(() -> Assertions.assertThrows(
+                IllegalStateException.class, () -> cache.borrow(id(), () -> {
+                    loaderEntered.countDown();
+                    try {
+                        Assertions.assertTrue(releaseLoader.await(10, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(e);
+                    }
+                    return table("late");
+                })));
+
+        Assertions.assertTrue(loaderEntered.await(10, TimeUnit.SECONDS));
+        cache.close();
+        tracker.close(catalogCleanerCalls::incrementAndGet);
+        releaseLoader.countDown();
+        load.get(10, TimeUnit.SECONDS);
+
+        Assertions.assertEquals(0, cache.size(), "a post-close publication must not remain cache-owned");
+        Assertions.assertEquals(1, tableCleanerCalls.get());
+        Assertions.assertEquals(1, catalogCleanerCalls.get());
+    }
+
+    @Test
     public void invalidateForcesReload() {
         AtomicInteger loads = new AtomicInteger();
         IcebergTableCache c = new IcebergTableCache(100, 1000);
@@ -174,7 +273,7 @@ public class IcebergTableCacheTest {
     public void loaderExceptionPropagatesUnwrapped() {
         // The partition-view readers (listPartitions / listPartitionNames) catch NoSuchTableException to degrade
         // a concurrent-drop race to an empty list. Routing them through this cache must NOT wrap that exception,
-        // or the degradation would break and they'd throw instead. The MetaCacheEntry manual-miss-load path
+        // or the degradation would break and they'd throw instead. The MetaCache manual-miss-load path
         // re-throws the loader's RuntimeException verbatim. MUTATION: wrapping the loader exception ->
         // assertThrows(NoSuchTableException) fails (a different type is thrown) -> red.
         IcebergTableCache c = new IcebergTableCache(100, 1000);

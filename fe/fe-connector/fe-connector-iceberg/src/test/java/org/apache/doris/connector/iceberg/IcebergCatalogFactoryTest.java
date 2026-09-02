@@ -99,7 +99,7 @@ public class IcebergCatalogFactoryTest {
 
     @Test
     public void resolveCatalogImplMapsHmsToHiveCatalog() {
-        Assertions.assertEquals("org.apache.iceberg.hive.HiveCatalog",
+        Assertions.assertEquals(DorisHiveCatalog.class.getName(),
                 IcebergCatalogFactory.resolveCatalogImpl("hms"));
     }
 
@@ -150,7 +150,7 @@ public class IcebergCatalogFactoryTest {
         // the default branch throws on "REST" -> red.
         Assertions.assertEquals("org.apache.iceberg.rest.RESTCatalog",
                 IcebergCatalogFactory.resolveCatalogImpl("REST"));
-        Assertions.assertEquals("org.apache.iceberg.hive.HiveCatalog",
+        Assertions.assertEquals(DorisHiveCatalog.class.getName(),
                 IcebergCatalogFactory.resolveCatalogImpl("Hms"));
     }
 
@@ -798,7 +798,7 @@ public class IcebergCatalogFactoryTest {
         Map<String, String> opts = IcebergCatalogFactory.buildCatalogProperties(
                 IcebergCatalogProperties.of(props("iceberg.catalog.type", "hms")),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").endpoint("https://s3").accessKey("AK")));
-        Assertions.assertEquals("org.apache.iceberg.hive.HiveCatalog", opts.get("catalog-impl"));
+        Assertions.assertEquals(DorisHiveCatalog.class.getName(), opts.get("catalog-impl"));
         Assertions.assertNull(opts.get("s3.endpoint"), "HMS must not emit S3FileIO options");
         Assertions.assertNull(opts.get("s3.access-key-id"));
     }

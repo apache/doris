@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
@@ -47,6 +48,16 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class IndexDefinitionTest {
+    private IndexDefinition newBloomFilterIndexDefinition() {
+        return new IndexDefinition("bf_index", false, Lists.newArrayList("col1"), "BLOOMFILTER", null, "comment");
+    }
+
+    private Column newCatalogColumn(Type type, boolean isKey) {
+        Column column = new Column("col1", type);
+        column.setIsKey(isKey);
+        return column;
+    }
+
     @Test
     void testVariantIndexFormatV1() throws AnalysisException {
         IndexDefinition def = new IndexDefinition("variant_index", false, Lists.newArrayList("col1"), "INVERTED",
@@ -249,6 +260,195 @@ public class IndexDefinitionTest {
         def.checkColumn(
                 new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
                 KeysType.DUP_KEYS, false, null);
+    }
+
+    @Test
+    void testBloomFilterIndexTypeName() {
+        IndexDefinition def = new IndexDefinition("bf_index", false, Lists.newArrayList("col1"), "BLOOMFILTER",
+                null, "comment");
+        Assertions.assertEquals(IndexType.BLOOMFILTER, def.getIndexType());
+    }
+
+    @Test
+    void testBloomFilterIndexSupportsBloomFilterFppProperty() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("bloom_filter_fpp", "0.05");
+
+        IndexDefinition def = new IndexDefinition("bf_index", false, Lists.newArrayList("col1"), "BLOOMFILTER",
+                properties, "comment");
+        Assertions.assertDoesNotThrow(() -> def.checkColumn(
+                new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
+                KeysType.DUP_KEYS, false, null));
+        Assertions.assertEquals("0.05", def.getProperties().get("bloom_filter_fpp"));
+    }
+
+    @Test
+    void testBloomFilterIndexRejectsNonBloomFilterFppProperty() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("foo", "bar");
+
+        IndexDefinition def = new IndexDefinition("bf_index", false, Lists.newArrayList("col1"), "BLOOMFILTER",
+                properties, "comment");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> def.checkColumn(
+                new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
+                KeysType.DUP_KEYS, false, null));
+        Assertions.assertEquals("BLOOMFILTER index only supports property bloom_filter_fpp",
+                exception.getMessage());
+    }
+
+    @Test
+    void testBloomFilterIndexRejectsInvalidBloomFilterFppProperty() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("bloom_filter_fpp", "0.1");
+
+        IndexDefinition def = new IndexDefinition("bf_index", false, Lists.newArrayList("col1"), "BLOOMFILTER",
+                properties, "comment");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> def.checkColumn(
+                new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
+                KeysType.DUP_KEYS, false, null));
+        Assertions.assertTrue(exception.getMessage().contains("Bloom filter fpp should in [1.0E-4, 0.05]"));
+    }
+
+    @Test
+    void testBloomFilterIndexRejectsNonFiniteBloomFilterFppProperty() {
+        for (String fpp : Lists.newArrayList("NaN", "Infinity", "-Infinity")) {
+            Map<String, String> properties = new HashMap<>();
+            properties.put("bloom_filter_fpp", fpp);
+
+            IndexDefinition def = new IndexDefinition("bf_index", false, Lists.newArrayList("col1"), "BLOOMFILTER",
+                    properties, "comment");
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> def.checkColumn(
+                    new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
+                    KeysType.DUP_KEYS, false, null));
+            Assertions.assertTrue(exception.getMessage().contains("Bloom filter fpp should in [1.0E-4, 0.05]"));
+        }
+    }
+
+    @Test
+    void testBloomFilterIndexSupportsVariantColumnDefinition() {
+        // Baseline check for BfIndex on VARIANT columns.
+        IndexDefinition def = newBloomFilterIndexDefinition();
+        Assertions.assertDoesNotThrow(() -> def.checkColumn(
+                new ColumnDefinition("col1", VariantType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
+                KeysType.DUP_KEYS, false, null));
+    }
+
+    @Test
+    void testBloomFilterIndexSupportsVariantCatalogColumn() {
+        IndexDefinition def = newBloomFilterIndexDefinition();
+        Assertions.assertDoesNotThrow(() -> def.checkColumn(
+                newCatalogColumn(Type.VARIANT, true), KeysType.DUP_KEYS, false, null));
+    }
+
+    @Test
+    void testBloomFilterIndexSupportsVariantColumnDefinitionWithV1StorageFormat() {
+        // Inverted-index-specific VARIANT + V1 rejection must not leak into BLOOMFILTER.
+        IndexDefinition def = newBloomFilterIndexDefinition();
+        Assertions.assertDoesNotThrow(() -> def.checkColumn(
+                new ColumnDefinition("col1", VariantType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
+                KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.V1));
+    }
+
+    @Test
+    void testBloomFilterIndexSupportsVariantColumnDefinitionWithDefaultStorageFormat() {
+        // DEFAULT may resolve to the old V1 rules elsewhere, so this regression test keeps
+        // BLOOMFILTER isolated from inverted-index-only validation.
+        IndexDefinition def = newBloomFilterIndexDefinition();
+        Assertions.assertDoesNotThrow(() -> def.checkColumn(
+                new ColumnDefinition("col1", VariantType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
+                KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.DEFAULT));
+    }
+
+    @Test
+    void testBloomFilterIndexSupportsVariantCatalogColumnWithDefaultStorageFormat() {
+        IndexDefinition def = newBloomFilterIndexDefinition();
+        Assertions.assertDoesNotThrow(() -> def.checkColumn(
+                newCatalogColumn(Type.VARIANT, true), KeysType.DUP_KEYS, false,
+                TInvertedIndexFileStorageFormat.DEFAULT));
+    }
+
+    @Test
+    void testBloomFilterIndexSupportsVariantCatalogColumnWithV1StorageFormat() {
+        IndexDefinition def = newBloomFilterIndexDefinition();
+        Assertions.assertDoesNotThrow(() -> def.checkColumn(
+                newCatalogColumn(Type.VARIANT, true), KeysType.DUP_KEYS, false,
+                TInvertedIndexFileStorageFormat.V1));
+    }
+
+    @Test
+    void testBloomFilterIndexRejectsUnsupportedColumnDefinitionType() {
+        IndexDefinition def = newBloomFilterIndexDefinition();
+        // BOOLEAN is accepted by neither BfColumns nor BfIndex.
+        ColumnDefinition columnDef = new ColumnDefinition("col1", BooleanType.INSTANCE, false, AggregateType.NONE,
+                true, null, "comment");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> def.checkColumn(
+                columnDef, KeysType.DUP_KEYS, false, null));
+        Assertions.assertEquals(columnDef.getType() + " is not supported in bloom filter index. invalid column: "
+                + columnDef.getName(),
+                exception.getMessage());
+    }
+
+    @Test
+    void testBloomFilterIndexSupportsValueColumnOnDupKeys() {
+        IndexDefinition def = newBloomFilterIndexDefinition();
+        Assertions.assertDoesNotThrow(() -> def.checkColumn(
+                new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
+                KeysType.DUP_KEYS, false, null));
+    }
+
+    @Test
+    void testBloomFilterIndexRejectsValueColumnOnAggKeysForColumnDefinition() {
+        IndexDefinition def = newBloomFilterIndexDefinition();
+        // BLOOMFILTER follows the same key-column restriction as the existing secondary indexes.
+        ColumnDefinition columnDef = new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE,
+                true, null, "comment");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> def.checkColumn(
+                columnDef, KeysType.AGG_KEYS, false, null));
+        Assertions.assertEquals("index should only be used in columns of DUP_KEYS/UNIQUE_KEYS table"
+                + " or key columns of AGG_KEYS table. invalid index: " + def.getIndexName(),
+                exception.getMessage());
+    }
+
+    @Test
+    void testBloomFilterIndexSupportsValueColumnOnUniqueKeysForCatalogColumn() {
+        IndexDefinition def = newBloomFilterIndexDefinition();
+        Assertions.assertDoesNotThrow(() -> def.checkColumn(newCatalogColumn(Type.STRING, false),
+                KeysType.UNIQUE_KEYS, false, null));
+    }
+
+    @Test
+    void testBloomFilterIndexRejectsUnsupportedCatalogColumnType() {
+        IndexDefinition def = newBloomFilterIndexDefinition();
+        // Cover the catalog Column overload so both checkColumn(...) entry points stay aligned.
+        Column column = newCatalogColumn(Type.BOOLEAN, false);
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> def.checkColumn(column, KeysType.DUP_KEYS, false, null));
+        Assertions.assertEquals(column.getDataType() + " is not supported in bloom filter index. invalid column: "
+                + column.getName(), exception.getMessage());
+    }
+
+    @Test
+    void testBloomFilterIndexRejectsValueColumnOnAggKeysForCatalogColumn() {
+        IndexDefinition def = newBloomFilterIndexDefinition();
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> def.checkColumn(newCatalogColumn(Type.STRING, false), KeysType.AGG_KEYS, false, null));
+        Assertions.assertEquals("index should only be used in columns of DUP_KEYS/UNIQUE_KEYS table"
+                + " or key columns of AGG_KEYS table. invalid index: " + def.getIndexName(),
+                exception.getMessage());
+    }
+
+    @Test
+    void testBloomFilterIndexOnlySingleColumn() {
+        IndexDefinition def = new IndexDefinition("bf_index", false, Lists.newArrayList("col1", "col2"),
+                "BLOOMFILTER", null, "comment");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, def::validate);
+        Assertions.assertEquals("BLOOMFILTER index can only apply to a single column.", exception.getMessage());
+    }
+
+    @Test
+    void testBloomFilterIndexToSqlUsesBloomFilterKeyword() {
+        IndexDefinition def = newBloomFilterIndexDefinition();
+        Assertions.assertTrue(def.toSql().contains("USING BLOOMFILTER"));
     }
 
     @Test

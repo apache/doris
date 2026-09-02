@@ -449,7 +449,7 @@ public class MaterializedViewHandler extends AlterHandler {
             // per-iteration because Tablet.addReplica(...) below needs the tablet present
             // in the inverted index.
             TabletMeta mvTabletMeta = new TabletMeta(
-                    dbId, tableId, partitionId, mvIndexId, mvSchemaHash, medium);
+                    dbId, tableId, partitionId, mvIndexId, mvSchemaHash, medium, false /* isRowBinlog */);
             List<Tablet> mvTabletsForPartition = Lists.newArrayListWithCapacity(baseIndex.getTablets().size());
             TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
             for (Tablet baseTablet : baseIndex.getTablets()) {

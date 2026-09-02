@@ -577,6 +577,21 @@ update_submodule() {
     fi
 }
 
+if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && ${BUILD_CLOUD} -eq 0 ]]; then
+    clean_gensrc
+    clean_be
+    clean_fe
+    exit 0
+fi
+
+if [[ "${BUILD_BE}" -eq 1 || "${COMPILE_BENCH}" -eq 1 ]]; then
+    MECAB_IPADIC_DIR="${DORIS_THIRDPARTY}/installed/share/mecab-ipadic-2.7.0-20250920"
+    if [[ ! -d "${MECAB_IPADIC_DIR}" ]]; then
+        echo "Staging mecab-ipadic (kuromoji dictionary source) into thirdparty ..."
+        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" mecab_ipadic
+    fi
+fi
+
 if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
     if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
         GLIBC_COMPATIBILITY='ON'
@@ -1045,8 +1060,9 @@ function build_ui() {
         ui_dist="${CUSTOM_UI_DIST}"
     else
         cd "${DORIS_HOME}/ui"
-        "${NPM}" cache clean --force
-        "${NPM}" install --legacy-peer-deps
+        # ci, not install: the shipped bundle must come from the committed lockfile so that
+        # the same source tree always produces the same static/ payload.
+        "${NPM}" ci --legacy-peer-deps
         "${NPM}" run build
     fi
     echo "ui dist: ${ui_dist}"
@@ -1144,6 +1160,8 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/conf/ldap.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/mysql_ssl_default_certificate" "${DORIS_OUTPUT}/fe/"/
     rm -rf "${DORIS_OUTPUT}/fe/lib"/*
+    # The offline minidump runner is gone; drop it from reused output trees too.
+    rm -rf "${DORIS_OUTPUT}/fe/minidump"
     unzip -q -o "${DORIS_HOME}/fe/fe-core/target/doris-fe-lib.zip" -d "${DORIS_OUTPUT}/fe/lib"
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     for extra_module_path in "${FE_EXTRA_MODULE_PATHS[@]}"; do
@@ -1168,7 +1186,6 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
     bash "${DORIS_HOME}/post-build.sh" --fe --output "${DORIS_OUTPUT}"
 
-    cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/fe/webroot/static"/

@@ -20,7 +20,6 @@
 #include <gtest/gtest.h>
 
 #include <memory>
-#include <numeric>
 #include <string>
 #include <vector>
 
@@ -240,11 +239,10 @@ protected:
     // Reads every row of `rowset` back into `output` in key order, all columns.
     Status read_rowset(const RowsetSharedPtr& rowset, const TabletSchemaSPtr& schema,
                        Block* output) {
-        std::vector<uint32_t> return_columns(schema->num_columns());
-        std::iota(return_columns.begin(), return_columns.end(), 0);
+        auto read_schema = std::make_shared<ReadSchema>(schema->columns());
         RowsetReaderContext context;
         context.tablet_schema = schema;
-        context.return_columns = &return_columns;
+        context.read_schema = read_schema;
         context.need_ordered_result = true;
         OlapReaderStatistics statistics;
         context.stats = &statistics;
@@ -252,9 +250,9 @@ protected:
         RowsetReaderSharedPtr reader;
         RETURN_IF_ERROR(rowset->create_reader(&reader));
         RETURN_IF_ERROR(reader->init(&context));
-        *output = schema->create_block_by_cids(return_columns);
+        *output = read_schema->create_read_block();
         while (true) {
-            Block batch = schema->create_block_by_cids(return_columns);
+            Block batch = read_schema->create_read_block();
             auto status = reader->next_batch(&batch);
             if (status.is<ErrorCode::END_OF_FILE>()) {
                 return Status::OK();
@@ -477,8 +475,7 @@ protected:
     }
 
     // The per-segment LSN range the binlog derive consumes (one LSN per row).
-    static std::shared_ptr<std::vector<int64_t>> make_seg_lsn(size_t num_rows,
-                                                              int64_t start = 1000) {
+    static AllocatedLsnVectorSharedPtr make_seg_lsn(size_t num_rows, int64_t start = 1000) {
         auto lsn_ids = std::make_shared<std::vector<int64_t>>();
         for (size_t i = 0; i < num_rows; ++i) {
             lsn_ids->push_back(start + static_cast<int64_t>(i));
@@ -569,7 +566,7 @@ protected:
         EXPECT_TRUE(rw.has_value()) << rw.error();
         auto writer = std::move(rw).value();
 
-        Block block = schema->create_block();
+        Block block = schema->create_storage_block();
         std::vector<IColumn*> mcols;
         for (size_t i = 0; i < block.columns(); ++i) {
             mcols.push_back(block.get_by_position(i).column->assert_mutable().get());
@@ -608,7 +605,7 @@ protected:
         EXPECT_TRUE(rw.has_value()) << rw.error();
         auto writer = std::move(rw).value();
 
-        Block block = schema->create_block();
+        Block block = schema->create_storage_block();
         fill(block);
         EXPECT_TRUE(writer->add_block(&block).ok());
         EXPECT_TRUE(writer->flush().ok());
@@ -632,7 +629,7 @@ protected:
     // a 1-row block then RowKeyEncoder::full_encode_primary_keys.
     std::string encode_key(const TabletSchemaSPtr& schema, const RowKeyEncoder& encoder,
                            int32_t k) {
-        Block block = schema->create_block_by_cids({0});
+        Block block = schema->create_storage_block({0});
         block.get_by_position(0).column->assert_mutable()->insert_data(
                 reinterpret_cast<const char*>(&k), sizeof(int32_t));
         OlapBlockDataConvertor convertor;
@@ -649,7 +646,7 @@ protected:
     std::string encode_key_with_seq(const TabletSchemaSPtr& schema, const RowKeyEncoder& encoder,
                                     int32_t k, int32_t seq) {
         const auto seq_idx = static_cast<uint32_t>(schema->sequence_col_idx());
-        Block block = schema->create_block_by_cids({0, seq_idx});
+        Block block = schema->create_storage_block({0, seq_idx});
         block.get_by_position(0).column->assert_mutable()->insert_data(
                 reinterpret_cast<const char*>(&k), sizeof(int32_t));
         block.get_by_position(1).column->assert_mutable()->insert_data(

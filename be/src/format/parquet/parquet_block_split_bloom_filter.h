@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 
+#include "core/custom_allocator.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 
 namespace doris {
@@ -36,8 +37,11 @@ namespace doris {
 // https://parquet.apache.org/docs/file-format/bloomfilter/
 class ParquetBlockSplitBloomFilter : public segment_v2::BloomFilter {
 public:
+    ~ParquetBlockSplitBloomFilter() override;
     Status init(uint64_t filter_size, segment_v2::HashStrategyPB strategy) override;
     Status init(const char* buf, size_t size, segment_v2::HashStrategyPB strategy) override;
+    Status init_for_read(size_t size, segment_v2::HashStrategyPB strategy);
+    char* mutable_data() { return _data; }
     void add_bytes(const char* buf, size_t size) override;
     bool test_bytes(const char* buf, size_t size) const override;
     void set_has_null(bool has_null) override;
@@ -62,6 +66,8 @@ private:
     };
 
 private:
+    DorisUniqueBufferPtr<char> _owned_data;
+
     void _set_masks(uint32_t key, BlockMask& block_mask) const {
         for (int i = 0; i < BITS_SET_PER_BLOCK; ++i) {
             block_mask.item[i] = key * SALT[i];

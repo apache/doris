@@ -751,22 +751,6 @@ else
     fi
 fi
 
-# patch thrift
-if [[ " ${TP_ARCHIVES[*]} " =~ " THRIFT " ]]; then
-    if [[ "${THRIFT_SOURCE}" == 'thrift-0.16.0' ]]; then
-        cd "${TP_SOURCE_DIR}/${THRIFT_SOURCE}"
-        if [[ ! -f "${PATCHED_MARK}" ]]; then
-            for patch_file in "${TP_PATCH_DIR}"/thrift-*; do
-                echo "patch ${patch_file}"
-                patch -p1 --ignore-whitespace <"${patch_file}"
-            done
-            touch "${PATCHED_MARK}"
-        fi
-        cd -
-    fi
-    echo "Finished patching ${THRIFT_SOURCE}"
-fi
-
 # patch re2
 if [[ " ${TP_ARCHIVES[*]} " =~ " RE2 " ]]; then
     if [[ "${RE2_SOURCE}" == 're2-2021-02-02' ]]; then
@@ -819,12 +803,12 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
     echo "Finished patching ${PAIMON_CPP_SOURCE}"
 fi
 
-# Patch lance-c for fragment-scoped nearest-neighbor search and row-ID-based fetching.
+# Apply Doris lance-c patches.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
-    if [[ "${LANCE_C_SOURCE}" == "lance-c-0.1.6" ]]; then
+    if [[ "${LANCE_C_SOURCE}" == "lance-c-0.1.8" ]]; then
         cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p1 <"${TP_PATCH_DIR}/lance-c-0.1.6-doris.patch"
+            patch -p1 <"${TP_PATCH_DIR}/lance-c-0.1.8-pr-69.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -

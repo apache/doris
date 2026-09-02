@@ -62,9 +62,11 @@ public class Column implements GsonPostProcessable {
     public static final String ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
     // For time-travel (FOR VERSION/TIME AS OF) on duplicate / mow tables with row binlog enabled.
     public static final String COMMIT_TSO_COL = "__DORIS_COMMIT_TSO_COL__";
+    public static final String ROW_LSN_COL = "__DORIS_ROW_LSN_COL__";
     // table stream columns
     public static final String STREAM_CHANGE_TYPE_COL = "__DORIS_STREAM_CHANGE_TYPE_COL__";
     public static final String STREAM_SEQ_COL = "__DORIS_STREAM_SEQUENCE_COL__";
+    public static final String STREAM_LSN_COL = "__DORIS_STREAM_LSN_COL__";
     // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
     private static final String COLUMN_ARRAY_CHILDREN = "item";
@@ -75,6 +77,8 @@ public class Column implements GsonPostProcessable {
     private static final String COLUMN_MAP_VALUE = "value";
     public static final Column STREAM_SEQ_VIRTUAL_COLUMN =
             new Column(STREAM_SEQ_COL, Type.BIGINT, false, null, true, null, false);
+    public static final Column STREAM_LSN_VIRTUAL_COLUMN =
+            new Column(STREAM_LSN_COL, Type.BIGINT, false, null, true, null, false);
     public static final Column STREAM_CHANGE_TYPE_VIRTUAL_COLUMN =
             new Column(STREAM_CHANGE_TYPE_COL, Type.STRING, false, null, true, null, false);
 
@@ -529,6 +533,10 @@ public class Column implements GsonPostProcessable {
     public boolean isCommitTsoColumn() {
         // aggregationType is NONE for duplicate table and unique table with merge on write.
         return !visible && aggregationType == AggregateType.NONE && nameEquals(COMMIT_TSO_COL, true);
+    }
+
+    public boolean isRowLsnColumn() {
+        return !visible && aggregationType == AggregateType.NONE && nameEquals(ROW_LSN_COL, true);
     }
 
     // now we only support BloomFilter on (same behavior with BE):

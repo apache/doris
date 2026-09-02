@@ -339,14 +339,17 @@ public class PropertyAnalyzerTest {
             TInvertedIndexFileStorageFormat result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(null);
             Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3, result);
 
+            // Config=V1 with no explicit property: V1 config is ignored, falls through to V3
             Config.inverted_index_storage_format = "V1";
             result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(new HashMap<>());
-            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V1, result);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3, result);
 
             Map<String, String> propertiesWithV1 = new HashMap<>();
             propertiesWithV1.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "v1");
-            result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithV1);
-            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V1, result);
+            AnalysisException v1Ex = Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithV1));
+            Assertions.assertTrue(v1Ex.getMessage().contains(
+                    "Inverted index V1 is deprecated and no longer allowed for new index creation."));
 
             Map<String, String> propertiesWithV2 = new HashMap<>();
             propertiesWithV2.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "v2");
@@ -358,11 +361,12 @@ public class PropertyAnalyzerTest {
             result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithV3);
             Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3, result);
 
+            // "default" + Config=V1: falls through to V3 (current default when config is not V2)
             Config.inverted_index_storage_format = "V1";
             Map<String, String> propertiesWithDefaultV1 = new HashMap<>();
             propertiesWithDefaultV1.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "default");
             result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithDefaultV1);
-            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V1, result);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3, result);
 
             Config.inverted_index_storage_format = "V2";
             Map<String, String> propertiesWithDefaultV2 = new HashMap<>();
@@ -382,6 +386,48 @@ public class PropertyAnalyzerTest {
             }
         } finally {
             Config.inverted_index_storage_format = originFormat;
+        }
+    }
+
+    @Test
+    public void testAnalyzePartitionInvertedIndexFileStorageFormat() throws AnalysisException {
+        String originFormat = Config.inverted_index_storage_format;
+        String originDeployMode = Config.deploy_mode;
+        String originCloudUniqueId = Config.cloud_unique_id;
+        boolean originPartitionFormatRollout = Config.enable_partition_inverted_index_storage_format_rollout;
+        try {
+            Config.deploy_mode = "cloud";
+            Config.cloud_unique_id = "";
+            Config.enable_partition_inverted_index_storage_format_rollout = true;
+
+            Map<String, String> properties = new HashMap<>();
+            Config.inverted_index_storage_format = "SNII";
+            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "default");
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.SNII,
+                    PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(properties));
+
+            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "V1");
+            AnalysisException v1Exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(properties));
+            Assertions.assertTrue(v1Exception.getMessage().contains("only supports V2, V3 and SNII"));
+
+            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "SNII");
+            Config.enable_partition_inverted_index_storage_format_rollout = false;
+            Assertions.assertNull(PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(properties));
+            Assertions.assertFalse(properties.containsKey(
+                    PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT));
+
+            Config.enable_partition_inverted_index_storage_format_rollout = true;
+            Config.deploy_mode = "local";
+            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "SNII");
+            AnalysisException localException = Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(properties));
+            Assertions.assertTrue(localException.getMessage().contains("only supported in cloud mode"));
+        } finally {
+            Config.inverted_index_storage_format = originFormat;
+            Config.deploy_mode = originDeployMode;
+            Config.cloud_unique_id = originCloudUniqueId;
+            Config.enable_partition_inverted_index_storage_format_rollout = originPartitionFormatRollout;
         }
     }
 

@@ -296,7 +296,7 @@ protected:
     }
 
     Block create_full_block(const TabletSchemaSPtr& tablet_schema, int32_t start_key = 1) {
-        auto block = tablet_schema->create_block();
+        auto block = tablet_schema->create_storage_block();
         auto columns = std::move(block).mutate_columns();
         for (int32_t i = 0; i < 8; ++i) {
             int32_t key = start_key + i;
@@ -311,7 +311,7 @@ protected:
     Block create_column_block(const TabletSchemaSPtr& tablet_schema,
                               const std::vector<uint32_t>& column_ids, int32_t row_count = 8,
                               int32_t start_key = 1) {
-        auto block = tablet_schema->create_block(column_ids);
+        auto block = tablet_schema->create_storage_block(column_ids);
         auto columns = std::move(block).mutate_columns();
         for (int32_t i = 0; i < row_count; ++i) {
             int32_t key = start_key + i;
@@ -699,21 +699,26 @@ TEST_F(CloudFileCacheWriteIndexOnlyTest,
     auto writer_result = RowsetFactory::create_rowset_writer(*_engine, context, true);
     ASSERT_TRUE(writer_result.has_value()) << writer_result.error();
     auto rowset_writer = std::move(writer_result).value();
+    EXPECT_EQ(rowset_writer->get_allocated_segment_id(), 0);
 
     std::vector<uint32_t> key_column_ids = {0};
     auto key_block = create_column_block(tablet_schema, key_column_ids, 8, 1);
     auto st = rowset_writer->add_columns(&key_block, key_column_ids, true, 4, false);
     ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(rowset_writer->get_allocated_segment_id(), 1);
     auto second_key_block = create_column_block(tablet_schema, key_column_ids, 8, 100);
     st = rowset_writer->add_columns(&second_key_block, key_column_ids, true, 4, false);
     ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(rowset_writer->get_allocated_segment_id(), 2);
     st = rowset_writer->flush_columns(true);
     ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(rowset_writer->get_allocated_segment_id(), 2);
 
     std::vector<uint32_t> value_column_ids = {1};
     auto value_block = create_column_block(tablet_schema, value_column_ids, 16, 1);
     st = rowset_writer->add_columns(&value_block, value_column_ids, false, UINT32_MAX, false);
     ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(rowset_writer->get_allocated_segment_id(), 2);
     st = rowset_writer->flush_columns(false);
     ASSERT_TRUE(st.ok()) << st;
     st = rowset_writer->final_flush();

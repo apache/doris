@@ -441,6 +441,10 @@ build_thrift() {
     check_if_source_exist "${THRIFT_SOURCE}"
     cd "${TP_SOURCE_DIR}/${THRIFT_SOURCE}"
 
+    # Headers of a previously installed thrift would shadow the in-tree ones
+    # via -I${TP_INCLUDE_DIR} and break an in-place version upgrade.
+    rm -rf "${TP_INSTALL_DIR}/include/thrift"
+
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         cflags="-I${TP_INCLUDE_DIR}"
         cxxflags="-I${TP_INCLUDE_DIR} ${warning_unused_but_set_variable} -Wno-inconsistent-missing-override"
@@ -454,9 +458,9 @@ build_thrift() {
     # NOTE(amos): libtool discard -static. --static works.
     ./configure CFLAGS="${cflags}" CXXFLAGS="${cxxflags}" LDFLAGS="${ldflags}" LIBS="-lcrypto -ldl -lssl" \
         --prefix="${TP_INSTALL_DIR}" --docdir="${TP_INSTALL_DIR}/doc" --enable-static --disable-shared --disable-tests \
-        --disable-tutorial --without-qt4 --without-qt5 --without-csharp --without-erlang --without-nodejs --without-nodets --without-swift \
-        --without-lua --without-perl --without-php --without-php_extension --without-dart --without-ruby --without-cl \
-        --without-haskell --without-go --without-haxe --without-d --without-python -without-java --without-dotnetcore -without-rs --with-cpp \
+        --disable-tutorial --without-qt5 --without-c_glib --without-java --without-kotlin --without-erlang --without-nodejs --without-nodets \
+        --without-lua --without-python --without-py3 --without-perl --without-php --without-php_extension \
+        --without-dart --without-ruby --without-go --without-rs --without-cl --without-netstd --without-d --with-cpp \
         --with-libevent="${TP_INSTALL_DIR}" --with-boost="${TP_INSTALL_DIR}" --with-openssl="${TP_INSTALL_DIR}"
 
     if [[ -f compiler/cpp/thrifty.hh ]]; then
@@ -2253,6 +2257,18 @@ build_icu() {
     make install
 }
 
+# mecab-ipadic
+build_mecab_ipadic() {
+    check_if_source_exist "${MECAB_IPADIC_SOURCE}"
+    mkdir -p "${TP_INSTALL_DIR}/share"
+    local dest="${TP_INSTALL_DIR}/share/${MECAB_IPADIC_SOURCE}"
+    # Copy into a temporary directory and publish with an atomic rename, so an
+    # interrupted copy never leaves a half-populated.
+    rm -rf "${dest}" "${dest}.tmp"
+    cp -r "${TP_SOURCE_DIR}/${MECAB_IPADIC_SOURCE}" "${dest}.tmp"
+    mv "${dest}.tmp" "${dest}"
+}
+
 # jindofs
 build_jindofs() {
     check_if_source_exist "${JINDOFS_SOURCE}"
@@ -2514,6 +2530,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         azure
         brotli
         icu
+        mecab_ipadic
         pugixml
         paimon_cpp
     )
@@ -2619,6 +2636,7 @@ cleanup_package_source() {
         azure)           src_var="AZURE_SOURCE" ;;
         dragonbox)       src_var="DRAGONBOX_SOURCE" ;;
         icu)             src_var="ICU_SOURCE" ;;
+        mecab_ipadic)    src_var="MECAB_IPADIC_SOURCE" ;;
         jindofs)         src_var="JINDOFS_SOURCE" ;;
         juicefs)         src_var="JUICEFS_SOURCE" ;;
         pugixml)         src_var="PUGIXML_SOURCE" ;;

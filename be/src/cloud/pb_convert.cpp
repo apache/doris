@@ -67,6 +67,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
         out->mutable_tablet_uid()->CopyFrom(in.tablet_uid());
     }
     out->set_num_segments(in.num_segments());
+    out->mutable_segment_ids()->CopyFrom(in.segment_ids());
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());
@@ -79,6 +80,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
+    out->mutable_segment_group_sizes()->CopyFrom(in.segment_group_sizes());
     if (in.has_segments_key_bounds_truncated()) {
         out->set_segments_key_bounds_truncated(in.segments_key_bounds_truncated());
     }
@@ -164,6 +166,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
         out->mutable_tablet_uid()->CopyFrom(in.tablet_uid());
     }
     out->set_num_segments(in.num_segments());
+    out->mutable_segment_ids()->Swap(in.mutable_segment_ids());
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());
@@ -177,6 +180,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
+    out->mutable_segment_group_sizes()->Swap(in.mutable_segment_group_sizes());
     if (in.has_segments_key_bounds_truncated()) {
         out->set_segments_key_bounds_truncated(in.segments_key_bounds_truncated());
     }
@@ -275,6 +279,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
         out->mutable_tablet_uid()->CopyFrom(in.tablet_uid());
     }
     out->set_num_segments(in.num_segments());
+    out->mutable_segment_ids()->CopyFrom(in.segment_ids());
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());
@@ -287,6 +292,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
+    out->mutable_segment_group_sizes()->CopyFrom(in.segment_group_sizes());
     if (in.has_segments_key_bounds_truncated()) {
         out->set_segments_key_bounds_truncated(in.segments_key_bounds_truncated());
     }
@@ -372,6 +378,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
         out->mutable_tablet_uid()->CopyFrom(in.tablet_uid());
     }
     out->set_num_segments(in.num_segments());
+    out->mutable_segment_ids()->Swap(in.mutable_segment_ids());
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());
@@ -385,6 +392,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
+    out->mutable_segment_group_sizes()->Swap(in.mutable_segment_group_sizes());
     if (in.has_segments_key_bounds_truncated()) {
         out->set_segments_key_bounds_truncated(in.segments_key_bounds_truncated());
     }
@@ -500,6 +508,9 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB
     if (in.has_commit_tso_col_idx()) {
         out->set_commit_tso_col_idx(in.commit_tso_col_idx());
     }
+    if (in.has_row_lsn_col_idx()) {
+        out->set_row_lsn_col_idx(in.row_lsn_col_idx());
+    }
     if (in.has_binlog_tso_col_idx()) {
         out->set_binlog_tso_col_idx(in.binlog_tso_col_idx());
     }
@@ -560,6 +571,9 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in)
     }
     if (in.has_commit_tso_col_idx()) {
         out->set_commit_tso_col_idx(in.commit_tso_col_idx());
+    }
+    if (in.has_row_lsn_col_idx()) {
+        out->set_row_lsn_col_idx(in.row_lsn_col_idx());
     }
     if (in.has_binlog_tso_col_idx()) {
         out->set_binlog_tso_col_idx(in.binlog_tso_col_idx());
@@ -635,6 +649,9 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB
     if (in.has_commit_tso_col_idx()) {
         out->set_commit_tso_col_idx(in.commit_tso_col_idx());
     }
+    if (in.has_row_lsn_col_idx()) {
+        out->set_row_lsn_col_idx(in.row_lsn_col_idx());
+    }
     if (in.has_binlog_tso_col_idx()) {
         out->set_binlog_tso_col_idx(in.binlog_tso_col_idx());
     }
@@ -696,6 +713,9 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in)
     }
     if (in.has_commit_tso_col_idx()) {
         out->set_commit_tso_col_idx(in.commit_tso_col_idx());
+    }
+    if (in.has_row_lsn_col_idx()) {
+        out->set_row_lsn_col_idx(in.row_lsn_col_idx());
     }
     if (in.has_binlog_tso_col_idx()) {
         out->set_binlog_tso_col_idx(in.binlog_tso_col_idx());

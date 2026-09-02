@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
+import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
@@ -42,7 +43,7 @@ import java.util.List;
  * fields 'key' and 'value'.
  */
 public class MapEntries extends ScalarFunction
-        implements UnaryExpression, CustomSignature, PropagateNullable, PreferPushDownProject {
+        implements UnaryExpression, ComputePrecision, CustomSignature, PropagateNullable, PreferPushDownProject {
 
     /**
      * constructor with 1 argument.
@@ -93,5 +94,12 @@ public class MapEntries extends ScalarFunction
             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             return null; // unreachable
         }
+    }
+
+    // Prevent MAP<DECIMAL(38,0), DECIMAL(38,38)> from being resolved as
+    // MAP<DECIMAL(38,6), DECIMAL(38,6)>, and nested DATETIMEV2(6) as DATETIMEV2(0).
+    @Override
+    public FunctionSignature computePrecision(FunctionSignature signature) {
+        return signature;
     }
 }

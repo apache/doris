@@ -58,6 +58,7 @@ import org.apache.doris.thrift.TTaskType;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -187,6 +188,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     private Set<Long> colocateBackendsSet = null;
     private int tabletOrderIdx = -1;
+    private long rowBinlogBaseTabletId = -1L;
+    private RowBinlogRepairReason rowBinlogRepairReason = RowBinlogRepairReason.NONE;
+    private Map<Long, Long> rowBinlogRequiredDestPathHashByBackend = Maps.newHashMap();
+    private Map<Long, Long> rowBinlogObservedPathHashByBackend = Maps.newHashMap();
 
     private SystemInfoService infoService;
 
@@ -390,6 +395,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return createTime;
     }
 
+    public long getVisibleVersion() {
+        return visibleVersion;
+    }
+
     public long getCommittedVersion() {
         return visibleVersion;
     }
@@ -553,12 +562,88 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return false;
     }
 
+    /*
+     * Row-binlog repair must use the backend selected by its base tablet. A replica on an
+     * unrelated backend at the same host is only a temporary conflict: allow cloning to the
+     * required backend first, then remove the unrelated replica after the clone is complete.
+     */
+    public boolean filterRowBinlogRequiredDestBE(long beId) {
+        if (!rowBinlogRequiredDestPathHashByBackend.containsKey(beId)) {
+            return true;
+        }
+        Backend backend = infoService.getBackend(beId);
+        if (backend == null) {
+            return true;
+        }
+        String host = backend.getHost();
+        for (Replica replica : tablet.getReplicas()) {
+            long replicaBeId = replica.getBackendIdWithoutException();
+            if (replicaBeId == beId) {
+                return true;
+            }
+            Backend replicaBackend = infoService.getBackend(replicaBeId);
+            if (replicaBackend == null) {
+                continue;
+            }
+            if (!Config.allow_replica_on_same_host && !FeConstants.runningUnitTest
+                    && host.equals(replicaBackend.getHost())
+                    && rowBinlogRequiredDestPathHashByBackend.containsKey(replicaBeId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public void setColocateGroupBackendIds(Set<Long> backendsSet) {
         this.colocateBackendsSet = backendsSet;
     }
 
     public Set<Long> getColocateBackendsSet() {
         return colocateBackendsSet;
+    }
+
+    public void setRowBinlogBaseTabletId(long baseTabletId) {
+        this.rowBinlogBaseTabletId = baseTabletId;
+    }
+
+    public long getRowBinlogBaseTabletId() {
+        return rowBinlogBaseTabletId;
+    }
+
+    public boolean isRowBinlogRepair() {
+        return rowBinlogBaseTabletId > 0;
+    }
+
+    public void setRowBinlogRepairReason(RowBinlogRepairReason repairReason) {
+        this.rowBinlogRepairReason = repairReason;
+    }
+
+    public RowBinlogRepairReason getRowBinlogRepairReason() {
+        return rowBinlogRepairReason;
+    }
+
+    public void setRowBinlogRequiredDestPathHashByBackend(Map<Long, Long> requiredDestPathHashByBackend) {
+        this.rowBinlogRequiredDestPathHashByBackend = Maps.newHashMap(requiredDestPathHashByBackend);
+    }
+
+    public boolean hasRowBinlogRequiredDestPathHash() {
+        return !rowBinlogRequiredDestPathHashByBackend.isEmpty();
+    }
+
+    public long getRowBinlogRequiredDestPathHash(long backendId) {
+        return rowBinlogRequiredDestPathHashByBackend.getOrDefault(backendId, -1L);
+    }
+
+    public Map<Long, Long> getRowBinlogRequiredDestPathHashByBackend() {
+        return rowBinlogRequiredDestPathHashByBackend;
+    }
+
+    public void setRowBinlogObservedPathHashByBackend(Map<Long, Long> observedPathHashByBackend) {
+        this.rowBinlogObservedPathHashByBackend = Maps.newHashMap(observedPathHashByBackend);
+    }
+
+    public Map<Long, Long> getRowBinlogObservedPathHashByBackend() {
+        return rowBinlogObservedPathHashByBackend;
     }
 
     public void setTabletOrderIdx(int idx) {
@@ -1322,7 +1407,31 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         result.add(String.valueOf(visibleVersion));
         result.add(String.valueOf(committedVersion));
         result.add(Strings.nullToEmpty(errMsg));
+        result.add(rowBinlogRepairReason.name());
+        result.add(String.valueOf(rowBinlogBaseTabletId));
+        result.add(formatBackendPathMap(rowBinlogRequiredDestPathHashByBackend));
+        result.add(formatBackendPathMap(rowBinlogObservedPathHashByBackend));
         return result;
+    }
+
+    private static String formatBackendPathMap(Map<Long, Long> pathHashByBackend) {
+        List<Long> backendIds = Lists.newArrayList(pathHashByBackend.keySet());
+        Collections.sort(backendIds);
+        StringBuilder result = new StringBuilder();
+        for (long backendId : backendIds) {
+            if (result.length() > 0) {
+                result.append(",");
+            }
+            result.append(backendId).append(":").append(pathHashByBackend.get(backendId));
+        }
+        return result.toString();
+    }
+
+    public String getRowBinlogRepairInfo() {
+        return "reason: " + rowBinlogRepairReason.name()
+                + ", base tablet id: " + rowBinlogBaseTabletId
+                + ", expected locations: " + formatBackendPathMap(rowBinlogRequiredDestPathHashByBackend)
+                + ", observed locations: " + formatBackendPathMap(rowBinlogObservedPathHashByBackend);
     }
 
     /*

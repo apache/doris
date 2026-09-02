@@ -99,7 +99,7 @@ Status fill_before_columns(Block& out, const TabletSchema& binlog_schema,
          cid < before_col_start + cast_set<uint32_t>(value_column_num); ++cid) {
         before_cids.emplace_back(cid);
     }
-    Block before_block = binlog_schema.create_block_by_cids(before_cids);
+    Block before_block = binlog_schema.create_storage_block(before_cids);
     DCHECK(retriever != nullptr);
     DCHECK_EQ(before_cids.size(), value_source_cids.size());
     RETURN_IF_ERROR(retriever->build_before_block(&before_block, value_source_cids, 0, num_rows));
@@ -117,7 +117,7 @@ void fill_binlog_system_columns(Block& out, const TabletSchema& binlog_schema,
                                 uint32_t binlog_op_cid, const std::vector<int64_t>& lsn_ids,
                                 const std::vector<int64_t>& operators, size_t num_rows) {
     std::vector<uint32_t> binlog_cids = {binlog_tso_cid, binlog_lsn_cid, binlog_op_cid};
-    Block binlog_system_block = binlog_schema.create_block_by_cids(binlog_cids);
+    Block binlog_system_block = binlog_schema.create_storage_block(binlog_cids);
     {
         auto binlog_system_columns_guard = binlog_system_block.mutate_columns_scoped();
         auto& binlog_system_columns = binlog_system_columns_guard.mutable_columns();
@@ -191,8 +191,8 @@ Status resolve_binlog_context(TransformExecContext& ctx, const Block* block,
         return Status::InternalError<false>(
                 "binlog<row> blocks must be flushed through flush_single_block");
     }
-    c->lsn_ids = cfg.get_seg_lsn(ctx.segment_id);
-    cfg.remove_seg(ctx.segment_id);
+    c->lsn_ids = ctx.rowset_ctx->get_segment_allocated_lsns(ctx.segment_id);
+    ctx.rowset_ctx->remove_segment_allocated_lsns(ctx.segment_id);
     CHECK(c->lsn_ids->size() >= c->num_rows) << c->lsn_ids->size() << " vs " << c->num_rows;
 
     // Preserve the source writer's layout: system columns may be a prefix or
@@ -258,7 +258,7 @@ std::optional<std::span<const Int8>> read_delete_signs(const Block* block, int32
 Status emit_binlog_block(const BinlogDeriveContext& c, const Block* after_src,
                          PrimaryKeyModelRowRetriever* retriever,
                          const std::vector<int64_t>* plain_operators, Block* block) {
-    Block out = c.binlog_schema->create_block();
+    Block out = c.binlog_schema->create_storage_block();
     // every index below is a cid, so the block has to carry every schema column
     if (out.columns() != c.binlog_schema->num_columns()) {
         return Status::InternalError<false>(
@@ -301,8 +301,8 @@ bool binlog_needs_historical_lookup(const RowsetWriterContext& context) {
     const bool is_source_direct_write =
             cfg.source.source_write_type == DataWriteType::TYPE_DIRECT &&
             !cfg.source.is_transient_rowset_writer;
-    // A direct partial update (fixed needs AFTER rebuilt; flexible is rejected
-    // inside the MoW stage) or a requested BEFORE image needs the probe.
+    // A direct partial update (fixed and flexible both need AFTER rebuilt) or a
+    // requested BEFORE image needs the probe.
     const bool is_partial_update = cfg.source.partial_update_info != nullptr &&
                                    cfg.source.partial_update_info->is_partial_update() &&
                                    is_source_direct_write;
@@ -336,16 +336,38 @@ Status MowRowBinlogDeriveStage::derive(TransformExecContext& ctx, Block* block,
                                        const BinlogDeriveContext& c) const {
     const auto& cfg = ctx.rowset_ctx->write_binlog_opt().write_binlog_config();
 
-    bool is_source_direct_write = cfg.source.source_write_type == DataWriteType::TYPE_DIRECT &&
-                                  !cfg.source.is_transient_rowset_writer;
-    if (cfg.source.partial_update_info && is_source_direct_write &&
-        cfg.source.partial_update_info->is_flexible_partial_update()) {
-        return Status::NotSupported("binlog<row> does not support flexible partial update");
+    const bool is_source_direct_write =
+            cfg.source.source_write_type == DataWriteType::TYPE_DIRECT &&
+            !cfg.source.is_transient_rowset_writer;
+    const bool is_flexible_partial_update =
+            cfg.source.partial_update_info && is_source_direct_write &&
+            cfg.source.partial_update_info->is_flexible_partial_update();
+    const bool is_fixed_partial_update = cfg.source.partial_update_info && is_source_direct_write &&
+                                         cfg.source.partial_update_info->is_fixed_partial_update();
+
+    if (is_flexible_partial_update) {
+        auto retriever = std::make_unique<PrimaryKeyModelRowRetriever>();
+        RETURN_IF_ERROR(retriever->init(HistoricalRowRetrieverContext {
+                .tablet = cfg.source.base_tablet,
+                .tablet_schema = c.source_schema,
+                .rowset_writer_ctx = ctx.rowset_ctx,
+                .partial_update_info = cfg.source.partial_update_info,
+                .is_transient_rowset_writer = cfg.source.is_transient_rowset_writer,
+                .write_type = cfg.source.source_write_type}));
+
+        std::vector<int64_t> effective_lsn_ids(c.lsn_ids->begin(), c.lsn_ids->begin() + c.num_rows);
+        RETURN_IF_ERROR(retriever->materialize_flexible_partial_update(
+                block, cfg.source.mow_context, &effective_lsn_ids));
+
+        BinlogDeriveContext effective_context = c;
+        effective_context.num_rows = block->rows();
+        effective_context.lsn_ids =
+                std::make_shared<const std::vector<int64_t>>(std::move(effective_lsn_ids));
+        return emit_binlog_block(effective_context, block, retriever.get(),
+                                 /*plain_operators=*/nullptr, block);
     }
-    bool is_partial_update = cfg.source.partial_update_info &&
-                             cfg.source.partial_update_info->is_fixed_partial_update() &&
-                             is_source_direct_write;
-    if (is_partial_update) {
+
+    if (is_fixed_partial_update) {
         if (block->columns() < c.source_schema->num_key_columns() ||
             block->columns() >= c.source_schema->num_columns()) {
             return Status::InvalidArgument(fmt::format(
@@ -360,7 +382,7 @@ Status MowRowBinlogDeriveStage::derive(TransformExecContext& ctx, Block* block,
     // move in the narrow partial-update block)
     int32_t delete_sign_pos = c.source_schema->delete_sign_idx();
     int32_t seq_pos = c.source_schema->sequence_col_idx();
-    if (is_partial_update) {
+    if (is_fixed_partial_update) {
         delete_sign_pos = -1;
         seq_pos = -1;
         int32_t pos = 0;
@@ -390,7 +412,7 @@ Status MowRowBinlogDeriveStage::derive(TransformExecContext& ctx, Block* block,
     // missing columns from history; upserts are already source-schema shaped.
     Block full_block;
     const Block* after_src = block;
-    if (is_partial_update) {
+    if (is_fixed_partial_update) {
         full_block = widen_partial_update_block(
                 *c.source_schema, cfg.source.partial_update_info->update_cids, *block);
         RETURN_IF_ERROR(retriever->build_after_block(&full_block, 0, c.num_rows));

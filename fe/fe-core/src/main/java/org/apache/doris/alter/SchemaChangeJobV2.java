@@ -935,8 +935,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                 TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
 
                 for (Tablet shadownTablet : shadowIndex.getTablets()) {
+                    // Full schema-change jobs cannot originate from a row-binlog table.
                     TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
-                            indexSchemaVersionAndHashMap.get(shadowIndexId).schemaHash, medium);
+                            indexSchemaVersionAndHashMap.get(shadowIndexId).schemaHash, medium,
+                            false /* isRowBinlog */);
                     invertedIndex.addTablet(shadownTablet.getId(), shadowTabletMeta);
                     for (Replica shadowReplica : shadownTablet.getReplicas()) {
                         invertedIndex.addReplica(shadownTablet.getId(), shadowReplica);

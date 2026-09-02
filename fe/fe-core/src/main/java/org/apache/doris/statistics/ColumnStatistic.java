@@ -142,6 +142,11 @@ public class ColumnStatistic {
      * this function is used by analyze job and cbo job.
      */
     public static ColumnStatistic fromResultRow(ResultRow row) {
+        ColStatsData statsData = new ColStatsData(row);
+        if (!statsData.isValid()) {
+            return ColumnStatistic.UNKNOWN;
+        }
+
         double count = Double.parseDouble(row.get(7));
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
         double ndv = Double.parseDouble(row.getWithDefault(8, "0"));

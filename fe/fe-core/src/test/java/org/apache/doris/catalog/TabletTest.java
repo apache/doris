@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
@@ -27,6 +28,8 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Sets;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -73,7 +76,8 @@ public class TabletTest {
         mockedEnvStatic.when(Env::isCheckpointThread).thenReturn(false);
 
         tablet = new LocalTablet(1);
-        TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD);
+        TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD,
+                false /* isRowBinlog */);
         invertedIndex.addTablet(1, tabletMeta);
         replica1 = new LocalReplica(1L, 1L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
         replica2 = new LocalReplica(2L, 2L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
@@ -108,7 +112,8 @@ public class TabletTest {
     @Test
     public void testGetReplicaStatsOnlyUsesNormalReplicas() {
         Tablet statsTablet = new LocalTablet(2);
-        invertedIndex.addTablet(2, new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD));
+        invertedIndex.addTablet(2, new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD,
+                false /* isRowBinlog */));
         statsTablet.addReplica(new LocalReplica(11L, 1L, 100L, 0, 10L, 0L, 100L, ReplicaState.NORMAL, 0L, 100L));
         statsTablet.addReplica(new LocalReplica(12L, 2L, 100L, 0, 20L, 0L, 200L, ReplicaState.NORMAL, 0L, 100L));
         statsTablet.addReplica(new LocalReplica(13L, 3L, 100L, 0, 0L, 0L, 300L, ReplicaState.NORMAL, 0L, 100L));
@@ -151,6 +156,37 @@ public class TabletTest {
 
         // The returned snapshot is read-only.
         Assert.assertThrows(UnsupportedOperationException.class, () -> snapshot.add(replica4));
+    }
+
+    @Test
+    public void testLocalReplicaBinlogMissingTimeoutAndRetryBudget() {
+        long originTimeoutSecond = Config.tablet_binlog_missing_timeout_second;
+        int originMaxTimes = Config.tablet_binlog_missing_max_times;
+        try {
+            Config.tablet_binlog_missing_timeout_second = 60;
+            Config.tablet_binlog_missing_max_times = 2;
+
+            replica1.setBinlogMissing(true);
+            Assert.assertTrue(replica1.isBinlogMissing());
+
+            replica1.consumeBinlogMissingRetry();
+            Assert.assertTrue(replica1.isBinlogMissing());
+            replica1.consumeBinlogMissingRetry();
+            Assert.assertFalse(replica1.isBinlogMissing());
+
+            replica1.setBinlogMissing(true);
+            Assert.assertTrue(replica1.isBinlogMissing());
+            replica1.setBinlogMissing(false);
+            Assert.assertFalse(replica1.isBinlogMissing());
+
+            Config.tablet_binlog_missing_timeout_second = 0;
+            replica1.setBinlogMissing(true);
+            Assert.assertFalse(replica1.isBinlogMissing());
+        } finally {
+            Config.tablet_binlog_missing_timeout_second = originTimeoutSecond;
+            Config.tablet_binlog_missing_max_times = originMaxTimes;
+            replica1.setBinlogMissing(false);
+        }
     }
 
     @Test
@@ -250,6 +286,30 @@ public class TabletTest {
 
         dis.close();
         Files.delete(path);
+    }
+
+    @Test
+    public void testRowBinlogTabletIdsGsonUpgradeCompatibility() {
+        Tablet baseTablet = new LocalTablet(10L);
+        baseTablet.setRowBinlogTabletId(20L);
+        JsonObject baseTabletJson = JsonParser.parseString(GsonUtils.GSON.toJson(baseTablet)).getAsJsonObject();
+        Tablet deserializedBaseTablet = GsonUtils.GSON.fromJson(baseTabletJson, Tablet.class);
+        Assert.assertEquals(20L, deserializedBaseTablet.getRowBinlogTabletId());
+        Assert.assertNull(deserializedBaseTablet.rowBinlogBaseTabletId);
+
+        Tablet rowBinlogTablet = new LocalTablet(20L);
+        rowBinlogTablet.setRowBinlogBaseTabletId(10L);
+        JsonObject rowBinlogTabletJson = JsonParser.parseString(GsonUtils.GSON.toJson(rowBinlogTablet))
+                .getAsJsonObject();
+        Tablet deserializedRowBinlogTablet = GsonUtils.GSON.fromJson(rowBinlogTabletJson, Tablet.class);
+        Assert.assertEquals(10L, deserializedRowBinlogTablet.getRowBinlogBaseTabletId());
+        Assert.assertNull(deserializedRowBinlogTablet.rowBinlogTabletId);
+
+        baseTabletJson.remove("rbti");
+        baseTabletJson.remove("rbbti");
+        Tablet deserializedLegacyTablet = GsonUtils.GSON.fromJson(baseTabletJson, Tablet.class);
+        Assert.assertNull(deserializedLegacyTablet.rowBinlogTabletId);
+        Assert.assertNull(deserializedLegacyTablet.rowBinlogBaseTabletId);
     }
 
     /**

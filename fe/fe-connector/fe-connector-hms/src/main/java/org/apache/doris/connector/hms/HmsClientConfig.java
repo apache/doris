@@ -83,6 +83,7 @@ public final class HmsClientConfig {
     }
 
     private final Map<String, String> properties;
+    private final String confResources;
     private final int poolSize;
 
     /**
@@ -92,7 +93,15 @@ public final class HmsClientConfig {
      * @param poolSize   max pool connections; 0 means no pooling
      */
     public HmsClientConfig(Map<String, String> properties, int poolSize) {
+        this("", properties, poolSize);
+    }
+
+    /**
+     * Creates a client configuration with external Hive configuration resources layered below the overrides.
+     */
+    public HmsClientConfig(String confResources, Map<String, String> properties, int poolSize) {
         this.properties = Objects.requireNonNull(properties, "properties");
+        this.confResources = confResources;
         if (poolSize < 0) {
             throw new IllegalArgumentException("poolSize must be >= 0, got " + poolSize);
         }
@@ -101,6 +110,10 @@ public final class HmsClientConfig {
 
     public Map<String, String> getProperties() {
         return Collections.unmodifiableMap(properties);
+    }
+
+    public String getConfResources() {
+        return confResources;
     }
 
     public int getPoolSize() {

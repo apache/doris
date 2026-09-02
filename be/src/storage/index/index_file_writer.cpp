@@ -134,8 +134,8 @@ Status IndexFileWriter::_insert_directory_into_map(int64_t index_id,
 
 Result<std::shared_ptr<DorisFSDirectory>> IndexFileWriter::open(const TabletIndex* index_meta) {
     // No index under SNII writes through a CLucene filesystem directory: text
-    // postings go through the SPIMI writer, and an ANN index stages into memory
-    // (see open_ann_directory) so that nothing has to be cleaned off disk.
+    // postings go through the SPIMI writer, and an ANN index uses self-cleaning
+    // per-file staging (see open_ann_directory).
     if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "SNII format does not open CLucene filesystem directories"));
@@ -186,6 +186,37 @@ Result<std::shared_ptr<lucene::store::Directory>> IndexFileWriter::_open_snii_an
     return dir;
 }
 
+void IndexFileWriter::discard_ann_staging_directory(const TabletIndex* index_meta) {
+    // Only SNII stages an ANN index somewhere disposable. Branching here rather
+    // than in the caller keeps the format knowledge on the side that owns it,
+    // exactly as open_ann_directory() does.
+    if (_storage_format != InvertedIndexStorageFormatPB::SNII) {
+        return;
+    }
+    DCHECK(index_meta != nullptr);
+    const auto key = std::make_pair(index_meta->index_id(), index_meta->get_index_suffix());
+    _indices_dirs.erase(key);
+    _snii_blob_dir_metas.erase(key);
+}
+
+void IndexFileWriter::abandon_snii_staging() {
+    if (_storage_format != InvertedIndexStorageFormatPB::SNII) {
+        return;
+    }
+    // Empty each directory before dropping the map. Releasing only this writer's
+    // reference would free nothing while a producer is still alive holding the
+    // same directory through its own _dir -- which is exactly the state a segment
+    // that failed before clear() is in. Emptying makes the abort independent of
+    // who else is still holding on.
+    for (const auto& [key, dir] : _indices_dirs) {
+        if (std::strcmp(dir->getObjectName(),
+                        snii_doris::SniiBlobStagingDirectory::getClassName()) == 0) {
+            static_cast<snii_doris::SniiBlobStagingDirectory*>(dir.get())->discard_staged_files();
+        }
+    }
+    _release_snii_blob_directories();
+}
+
 Status IndexFileWriter::_seal_snii_blob_directories() {
     DORIS_CHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
     for (const auto& [key, dir] : _indices_dirs) {
@@ -202,25 +233,26 @@ Status IndexFileWriter::_seal_snii_blob_directories() {
         DORIS_CHECK(std::strcmp(dir->getObjectName(),
                                 snii_doris::SniiBlobStagingDirectory::getClassName()) == 0);
 
-        // Nothing here can throw: the staged bytes are plain buffers, and each
-        // source keeps its own alive, so finish() may pull them after this
-        // directory is gone.
+        // The sources TAKE the staged files, so they own them alone from here on:
+        // finish() may pull the bytes after this directory is gone, and it can
+        // unlink each sub-file as soon as it has copied it instead of waiting for
+        // whoever else happens to still hold the directory.
         auto* staging = static_cast<snii_doris::SniiBlobStagingDirectory*>(dir.get());
         // All cold: a faiss index is read at QUERY time, never at container open,
         // so nothing here belongs in the hot area the text metadata groups share.
         RETURN_IF_ERROR(add_snii_blob_index(meta_it->second.get(),
                                             doris::snii::format::LogicalIndexKind::kAnn,
-                                            staging->blob_sources(), {}));
+                                            staging->take_blob_sources(), {}));
     }
     return Status::OK();
 }
 
 void IndexFileWriter::_release_snii_blob_directories() {
-    // Dropping the map is the whole release: a staging directory holds its bytes
-    // in memory and owns no file, so there is nothing on disk to remove and --
-    // unlike DorisFSDirectory::deleteDirectory() -- no throwing call to make from
-    // a Status-returning close path. Any buffer a registered blob source still
-    // needs stays alive through that source until finish() has pulled it.
+    // Dropping the map is all this has to do: sealing already handed the staged
+    // files to the blob sources, which unlink them as finish() copies them, and
+    // an unsealed directory unlinks its own on the way out. So -- unlike
+    // DorisFSDirectory::deleteDirectory() -- there is no throwing cleanup call to
+    // make from this Status-returning close path.
     _indices_dirs.clear();
     _snii_blob_dir_metas.clear();
 }

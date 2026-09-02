@@ -126,9 +126,9 @@ struct AnnRangeSearchRuntime {
     // Core search configuration
     bool is_ann_range_search = false;          ///< Flag indicating if ANN range search is enabled
     bool is_le_or_lt = true;                   ///< Comparison mode: true for <=, false for <
-    size_t src_col_idx = 0;                    ///< Source column index in the schema
+    size_t src_col_idx = 0;                    ///< Source read-schema ordinal
     size_t dim = 0;                            ///< Dimensionality of the vector space
-    int64_t dst_col_idx = -1;                  ///< Destination column index (-1 if not applicable)
+    int64_t dst_col_idx = -1;                  ///< Destination read-schema ordinal, or -1
     double radius = 0.0;                       ///< Search radius/distance threshold
     AnnIndexMetric metric_type;                ///< Distance metric (L2, Inner Product, etc.)
     doris::VectorSearchUserParams user_params; ///< User-defined search parameters

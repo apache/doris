@@ -40,6 +40,7 @@
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -334,7 +335,7 @@ Status FixedReadPlan::read_columns_by_plan(
         if (block.get_position_by_name(DELETE_SIGN) == -1) {
             auto del_col_cid = tablet_schema.field_index(DELETE_SIGN);
             cids_to_read.emplace_back(del_col_cid);
-            block.swap(tablet_schema.create_block_by_cids(cids_to_read));
+            block.swap(tablet_schema.create_storage_block(cids_to_read));
         }
     }
     bool has_row_column = tablet_schema.has_row_store_for_all_columns();
@@ -427,7 +428,7 @@ Status FixedReadPlan::fill_missing_columns(
                            tablet_schema.sequence_col_idx()) != including_cids.cend());
     }
 
-    auto old_value_block = tablet_schema.create_block_by_cids(missing_cids);
+    auto old_value_block = tablet_schema.create_storage_block(missing_cids);
     CHECK_EQ(missing_cids.size(), old_value_block.columns());
 
     // segment pos to write -> rowid to read in old_value_block
@@ -601,7 +602,7 @@ Status FlexibleReadPlan::fill_non_primary_key_columns(
 
     // missing_cids are all non sort key columns' cids
     const auto& non_sort_key_cids = historical_context.partial_update_info->missing_cids;
-    auto old_value_block = tablet_schema.create_block_by_cids(non_sort_key_cids);
+    auto old_value_block = tablet_schema.create_storage_block(non_sort_key_cids);
     CHECK_EQ(non_sort_key_cids.size(), old_value_block.columns());
 
     if (!use_row_store) {
@@ -884,12 +885,14 @@ void BlockAggregator::merge_one_row(MutableBlock& dst_block, Block* src_block, i
                                                           rid);
         }
     }
+    merge_row_lsn(rid);
     VLOG_DEBUG << fmt::format("merge a row, after merge, output_block.rows()={}, state: {}",
                               dst_block.rows(), _state.to_string());
 }
 
 void BlockAggregator::append_one_row(MutableBlock& dst_block, Block* src_block, int rid) {
     dst_block.add_row(src_block, rid);
+    append_row_lsn(rid);
     _state.rows++;
     VLOG_DEBUG << fmt::format("append a new row, after append, output_block.rows()={}, state: {}",
                               dst_block.rows(), _state.to_string());
@@ -901,6 +904,31 @@ void BlockAggregator::remove_last_n_rows(MutableBlock& dst_block, int n) {
             DCHECK_GE(dst_block.mutable_columns()[cid]->size(), n);
             dst_block.mutable_columns()[cid]->pop_back(n);
         }
+        remove_last_row_lsns(n);
+    }
+}
+
+void BlockAggregator::append_row_lsn(int rid) {
+    if (_output_row_lsns != nullptr) {
+        DCHECK(_input_row_lsns != nullptr);
+        DCHECK_LT(rid, _input_row_lsns->size());
+        _output_row_lsns->push_back(_input_row_lsns->at(rid));
+    }
+}
+
+void BlockAggregator::merge_row_lsn(int rid) {
+    if (_output_row_lsns != nullptr) {
+        DCHECK(_input_row_lsns != nullptr);
+        DCHECK(!_output_row_lsns->empty());
+        DCHECK_LT(rid, _input_row_lsns->size());
+        _output_row_lsns->back() = std::max(_output_row_lsns->back(), _input_row_lsns->at(rid));
+    }
+}
+
+void BlockAggregator::remove_last_row_lsns(int n) {
+    if (_output_row_lsns != nullptr && n > 0) {
+        DCHECK_GE(_output_row_lsns->size(), n);
+        _output_row_lsns->resize(_output_row_lsns->size() - n);
     }
 }
 
@@ -930,6 +958,7 @@ Status BlockAggregator::aggregate_rows(
     VLOG_DEBUG << fmt::format("merge rows in range=[{}-{})", start, end);
     if (end - start == 1) {
         output_block.add_row(block, start);
+        append_row_lsn(start);
         VLOG_DEBUG << fmt::format("append a row directly, rid={}", start);
         return Status::OK();
     }
@@ -1008,7 +1037,7 @@ Status BlockAggregator::aggregate_rows(
 
 Status BlockAggregator::_generate_encoded_default_seq_value(std::string* encoded_value) {
     const auto& seq_column = _tablet_schema.column(_tablet_schema.sequence_col_idx());
-    auto block = _tablet_schema.create_block_by_cids(
+    auto block = _tablet_schema.create_storage_block(
             {cast_set<uint32_t>(_tablet_schema.sequence_col_idx())});
     if (seq_column.has_default_value()) {
         auto idx = _tablet_schema.sequence_col_idx() - _tablet_schema.num_key_columns();
@@ -1036,8 +1065,10 @@ Status BlockAggregator::_generate_encoded_default_seq_value(std::string* encoded
 Status BlockAggregator::aggregate_for_sequence_column(
         Block* block, int num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
         IOlapColumnDataAccessor* seq_column, const std::vector<RowsetSharedPtr>& specified_rowsets,
-        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
+        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+        std::vector<int64_t>* row_lsns) {
     DCHECK_EQ(block->columns(), _tablet_schema.num_columns());
+    DCHECK(row_lsns == nullptr || row_lsns->size() == num_rows);
     // the process logic here is the same as MemTable::_aggregate_for_flexible_partial_update_without_seq_col()
     // after this function, there will be at most 2 rows for a specified key
     std::vector<BitmapValue>* skip_bitmaps =
@@ -1045,8 +1076,18 @@ Status BlockAggregator::aggregate_for_sequence_column(
                      ->get_data();
     const auto* delete_signs = BaseTablet::get_delete_sign_column_data(*block, num_rows);
 
-    auto filtered_block = _tablet_schema.create_block();
+    auto filtered_block = _tablet_schema.create_storage_block();
     MutableBlock output_block = MutableBlock::build_mutable_block(std::move(filtered_block));
+    std::vector<int64_t> output_row_lsns;
+    Defer reset_lsn_sidecar {[this] {
+        _input_row_lsns = nullptr;
+        _output_row_lsns = nullptr;
+    }};
+    if (row_lsns != nullptr) {
+        output_row_lsns.reserve(row_lsns->size());
+        _input_row_lsns = row_lsns;
+        _output_row_lsns = &output_row_lsns;
+    }
 
     int same_key_rows {0};
     std::string previous_key {};
@@ -1072,6 +1113,10 @@ Status BlockAggregator::aggregate_for_sequence_column(
     }
 
     block->swap(output_block.to_block());
+    if (row_lsns != nullptr) {
+        row_lsns->swap(output_row_lsns);
+        DCHECK_EQ(row_lsns->size(), block->rows());
+    }
     return Status::OK();
 }
 
@@ -1082,8 +1127,8 @@ Status BlockAggregator::fill_sequence_column(Block* block, size_t num_rows,
     std::vector<uint32_t> cids {static_cast<uint32_t>(_tablet_schema.sequence_col_idx())};
     auto seq_col_unique_id = _tablet_schema.column(_tablet_schema.sequence_col_idx()).unique_id();
 
-    auto seq_col_block = _tablet_schema.create_block_by_cids(cids);
-    auto tmp_block = _tablet_schema.create_block_by_cids(cids);
+    auto seq_col_block = _tablet_schema.create_storage_block(cids);
+    auto tmp_block = _tablet_schema.create_storage_block(cids);
     std::map<uint32_t, uint32_t> read_index;
     RETURN_IF_ERROR(read_plan.read_columns_by_plan(_tablet_schema, cids, _fetcher.pinned_rowsets(),
                                                    seq_col_block, &read_index, false));
@@ -1106,8 +1151,13 @@ Status BlockAggregator::fill_sequence_column(Block* block, size_t num_rows,
 Status BlockAggregator::aggregate_for_insert_after_delete(
         Block* block, size_t num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
-        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
+        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+        std::vector<int64_t>* row_lsns, std::vector<uint8_t>* insert_after_delete_flags) {
     DCHECK_EQ(block->columns(), _tablet_schema.num_columns());
+    DCHECK(row_lsns == nullptr || row_lsns->size() == num_rows);
+    if (insert_after_delete_flags != nullptr) {
+        insert_after_delete_flags->assign(num_rows, 0);
+    }
     // there will be at most 2 rows for a specified key in block when control flow reaches here
     // after this function, there will not be duplicate rows in block
 
@@ -1130,14 +1180,6 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
     FixedReadPlan read_plan;
     // This insert-after-delete pass doesn't report partial-update counts; discard them.
     PartialUpdateStats discarded;
-    // the losing delete-sign row is removed from the block below instead of
-    // marking itself, so the probe only marks the old row
-    segment_v2::MowKeyProbe probe(
-            _tablet.get(), &_tablet_schema, _tablet_schema.has_sequence_col(), _mow_context,
-            RowsetId {}, 0,
-            segment_v2::MowKeyProbe::Policy {
-                    .mark_deleted = segment_v2::MowKeyProbe::MarkDeleted::OLD_ROW,
-            });
     for (size_t block_pos {0}; block_pos < num_rows; block_pos++) {
         size_t delta_pos = block_pos;
         auto& skip_bitmap = skip_bitmaps->at(block_pos);
@@ -1152,9 +1194,9 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
             DCHECK(previous_has_delete_sign);
             DCHECK(!have_delete_sign);
             ++duplicate_rows;
-            auto probe_res = probe.probe(key, /*segment_pos=*/0, /*key_has_seq_suffix=*/false,
-                                         /*have_delete_sign=*/false, specified_rowsets,
-                                         segment_caches, discarded);
+            auto probe_res = _probe.probe(key, /*segment_pos=*/0, /*key_has_seq_suffix=*/false,
+                                          /*have_delete_sign=*/false, specified_rowsets,
+                                          segment_caches, discarded);
             DCHECK(probe_res.has_value() || probe_res.error().is<ErrorCode::MEM_LIMIT_EXCEEDED>())
                     << "[BlockAggregator::aggregate_for_insert_after_delete] unexpected error "
                        "status while lookup_row_key:"
@@ -1180,6 +1222,13 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
             }
             // and remove the row with delete sign from the current block
             filter_map[block_pos - 1] = 0;
+            if (insert_after_delete_flags != nullptr) {
+                insert_after_delete_flags->at(block_pos) = 1;
+            }
+            if (row_lsns != nullptr) {
+                row_lsns->at(block_pos) =
+                        std::max(row_lsns->at(block_pos - 1), row_lsns->at(block_pos));
+            }
         }
         previous_has_delete_sign = have_delete_sign;
         previous_key = std::move(key);
@@ -1189,8 +1238,31 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
             // fill sequence column value for some rows
             RETURN_IF_ERROR(fill_sequence_column(block, num_rows, read_plan, *skip_bitmaps));
         }
+        if (row_lsns != nullptr) {
+            std::vector<int64_t> filtered_row_lsns;
+            filtered_row_lsns.reserve(row_lsns->size() - duplicate_rows);
+            for (size_t pos = 0; pos < num_rows; ++pos) {
+                if (filter_map[pos] != 0) {
+                    filtered_row_lsns.push_back(row_lsns->at(pos));
+                }
+            }
+            row_lsns->swap(filtered_row_lsns);
+        }
+        if (insert_after_delete_flags != nullptr) {
+            std::vector<uint8_t> filtered_flags;
+            filtered_flags.reserve(insert_after_delete_flags->size() - duplicate_rows);
+            for (size_t pos = 0; pos < num_rows; ++pos) {
+                if (filter_map[pos] != 0) {
+                    filtered_flags.push_back(insert_after_delete_flags->at(pos));
+                }
+            }
+            insert_after_delete_flags->swap(filtered_flags);
+        }
         RETURN_IF_ERROR(filter_block(block, num_rows, std::move(filter_column), duplicate_rows,
                                      "__filter_insert_after_delete_col__"));
+        DCHECK(row_lsns == nullptr || row_lsns->size() == block->rows());
+        DCHECK(insert_after_delete_flags == nullptr ||
+               insert_after_delete_flags->size() == block->rows());
     }
     return Status::OK();
 }
@@ -1246,7 +1318,12 @@ Status BlockAggregator::convert_seq_column(Block* block, size_t row_pos, size_t 
 
 Status BlockAggregator::aggregate_for_flexible_partial_update(
         Block* block, size_t num_rows, const std::vector<RowsetSharedPtr>& specified_rowsets,
-        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
+        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+        std::vector<int64_t>* row_lsns, std::vector<uint8_t>* insert_after_delete_flags) {
+    if (row_lsns != nullptr && row_lsns->size() != num_rows) {
+        return Status::InvalidArgument("row binlog LSN count {} does not match row count {}",
+                                       row_lsns->size(), num_rows);
+    }
     std::vector<IOlapColumnDataAccessor*> key_columns {};
     IOlapColumnDataAccessor* seq_column {nullptr};
 
@@ -1260,7 +1337,7 @@ Status BlockAggregator::aggregate_for_flexible_partial_update(
     if (_tablet_schema.has_sequence_col()) {
         RETURN_IF_ERROR(aggregate_for_sequence_column(block, static_cast<int>(num_rows),
                                                       key_columns, seq_column, specified_rowsets,
-                                                      segment_caches));
+                                                      segment_caches, row_lsns));
     }
 
     // 2. merge duplicate rows and handle insert after delete
@@ -1272,7 +1349,8 @@ Status BlockAggregator::aggregate_for_flexible_partial_update(
         RETURN_IF_ERROR(convert_seq_column(block, 0, num_rows, seq_column));
     }
     RETURN_IF_ERROR(aggregate_for_insert_after_delete(block, num_rows, key_columns,
-                                                      specified_rowsets, segment_caches));
+                                                      specified_rowsets, segment_caches, row_lsns,
+                                                      insert_after_delete_flags));
     return Status::OK();
 }
 
