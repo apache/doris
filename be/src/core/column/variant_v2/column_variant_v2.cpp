@@ -1201,6 +1201,15 @@ void ColumnVariantV2::insert_range_from( // NOLINT(readability-function-size)
         return;
     }
 
+    if (!_typed && empty() && _metadatas->empty() && source._typed) {
+        MutableColumnPtr selected = source._typed->clone_empty();
+        selected->insert_range_from(*source._typed, start, length);
+        static_cast<IColumn::Ptr&>(_typed) = std::move(selected);
+        _typed_type = source._typed_type;
+        _check_invariants();
+        return;
+    }
+
     if (_typed && source._typed && exact_typed_identity(_typed_type, source._typed_type)) {
         mutate_subcolumn(_typed);
         _typed->insert_range_from(*source._typed, start, length);
@@ -1276,6 +1285,41 @@ void ColumnVariantV2::insert_range_from( // NOLINT(readability-function-size)
     _check_invariants();
 }
 
+void ColumnVariantV2::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    const auto& source = assert_cast<const ColumnVariantV2&>(src);
+    if (length == 0) {
+        return;
+    }
+    DORIS_CHECK_LT(position, source.size()) << "source position exceeds source size";
+
+    if (source._typed) {
+        if (!_shredded && !_typed && empty() && _metadatas->empty()) {
+            MutableColumnPtr selected = source._typed->clone_empty();
+            selected->insert_many_from(*source._typed, position, length);
+            static_cast<IColumn::Ptr&>(_typed) = std::move(selected);
+            _typed_type = source._typed_type;
+            _check_invariants();
+            return;
+        }
+        if (!_shredded && _typed && exact_typed_identity(_typed_type, source._typed_type)) {
+            mutate_subcolumn(_typed);
+            _typed->insert_many_from(*source._typed, position, length);
+            _check_invariants();
+            return;
+        }
+
+        MutableColumnPtr selected = source._typed->clone_empty();
+        selected->insert_many_from(*source._typed, position, length);
+        auto encoded_source =
+                ColumnVariantV2::create_typed(std::move(selected), source._typed_type);
+        encoded_source->ensure_encoded();
+        insert_range_from(*encoded_source, 0, length);
+        return;
+    }
+
+    IColumn::insert_many_from(src, position, length);
+}
+
 // Indexed insertion handles typed and encoded state pairs.
 void ColumnVariantV2::insert_indices_from( // NOLINT(readability-function-size)
         const IColumn& src, const uint32_t* indices_begin, const uint32_t* indices_end) {
@@ -1315,6 +1359,15 @@ void ColumnVariantV2::insert_indices_from( // NOLINT(readability-function-size)
     }
     if (source._shredded) {
         insert_indices_from(source.serialization_column(), indices_begin, indices_end);
+        return;
+    }
+
+    if (!_typed && empty() && _metadatas->empty() && source._typed) {
+        MutableColumnPtr selected = source._typed->clone_empty();
+        selected->insert_indices_from(*source._typed, indices_begin, indices_end);
+        static_cast<IColumn::Ptr&>(_typed) = std::move(selected);
+        _typed_type = source._typed_type;
+        _check_invariants();
         return;
     }
 
