@@ -683,12 +683,13 @@ bool VectorizedFnCall::is_safe_to_execute_on_selected_rows() const {
                                                                     "is_null_pred",
                                                                     "is_not_null_pred",
                                                                     "element_at",
-                                                                    "struct_element"};
+                                                                    "struct_element",
+                                                                    "array_contains"};
     // Selected-row execution may hide data-dependent errors in rows rejected by an earlier
     // predicate. Keep function calls unsafe by default and opt in only operations that are total
-    // for their input domain. Accessors return NULL for absent elements, so admitting them keeps
-    // nested metadata predicates reachable without crossing an error-producing child such as
-    // gt(mod(x, -1), 0).
+    // for their input domain. Accessors return NULL for absent elements and membership is total for
+    // valid arrays, so admitting them keeps nested metadata predicates reachable without crossing
+    // an error-producing child such as gt(mod(x, -1), 0).
     return TOTAL_PREDICATE_FUNCTIONS.contains(_function_name) &&
            VExpr::is_safe_to_execute_on_selected_rows();
 }

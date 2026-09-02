@@ -263,6 +263,17 @@ VExprSPtr table_int32_greater_than_expr(int slot_id, int column_id, int32_t valu
     return expr;
 }
 
+VExprSPtr table_array_contains_int32_expr(int slot_id, int column_id, const DataTypePtr& array_type,
+                                          int32_t value) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto expr =
+            table_function_expr("array_contains", make_nullable(std::make_shared<DataTypeUInt8>()),
+                                {array_type, int_type});
+    expr->add_child(VSlotRef::create_shared(slot_id, column_id, slot_id, array_type, "items"));
+    expr->add_child(table_int32_literal(value));
+    return expr;
+}
+
 VExprSPtr table_struct_int32_child_greater_than_expr(int slot_id, int column_id,
                                                      const DataTypePtr& struct_type,
                                                      int32_t child_ordinal, int32_t value) {
@@ -1344,6 +1355,18 @@ public:
                 file_block->replace_by_position(
                         block_position.value(),
                         make_not_null_nullable_column(std::move(struct_column)));
+            } else if (file_column_id == LocalColumnId(3)) {
+                auto values = ColumnInt32::create();
+                values->insert_value(1);
+                values->insert_value(2);
+                auto nullable_values = make_not_null_nullable_column(std::move(values));
+                auto offsets = ColumnArray::ColumnOffsets::create();
+                offsets->get_data().assign({1, 2});
+                auto array_column =
+                        ColumnArray::create(std::move(nullable_values), std::move(offsets));
+                file_block->replace_by_position(
+                        block_position.value(),
+                        make_not_null_nullable_column(std::move(array_column)));
             } else {
                 return Status::InvalidArgument("Unexpected fake file column id {}",
                                                file_column_id.value());
@@ -1639,6 +1662,44 @@ TEST(TableReaderTest, UnsafePredicateStaysOnScannerPath) {
     ASSERT_EQ(fake_state->last_request->conjuncts.size(), 1);
     EXPECT_EQ(fake_state->last_request->metadata_pruning_safe_conjunct_count, 0);
     EXPECT_FALSE(predicate_executed);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, ArrayContainsReachesMetadataPruningSafeRequestPrefix) {
+    const auto raw_array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(3, "items", raw_array_type));
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(3, "items", raw_array_type));
+    set_name_identifiers(&projected_columns);
+    const auto array_type = projected_columns[0].type;
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {prepared_conjunct(
+                                            &state,
+                                            table_array_contains_int32_expr(0, 0, array_type, 1))},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split;
+    split.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_NE(fake_state->last_request, nullptr);
+    ASSERT_EQ(fake_state->last_request->conjuncts.size(), 1);
+    EXPECT_EQ(fake_state->last_request->metadata_pruning_safe_conjunct_count, 1);
+    EXPECT_TRUE(fake_state->last_request->conjuncts[0]->root()->can_evaluate_zonemap_filter());
     ASSERT_TRUE(reader.close().ok());
 }
 

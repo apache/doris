@@ -863,6 +863,31 @@ bool has_expr_zonemap_filter(const format::FileScanRequest& request, const Runti
     return has_variant_shredded_filter(request);
 }
 
+bool can_evaluate_native_page_index(const VExprSPtr& expr) {
+    if (expr == nullptr || !expr->can_evaluate_zonemap_filter()) {
+        return false;
+    }
+    if (expr->op() == TExprOpcode::COMPOUND_AND) {
+        return std::ranges::any_of(expr->children(), can_evaluate_native_page_index);
+    }
+    if (expr->op() == TExprOpcode::COMPOUND_OR) {
+        return !expr->children().empty() &&
+               std::ranges::all_of(expr->children(), can_evaluate_native_page_index);
+    }
+    const auto probe = expr_zonemap::extract_zonemap_filter_predicate_probe(expr);
+    return probe.has_value() && probe->path.empty();
+}
+
+bool has_native_page_index_filter(const format::FileScanRequest& request) {
+    const auto conjuncts = metadata_pruning_conjuncts(request);
+    return std::ranges::any_of(conjuncts,
+                               [](const auto& conjunct) {
+                                   return conjunct != nullptr &&
+                                          can_evaluate_native_page_index(conjunct->root());
+                               }) ||
+           has_variant_shredded_filter(request);
+}
+
 std::set<int> collect_expr_zonemap_slot_indexes(const VExprContextSPtrs& conjuncts) {
     std::set<int> slot_indexes;
     for (const auto& conjunct : conjuncts) {
@@ -933,9 +958,10 @@ void accumulate_zonemap_stats(const ZoneMapEvalContext& ctx, ParquetPruningStats
 
 } // namespace
 
-bool can_use_parquet_page_index(const format::FileScanRequest& request,
-                                const RuntimeState* runtime_state) {
-    return config::enable_parquet_page_index && has_expr_zonemap_filter(request, runtime_state);
+bool can_use_parquet_page_index(const format::FileScanRequest& request, const RuntimeState*) {
+    // Footer-only repeated paths cannot map physical value pages back to parent rows, so they must
+    // not trigger Page Index I/O unless another predicate can actually use the loaded indexes.
+    return config::enable_parquet_page_index && has_native_page_index_filter(request);
 }
 
 std::shared_ptr<segment_v2::ZoneMap> ParquetStatisticsUtils::MakeZoneMap(

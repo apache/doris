@@ -280,9 +280,10 @@ ZoneMapFilterResult evaluate_array_contains_zonemap(const ZoneMapEvalContext& ct
                                                     const VExprSPtrs& args) {
     auto slot_literal = extract_array_contains_slot_and_literal(args);
     DORIS_CHECK(slot_literal.has_value());
-    auto slot_type =
-            fetch_compatible_slot_type(ctx, slot_literal->slot_index, slot_literal->slot_type);
-    if (slot_type == nullptr) {
+    auto slot_type = ctx.data_type(slot_literal->slot_index);
+    if (slot_type == nullptr || !data_types_compatible(slot_type, slot_literal->slot_type)) {
+        // Shared Segment and legacy Parquet callers bind the logical ARRAY, while Format V2 binds
+        // its repeated element; only the latter context can safely evaluate element statistics.
         return unsupported_zonemap_filter(ctx);
     }
     auto zone_map_ref = ctx.zone_map(slot_literal->slot_index);

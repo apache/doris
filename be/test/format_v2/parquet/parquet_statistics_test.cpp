@@ -1929,6 +1929,7 @@ TEST(NativeParquetStatisticsTest, ArrayContainsUsesRepeatedLeafFooterStatisticsO
     page_request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
     page_request.conjuncts = {VExprContext::create_shared(
             std::make_shared<MetadataArrayContainsExpr>(array_type, 7))};
+    EXPECT_FALSE(format::parquet::can_use_parquet_page_index(page_request, nullptr));
     format::parquet::NativeParquetPageIndex page_index;
     page_index.column_index.__set_min_values({encode_int32(10)});
     page_index.column_index.__set_max_values({encode_int32(20)});

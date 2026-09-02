@@ -1075,6 +1075,14 @@ TEST(ExprZonemapFilterTest, FunctionArrayContainsZonemapUsesElementRange) {
     EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
               array_contains->evaluate_zonemap_filter(missing_ctx, {slot, make_int_literal(15)}));
     EXPECT_EQ(1, missing_ctx.stats.unusable_zonemap_eval_count);
+
+    // Segment and legacy Parquet callers bind the logical ARRAY instead of the repeated element.
+    // The shared capability must fall back instead of treating that binding as an invariant breach.
+    auto logical_array_ctx = make_context(make_int_zonemap(10, 20), array_type);
+    EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+              array_contains->evaluate_zonemap_filter(logical_array_ctx,
+                                                      {slot, make_int_literal(15)}));
+    EXPECT_EQ(1, logical_array_ctx.stats.unusable_zonemap_eval_count);
 }
 
 TEST(ExprZonemapFilterTest, CharZonemapUsesTrimmedLogicalBounds) {
