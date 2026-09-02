@@ -333,20 +333,34 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // expression, so a projection of the group by key in the query top plan can be recomputed
         // by a project above the rewritten aggregate.
         List<NamedExpression> topProjectExpressions = new ArrayList<>();
-        Set<ExprId> usedTopProjectExprIds = new HashSet<>();
-        for (Expression shuttledTopExpression : shuttledTopPlanOutputs) {
-            Expression replacedExpression = ExpressionUtils.replace(shuttledTopExpression,
-                    bottomAggOutputToNewExprMap);
-            if (replacedExpression instanceof NamedExpression
-                    && usedTopProjectExprIds.add(((NamedExpression) replacedExpression).getExprId())) {
-                topProjectExpressions.add((NamedExpression) replacedExpression);
-            } else {
-                // Keep a distinct output expr id for each top project position: multiple query top plan
-                // expressions can be rewritten to the same aggregate output slot, for example
-                // `select sum(v) as s1, sum(v) as s2 from t group by a`. Collapsing them would make the
-                // rewritten output set smaller than the query output set and skip the plan normalization.
-                topProjectExpressions.add(new Alias(replacedExpression));
+        // Preserve the original top output expr id multiplicity: several query top plan output positions
+        // can share one original expr id (e.g. the unaliased `select k, k from t group by k` references the
+        // same output slot twice). Such repeated positions must also share one rewritten output expr id,
+        // otherwise the rewritten output set is inflated and MaterializedViewUtils.rewriteByRules returns at
+        // its output-set-size guard before the whole-tree normalization and partition pruning, which can
+        // miscompute invalid-partition compensation or leave the new aggregate unnormalized. Conversely,
+        // positions with distinct original expr ids that are rewritten to the same aggregate output (e.g.
+        // `select sum(v) as s1, sum(v) as s2 from t group by a`) still need distinct output expr ids, so the
+        // rewritten output set is not collapsed.
+        List<Slot> queryTopPlanOutputs = queryTopPlan.getOutput();
+        Map<ExprId, NamedExpression> originalExprIdToRewritten = new HashMap<>();
+        Set<ExprId> usedRewrittenExprIds = new HashSet<>();
+        for (int i = 0; i < shuttledTopPlanOutputs.size(); i++) {
+            ExprId originalExprId = queryTopPlanOutputs.get(i).getExprId();
+            NamedExpression groupRewrittenExpression = originalExprIdToRewritten.get(originalExprId);
+            if (groupRewrittenExpression == null) {
+                Expression replacedExpression = ExpressionUtils.replace(shuttledTopPlanOutputs.get(i),
+                        bottomAggOutputToNewExprMap);
+                groupRewrittenExpression = replacedExpression instanceof NamedExpression
+                        ? (NamedExpression) replacedExpression : new Alias(replacedExpression);
+                if (!usedRewrittenExprIds.add(groupRewrittenExpression.getExprId())) {
+                    // The rewritten expr id is already used by another original expr id group, keep a
+                    // distinct output expr id for this group.
+                    groupRewrittenExpression = new Alias(replacedExpression);
+                }
+                originalExprIdToRewritten.put(originalExprId, groupRewrittenExpression);
             }
+            topProjectExpressions.add(groupRewrittenExpression);
         }
         // If the query top plan output expressions can be produced by the rewritten aggregate directly,
         // return the aggregate, otherwise compute them by a project above the rewritten aggregate.

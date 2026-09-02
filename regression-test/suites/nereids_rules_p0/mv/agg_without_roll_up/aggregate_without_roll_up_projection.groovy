@@ -93,4 +93,14 @@ suite("aggregate_without_roll_up_projection") {
             + "from sync_tz_base where ts is not null group by date_trunc(ts, 'day');", "sync_tz_day")
     order_qt_select_mv_dup_group """select date_trunc(ts, 'day') as d1, date_trunc(ts, 'day') as d2, sum(v) as s
             from sync_tz_base where ts is not null group by date_trunc(ts, 'day') order by 1;"""
+
+    // A repeated unaliased bare output references the same original output slot twice
+    // (`select day, day, sum(v) ... group by day`). The two positions rewrite to the same mv slot and
+    // must keep the single original expr id multiplicity: forcing a fresh alias on the repeated
+    // position would inflate the rewritten output set and skip the whole-tree normalization and
+    // partition pruning in MaterializedViewUtils.rewriteByRules.
+    mv_rewrite_success("select date_trunc(ts, 'day'), date_trunc(ts, 'day'), sum(v) "
+            + "from sync_tz_base where ts is not null group by date_trunc(ts, 'day');", "sync_tz_day")
+    order_qt_select_mv_dup_bare_group """select date_trunc(ts, 'day'), date_trunc(ts, 'day'), sum(v)
+            from sync_tz_base where ts is not null group by date_trunc(ts, 'day') order by 1;"""
 }
