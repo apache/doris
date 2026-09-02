@@ -69,8 +69,7 @@ namespace doris {
 namespace {
 
 doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
-    if (conf.provider == io::ObjStorageProvider::AZURE &&
-        iequal(conf.azure_auth_type, "OAUTH2")) {
+    if (conf.provider == io::ObjStorageProvider::AZURE && iequal(conf.azure_auth_type, "OAUTH2")) {
         return Status::NotSupported(
                 "Azure OAuth2 credentials are not supported by the native BE client");
     }
@@ -649,16 +648,18 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     }
 
     if (s3_conf->client_conf.provider == io::ObjStorageProvider::AZURE) {
-        if (const auto* value =
-                    find_property(properties, {AZURE_ACCOUNT_NAME, "azure.account_name"});
+        if (const auto* value = find_property(properties, {AZURE_ACCOUNT_NAME, "azure.account_name",
+                                                           "azure.access_key", "AWS_ACCESS_KEY"});
             value != nullptr) {
             s3_conf->client_conf.ak = *value;
         }
-        if (const auto* value = find_property(properties, {AZURE_ACCOUNT_KEY, "azure.account_key"});
+        if (const auto* value = find_property(properties, {AZURE_ACCOUNT_KEY, "azure.account_key",
+                                                           "azure.secret_key", "AWS_SECRET_KEY"});
             value != nullptr) {
             s3_conf->client_conf.sk = *value;
         }
-        if (const auto* value = find_property(properties, {AZURE_CONTAINER, "azure.container"});
+        if (const auto* value = find_property(
+                    properties, {AZURE_CONTAINER, "azure.container", "azure.bucket", "AWS_BUCKET"});
             value != nullptr) {
             s3_conf->bucket = *value;
         }
@@ -706,6 +707,9 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
         }
         if (s3_conf->client_conf.region.empty()) {
             s3_conf->client_conf.region = "azure";
+        }
+        if (s3_conf->bucket.empty()) {
+            return Status::InvalidArgument("Invalid Azure URI, container is not specified");
         }
     }
     // Keep the container in the client configuration for the native Azure

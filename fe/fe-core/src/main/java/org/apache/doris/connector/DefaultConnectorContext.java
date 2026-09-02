@@ -62,6 +62,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;
@@ -261,14 +262,31 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
                 return null;
             }
             List<StorageAdapter> vended = StorageAdapter.ofAll(normalized);
-            return vended.stream()
+            Map<StorageTypeId, StorageAdapter> result = vended.stream()
                     .collect(Collectors.toMap(StorageAdapter::getType, Function.identity()));
+            // The plugin registry adds a default HDFS binding when no HDFS provider is present.
+            // A pure Azure vended token must not inherit that fallback: it is an object-client
+            // credential set, and retaining the synthetic HDFS entry would reintroduce the old
+            // Azure→Hadoop channel into the scan-level map. Preserve a real HDFS binding when the
+            // token explicitly contains HDFS configuration for a mixed connector.
+            if (result.containsKey(StorageTypeId.AZURE) && !containsHdfsConfiguration(normalized)) {
+                result.remove(StorageTypeId.HDFS);
+            }
+            return result;
         } catch (CredentialUtils.AzureSasCredentialException e) {
             throw e;
         } catch (Exception e) {
             LOG.warn("Failed to normalize vended credentials", e);
             return null;
         }
+    }
+
+    private static boolean containsHdfsConfiguration(Map<String, String> properties) {
+        return properties.keySet().stream().anyMatch(key -> {
+            String lower = key.toLowerCase(Locale.ROOT);
+            return lower.startsWith("hdfs.") || lower.startsWith("dfs.")
+                    || lower.startsWith("hadoop.") || "fs.defaultfs".equals(lower);
+        });
     }
 
     @Override

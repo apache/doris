@@ -55,19 +55,30 @@ class AzureFileSystemPropertiesTest {
                 "azure.endpoint", "account.blob.core.windows.net",
                 "azure.account_name", "azure-account",
                 "azure.account_key", "azure-key-plain",
-                "AZURE_SAS_TOKEN", "sas-token-plain",
                 "AZURE_CLIENT_SECRET", "azure-clientsecret-plain"));
 
         String rendered = properties.toString();
 
         Assertions.assertFalse(rendered.contains("azure-key-plain"), rendered);
         Assertions.assertFalse(rendered.contains("azure-clientsecret-plain"), rendered);
-        Assertions.assertFalse(rendered.contains("sas-token-plain"), rendered);
         Assertions.assertTrue(rendered.contains("accountKey=***"), rendered);
-        Assertions.assertTrue(rendered.contains("sasToken=***"), rendered);
         Assertions.assertTrue(rendered.contains("clientSecret=***"), rendered);
         // accountName is the storage account identifier (also appears in the endpoint), not a secret.
         Assertions.assertTrue(rendered.contains("accountName=azure-account"), rendered);
+    }
+
+    @Test
+    void toString_masksSasToken() {
+        AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
+                "azure.auth_type", "SAS",
+                "azure.endpoint", "account.blob.core.windows.net",
+                "azure.account_name", "account",
+                "azure.sas_token", "sas-token-plain"));
+
+        String rendered = properties.toString();
+
+        Assertions.assertFalse(rendered.contains("sas-token-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("sasToken=***"), rendered);
     }
 
     @Test

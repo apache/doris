@@ -50,6 +50,15 @@
 
 namespace doris::io {
 
+namespace {
+std::string sanitize_display_path(std::string path) {
+    if (const auto query = path.find('?'); query != std::string::npos) {
+        path.resize(query);
+    }
+    return path;
+}
+} // namespace
+
 bvar::Adder<uint64_t> s3_file_reader_read_counter("s3_file_reader", "read_at");
 bvar::Adder<uint64_t> s3_file_reader_total("s3_file_reader", "total_num");
 bvar::Adder<uint64_t> s3_bytes_read_total("s3_file_reader", "bytes_read");
@@ -66,7 +75,7 @@ bvar::LatencyRecorder s3_file_reader_latency("s3_file_reader", "s3_latency");
 
 Result<FileReaderSPtr> S3FileReader::create(std::shared_ptr<const ObjClientHolder> client,
                                             std::string bucket, std::string key, int64_t file_size,
-                                            RuntimeProfile* profile) {
+                                            RuntimeProfile* profile, std::string display_path) {
     if (file_size < 0) {
         auto res = client->object_file_size(bucket, key);
         if (!res.has_value()) {
@@ -77,12 +86,14 @@ Result<FileReaderSPtr> S3FileReader::create(std::shared_ptr<const ObjClientHolde
     }
 
     return std::make_shared<S3FileReader>(std::move(client), std::move(bucket), std::move(key),
-                                          file_size, profile);
+                                          file_size, profile, std::move(display_path));
 }
 
 S3FileReader::S3FileReader(std::shared_ptr<const ObjClientHolder> client, std::string bucket,
-                           std::string key, size_t file_size, RuntimeProfile* profile)
-        : _path(fmt::format("s3://{}/{}", bucket, key)),
+                           std::string key, size_t file_size, RuntimeProfile* profile,
+                           std::string display_path)
+        : _path(display_path.empty() ? fmt::format("s3://{}/{}", bucket, key)
+                                     : sanitize_display_path(std::move(display_path))),
           _file_size(file_size),
           _bucket(std::move(bucket)),
           _key(std::move(key)),

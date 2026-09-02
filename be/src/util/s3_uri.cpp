@@ -18,6 +18,7 @@
 #include "util/s3_uri.h"
 
 #include <absl/strings/ascii.h>
+#include <absl/strings/match.h>
 #include <absl/strings/str_split.h>
 
 #include <vector>
@@ -25,8 +26,6 @@
 namespace doris {
 
 const std::string S3URI::_SCHEME_S3 = "s3";
-const std::string S3URI::_SCHEME_S3A = "s3a";
-const std::string S3URI::_SCHEME_S3N = "s3n";
 const std::string S3URI::_SCHEME_ABFS = "abfs";
 const std::string S3URI::_SCHEME_ABFSS = "abfss";
 const std::string S3URI::_SCHEME_WASB = "wasb";
@@ -58,9 +57,8 @@ Status S3URI::parse() {
     std::vector<std::string> scheme_split = absl::StrSplit(_location, _SCHEME_DELIM);
     std::string rest;
     if (scheme_split.size() == 2) {
-        std::string scheme = scheme_split[0];
-        absl::AsciiStrToLower(&scheme);
-        if (scheme == _SCHEME_S3 || scheme == _SCHEME_S3A || scheme == _SCHEME_S3N) {
+        const std::string& scheme = scheme_split[0];
+        if (scheme == _SCHEME_S3) {
             // has scheme, eg: s3://bucket1/path/to/file.txt
             rest = scheme_split[1];
             std::vector<std::string> authority_split =
@@ -71,8 +69,10 @@ Status S3URI::parse() {
             _bucket = authority_split[0];
             // support s3://bucket1
             _key = authority_split.size() == 1 ? "/" : authority_split[1];
-        } else if (scheme == _SCHEME_ABFS || scheme == _SCHEME_ABFSS || scheme == _SCHEME_WASB ||
-                   scheme == _SCHEME_WASBS) {
+        } else if (absl::EqualsIgnoreCase(scheme, _SCHEME_ABFS) ||
+                   absl::EqualsIgnoreCase(scheme, _SCHEME_ABFSS) ||
+                   absl::EqualsIgnoreCase(scheme, _SCHEME_WASB) ||
+                   absl::EqualsIgnoreCase(scheme, _SCHEME_WASBS)) {
             // Azure Data Lake paths use container@account-host as the
             // authority.  Keep the account host so the native Azure client
             // can derive its endpoint without consulting Hadoop settings.
@@ -89,6 +89,9 @@ Status S3URI::parse() {
             }
             _bucket = authority_split[0].substr(0, at);
             _endpoint = authority_split[0].substr(at + 1);
+            if (_endpoint.empty()) {
+                return Status::InvalidArgument("Invalid Azure URI authority: {}", _location);
+            }
             const auto dot = _endpoint.find('.');
             _account = dot == std::string::npos ? _endpoint : _endpoint.substr(0, dot);
             _is_azure = true;

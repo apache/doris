@@ -19,6 +19,7 @@
 
 #include <butil/guid.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <string_view>
@@ -30,8 +31,12 @@ using namespace Azure::Storage::Blobs;
 
 namespace {
 std::string wrap_object_storage_path_msg(const doris::ObjStoragePath& opts) {
+    std::string path = opts.path.native();
+    if (const auto query = path.find('?'); query != std::string::npos) {
+        path.resize(query);
+    }
     return fmt::format("bucket {}, key {}, prefix {}, path {}", opts.bucket, opts.key, opts.prefix,
-                       opts.path.native());
+                       path);
 }
 
 doris::ObjStoragePath with_object_key(const doris::ObjStoragePath& opts, std::string_view key) {
@@ -107,7 +112,8 @@ std::string build_azure_tls_debug_suffix(std::string_view error_message,
 static ObjStorageResponse make_azure_std_exception_response(const std::exception& e,
                                                             const ObjStoragePath& opts,
                                                             std::string_view tls_debug_context) {
-    auto msg = fmt::format("Azure request failed because {}, path msg {}{}", e.what(),
+    auto msg = fmt::format("Azure request failed because {}, path msg {}{}",
+                           redact_azure_url(e.what()),
                            wrap_object_storage_path_msg(opts),
                            build_azure_tls_debug_suffix(e.what(), tls_debug_context));
     LOG(WARNING) << msg;
@@ -125,7 +131,7 @@ ObjStorageResponse do_azure_client_call(Func f, const ObjStoragePath& opts,
         doris::record_object_request_failed(static_cast<int>(e.StatusCode));
         auto msg = fmt::format(
                 "Azure request failed because {}, error msg {}, http code {}, path msg {}{}",
-                e.what(), e.Message, static_cast<int>(e.StatusCode),
+                redact_azure_url(e.what()), redact_azure_url(e.Message), static_cast<int>(e.StatusCode),
                 wrap_object_storage_path_msg(opts),
                 build_azure_tls_debug_suffix(fmt::format("{} {}", e.what(), e.Message),
                                              tls_debug_context));
@@ -187,7 +193,8 @@ struct AzureBatchDeleter {
                 auto msg = fmt::format(
                         "Azure request failed because {}, error msg {}, http code {}, path msg "
                         "{}{}",
-                        e.what(), e.Message, static_cast<int>(e.StatusCode),
+                        redact_azure_url(e.what()), redact_azure_url(e.Message),
+                        static_cast<int>(e.StatusCode),
                         wrap_object_storage_path_msg(with_object_key(_opts, deferred.key)),
                         build_azure_tls_debug_suffix(fmt::format("{} {}", e.what(), e.Message),
                                                      _tls_debug_context));
@@ -258,7 +265,7 @@ ObjStorageUploadResult AzureObjStorageClient::upload_part(const ObjStoragePath& 
                 fmt::format("{} {}", e.what(), e.Message), _config.tls_debug_context);
         auto msg = fmt::format(
                 "Azure request failed because {}, error msg {}, http code {}, path msg {}{}",
-                e.what(), e.Message, static_cast<int>(e.StatusCode),
+                redact_azure_url(e.what()), redact_azure_url(e.Message), static_cast<int>(e.StatusCode),
                 wrap_object_storage_path_msg(opts), tls_debug_suffix);
         LOG(WARNING) << msg;
         // clang-format off
@@ -317,7 +324,7 @@ ObjStorageHeadResult AzureObjStorageClient::head_object(const ObjStoragePath& op
                 fmt::format("{} {}", e.what(), e.Message), _config.tls_debug_context);
         auto msg = fmt::format(
                 "Azure request failed because {}, error msg {}, http code {}, path msg {}{}",
-                e.what(), e.Message, static_cast<int>(e.StatusCode),
+                redact_azure_url(e.what()), redact_azure_url(e.Message), static_cast<int>(e.StatusCode),
                 wrap_object_storage_path_msg(opts), tls_debug_suffix);
         LOG(WARNING) << msg << ", request_id=" << e.RequestId;
         return ObjStorageHeadResult {
@@ -406,20 +413,21 @@ ObjStorageListPageResult AzureObjStorageClient::list_objects_page(
         auto tls_debug_suffix = build_azure_tls_debug_suffix(
                 fmt::format("{} {}", e.what(), e.Message), _config.tls_debug_context);
         LOG(WARNING) << fmt::format("Azure request failed because {}, url: {}, prefix: {}{}",
-                                    e.what(), redact_azure_url(_client->GetUrl()),
+                                    redact_azure_url(e.what()), redact_azure_url(_client->GetUrl()),
                                     request.Prefix.Value(), tls_debug_suffix);
         return {
                 .resp = {.status = obj_storage_status_from_http_code(static_cast<int>(e.StatusCode),
-                                                                     e.Message + tls_debug_suffix),
+                                                                     redact_azure_url(e.Message) +
+                                                                             tls_debug_suffix),
                          .http_code = static_cast<int>(e.StatusCode),
                          .request_id = std::move(e.RequestId)},
         };
     } catch (std::exception& e) {
         LOG(WARNING) << fmt::format("Azure request failed because {}, url: {}, prefix: {}",
-                                    e.what(), redact_azure_url(_client->GetUrl()),
+                                    redact_azure_url(e.what()), redact_azure_url(_client->GetUrl()),
                                     request.Prefix.Value());
         return {
-                .resp = {.status = {ObjStorageStatus::INTERNAL_ERROR, e.what()},
+                .resp = {.status = {ObjStorageStatus::INTERNAL_ERROR, redact_azure_url(e.what())},
                          .http_code = 0,
                          .request_id = ""},
         };
@@ -481,7 +489,7 @@ ObjStorageResponse AzureObjStorageClient::delete_object(const ObjStoragePath& op
                 fmt::format("{} {}", e.what(), e.Message), _config.tls_debug_context);
         auto msg = fmt::format(
                 "Azure request failed because {}, error msg {}, http code {}, path msg {}{}",
-                e.what(), e.Message, static_cast<int>(e.StatusCode),
+                redact_azure_url(e.what()), redact_azure_url(e.Message), static_cast<int>(e.StatusCode),
                 wrap_object_storage_path_msg(opts), tls_debug_suffix);
         LOG(WARNING) << msg;
         return {
@@ -491,7 +499,8 @@ ObjStorageResponse AzureObjStorageClient::delete_object(const ObjStoragePath& op
                 .request_id = std::move(e.RequestId),
         };
     } catch (std::exception& e) {
-        auto msg = fmt::format("Azure request failed because {}, path msg {}{}", e.what(),
+        auto msg = fmt::format("Azure request failed because {}, path msg {}{}",
+                               redact_azure_url(e.what()),
                                wrap_object_storage_path_msg(opts),
                                build_azure_tls_debug_suffix(e.what(), _config.tls_debug_context));
         LOG(WARNING) << msg;

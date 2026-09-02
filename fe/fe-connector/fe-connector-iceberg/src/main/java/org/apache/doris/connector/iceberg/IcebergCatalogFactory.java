@@ -222,13 +222,43 @@ public final class IcebergCatalogFactory {
     public static List<StorageProperties> selectEffectiveStorages(
             List<? extends StorageProperties> storages) {
         S3CompatibleFileSystemProperties chosenS3 = chooseS3Compatible(storages).orElse(null);
+        boolean hasAzure = storages.stream()
+                .anyMatch(storage -> "AZURE".equalsIgnoreCase(storage.providerName()));
         List<StorageProperties> selected = new ArrayList<>();
         for (StorageProperties storage : storages) {
+            // bindAll adds a synthetic default HDFS binding when an object-store-only catalog has
+            // no HDFS properties. Once Azure is present, retaining that pad would merge Hadoop
+            // defaults into the native Azure scan/write payload. A real mixed Azure+HDFS catalog
+            // remains intact when its raw properties contain explicit HDFS settings.
+            if (hasAzure && "HDFS".equalsIgnoreCase(storage.providerName())
+                    && !hasExplicitHdfsProperties(storage.rawProperties())) {
+                continue;
+            }
             if (!(storage instanceof S3CompatibleFileSystemProperties) || storage == chosenS3) {
                 selected.add(storage);
             }
         }
         return selected;
+    }
+
+    private static boolean hasExplicitHdfsProperties(Map<String, String> properties) {
+        if (properties == null) {
+            return false;
+        }
+        return properties.entrySet().stream().anyMatch(entry -> {
+            String key = entry.getKey();
+            if (key == null) {
+                return false;
+            }
+            String lower = key.toLowerCase(Locale.ROOT);
+            String value = entry.getValue();
+            return lower.startsWith("hdfs.") || lower.startsWith("dfs.")
+                    || lower.startsWith("hadoop.") || "fs.defaultfs".equals(lower)
+                    || "hadoop.config.resources".equals(lower) || lower.startsWith("fs.hdfs.")
+                    || lower.startsWith("fs.jfs.")
+                    || (("provider".equals(lower) || "_storage_type_".equals(lower))
+                            && ("hdfs".equalsIgnoreCase(value) || "jfs".equalsIgnoreCase(value)));
+        });
     }
 
     /**

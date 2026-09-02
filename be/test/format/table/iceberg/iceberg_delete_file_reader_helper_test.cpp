@@ -235,8 +235,8 @@ TEST(IcebergDeleteFileReaderHelperTest, NativeAzureDeleteParamsDoNotBuildHdfsPar
             {"AZURE_SAS_EXPIRY_MS", "4102444800000"},
     };
 
-    const auto native_params = build_iceberg_delete_scan_range_params(
-            native_azure_properties, TFileType::FILE_S3, {});
+    const auto native_params =
+            build_iceberg_delete_scan_range_params(native_azure_properties, TFileType::FILE_S3, {});
     ASSERT_TRUE(native_params.__isset.file_type);
     EXPECT_EQ(TFileType::FILE_S3, native_params.file_type);
     ASSERT_TRUE(native_params.__isset.properties);
@@ -244,8 +244,8 @@ TEST(IcebergDeleteFileReaderHelperTest, NativeAzureDeleteParamsDoNotBuildHdfsPar
     EXPECT_FALSE(native_params.__isset.hdfs_params);
 
     // Preserve the existing Hadoop contract for non-Azure callers.
-    const auto hdfs_params = build_iceberg_delete_scan_range_params(
-            native_azure_properties, TFileType::FILE_HDFS, {});
+    const auto hdfs_params = build_iceberg_delete_scan_range_params(native_azure_properties,
+                                                                    TFileType::FILE_HDFS, {});
     ASSERT_TRUE(hdfs_params.__isset.file_type);
     EXPECT_EQ(TFileType::FILE_HDFS, hdfs_params.file_type);
     ASSERT_TRUE(hdfs_params.__isset.hdfs_params);

@@ -29,6 +29,7 @@ import java.net.URISyntaxException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -209,6 +210,28 @@ public final class StorageUriUtils {
             throw new StoragePropertiesException("props must contain uri");
         }
         return uriOptional.get();
+    }
+
+    /**
+     * Compatibility entry point for callers that used the former fe-core Azure helper directly.
+     * Azure normalization is provider-owned now, so this validates and preserves the native URI
+     * instead of rewriting it to an S3-shaped path.
+     */
+    public static String validateAndNormalizeAzureUri(String path) {
+        if (StringUtils.isBlank(path)) {
+            throw new StoragePropertiesException("Path cannot be null or empty");
+        }
+        int delimiter = path.indexOf(SCHEME_DELIM);
+        if (delimiter <= 0) {
+            throw new StoragePropertiesException("Azure URI must contain a scheme: " + path);
+        }
+        String scheme = path.substring(0, delimiter).toLowerCase(Locale.ROOT);
+        if (!(scheme.equals("wasb") || scheme.equals("wasbs") || scheme.equals("abfs")
+                || scheme.equals("abfss") || scheme.equals("http") || scheme.equals("https")
+                || scheme.equals("s3"))) {
+            throw new StoragePropertiesException("Unsupported Azure URI scheme: " + path);
+        }
+        return scheme.equals(path.substring(0, delimiter)) ? path : scheme + path.substring(delimiter);
     }
 
     /**

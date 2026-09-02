@@ -59,6 +59,7 @@ public class CredentialUtils {
             "obs.",          // Huawei OBS
             "gs.",           // Google Cloud Storage
             "azure.",        // Microsoft Azure
+            "azure_",        // Native Azure backend aliases
             "adls.",         // Apache Iceberg ADLS vended credentials
             "client.",       // Iceberg client properties (e.g., client.region)
             "iceberg.rest."  // Iceberg REST catalog properties (e.g., iceberg.rest.access-key-id)
@@ -79,10 +80,17 @@ public class CredentialUtils {
         Map<String, String> filtered = new HashMap<>();
         rawVendedCredentials.entrySet().stream()
                 .filter(entry -> entry.getKey() != null && entry.getValue() != null)
-                .filter(entry -> CLOUD_STORAGE_PREFIXES.stream().anyMatch(prefix -> entry.getKey().startsWith(prefix)))
+                .filter(entry -> isSupportedCloudStorageKey(entry.getKey()))
                 .forEach(entry -> filtered.put(entry.getKey(), entry.getValue()));
 
         return filtered;
+    }
+
+    private static boolean isSupportedCloudStorageKey(String key) {
+        String lowerKey = key.toLowerCase(Locale.ROOT);
+        return CLOUD_STORAGE_PREFIXES.stream()
+                .anyMatch(prefix -> lowerKey.startsWith(prefix.toLowerCase(Locale.ROOT)))
+                || "provider".equals(lowerKey);
     }
 
     /**
@@ -103,6 +111,7 @@ public class CredentialUtils {
         String tokenHost = null;
         String token = null;
         String expiry = null;
+        String container = null;
         for (Map.Entry<String, String> entry : filtered.entrySet()) {
             String key = entry.getKey();
             String lowerKey = key.toLowerCase(Locale.ROOT);
@@ -129,6 +138,9 @@ public class CredentialUtils {
                 }
                 tokenHost = host;
                 expiry = entry.getValue().trim();
+            } else if (lowerKey.equals("adls.container") || lowerKey.equals("adls.container-name")
+                    || lowerKey.equals("azure.container") || lowerKey.equals("azure.bucket")) {
+                container = entry.getValue().trim();
             }
         }
         if (tokenHost == null) {
@@ -146,13 +158,17 @@ public class CredentialUtils {
         // for their existing consumers.
         normalized.keySet().removeIf(key -> {
             String lowerKey = key.toLowerCase(Locale.ROOT);
-            return lowerKey.startsWith(ADLS_PROPERTY_PREFIX) || lowerKey.startsWith("azure.");
+            return lowerKey.startsWith(ADLS_PROPERTY_PREFIX) || lowerKey.startsWith("azure.")
+                    || lowerKey.startsWith("azure_");
         });
         normalized.put("provider", "azure");
         normalized.put("AZURE_AUTH_TYPE", "SAS");
         normalized.put("AZURE_ACCOUNT_NAME", accountName(tokenHost));
         normalized.put("AZURE_ENDPOINT", blobEndpoint(tokenHost));
         normalized.put("AZURE_SAS_TOKEN", token);
+        if (container != null && !container.isBlank()) {
+            normalized.put("AZURE_CONTAINER", container);
+        }
         if (expiry != null) {
             normalized.put("AZURE_SAS_EXPIRY_MS", expiry);
         }

@@ -200,6 +200,8 @@ public final class AzureFileSystemProperties
                 .check(() -> isSharedKeyAuth()
                                 && (StringUtils.isBlank(accountName) || StringUtils.isBlank(accountKey)),
                         "When auth_type is SharedKey, account_name and account_key are required.")
+                .check(() -> isSharedKeyAuth() && StringUtils.isNotBlank(sasToken),
+                        "When auth_type is SharedKey, sas_token must not be set.")
                 .check(() -> isSasAuth() && StringUtils.isBlank(sasToken),
                         "When auth_type is SAS, sas_token is required.")
                 .check(() -> isOauth2Auth()
@@ -501,10 +503,16 @@ public final class AzureFileSystemProperties
         }
         // A token-only binding is unambiguously SAS. This supports provider-owned
         // AZURE_SAS_TOKEN input without requiring a second auth-type key.
-        if (StringUtils.isNotBlank(sasToken) && StringUtils.isBlank(accountKey)
+        if (!hasExplicitAuthType() && StringUtils.isNotBlank(sasToken)
                 && SHARED_KEY_AUTH.equalsIgnoreCase(azureAuthType)) {
             azureAuthType = SAS_AUTH;
         }
+    }
+
+    private boolean hasExplicitAuthType() {
+        return rawProperties.keySet().stream()
+                .anyMatch(key -> AUTH_TYPE.equalsIgnoreCase(key)
+                        || "AZURE_AUTH_TYPE".equalsIgnoreCase(key));
     }
 
     private String backendAuthType() {
