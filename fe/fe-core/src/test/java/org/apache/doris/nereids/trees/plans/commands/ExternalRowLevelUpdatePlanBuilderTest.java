@@ -77,7 +77,7 @@ public class ExternalRowLevelUpdatePlanBuilderTest {
                 basePlan);
 
         List<Column> columns = ImmutableList.of(new Column("c1", ScalarType.createType(PrimitiveType.INT)));
-        LogicalPlan plan = command.buildMergeProjectPlan(ctx, basePlan, ImmutableList.of(), columns, "t");
+        LogicalPlan plan = command.buildMergeProjectPlan(ctx, basePlan, ImmutableList.of(), columns, "t", null);
         Assertions.assertTrue(plan instanceof LogicalProject);
         List<NamedExpression> projects = ((LogicalProject<?>) plan).getProjects();
         Assertions.assertEquals(3, projects.size());

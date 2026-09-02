@@ -197,6 +197,8 @@ std::string virtual_column_type_to_string(TableVirtualColumnType type) {
         return "LAST_UPDATED_SEQUENCE_NUMBER";
     case TableVirtualColumnType::ICEBERG_ROWID:
         return "ICEBERG_ROWID";
+    case TableVirtualColumnType::PAIMON_ROWID:
+        return "PAIMON_ROWID";
     }
     return "UNKNOWN";
 }
@@ -2296,6 +2298,10 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
         // Doris internal Iceberg row locator is never a physical Iceberg data column. It is built
         // from file path, row position and partition metadata for delete/update/merge.
         mapping->virtual_column_type = TableVirtualColumnType::ICEBERG_ROWID;
+    } else if (table_column.name == BeConsts::PAIMON_ROWID_COL) {
+        // Doris internal Paimon row locator, same category as the Iceberg one above: built from the
+        // split's data file path plus the scanned row ordinal, for append-only row-level DML.
+        mapping->virtual_column_type = TableVirtualColumnType::PAIMON_ROWID;
     } else if (table_column.default_expr != nullptr) {
         // Table-format readers build typed default expressions before mapping. Keep that typed
         // expression authoritative over the raw transport metadata, which cannot represent complex

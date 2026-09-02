@@ -106,6 +106,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
+import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlRowIdUtils;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
@@ -582,7 +583,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 String label = slotDesc.getLabel();
                 if (label != null && !label.isEmpty()) {
                     if (MergeOperation.OPERATION_COLUMN.equalsIgnoreCase(label)
-                            || Column.ICEBERG_ROWID_COL.equalsIgnoreCase(label)) {
+                            || RowLevelDmlRowIdUtils.isRowIdColumnName(label)) {
                         slotDesc.setMaterializedColumnName(label);
                     }
                 }

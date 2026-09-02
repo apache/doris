@@ -46,6 +46,7 @@ enum TDataSinkType {
     MAXCOMPUTE_TABLE_SINK = 18,
     ICEBERG_DELETE_SINK = 19,
     ICEBERG_MERGE_SINK = 20,
+    PAIMON_TABLE_SINK = 21,
 }
 
 enum TResultSinkType {
@@ -630,6 +631,34 @@ struct TMaxComputeTableSink {
     18: optional i64 txn_id                       // FE external transaction ID for runtime block_id allocation
 }
 
+enum TPaimonWriteMode {
+    APPEND = 0,
+    OVERWRITE = 1,
+    // Row-level DELETE on a primary-key table: every row is written as a RowKind.DELETE record
+    // carrying the key, which Paimon's merge engine cancels against the existing row. Append-only
+    // deletes do NOT use this mode - they record deleted positions in a deletion vector instead.
+    DELETE = 2,
+    // Row-level UPDATE / MERGE INTO on a primary-key table. The row stream is operation-TAGGED:
+    // the first column is the merge operation number (1=INSERT, 2=DELETE, 3=UPDATE,
+    // 4=UPDATE_INSERT, 5=UPDATE_DELETE) and the second is the row locator; the writer maps
+    // 2/5 to RowKind.DELETE and the rest to keyed upserts.
+    MERGE = 3,
+}
+
+struct TPaimonCommitMessage {
+    1: optional binary payload          // Paimon CommitMessageSerializer bytes (DPCM-framed)
+    2: optional i64 row_count            // set once per BE writer, on its first payload
+}
+
+struct TPaimonTableSink {
+    1: optional string serialized_table // serialized Paimon FileStoreTable object (base64)
+    2: optional map<string, string> hadoop_config
+    3: optional list<string> column_names
+    4: optional TPaimonWriteMode write_mode
+    5: optional i64 transaction_id
+    6: optional string commit_user
+}
+
 struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink
@@ -650,4 +679,5 @@ struct TDataSink {
   18: optional TMaxComputeTableSink max_compute_table_sink
   19: optional TIcebergDeleteSink iceberg_delete_sink
   20: optional TIcebergMergeSink iceberg_merge_sink
+  21: optional TPaimonTableSink paimon_table_sink
 }

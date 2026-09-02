@@ -263,7 +263,16 @@ public final class ConnectorColumnConverter {
                 return ConnectorType.of(primitiveType.toString(),
                         scalar.getLength(), 0);
             }
-            if (primitiveType.isDecimalV3Type() || primitiveType == PrimitiveType.DECIMALV2) {
+            if (primitiveType.isDecimalV3Type()) {
+                // Doris stores DECIMALV3 as one of four precision-sized enum values (DECIMAL32/64/128/256),
+                // but every connector (Paimon, Iceberg) always names it "DECIMALV3" on its own side of the
+                // round trip. Canonicalize here so a write-plan schema comparison of the SAME unchanged
+                // column does not see "DECIMAL64" (this reverse path) vs "DECIMALV3" (the connector's own
+                // forward path) and misreport concurrent schema drift.
+                return ConnectorType.of("DECIMALV3",
+                        scalar.getScalarPrecision(), scalar.getScalarScale());
+            }
+            if (primitiveType == PrimitiveType.DECIMALV2) {
                 return ConnectorType.of(primitiveType.toString(),
                         scalar.getScalarPrecision(), scalar.getScalarScale());
             }

@@ -22,8 +22,12 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.AfterEach;
@@ -69,6 +73,11 @@ public class CreateTableInfoEngineCatalogTest {
         Env mockEnv = Mockito.mock(Env.class);
         catalogMgr = Mockito.mock(CatalogMgr.class);
         Mockito.when(mockEnv.getCatalogMgr()).thenReturn(catalogMgr);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        Mockito.when(accessManager.checkTblPriv(Mockito.nullable(ConnectContext.class),
+                Mockito.anyString(), Mockito.anyString(), Mockito.anyString(), Mockito.any()))
+                .thenReturn(true);
+        Mockito.when(mockEnv.getAccessManager()).thenReturn(accessManager);
         mockedEnv = Mockito.mockStatic(Env.class);
         mockedEnv.when(Env::getCurrentEnv).thenReturn(mockEnv);
     }
@@ -143,6 +152,31 @@ public class CreateTableInfoEngineCatalogTest {
         // properties -- so inventing one only created a table fe-core had to keep in sync with the connectors.
         Assertions.assertNull(info.getEngineName(),
                 "a no-ENGINE CREATE TABLE on an external catalog must not have an engine name invented for it");
+    }
+
+    @Test
+    public void externalCatalogAllowsVarbinaryColumns() {
+        registerExternalCatalog("paimon_ctl", "paimon");
+        CreateTableInfo info = new CreateTableInfo(false, false, false,
+                "paimon_ctl", "db", "tbl",
+                Lists.newArrayList(new ColumnDefinition("payload", VarBinaryType.INSTANCE, true)),
+                new ArrayList<>(), "paimon", null,
+                new ArrayList<>(), null, PartitionTableInfo.EMPTY, null,
+                new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
+
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setStatementContext(new StatementContext(context, new OriginStatement("", 0)));
+        context.setThreadLocalInfo();
+        try {
+            Assertions.assertDoesNotThrow(() -> info.validate(context),
+                    "VARBINARY is unsupported only by internal Doris tables; external catalogs own their types");
+        } finally {
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
     }
 
     @Test

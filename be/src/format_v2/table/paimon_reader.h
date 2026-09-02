@@ -60,9 +60,22 @@ protected:
     Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
                                        bool* has_delete_file) override;
 
+    // Row-level DML support: when the scan projects the synthetic `__DORIS_PAIMON_ROWID_COL__`,
+    // ask the file reader for the per-row ordinal and materialize the locator STRUCT
+    // <file_path, row_position> from it. Mirrors IcebergTableReader's ICEBERG_ROWID handling.
+    Status materialize_virtual_columns(Block* table_block) override;
+
 private:
+    bool _need_paimon_rowid() const;
+    Status _materialize_paimon_rowid(Block* table_block, size_t column_idx);
+
     int64_t _split_schema_id = -1;
     std::vector<format::LocalColumnIndex> _variant_schema_overrides;
+    size_t _row_position_block_position = 0;
+    // Data-file path of the current native split (TFileRangeDesc.path), captured in
+    // prepare_split for the synthetic row locator: a raw append split maps 1:1 onto its
+    // backing file, which is exactly what the deletion-vector index keys on.
+    std::string _current_split_path;
 };
 
 // Paimon scans can contain both native data-file splits and serialized JNI splits in the same

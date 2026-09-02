@@ -22,6 +22,7 @@
 #include <sstream>
 #include <variant>
 
+#include "common/config.h"
 #include "core/block/block.h"
 #include "core/column/column_array.h"
 #include "core/column/column_map.h"
@@ -29,6 +30,8 @@
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_varbinary.h"
+#include "core/column/column_variant.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
@@ -38,6 +41,9 @@
 #include "core/data_type/primitive_type.h"
 #include "core/types.h"
 #include "core/value/decimalv2_value.h"
+#include "core/value/variant/variant_batch_builder.h"
+#include "exec/common/variant_util.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "util/string_util.h"
 #include "util/url_coding.h"
 
@@ -148,6 +154,10 @@ Status JniDataBridge::fill_column(TableMetaAddress& address, ColumnPtr& doris_co
     case PrimitiveType::TYPE_VARBINARY:
         status = _fill_varbinary_column(address, data_column, num_rows);
         break;
+    case PrimitiveType::TYPE_VARIANT:
+        status = _fill_variant_column(address, data_column, static_cast<const bool*>(null_map_ptr),
+                                      num_rows);
+        break;
     default:
         status = Status::InvalidArgument("Unsupported type {} in jni scanner",
                                          data_type->get_name());
@@ -176,6 +186,62 @@ Status JniDataBridge::_fill_varbinary_column(TableMetaAddress& address,
             varbinary_col.insert_data(src, static_cast<size_t>(len));
         }
     }
+    return Status::OK();
+}
+
+Status JniDataBridge::_fill_variant_column(TableMetaAddress& address,
+                                           MutableColumnPtr& doris_column, const bool* null_map,
+                                           size_t num_rows) {
+    ColumnPtr values = ColumnVarbinary::create();
+    ColumnPtr metadatas = ColumnVarbinary::create();
+    const DataTypePtr binary_type = std::make_shared<DataTypeVarbinary>();
+    RETURN_IF_ERROR(fill_column(address, values, binary_type, num_rows));
+    RETURN_IF_ERROR(fill_column(address, metadatas, binary_type, num_rows));
+
+    RETURN_IF_CATCH_EXCEPTION({
+        const auto& value_column = assert_cast<const ColumnVarbinary&>(*values);
+        const auto& metadata_column = assert_cast<const ColumnVarbinary&>(*metadatas);
+        VariantBatchBuilder builder;
+        for (size_t row_index = 0; row_index < num_rows; ++row_index) {
+            auto row = builder.begin_row();
+            if (null_map[row_index]) {
+                row.add_null();
+            } else {
+                const StringRef value = value_column.get_data_at(row_index);
+                const StringRef metadata = metadata_column.get_data_at(row_index);
+                row.add_value({.metadata = {.data = metadata.data, .size = metadata.size},
+                               .value = value});
+            }
+            row.finish();
+        }
+        VariantBatchBuilder batch = builder.finish_batch();
+        if (auto* variant_v2 = check_and_get_column<ColumnVariantV2>(doris_column.get())) {
+            variant_v2->insert_encoded_batch(batch);
+        } else {
+            auto* variant = check_and_get_column<ColumnVariant>(doris_column.get());
+            if (variant == nullptr) {
+                throw Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "JNI Variant destination requires ColumnVariant or ColumnVariantV2, got "
+                        "{}",
+                        doris_column->get_name());
+            }
+            struct StringWriter {
+                void write(const char* data, size_t size) { value.append(data, size); }
+                std::string value;
+            };
+            ParseConfig parse_config;
+            parse_config.check_duplicate_json_path =
+                    config::variant_enable_duplicate_json_path_check;
+            for (size_t row_index = 0; row_index < num_rows; ++row_index) {
+                StringWriter writer;
+                to_json(batch.value_at(row_index), writer);
+                variant_util::parse_json_to_variant(*variant,
+                                                    {writer.value.data(), writer.value.size()},
+                                                    nullptr, parse_config);
+            }
+        }
+    });
     return Status::OK();
 }
 
@@ -358,6 +424,8 @@ std::string JniDataBridge::get_jni_type(const DataTypePtr& data_type) {
     }
     case TYPE_VARBINARY:
         return "varbinary";
+    case TYPE_VARIANT:
+        return "struct<value:varbinary,metadata:varbinary>";
     // bitmap, hll, quantile_state, jsonb are transferred as strings via JNI
     case TYPE_BITMAP:
         [[fallthrough]];
@@ -433,6 +501,8 @@ std::string JniDataBridge::get_jni_type_with_different_string(const DataTypePtr&
                << assert_cast<const DataTypeVarbinary*>(remove_nullable(data_type).get())->len()
                << ")";
         return buffer.str();
+    case TYPE_VARIANT:
+        return "struct<value:varbinary,metadata:varbinary>";
     case TYPE_DECIMALV2: {
         buffer << "decimalv2(" << DecimalV2Value::PRECISION << "," << DecimalV2Value::SCALE << ")";
         return buffer.str();
@@ -506,6 +576,8 @@ std::string JniDataBridge::encode_schema_values(const std::vector<std::string>& 
 
 std::string JniDataBridge::get_jni_type_with_encoded_struct_fields(const DataTypePtr& data_type) {
     switch (data_type->get_primitive_type()) {
+    case TYPE_VARIANT:
+        return "struct<$dmFsdWU=:varbinary,$bWV0YWRhdGE=:varbinary>";
     case TYPE_STRUCT: {
         const auto* type_struct =
                 assert_cast<const DataTypeStruct*>(remove_nullable(data_type).get());

@@ -25,10 +25,14 @@ import org.apache.doris.connector.spi.ddl.ConnectorPartitionField;
 import org.apache.doris.connector.spi.ddl.ConnectorPartitionSpec;
 
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.schema.ColumnDirectiveUtils;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.types.BlobType;
 import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.FloatType;
 import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.VarCharType;
+import org.apache.paimon.types.VectorType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -224,5 +228,30 @@ public class PaimonSchemaBuilderTest {
         // dropped (a strictly-legacy reading would lose it). MUTATION: hardcoding null when the
         // property is absent (ignoring request.getComment()) turns this red.
         Assertions.assertEquals("from clause", schema.comment());
+    }
+
+    @Test
+    public void paimon20BlobAndVectorDirectivesCreatePhysicalTypes() {
+        ConnectorColumn blob = new ConnectorColumn(
+                "payload", ConnectorType.of("VARBINARY"),
+                "__BLOB_FIELD; payload bytes", true, null);
+        ConnectorColumn vector = new ConnectorColumn(
+                "embedding", ConnectorType.arrayOf(ConnectorType.of("FLOAT"), false),
+                "__VECTOR_FIELD;3; search embedding", true, null);
+        Schema source = PaimonSchemaBuilder.build(ConnectorCreateTableRequest.builder()
+                .dbName("db")
+                .tableName("paimon20")
+                .columns(Arrays.asList(blob, vector))
+                .build());
+
+        Schema converted = ColumnDirectiveUtils.applyDirectives(source);
+        DataField blobField = converted.fields().get(0);
+        DataField vectorField = converted.fields().get(1);
+        Assertions.assertEquals(new BlobType(), blobField.type());
+        Assertions.assertEquals("payload bytes", blobField.description());
+        Assertions.assertEquals(new VectorType(3, new FloatType(false)), vectorField.type());
+        Assertions.assertEquals("search embedding", vectorField.description());
+        Assertions.assertEquals("payload", converted.options().get(CoreOptions.BLOB_FIELD.key()));
+        Assertions.assertEquals("embedding", converted.options().get(CoreOptions.VECTOR_FIELD.key()));
     }
 }

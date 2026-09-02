@@ -49,6 +49,45 @@ public class RowLevelDmlRowIdUtils {
     // ==================== Row-ID Injection Utilities ====================
 
     /**
+     * Whether {@code name} is a connector-declared row locator column. Each row-level-DML connector
+     * declares its own synthetic locator (iceberg's 4-field STRUCT, paimon's 2-field STRUCT) under its
+     * own name; the injection/projection machinery here is name-driven and must recognize ALL of them —
+     * matching only the iceberg name silently breaks every other connector's DELETE/UPDATE/MERGE at bind
+     * time (unresolved slot), which no connector-module test can catch.
+     */
+    public static boolean isRowIdColumnName(String name) {
+        return Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name)
+                || PaimonRowLevelDmlColumns.ROWID_COL.equalsIgnoreCase(name);
+    }
+
+    /**
+     * The row-id column NAME for {@code table}, resolved from the connector's own declaration — the
+     * unbound-plan fallbacks in the plan builders must name the TARGET connector's locator, not assume
+     * iceberg's.
+     */
+    public static String rowIdColumnName(ExternalTable table) {
+        List<Column> fullSchema = table.getFullSchema();
+        if (fullSchema != null) {
+            for (Column column : fullSchema) {
+                if (isRowIdColumnName(column.getName())) {
+                    return column.getName();
+                }
+            }
+        }
+        if (table instanceof PluginDrivenExternalTable) {
+            for (Column column : ((PluginDrivenExternalTable) table).getSyntheticWriteColumns()) {
+                if (isRowIdColumnName(column.getName())) {
+                    return column.getName();
+                }
+            }
+        }
+        // No declaration reachable (a partially-mocked table, or a connector that has not appended
+        // its synthetic columns yet): keep the historical iceberg default rather than failing the
+        // whole synthesis for a NAME the bind step would re-validate anyway.
+        return Column.ICEBERG_ROWID_COL;
+    }
+
+    /**
      * Inject $row_id column into the plan for any Iceberg table scan.
      * Used by DELETE and UPDATE commands (single-table, no ambiguity).
      */
@@ -78,7 +117,7 @@ public class RowLevelDmlRowIdUtils {
     /** Find the row-id slot in the list, if present. */
     public static Optional<Slot> findRowIdSlot(List<Slot> slots) {
         for (Slot slot : slots) {
-            if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getName())) {
+            if (isRowIdColumnName(slot.getName())) {
                 return Optional.of(slot);
             }
         }
@@ -89,7 +128,7 @@ public class RowLevelDmlRowIdUtils {
     public static boolean hasRowIdProject(List<NamedExpression> projects) {
         for (NamedExpression project : projects) {
             if (project instanceof Slot
-                    && Column.ICEBERG_ROWID_COL.equalsIgnoreCase(((Slot) project).getName())) {
+                    && isRowIdColumnName(((Slot) project).getName())) {
                 return true;
             }
         }
@@ -105,20 +144,20 @@ public class RowLevelDmlRowIdUtils {
         List<Column> fullSchema = table.getFullSchema();
         if (fullSchema != null) {
             for (Column column : fullSchema) {
-                if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(column.getName())) {
+                if (isRowIdColumnName(column.getName())) {
                     return column;
                 }
             }
         }
         if (table instanceof PluginDrivenExternalTable) {
             for (Column column : ((PluginDrivenExternalTable) table).getSyntheticWriteColumns()) {
-                if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(column.getName())) {
+                if (isRowIdColumnName(column.getName())) {
                     return column;
                 }
             }
         }
-        throw new AnalysisException("Row-id column " + Column.ICEBERG_ROWID_COL
-                + " is not declared by the connector for table " + table.getName());
+        throw new AnalysisException("No row-id column is declared by the connector for table "
+                + table.getName());
     }
 
     /**

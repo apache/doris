@@ -145,4 +145,15 @@ final class RecordingConnectorContext implements ConnectorContext, ConnectorStor
         return engineFileSystem;
     }
 
+    // ---- external-change-poller seam hook (proves the connector notifies the engine, not just itself) ----
+    /** {@code (dbName, tableName)} pairs the connector passed to {@link #notifyExternalTableChanged}. */
+    final List<java.util.AbstractMap.SimpleEntry<String, String>> externalTableChangeNotifications =
+            new java.util.ArrayList<>();
+
+    @Override
+    public void notifyExternalTableChanged(String remoteDbName, String remoteTableName) {
+        externalTableChangeNotifications.add(
+                new java.util.AbstractMap.SimpleEntry<>(remoteDbName, remoteTableName));
+    }
+
 }

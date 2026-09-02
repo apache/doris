@@ -61,6 +61,16 @@ under the License.
             <artifactId>paimon-format</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-vortex-format</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-vector</artifactId>
+        </dependency>
+
         <!--
           Paimon OSS/S3 FileIO plugins. These register org.apache.paimon.fs.FileIOLoader
           service providers (paimon-s3 -> S3Loader, paimon-jindo -> JindoLoader) used to read

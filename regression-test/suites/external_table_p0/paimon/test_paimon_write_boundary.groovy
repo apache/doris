@@ -41,51 +41,41 @@ suite("test_paimon_write_boundary",
     """
 
     try {
-        spark_paimon_multi """
-            create database if not exists paimon.${dbName};
-            drop table if exists paimon.${dbName}.write_boundary;
-            create table paimon.${dbName}.write_boundary (
-                id int,
+        sql """switch ${catalogName}"""
+        sql """create database if not exists ${dbName}"""
+        sql """use ${dbName}"""
+        sql """drop table if exists write_boundary"""
+        sql """
+            create table write_boundary (
+                id int not null,
                 score int,
                 note string
-            ) using paimon tblproperties (
+            ) engine=paimon properties (
                 'primary-key'='id',
                 'bucket'='1',
                 'file.format'='parquet'
-            );
-            insert into paimon.${dbName}.write_boundary values
-                (1, 10, 'base-1'),
-                (2, 20, 'base-2');
+            )
         """
-
-        sql """switch ${catalogName}"""
-        sql """use ${dbName}"""
+        sql """
+            insert into write_boundary values
+                (1, 10, 'base-1'),
+                (2, 20, 'base-2')
+        """
 
         qt_before_rows """select id, score, note from write_boundary order by id"""
         qt_before_snapshots """select count(*) from write_boundary\$snapshots"""
 
-        // WB01-WB06 preserve the documented data-write boundary at analysis time. The source table
-        // and its snapshot list must stay unchanged after every rejected write shape.
-        //
-        // The INSERT-family rejections are worded by the connector-SPI path, not by the legacy fe-core
-        // one: a paimon catalog is a PluginDrivenExternalCatalog, so UnboundTableSinkCreator builds an
-        // UnboundConnectorTableSink instead of throwing "Load data to PaimonExternalCatalog is not
-        // supported", and the rejection lands on the connector's declared write capabilities (the paimon
-        // connector declares none). The boundary asserted here is identical -- every write shape is still
-        // rejected at analysis time and the table is untouched -- only the message differs.
-        test {
-            sql """insert into write_boundary values (3, 30, 'insert-values')"""
-            exception "does not support INSERT operations"
-        }
-        test {
-            sql """insert into write_boundary select 3, 30, 'insert-select'"""
-            exception "does not support INSERT operations"
-        }
-        test {
-            // INSERT OVERWRITE is gated earlier, by InsertOverwriteTableCommand's allowInsertOverwrite.
-            sql """insert overwrite table write_boundary values (3, 30, 'overwrite')"""
-            exception "insert into overwrite only support"
-        }
+        sql """insert into write_boundary values (3, 30, 'insert-values')"""
+        order_qt_after_insert_values """select id, score, note from write_boundary"""
+
+        sql """insert into write_boundary select 4, 40, 'insert-select'"""
+        order_qt_after_insert_select """select id, score, note from write_boundary"""
+
+        sql """insert overwrite table write_boundary values (5, 50, 'overwrite')"""
+        order_qt_after_overwrite """select id, score, note from write_boundary"""
+
+        // Row-level mutation remains an OLAP-table-only command. Paimon upserts are performed
+        // through INSERT statements against primary-key tables.
         test {
             sql """update write_boundary set score = score + 1 where id = 1"""
             exception "target table in update command should be an olapTable"
@@ -109,6 +99,59 @@ suite("test_paimon_write_boundary",
         sql """refresh table write_boundary"""
         qt_after_rows """select id, score, note from write_boundary order by id"""
         qt_after_snapshots """select count(*) from write_boundary\$snapshots"""
+
+        sql """drop table if exists variant_row_tracking"""
+        sql """
+            create table variant_row_tracking (
+                id int,
+                doc variant
+            ) engine=paimon properties (
+                'bucket'='-1',
+                'file.format'='parquet',
+                'row-tracking.enabled'='true',
+                'data-evolution.enabled'='true'
+            )
+        """
+        sql """
+            insert into variant_row_tracking values
+                (1, parse_to_variant('{"name":"alpha","score":12.5,"tags":["dts","paimon"]}'))
+        """
+        // Legacy VARIANT V1 materializes a root JSON null as an empty object.
+        sql """
+            insert into variant_row_tracking values
+                (2, parse_to_variant('{"active":true,"nested":{"version":"2.0"}}')),
+                (3, null),
+                (4, parse_to_variant('"123"')),
+                (5, parse_to_variant('null'))
+        """
+
+        sql """set force_jni_scanner=false"""
+        sql """set enable_paimon_cpp_reader=true"""
+        String variantExplain = sql("""
+            explain verbose select id, doc from variant_row_tracking
+        """).collect { row -> row[0].toString() }.join("\n")
+        def variantSplits = (variantExplain =~ /paimonNativeReadSplits=(\d+)\/(\d+)/)
+        assertTrue(variantSplits.find(), "Expected Paimon split counts for VARIANT projection")
+        assertTrue(Long.parseLong(variantSplits.group(2)) > 0
+                        && Long.parseLong(variantSplits.group(1)) == 0,
+                "VARIANT projection must use JNI-only splits: ${variantExplain}")
+
+        String scalarExplain = sql("""
+            explain verbose select id from variant_row_tracking
+        """).collect { row -> row[0].toString() }.join("\n")
+        def scalarSplits = (scalarExplain =~ /paimonNativeReadSplits=(\d+)\/(\d+)/)
+        assertTrue(scalarSplits.find(), "Expected Paimon split counts for scalar projection")
+        assertTrue(Long.parseLong(scalarSplits.group(2)) > 0
+                        && scalarSplits.group(1) == scalarSplits.group(2),
+                "Scalar-only projection must retain native splits: ${scalarExplain}")
+
+        order_qt_variant_rows """select id, doc from variant_row_tracking order by id"""
+        order_qt_variant_row_tracking """
+            select id, doc, _ROW_ID, _SEQUENCE_NUMBER
+            from variant_row_tracking\$row_tracking
+            order by _SEQUENCE_NUMBER, _ROW_ID
+        """
+
     } finally {
         sql """drop catalog if exists ${catalogName}"""
     }

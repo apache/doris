@@ -50,32 +50,22 @@ suite("test_paimon_ctas_atomicity_negative",
         sql """switch ${catalogName}"""
         sql """use ${dbName}"""
 
-        // A failed CTAS must not leave metadata that makes a retry fail with TABLE ALREADY EXISTS.
-        // On the connector-SPI path the sink rejection is worded by the connector's declared write
-        // capabilities (the paimon connector declares none) rather than by the legacy fe-core
-        // "Load data to PaimonExternalCatalog is not supported"; the CTAS still fails at the same point.
-        test {
-            sql """
-                create table ctas_target engine=paimon
-                as select cast(1 as int) as id, cast('candidate' as string) as payload
-            """
-            exception "does not support INSERT operations"
-        }
-        assertEquals(0, (sql """show tables like 'ctas_target'""").size())
-
-        spark_paimon """
-            create table paimon.${dbName}.ctas_target (id int, payload string)
-            using paimon
-        """
-        // IF NOT EXISTS must remain a no-op even though Paimon does not support the CTAS sink.
         sql """
-            create table if not exists ctas_target engine=paimon
+            create table ctas_target engine=paimon
             as select cast(1 as int) as id, cast('candidate' as string) as payload
         """
         assertEquals(1, (sql """show tables like 'ctas_target'""").size())
-        assertEquals(0, (sql """select * from ctas_target""").size())
+        order_qt_ctas_rows """select id, payload from ctas_target"""
 
-        // An existing non-idempotent target must keep catalog error precedence; no sink can own it.
+        // IF NOT EXISTS remains a no-op and must not append the SELECT result.
+        sql """
+            create table if not exists ctas_target engine=paimon
+            as select cast(2 as int) as id, cast('ignored' as string) as payload
+        """
+        assertEquals(1, (sql """show tables like 'ctas_target'""").size())
+        order_qt_after_if_not_exists """select id, payload from ctas_target"""
+
+        // An existing non-idempotent target keeps catalog error precedence and existing data.
         test {
             sql """
                 create table ctas_target engine=paimon
@@ -83,7 +73,7 @@ suite("test_paimon_ctas_atomicity_negative",
             """
             exception "already exists"
         }
-        assertEquals(0, (sql """select * from ctas_target""").size())
+        order_qt_after_existing_target_error """select id, payload from ctas_target"""
     } finally {
         spark_paimon """drop table if exists paimon.${dbName}.ctas_target"""
         sql """drop catalog if exists ${catalogName}"""

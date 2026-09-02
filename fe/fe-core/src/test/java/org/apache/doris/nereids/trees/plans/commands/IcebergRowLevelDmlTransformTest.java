@@ -96,8 +96,14 @@ public class IcebergRowLevelDmlTransformTest {
      * {@code getConnector().getWritePlanProvider(handle).supportedOperations()} probe.
      */
     private static PluginDrivenExternalTable pluginTable(boolean supportsDelete, boolean supportsMerge) {
+        return pluginTable("iceberg", supportsDelete, supportsMerge);
+    }
+
+    private static PluginDrivenExternalTable pluginTable(
+            String catalogType, boolean supportsDelete, boolean supportsMerge) {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getType()).thenReturn(catalogType);
         Connector connector = Mockito.mock(Connector.class);
         Set<WriteOperation> ops = EnumSet.noneOf(WriteOperation.class);
         if (supportsDelete) {
@@ -121,9 +127,13 @@ public class IcebergRowLevelDmlTransformTest {
         Assertions.assertTrue(transform.handles(pluginTable(true, false)));
         Assertions.assertTrue(transform.handles(pluginTable(false, true)));
         Assertions.assertTrue(transform.handles(pluginTable(true, true)));
-        // A plugin connector with neither capability (e.g. jdbc/es/paimon today) must NOT be admitted,
+        // A plugin connector with neither capability must NOT be admitted,
         // else its row-level DML would route through the iceberg synthesis path.
         Assertions.assertFalse(transform.handles(pluginTable(false, false)));
+        // Identity gate: a NON-iceberg connector with row-level capabilities (paimon) must not be
+        // claimed either — with several connectors declaring capabilities, registry order must not
+        // decide whose plan shape a table gets.
+        Assertions.assertFalse(transform.handles(pluginTable("paimon", true, true)));
         // Non-plugin table types and null are never admitted.
         Assertions.assertFalse(transform.handles(Mockito.mock(TableIf.class)));
         Assertions.assertFalse(transform.handles(null));
