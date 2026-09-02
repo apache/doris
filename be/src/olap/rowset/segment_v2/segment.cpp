@@ -296,6 +296,37 @@ Status Segment::_open_index_file_reader() {
     return Status::OK();
 }
 
+Status Segment::_segment_zone_maps_can_answer_agg(const Schema& schema,
+                                                  const StorageReadOptions& read_options,
+                                                  bool* usable) {
+    *usable = true;
+    for (size_t i = 0; i < schema.num_column_ids(); ++i) {
+        auto cid = schema.column_id(i);
+        if (read_options.tablet_schema->num_columns() <= static_cast<int32_t>(cid)) {
+            continue;
+        }
+        std::shared_ptr<ColumnReader> reader;
+        Status st = get_column_reader(read_options.tablet_schema->column(cid), &reader,
+                                      read_options.stats);
+        if (st.is<ErrorCode::NOT_FOUND>()) {
+            continue;
+        }
+        RETURN_IF_ERROR(st);
+        // Columns without a zone map keep the existing behaviour: the statistics iterator reports
+        // the missing zone map itself.
+        if (reader == nullptr || !reader->has_zone_map()) {
+            continue;
+        }
+        bool invalid = false;
+        RETURN_IF_ERROR(reader->segment_zone_map_invalid(&invalid));
+        if (invalid) {
+            *usable = false;
+            return Status::OK();
+        }
+    }
+    return Status::OK();
+}
+
 Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
     if (read_options.runtime_state != nullptr) {
@@ -343,9 +374,18 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         RETURN_IF_ERROR(load_index(read_options.stats));
     }
 
-    if (read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
-        read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
-        read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
+    bool use_statistics_iterator =
+            read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
+            read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
+            read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX;
+    // COUNT only fills defaults, every other pushed-down aggregate reads min/max out of the
+    // segment zone maps, so they all have to be usable.
+    if (use_statistics_iterator && read_options.push_down_agg_type_opt != TPushAggOp::COUNT) {
+        bool usable = true;
+        RETURN_IF_ERROR(_segment_zone_maps_can_answer_agg(*schema, read_options, &usable));
+        use_statistics_iterator = usable;
+    }
+    if (use_statistics_iterator) {
         iter->reset(vectorized::new_vstatistics_iterator(this->shared_from_this(), *schema));
     } else {
         *iter = std::make_unique<SegmentIterator>(this->shared_from_this(), schema);
