@@ -44,9 +44,11 @@ public class ColumnDefaultValueSerializationTest {
     }
 
     @Test
-    public void testProtobufKeepsDefaultExpression() throws Exception {
+    public void testProtobufKeepsBackfillValueAndDefaultExpression() throws Exception {
         OlapFile.ColumnPB columnPb = ColumnToProtobuf.toPb(createSchemaChangeColumn(), null, null);
 
+        Assert.assertTrue(columnPb.hasDefaultValue());
+        Assert.assertEquals(BACKFILL_VALUE, columnPb.getDefaultValue().toStringUtf8());
         Assert.assertTrue(columnPb.hasDefaultValueExpr());
         Assert.assertEquals(DEFAULT_EXPR, columnPb.getDefaultValueExpr().toStringUtf8());
     }

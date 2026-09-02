@@ -74,8 +74,10 @@ public class ColumnToProtobuf {
             builder.setAggregation("NONE");
         }
         builder.setIsNullable(column.isAllowNull());
-        if (column.getDefaultValue() != null) {
-            builder.setDefaultValue(ByteString.copyFrom(column.getDefaultValue().getBytes()));
+        String defaultValue = column.getRealDefaultValue() == null
+                ? column.getDefaultValue() : column.getRealDefaultValue();
+        if (defaultValue != null) {
+            builder.setDefaultValue(ByteString.copyFrom(defaultValue.getBytes()));
         }
         if (column.getDefaultValueExprDef() != null) {
             builder.setDefaultValueExpr(ByteString.copyFrom(column.getDefaultValue().getBytes()));
