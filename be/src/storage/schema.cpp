@@ -39,13 +39,6 @@ std::vector<TabletColumnPtr> project_columns_by_ordinal(
     return projected_columns;
 }
 
-int32_t read_ordinal_by_tablet_cid(const ReadSchema& read_schema, const TabletSchema& tablet_schema,
-                                   int32_t tablet_cid) {
-    return tablet_cid < 0
-                   ? -1
-                   : read_schema.ordinal_by_uid(tablet_schema.column(tablet_cid).unique_id());
-}
-
 ReadSchema::ReadSchema(std::vector<TabletColumnPtr> columns)
         : _read_columns(std::move(columns)), _num_block_columns(_read_columns.size()) {
     _init_read_types();
@@ -137,6 +130,17 @@ Status ReadSchema::init_row_binlog_column_mappings(RowBinlogValueColumnPairs val
         }
     }
     return Status::OK();
+}
+
+Status ReadSchema::init_row_binlog_column_mappings(RowBinlogValueColumnPairs value_pairs,
+                                                   const TabletSchema& tablet_schema) {
+    const auto read_ordinal_by_tablet_cid = [this, &tablet_schema](int32_t tablet_cid) {
+        return tablet_cid < 0 ? -1 : ordinal_by_uid(tablet_schema.column(tablet_cid).unique_id());
+    };
+    return init_row_binlog_column_mappings(
+            std::move(value_pairs), read_ordinal_by_tablet_cid(tablet_schema.binlog_tso_col_idx()),
+            read_ordinal_by_tablet_cid(tablet_schema.binlog_lsn_col_idx()),
+            read_ordinal_by_tablet_cid(tablet_schema.binlog_op_col_idx()));
 }
 
 Block ReadSchema::create_read_block() const {
