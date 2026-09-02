@@ -155,8 +155,7 @@ if [[ "${CLEAN}" -eq 1 ]] && [[ -d "${TP_SOURCE_DIR}" ]]; then
 fi
 
 # Download thirdparties.
-prepare_arrow_paimon_download_packages "${packages[@]}"
-bash "${TP_DIR}/download-thirdparty.sh" "${ARROW_PAIMON_DOWNLOAD_PACKAGES[@]}"
+bash "${TP_DIR}/download-thirdparty.sh" "${packages[@]}"
 
 export LD_LIBRARY_PATH="${TP_DIR}/installed/lib:${LD_LIBRARY_PATH}"
 
@@ -1065,7 +1064,6 @@ build_grpc() {
 # arrow
 build_arrow() {
     check_if_source_exist "${ARROW_SOURCE}"
-    invalidate_arrow_prebuilt_marker "${TP_INSTALL_DIR}"
     cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}/cpp"
 
     mkdir -p release
@@ -1152,8 +1150,6 @@ build_arrow() {
     strip_lib libparquet.a
     strip_lib libarrow_dataset.a
     strip_lib libarrow_acero.a
-
-    publish_arrow_prebuilt_marker "${TP_INSTALL_DIR}"
 }
 
 # abseil
@@ -2046,8 +2042,6 @@ build_pugixml() {
 # paimon-cpp
 build_paimon_cpp() {
     check_if_source_exist "${PAIMON_CPP_SOURCE}"
-    require_arrow_prebuilt_for_paimon "${TP_INSTALL_DIR}"
-    invalidate_paimon_prebuilt_marker "${TP_INSTALL_DIR}"
     cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
 
     rm -rf "${BUILD_DIR}"
@@ -2128,7 +2122,6 @@ build_paimon_cpp() {
     fi
 
     echo "Paimon-cpp internal dependencies installed successfully"
-    publish_paimon_prebuilt_marker "${TP_INSTALL_DIR}"
 }
 
 # lance-c

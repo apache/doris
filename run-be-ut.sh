@@ -47,12 +47,13 @@ fi
 export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 . "${DORIS_HOME}/env.sh"
-# shellcheck source=thirdparty/arrow-paimon-vars.sh
-. "${DORIS_HOME}/thirdparty/arrow-paimon-vars.sh"
 
-prepare_build_image_arrow_paimon_prebuilt() {
+prepare_build_image_thirdparty() {
     local selected_thirdparty_root
     local checkout_thirdparty_root
+    local prebuilt_url
+    local staging_dir
+    local archive
 
     selected_thirdparty_root="$(cd "${DORIS_THIRDPARTY}" && pwd -P)"
     checkout_thirdparty_root="$(cd "${DORIS_HOME}/thirdparty" && pwd -P)"
@@ -60,15 +61,39 @@ prepare_build_image_arrow_paimon_prebuilt() {
         return 0
     fi
 
-    # The official Linux x86_64 build image carries an install-only thirdparty
-    # tree. Refresh it from the shared automation asset when the image predates
-    # the Arrow/Paimon closure selected by this checkout.
     if [[ "${selected_thirdparty_root}" != "/var/local/thirdparty" ||
         "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
         return 0
     fi
-    ensure_arrow_paimon_prebuilt_from_url "${selected_thirdparty_root}" \
-        "${ARROW_PAIMON_SHARED_PREBUILT_LINUX_X86_64_URL}"
+    if [[ -f "${selected_thirdparty_root}/installed/lib/libarrow_compute.a" ]]; then
+        return 0
+    fi
+
+    prebuilt_url="${ARROW_PAIMON_SHARED_PREBUILT_LINUX_X86_64_URL:-}"
+    if [[ -z "${prebuilt_url}" ]]; then
+        prebuilt_url="https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-linux-x86_64.tar.xz"
+    fi
+    staging_dir="$(mktemp -d "${selected_thirdparty_root}/.arrow-paimon-install.XXXXXX")"
+    archive="${staging_dir}/doris-thirdparty-prebuilt.tar.xz"
+    echo "Refreshing thirdparty libraries from ${prebuilt_url}"
+    if ! curl --fail --location --retry 3 --show-error --output "${archive}" "${prebuilt_url}"; then
+        rm -rf "${staging_dir}"
+        return 1
+    fi
+    mkdir -p "${staging_dir}/candidate"
+    if ! tar -xf "${archive}" -C "${staging_dir}/candidate"; then
+        rm -rf "${staging_dir}"
+        return 1
+    fi
+    if [[ ! -f "${staging_dir}/candidate/installed/lib/libarrow_compute.a" ]]; then
+        echo "Downloaded thirdparty archive does not contain libarrow_compute.a" >&2
+        rm -rf "${staging_dir}"
+        return 1
+    fi
+
+    rm -rf "${selected_thirdparty_root}/installed"
+    mv "${staging_dir}/candidate/installed" "${selected_thirdparty_root}/installed"
+    rm -rf "${staging_dir}"
 }
 
 trim_whitespace() {
@@ -250,7 +275,7 @@ echo "Get params:
 "
 echo "Build Backend UT"
 
-prepare_build_image_arrow_paimon_prebuilt
+prepare_build_image_thirdparty
 
 update_submodule() {
     local submodule_path=$1
