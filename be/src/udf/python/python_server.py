@@ -17,6 +17,8 @@
 
 import argparse
 import base64
+import builtins
+import contextvars
 import gc
 import importlib
 import inspect
@@ -29,6 +31,7 @@ import logging
 import time
 import threading
 import pickle
+import io
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from typing import Any, Callable, Optional, Tuple, get_origin, Dict
@@ -40,6 +43,94 @@ from logging.handlers import RotatingFileHandler
 import pandas as pd
 import pyarrow as pa
 from pyarrow import flight
+
+
+ModuleContext = Tuple[str, Dict[str, Any]]
+
+# UDF imports may temporarily replace sys.modules entries. Keep an immutable
+# view of modules loaded by the Python server itself for safe lock-free reuse.
+_SERVER_MODULES = dict(sys.modules)
+
+
+class _ModuleImportOperation:
+    """Identifies one root import and the child imports it creates."""
+
+    def __init__(self, kind: str, module_context: Optional[ModuleContext] = None):
+        self.kind = kind
+        self.module_context = module_context
+        self.active = True
+        self.readers = 0
+
+
+_current_module_context: contextvars.ContextVar[Optional[ModuleContext]] = (
+    contextvars.ContextVar("current_module_context", default=None)
+)
+_current_module_import_operation: contextvars.ContextVar[
+    Optional[_ModuleImportOperation]
+] = contextvars.ContextVar("current_module_import_operation", default=None)
+_module_import_in_progress: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "module_import_in_progress", default=False
+)
+
+
+_thread_start = threading.Thread.start
+
+
+def _start_thread_with_module_import_context(thread, *args, **kwargs):
+    """Propagate only an active Doris import operation to a child thread."""
+    operation = _current_module_import_operation.get()
+    module_context = _current_module_context.get()
+    thread_target = getattr(thread, "_target", None)
+    # A direct import target has no UDF caller frame from which the import
+    # wrapper could recover the context. Its thread ends with that one import,
+    # unlike a long-lived worker thread which must not retain its creator's UDF.
+    direct_import_context = (
+        module_context
+        if module_context is not None
+        and (
+            thread_target is builtins.__import__
+            or thread_target is importlib.import_module
+        )
+        else None
+    )
+    should_clear_parent_context = (
+        module_context is not None
+        or _module_import_in_progress.get()
+    )
+    if operation is not None or should_clear_parent_context:
+        thread_run = thread.run
+        had_instance_run = "run" in thread.__dict__
+
+        def restore_thread_run():
+            if had_instance_run:
+                thread.run = thread_run
+            else:
+                thread.__dict__.pop("run", None)
+
+        def run_with_module_import_context():
+            operation_token = _current_module_import_operation.set(operation)
+            module_context_token = _current_module_context.set(
+                direct_import_context
+            )
+            import_token = _module_import_in_progress.set(False)
+            try:
+                return thread_run()
+            finally:
+                restore_thread_run()
+                _module_import_in_progress.reset(import_token)
+                _current_module_context.reset(module_context_token)
+                _current_module_import_operation.reset(operation_token)
+
+        thread.run = run_with_module_import_context
+        try:
+            return _thread_start(thread, *args, **kwargs)
+        except BaseException:
+            restore_thread_run()
+            raise
+    return _thread_start(thread, *args, **kwargs)
+
+
+threading.Thread.start = _start_thread_with_module_import_context
 
 
 class ServerState:
@@ -877,54 +968,249 @@ class ModuleUDFLoader(UDFLoader):
     # with one of these names would overwrite the entry in sys.modules and
     # could break the server itself.
     _FORBIDDEN_MODULE_NAMES: frozenset = frozenset({
-        "argparse", "base64", "gc", "importlib", "inspect", "ipaddress",
+        "argparse", "base64", "builtins", "contextvars", "gc", "importlib",
+        "inspect", "ipaddress",
         "json", "sys", "os", "traceback", "logging", "time", "threading",
-        "pickle", "abc", "contextlib", "typing", "datetime", "enum",
-        "pathlib", "pandas", "pd", "pyarrow", "pa", "flight",
+        "pickle", "io", "abc", "contextlib", "typing", "datetime", "enum",
+        "pathlib", "pandas", "pyarrow",
         "logging.handlers",
     })
 
-    # Class-level lock dictionary for thread-safe module imports
-    # Using RLock allows the same thread to acquire the lock multiple times
+    # sys.path and sys.modules are process-global. Ordinary imports may share
+    # the stable environment, while UDF environment changes require exclusivity.
+    _module_import_condition = threading.Condition()
+    _active_module_import_readers = 0
+    _module_import_writer_active = False
+    _waiting_module_import_writers = 0
+    # Same-context child threads may borrow the currently restored environment.
+    # Cleanup waits until every borrower (including nested borrowers) exits.
+    _active_module_context: Optional[ModuleContext] = None
+    _active_module_context_borrowers = 0
+    _active_module_import_operation: Optional[_ModuleImportOperation] = None
 
-    # Key for _import_locks: module_name only (not location)
-    # sys.modules is a global dict keyed by module name.
-    # we need to ensure that imports with the same module name
-    # do not interfere with each other across different threads,
-    # even if they come from different file paths.
-    _import_locks: Dict[str, threading.Lock] = {}
-    _import_locks_lock = threading.Lock()
-
-    # Key for _module_cache: location only
-    # since location already contains a unique function_id
+    # {location: top_module}; location already contains a unique function_id.
     _module_cache: Dict[str, Any] = {}
-    _module_cache_lock = threading.Lock()
+
+    @staticmethod
+    def _is_path_from_location(path: Any, location: str) -> bool:
+        """Return whether a path belongs to a UDF location."""
+        try:
+            normalized_location = os.path.realpath(location)
+            normalized_path = os.path.realpath(os.fspath(path))
+            return (
+                os.path.commonpath((normalized_location, normalized_path))
+                == normalized_location
+            )
+        except (TypeError, ValueError):
+            return False
 
     @classmethod
-    def _get_import_lock(cls, module_name: str) -> threading.Lock:
-        """
-        Get or create an import lock for the given module namespace.
+    def _is_module_from_location(
+        cls, module: Any, location: str
+    ) -> bool:
+        """Return whether a module was loaded from a UDF location."""
+        module_paths = []
+        module_file = getattr(module, "__file__", None)
+        if module_file:
+            module_paths.append(module_file)
+        module_path = getattr(module, "__path__", None)
+        if module_path:
+            module_paths.extend(module_path)
 
-        Uses double-checked locking pattern for optimal performance:
-        - Fast path: return existing lock without acquiring global lock
-        - Slow path: create new lock under global lock protection
-        """
-        # Lock by top-level package to avoid concurrent imports mutating shared
-        # parent entries in sys.modules. If we lock by full module name instead,
-        # pkg.mod.func1 and pkg.mod.func2 can import in parallel and race while
-        # initializing pkg/pkg.mod, causing flaky import failures (for example KeyError).
-        cache_key = module_name.split(".", 1)[0]
+        return any(cls._is_path_from_location(path, location) for path in module_paths)
 
-        # Fast path: check without lock (read-only, safe for most cases)
-        if cache_key in cls._import_locks:
-            return cls._import_locks[cache_key]
+    @classmethod
+    def _collect_modules_from_location(cls, location: str) -> Dict[str, Any]:
+        """Collect loaded modules whose files belong to a UDF location."""
+        normalized_location = os.path.realpath(location)
+        return {
+            name: module
+            for name, module in list(sys.modules.items())
+            if cls._is_module_from_location(module, normalized_location)
+        }
 
-        # Slow path: create lock under protection
-        with cls._import_locks_lock:
-            # Double-check: another thread might have created it while we waited
-            if cache_key not in cls._import_locks:
-                cls._import_locks[cache_key] = threading.Lock()
-            return cls._import_locks[cache_key]
+    @staticmethod
+    def _bind_module_context(module_context: ModuleContext) -> None:
+        """Bind the owning UDF context to every module loaded from its location."""
+        _, udf_modules = module_context
+        module_type = type(sys)
+        for module in udf_modules.values():
+            if isinstance(module, module_type):
+                module_type.__getattribute__(module, "__dict__")[
+                    "_doris_module_context"
+                ] = module_context
+
+    @classmethod
+    def _find_active_context_for_module_globals(
+        cls, module_globals: Dict[str, Any]
+    ) -> Optional[ModuleContext]:
+        """Find the active context for a module that is still initializing."""
+        module_file = module_globals.get("__file__")
+        if not module_file:
+            return None
+        with cls._module_import_condition:
+            module_context = cls._active_module_context
+            if module_context is None:
+                return None
+            location, _ = module_context
+            if cls._is_path_from_location(module_file, location):
+                return module_context
+        return None
+
+    @classmethod
+    @contextmanager
+    def _shared_module_import(cls):
+        """Run an ordinary import while the process import view is stable."""
+        operation = _current_module_import_operation.get()
+        with cls._module_import_condition:
+            if not (
+                operation is not None
+                and operation.kind == "reader"
+                and operation.active
+            ):
+                operation = None
+                while (
+                    cls._module_import_writer_active
+                    or cls._waiting_module_import_writers
+                ):
+                    cls._module_import_condition.wait()
+                operation = _ModuleImportOperation("reader")
+            operation.readers += 1
+            cls._active_module_import_readers += 1
+
+        operation_token = _current_module_import_operation.set(operation)
+        import_token = _module_import_in_progress.set(True)
+        try:
+            yield
+        finally:
+            _module_import_in_progress.reset(import_token)
+            _current_module_import_operation.reset(operation_token)
+            with cls._module_import_condition:
+                operation.readers -= 1
+                if operation.readers == 0:
+                    operation.active = False
+                cls._active_module_import_readers -= 1
+                if cls._active_module_import_readers == 0:
+                    cls._module_import_condition.notify_all()
+
+    @classmethod
+    @contextmanager
+    def _exclusive_module_import(
+        cls, module_context: Optional[ModuleContext] = None
+    ):
+        """Run an import that temporarily changes the process import view."""
+        borrowed_active_context = False
+        operation = _current_module_import_operation.get()
+        with cls._module_import_condition:
+            cls._waiting_module_import_writers += 1
+            try:
+                while True:
+                    if (
+                        module_context is not None
+                        and cls._active_module_context is module_context
+                        and cls._active_module_import_operation is operation
+                        and operation is not None
+                        and operation.active
+                    ):
+                        cls._active_module_context_borrowers += 1
+                        borrowed_active_context = True
+                        break
+                    if (
+                        not cls._module_import_writer_active
+                        and cls._active_module_import_readers == 0
+                    ):
+                        cls._module_import_writer_active = True
+                        operation = _ModuleImportOperation(
+                            "writer", module_context
+                        )
+                        cls._active_module_import_operation = operation
+                        break
+                    cls._module_import_condition.wait()
+            finally:
+                cls._waiting_module_import_writers -= 1
+
+        operation_token = _current_module_import_operation.set(operation)
+        import_token = _module_import_in_progress.set(True)
+        try:
+            yield borrowed_active_context
+        finally:
+            _module_import_in_progress.reset(import_token)
+            _current_module_import_operation.reset(operation_token)
+            with cls._module_import_condition:
+                if borrowed_active_context:
+                    cls._active_module_context_borrowers -= 1
+                    if cls._active_module_context_borrowers == 0:
+                        cls._module_import_condition.notify_all()
+                else:
+                    operation.active = False
+                    operation.module_context = None
+                    cls._active_module_import_operation = None
+                    cls._module_import_writer_active = False
+                    cls._module_import_condition.notify_all()
+
+    @classmethod
+    @contextmanager
+    def temporarily_restore_udf_modules(
+        cls, module_context: Optional[ModuleContext]
+    ):
+        """Temporarily register one UDF's modules for an import operation."""
+        if module_context is None:
+            yield
+            return
+
+        with cls._exclusive_module_import(module_context) as borrowed_active_context:
+            if borrowed_active_context:
+                yield
+                return
+
+            location, udf_modules = module_context
+            missing = object()
+            previous = {
+                name: sys.modules.get(name, missing) for name in udf_modules
+            }
+            try:
+                # UDAF state conversion and runtime imports resolve user classes by
+                # name, so this UDF's isolated modules must briefly be visible here.
+                sys.modules.update(udf_modules)
+                with temporary_sys_path(location):
+                    with cls._module_import_condition:
+                        cls._active_module_context = module_context
+                        cls._module_import_condition.notify_all()
+                    try:
+                        yield
+                    finally:
+                        with cls._module_import_condition:
+                            # Keep the context visible while a borrower may create
+                            # another importing thread, then close it atomically.
+                            while cls._active_module_context_borrowers:
+                                cls._module_import_condition.wait()
+                            cls._active_module_context = None
+            finally:
+                try:
+                    udf_modules.update(
+                        cls._collect_modules_from_location(location)
+                    )
+                    cls._bind_module_context(module_context)
+                finally:
+                    for name in udf_modules:
+                        sys.modules.pop(name, None)
+                    for name, module in previous.items():
+                        if module is not missing:
+                            sys.modules[name] = module
+
+    @staticmethod
+    @contextmanager
+    def use_module_context(module_context: Optional[ModuleContext]):
+        """Bind a module context without locking normal UDF execution."""
+        if module_context is None:
+            yield
+            return
+
+        token = _current_module_context.set(module_context)
+        try:
+            yield
+        finally:
+            _current_module_context.reset(token)
 
     def load(self) -> AdaptivePythonUDF:
         """
@@ -1007,6 +1293,25 @@ class ModuleUDFLoader(UDFLoader):
             ancestor = ".".join(parts[: i + 1])
             sys.modules.pop(ancestor, None)
 
+    @classmethod
+    def _remove_modules_from_location(cls, location: str) -> None:
+        """Remove modules imported from a UDF location from sys.modules."""
+        for module_name in cls._collect_modules_from_location(location):
+            sys.modules.pop(module_name, None)
+
+    def _find_cached_top_module(self, location: str) -> Optional[Any]:
+        """Return a valid cached top module and restore this loader's context."""
+        cached_module = self._module_cache.get(location)
+        if cached_module is None or not (
+            hasattr(cached_module, "__file__")
+            or hasattr(cached_module, "__path__")
+        ):
+            return None
+        self.module_context = getattr(
+            cached_module, "_doris_module_context", None
+        )
+        return cached_module
+
     def _get_or_import_module(self, location: str, full_module_name: str) -> Any:
         """
         Get module from cache or import it (thread-safe).
@@ -1016,7 +1321,7 @@ class ModuleUDFLoader(UDFLoader):
         """
         # Reject module names that would shadow server-critical modules
         top_level_name = full_module_name.split(".")[0]
-        if top_level_name in ModuleUDFLoader._FORBIDDEN_MODULE_NAMES:
+        if top_level_name in self._FORBIDDEN_MODULE_NAMES:
             raise ImportError(
                 f"Module name '{full_module_name}' is not allowed for UDFs "
                 f"because it conflicts with a module used by the server. "
@@ -1026,37 +1331,30 @@ class ModuleUDFLoader(UDFLoader):
 
         cache_key = location
 
-        # Use a per-module lock to prevent race conditions during import
-        import_lock = ModuleUDFLoader._get_import_lock(full_module_name)
+        # Repeated SQL executions only read the cache and may proceed together.
+        with self._shared_module_import():
+            cached_module = self._find_cached_top_module(cache_key)
+            if cached_module is not None:
+                return cached_module
 
-        with import_lock:
-            # Fast path: check cache first
-            if cache_key in ModuleUDFLoader._module_cache:
-                cached_module = ModuleUDFLoader._module_cache[cache_key]
-                if cached_module is not None and (
-                    hasattr(cached_module, "__file__")
-                    or hasattr(cached_module, "__path__")
-                ):
-                    return cached_module
-                else:
-                    del ModuleUDFLoader._module_cache[cache_key]
+        module_context: ModuleContext = (location, {})
+        with self.temporarily_restore_udf_modules(module_context):
+            # Another loader may have populated the cache while this one waited.
+            cached_module = self._find_cached_top_module(cache_key)
+            if cached_module is not None:
+                return cached_module
+            self._module_cache.pop(cache_key, None)
 
             self._clear_modules_from_sys(full_module_name)
 
-            with temporary_sys_path(location):
-                try:
-                    module = importlib.import_module(full_module_name)
-                    ModuleUDFLoader._module_cache[cache_key] = module
-                    # Evict from sys.modules so future imports from a
-                    # different location are not poisoned by this one.
-                    self._clear_modules_from_sys(full_module_name)
-                    return module
-                except Exception:
-                    # Clean up any partially-imported modules
-                    self._clear_modules_from_sys(full_module_name)
-                    if cache_key in ModuleUDFLoader._module_cache:
-                        del ModuleUDFLoader._module_cache[cache_key]
-                    raise
+            try:
+                module = importlib.import_module(full_module_name)
+                self.module_context = module_context
+                self._module_cache[cache_key] = module
+                return module
+            except Exception:
+                self._module_cache.pop(cache_key, None)
+                raise
 
     def _extract_function(
         self, module: Any, func_name: str, module_name: str
@@ -1205,6 +1503,143 @@ class ModuleUDFLoader(UDFLoader):
             return self._load_package_udf(
                 location, package_name, module_name, func_name
             )
+
+
+def _find_cached_module_for_builtin_import(
+    module_context: ModuleContext,
+    name: str,
+    globals: Optional[Dict[str, Any]] = None,
+    locals: Optional[Dict[str, Any]] = None,
+    fromlist: Any = (),
+    level: int = 0,
+) -> Optional[Any]:
+    """Return a fully loaded module that can satisfy __import__ directly."""
+    del locals
+    _, udf_modules = module_context
+    original_name = name
+    try:
+        if level < 0:
+            return None
+        if level:
+            package = globals.get("__package__") if globals else None
+            if not package:
+                return None
+            name = importlib.util.resolve_name("." * level + name, package)
+    except (AttributeError, ImportError, TypeError, ValueError):
+        return None
+
+    available_modules = udf_modules
+    if (
+        name.partition(".")[0] in ModuleUDFLoader._FORBIDDEN_MODULE_NAMES
+        and name in _SERVER_MODULES
+    ):
+        # This fixed mapping is not affected when another UDF temporarily
+        # replaces a same-named sys.modules entry.
+        available_modules = _SERVER_MODULES
+
+    imported_module = available_modules.get(name)
+    if imported_module is None:
+        return None
+
+    if fromlist:
+        module_attributes = getattr(imported_module, "__dict__", {})
+        if not isinstance(fromlist, (tuple, list)) or any(
+            not isinstance(item, str)
+            or item == "*"
+            or item not in module_attributes
+            for item in fromlist
+        ):
+            return None
+        return imported_module
+
+    if not level:
+        return available_modules.get(name.partition(".")[0])
+    if not original_name:
+        return imported_module
+
+    relative_root_length = len(name) - len(original_name) + len(
+        original_name.partition(".")[0]
+    )
+    return available_modules.get(name[:relative_root_length])
+
+
+def _find_cached_module_for_importlib(
+    module_context: ModuleContext, name: str, package: Optional[str] = None
+) -> Optional[Any]:
+    """Return a cached module for importlib.import_module, including relatives."""
+    _, udf_modules = module_context
+    try:
+        absolute_name = (
+            importlib.util.resolve_name(name, package)
+            if name.startswith(".")
+            else name
+        )
+    except (AttributeError, ImportError, TypeError, ValueError):
+        return None
+    cached_module = udf_modules.get(absolute_name)
+    if cached_module is not None:
+        return cached_module
+    if (
+        absolute_name.partition(".")[0]
+        in ModuleUDFLoader._FORBIDDEN_MODULE_NAMES
+    ):
+        return _SERVER_MODULES.get(absolute_name)
+    return None
+
+
+def _wrap_import_with_module_context(
+    import_func: Callable, find_cached_module: Callable
+) -> Callable:
+    """Use isolated cached modules first and take the global lock only on miss."""
+    def wrapped_import(*args, **kwargs):
+        if _module_import_in_progress.get():
+            return import_func(*args, **kwargs)
+
+        # Prefer the calling UDF module over an inherited execution context.
+        # This lets long-lived worker threads execute callbacks from another UDF.
+        try:
+            caller_globals = sys._getframe(1).f_globals
+            module_context = caller_globals.get("_doris_module_context")
+        except (AttributeError, ValueError):
+            caller_globals = None
+            module_context = None
+        if module_context is None:
+            module_context = _current_module_context.get()
+        if module_context is None:
+            operation = _current_module_import_operation.get()
+            with ModuleUDFLoader._module_import_condition:
+                if (
+                    operation is not None
+                    and operation.active
+                    and ModuleUDFLoader._active_module_import_operation is operation
+                ):
+                    module_context = operation.module_context
+        if module_context is None and caller_globals is not None:
+            module_context = ModuleUDFLoader._find_active_context_for_module_globals(
+                caller_globals
+            )
+        if module_context is None:
+            with ModuleUDFLoader._shared_module_import():
+                return import_func(*args, **kwargs)
+
+        cached_module = find_cached_module(module_context, *args, **kwargs)
+        if cached_module is not None:
+            return cached_module
+
+        with ModuleUDFLoader.temporarily_restore_udf_modules(module_context):
+            return import_func(*args, **kwargs)
+
+    return wrapped_import
+
+
+# Execution only binds a ContextVar; the process-wide lock is taken when user
+# code actually imports a module.
+builtins.__import__ = _wrap_import_with_module_context(
+    builtins.__import__, _find_cached_module_for_builtin_import
+)
+importlib.import_module = _wrap_import_with_module_context(
+    importlib.import_module, _find_cached_module_for_importlib
+)
 
 
 class UDFLoaderFactory:
@@ -1377,6 +1812,9 @@ class UDAFClassLoader:
         if not inspect.isclass(udaf_class):
             raise ValueError(f"'{symbol}' is not a class (type: {type(udaf_class)})")
 
+        # Instances are created after module loading has cleaned sys.modules, so
+        # keep the owning UDAF context on the class for later lifecycle calls.
+        udaf_class._doris_module_context = loader.module_context
         UDAFClassLoader.validate_udaf_class(udaf_class)
         return udaf_class
 
@@ -1420,6 +1858,59 @@ class UDAFClassLoader:
             )
 
 
+_PICKLE_BUILTIN_SCALAR_TYPES = (
+    type(None),
+    bool,
+    int,
+    float,
+    complex,
+    str,
+    bytes,
+    bytearray,
+)
+
+
+def _is_pickle_builtin_value(value: Any, visited: Optional[set] = None) -> bool:
+    """Return whether pickle can encode a value without resolving modules."""
+    value_type = type(value)
+    if value_type in _PICKLE_BUILTIN_SCALAR_TYPES:
+        return True
+    if value_type not in (list, tuple, set, frozenset, dict):
+        return False
+
+    if visited is None:
+        visited = set()
+    value_id = id(value)
+    if value_id in visited:
+        return True
+    visited.add(value_id)
+
+    if value_type is dict:
+        return all(
+            _is_pickle_builtin_value(key, visited)
+            and _is_pickle_builtin_value(item, visited)
+            for key, item in value.items()
+        )
+    return all(_is_pickle_builtin_value(item, visited) for item in value)
+
+
+class _ModuleContextUnpickler(pickle.Unpickler):
+    """Resolve UDAF classes from its isolated module cache."""
+
+    def __init__(self, serialized_state: bytes, module_context: ModuleContext):
+        super().__init__(io.BytesIO(serialized_state))
+        self._udf_modules = module_context[1]
+
+    def find_class(self, module_name: str, class_name: str) -> Any:
+        module = self._udf_modules.get(module_name)
+        if module is None:
+            return super().find_class(module_name, class_name)
+        value = module
+        for attribute in class_name.split("."):
+            value = getattr(value, attribute)
+        return value
+
+
 class UDAFStateManager:
     """
     Manages UDAF aggregate states for Python UDAF execution.
@@ -1437,6 +1928,8 @@ class UDAFStateManager:
         """Initialize the state manager."""
         self.states: Dict[int, Any] = {}  # place_id -> UDAF instance
         self.udaf_class = None  # UDAF class to instantiate
+        # Module UDAFs need this context for imports in later lifecycle calls.
+        self.module_context: Optional[ModuleContext] = None
         self._destroy_counter = 0  # Track number of destroys since last GC
         self._gc_threshold = 100  # Trigger GC every N destroys
 
@@ -1451,6 +1944,9 @@ class UDAFStateManager:
             Validation is performed by UDAFClassLoader before calling this method.
         """
         self.udaf_class = udaf_class
+        self.module_context = getattr(
+            udaf_class, "_doris_module_context", None
+        )
 
     def create_state(self, place_id: int) -> None:
         """
@@ -1517,9 +2013,19 @@ class UDAFStateManager:
         """
         state = self.states[place_id]
         try:
-            aggregate_state = state.aggregate_state
-            serialized = pickle.dumps(aggregate_state)
-            return serialized
+            with ModuleUDFLoader.use_module_context(self.module_context):
+                aggregate_state = state.aggregate_state
+                if (
+                    self.module_context is None
+                    or _is_pickle_builtin_value(aggregate_state)
+                ):
+                    return pickle.dumps(aggregate_state)
+                # Pickle resolves user-defined state classes by module name. Restore
+                # the isolated modules before running user serialization code once.
+                with ModuleUDFLoader.temporarily_restore_udf_modules(
+                    self.module_context
+                ):
+                    return pickle.dumps(aggregate_state)
         except Exception as e:
             logging.error(
                 "Error serializing state for place_id %s: %s",
@@ -1536,23 +2042,28 @@ class UDAFStateManager:
             place_id: Unique identifier for the aggregate state
             other_state_bytes: Serialized state to merge (pickle bytes)
         """
-        try:
-            other_state = pickle.loads(other_state_bytes)
-        except Exception as e:
-            logging.error("Error deserializing state bytes: %s", e)
-            raise RuntimeError(f"Error deserializing state: {e}") from e
+        with ModuleUDFLoader.use_module_context(self.module_context):
+            try:
+                if self.module_context is None:
+                    other_state = pickle.loads(other_state_bytes)
+                else:
+                    other_state = _ModuleContextUnpickler(
+                        other_state_bytes, self.module_context
+                    ).load()
+            except Exception as e:
+                logging.error("Error deserializing state bytes: %s", e)
+                raise RuntimeError(f"Error deserializing state: {e}") from e
 
-        state = self.states[place_id]
-
-        try:
-            state.merge(other_state)
-        except Exception as e:
-            logging.error(
-                "Error in merge for place_id %s: %s",
-                place_id,
-                e,
-            )
-            raise RuntimeError(f"Error in merge: {e}") from e
+            state = self.states[place_id]
+            try:
+                state.merge(other_state)
+            except Exception as e:
+                logging.error(
+                    "Error in merge for place_id %s: %s",
+                    place_id,
+                    e,
+                )
+                raise RuntimeError(f"Error in merge: {e}") from e
 
     def finalize(self, place_id: int) -> Any:
         """
@@ -2110,6 +2621,7 @@ class FlightServer(flight.FlightServerBase):
         """Handle bidirectional streaming for UDF execution."""
         loader = UDFLoaderFactory.get_loader(python_udf_meta)
         udf = loader.load()
+        module_context = getattr(loader, "module_context", None)
         logging.info("Loaded UDF: %s", udf)
 
         started = False
@@ -2125,7 +2637,8 @@ class FlightServer(flight.FlightServerBase):
                 logging.error("Schema mismatch: %s", error_msg)
                 raise ValueError(f"Schema mismatch: {error_msg}")
 
-            result_array = udf(chunk.data)
+            with ModuleUDFLoader.use_module_context(module_context):
+                result_array = udf(chunk.data)
 
             if not python_udf_meta.output_type.equals(result_array.type):
                 logging.error(
@@ -2258,7 +2771,12 @@ class FlightServer(flight.FlightServerBase):
             # Handle different operations and convert to unified format
             try:
                 if operation_type == UDAFOperationType.CREATE:
-                    result_batch = self._handle_udaf_create(place_id, state_manager)
+                    with ModuleUDFLoader.use_module_context(
+                        state_manager.module_context
+                    ):
+                        result_batch = self._handle_udaf_create(
+                            place_id, state_manager
+                        )
                     success = result_batch.column(0)[0].as_py()
                     result_batch = self._create_unified_response(
                         success=success, rows_processed=0, data=b""
@@ -2271,14 +2789,17 @@ class FlightServer(flight.FlightServerBase):
                             [batch.schema.field(i) for i in range(num_data_cols)]
                         ),
                     )
-                    result_batch_accumulate = self._handle_udaf_accumulate(
-                        place_id,
-                        is_single_place,
-                        row_start,
-                        row_end,
-                        data_batch,
-                        state_manager,
-                    )
+                    with ModuleUDFLoader.use_module_context(
+                        state_manager.module_context
+                    ):
+                        result_batch_accumulate = self._handle_udaf_accumulate(
+                            place_id,
+                            is_single_place,
+                            row_start,
+                            row_end,
+                            data_batch,
+                            state_manager,
+                        )
                     rows_processed = result_batch_accumulate.column(0)[0].as_py()
                     result_batch = self._create_unified_response(
                         success=(rows_processed > 0),
@@ -2308,9 +2829,12 @@ class FlightServer(flight.FlightServerBase):
                         success=success, rows_processed=0, data=b""
                     )
                 elif operation_type == UDAFOperationType.FINALIZE:
-                    result_batch_finalize = self._handle_udaf_finalize(
-                        place_id, python_udaf_meta.output_type, state_manager
-                    )
+                    with ModuleUDFLoader.use_module_context(
+                        state_manager.module_context
+                    ):
+                        result_batch_finalize = self._handle_udaf_finalize(
+                            place_id, python_udaf_meta.output_type, state_manager
+                        )
                     # Serialize the result to binary (including NULL results)
                     # NULL is a valid aggregation result, not an error
                     sink = pa.BufferOutputStream()
@@ -2324,9 +2848,12 @@ class FlightServer(flight.FlightServerBase):
                         data=result_data,
                     )
                 elif operation_type == UDAFOperationType.RESET:
-                    result_batch_reset = self._handle_udaf_reset(
-                        place_id, state_manager
-                    )
+                    with ModuleUDFLoader.use_module_context(
+                        state_manager.module_context
+                    ):
+                        result_batch_reset = self._handle_udaf_reset(
+                            place_id, state_manager
+                        )
                     success = result_batch_reset.column(0)[0].as_py()
                     result_batch = self._create_unified_response(
                         success=success, rows_processed=0, data=b""
@@ -2424,6 +2951,7 @@ class FlightServer(flight.FlightServerBase):
         loader = UDFLoaderFactory.get_loader(python_udtf_meta)
         adaptive_udtf = loader.load()
         udtf_func = adaptive_udtf._eval_func
+        module_context = getattr(loader, "module_context", None)
         started = False
 
         for chunk in reader:
@@ -2443,9 +2971,10 @@ class FlightServer(flight.FlightServerBase):
 
             # Process all input rows and build ListArray
             try:
-                response_batch = self._process_udtf_with_list_array(
-                    udtf_func, input_batch, python_udtf_meta.output_type
-                )
+                with ModuleUDFLoader.use_module_context(module_context):
+                    response_batch = self._process_udtf_with_list_array(
+                        udtf_func, input_batch, python_udtf_meta.output_type
+                    )
 
                 # Send the response batch
                 if not started:
@@ -2692,48 +3221,35 @@ class FlightServer(flight.FlightServerBase):
         """
         Clear module cache for the given location.
 
-        Acquires per-module import locks to ensure no concurrent import is
-        in progress for the modules being cleared, preventing race conditions
-        where sys.modules entries are removed mid-import.
+        Uses the exclusive side of the module import protocol so cache cleanup
+        cannot race with sys.path or sys.modules changes during an import.
 
         Returns list of cleared module names.
         """
-        cleared = []
+        with ModuleUDFLoader._exclusive_module_import():
+            cached_module = ModuleUDFLoader._module_cache.pop(location, None)
+            if cached_module is None:
+                return []
 
-        with ModuleUDFLoader._module_cache_lock:
-            module_names_to_remove = [
-                module.__name__
-                for key, module in ModuleUDFLoader._module_cache.items()
-                if key == location
-            ]
+            module_context = getattr(
+                cached_module, "_doris_module_context", None
+            )
+            udf_modules = module_context[1] if module_context else {}
+            module_names = set(udf_modules)
+            module_names.add(cached_module.__name__)
 
-        # For each module, acquire its import lock before clearing.
-        # This ensures no concurrent _get_or_import_module is in progress
-        # for this module.
-        for module_name in module_names_to_remove:
-            import_lock = ModuleUDFLoader._get_import_lock(module_name)
+            normalized_location = os.path.realpath(location)
+            module_names.update(
+                name
+                for name, module in list(sys.modules.items())
+                if ModuleUDFLoader._is_module_from_location(
+                    module, normalized_location
+                )
+            )
+            for module_name in module_names:
+                sys.modules.pop(module_name, None)
 
-            with import_lock:
-                with ModuleUDFLoader._module_cache_lock:
-                    ModuleUDFLoader._module_cache.pop(location, None)
-
-                modules_to_remove = [
-                    name for name, mod in sys.modules.items()
-                    if name == module_name or name.startswith(module_name + ".")
-                    or (
-                        hasattr(mod, "__file__") and mod.__file__ is not None
-                        and mod.__file__.startswith(location)
-                    )
-                ]
-                for mod_name in modules_to_remove:
-                    del sys.modules[mod_name]
-                    if mod_name not in cleared:
-                        cleared.append(mod_name)
-
-                if module_name not in cleared:
-                    cleared.append(module_name)
-
-        return cleared
+            return sorted(module_names)
 
 
 class UDAFOperationType(Enum):

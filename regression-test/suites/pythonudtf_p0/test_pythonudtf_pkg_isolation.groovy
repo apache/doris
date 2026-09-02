@@ -120,10 +120,44 @@ suite("test_pythonudtf_pkg_isolation") {
             ORDER BY ax.c, ay.c, bx.c, b_y.c;
         """
 
+        // Case 5: Different top-level modules import the same dependency name
+        sql """DROP FUNCTION IF EXISTS py_pkg_a_dependency_t(INT)"""
+        sql """DROP FUNCTION IF EXISTS py_pkg_b_dependency_t(INT)"""
+        sql """
+            CREATE TABLES FUNCTION py_pkg_a_dependency_t(INT)
+            RETURNS ARRAY<INT>
+            PROPERTIES (
+                "type" = "PYTHON_UDF",
+                "file" = "file://${zipA}",
+                "symbol" = "udtf_a_entry.process",
+                "runtime_version" = "${runtime_version}"
+            )
+        """
+        sql """
+            CREATE TABLES FUNCTION py_pkg_b_dependency_t(INT)
+            RETURNS ARRAY<INT>
+            PROPERTIES (
+                "type" = "PYTHON_UDF",
+                "file" = "file://${zipB}",
+                "symbol" = "udtf_b_entry.process",
+                "runtime_version" = "${runtime_version}"
+            )
+        """
+
+        qt_pkg_isolation_5 """
+            SELECT a.c, b.c
+            FROM py_udtf_pkg_tbl
+            LATERAL VIEW py_pkg_a_dependency_t(v) a AS c
+            LATERAL VIEW py_pkg_b_dependency_t(v) b AS c
+            ORDER BY a.c, b.c;
+        """
+
     } finally {
         try_sql("DROP FUNCTION IF EXISTS py_pkg_a_t_x(INT);")
         try_sql("DROP FUNCTION IF EXISTS py_pkg_a_t_y(INT);")
         try_sql("DROP FUNCTION IF EXISTS py_pkg_b_t_x(INT);")
         try_sql("DROP FUNCTION IF EXISTS py_pkg_b_t_y(INT);")
+        try_sql("DROP FUNCTION IF EXISTS py_pkg_a_dependency_t(INT);")
+        try_sql("DROP FUNCTION IF EXISTS py_pkg_b_dependency_t(INT);")
     }
 }

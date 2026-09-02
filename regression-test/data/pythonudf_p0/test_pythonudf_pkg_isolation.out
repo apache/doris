@@ -11,3 +11,6 @@
 -- !pkg_isolation_4 --
 20	30	110	210
 
+-- !pkg_isolation_5 --
+15	105
+

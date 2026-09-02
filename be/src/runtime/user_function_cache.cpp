@@ -567,29 +567,36 @@ Status UserFunctionCache::_check_and_return_default_java_udf_url(const std::stri
     return Status::OK();
 }
 
-void UserFunctionCache::drop_function_cache(int64_t fid) {
+Status UserFunctionCache::drop_function_cache(int64_t fid) {
     std::shared_ptr<UserFunctionCacheEntry> entry = nullptr;
     {
         std::lock_guard<std::mutex> l(_cache_lock);
         auto it = _entry_map.find(fid);
         if (it == _entry_map.end()) {
-            return;
+            return Status::OK();
         }
         entry = it->second;
-        _entry_map.erase(it);
     }
+
+    // lib_file changes from the downloaded zip path to the extracted directory
+    // while an entry is loaded. Wait for that transition before clearing Python.
+    std::unique_lock<std::mutex> load_lock(entry->load_lock);
 
     // For Python UDF, clear module cache in Python server before deleting files
     if (entry->type == LibType::PY_ZIP && !entry->lib_file.empty()) {
-        auto status = PythonServerManager::instance().clear_module_cache(entry->lib_file);
-        if (!status.ok()) [[unlikely]] {
-            LOG(WARNING) << "drop_function_cache: failed to clear Python module cache for "
-                         << entry->lib_file << ": " << status.to_string();
-        }
+        RETURN_IF_ERROR(PythonServerManager::instance().clear_module_cache(entry->lib_file));
     }
 
+    {
+        std::lock_guard<std::mutex> l(_cache_lock);
+        auto it = _entry_map.find(fid);
+        if (it != _entry_map.end() && it->second == entry) {
+            _entry_map.erase(it);
+        }
+    }
     // Mark for deletion, destructor will delete the files
     entry->should_delete_library.store(true);
+    return Status::OK();
 }
 
 } // namespace doris

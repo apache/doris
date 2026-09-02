@@ -21,6 +21,7 @@
 #include <butil/fd_utility.h>
 #include <dirent.h>
 #include <fmt/core.h>
+#include <rapidjson/document.h>
 #include <signal.h>
 #include <sys/poll.h>
 #include <sys/stat.h>
@@ -31,7 +32,6 @@
 #include <boost/process.hpp>
 #include <chrono>
 #include <fstream>
-#include <rapidjson/document.h>
 #include <thread>
 
 #include "arrow/flight/client.h"

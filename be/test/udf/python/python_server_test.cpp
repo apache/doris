@@ -28,6 +28,7 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <numeric>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -37,8 +38,11 @@
 #include "common/status.h"
 #include "core/data_type/data_type_number.h"
 #include "udf/python/python_env.h"
+#include "udf/python/python_udaf_client.h"
 #include "udf/python/python_udf_client.h"
 #include "udf/python/python_udf_meta.h"
+#include "udf/python/python_udtf_client.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -60,8 +64,7 @@ public:
 
     ~ActionResultFlightServer() override { static_cast<void>(Shutdown()); }
 
-    arrow::Status DoAction(const arrow::flight::ServerCallContext&,
-                           const arrow::flight::Action&,
+    arrow::Status DoAction(const arrow::flight::ServerCallContext&, const arrow::flight::Action&,
                            std::unique_ptr<arrow::flight::ResultStream>* result) override {
         std::vector<arrow::flight::Result> flight_results;
         flight_results.reserve(_results.size());
@@ -225,6 +228,29 @@ protected:
         ofs.close();
     }
 
+    Status install_real_python_server() {
+        fs::path source_root = fs::current_path();
+        fs::path server_script;
+        while (!source_root.empty()) {
+            server_script = source_root / "be/src/udf/python/python_server.py";
+            if (fs::exists(server_script) || source_root == source_root.parent_path()) {
+                break;
+            }
+            source_root = source_root.parent_path();
+        }
+        if (!fs::exists(server_script)) {
+            return Status::InternalError("Python server script not found: {}",
+                                         server_script.string());
+        }
+
+        setenv("DORIS_HOME", test_dir_.c_str(), 1);
+        fs::path plugin_dir = fs::path(test_dir_) / "plugins/python_udf";
+        fs::create_directories(plugin_dir);
+        fs::copy_file(server_script, plugin_dir / "python_server.py",
+                      fs::copy_options::overwrite_existing);
+        return Status::OK();
+    }
+
     ProcessPtr create_sleep_process() {
         bp::ipstream output_stream;
         std::string sleep_path = fs::exists("/bin/sleep") ? "/bin/sleep" : "/usr/bin/sleep";
@@ -267,8 +293,8 @@ protected:
         try {
             bp::child child(python, "-u", get_fight_server_path(), get_base_unix_socket_path(),
                             bp::std_out > output_stream);
-            auto candidate = std::make_shared<PythonUDFProcess>(std::move(child),
-                                                                std::move(output_stream));
+            auto candidate =
+                    std::make_shared<PythonUDFProcess>(std::move(child), std::move(output_stream));
             auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
             while (std::chrono::steady_clock::now() < deadline) {
                 if (fs::exists(candidate->get_socket_file_path())) {
@@ -287,29 +313,68 @@ protected:
         }
     }
 
-    Status evaluate_int_module_udf(const PythonUDFMeta& meta, const ProcessPtr& process,
-                                   int32_t input, int32_t* result) {
-        PythonUDFClientPtr client;
-        RETURN_IF_ERROR(PythonUDFClient::create(meta, process, &client));
-
+    Status evaluate_int_udf_batch(const PythonUDFClientPtr& client,
+                                  const std::vector<int32_t>& inputs,
+                                  std::vector<int32_t>* results) {
         arrow::Int32Builder builder;
-        RETURN_DORIS_STATUS_IF_ERROR(builder.Append(input));
+        RETURN_DORIS_STATUS_IF_ERROR(builder.AppendValues(inputs));
         std::shared_ptr<arrow::Array> input_array;
         RETURN_DORIS_STATUS_IF_ERROR(builder.Finish(&input_array));
         auto input_batch = arrow::RecordBatch::Make(
-                arrow::schema({arrow::field("arg0", arrow::int32(), false)}), 1, {input_array});
+                arrow::schema({arrow::field("arg0", arrow::int32(), false)}), inputs.size(),
+                {input_array});
 
         std::shared_ptr<arrow::RecordBatch> output_batch;
         Status evaluate_status = client->evaluate(*input_batch, &output_batch);
-        static_cast<void>(client->close());
         RETURN_IF_ERROR(evaluate_status);
-        if (!output_batch || output_batch->num_columns() != 1 || output_batch->num_rows() != 1 ||
+        if (!output_batch || output_batch->num_columns() != 1 ||
+            output_batch->num_rows() != inputs.size() ||
             output_batch->column(0)->type_id() != arrow::Type::INT32) {
             return Status::InternalError("Unexpected Python UDF output batch");
         }
 
-        *result = std::static_pointer_cast<arrow::Int32Array>(output_batch->column(0))->Value(0);
+        auto result_array = std::static_pointer_cast<arrow::Int32Array>(output_batch->column(0));
+        results->clear();
+        results->reserve(inputs.size());
+        for (int64_t i = 0; i < result_array->length(); ++i) {
+            results->push_back(result_array->Value(i));
+        }
         return Status::OK();
+    }
+
+    Status evaluate_int_module_udf_batch(const PythonUDFMeta& meta, const ProcessPtr& process,
+                                         const std::vector<int32_t>& inputs,
+                                         std::vector<int32_t>* results) {
+        PythonUDFClientPtr client;
+        RETURN_IF_ERROR(PythonUDFClient::create(meta, process, &client));
+        Status evaluate_status = evaluate_int_udf_batch(client, inputs, results);
+        static_cast<void>(client->close());
+        return evaluate_status;
+    }
+
+    Status evaluate_int_module_udf(const PythonUDFMeta& meta, const ProcessPtr& process,
+                                   int32_t input, int32_t* result) {
+        std::vector<int32_t> results;
+        RETURN_IF_ERROR(evaluate_int_module_udf_batch(meta, process, {input}, &results));
+        *result = results[0];
+        return Status::OK();
+    }
+
+    PythonUDFMeta make_int_module_meta(int64_t id, const fs::path& location,
+                                       const std::string& symbol,
+                                       PythonClientType client_type = PythonClientType::UDF) {
+        PythonUDFMeta meta;
+        meta.id = id;
+        meta.name = symbol;
+        meta.symbol = symbol;
+        meta.location = location.string();
+        meta.checksum = "test-checksum";
+        meta.runtime_version = "test-runtime";
+        meta.input_types = {std::make_shared<DataTypeInt32>()};
+        meta.return_type = std::make_shared<DataTypeInt32>();
+        meta.type = PythonUDFLoadType::MODULE;
+        meta.client_type = client_type;
+        return meta;
     }
 
     template <typename VersionedPoolPtr>
@@ -621,21 +686,7 @@ TEST_F(PythonServerTest, ClearModuleCacheReloadsModuleOnNextUdfExecution) {
         GTEST_SKIP() << "Python with pandas and pyarrow is required";
     }
 
-    fs::path source_root = fs::current_path();
-    fs::path server_script;
-    while (!source_root.empty()) {
-        server_script = source_root / "be/src/udf/python/python_server.py";
-        if (fs::exists(server_script) || source_root == source_root.parent_path()) {
-            break;
-        }
-        source_root = source_root.parent_path();
-    }
-    ASSERT_TRUE(fs::exists(server_script)) << server_script;
-    setenv("DORIS_HOME", test_dir_.c_str(), 1);
-    fs::path plugin_dir = fs::path(test_dir_) / "plugins/python_udf";
-    fs::create_directories(plugin_dir);
-    fs::copy_file(server_script, plugin_dir / "python_server.py",
-                  fs::copy_options::overwrite_existing);
+    ASSERT_TRUE(install_real_python_server().ok());
 
     fs::path module_dir = fs::path(test_dir_) / "module_cache";
     fs::create_directories(module_dir);
@@ -681,6 +732,1005 @@ TEST_F(PythonServerTest, ClearModuleCacheReloadsModuleOnNextUdfExecution) {
     evaluate_status = evaluate_int_module_udf(meta, process, 10, &result);
     ASSERT_TRUE(evaluate_status.ok()) << evaluate_status.to_string();
     EXPECT_EQ(result, 110);
+    mgr.shutdown();
+}
+
+TEST_F(PythonServerTest, ConcurrentModuleImportsIsolateSameNamedDependencies) {
+    auto python = find_python_udf_interpreter();
+    if (!python) {
+        GTEST_SKIP() << "Python with pandas and pyarrow is required";
+    }
+
+    ASSERT_TRUE(install_real_python_server().ok());
+
+    fs::path module_a_dir = fs::path(test_dir_) / "module_a";
+    fs::path module_b_dir = fs::path(test_dir_) / "module_b";
+    fs::create_directories(module_a_dir);
+    fs::create_directories(module_b_dir);
+    fs::path import_started = fs::path(test_dir_) / "import_started";
+    fs::path second_import_started = fs::path(test_dir_) / "second_import_started";
+    fs::path second_import_completed = fs::path(test_dir_) / "second_import_completed";
+    fs::path allow_import = fs::path(test_dir_) / "allow_import";
+    {
+        std::ofstream dependency(module_a_dir / "pd.py");
+        dependency << "import pathlib\n"
+                   << "import time\n"
+                   << "OFFSET = 1\n"
+                   << "pathlib.Path(r'" << import_started.string() << "').touch()\n"
+                   << "allowed = pathlib.Path(r'" << allow_import.string() << "')\n"
+                   << "deadline = time.monotonic() + 10\n"
+                   << "while not allowed.exists() and time.monotonic() < deadline:\n"
+                   << "    time.sleep(0.01)\n";
+        std::ofstream module(module_a_dir / "first_udf.py");
+        module << "def evaluate(value):\n"
+               << "    import pd\n"
+               << "    return value + pd.OFFSET\n";
+    }
+    {
+        std::ofstream dependency(module_b_dir / "pd.py");
+        dependency << "OFFSET = 100\n";
+        std::ofstream module(module_b_dir / "second_udf.py");
+        module << "import pathlib\n"
+               << "def evaluate(value):\n"
+               << "    if value == 0:\n"
+               << "        return 0\n"
+               << "    pathlib.Path(r'" << second_import_started.string() << "').touch()\n"
+               << "    import pd\n"
+               << "    pathlib.Path(r'" << second_import_completed.string() << "').touch()\n"
+               << "    return value + pd.OFFSET\n";
+    }
+
+    PythonVersion version("test-runtime", fs::path(*python).parent_path().parent_path().string(),
+                          *python);
+    PythonServerManager mgr;
+    ProcessPtr process;
+    Status fork_status = start_python_udf_server(*python, &process);
+    ASSERT_TRUE(fork_status.ok()) << fork_status.to_string();
+    ASSERT_NE(process, nullptr);
+    mgr.set_process_pool_for_test(version, {process});
+
+    auto first_meta = make_int_module_meta(1, module_a_dir, "first_udf.evaluate");
+    auto second_meta = make_int_module_meta(2, module_b_dir, "second_udf.evaluate");
+
+    // Keep B's Flight exchange open after loading its entry module. Sending the
+    // second batch then reaches evaluate() directly instead of loading B again.
+    PythonUDFClientPtr second_client;
+    ASSERT_TRUE(PythonUDFClient::create(second_meta, process, &second_client).ok());
+    int32_t warmup_result = -1;
+    std::vector<int32_t> warmup_results;
+    ASSERT_TRUE(evaluate_int_udf_batch(second_client, {0}, &warmup_results).ok());
+    ASSERT_EQ(warmup_results.size(), 1);
+    warmup_result = warmup_results[0];
+    ASSERT_EQ(warmup_result, 0);
+
+    int32_t first_result = 0;
+    auto first_status = std::async(std::launch::async, [&] {
+        return evaluate_int_module_udf(first_meta, process, 10, &first_result);
+    });
+    Defer release_first_import {[&] { std::ofstream(allow_import).close(); }};
+    auto marker_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!fs::exists(import_started) && std::chrono::steady_clock::now() < marker_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(fs::exists(import_started));
+
+    int32_t second_result = 0;
+    auto second_status = std::async(std::launch::async, [&] {
+        std::vector<int32_t> results;
+        RETURN_IF_ERROR(evaluate_int_udf_batch(second_client, {10}, &results));
+        second_result = results[0];
+        return Status::OK();
+    });
+
+    // "pd" used to be treated as a server alias. A live sys.modules lookup
+    // would return A's pd.py here instead of waiting to restore B's context.
+    marker_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!fs::exists(second_import_started) &&
+           std::chrono::steady_clock::now() < marker_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(fs::exists(second_import_started));
+
+    // A broken lock-free lookup returns A's live pd module and creates this
+    // marker. The isolated path cannot finish the import until A releases it.
+    auto completion_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!fs::exists(second_import_completed) &&
+           std::chrono::steady_clock::now() < completion_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_FALSE(fs::exists(second_import_completed));
+    std::ofstream(allow_import).close();
+
+    ASSERT_TRUE(first_status.get().ok());
+    ASSERT_TRUE(second_status.get().ok());
+    EXPECT_EQ(first_result, 11);
+    EXPECT_EQ(second_result, 110);
+    EXPECT_TRUE(fs::exists(second_import_completed));
+    static_cast<void>(second_client->close());
+    mgr.shutdown();
+}
+
+TEST_F(PythonServerTest, UdafAndUdtfModulesAreIsolatedInTheSameProcess) {
+    auto python = find_python_udf_interpreter();
+    if (!python) {
+        GTEST_SKIP() << "Python with pandas and pyarrow is required";
+    }
+
+    ASSERT_TRUE(install_real_python_server().ok());
+
+    auto write_udaf = [](const fs::path& location, int offset) {
+        fs::create_directories(location);
+        std::ofstream(location / "shared_udaf_dependency.py") << "OFFSET = " << offset << "\n";
+        std::ofstream(location / "udaf_entry.py")
+                << "from shared_udaf_dependency import OFFSET\n"
+                << "class SumAgg:\n"
+                << "    def __init__(self): self.total = 0\n"
+                << "    @property\n"
+                << "    def aggregate_state(self):\n"
+                << "        return {'total': complex(self.total), 'tag': bytearray(b'x')}\n"
+                << "    def accumulate(self, value): self.total += value + OFFSET\n"
+                << "    def merge(self, other): self.total += int(other['total'].real)\n"
+                << "    def finish(self): return self.total\n";
+    };
+    auto write_udtf = [](const fs::path& location, int offset) {
+        fs::create_directories(location);
+        std::ofstream(location / "shared_udtf_dependency.py") << "OFFSET = " << offset << "\n";
+        std::ofstream(location / "udtf_entry.py") << "from shared_udtf_dependency import OFFSET\n"
+                                                  << "def evaluate(value):\n"
+                                                  << "    yield value + OFFSET\n";
+    };
+
+    fs::path udaf_a_dir = fs::path(test_dir_) / "same_process_udaf_a";
+    fs::path udaf_b_dir = fs::path(test_dir_) / "same_process_udaf_b";
+    fs::path udtf_a_dir = fs::path(test_dir_) / "same_process_udtf_a";
+    fs::path udtf_b_dir = fs::path(test_dir_) / "same_process_udtf_b";
+    fs::path blocking_dir = fs::path(test_dir_) / "blocking_module_import";
+    fs::path import_started = fs::path(test_dir_) / "blocking_import_started";
+    fs::path allow_import = fs::path(test_dir_) / "allow_blocking_import";
+    fs::path object_udaf_dir = fs::path(test_dir_) / "object_state_udaf";
+    write_udaf(udaf_a_dir, 1);
+    write_udaf(udaf_b_dir, 100);
+    write_udtf(udtf_a_dir, 2);
+    write_udtf(udtf_b_dir, 200);
+    fs::create_directories(object_udaf_dir);
+    std::ofstream(object_udaf_dir / "object_state_dependency.py")
+            << "class AggregateValue:\n"
+            << "    def __init__(self, total): self.total = total\n";
+    std::ofstream(object_udaf_dir / "object_udaf_entry.py")
+            << "from object_state_dependency import AggregateValue\n"
+            << "class ObjectStateAgg:\n"
+            << "    def __init__(self): self.total = 0\n"
+            << "    @property\n"
+            << "    def aggregate_state(self): return AggregateValue(self.total)\n"
+            << "    def accumulate(self, value): self.total += value\n"
+            << "    def merge(self, other): self.total += other.total\n"
+            << "    def finish(self): return self.total\n";
+    fs::create_directories(blocking_dir);
+    std::ofstream(blocking_dir / "blocking_udf.py")
+            << "import pathlib\n"
+            << "import time\n"
+            << "started = pathlib.Path(r'" << import_started.string() << "')\n"
+            << "allowed = pathlib.Path(r'" << allow_import.string() << "')\n"
+            << "started.touch()\n"
+            << "deadline = time.monotonic() + 10\n"
+            << "while not allowed.exists() and time.monotonic() < deadline:\n"
+            << "    time.sleep(0.01)\n"
+            << "def evaluate(value): return value\n";
+
+    ProcessPtr process;
+    ASSERT_TRUE(start_python_udf_server(*python, &process).ok());
+    ASSERT_NE(process, nullptr);
+
+    arrow::Int32Builder input_builder;
+    ASSERT_TRUE(input_builder.Append(10).ok());
+    std::shared_ptr<arrow::Array> input_array;
+    ASSERT_TRUE(input_builder.Finish(&input_array).ok());
+    auto input_schema = arrow::schema({arrow::field("arg0", arrow::int32(), false)});
+    auto input_batch = arrow::RecordBatch::Make(input_schema, 1, {input_array});
+
+    auto udaf_schema = arrow::schema({arrow::field("arg0", arrow::int32(), false),
+                                      arrow::field("places", arrow::int64()),
+                                      arrow::field("binary_data", arrow::binary())});
+    PythonUDAFClientPtr udaf_a;
+    PythonUDAFClientPtr udaf_b;
+    ASSERT_TRUE(PythonUDAFClient::create(make_int_module_meta(1, udaf_a_dir, "udaf_entry.SumAgg",
+                                                              PythonClientType::UDAF),
+                                         process, udaf_schema, &udaf_a)
+                        .ok());
+    ASSERT_TRUE(PythonUDAFClient::create(make_int_module_meta(2, udaf_b_dir, "udaf_entry.SumAgg",
+                                                              PythonClientType::UDAF),
+                                         process, udaf_schema, &udaf_b)
+                        .ok());
+    ASSERT_TRUE(udaf_a->create(101).ok());
+    ASSERT_TRUE(udaf_b->create(102).ok());
+    ASSERT_TRUE(udaf_a->accumulate(101, true, *input_batch, 0, 1).ok());
+    ASSERT_TRUE(udaf_b->accumulate(102, true, *input_batch, 0, 1).ok());
+
+    auto finalize_int = [](const PythonUDAFClientPtr& client, int64_t place_id) {
+        std::shared_ptr<arrow::RecordBatch> output;
+        EXPECT_TRUE(client->finalize(place_id, &output).ok());
+        EXPECT_NE(output, nullptr);
+        if (!output || output->num_columns() != 1 || output->num_rows() != 1) {
+            return int32_t {0};
+        }
+        return std::static_pointer_cast<arrow::Int32Array>(output->column(0))->Value(0);
+    };
+    EXPECT_EQ(finalize_int(udaf_a, 101), 11);
+    EXPECT_EQ(finalize_int(udaf_b, 102), 110);
+
+    // A user-defined aggregate-state object needs its defining module visible
+    // for both directions. User serialization code must run exactly once.
+    PythonUDAFClientPtr object_udaf;
+    ASSERT_TRUE(PythonUDAFClient::create(
+                        make_int_module_meta(6, object_udaf_dir, "object_udaf_entry.ObjectStateAgg",
+                                             PythonClientType::UDAF),
+                        process, udaf_schema, &object_udaf)
+                        .ok());
+    ASSERT_TRUE(object_udaf->create(103).ok());
+    ASSERT_TRUE(object_udaf->create(104).ok());
+    ASSERT_TRUE(object_udaf->accumulate(103, true, *input_batch, 0, 1).ok());
+    std::shared_ptr<arrow::Buffer> object_state;
+    ASSERT_TRUE(object_udaf->serialize(103, &object_state).ok());
+    ASSERT_TRUE(object_udaf->merge(104, object_state).ok());
+    EXPECT_EQ(finalize_int(object_udaf, 104), 10);
+
+    // A built-in-only aggregate state, including complex and bytearray values,
+    // does not need UDF modules restored. SERIALIZE and MERGE must complete
+    // while another module import owns the process-wide writer lock.
+    auto blocking_meta = make_int_module_meta(5, blocking_dir, "blocking_udf.evaluate");
+    int32_t blocking_result = 0;
+    auto blocking_status = std::async(std::launch::async, [&] {
+        return evaluate_int_module_udf(blocking_meta, process, 10, &blocking_result);
+    });
+    auto marker_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!fs::exists(import_started) && std::chrono::steady_clock::now() < marker_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(fs::exists(import_started));
+
+    std::shared_ptr<arrow::Buffer> serialized_state;
+    auto serialize_status = std::async(std::launch::async,
+                                       [&] { return udaf_a->serialize(101, &serialized_state); });
+    auto serialize_wait = serialize_status.wait_for(std::chrono::seconds(5));
+    std::optional<Status> serialize_result;
+    std::optional<std::future<Status>> merge_status;
+    std::optional<std::future_status> merge_wait;
+    if (serialize_wait == std::future_status::ready) {
+        serialize_result = serialize_status.get();
+        if (serialize_result->ok()) {
+            merge_status.emplace(std::async(std::launch::async,
+                                            [&] { return udaf_a->merge(101, serialized_state); }));
+            merge_wait = merge_status->wait_for(std::chrono::seconds(5));
+        }
+    }
+    std::ofstream(allow_import).close();
+
+    EXPECT_EQ(serialize_wait, std::future_status::ready);
+    if (serialize_result) {
+        EXPECT_TRUE(serialize_result->ok()) << serialize_result->to_string();
+    }
+    if (merge_wait) {
+        EXPECT_EQ(*merge_wait, std::future_status::ready);
+    }
+    if (merge_status) {
+        auto merge_result = merge_status->get();
+        EXPECT_TRUE(merge_result.ok()) << merge_result.to_string();
+    }
+    if (serialize_wait != std::future_status::ready) {
+        auto delayed_serialize_result = serialize_status.get();
+        ADD_FAILURE() << "primitive UDAF serialization waited for the module import: "
+                      << delayed_serialize_result.to_string();
+    }
+    ASSERT_TRUE(blocking_status.get().ok());
+    EXPECT_EQ(blocking_result, 10);
+    if (merge_wait && *merge_wait == std::future_status::ready) {
+        EXPECT_EQ(finalize_int(udaf_a, 101), 22);
+    }
+
+    PythonUDTFClientPtr udtf_a;
+    PythonUDTFClientPtr udtf_b;
+    ASSERT_TRUE(PythonUDTFClient::create(make_int_module_meta(3, udtf_a_dir, "udtf_entry.evaluate",
+                                                              PythonClientType::UDTF),
+                                         process, &udtf_a)
+                        .ok());
+    ASSERT_TRUE(PythonUDTFClient::create(make_int_module_meta(4, udtf_b_dir, "udtf_entry.evaluate",
+                                                              PythonClientType::UDTF),
+                                         process, &udtf_b)
+                        .ok());
+    auto evaluate_udtf = [&](const PythonUDTFClientPtr& client) {
+        std::shared_ptr<arrow::ListArray> output;
+        EXPECT_TRUE(client->evaluate(*input_batch, &output).ok());
+        EXPECT_NE(output, nullptr);
+        if (!output || output->length() != 1 || output->value_length(0) != 1) {
+            return int32_t {0};
+        }
+        auto values = std::static_pointer_cast<arrow::Int32Array>(output->values());
+        return values->Value(output->value_offset(0));
+    };
+    EXPECT_EQ(evaluate_udtf(udtf_a), 12);
+    EXPECT_EQ(evaluate_udtf(udtf_b), 210);
+
+    static_cast<void>(udaf_a->close());
+    static_cast<void>(udaf_b->close());
+    static_cast<void>(object_udaf->close());
+    static_cast<void>(udtf_a->close());
+    static_cast<void>(udtf_b->close());
+    process->shutdown();
+}
+
+TEST_F(PythonServerTest, InlineImportWaitsForModuleImportEnvironment) {
+    auto python = find_python_udf_interpreter();
+    if (!python) {
+        GTEST_SKIP() << "Python with pandas and pyarrow is required";
+    }
+
+    ASSERT_TRUE(install_real_python_server().ok());
+
+    fs::path global_module_dir = fs::path(test_dir_) / "global_modules";
+    fs::path udf_module_dir = fs::path(test_dir_) / "module_with_shadow";
+    fs::create_directories(global_module_dir);
+    fs::create_directories(udf_module_dir);
+    fs::path module_import_started = fs::path(test_dir_) / "module_import_started";
+    fs::path inline_import_started = fs::path(test_dir_) / "inline_import_started";
+    {
+        std::ofstream dependency(global_module_dir / "shared_inline_dependency.py");
+        dependency << "OFFSET = 1\n";
+    }
+    {
+        std::ofstream dependency(udf_module_dir / "shared_inline_dependency.py");
+        dependency << "OFFSET = 100\n";
+    }
+    {
+        std::ofstream module(udf_module_dir / "slow_module_udf.py");
+        module << "import pathlib\n"
+               << "import time\n"
+               << "started = pathlib.Path(r'" << module_import_started.string() << "')\n"
+               << "inline_started = pathlib.Path(r'" << inline_import_started.string() << "')\n"
+               << "started.touch()\n"
+               << "deadline = time.monotonic() + 5\n"
+               << "while not inline_started.exists() and time.monotonic() < deadline:\n"
+               << "    time.sleep(0.01)\n"
+               << "if not inline_started.exists():\n"
+               << "    raise RuntimeError('inline import did not start')\n"
+               << "time.sleep(1)\n"
+               << "def evaluate(value):\n"
+               << "    return value\n";
+    }
+
+    const char* original_python_path = std::getenv("PYTHONPATH");
+    std::optional<std::string> saved_python_path;
+    if (original_python_path) {
+        saved_python_path = original_python_path;
+    }
+    setenv("PYTHONPATH", global_module_dir.c_str(), 1);
+
+    PythonVersion version("test-runtime", fs::path(*python).parent_path().parent_path().string(),
+                          *python);
+    PythonServerManager mgr;
+    ProcessPtr process;
+    Status fork_status = start_python_udf_server(*python, &process);
+    if (saved_python_path) {
+        setenv("PYTHONPATH", saved_python_path->c_str(), 1);
+    } else {
+        unsetenv("PYTHONPATH");
+    }
+    ASSERT_TRUE(fork_status.ok()) << fork_status.to_string();
+    ASSERT_NE(process, nullptr);
+    mgr.set_process_pool_for_test(version, {process});
+
+    PythonUDFMeta module_meta;
+    module_meta.id = 1;
+    module_meta.name = "slow_module_udf";
+    module_meta.symbol = "slow_module_udf.evaluate";
+    module_meta.location = udf_module_dir.string();
+    module_meta.checksum = "test-checksum";
+    module_meta.runtime_version = version.full_version;
+    module_meta.input_types = {std::make_shared<DataTypeInt32>()};
+    module_meta.return_type = std::make_shared<DataTypeInt32>();
+    module_meta.type = PythonUDFLoadType::MODULE;
+    module_meta.client_type = PythonClientType::UDF;
+
+    PythonUDFMeta inline_meta;
+    inline_meta.id = 2;
+    inline_meta.name = "inline_import_udf";
+    inline_meta.symbol = "evaluate";
+    inline_meta.runtime_version = version.full_version;
+    inline_meta.inline_code = "open(r'" + inline_import_started.string() +
+                              "', 'w').close()\n"
+                              "import shared_inline_dependency\n"
+                              "def evaluate(value):\n"
+                              "    return value + shared_inline_dependency.OFFSET\n";
+    inline_meta.input_types = {std::make_shared<DataTypeInt32>()};
+    inline_meta.return_type = std::make_shared<DataTypeInt32>();
+    inline_meta.type = PythonUDFLoadType::INLINE;
+    inline_meta.client_type = PythonClientType::UDF;
+
+    PythonUDFClientPtr inline_client;
+    ASSERT_TRUE(PythonUDFClient::create(inline_meta, process, &inline_client).ok());
+
+    int32_t module_result = 0;
+    auto module_status = std::async(std::launch::async, [&] {
+        return evaluate_int_module_udf(module_meta, process, 10, &module_result);
+    });
+    auto marker_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!fs::exists(module_import_started) &&
+           std::chrono::steady_clock::now() < marker_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(fs::exists(module_import_started));
+
+    std::vector<int32_t> inline_results;
+    auto inline_status = std::async(std::launch::async, [&] {
+        return evaluate_int_udf_batch(inline_client, {10}, &inline_results);
+    });
+
+    ASSERT_TRUE(module_status.get().ok());
+    ASSERT_TRUE(inline_status.get().ok());
+    EXPECT_EQ(module_result, 10);
+    EXPECT_EQ(inline_results, std::vector<int32_t>({11}));
+    static_cast<void>(inline_client->close());
+    mgr.shutdown();
+}
+
+TEST_F(PythonServerTest, ModuleImportWaitsForInlineImport) {
+    auto python = find_python_udf_interpreter();
+    if (!python) {
+        GTEST_SKIP() << "Python with pandas and pyarrow is required";
+    }
+
+    ASSERT_TRUE(install_real_python_server().ok());
+
+    fs::path global_module_dir = fs::path(test_dir_) / "slow_global_modules";
+    fs::path udf_module_dir = fs::path(test_dir_) / "module_during_inline_import";
+    fs::create_directories(global_module_dir);
+    fs::create_directories(udf_module_dir);
+    fs::path inline_import_started = fs::path(test_dir_) / "slow_inline_import_started";
+    fs::path allow_child_import = fs::path(test_dir_) / "allow_child_import";
+    fs::path module_import_started = fs::path(test_dir_) / "waiting_module_import_started";
+    {
+        std::ofstream dependency(global_module_dir / "nested_global_dependency.py");
+        dependency << "OFFSET = 2\n";
+    }
+    {
+        std::ofstream dependency(global_module_dir / "slow_global_dependency.py");
+        dependency << "import pathlib\n"
+                   << "import threading\n"
+                   << "import time\n"
+                   << "started = pathlib.Path(r'" << inline_import_started.string() << "')\n"
+                   << "release = pathlib.Path(r'" << allow_child_import.string() << "')\n"
+                   << "started.touch()\n"
+                   << "deadline = time.monotonic() + 5\n"
+                   << "while not release.exists() and time.monotonic() < deadline:\n"
+                   << "    time.sleep(0.01)\n"
+                   << "if not release.exists():\n"
+                   << "    raise RuntimeError('timed out waiting to start child import')\n"
+                   << "results = []\n"
+                   << "def import_from_child():\n"
+                   << "    import nested_global_dependency\n"
+                   << "    results.append(nested_global_dependency.OFFSET)\n"
+                   << "thread = threading.Thread(target=import_from_child)\n"
+                   << "thread.start()\n"
+                   << "thread.join(5)\n"
+                   << "if thread.is_alive():\n"
+                   << "    raise RuntimeError('child reader waited behind module writer')\n"
+                   << "OFFSET = results[0]\n";
+    }
+    {
+        std::ofstream module(udf_module_dir / "waiting_module_udf.py");
+        module << "open(r'" << module_import_started.string() << "', 'w').close()\n"
+               << "def evaluate(value):\n"
+               << "    return value\n";
+    }
+
+    const char* original_python_path = std::getenv("PYTHONPATH");
+    std::optional<std::string> saved_python_path;
+    if (original_python_path) {
+        saved_python_path = original_python_path;
+    }
+    setenv("PYTHONPATH", global_module_dir.c_str(), 1);
+
+    PythonVersion version("test-runtime", fs::path(*python).parent_path().parent_path().string(),
+                          *python);
+    PythonServerManager mgr;
+    ProcessPtr process;
+    Status fork_status = start_python_udf_server(*python, &process);
+    if (saved_python_path) {
+        setenv("PYTHONPATH", saved_python_path->c_str(), 1);
+    } else {
+        unsetenv("PYTHONPATH");
+    }
+    ASSERT_TRUE(fork_status.ok()) << fork_status.to_string();
+    ASSERT_NE(process, nullptr);
+    mgr.set_process_pool_for_test(version, {process});
+
+    PythonUDFMeta inline_meta;
+    inline_meta.id = 1;
+    inline_meta.name = "slow_inline_import_udf";
+    inline_meta.symbol = "evaluate";
+    inline_meta.runtime_version = version.full_version;
+    inline_meta.inline_code =
+            "import slow_global_dependency\n"
+            "def evaluate(value):\n"
+            "    return value + slow_global_dependency.OFFSET\n";
+    inline_meta.input_types = {std::make_shared<DataTypeInt32>()};
+    inline_meta.return_type = std::make_shared<DataTypeInt32>();
+    inline_meta.type = PythonUDFLoadType::INLINE;
+    inline_meta.client_type = PythonClientType::UDF;
+
+    PythonUDFMeta module_meta;
+    module_meta.id = 2;
+    module_meta.name = "waiting_module_udf";
+    module_meta.symbol = "waiting_module_udf.evaluate";
+    module_meta.location = udf_module_dir.string();
+    module_meta.checksum = "test-checksum";
+    module_meta.runtime_version = version.full_version;
+    module_meta.input_types = {std::make_shared<DataTypeInt32>()};
+    module_meta.return_type = std::make_shared<DataTypeInt32>();
+    module_meta.type = PythonUDFLoadType::MODULE;
+    module_meta.client_type = PythonClientType::UDF;
+
+    PythonUDFClientPtr inline_client;
+    ASSERT_TRUE(PythonUDFClient::create(inline_meta, process, &inline_client).ok());
+    std::vector<int32_t> inline_results;
+    auto inline_status = std::async(std::launch::async, [&] {
+        return evaluate_int_udf_batch(inline_client, {10}, &inline_results);
+    });
+    auto marker_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!fs::exists(inline_import_started) &&
+           std::chrono::steady_clock::now() < marker_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(fs::exists(inline_import_started));
+
+    int32_t module_result = 0;
+    auto module_status = std::async(std::launch::async, [&] {
+        return evaluate_int_module_udf(module_meta, process, 10, &module_result);
+    });
+    Defer release_child_import {[&] { std::ofstream(allow_child_import).close(); }};
+
+    EXPECT_EQ(module_status.wait_for(std::chrono::milliseconds(200)), std::future_status::timeout);
+    EXPECT_FALSE(fs::exists(module_import_started));
+    std::ofstream(allow_child_import).close();
+
+    ASSERT_TRUE(inline_status.get().ok());
+    ASSERT_TRUE(module_status.get().ok());
+    EXPECT_EQ(inline_results, std::vector<int32_t>({12}));
+    EXPECT_EQ(module_result, 10);
+    static_cast<void>(inline_client->close());
+    mgr.shutdown();
+}
+
+TEST_F(PythonServerTest, CachedRuntimeImportsDoNotWaitForAnotherModuleImport) {
+    auto python = find_python_udf_interpreter();
+    if (!python) {
+        GTEST_SKIP() << "Python with pandas and pyarrow is required";
+    }
+
+    ASSERT_TRUE(install_real_python_server().ok());
+
+    fs::path cached_module_dir = fs::path(test_dir_) / "cached_runtime_import";
+    fs::path blocking_module_dir = fs::path(test_dir_) / "blocking_module_import";
+    fs::create_directories(cached_module_dir / "cached_import_pkg");
+    fs::create_directories(blocking_module_dir);
+    fs::path import_started = fs::path(test_dir_) / "blocking_import_started";
+    fs::path cached_batch_completed = fs::path(test_dir_) / "cached_batch_completed";
+    fs::path watchdog_expired = fs::path(test_dir_) / "watchdog_expired";
+    {
+        std::ofstream init(cached_module_dir / "cached_import_pkg/__init__.py");
+        std::ofstream dependency(cached_module_dir / "cached_import_pkg/cached_dependency.py");
+        dependency << "OFFSET = 1\n";
+        std::ofstream module(cached_module_dir / "cached_import_pkg/entry.py");
+        module << "import importlib\n"
+               << "import pathlib\n"
+               << "completed = pathlib.Path(r'" << cached_batch_completed.string() << "')\n"
+               << "def evaluate(value):\n"
+               << "    dependency = importlib.import_module(\n"
+               << "        '.cached_dependency', __package__)\n"
+               << "    from .cached_dependency import OFFSET\n"
+               << "    builtin_dependency = __import__(\n"
+               << "        'cached_dependency', globals(), locals(), (), 1)\n"
+               << "    if value == -1:\n"
+               << "        try:\n"
+               << "            __import__(\n"
+               << "                'cached_import_pkg.cached_dependency',\n"
+               << "                globals(), locals(), (), -1)\n"
+               << "        except ValueError:\n"
+               << "            pass\n"
+               << "        else:\n"
+               << "            raise RuntimeError('negative import level was accepted')\n"
+               << "    if value == 99:\n"
+               << "        completed.touch()\n"
+               << "    return (value + dependency.OFFSET + OFFSET\n"
+               << "            + builtin_dependency.OFFSET)\n";
+    }
+    {
+        std::ofstream module(blocking_module_dir / "blocking_import_udf.py");
+        module << "import pathlib\n"
+               << "import time\n"
+               << "started = pathlib.Path(r'" << import_started.string() << "')\n"
+               << "completed = pathlib.Path(r'" << cached_batch_completed.string() << "')\n"
+               << "watchdog = pathlib.Path(r'" << watchdog_expired.string() << "')\n"
+               << "deadline = time.monotonic() + 15\n"
+               << "started.touch()\n"
+               << "while not completed.exists() and time.monotonic() < deadline:\n"
+               << "    time.sleep(0.01)\n"
+               << "if not completed.exists():\n"
+               << "    watchdog.touch()\n"
+               << "def evaluate(value):\n"
+               << "    return value\n";
+    }
+
+    PythonVersion version("test-runtime", fs::path(*python).parent_path().parent_path().string(),
+                          *python);
+    PythonServerManager mgr;
+    ProcessPtr process;
+    Status fork_status = start_python_udf_server(*python, &process);
+    ASSERT_TRUE(fork_status.ok()) << fork_status.to_string();
+    ASSERT_NE(process, nullptr);
+    mgr.set_process_pool_for_test(version, {process});
+
+    auto cached_meta =
+            make_int_module_meta(1, cached_module_dir, "cached_import_pkg.entry.evaluate");
+    auto blocking_meta =
+            make_int_module_meta(2, blocking_module_dir, "blocking_import_udf.evaluate");
+
+    PythonUDFClientPtr cached_client;
+    ASSERT_TRUE(PythonUDFClient::create(cached_meta, process, &cached_client).ok());
+    std::vector<int32_t> warmup_results;
+    ASSERT_TRUE(evaluate_int_udf_batch(cached_client, {-1}, &warmup_results).ok());
+    ASSERT_EQ(warmup_results, std::vector<int32_t>({2}));
+
+    int32_t blocking_result = 0;
+    auto blocking_status = std::async(std::launch::async, [&] {
+        return evaluate_int_module_udf(blocking_meta, process, 10, &blocking_result);
+    });
+    auto marker_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!fs::exists(import_started) && std::chrono::steady_clock::now() < marker_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(fs::exists(import_started));
+
+    std::vector<int32_t> inputs(100);
+    std::iota(inputs.begin(), inputs.end(), 0);
+    std::vector<int32_t> results;
+    auto cached_status = std::async(std::launch::async, [&] {
+        return evaluate_int_udf_batch(cached_client, inputs, &results);
+    });
+
+    ASSERT_TRUE(cached_status.get().ok());
+    ASSERT_FALSE(fs::exists(watchdog_expired))
+            << "cached function-body imports waited for the process-wide import lock";
+    ASSERT_TRUE(fs::exists(cached_batch_completed));
+    ASSERT_EQ(results.size(), inputs.size());
+    for (size_t i = 0; i < inputs.size(); ++i) {
+        EXPECT_EQ(results[i], inputs[i] + 3);
+    }
+    ASSERT_TRUE(blocking_status.get().ok());
+    EXPECT_EQ(blocking_result, 10);
+    static_cast<void>(cached_client->close());
+    mgr.shutdown();
+}
+
+TEST_F(PythonServerTest, ModuleUdfChildThreadsUseModuleContext) {
+    auto python = find_python_udf_interpreter();
+    if (!python) {
+        GTEST_SKIP() << "Python with pandas and pyarrow is required";
+    }
+
+    ASSERT_TRUE(install_real_python_server().ok());
+
+    fs::path module_dir = fs::path(test_dir_) / "module_thread_context";
+    fs::path package_dir = module_dir / "thread_context_pkg";
+    fs::path direct_import_completed = fs::path(test_dir_) / "direct_import_completed";
+    fs::path runtime_import_completed = fs::path(test_dir_) / "runtime_import_completed";
+    fs::path callable_import_completed = fs::path(test_dir_) / "callable_import_completed";
+    fs::create_directories(package_dir);
+    std::ofstream(package_dir / "__init__.py").close();
+    {
+        std::ofstream dependency(package_dir / "builtin_dependency.py");
+        dependency << "OFFSET = 2\n";
+    }
+    {
+        std::ofstream dependency(package_dir / "importlib_dependency.py");
+        dependency << "OFFSET = 3\n";
+    }
+    {
+        std::ofstream dependency(package_dir / "nested_dependency.py");
+        dependency << "OFFSET = 5\n";
+    }
+    {
+        std::ofstream dependency(package_dir / "initial_dependency.py");
+        dependency << "OFFSET = 7\n";
+    }
+    {
+        std::ofstream dependency(package_dir / "direct_dependency.py");
+        dependency << "import pathlib\n"
+                   << "pathlib.Path(r'" << direct_import_completed.string() << "').touch()\n"
+                   << "OFFSET = 11\n";
+    }
+    {
+        std::ofstream dependency(package_dir / "runtime_dependency.py");
+        dependency << "import pathlib\n"
+                   << "pathlib.Path(r'" << runtime_import_completed.string() << "').touch()\n"
+                   << "OFFSET = 13\n";
+    }
+    {
+        std::ofstream dependency(package_dir / "callable_dependency.py");
+        dependency << "import pathlib\n"
+                   << "pathlib.Path(r'" << callable_import_completed.string() << "').touch()\n"
+                   << "OFFSET = 17\n";
+    }
+    {
+        std::ofstream dependency(package_dir / "parent_dependency.py");
+        dependency << "import threading\n"
+                   << "results = []\n"
+                   << "def import_from_child_during_parent_import():\n"
+                   << "    from .nested_dependency import OFFSET\n"
+                   << "    results.append(OFFSET)\n"
+                   << "thread = threading.Thread(target=import_from_child_during_parent_import)\n"
+                   << "thread.start()\n"
+                   << "thread.join(5)\n"
+                   << "if thread.is_alive():\n"
+                   << "    raise RuntimeError('nested child import waited for parent import')\n"
+                   << "OFFSET = results[0]\n";
+    }
+    {
+        std::ofstream module(package_dir / "entry.py");
+        module << "import importlib\n"
+               << "import pathlib\n"
+               << "import threading\n"
+               << "initial_results = []\n"
+               << "def import_during_initialization():\n"
+               << "    from .initial_dependency import OFFSET\n"
+               << "    initial_results.append(OFFSET)\n"
+               << "initial_thread = threading.Thread(target=import_during_initialization)\n"
+               << "initial_thread.start()\n"
+               << "initial_thread.join(5)\n"
+               << "if initial_thread.is_alive():\n"
+               << "    raise RuntimeError('child import waited for initial module import')\n"
+               << "INITIAL_OFFSET = initial_results[0]\n"
+               << "direct_thread = threading.Thread(\n"
+               << "    target=importlib.import_module,\n"
+               << "    args=('.direct_dependency', __package__))\n"
+               << "direct_thread.start()\n"
+               << "direct_thread.join(5)\n"
+               << "if direct_thread.is_alive():\n"
+               << "    raise RuntimeError('direct child import waited for initial module import')\n"
+               << "if not pathlib.Path(r'" << direct_import_completed.string() << "').exists():\n"
+               << "    raise RuntimeError('direct child import did not run')\n"
+               << "from .direct_dependency import OFFSET as DIRECT_OFFSET\n"
+               << "def evaluate(value):\n"
+               << "    runtime_thread = threading.Thread(\n"
+               << "        target=importlib.import_module,\n"
+               << "        args=('.runtime_dependency', __package__))\n"
+               << "    runtime_thread.start()\n"
+               << "    runtime_thread.join(5)\n"
+               << "    if runtime_thread.is_alive():\n"
+               << "        raise RuntimeError('direct runtime import did not finish')\n"
+               << "    if not pathlib.Path(r'" << runtime_import_completed.string()
+               << "').exists():\n"
+               << "        raise RuntimeError('direct runtime import did not run')\n"
+               << "    from .runtime_dependency import OFFSET as RUNTIME_OFFSET\n"
+               << "    results = []\n"
+               << "    errors = []\n"
+               << "    class ImportTarget:\n"
+               << "        def __eq__(self, other):\n"
+               << "            raise RuntimeError('thread target equality must not run')\n"
+               << "        def __call__(self):\n"
+               << "            try:\n"
+               << "                dependency = importlib.import_module(\n"
+               << "                    '.callable_dependency', __package__)\n"
+               << "                results.append(dependency.OFFSET)\n"
+               << "            except Exception as exc:\n"
+               << "                errors.append(str(exc))\n"
+               << "    callable_thread = threading.Thread(target=ImportTarget())\n"
+               << "    callable_thread.start()\n"
+               << "    callable_thread.join(5)\n"
+               << "    def import_with_statement():\n"
+               << "        try:\n"
+               << "            from .builtin_dependency import OFFSET\n"
+               << "            results.append(OFFSET)\n"
+               << "        except Exception as error:\n"
+               << "            errors.append(str(error))\n"
+               << "    def import_with_importlib():\n"
+               << "        try:\n"
+               << "            dependency = importlib.import_module(\n"
+               << "                '.importlib_dependency', __package__)\n"
+               << "            results.append(dependency.OFFSET)\n"
+               << "        except Exception as error:\n"
+               << "            errors.append(str(error))\n"
+               << "    for target in (import_with_statement, import_with_importlib):\n"
+               << "        thread = threading.Thread(target=target)\n"
+               << "        thread.start()\n"
+               << "        thread.join()\n"
+               << "    if errors:\n"
+               << "        raise RuntimeError('; '.join(errors))\n"
+               << "    from .parent_dependency import OFFSET\n"
+               << "    return (value + INITIAL_OFFSET + DIRECT_OFFSET + RUNTIME_OFFSET\n"
+               << "            + sum(results) + OFFSET)\n";
+    }
+
+    PythonVersion version("test-runtime", fs::path(*python).parent_path().parent_path().string(),
+                          *python);
+    PythonServerManager mgr;
+    ProcessPtr process;
+    Status fork_status = start_python_udf_server(*python, &process);
+    ASSERT_TRUE(fork_status.ok()) << fork_status.to_string();
+    ASSERT_NE(process, nullptr);
+    mgr.set_process_pool_for_test(version, {process});
+
+    PythonUDFMeta meta;
+    meta.id = 1;
+    meta.name = "thread_context_udf";
+    meta.symbol = "thread_context_pkg.entry.evaluate";
+    meta.location = module_dir.string();
+    meta.checksum = "test-checksum";
+    meta.runtime_version = version.full_version;
+    meta.input_types = {std::make_shared<DataTypeInt32>()};
+    meta.return_type = std::make_shared<DataTypeInt32>();
+    meta.type = PythonUDFLoadType::MODULE;
+    meta.client_type = PythonClientType::UDF;
+
+    int32_t result = 0;
+    Status evaluate_status = evaluate_int_module_udf(meta, process, 10, &result);
+    ASSERT_TRUE(evaluate_status.ok()) << evaluate_status.to_string();
+    EXPECT_EQ(result, 68);
+    mgr.shutdown();
+}
+
+TEST_F(PythonServerTest, LongLivedWorkerUsesCallingModuleContext) {
+    auto python = find_python_udf_interpreter();
+    if (!python) {
+        GTEST_SKIP() << "Python with pandas and pyarrow is required";
+    }
+
+    ASSERT_TRUE(install_real_python_server().ok());
+
+    fs::path global_module_dir = fs::path(test_dir_) / "global_thread_pool";
+    fs::path first_module_dir = fs::path(test_dir_) / "thread_pool_udf_a";
+    fs::path second_module_dir = fs::path(test_dir_) / "thread_pool_udf_b";
+    fs::create_directories(global_module_dir);
+    fs::create_directories(first_module_dir / "shared_thread_pkg");
+    fs::create_directories(second_module_dir / "shared_thread_pkg");
+    {
+        std::ofstream pool(global_module_dir / "shared_thread_pool.py");
+        pool << "from concurrent.futures import ThreadPoolExecutor\n"
+             << "executor = ThreadPoolExecutor(max_workers=1)\n";
+    }
+    auto write_udf = [](const fs::path& module_dir, int offset) {
+        fs::path package_dir = module_dir / "shared_thread_pkg";
+        std::ofstream(package_dir / "__init__.py").close();
+        {
+            std::ofstream dependency(package_dir / "dependency.py");
+            dependency << "OFFSET = " << offset << "\n";
+        }
+        {
+            std::ofstream entry(package_dir / "entry.py");
+            entry << "import shared_thread_pool\n"
+                  << "def import_dependency(value):\n"
+                  << "    from .dependency import OFFSET\n"
+                  << "    return value + OFFSET\n"
+                  << "def evaluate(value):\n"
+                  << "    return shared_thread_pool.executor.submit(\n"
+                  << "        import_dependency, value).result(5)\n";
+        }
+    };
+    write_udf(first_module_dir, 1);
+    write_udf(second_module_dir, 100);
+
+    const char* original_python_path = std::getenv("PYTHONPATH");
+    std::optional<std::string> saved_python_path;
+    if (original_python_path) {
+        saved_python_path = original_python_path;
+    }
+    setenv("PYTHONPATH", global_module_dir.c_str(), 1);
+
+    PythonVersion version("test-runtime", fs::path(*python).parent_path().parent_path().string(),
+                          *python);
+    PythonServerManager mgr;
+    ProcessPtr process;
+    Status fork_status = start_python_udf_server(*python, &process);
+    if (saved_python_path) {
+        setenv("PYTHONPATH", saved_python_path->c_str(), 1);
+    } else {
+        unsetenv("PYTHONPATH");
+    }
+    ASSERT_TRUE(fork_status.ok()) << fork_status.to_string();
+    ASSERT_NE(process, nullptr);
+    mgr.set_process_pool_for_test(version, {process});
+
+    int32_t first_result = 0;
+    int32_t second_result = 0;
+    ASSERT_TRUE(evaluate_int_module_udf(make_int_module_meta(1, first_module_dir,
+                                                             "shared_thread_pkg.entry.evaluate"),
+                                        process, 10, &first_result)
+                        .ok());
+    ASSERT_TRUE(evaluate_int_module_udf(make_int_module_meta(2, second_module_dir,
+                                                             "shared_thread_pkg.entry.evaluate"),
+                                        process, 10, &second_result)
+                        .ok());
+    EXPECT_EQ(first_result, 11);
+    EXPECT_EQ(second_result, 110);
+    mgr.shutdown();
+}
+
+TEST_F(PythonServerTest, ClearModuleCacheWaitsForModuleImport) {
+    auto python = find_python_udf_interpreter();
+    if (!python) {
+        GTEST_SKIP() << "Python with pandas and pyarrow is required";
+    }
+
+    ASSERT_TRUE(install_real_python_server().ok());
+
+    fs::path module_dir = fs::path(test_dir_) / "module_clear_during_import";
+    fs::create_directories(module_dir);
+    fs::path import_started = fs::path(test_dir_) / "clear_import_started";
+    fs::path allow_import = fs::path(test_dir_) / "allow_import";
+    auto write_module = [&](int offset, bool wait_for_release) {
+        std::ofstream module(module_dir / "clear_during_import_udf.py", std::ios::trunc);
+        if (wait_for_release) {
+            module << "import pathlib\n"
+                   << "import time\n"
+                   << "started = pathlib.Path(r'" << import_started.string() << "')\n"
+                   << "release = pathlib.Path(r'" << allow_import.string() << "')\n"
+                   << "deadline = time.monotonic() + 10\n"
+                   << "started.touch()\n"
+                   << "while not release.exists() and time.monotonic() < deadline:\n"
+                   << "    time.sleep(0.01)\n"
+                   << "if not release.exists():\n"
+                   << "    raise RuntimeError('timed out waiting to finish import')\n";
+        }
+        module << "def evaluate(value):\n"
+               << "    return value + " << offset << "\n";
+    };
+    write_module(1, true);
+
+    PythonVersion version("test-runtime", fs::path(*python).parent_path().parent_path().string(),
+                          *python);
+    PythonServerManager mgr;
+    ProcessPtr process;
+    Status fork_status = start_python_udf_server(*python, &process);
+    ASSERT_TRUE(fork_status.ok()) << fork_status.to_string();
+    ASSERT_NE(process, nullptr);
+    mgr.set_process_pool_for_test(version, {process});
+
+    PythonUDFMeta meta;
+    meta.id = 1;
+    meta.name = "clear_during_import_udf";
+    meta.symbol = "clear_during_import_udf.evaluate";
+    meta.location = module_dir.string();
+    meta.checksum = "test-checksum";
+    meta.runtime_version = version.full_version;
+    meta.input_types = {std::make_shared<DataTypeInt32>()};
+    meta.return_type = std::make_shared<DataTypeInt32>();
+    meta.type = PythonUDFLoadType::MODULE;
+    meta.client_type = PythonClientType::UDF;
+
+    int32_t initial_result = 0;
+    auto evaluate_status = std::async(std::launch::async, [&] {
+        return evaluate_int_module_udf(meta, process, 10, &initial_result);
+    });
+    Defer release_import {[&] { std::ofstream(allow_import).close(); }};
+    auto marker_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!fs::exists(import_started) && std::chrono::steady_clock::now() < marker_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(fs::exists(import_started));
+
+    auto clear_status =
+            std::async(std::launch::async, [&] { return mgr.clear_module_cache(meta.location); });
+    EXPECT_EQ(clear_status.wait_for(std::chrono::milliseconds(200)), std::future_status::timeout);
+    std::ofstream(allow_import).close();
+
+    ASSERT_TRUE(evaluate_status.get().ok());
+    ASSERT_EQ(initial_result, 11);
+    auto clear_result = clear_status.get();
+    ASSERT_TRUE(clear_result.ok()) << clear_result.to_string();
+
+    write_module(100, false);
+    int32_t reloaded_result = 0;
+    ASSERT_TRUE(evaluate_int_module_udf(meta, process, 10, &reloaded_result).ok());
+    EXPECT_EQ(reloaded_result, 110);
     mgr.shutdown();
 }
 

@@ -86,10 +86,34 @@ suite('test_pythonudaf_pkg_isolation') {
         // Case 4: All four combinations together
         qt_pkg_isolation_4 '''SELECT py_pkg_a_sum_x(v), py_pkg_a_sum_y(v), py_pkg_b_sum_x(v), py_pkg_b_sum_y(v) FROM py_udaf_pkg_tbl;'''
 
+        // Case 5: Different top-level modules import the same dependency name
+        sql '''DROP FUNCTION IF EXISTS py_pkg_a_dependency_sum(INT)'''
+        sql '''DROP FUNCTION IF EXISTS py_pkg_b_dependency_sum(INT)'''
+        sql """
+            CREATE AGGREGATE FUNCTION py_pkg_a_dependency_sum(INT) RETURNS BIGINT PROPERTIES (
+                "type" = "PYTHON_UDF",
+                "file" = "file://${zipA}",
+                "symbol" = "udaf_a_entry.SumAgg",
+                "runtime_version" = "${runtime_version}"
+            )
+        """
+        sql """
+            CREATE AGGREGATE FUNCTION py_pkg_b_dependency_sum(INT) RETURNS BIGINT PROPERTIES (
+                "type" = "PYTHON_UDF",
+                "file" = "file://${zipB}",
+                "symbol" = "udaf_b_entry.SumAgg",
+                "runtime_version" = "${runtime_version}"
+            )
+        """
+
+        qt_pkg_isolation_5 '''SELECT py_pkg_a_dependency_sum(v), py_pkg_b_dependency_sum(v) FROM py_udaf_pkg_tbl;'''
+
     } finally {
         try_sql('DROP FUNCTION IF EXISTS py_pkg_a_sum_x(INT);')
         try_sql('DROP FUNCTION IF EXISTS py_pkg_a_sum_y(INT);')
         try_sql('DROP FUNCTION IF EXISTS py_pkg_b_sum_x(INT);')
         try_sql('DROP FUNCTION IF EXISTS py_pkg_b_sum_y(INT);')
+        try_sql('DROP FUNCTION IF EXISTS py_pkg_a_dependency_sum(INT);')
+        try_sql('DROP FUNCTION IF EXISTS py_pkg_b_dependency_sum(INT);')
     }
 }
