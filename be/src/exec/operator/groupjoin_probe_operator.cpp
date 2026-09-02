@@ -58,8 +58,7 @@ GroupJoinProbeOperatorX::GroupJoinProbeOperatorX(ObjectPool* pool, const TPlanNo
                                                                : std::vector<TExpr> {}),
           _output_tuple_id(tnode.group_join_node.output_tuple_id) {
     _op_name = "GROUP_JOIN_PROBE_OPERATOR";
-    _output_row_desc =
-            std::make_unique<RowDescriptor>(descs, std::vector<TupleId> {_output_tuple_id});
+    _row_descriptor = RowDescriptor(descs, std::vector<TupleId> {_output_tuple_id});
 }
 
 Status GroupJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -93,7 +92,8 @@ Status GroupJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state
 
 Status GroupJoinProbeOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
-    RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));
+    RETURN_IF_ERROR(
+            VExpr::prepare(_probe_expr_ctxs, state, _child->operator_row_desc_after_projection()));
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK(_output_tuple_desc != nullptr);
@@ -109,12 +109,12 @@ Status GroupJoinProbeOperatorX::prepare(RuntimeState* state) {
     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
         const auto agg_idx = _aggregate_indices[i];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[key_size + agg_idx];
-        RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(state, _child->row_desc(),
-                                                          output_slot_desc, output_slot_desc));
+        RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
+                state, _child->operator_row_desc_after_projection(), output_slot_desc,
+                output_slot_desc));
         _aggregate_evaluators[i]->set_version(state->be_exec_version());
-        _sizes_of_aggregate_states[agg_idx] = _aggregate_evaluators[i]->function()->size_of_data();
-        _aligns_of_aggregate_states[agg_idx] =
-                _aggregate_evaluators[i]->function()->align_of_data();
+        _sizes_of_aggregate_states[agg_idx] = _aggregate_evaluators[i]->size_of_data();
+        _aligns_of_aggregate_states[agg_idx] = _aggregate_evaluators[i]->align_of_data();
     }
     for (auto* evaluator : _aggregate_evaluators) {
         RETURN_IF_ERROR(evaluator->open(state));
@@ -173,7 +173,8 @@ Status GroupJoinProbeOperatorX::pull(RuntimeState* state, Block* output_block, b
         return Status::OK();
     }
 
-    auto columns_with_schema = VectorizedUtils::create_columns_with_type_and_name(row_desc());
+    auto columns_with_schema = VectorizedUtils::create_columns_with_type_and_name(
+            operator_row_desc_before_projection());
     const size_t key_size = local_state._probe_expr_ctxs.size();
     const size_t agg_size = shared_state->aggregate_evaluators.size();
     DCHECK_EQ(columns_with_schema.size(), key_size + agg_size);
@@ -231,8 +232,9 @@ DataDistribution GroupJoinProbeOperatorX::required_data_distribution(RuntimeStat
     // supports only inner equi join, so broadcast/null-aware special branches are not needed.
     return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
                            _join_distribution == TJoinDistributionType::COLOCATE
-                   ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
-                   : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+                   ? DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                   : DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE,
+                                      _partition_exprs);
 }
 
 bool GroupJoinProbeOperatorX::is_shuffled_operator() const {
