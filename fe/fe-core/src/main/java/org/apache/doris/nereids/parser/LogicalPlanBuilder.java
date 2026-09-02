@@ -222,6 +222,8 @@ import org.apache.doris.nereids.DorisParser.ExceptContext;
 import org.apache.doris.nereids.DorisParser.ExceptOrReplaceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
+import org.apache.doris.nereids.DorisParser.ExplainableDmlStatementContext;
+import org.apache.doris.nereids.DorisParser.ExplainableStatementContext;
 import org.apache.doris.nereids.DorisParser.ExportContext;
 import org.apache.doris.nereids.DorisParser.ExpressionWithEofContext;
 import org.apache.doris.nereids.DorisParser.ExpressionWithOrderContext;
@@ -457,7 +459,6 @@ import org.apache.doris.nereids.DorisParser.SortClauseContext;
 import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.SpecifiedPartitionContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
-import org.apache.doris.nereids.DorisParser.StatementDefaultContext;
 import org.apache.doris.nereids.DorisParser.StatementScopeContext;
 import org.apache.doris.nereids.DorisParser.StepPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
@@ -1229,14 +1230,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public LogicalPlan visitStatementDefault(StatementDefaultContext ctx) {
-        LogicalPlan plan = plan(ctx.query());
+    public LogicalPlan visitExplainableStatement(ExplainableStatementContext ctx) {
+        if (ctx.dmlStatementBody() != null) {
+            return plan(ctx.dmlStatementBody());
+        }
+        LogicalPlan plan = ParserUtils.withOrigin(
+                ctx.cteContext != null ? ctx.cteContext : ctx.queryTerm(),
+                () -> withCte(buildQuery(ctx.queryTerm(), ctx.queryOrganization()), ctx.cteContext));
         if (ctx.outFileClause() != null) {
             plan = withOutFile(plan, ctx.outFileClause());
         } else {
             plan = new UnboundResultSink<>(plan);
         }
-        return withExplain(plan, ctx.explain());
+        return withExplain(plan, ctx.explainContext);
+    }
+
+    @Override
+    public LogicalPlan visitExplainableDmlStatement(ExplainableDmlStatementContext ctx) {
+        return plan(ctx.dmlStatementBody());
     }
 
     @Override
@@ -1451,12 +1462,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 tvfName, properties, DMLCommandType.INSERT, plan);
 
         Optional<LogicalPlan> cte = Optional.empty();
-        if (ctx.cte() != null) {
-            cte = Optional.ofNullable(withCte(plan, ctx.cte()));
+        if (ctx.cteContext != null) {
+            cte = Optional.ofNullable(withCte(plan, ctx.cteContext));
         }
 
         LogicalPlan command = new InsertIntoTVFCommand(sink, labelName, cte);
-        return withExplain(command, ctx.explain());
+        return withExplain(command, ctx.explainContext);
     }
 
     /**
@@ -1507,8 +1518,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 plan,
                 partitionSpec.isStaticPartition() ? partitionSpec.getStaticPartitionValues() : null);
         Optional<LogicalPlan> cte = Optional.empty();
-        if (ctx.cte() != null) {
-            cte = Optional.ofNullable(withCte(plan, ctx.cte()));
+        if (ctx.cteContext != null) {
+            cte = Optional.ofNullable(withCte(plan, ctx.cteContext));
         }
         LogicalPlan command;
         if (isOverwrite) {
@@ -1525,12 +1536,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 command = new InsertIntoTableCommand(sink, labelName, Optional.empty(), cte, true, branchName);
             }
         }
-        return withExplain(command, ctx.explain());
+        return withExplain(command, ctx.explainContext);
     }
 
     @Override
     public Object visitMergeInto(MergeIntoContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> {
+        ParserRuleContext originContext = ctx.explainContext != null
+                ? ctx.explainContext : ctx.cteContext != null ? ctx.cteContext : ctx;
+        return ParserUtils.withOrigin(originContext, () -> {
             List<String> targetNameParts = visitMultipartIdentifier(ctx.targetTable);
             Optional<String> targetAlias = Optional.ofNullable(
                     ctx.identifier() != null ? ctx.identifier().getText() : null);
@@ -1540,11 +1553,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             List<MergeNotMatchedClause> notMatchedClauses = visit(ctx.mergeNotMatchedClause(),
                     MergeNotMatchedClause.class);
             Optional<LogicalPlan> cte = Optional.empty();
-            if (ctx.cte() != null) {
-                cte = Optional.ofNullable(withCte(source, ctx.cte()));
+            if (ctx.cteContext != null) {
+                cte = Optional.ofNullable(withCte(source, ctx.cteContext));
             }
             return withExplain(new MergeIntoCommand(targetNameParts, targetAlias, cte,
-                    source, onClause, matchedClauses, notMatchedClauses), ctx.explain());
+                    source, onClause, matchedClauses, notMatchedClauses), ctx.explainContext);
         });
     }
 
@@ -2077,11 +2090,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             tableAlias = ctx.tableAlias().strictIdentifier().getText();
         }
         Optional<LogicalPlan> cte = Optional.empty();
-        if (ctx.cte() != null) {
-            cte = Optional.ofNullable(withCte(query, ctx.cte()));
+        if (ctx.cteContext != null) {
+            cte = Optional.ofNullable(withCte(query, ctx.cteContext));
         }
         return withExplain(new UpdateCommand(visitMultipartIdentifier(ctx.tableName), tableAlias,
-                visitUpdateAssignmentSeq(ctx.updateAssignmentSeq()), query, cte), ctx.explain());
+                visitUpdateAssignmentSeq(ctx.updateAssignmentSeq()), query, cte), ctx.explainContext);
     }
 
     @Override
@@ -2106,7 +2119,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 && (ctx.queryOrganization().sortClause() != null
                         || ctx.queryOrganization().limitClause() != null);
         Command deleteCommand;
-        if (ctx.USING() == null && ctx.cte() == null && !hasQueryOrganization) {
+        if (ctx.USING() == null && ctx.cteContext == null && !hasQueryOrganization) {
             query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
             deleteCommand = new DeleteFromCommand(tableName, tableAlias, partitionSpec.first,
                     partitionSpec.second, query);
@@ -2119,14 +2132,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             query = withQueryOrganization(query, ctx.queryOrganization());
             query = convertSortOrdinalsToUnboundSlot(query);
             Optional<LogicalPlan> cte = Optional.empty();
-            if (ctx.cte() != null) {
-                cte = Optional.ofNullable(withCte(query, ctx.cte()));
+            if (ctx.cteContext != null) {
+                cte = Optional.ofNullable(withCte(query, ctx.cteContext));
             }
             deleteCommand = new DeleteFromUsingCommand(tableName, tableAlias,
                     partitionSpec.first, partitionSpec.second, query, cte, hasQueryOrganization);
         }
-        if (ctx.explain() != null) {
-            return withExplain(deleteCommand, ctx.explain());
+        if (ctx.explainContext != null) {
+            return withExplain(deleteCommand, ctx.explainContext);
         } else {
             return deleteCommand;
         }
@@ -2596,10 +2609,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitQuery(QueryContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             // TODO: need to add withQueryResultClauses and withCTE
-            LogicalPlan query = plan(ctx.queryTerm());
-            query = withQueryOrganization(query, ctx.queryOrganization());
-            return withCte(query, ctx.cte());
+            return withCte(buildQuery(ctx.queryTerm(), ctx.queryOrganization()), ctx.cte());
         });
+    }
+
+    private LogicalPlan buildQuery(QueryTermContext queryTerm, QueryOrganizationContext queryOrganization) {
+        LogicalPlan query = plan(queryTerm);
+        return withQueryOrganization(query, queryOrganization);
     }
 
     @Override
