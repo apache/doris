@@ -39,7 +39,8 @@ class TupleDescriptor;
 class ScannerScheduler;
 namespace io {
 enum class FileCacheMissPolicy : uint8_t;
-}
+class FileRangeReadContext;
+} // namespace io
 
 struct FileMapping;
 struct SegKey;
@@ -91,14 +92,17 @@ private:
             int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
             int64_t* lookup_row_data_ms, std::unordered_map<SegKey, SegItem, HashOfSegKey>& seg_map,
             std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
-            io::FileCacheMissPolicy file_cache_miss_policy, Block& result_block);
+            io::FileCacheMissPolicy file_cache_miss_policy,
+            const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context,
+            Block& result_block);
 
     static Status read_batch_doris_format_row(
             const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
             std::vector<SlotDescriptor>& slots, const TUniqueId& query_id, Block& result_block,
             OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
             int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms,
-            io::FileCacheMissPolicy file_cache_miss_policy);
+            io::FileCacheMissPolicy file_cache_miss_policy,
+            const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context);
 
     static Status read_batch_external_row(
             const uint64_t workload_group_id, const PRequestBlockDesc& request_block_desc,

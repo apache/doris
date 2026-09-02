@@ -20,6 +20,7 @@
 #include <butil/iobuf.h>
 #include <gtest/gtest.h>
 
+#include <array>
 #include <atomic>
 #include <cstring>
 #include <memory>
@@ -85,6 +86,44 @@ private:
     std::atomic<bool> _fail_next_read {false};
     size_t _read_calls {0};
     bool _closed {false};
+};
+
+class ExactRowIdColumn final : public ColumnIterator {
+public:
+    explicit ExactRowIdColumn(ColumnReadAhead* window) : _window(window) {
+        DORIS_CHECK(_window != nullptr);
+    }
+
+    Status seek_to_ordinal(ordinal_t) override { return Status::OK(); }
+
+    Status next_batch(size_t*, MutableColumnPtr&, bool*) override { return Status::OK(); }
+
+    Status read_by_rowids(const rowid_t*, size_t, MutableColumnPtr&) override {
+        return Status::OK();
+    }
+
+    ordinal_t get_current_ordinal() const override { return 0; }
+
+    Status prepare_read_ahead(const ColumnReadAheadRequest& request,
+                              std::vector<ColumnReadAheadPlan>* plans) override {
+        ++prepare_calls;
+        last_role = request.role;
+        scan_rowids = *request.scan_rowids;
+        ColumnReadAheadPlan plan;
+        _window->plan(request.current_rowids, request.current_rowid_count, *request.scan_rowids,
+                      &plan);
+        if (!plan.empty()) {
+            plans->push_back(std::move(plan));
+        }
+        return Status::OK();
+    }
+
+    size_t prepare_calls {0};
+    ColumnReadAheadRole last_role {ColumnReadAheadRole::LAZY};
+    roaring::Roaring scan_rowids;
+
+private:
+    ColumnReadAhead* _window;
 };
 
 std::vector<ColumnReadAheadPage> make_pages(size_t page_count, size_t page_size,
@@ -210,6 +249,48 @@ TEST(SegmentReadAheadTest, CoalescesColumnsAndServesExactPageSlices) {
     ASSERT_EQ(consumed_ranges.size(), 1);
     EXPECT_EQ(source->read_calls(), 1);
     EXPECT_EQ(source->reads(), (std::vector<io::FileRange> {{.offset = 0, .size = 40}}));
+}
+
+TEST(SegmentReadAheadTest, PrefetchesExactRowIdsAcrossColumnsInOneSubmission) {
+    auto source = std::make_shared<TestFileReader>(std::string(128, 'x'));
+    auto scheduler = make_scheduler();
+    auto read_ahead = make_segment_read_ahead(
+            source, scheduler.get(),
+            {.range_plan = plan_options(), .page_cache_probe = {}, .range_consumer_factory = {}},
+            {.high_watermark_bytes = 64, .low_watermark_bytes = 16},
+            {.high_watermark_bytes = 32, .low_watermark_bytes = 8});
+    auto first_window = make_window(1, 16, 0);
+    auto second_window = make_window(1, 16, 24);
+    ExactRowIdColumn first(first_window.get());
+    ExactRowIdColumn second(second_window.get());
+    std::array<ColumnIterator*, 2> columns {&first, &second};
+    const std::array<rowid_t, 1> rowids {0};
+
+    const auto result = read_ahead->prefetch_by_rowids(rowids.data(), rowids.size(), columns);
+
+    ASSERT_TRUE(result.accepted()) << result.status;
+    EXPECT_EQ(result.new_pages, 2);
+    EXPECT_EQ(result.submitted_ranges, 1);
+    EXPECT_EQ(result.submitted_bytes, 40);
+    EXPECT_EQ(first.prepare_calls, 1);
+    EXPECT_EQ(second.prepare_calls, 1);
+    EXPECT_EQ(first.last_role, ColumnReadAheadRole::EAGER);
+    EXPECT_EQ(second.last_role, ColumnReadAheadRole::EAGER);
+    EXPECT_TRUE(first.scan_rowids.contains(0));
+    EXPECT_TRUE(second.scan_rowids.contains(0));
+
+    char first_data[16];
+    char second_data[16];
+    size_t bytes_read = 0;
+    ASSERT_TRUE(read_ahead->file_reader()
+                        ->read_at(0, Slice(first_data, sizeof(first_data)), &bytes_read)
+                        .ok());
+    ASSERT_EQ(bytes_read, sizeof(first_data));
+    ASSERT_TRUE(read_ahead->file_reader()
+                        ->read_at(24, Slice(second_data, sizeof(second_data)), &bytes_read)
+                        .ok());
+    ASSERT_EQ(bytes_read, sizeof(second_data));
+    EXPECT_EQ(source->read_calls(), 1);
 }
 
 TEST(SegmentReadAheadTest, SharesOnePhysicalPageAcrossColumnOwners) {
