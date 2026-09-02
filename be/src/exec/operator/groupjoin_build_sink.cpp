@@ -63,7 +63,8 @@ Status GroupJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInf
     if (!p._runtime_filter_descs.empty()) {
         _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelperGroupJoin>();
         RETURN_IF_ERROR(_runtime_filter_producer_helper->init(
-                state, _build_expr_ctxs, p._runtime_filter_descs, p._child->row_desc()));
+                state, _build_expr_ctxs, p._runtime_filter_descs,
+                p._child->operator_row_desc_after_projection()));
     }
     _dependency->set_ready();
     return Status::OK();
@@ -167,7 +168,8 @@ Status GroupJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* s
 
 Status GroupJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
-    RETURN_IF_ERROR(VExpr::prepare(_build_expr_ctxs, state, _child->row_desc()));
+    RETURN_IF_ERROR(
+            VExpr::prepare(_build_expr_ctxs, state, _child->operator_row_desc_after_projection()));
     RETURN_IF_ERROR(VExpr::open(_build_expr_ctxs, state));
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK(_output_tuple_desc != nullptr);
@@ -175,12 +177,12 @@ Status GroupJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
         const auto agg_idx = _aggregate_indices[i];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[key_size + agg_idx];
-        RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(state, _child->row_desc(),
-                                                          output_slot_desc, output_slot_desc));
+        RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
+                state, _child->operator_row_desc_after_projection(), output_slot_desc,
+                output_slot_desc));
         _aggregate_evaluators[i]->set_version(state->be_exec_version());
-        _sizes_of_aggregate_states[agg_idx] = _aggregate_evaluators[i]->function()->size_of_data();
-        _aligns_of_aggregate_states[agg_idx] =
-                _aggregate_evaluators[i]->function()->align_of_data();
+        _sizes_of_aggregate_states[agg_idx] = _aggregate_evaluators[i]->size_of_data();
+        _aligns_of_aggregate_states[agg_idx] = _aggregate_evaluators[i]->align_of_data();
     }
     for (auto* evaluator : _aggregate_evaluators) {
         RETURN_IF_ERROR(evaluator->open(state));
@@ -243,8 +245,9 @@ DataDistribution GroupJoinBuildSinkOperatorX::required_data_distribution(
     // supports only inner equi join, so broadcast/null-aware special branches are not needed.
     return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
                            _join_distribution == TJoinDistributionType::COLOCATE
-                   ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
-                   : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+                   ? DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                   : DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE,
+                                      _partition_exprs);
 }
 
 bool GroupJoinBuildSinkOperatorX::is_shuffled_operator() const {

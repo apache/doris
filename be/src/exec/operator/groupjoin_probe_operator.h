@@ -25,8 +25,8 @@
 #include "core/arena.h"
 #include "core/column/column_vector.h"
 #include "exec/common/groupjoin_utils.h"
+#include "exec/operator/groupjoin_shared_state.h"
 #include "exec/operator/operator.h"
-#include "exec/pipeline/dependency.h"
 
 namespace doris {
 
@@ -84,10 +84,6 @@ public:
     Status push(RuntimeState* state, Block* input_block, bool eos) const override;
     Status pull(RuntimeState* state, Block* output_block, bool* eos) const override;
     bool need_more_input_data(RuntimeState* state) const override;
-    [[nodiscard]] const RowDescriptor& row_desc() const override {
-        DORIS_CHECK(_output_row_desc != nullptr);
-        return *_output_row_desc;
-    }
     Status set_child(OperatorPtr child) override {
         if (Base::_child && _build_side_child == nullptr) {
             // The second child of a binary GroupJoin plan is the build side. Keep the first child
@@ -118,8 +114,10 @@ private:
     std::vector<size_t> _make_nullable_keys;
     TupleId _output_tuple_id;
     TupleDescriptor* _output_tuple_desc = nullptr;
-    std::unique_ptr<RowDescriptor> _output_row_desc;
     OperatorPtr _build_side_child = nullptr;
 };
+
+extern template class StatefulOperatorX<GroupJoinProbeLocalState>;
+extern template class PipelineXLocalState<GroupJoinSharedState>;
 
 } // namespace doris
