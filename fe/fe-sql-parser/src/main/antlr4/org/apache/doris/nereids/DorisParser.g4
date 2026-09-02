@@ -105,8 +105,10 @@ statementBase
     ;
 
 queryOrDmlStatement
-    : explain? query outFileClause?     #statementDefault
-    | dmlStatement                      #dmlStatementAlias
+    : explainContext=explain? cteContext=cte?
+        (queryTerm queryOrganization outFileClause?
+        | dmlStatementBody[$explainContext.ctx, $cteContext.ctx])    #explainableStatement
+    | nonExplainableDmlStatement        #dmlStatementAlias
     | describeStatement                 #describeStatementAlias
     | otherStatement                    #otherStatementAlias
     | loadDmlStatement                  #loadStatementAlias
@@ -274,31 +276,40 @@ optSpecBranch
     ;
 
 dmlStatement
-    : explain? cte? INSERT INTO tvfName=identifier
+    : explainContext=explain? cteContext=cte?
+        dmlStatementBody[$explainContext.ctx, $cteContext.ctx]      #explainableDmlStatement
+    | nonExplainableDmlStatement                                   #nonExplainableDmlStatementAlias
+    ;
+
+dmlStatementBody[ExplainContext explainContext, CteContext cteContext]
+    : INSERT INTO tvfName=identifier
         LEFT_PAREN tvfProperties=propertyItemList RIGHT_PAREN
         (WITH LABEL labelName=identifier)?
         query                                                          #insertIntoTVF
-    | explain? cte? INSERT (INTO | OVERWRITE TABLE)
+    | INSERT (INTO | OVERWRITE TABLE)
         (tableName=multipartIdentifier (optSpecBranch)? | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
         partitionSpec?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
         query                                                          #insertTable
-    | explain? cte? UPDATE tableName=multipartIdentifier tableAlias
+    | UPDATE tableName=multipartIdentifier tableAlias
         SET updateAssignmentSeq
         fromClause?
         whereClause?
         queryOrganization                                              #update
-    | explain? cte? DELETE FROM tableName=multipartIdentifier
+    | DELETE FROM tableName=multipartIdentifier
         partitionSpec? tableAlias
         (USING relations)?
         whereClause?
         queryOrganization                                              #delete
-    | explain? cte? MERGE INTO targetTable=multipartIdentifier
+    | MERGE INTO targetTable=multipartIdentifier
         (AS? identifier)? USING srcRelation=relationPrimary
         ON expression
         (mergeMatchedClause | mergeNotMatchedClause)+                   #mergeInto
-    | LOAD LABEL lableName=multipartIdentifier
+    ;
+
+nonExplainableDmlStatement
+    : LOAD LABEL lableName=multipartIdentifier
         LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
         (withRemoteStorageSystem)?
         propertyClause?
