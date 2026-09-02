@@ -32,11 +32,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Tests {@link CachingHmsClient}: the caching decorator over an {@link HmsClient}.
@@ -62,6 +65,15 @@ public class CachingHmsClientTest {
 
     private static CachingHmsClient cache(HmsClient delegate, Map<String, String> properties) {
         return new CachingHmsClient(new CatalogMetaCache(), delegate, properties);
+    }
+
+    private static void awaitLatch(CountDownLatch latch) {
+        try {
+            Assertions.assertTrue(latch.await(10, TimeUnit.SECONDS));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(e);
+        }
     }
 
     // ---- getTable ----
@@ -345,6 +357,68 @@ public class CachingHmsClientTest {
     }
 
     @Test
+    public void omissionTolerantWaiterRetriesExactOwnersMissingResult() throws Exception {
+        CountDownLatch exactLoadEntered = new CountDownLatch(1);
+        CountDownLatch releaseExactLoad = new CountDownLatch(1);
+        CountDownLatch waiterRegistered = new CountDownLatch(1);
+        AtomicInteger registrations = new AtomicInteger();
+        RecordingHmsClient delegate = new RecordingHmsClient() {
+            @Override
+            public HmsPartitionBatchResult getPartitionsWithStats(
+                    String dbName, String tableName, List<String> partNames) {
+                exactLoadEntered.countDown();
+                awaitLatch(releaseExactLoad);
+                HmsPartitionBatchResult result = super.getPartitionsWithStats(dbName, tableName, partNames);
+                HmsPartitionResultException failure = HmsPartitionResultException
+                        .builder(partNames.size(), result.getPartitions().size())
+                        .missing("p=2")
+                        .build();
+                throw failure.withPartitionBatchStats(result.getStats());
+            }
+
+            @Override
+            public HmsPartitionBatchResult getExistingPartitionsWithStats(
+                    String dbName, String tableName, List<String> partNames) {
+                return super.getPartitionsWithStats(dbName, tableName, partNames);
+            }
+        };
+        delegate.absentPartitionNames.add("p=2");
+        CachingHmsClient cache = new CachingHmsClient(new CatalogMetaCache(), delegate,
+                Collections.emptyMap()) {
+            @Override
+            void afterPartitionLoadRegistrationForTest() {
+                if (registrations.incrementAndGet() == 2) {
+                    waiterRegistered.countDown();
+                }
+            }
+        };
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<List<HmsPartitionInfo>> exact = executor.submit(
+                    () -> cache.getPartitions("db", "t", Arrays.asList("p=1", "p=2")));
+            Assertions.assertTrue(exactLoadEntered.await(10, TimeUnit.SECONDS));
+            Future<List<HmsPartitionInfo>> tolerant = executor.submit(
+                    () -> cache.getExistingPartitions("db", "t", Arrays.asList("p=1", "p=2")));
+            Assertions.assertTrue(waiterRegistered.await(10, TimeUnit.SECONDS));
+
+            releaseExactLoad.countDown();
+
+            ExecutionException exactFailure = Assertions.assertThrows(
+                    ExecutionException.class, () -> exact.get(10, TimeUnit.SECONDS));
+            Assertions.assertTrue(exactFailure.getCause() instanceof HmsPartitionResultException);
+            List<HmsPartitionInfo> tolerantResult = tolerant.get(10, TimeUnit.SECONDS);
+            Assertions.assertEquals(Collections.singletonList("1"),
+                    tolerantResult.stream().map(partition -> partition.getValues().get(0))
+                            .collect(java.util.stream.Collectors.toList()));
+            Assertions.assertEquals(2, delegate.getPartitionsCalls,
+                    "the tolerant waiter must retry under its own missing-result contract");
+        } finally {
+            releaseExactLoad.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void getPartitionsRejectsUnexpectedIdentityWithoutCachingIt() {
         RecordingHmsClient delegate = new RecordingHmsClient();
         delegate.forcedValues = Arrays.asList("EXOTIC");
@@ -559,6 +633,156 @@ public class CachingHmsClientTest {
                     "the invalidated waiter must start a new load instead of consuming stale in-flight data");
         } finally {
             releaseFirstLoad.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void waiterRetriesHandlelessSecondCheckHandoffAfterInvalidation() throws Exception {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CatalogMetaCache owner = new CatalogMetaCache();
+        CountDownLatch initialLoadEntered = new CountDownLatch(1);
+        CountDownLatch releaseInitialLoad = new CountDownLatch(1);
+        CountDownLatch handoffOwnerReady = new CountDownLatch(1);
+        CountDownLatch handoffWaiterReady = new CountDownLatch(1);
+        CountDownLatch releaseHandoffOwnerElection = new CountDownLatch(1);
+        CountDownLatch releaseHandoffWaiterElection = new CountDownLatch(1);
+        CountDownLatch handoffOwnerClaimed = new CountDownLatch(1);
+        CountDownLatch releaseHandoffOwnerSecondCheck = new CountDownLatch(1);
+        CountDownLatch handoffWaiterRegistered = new CountDownLatch(1);
+        CountDownLatch releaseHandoffWaiterConsumption = new CountDownLatch(1);
+        AtomicReference<Thread> handoffOwnerThread = new AtomicReference<>();
+        AtomicReference<Thread> handoffWaiterThread = new AtomicReference<>();
+        AtomicInteger loads = new AtomicInteger();
+        delegate.onGetPartitions = () -> {
+            if (loads.incrementAndGet() == 1) {
+                initialLoadEntered.countDown();
+                awaitLatch(releaseInitialLoad);
+            }
+        };
+        CachingHmsClient cache = new CachingHmsClient(owner, delegate, Collections.emptyMap()) {
+            @Override
+            void beforePartitionLoadElectionForTest() {
+                if (Thread.currentThread() == handoffOwnerThread.get()) {
+                    handoffOwnerReady.countDown();
+                    awaitLatch(releaseHandoffOwnerElection);
+                } else if (Thread.currentThread() == handoffWaiterThread.get()) {
+                    handoffWaiterReady.countDown();
+                    awaitLatch(releaseHandoffWaiterElection);
+                }
+            }
+
+            @Override
+            void afterPartitionLoadOwnershipForTest() {
+                if (Thread.currentThread() == handoffOwnerThread.get()) {
+                    handoffOwnerClaimed.countDown();
+                    awaitLatch(releaseHandoffOwnerSecondCheck);
+                }
+            }
+
+            @Override
+            void afterPartitionLoadRegistrationForTest() {
+                if (Thread.currentThread() == handoffWaiterThread.get()) {
+                    handoffWaiterRegistered.countDown();
+                    awaitLatch(releaseHandoffWaiterConsumption);
+                }
+            }
+        };
+        ExecutorService executor = Executors.newFixedThreadPool(3);
+        try {
+            Future<List<HmsPartitionInfo>> initial = executor.submit(
+                    () -> cache.getPartitions("db", "t", Collections.singletonList("p=1")));
+            Assertions.assertTrue(initialLoadEntered.await(10, TimeUnit.SECONDS));
+            Future<List<HmsPartitionInfo>> handoffOwner = executor.submit(() -> {
+                handoffOwnerThread.set(Thread.currentThread());
+                return cache.getPartitions("db", "t", Collections.singletonList("p=1"));
+            });
+            Future<List<HmsPartitionInfo>> handoffWaiter = executor.submit(() -> {
+                handoffWaiterThread.set(Thread.currentThread());
+                return cache.getPartitions("db", "t", Collections.singletonList("p=1"));
+            });
+            Assertions.assertTrue(handoffOwnerReady.await(10, TimeUnit.SECONDS));
+            Assertions.assertTrue(handoffWaiterReady.await(10, TimeUnit.SECONDS));
+
+            releaseInitialLoad.countDown();
+            Assertions.assertEquals(1, initial.get(10, TimeUnit.SECONDS).size());
+            releaseHandoffOwnerElection.countDown();
+            Assertions.assertTrue(handoffOwnerClaimed.await(10, TimeUnit.SECONDS));
+            releaseHandoffWaiterElection.countDown();
+            Assertions.assertTrue(handoffWaiterRegistered.await(10, TimeUnit.SECONDS));
+            releaseHandoffOwnerSecondCheck.countDown();
+            Assertions.assertEquals(1, handoffOwner.get(10, TimeUnit.SECONDS).size());
+
+            owner.invalidateTable("db", "t");
+            releaseHandoffWaiterConsumption.countDown();
+
+            Assertions.assertEquals(1, handoffWaiter.get(10, TimeUnit.SECONDS).size());
+            Assertions.assertEquals(2, delegate.getPartitionsCalls,
+                    "a handleless handoff must retry after invalidation instead of dereferencing null");
+        } finally {
+            releaseInitialLoad.countDown();
+            releaseHandoffOwnerElection.countDown();
+            releaseHandoffWaiterElection.countDown();
+            releaseHandoffOwnerSecondCheck.countDown();
+            releaseHandoffWaiterConsumption.countDown();
+            executor.shutdownNow();
+            cache.close();
+            owner.close();
+        }
+    }
+
+    @Test
+    public void sharedFailureStatsRemainCallerLocal() throws Exception {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CountDownLatch failureEntered = new CountDownLatch(1);
+        CountDownLatch releaseFailure = new CountDownLatch(1);
+        CountDownLatch waiterRegistered = new CountDownLatch(1);
+        AtomicBoolean trackRegistrations = new AtomicBoolean();
+        AtomicInteger registrations = new AtomicInteger();
+        CachingHmsClient cache = new CachingHmsClient(new CatalogMetaCache(), delegate, Collections.emptyMap()) {
+            @Override
+            void afterPartitionLoadRegistrationForTest() {
+                if (trackRegistrations.get() && registrations.incrementAndGet() == 2) {
+                    waiterRegistered.countDown();
+                }
+            }
+        };
+        cache.getPartitions("db", "t", Collections.singletonList("p=0"));
+        delegate.getPartitionsError = new HmsClientException("failed", HmsPartitionBatchStats.builder()
+                .requestedItems(2)
+                .transportInvocations(1)
+                .transportItems(2)
+                .largestBatchSize(2)
+                .smallestBatchSize(2)
+                .build());
+        delegate.onGetPartitionsWithStats = () -> {
+            failureEntered.countDown();
+            awaitLatch(releaseFailure);
+        };
+        trackRegistrations.set(true);
+        CachingHmsClient sharedCache = cache;
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<HmsPartitionBatchResult> owner = executor.submit(
+                    () -> sharedCache.getPartitionsWithStats("db", "t", Arrays.asList("p=1", "p=2")));
+            Assertions.assertTrue(failureEntered.await(10, TimeUnit.SECONDS));
+            Future<HmsPartitionBatchResult> waiter = executor.submit(
+                    () -> sharedCache.getPartitionsWithStats("db", "t", Arrays.asList("p=0", "p=1", "p=2")));
+            Assertions.assertTrue(waiterRegistered.await(10, TimeUnit.SECONDS));
+
+            releaseFailure.countDown();
+
+            HmsClientException ownerFailure = (HmsClientException) Assertions.assertThrows(
+                    ExecutionException.class, () -> owner.get(10, TimeUnit.SECONDS)).getCause();
+            HmsClientException waiterFailure = (HmsClientException) Assertions.assertThrows(
+                    ExecutionException.class, () -> waiter.get(10, TimeUnit.SECONDS)).getCause();
+            Assertions.assertNotSame(ownerFailure, waiterFailure);
+            Assertions.assertEquals(2, ownerFailure.getPartitionBatchStats().getRequestedItems());
+            Assertions.assertEquals(3, waiterFailure.getPartitionBatchStats().getRequestedItems());
+            Assertions.assertEquals(1, ownerFailure.getPartitionBatchStats().getTransportInvocations());
+            Assertions.assertEquals(1, waiterFailure.getPartitionBatchStats().getTransportInvocations());
+        } finally {
+            releaseFailure.countDown();
             executor.shutdownNow();
         }
     }
@@ -819,7 +1043,7 @@ public class CachingHmsClientTest {
      * A minimal {@link HmsClient} that counts calls and returns a fresh instance per call, so reference
      * identity distinguishes a cache hit (same instance) from a reload (new instance).
      */
-    private static final class RecordingHmsClient implements HmsClient {
+    private static class RecordingHmsClient implements HmsClient {
         int getTableCalls;
         int listPartitionNamesCalls;
         int getPartitionsCalls;
@@ -841,6 +1065,7 @@ public class CachingHmsClientTest {
         // Optional hook fired INSIDE getPartitions (after counting, before returning) to model a concurrent
         // mutation (e.g. a REFRESH flush) racing the in-flight cold-cache RPC.
         Runnable onGetPartitions;
+        Runnable onGetPartitionsWithStats;
 
         @Override
         public HmsTableInfo getTable(String dbName, String tableName) {
@@ -882,6 +1107,9 @@ public class CachingHmsClientTest {
         @Override
         public HmsPartitionBatchResult getPartitionsWithStats(
                 String dbName, String tableName, List<String> partNames) {
+            if (onGetPartitionsWithStats != null) {
+                onGetPartitionsWithStats.run();
+            }
             if (getPartitionsError != null) {
                 throw getPartitionsError;
             }
