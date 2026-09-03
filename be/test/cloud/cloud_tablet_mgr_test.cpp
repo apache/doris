@@ -213,6 +213,8 @@ TEST_F(CloudTabletMgrTest, TestGetTabletIfCachedOnlyReturnsCachedTablet) {
 }
 
 TEST_F(CloudTabletMgrTest, TestApproximateRowsetsMetricIncludesActiveTablets) {
+    const uint64_t previous_inactive_duration = g_tablet_report_inactive_duration_ms;
+    g_tablet_report_inactive_duration_ms = 1000;
     CloudTabletMgr mgr(_engine);
     auto tablet = std::make_shared<CloudTablet>(_engine, _tablet_meta);
     auto* metric = DorisMetrics::instance()->tablet_approximate_num_rowsets_distribution;
@@ -232,6 +234,7 @@ TEST_F(CloudTabletMgrTest, TestApproximateRowsetsMetricIncludesActiveTablets) {
     EXPECT_TRUE(tablets_info.empty());
     EXPECT_EQ(1, metric->num());
     EXPECT_EQ(8, metric->max());
+    g_tablet_report_inactive_duration_ms = previous_inactive_duration;
 }
 
 } // namespace doris
