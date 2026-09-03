@@ -73,9 +73,14 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Write binding gained execution-capability methods in this surface revision. A plugin built against
-        // major 5 must be refused rather than run against a contract it did not compile against.
-        Assertions.assertEquals("6.0", version.getProperty("api.version"));
+        // Major 6: write binding gained execution-capability methods.
+        // Major 7 adds ConnectorProvider#driverUrlsToValidate: the FE asks the provider which properties
+        // name a jar it will load into the FE JVM, and applies the operator's jdbc_driver_secure_path /
+        // jdbc_driver_url_white_list policy to them on ALTER CATALOG (which never reaches
+        // Connector#preCreateValidation). An older plugin answers "no jars" by inheriting the default, so a
+        // repointed driver_url on such a plugin would skip the operator's policy silently - the FE must
+        // refuse it at load time instead.
+        Assertions.assertEquals("7.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

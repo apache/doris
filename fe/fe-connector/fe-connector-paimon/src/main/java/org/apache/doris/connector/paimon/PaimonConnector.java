@@ -31,6 +31,7 @@ import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorValidationContext;
+import org.apache.doris.connector.spi.JdbcDriverUrlSecurity;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.filesystem.properties.StorageProperties;
@@ -588,12 +589,16 @@ public class PaimonConnector implements Connector {
     /**
      * Enforces JDBC driver-url security at CREATE CATALOG (rereview2 B-8b). For the JDBC flavor a
      * configured {@code driver_url} — read from either the {@code jdbc.driver_url} or the
-     * {@code paimon.jdbc.driver_url} alias — is routed through the engine's
-     * {@link ConnectorValidationContext#validateAndResolveDriverPath} hook, which applies the FE
+     * {@code paimon.jdbc.driver_url} alias — first goes through the mandatory, non-configurable
+     * {@link JdbcDriverUrlSecurity} rule shared with the jdbc / iceberg-jdbc catalogs, then through the
+     * engine's {@link ConnectorValidationContext#validateAndResolveDriverPath} hook, which applies the FE
      * format / {@code jdbc_driver_url_white_list} / {@code jdbc_driver_secure_path} gates (legacy
      * {@code JdbcResource.getFullDriverUrl}). A rejected url throws here, so CREATE CATALOG fails
-     * before the jar is ever loaded into the FE JVM by {@link #maybeRegisterJdbcDriver}. Mirrors
+     * before the jar is ever loaded into the FE JVM by {@link #maybeRegisterJdbcDriver}. Same order as
      * {@code JdbcDorisConnector.preCreateValidation}; non-JDBC flavors are a no-op.
+     *
+     * <p>ALTER CATALOG does not reach this hook; {@code PaimonConnectorProvider.validateProperties} applies
+     * the same rule on that path.
      */
     @Override
     public void preCreateValidation(ConnectorValidationContext validationContext) throws Exception {
@@ -602,6 +607,7 @@ public class PaimonConnector implements Connector {
         }
         String driverUrl = PaimonJdbcMetaStoreProperties.of(catalogProps.getRaw()).getDriverUrl();
         if (StringUtils.isNotBlank(driverUrl)) {
+            JdbcDriverUrlSecurity.check(driverUrl);
             validationContext.validateAndResolveDriverPath(driverUrl);
         }
     }

@@ -35,6 +35,7 @@ org.apache.doris.connector.spi.ConnectorProvider#create(org.apache.doris.extensi
 org.apache.doris.connector.spi.ConnectorProvider#defaultDatabaseOnUse():java.util.Optional
 org.apache.doris.connector.spi.ConnectorProvider#description():java.lang.String
 org.apache.doris.connector.spi.ConnectorProvider#displayEngineName():java.lang.String
+org.apache.doris.connector.spi.ConnectorProvider#driverUrlsToValidate(java.util.Map):java.util.List
 org.apache.doris.connector.spi.ConnectorProvider#getType():java.lang.String
 org.apache.doris.connector.spi.ConnectorProvider#isStandaloneCatalogType():boolean
 org.apache.doris.connector.spi.ConnectorProvider#name():java.lang.String
