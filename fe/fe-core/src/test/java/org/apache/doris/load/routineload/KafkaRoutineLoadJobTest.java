@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TRoutineLoadTask;
@@ -61,6 +62,10 @@ import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -245,6 +250,107 @@ public class KafkaRoutineLoadJobTest {
                                     && "PLAIN".equals(properties.get("sasl.mechanism"))),
                     Mockito.argThat(partitions -> partitions.size() == 1 && partitions.contains(1)),
                     Mockito.nullable(String.class)));
+        }
+    }
+
+    @Test
+    public void testReplayExplicitPartitionAlterPinsPartitions() throws Exception {
+        String originalDeployMode = Config.deploy_mode;
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.deploy_mode = "";
+            Config.cloud_unique_id = "";
+
+            Map<String, String> alterProperties = Maps.newHashMap();
+            alterProperties.put(KafkaConfiguration.KAFKA_PARTITIONS.getName(), "1");
+            alterProperties.put(KafkaConfiguration.KAFKA_OFFSETS.getName(), "2");
+            KafkaDataSourceProperties dataSourceProperties = new KafkaDataSourceProperties(alterProperties);
+            dataSourceProperties.setAlter(true);
+            dataSourceProperties.setTimezone("Asia/Shanghai");
+            dataSourceProperties.analyze();
+
+            AlterRoutineLoadJobOperationLog operationLog = new AlterRoutineLoadJobOperationLog(
+                    1L, Maps.newHashMap(), dataSourceProperties);
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            try (DataOutputStream out = new DataOutputStream(bytes)) {
+                operationLog.write(out);
+            }
+            try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+                operationLog = AlterRoutineLoadJobOperationLog.read(in);
+            }
+
+            KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                    1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+            Deencapsulation.setField(routineLoadJob, "customKafkaPartitions", Lists.newArrayList(0, 1, 2));
+            Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", Lists.newArrayList(0, 1, 2));
+            Map<Integer, Long> partitionOffsets = Maps.newHashMap();
+            partitionOffsets.put(0, 10L);
+            partitionOffsets.put(1, 11L);
+            partitionOffsets.put(2, 12L);
+            Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionOffsets));
+            Deencapsulation.setField(routineLoadJob, "cachedPartitionWithLatestOffsets",
+                    Maps.newHashMap(partitionOffsets));
+
+            routineLoadJob.replayModifyProperties(operationLog);
+
+            Assert.assertEquals(Lists.newArrayList(1),
+                    Deencapsulation.getField(routineLoadJob, "customKafkaPartitions"));
+            Assert.assertEquals(Lists.newArrayList(1),
+                    Deencapsulation.getField(routineLoadJob, "currentKafkaPartitions"));
+            Map<Integer, Long> expectedProgress = Maps.newHashMap();
+            expectedProgress.put(1, 2L);
+            Assert.assertEquals(expectedProgress,
+                    ((KafkaProgress) routineLoadJob.getProgress()).getOffsetByPartition());
+            Map<Integer, Long> expectedLatestOffsets = Maps.newHashMap();
+            expectedLatestOffsets.put(1, 11L);
+            Assert.assertEquals(expectedLatestOffsets,
+                    Deencapsulation.getField(routineLoadJob, "cachedPartitionWithLatestOffsets"));
+            Assert.assertTrue(routineLoadJob.dataSourcePropertiesJsonToString()
+                    .contains("\"currentKafkaPartitions\":\"1\""));
+            String showCreateInfo = routineLoadJob.getShowCreateInfo();
+            Assert.assertTrue(showCreateInfo.contains("\"kafka_partitions\" = \"1\""));
+            Assert.assertTrue(showCreateInfo.contains("\"kafka_offsets\" = \"2\""));
+        } finally {
+            Config.deploy_mode = originalDeployMode;
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
+    }
+
+    @Test
+    public void testCloudProgressKeepsExplicitPartitionPin() {
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.cloud_unique_id = "test-cloud";
+            KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                    1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+            Deencapsulation.setField(routineLoadJob, "customKafkaPartitions", Lists.newArrayList(1));
+            Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", Lists.newArrayList(1));
+            Map<Integer, Long> pinnedProgress = Maps.newHashMap();
+            pinnedProgress.put(1, 2L);
+            Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(pinnedProgress));
+            Map<Integer, Long> latestOffsets = Maps.newHashMap();
+            latestOffsets.put(1, 11L);
+            Deencapsulation.setField(routineLoadJob, "cachedPartitionWithLatestOffsets",
+                    latestOffsets);
+
+            RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+            Map<Integer, Long> cloudProgress = Maps.newHashMap();
+            cloudProgress.put(0, 20L);
+            cloudProgress.put(1, 21L);
+            cloudProgress.put(2, 22L);
+            Deencapsulation.setField(attachment, "progress",
+                    new KafkaProgress(cloudProgress));
+
+            Deencapsulation.invoke(routineLoadJob, "updateCloudProgress", attachment);
+
+            Map<Integer, Long> expectedOffsets = Maps.newHashMap();
+            expectedOffsets.put(1, 22L);
+            Assert.assertEquals(expectedOffsets,
+                    ((KafkaProgress) routineLoadJob.getProgress()).getOffsetByPartition());
+            Assert.assertEquals(expectedOffsets,
+                    Deencapsulation.getField(routineLoadJob, "cachedPartitionWithLatestOffsets"));
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
         }
     }
 
