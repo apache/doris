@@ -136,6 +136,29 @@ class AzureObjStorageExtensionTest {
         Assertions.assertEquals("https://sas-with-fallback-key", result);
     }
 
+    @Test
+    void buildClient_acceptsNativeSasCredential() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("AZURE_AUTH_TYPE", "SAS");
+        props.put("AZURE_ENDPOINT", "account.blob.core.windows.net");
+        props.put("AZURE_ACCOUNT_NAME", "account");
+        props.put("AZURE_SAS_TOKEN", "?sv=2024-01-01&sig=temporary");
+        props.put("AZURE_SAS_EXPIRY_MS", "4102444800000");
+
+        AzureObjStorage storage = new AzureObjStorage(props);
+
+        Assertions.assertNotNull(storage.buildClient());
+    }
+
+    @Test
+    void buildClient_acceptsSharedKeyCredential() throws Exception {
+        AzureObjStorage storage = new AzureObjStorage(Map.of(
+                "AZURE_ACCOUNT_NAME", "account",
+                "AZURE_ACCOUNT_KEY", "dGVzdA=="));
+
+        Assertions.assertNotNull(storage.buildClient());
+    }
+
     // ------------------------------------------------------------------
     // listObjectsWithPrefix tests
     // ------------------------------------------------------------------

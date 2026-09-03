@@ -113,6 +113,10 @@ Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_
                                             *fs_properties.properties, io::FileSystem::TMP_FS_ID);
     }
     case TFileType::FILE_S3: {
+        // FILE_S3 is also the compatibility wire value for Azure.  The
+        // provider-owned properties are consumed by S3ClientFactory, which
+        // dispatches Azure ranges to AzureObjStorageClient; no Hadoop reader
+        // is involved in this branch.
         S3URI s3_uri(file_description.path);
         RETURN_IF_ERROR_RESULT(s3_uri.parse());
         S3Conf s3_conf;
@@ -185,7 +189,7 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(
         auto client = std::make_shared<io::ObjClientHolder>(std::move(s3_conf.client_conf));
         RETURN_IF_ERROR_RESULT(client->init());
         return std::make_unique<io::S3FileWriter>(std::move(client), std::move(s3_conf.bucket),
-                                                  s3_uri.get_key(), &options);
+                                                  s3_uri.get_key(), &options, path);
     }
     case TFileType::FILE_HDFS: {
         THdfsParams hdfs_params = parse_properties(properties);
@@ -225,6 +229,8 @@ Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
         return file_reader;
     }
     case TFileType::FILE_S3: {
+        // Azure uses this existing wire slot with provider=azure; the object
+        // client factory selects Azure's native Blob SDK below.
         S3URI s3_uri(file_description.path);
         RETURN_IF_ERROR_RESULT(s3_uri.parse());
         S3Conf s3_conf;
@@ -233,7 +239,7 @@ Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
         auto client_holder = std::make_shared<io::ObjClientHolder>(s3_conf.client_conf);
         RETURN_IF_ERROR_RESULT(client_holder->init());
         return io::S3FileReader::create(std::move(client_holder), s3_conf.bucket, s3_uri.get_key(),
-                                        file_description.file_size, profile)
+                                        file_description.file_size, profile, file_description.path)
                 .and_then([&](auto&& reader) {
                     return io::create_cached_file_reader(std::move(reader), reader_options);
                 });

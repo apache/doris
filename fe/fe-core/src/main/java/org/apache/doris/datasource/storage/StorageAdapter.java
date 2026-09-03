@@ -49,9 +49,9 @@ import java.util.Set;
  * {@link FileSystemPluginManager#bindPrimary}/{@code bindAll}. Its public surface mirrors the
  * legacy typed storage-properties contract exactly — backend map, storage name, schemas, type
  * — so consumers can migrate mechanically. Building a hadoop {@code Configuration} is NOT part
- * of that surface: the one legacy consumer (the Azure OAuth2 backend map) is now served by
+ * of that surface: Azure backend parameters are emitted by
  * {@code AzureFileSystemProperties.toMap()} inside fe-filesystem-azure, which keeps fe-core
- * source hadoop-free.
+ * source hadoop-free and preserves the account authority for native reads.
  * Every known SPI-vs-fe-core drift from the master plan's §2.4 parity ledger is reconciled here
  * (or in the SPI implementation, where noted); each reconciliation carries a
  * "align fe-core" comment referencing the ledger item.</p>
@@ -334,17 +334,14 @@ public final class StorageAdapter {
     }
 
     public String validateAndNormalizeUri(String uri) {
-        // Align fe-core AbstractS3CompatibleProperties/AzureProperties: the SPI S3/Azure typed
-        // props do not normalize URIs (compat schemes like cos:// must become s3:// before the
-        // path reaches BE or a concrete filesystem), so the facade owns the legacy logic.
+        // S3-compatible providers still use the fe-core compatibility normalization (cos/oss/obs
+        // aliases become s3://). Azure owns its URI handling in the provider so account@host
+        // authorities remain available to the native Azure client.
         if (spi instanceof S3CompatibleFileSystemProperties) {
             return StorageUriUtils.validateAndNormalizeS3Uri(uri,
                     ((S3CompatibleFileSystemProperties) spi).getUsePathStyle(),
                     forceParsingByStandardUriValue,
                     "OSS".equals(providerKey));
-        }
-        if ("AZURE".equals(providerKey)) {
-            return StorageUriUtils.validateAndNormalizeAzureUri(uri);
         }
         if (type == StorageTypeId.HDFS && StorageUriUtils.isJfsLocation(uri)) {
             // Align fe-core: the legacy HDFS typed class accepted {hdfs, viewfs, jfs} while the
@@ -356,14 +353,11 @@ public final class StorageAdapter {
     }
 
     public String validateAndGetUri(Map<String, String> loadProps) {
-        // Align fe-core: the S3/Azure legacy classes return the RAW uri value (no normalization)
-        // and throw when the map is empty or has no uri key; the SPI default would silently
-        // return null instead.
+        // Align fe-core: the S3 legacy class returns the RAW uri value (no normalization) and
+        // throws when the map is empty or has no uri key; the SPI default would silently return
+        // null instead. Azure's provider validates and preserves its URI directly.
         if (spi instanceof S3CompatibleFileSystemProperties) {
             return StorageUriUtils.validateAndGetS3Uri(loadProps);
-        }
-        if ("AZURE".equals(providerKey)) {
-            return StorageUriUtils.validateAndGetAzureUri(loadProps);
         }
         if (type == StorageTypeId.HDFS && loadProps != null) {
             // jfs leg of the HDFS binding (see validateAndNormalizeUri above): a single
@@ -456,9 +450,9 @@ public final class StorageAdapter {
                 // Align fe-core: Broker/Local/Http return the raw user properties verbatim.
                 return origProps;
             case AZURE:
-                // Provider-owned, both auth types (the OAuth2 map is a hadoop Configuration dump
-                // built inside fe-filesystem-azure). Routed out here so it never reaches the
-                // S3-family alignment below, exactly as before.
+                // Provider-owned map for both SharedKey and SAS (and an explicit OAUTH2 marker
+                // that the native BE rejects until a complete Entra-ID path is available). Keep
+                // Azure out of the generic S3 key alignment below.
                 return spi.toBackendProperties()
                         .orElseThrow(() -> new IllegalStateException(
                                 "Provider " + providerKey + " exposes no backend properties"))
@@ -547,17 +541,21 @@ public final class StorageAdapter {
     }
 
     /**
-     * Align fe-core AzureProperties.initNormalizeAndCheckProps: the temporary fe-core-only
-     * restriction that OAuth2 is supported only for the Iceberg REST catalog. This check reads
-     * catalog-level keys the SPI never sees, so it stays in the facade.
+     * Align the Azure catalog restriction that OAuth2 is supported only for the Iceberg REST
+     * catalog. This check reads catalog-level keys the SPI never sees, so it stays in the facade;
+     * native BE OAuth2 remains explicitly unsupported even for that catalog.
      */
     private void checkAzureOauth2OnlyForIcebergRest() {
-        // Align fe-core AzureProperties exactly: the REST-only gate compared CASE-SENSITIVELY
-        // ("OAuth2".equals(...)) while the rest of the class used equalsIgnoreCase — so a
-        // lowercase "oauth2" slipped past this gate in legacy (and old images may carry it).
-        // Replicate the asymmetry; tightening it would break replay of such images.
-        if (!"AZURE".equals(providerKey)
-                || !"OAuth2".equals(origProps.getOrDefault("azure.auth_type", "SharedKey"))) {
+        if (!"AZURE".equals(providerKey)) {
+            return;
+        }
+        String authType = origProps.entrySet().stream()
+                .filter(entry -> "azure.auth_type".equalsIgnoreCase(entry.getKey())
+                        || "AZURE_AUTH_TYPE".equalsIgnoreCase(entry.getKey()))
+                .map(Map.Entry::getValue)
+                .findFirst()
+                .orElse("SharedKey");
+        if (!"OAuth2".equalsIgnoreCase(authType)) {
             return;
         }
         boolean hasIcebergType = origProps.entrySet().stream()

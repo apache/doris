@@ -29,6 +29,7 @@ import java.net.URISyntaxException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -36,8 +37,8 @@ import java.util.regex.Pattern;
 /**
  * fe-core-only URI validation/normalization glue for {@link StorageAdapter}.
  *
- * <p>Ports the URI subset of the legacy {@code S3PropertyUtils} and {@code AzurePropertyUtils}
- * pure functions so the facade does not depend on the to-be-deleted
+ * <p>Ports the URI subset of the legacy {@code S3PropertyUtils} and the remaining
+ * location classifier from {@code AzurePropertyUtils} so the facade does not depend on the to-be-deleted
  * legacy typed storage package (deleted in Phase D). Behavior is kept identical, with one deliberate
  * exception: the legacy full-parse path could throw the checked {@code UserException} (from
  * {@link S3URI#create}); the facade surface is unchecked, so that exception is rethrown as
@@ -212,30 +213,31 @@ public final class StorageUriUtils {
     }
 
     /**
-     * Port of legacy {@code AzurePropertyUtils.validateAndNormalizeUri}: accepts Azure Blob
-     * URI schemes only, keeps OneLake locations as-is, and converts everything else to the
-     * unified {@code s3://container/path} style.
+     * Compatibility entry point for callers that used the former fe-core Azure helper directly.
+     * Azure normalization is provider-owned now, so this validates and preserves the native URI
+     * instead of rewriting it to an S3-shaped path.
      */
     public static String validateAndNormalizeAzureUri(String path) {
         if (StringUtils.isBlank(path)) {
             throw new StoragePropertiesException("Path cannot be null or empty");
         }
-        // Only accept Azure Blob Storage-related URI schemes
-        if (!(path.startsWith("wasb://") || path.startsWith("wasbs://")
-                || path.startsWith("abfs://") || path.startsWith("abfss://")
-                || path.startsWith("https://") || path.startsWith("http://")
-                || path.startsWith("s3://"))) {
+        int delimiter = path.indexOf(SCHEME_DELIM);
+        if (delimiter <= 0) {
+            throw new StoragePropertiesException("Azure URI must contain a scheme: " + path);
+        }
+        String scheme = path.substring(0, delimiter).toLowerCase(Locale.ROOT);
+        if (!(scheme.equals("wasb") || scheme.equals("wasbs") || scheme.equals("abfs")
+                || scheme.equals("abfss") || scheme.equals("http") || scheme.equals("https")
+                || scheme.equals("s3"))) {
             throw new StoragePropertiesException("Unsupported Azure URI scheme: " + path);
         }
-        if (isOneLakeLocation(path)) {
-            return path;
-        }
-        return convertAzureToS3Style(path);
+        return scheme.equals(path.substring(0, delimiter)) ? path : scheme + path.substring(delimiter);
     }
 
     /**
      * Port of legacy {@code AzurePropertyUtils.isOneLakeLocation}: true when the location is a
-     * Microsoft Fabric OneLake abfs/abfss URI (kept as-is instead of s3-style normalization).
+     * Microsoft Fabric OneLake abfs/abfss URI. OneLake remains Hadoop-routed until native OAuth2
+     * support is complete; ordinary Azure ABFS locations are routed through FILE_S3.
      */
     public static boolean isOneLakeLocation(String location) {
         return ONELAKE_PATTERN.matcher(location).matches();
@@ -273,73 +275,6 @@ public final class StorageUriUtils {
         } catch (URISyntaxException | UnsupportedEncodingException e) {
             throw new StoragePropertiesException("Failed to parse URI: " + location, e);
         }
-    }
-
-    private static String convertAzureToS3Style(String uri) {
-        if (StringUtils.isBlank(uri)) {
-            throw new StoragePropertiesException("URI is blank");
-        }
-        if (uri.startsWith("s3://")) {
-            return uri;
-        }
-        // Handle Azure HDFS-style URIs (wasb://, wasbs://, abfs://, abfss://)
-        if (uri.startsWith("wasb://") || uri.startsWith("wasbs://")
-                || uri.startsWith("abfs://") || uri.startsWith("abfss://")) {
-
-            // Example: wasbs://container@account.blob.core.windows.net/path/file.txt
-            String schemeRemoved = uri.replaceFirst("^[a-z]+s?://", "");
-            int atIndex = schemeRemoved.indexOf('@');
-            if (atIndex < 0) {
-                throw new StoragePropertiesException("Invalid Azure URI, missing '@': " + uri);
-            }
-
-            // Extract container name (before '@')
-            String container = schemeRemoved.substring(0, atIndex);
-
-            // Extract remaining part after '@'
-            String remainder = schemeRemoved.substring(atIndex + 1);
-            int slashIndex = remainder.indexOf('/');
-
-            // Extract the path part if it exists
-            String path = (slashIndex != -1) ? remainder.substring(slashIndex + 1) : "";
-
-            // Normalize to s3-style URI: s3://<container>/<path>
-            return StringUtils.isBlank(path)
-                    ? String.format("s3://%s", container)
-                    : String.format("s3://%s/%s", container, path);
-        }
-
-        // Handle HTTPS/HTTP Azure Blob Storage URLs
-        if (uri.startsWith("https://") || uri.startsWith("http://")) {
-            try {
-                URI parsed = new URI(uri);
-                String host = parsed.getHost();
-                String path = parsed.getPath();
-
-                if (StringUtils.isBlank(host)) {
-                    throw new StoragePropertiesException("Invalid Azure HTTPS URI, missing host: " + uri);
-                }
-
-                // Path usually looks like: /<container>/<path>
-                String[] parts = path.split("/", 3);
-                if (parts.length < 2) {
-                    throw new StoragePropertiesException("Invalid Azure Blob URL, missing container: " + uri);
-                }
-
-                String container = parts[1];
-                String remainder = (parts.length == 3) ? parts[2] : "";
-
-                // Convert HTTPS URL to s3-style format
-                return StringUtils.isBlank(remainder)
-                        ? String.format("s3://%s", container)
-                        : String.format("s3://%s/%s", container, remainder);
-
-            } catch (URISyntaxException e) {
-                throw new StoragePropertiesException("Invalid HTTPS URI: " + uri, e);
-            }
-        }
-
-        throw new StoragePropertiesException("Unsupported Azure URI scheme: " + uri);
     }
 
     /**

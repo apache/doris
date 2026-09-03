@@ -108,6 +108,12 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             String accountKey = requireProperty(
                     properties.getAccountKey(), AzureFileSystemProperties.ACCOUNT_KEY, "Azure account key");
             builder.credential(new StorageSharedKeyCredential(accountName, accountKey));
+        } else if (properties.isSasAuth()) {
+            String sasToken = properties.getSasToken();
+            if (sasToken == null || sasToken.isEmpty()) {
+                throw new IOException("Azure SAS authentication requires a non-empty token");
+            }
+            builder.sasToken(stripSasPrefix(sasToken));
         } else {
             String tenantId = properties.resolveTenantId()
                     .orElseThrow(() -> new IOException("Azure tenant id is required for OAuth2 native SDK access"));
@@ -118,6 +124,14 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                     .build());
         }
         return builder.buildClient();
+    }
+
+    private static String stripSasPrefix(String token) {
+        String normalized = token.trim();
+        while (normalized.startsWith("?") || normalized.startsWith("&")) {
+            normalized = normalized.substring(1);
+        }
+        return normalized;
     }
 
     @Override

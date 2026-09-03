@@ -88,6 +88,8 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
         reset_conf.ak = conf.ak;
         reset_conf.sk = conf.sk;
         reset_conf.token = conf.token;
+        reset_conf.token_expiration_time_ms = conf.token_expiration_time_ms;
+        reset_conf.azure_auth_type = conf.azure_auth_type;
         reset_conf.bucket = conf.bucket;
         reset_conf.connect_timeout_ms = conf.connect_timeout_ms;
         reset_conf.max_connections = conf.max_connections;
@@ -186,7 +188,12 @@ Status S3FileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
     auto client = _client->get();
     CHECK_S3_CLIENT(client);
     auto key = DORIS_TRY(get_key(file));
-    *writer = std::make_unique<S3FileWriter>(_client, _bucket, std::move(key), opts);
+    std::string display_path;
+    if (file.native().find("://") != std::string::npos) {
+        display_path = file.native();
+    }
+    *writer = std::make_unique<S3FileWriter>(_client, _bucket, std::move(key), opts,
+                                             std::move(display_path));
     return Status::OK();
 }
 
@@ -194,7 +201,12 @@ Status S3FileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader
                                         const FileReaderOptions& opts) {
     TEST_SYNC_POINT_CALLBACK("S3FileSystem::open_file_internal", &file, &opts);
     auto key = DORIS_TRY(get_key(file));
-    *reader = DORIS_TRY(S3FileReader::create(_client, _bucket, key, opts.file_size, nullptr));
+    std::string display_path;
+    if (file.native().find("://") != std::string::npos) {
+        display_path = file.native();
+    }
+    *reader = DORIS_TRY(S3FileReader::create(_client, _bucket, key, opts.file_size, nullptr,
+                                             std::move(display_path)));
     return Status::OK();
 }
 

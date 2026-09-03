@@ -70,6 +70,50 @@ TEST_F(S3URITest, HttpURI) {
     EXPECT_EQ("path/to/file", uri2.get_key());
 }
 
+TEST_F(S3URITest, AzureDataLakeURI) {
+    S3URI uri("abfss://container@account.dfs.core.windows.net/path/to/file.parquet");
+    ASSERT_TRUE(uri.parse().ok());
+    EXPECT_EQ("container", uri.get_bucket());
+    EXPECT_EQ("path/to/file.parquet", uri.get_key());
+    EXPECT_EQ("account.dfs.core.windows.net", uri.get_endpoint());
+    EXPECT_EQ("account", uri.get_account());
+    EXPECT_TRUE(uri.is_azure());
+
+    S3URI uppercase("ABFSS://container@account.dfs.core.windows.net/path/file.parquet");
+    ASSERT_TRUE(uppercase.parse().ok());
+    EXPECT_EQ("container", uppercase.get_bucket());
+    EXPECT_EQ("path/file.parquet", uppercase.get_key());
+    EXPECT_TRUE(uppercase.is_azure());
+
+    S3URI wasbs("wasbs://container@account.blob.core.windows.net/path/to/file.parquet");
+    ASSERT_TRUE(wasbs.parse().ok());
+    EXPECT_EQ("container", wasbs.get_bucket());
+    EXPECT_EQ("path/to/file.parquet", wasbs.get_key());
+    EXPECT_EQ("account.blob.core.windows.net", wasbs.get_endpoint());
+    EXPECT_EQ("account", wasbs.get_account());
+    EXPECT_TRUE(wasbs.is_azure());
+
+    S3URI https("https://account.blob.core.windows.net/container/path/to/file.parquet");
+    ASSERT_TRUE(https.parse().ok());
+    EXPECT_EQ("container", https.get_bucket());
+    EXPECT_EQ("path/to/file.parquet", https.get_key());
+    EXPECT_EQ("account.blob.core.windows.net", https.get_endpoint());
+    EXPECT_EQ("account", https.get_account());
+    EXPECT_TRUE(https.is_azure());
+}
+
+TEST_F(S3URITest, InvalidAzureDataLakeAuthority) {
+    S3URI missing_container("abfss://@account.dfs.core.windows.net/path/file.parquet");
+    EXPECT_FALSE(missing_container.parse().ok());
+
+    S3URI missing_account("abfss://container@/path/file.parquet");
+    EXPECT_FALSE(missing_account.parse().ok());
+
+    S3URI duplicate_separator(
+            "abfss://container@account@other.dfs.core.windows.net/path/file.parquet");
+    EXPECT_FALSE(duplicate_separator.parse().ok());
+}
+
 TEST_F(S3URITest, InvalidSchema) {
     std::string p1 = "xxx://a.b.com/bucket/path/to/file";
     S3URI uri1(p1);

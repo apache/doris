@@ -31,17 +31,36 @@ namespace doris {
 // 2. path/to/file.txt
 //      bucket: ""
 //      key: path/to/file.txt
+// 3. abfss://container@account.dfs.core.windows.net/path/to/file.txt
+//      bucket: container
+//      key: path/to/file.txt
+//      endpoint: account.dfs.core.windows.net
+//      account: account
+//
+// Azure Data Lake locations intentionally retain their original URI form.  The
+// object-storage factory uses the parsed endpoint/account to construct the
+// native Azure client; they are not routed through the Hadoop filesystem.
 class S3URI {
 public:
     S3URI(const std::string& location) : _location(location) {}
     Status parse();
     const std::string& get_bucket() const { return _bucket; }
     const std::string& get_key() const { return _key; }
+    // The authority host, when present.  For Azure ABFS/WASB paths this is the
+    // account host (for example account.dfs.core.windows.net).
+    const std::string& get_endpoint() const { return _endpoint; }
+    // The storage account name parsed from an Azure authority.
+    const std::string& get_account() const { return _account; }
+    bool is_azure() const { return _is_azure; }
     const std::string& get_location() const { return _location; }
     std::string to_string() const;
 
 private:
     static const std::string _SCHEME_S3;
+    static const std::string _SCHEME_ABFS;
+    static const std::string _SCHEME_ABFSS;
+    static const std::string _SCHEME_WASB;
+    static const std::string _SCHEME_WASBS;
     static const std::string _SCHEME_HTTP;
     static const std::string _SCHEME_HTTPS;
     static const std::string _SCHEME_DELIM;
@@ -53,5 +72,8 @@ private:
     std::string _location;
     std::string _bucket;
     std::string _key;
+    std::string _endpoint;
+    std::string _account;
+    bool _is_azure = false;
 };
 } // end namespace doris

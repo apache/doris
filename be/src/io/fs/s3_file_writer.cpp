@@ -47,6 +47,15 @@
 
 namespace doris::io {
 
+namespace {
+std::string sanitize_display_path(std::string path) {
+    if (const auto query = path.find('?'); query != std::string::npos) {
+        path.resize(query);
+    }
+    return path;
+}
+} // namespace
+
 bvar::Adder<uint64_t> s3_file_writer_total("s3_file_writer_total_num");
 bvar::Adder<uint64_t> s3_bytes_written_total("s3_file_writer_bytes_written");
 bvar::Adder<uint64_t> s3_file_created_total("s3_file_writer_file_created");
@@ -60,8 +69,10 @@ bvar::Window<bvar::IntRecorder> s3_file_writer_first_append_to_close_ms_window(
         &s3_file_writer_first_append_to_close_ms_recorder, /*window_size=*/10);
 
 S3FileWriter::S3FileWriter(std::shared_ptr<ObjClientHolder> client, std::string bucket,
-                           std::string key, const FileWriterOptions* opts)
-        : _obj_storage_path_opts({.path = fmt::format("s3://{}/{}", bucket, key),
+                           std::string key, const FileWriterOptions* opts, std::string display_path)
+        : _obj_storage_path_opts({.path = display_path.empty()
+                                                  ? fmt::format("s3://{}/{}", bucket, key)
+                                                  : sanitize_display_path(std::move(display_path)),
                                   .bucket = std::move(bucket),
                                   .key = std::move(key)}),
           _used_by_s3_committer(opts ? opts->used_by_s3_committer : false),

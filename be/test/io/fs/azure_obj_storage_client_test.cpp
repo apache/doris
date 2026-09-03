@@ -24,6 +24,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 
@@ -82,10 +83,86 @@ TEST(AzureObjStorageClientMultipartHelperTest, create_upload_is_provider_free) {
 using namespace Azure::Storage::Blobs;
 
 TEST(AzureAuthFactoryTest, AllowsEmptySharedKeyCredentials) {
-    auto result = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
-                                           {.account_name = "", .account_key = ""}, {});
+    auto result = AzureAuthFactory::create(
+            "https://account.blob.core.windows.net/container",
+            {.account_name = "", .account_key = "", .sas_token = {}, .sas_expiration_time_ms = 0},
+            {});
 
     EXPECT_TRUE(result);
+}
+
+TEST(AzureAuthFactoryTest, BuildsSasClientWithoutSharedKey) {
+    const auto expiry = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count() +
+                        3600000;
+    auto result = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
+                                           {.type = AzureCredentialType::SAS,
+                                            .account_name = {},
+                                            .account_key = {},
+                                            .sas_token = "?sv=2024-01-01&sr=c&sig=temporary",
+                                            .sas_expiration_time_ms = expiry},
+                                           {});
+
+    ASSERT_TRUE(result);
+    EXPECT_NE(result.container_client->GetUrl().find("sv=2024-01-01"), std::string::npos);
+    EXPECT_NE(result.container_client->GetUrl().find("sig=temporary"), std::string::npos);
+    EXPECT_EQ(result.shared_key_credential, nullptr);
+}
+
+TEST(AzureAuthFactoryTest, RejectsExpiredOrMalformedSas) {
+    auto expired = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
+                                            {.type = AzureCredentialType::SAS,
+                                             .account_name = {},
+                                             .account_key = {},
+                                             .sas_token = "sv=2024-01-01&sig=expired",
+                                             .sas_expiration_time_ms = 1},
+                                            {});
+    EXPECT_FALSE(expired);
+    EXPECT_NE(expired.error.find("expired"), std::string::npos);
+
+    auto empty = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
+                                          {.type = AzureCredentialType::SAS,
+                                           .account_name = {},
+                                           .account_key = {},
+                                           .sas_token = {},
+                                           .sas_expiration_time_ms = 0},
+                                          {});
+    EXPECT_FALSE(empty);
+    EXPECT_NE(empty.error.find("non-empty"), std::string::npos);
+
+    auto newline = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
+                                            {.type = AzureCredentialType::SAS,
+                                             .account_name = {},
+                                             .account_key = {},
+                                             .sas_token = "sv=1\nsig=bad",
+                                             .sas_expiration_time_ms = 0},
+                                            {});
+    EXPECT_FALSE(newline);
+    EXPECT_NE(newline.error.find("line break"), std::string::npos);
+
+    auto expired_in_token = AzureAuthFactory::create(
+            "https://account.blob.core.windows.net/container",
+            {.type = AzureCredentialType::SAS,
+             .account_name = {},
+             .account_key = {},
+             .sas_token = "sv=2024-01-01&se=2000-01-01T00%3A00%3A00Z&sig=expired",
+             .sas_expiration_time_ms = 0},
+            {});
+    EXPECT_FALSE(expired_in_token);
+    EXPECT_NE(expired_in_token.error.find("expired"), std::string::npos);
+}
+
+TEST(AzureAuthFactoryTest, RejectsOAuth2UntilNativeCredentialExists) {
+    auto result = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
+                                           {.type = AzureCredentialType::OAUTH2,
+                                            .account_name = {},
+                                            .account_key = {},
+                                            .sas_token = {},
+                                            .sas_expiration_time_ms = 0},
+                                           {});
+    EXPECT_FALSE(result);
+    EXPECT_NE(result.error.find("OAuth2"), std::string::npos);
 }
 
 TEST(AzureObjStorageClientTlsHelperTest, detects_tls_ca_error) {

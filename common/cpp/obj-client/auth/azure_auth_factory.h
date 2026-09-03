@@ -18,6 +18,7 @@
 #pragma once
 
 #include <azure/storage/blobs/blob_container_client.hpp>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -30,12 +31,18 @@ namespace doris {
 
 enum class AzureCredentialType {
     SHARED_KEY,
+    SAS,
+    // Kept as an explicit value so callers receive a clear unsupported-auth
+    // error instead of accidentally treating OAuth2 material as a shared key.
+    OAUTH2,
 };
 
 struct AzureCredentialOptions {
     AzureCredentialType type = AzureCredentialType::SHARED_KEY;
     std::string account_name;
     std::string account_key;
+    std::string sas_token;
+    int64_t sas_expiration_time_ms = 0;
 };
 
 struct AzureClientBuildResult {

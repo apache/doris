@@ -315,6 +315,12 @@ public class LocationPath {
             return storageAdaptersMap.get(StorageTypeId.OZONE);
         }
 
+        // Azure is provider-specific. Falling back to a generic S3 binding would discard the
+        // account@host authority and can silently select an unrelated credential set.
+        if (type == StorageTypeId.AZURE) {
+            return null;
+        }
+
         // Step 3: Compatibility fallback based on schema
         // In previous configurations, the schema name may not strictly match the actual storage type.
         // For example, a COS storage might use the "s3" schema, or an S3 storage might use the "cos" schema.
