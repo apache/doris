@@ -94,13 +94,27 @@ TEST_F(CastTimeStampTzTest, from_string_strict_mode_to_timestamptz) {
     }
 }
 
+TEST_F(CastTimeStampTzTest, strict_mode_rejects_whitespace_after_timezone) {
+    CastToImpl<CastModeType::StrictMode, DataTypeString, DataTypeTimeStampTz> cast;
+    auto block = ColumnHelper::create_block<DataTypeString>({"2023-07-16T19:20:30.123+08:00 "});
+    block.insert(
+            ColumnWithTypeAndName {nullptr, std::make_shared<DataTypeTimeStampTz>(), "result"});
+
+    auto st = cast.execute_impl(&context, block, arguments, result, block.rows());
+
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("extra characters after timezone"), std::string::npos);
+}
+
 TEST_F(CastTimeStampTzTest, from_string_non_strict_mode_to_timestamptz) {
     CastToImpl<CastModeType::NonStrictMode, DataTypeString, DataTypeTimeStampTz> cast;
 
     {
         auto block = ColumnHelper::create_block<DataTypeString>(
                 {"2024-06-20 12:12:12+08:00", "2024-06-20 12:12:12-08:00",
-                 "2024-06-20 12:12:12+00:00", "2024-06-20 12:12:12"});
+                 "2024-06-20 12:12:12+00:00", "2024-06-20 12:12:12",
+                 "2023-07-16T19:20:30.123+08:00 ", "20230716192030+08:00 ",
+                 "2023-07-16T19+08:00 "});
 
         block.insert(
                 ColumnWithTypeAndName {nullptr, std::make_shared<DataTypeTimeStampTz>(), "result"});
@@ -123,6 +137,12 @@ TEST_F(CastTimeStampTzTest, from_string_non_strict_mode_to_timestamptz) {
                   "2024-06-20 20:12:12.000000+08:00");
         EXPECT_EQ(TimestampTzValue {col_res.get_element(3)}.to_string(time_zone),
                   "2024-06-20 12:12:12.000000+08:00");
+        EXPECT_EQ(TimestampTzValue {col_res.get_element(4)}.to_string(time_zone),
+                  "2023-07-16 19:20:30.123000+08:00");
+        EXPECT_EQ(TimestampTzValue {col_res.get_element(5)}.to_string(time_zone),
+                  "2023-07-16 19:20:30.000000+08:00");
+        EXPECT_EQ(TimestampTzValue {col_res.get_element(6)}.to_string(time_zone),
+                  "2023-07-16 19:00:00.000000+08:00");
     }
 
     // error cast

@@ -142,6 +142,9 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
                 timeStampTzType = TimeStampTzType.forTypeFromString(value);
             }
             if (DateTimeChecker.hasTimeZone(value)) {
+                if (strictCast && !dateStrictPattern.matcher(value).matches()) {
+                    throw new CastException(String.format("[%s] can't cast to %s.", value, targetType));
+                }
                 return new TimestampTzLiteral(timeStampTzType, value);
             }
             DateTimeV2Literal datetime = (DateTimeV2Literal) castToDateTime(DateTimeV2Type.MAX, strictCast);

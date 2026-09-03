@@ -229,6 +229,30 @@ public class StringLikeLiteralTest {
     }
 
     @Test
+    void testUncheckedCastToTimeStampTzWhitespaceAfterTimezone() {
+        String value = "2023-07-16T19:20:30.123+08:00 ";
+        TimeStampTzType targetType = TimeStampTzType.of(6);
+
+        try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
+            mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(true);
+            Assertions.assertThrows(CastException.class,
+                    () -> new StringLiteral(value).uncheckedCastTo(targetType));
+        }
+
+        try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
+            mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
+            TimestampTzLiteral literal = (TimestampTzLiteral) new StringLiteral(value).uncheckedCastTo(targetType);
+            Assertions.assertEquals(2023, literal.year);
+            Assertions.assertEquals(7, literal.month);
+            Assertions.assertEquals(16, literal.day);
+            Assertions.assertEquals(11, literal.hour);
+            Assertions.assertEquals(20, literal.minute);
+            Assertions.assertEquals(30, literal.second);
+            Assertions.assertEquals(123000, literal.microSecond);
+        }
+    }
+
+    @Test
     void testUncheckedCastToTimeStampTzUsesSessionTimeZoneWithoutOffset() {
         try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
