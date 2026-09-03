@@ -154,6 +154,7 @@ public class VariableMgr {
             "enable_common_expr_pushdown_for_inverted_index",
             "enable_phrase_query_sequential_opt",
             "enable_rust_lance_reader",
+            "enable_paimon_cpp_reader",
             "shuffled_agg_node_ids",
             "plan_nereids_dump");
 
