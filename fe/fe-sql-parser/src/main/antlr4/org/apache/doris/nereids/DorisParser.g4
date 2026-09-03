@@ -1627,9 +1627,11 @@ sortItem
     ;
 
 limitClause
-    : (LIMIT limit=INTEGER_VALUE)
-    | (LIMIT limit=INTEGER_VALUE OFFSET offset=INTEGER_VALUE)
-    | (LIMIT offset=INTEGER_VALUE COMMA limit=INTEGER_VALUE)
+    : LIMIT limit=INTEGER_VALUE
+      (OFFSET offset=INTEGER_VALUE
+      // Preserve the existing semantic labels for MySQL's LIMIT offset, count form.
+      | COMMA commaLimit=INTEGER_VALUE {$ctx.offset = $ctx.limit; $ctx.limit = $ctx.commaLimit;}
+      )?
     ;
 
 partitionClause
