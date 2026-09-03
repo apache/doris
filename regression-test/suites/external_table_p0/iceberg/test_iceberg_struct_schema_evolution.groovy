@@ -160,8 +160,7 @@ suite("test_iceberg_struct_schema_evolution", "p0,external") {
     qt_case_struct_renamed """SELECT element_at(a_struct, 'renamed') FROM ${case_table_name} ORDER BY id"""
 
     // Test 3: Query struct field that was dropped and re-added with case change
-    // Note: Even though we use DROP_AND_ADD (uppercase) in SQL, the system normalizes
-    // field names to lowercase, so we query with 'drop_and_add' (lowercase)
+    // Iceberg metadata retains the external spelling, while runtime lookup still uses the normalized name.
     qt_case_struct_drop_and_add """SELECT element_at(a_struct, 'drop_and_add') FROM ${case_table_name} ORDER BY id"""
 
     // Test 4: Query struct field that was newly added
@@ -198,8 +197,7 @@ suite("test_iceberg_struct_schema_evolution", "p0,external") {
     qt_case_orc_struct_renamed """SELECT element_at(a_struct, 'renamed') FROM ${case_orc_table_name} ORDER BY id"""
 
     // Test 3: Query struct field that was dropped and re-added with case change
-    // Note: Even though we use DROP_AND_ADD (uppercase) in SQL, the system normalizes
-    // field names to lowercase, so we query with 'drop_and_add' (lowercase)
+    // Iceberg metadata retains the external spelling, while runtime lookup still uses the normalized name.
     qt_case_orc_struct_drop_and_add """SELECT element_at(a_struct, 'drop_and_add') FROM ${case_orc_table_name} ORDER BY id"""
 
     // Test 4: Query struct field that was newly added

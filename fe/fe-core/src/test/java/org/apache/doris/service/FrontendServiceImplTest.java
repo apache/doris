@@ -66,7 +66,6 @@ import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TSchemaTableRequestParams;
 import org.apache.doris.thrift.TShowProcessListRequest;
 import org.apache.doris.thrift.TShowUserRequest;
-import org.apache.doris.thrift.TShowUserResult;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.thrift.TTabletLocation;
@@ -583,11 +582,56 @@ public class FrontendServiceImplTest extends TestWithFeService {
     }
 
     @Test
-    public void testShowUser() {
+    public void testShowUser() throws Exception {
+        // Column indexes in the mysql.user row layout that carry password-derived material.
+        final int authStringIdx = 23;   // authentication_string
+        final int historyPwIdx = 27;    // password_policy.history_passwords
+        final int userNameIdx = 1;      // User
+
+        addUser("show_user_a", true);
+        addUser("show_user_b", true);
+
         FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
-        TShowUserRequest request = new TShowUserRequest();
-        TShowUserResult result = impl.showUser(request);
-        System.out.println(result);
+
+        // A role administrator (root has ADMIN_PRIV) sees every account, but the password-derived
+        // columns are always masked, even for accounts with an empty password.
+        TShowUserRequest adminRequest = new TShowUserRequest();
+        adminRequest.setCurrentUserIdent(UserIdentity.ROOT.toThrift());
+        List<List<String>> adminRows = impl.showUser(adminRequest).getUserinfoList();
+        Assertions.assertTrue(adminRows.size() >= 2, "admin should see all accounts");
+        Assertions.assertTrue(adminRows.stream().anyMatch(r -> "show_user_a".equals(r.get(userNameIdx))));
+        Assertions.assertTrue(adminRows.stream().anyMatch(r -> "show_user_b".equals(r.get(userNameIdx))));
+        for (List<String> row : adminRows) {
+            Assertions.assertEquals("***", row.get(authStringIdx));
+            Assertions.assertEquals("***", row.get(historyPwIdx));
+        }
+
+        // A non-privileged user only sees their own row, with the password columns masked, so
+        // mysql.user does not leak the cluster's account list or privilege topology.
+        TShowUserRequest userRequest = new TShowUserRequest();
+        userRequest.setCurrentUserIdent(
+                UserIdentity.createAnalyzedUserIdentWithIp("show_user_a", "%").toThrift());
+        List<List<String>> userRows = impl.showUser(userRequest).getUserinfoList();
+        Assertions.assertEquals(1, userRows.size());
+        Assertions.assertEquals("show_user_a", userRows.get(0).get(userNameIdx));
+        Assertions.assertEquals("***", userRows.get(0).get(authStringIdx));
+        Assertions.assertEquals("***", userRows.get(0).get(historyPwIdx));
+
+        // Same name, different host are distinct accounts: a non-privileged caller must see only
+        // its exact user@host row, not the same-named account bound to another host.
+        executeCommand("create user 'dup_host_user'@'192.168.0.1'");
+        executeCommand("create user 'dup_host_user'@'10.0.0.1'");
+        TShowUserRequest dupRequest = new TShowUserRequest();
+        dupRequest.setCurrentUserIdent(
+                UserIdentity.createAnalyzedUserIdentWithIp("dup_host_user", "192.168.0.1").toThrift());
+        List<List<String>> dupRows = impl.showUser(dupRequest).getUserinfoList();
+        Assertions.assertEquals(1, dupRows.size());
+        Assertions.assertEquals("dup_host_user", dupRows.get(0).get(userNameIdx));
+        Assertions.assertEquals("192.168.0.1", dupRows.get(0).get(0));
+
+        // Fail closed: a request without a caller identity (e.g. a pre-upgrade BE that does not
+        // set the field) exposes no rows rather than leaking every account.
+        Assertions.assertTrue(impl.showUser(new TShowUserRequest()).getUserinfoList().isEmpty());
     }
 
     @Test

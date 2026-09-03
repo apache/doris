@@ -24,6 +24,31 @@ options { tokenVocab = DorisLexer; }
 @members {
     public boolean ansiSQLSyntax = false;
 
+    private void replaceTokenByIdentifier(ParserRuleContext ctx, int stripMargins,
+            boolean unescapeBackticks) {
+        if (!getBuildParseTree()) {
+            return;
+        }
+        ParserRuleContext parent = ctx.getParent();
+        parent.removeLastChild();
+        Token token = (Token) ctx.getChild(0).getPayload();
+        CommonToken identifier = new CommonToken(
+                new Pair<>(token.getTokenSource(), token.getInputStream()),
+                IDENTIFIER,
+                token.getChannel(),
+                token.getStartIndex() + stripMargins,
+                token.getStopIndex() - stripMargins);
+        if (unescapeBackticks) {
+            identifier.setText(identifier.getText().replace("``", "`"));
+        }
+        parent.addChild(new TerminalNodeImpl(identifier));
+    }
+
+    private void reportUnquotedIdentifier(ErrorIdentContext ctx) {
+        throw org.apache.doris.nereids.errors.QueryParsingErrors.unquotedIdentifierError(
+                ctx.getParent().getText(), ctx);
+    }
+
     private boolean isTupleLambdaBody() {
         if (_input.LA(1) != LEFT_PAREN) {
             return false;
@@ -1627,9 +1652,11 @@ sortItem
     ;
 
 limitClause
-    : (LIMIT limit=INTEGER_VALUE)
-    | (LIMIT limit=INTEGER_VALUE OFFSET offset=INTEGER_VALUE)
-    | (LIMIT offset=INTEGER_VALUE COMMA limit=INTEGER_VALUE)
+    : LIMIT limit=INTEGER_VALUE
+      (OFFSET offset=INTEGER_VALUE
+      // Preserve the existing semantic labels for MySQL's LIMIT offset, count form.
+      | COMMA commaLimit=INTEGER_VALUE {$ctx.offset = $ctx.limit; $ctx.limit = $ctx.commaLimit;}
+      )?
     ;
 
 partitionClause
@@ -2169,6 +2196,11 @@ errorCapturingIdentifierExtra
     : (SUBTRACT identifier)+ #errorIdent
     |                        #realIdent
     ;
+finally {
+    if ($ctx instanceof ErrorIdentContext) {
+        reportUnquotedIdentifier((ErrorIdentContext) $ctx);
+    }
+}
 
 identifier
     : strictIdentifier
@@ -2181,6 +2213,7 @@ strictIdentifier
     ;
 
 quotedIdentifier
+@after { replaceTokenByIdentifier($ctx, 1, true); }
     : BACKQUOTED_IDENTIFIER
     ;
 
@@ -2199,6 +2232,7 @@ dollarQuotedString
 // The non-reserved keywords are listed in `nonReserved`.
 // TODO: need to stay consistent with the legacy
 nonReserved
+@after { replaceTokenByIdentifier($ctx, 0, false); }
 //--DEFAULT-NON-RESERVED-START
     : ACTIONS
     | AFTER

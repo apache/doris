@@ -37,14 +37,7 @@ import org.junit.jupiter.api.Test;
  * SPI migration to {@code PaimonScanRange} dropped it (the thrift {@code TPaimonFileDesc} was built without
  * reader_type), so BE could not tell which paimon reader stack a split wanted.
  *
- * <p>There is deliberately NO {@link TPaimonReaderType#PAIMON_CPP} arm: upstream #66008 removed it from
- * {@code PaimonScanNode.setPaimonParams} because a logical {@code DataSplit} may span several files and
- * file-scanner-v2 has no split-aware paimon-cpp adapter. Under the default {@code enable_file_scanner_v2
- * = true}, a PAIMON_CPP range is HARD-REJECTED ({@code is_supported_jni_table_format} &rarr;
- * {@code _validate_scan_range} &rarr; "FileScannerV2 does not support table format paimon") with no
- * per-range fallback to the V1 scanner that still implements {@code PaimonCppReader}. So the JNI arm must
- * answer PAIMON_JNI unconditionally, and {@code enable_paimon_cpp_reader} is a plan-path no-op
- * (see {@code PaimonScanPlanProviderTest.cppReaderSessionFlagNoLongerChangesThePlan}).
+ * <p>A serialized logical split is always assigned to the Java JNI reader.
  */
 public class PaimonScanRangeReaderTypeTest {
 
@@ -62,18 +55,15 @@ public class PaimonScanRangeReaderTypeTest {
                 .paimonSplit("java-serialized-split")      // JNI marker (paimon.split prop present)
                 .build();
 
-        // MUTATION: dropping setReaderType, or reinstating a cpp arm, turns this red — with reader_type
-        // absent BE's V2 paimon reader can still infer JNI from paimon_split, but a PAIMON_CPP answer
-        // fails the query outright (see the class javadoc).
+        // Pin the explicit reader type so BE does not need to infer it from paimon_split.
         TTableFormatFileDesc formatDesc = populate(range);
         Assertions.assertTrue(formatDesc.getPaimonParams().isSetReaderType(),
                 "a JNI split must set reader_type so BE can pick the reader stack");
         Assertions.assertEquals(TPaimonReaderType.PAIMON_JNI,
                 formatDesc.getPaimonParams().getReaderType());
-        // paimon_table (the table root path) is read ONLY by the V1 PaimonCppReader, so #66008 stopped
-        // shipping it. MUTATION: re-adding setPaimonTable -> red.
+        // paimon_table is a deprecated compatibility field and is not needed by the JNI reader.
         Assertions.assertFalse(formatDesc.getPaimonParams().isSetPaimonTable(),
-                "paimon_table is cpp-reader-only state and must not be shipped");
+                "paimon_table must not be shipped to the JNI reader");
     }
 
     @Test
