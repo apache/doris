@@ -480,6 +480,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondMicrose
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionIsNarrowed;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha2;
@@ -1159,6 +1160,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitCurrentUser(CurrentUser currentUser, C context) {
         return visitScalarFunction(currentUser, context);
+    }
+
+    default R visitSessionIsNarrowed(SessionIsNarrowed sessionIsNarrowed, C context) {
+        return visitScalarFunction(sessionIsNarrowed, context);
     }
 
     default R visitCutIpv6(CutIpv6 cutIpv6, C context) {

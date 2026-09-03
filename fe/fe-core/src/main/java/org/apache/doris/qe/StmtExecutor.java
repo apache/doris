@@ -1300,6 +1300,17 @@ public class StmtExecutor {
     }
 
     private void forwardToMaster() throws Exception {
+        // FAIL CLOSED for session-narrowed (SU) sessions: the narrowing (sessionRoleOverride)
+        // is local ConnectContext state and is NOT carried in the forward RPC, so the master
+        // would rebuild the session with the target identity but NO override and authorize the
+        // statement against the target's FULL role set. A narrowed serving session's reads run
+        // locally on this FE; a statement that must be forwarded (SHOW-class metadata forwarded
+        // to master, DDL/DML/GRANT) is refused rather than run un-narrowed on the master.
+        if (context.getSessionRoleOverride() != null) {
+            throw new UserException("This statement would be forwarded to the master FE, which is not "
+                    + "allowed in a session-narrowed (SU) session, because the narrowing does not "
+                    + "propagate to the master. Run it in a non-narrowed session.");
+        }
         masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus, isQuery());
         if (LOG.isDebugEnabled()) {
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());

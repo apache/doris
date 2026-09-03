@@ -316,6 +316,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
     }
 
     private void handleChangeUser() throws IOException {
+        // A full re-authentication replaces the session identity — drop any SU narrowing first
+        // (never revert: the incoming credentials decide the new identity).
+        getConnectContext().clearSessionNarrowing();
         // Random bytes generated when creating connection.
         byte[] authPluginData = getConnectContext().getAuthPluginData();
         Preconditions.checkNotNull(authPluginData, "Auth plugin data is null.");

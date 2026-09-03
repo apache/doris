@@ -908,6 +908,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWorkloadGroupsCommand;
 import org.apache.doris.nereids.trees.plans.commands.StartTransactionCommand;
+import org.apache.doris.nereids.trees.plans.commands.SuUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
@@ -9283,6 +9284,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         return new GrantRoleCommand(userIdentity, roles);
+    }
+
+    @Override
+    public LogicalPlan visitSuUser(DorisParser.SuUserContext ctx) {
+        UserIdentity userIdentity = visitUserIdentify(ctx.userIdentify());
+        List<String> roles = ctx.roles.stream()
+                .map(this::visitIdentifierOrText)
+                .collect(ImmutableList.toImmutableList());
+        String workloadGroup = ctx.wg == null ? null : visitIdentifierOrText(ctx.wg);
+        return new SuUserCommand(userIdentity, roles, workloadGroup);
     }
 
     @Override
