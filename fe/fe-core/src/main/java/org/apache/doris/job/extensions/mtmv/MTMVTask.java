@@ -227,7 +227,7 @@ public class MTMVTask extends AbstractTask {
                                     + " or including not supported transform functions.");
                         }
                     }
-                    syncPartitions = MTMVPartitionUtil.alignMvPartition(mtmv);
+                    syncPartitions = MTMVPartitionUtil.alignMvPartition(mtmv, snapshots);
                 }
             } finally {
                 MetaLockUtils.readUnlockTables(tableIfs);
@@ -242,7 +242,7 @@ public class MTMVTask extends AbstractTask {
             }
             MetaLockUtils.readLockTables(tableIfs);
             try {
-                context = MTMVRefreshContext.buildContext(mtmv, Maps.newHashMap());
+                context = MTMVRefreshContext.buildContext(mtmv, Maps.newHashMap(), snapshots);
                 this.needRefreshPartitions = calculateNeedRefreshPartitions(context);
             } finally {
                 MetaLockUtils.readUnlockTables(tableIfs);
@@ -251,6 +251,10 @@ public class MTMVTask extends AbstractTask {
             if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
                 return;
             }
+            // Snapshot persistence happens after refresh partitions are split into execution groups. Load the
+            // complete union here so the default one-partition group size cannot turn a large Hive MTMV into
+            // one metadata request per MV partition; generatePartitionSnapshots reuses this context cache.
+            context.preparePartitionSnapshots(Sets.newHashSet(needRefreshPartitions));
             Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
             this.completedPartitions = Lists.newCopyOnWriteArrayList();
             int refreshPartitionNum = mtmv.getRefreshPartitionNum();

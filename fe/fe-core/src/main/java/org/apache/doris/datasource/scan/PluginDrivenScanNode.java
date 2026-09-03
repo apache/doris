@@ -106,6 +106,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
@@ -504,6 +505,68 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         writeScanProfilesInto(summaryProfile.getExecutionSummary(), profiles);
     }
 
+    private void collectAndAppendConnectorScanProfiles(ConnectorScanPlanProvider scanProvider) {
+        List<ConnectorScanProfile> profiles = onPluginClassLoader(scanProvider,
+                () -> scanProvider.collectScanProfiles(connectorSession));
+        appendConnectorScanProfiles(profiles);
+    }
+
+    static <T> T executeWithProfileFinalization(Supplier<T> operation, Runnable profileFinalizer) {
+        boolean operationCompleted = false;
+        try {
+            T result = operation.get();
+            operationCompleted = true;
+            profileFinalizer.run();
+            return result;
+        } catch (RuntimeException failure) {
+            if (!operationCompleted) {
+                try {
+                    profileFinalizer.run();
+                } catch (RuntimeException profileFailure) {
+                    failure.addSuppressed(profileFailure);
+                }
+            }
+            throw failure;
+        }
+    }
+
+    static final class SubmittedTaskFinalizer {
+        private final Runnable finalizer;
+        private final AtomicInteger outstandingTasks = new AtomicInteger();
+        private final AtomicBoolean dispatchClosed = new AtomicBoolean();
+        private final AtomicBoolean finalized = new AtomicBoolean();
+
+        SubmittedTaskFinalizer(Runnable finalizer) {
+            this.finalizer = finalizer;
+        }
+
+        void taskSubmitted() {
+            outstandingTasks.incrementAndGet();
+        }
+
+        void taskFinished() {
+            outstandingTasks.decrementAndGet();
+            finalizeIfReady();
+        }
+
+        void closeDispatch() {
+            dispatchClosed.set(true);
+            finalizeIfReady();
+        }
+
+        private void finalizeIfReady() {
+            if (dispatchClosed.get() && outstandingTasks.get() == 0
+                    && finalized.compareAndSet(false, true)) {
+                finalizer.run();
+            }
+        }
+    }
+
+    private List<Split> finishPrunedToZeroScan(ConnectorScanPlanProvider scanProvider) {
+        collectAndAppendConnectorScanProfiles(scanProvider);
+        return Collections.emptyList();
+    }
+
     /**
      * Transcribe connector-supplied scan profiles into {@code executionSummary}: get-or-create a group named
      * {@link ConnectorScanProfile#getGroupName()}, add a child named {@link ConnectorScanProfile#getScanLabel()},
@@ -515,18 +578,36 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (executionSummary == null || profiles == null || profiles.isEmpty()) {
             return;
         }
-        for (ConnectorScanProfile profile : profiles) {
-            RuntimeProfile group = executionSummary.getChildMap().get(profile.getGroupName());
-            if (group == null) {
-                group = new RuntimeProfile(profile.getGroupName());
-                executionSummary.addChild(group, true);
+        // Batch-mode scan nodes can publish from different metadata workers at the same time. Serialize the
+        // complete get-or-create/add sequence on the shared execution summary so two workers cannot replace one
+        // another's group. Duplicate labels are retained with a suffix (self-join / repeated scan), rather than
+        // relying on RuntimeProfile.addChild's replace-by-name behavior.
+        synchronized (executionSummary) {
+            for (ConnectorScanProfile profile : profiles) {
+                RuntimeProfile group = executionSummary.getChildMap().get(profile.getGroupName());
+                if (group == null) {
+                    group = new RuntimeProfile(profile.getGroupName());
+                    executionSummary.addChild(group, true);
+                }
+                String scanLabel = uniqueScanLabel(group, profile.getScanLabel());
+                RuntimeProfile scan = new RuntimeProfile(scanLabel);
+                for (Map.Entry<String, String> entry : profile.getMetrics().entrySet()) {
+                    scan.addInfoString(entry.getKey(), entry.getValue());
+                }
+                group.addChild(scan, true);
             }
-            RuntimeProfile scan = new RuntimeProfile(profile.getScanLabel());
-            for (Map.Entry<String, String> entry : profile.getMetrics().entrySet()) {
-                scan.addInfoString(entry.getKey(), entry.getValue());
-            }
-            group.addChild(scan, true);
         }
+    }
+
+    private static String uniqueScanLabel(RuntimeProfile group, String requestedLabel) {
+        if (!group.getChildMap().containsKey(requestedLabel)) {
+            return requestedLabel;
+        }
+        int suffix = 2;
+        while (group.getChildMap().containsKey(requestedLabel + " #" + suffix)) {
+            suffix++;
+        }
+        return requestedLabel + " #" + suffix;
     }
 
     @Override
@@ -1026,9 +1107,21 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return;
         }
         ConnectorMetadata metadata = metadata();
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         ConnectorFilterConstraint constraint = buildFilterConstraint(conjuncts);
-        Optional<FilterApplicationResult<ConnectorTableHandle>> result =
-                metadata.applyFilter(connectorSession, currentHandle, constraint);
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result;
+        try {
+            result = metadata.applyFilter(connectorSession, currentHandle, constraint);
+        } catch (RuntimeException failure) {
+            if (scanProvider != null) {
+                try {
+                    collectAndAppendConnectorScanProfiles(scanProvider);
+                } catch (RuntimeException profileFailure) {
+                    failure.addSuppressed(profileFailure);
+                }
+            }
+            throw failure;
+        }
         if (result.isPresent()) {
             FilterApplicationResult<ConnectorTableHandle> filterResult = result.get();
             currentHandle = filterResult.getHandle();
@@ -1513,7 +1606,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             this.totalPartitionNum = partitionCounts[1];
         }
         if (requiredPartitions != null && requiredPartitions.isEmpty()) {
-            return Collections.emptyList();
+            return finishPrunedToZeroScan(scanProvider);
         }
 
         List<ConnectorColumnHandle> columns = buildColumnHandles();
@@ -1567,8 +1660,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 // Connectors that just list files are unaffected: they never read this.
                 .explainOnly(isExplainOnly())
                 .build();
-        List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
-                () -> scanProvider.planScan(connectorSession, request));
+        List<ConnectorScanRange> ranges = executeWithProfileFinalization(
+                () -> onPluginClassLoader(scanProvider,
+                        () -> scanProvider.planScan(connectorSession, request)),
+                () -> collectAndAppendConnectorScanProfiles(scanProvider));
 
         if (variantCompatibilityDeferred) {
             checkVariantBackendCompatibility(
@@ -1597,13 +1692,6 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 () -> scanProvider.scannedPartitionCount(ranges));
         this.selectedPartitionNum = resolveSelectedPartitionNum(
                 this.selectedPartitionNum, countPushdown, connectorScannedPartitions);
-        // FIX-SCAN-METRICS: drain the connector's SDK scan diagnostics (harvested during planScan, keyed by
-        // queryId) and write them into the query profile. connector-agnostic: the connector supplies the
-        // group/label/metrics, the engine only transcribes them (no source branch). Default empty for
-        // connectors that don't harvest. Same thread as planScan, so the harvest is complete.
-        List<ConnectorScanProfile> scanProfiles = onPluginClassLoader(scanProvider,
-                () -> scanProvider.collectScanProfiles(connectorSession));
-        appendConnectorScanProfiles(scanProfiles);
         long pushDownRowCount = resolvePushDownRowCount(countPushdown, ranges);
         if (pushDownRowCount >= 0) {
             // Only set when a range actually carries a precomputed count (e.g. paimon's collapsed count
@@ -1918,51 +2006,81 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         final List<String> allPartitions =
                 new ArrayList<>(selectedPartitions.selectedPartitions.keySet());
         final int batchSize = sessionVariable.getNumPartitionsInBatchMode();
+        SummaryProfile batchSummaryProfile = SummaryProfile.getSummaryProfile(ConnectContext.get());
+        final RuntimeProfile batchExecutionSummary = batchSummaryProfile == null
+                ? null : batchSummaryProfile.getExecutionSummary();
 
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         AtomicReference<UserException> batchException = new AtomicReference<>(null);
-        AtomicInteger numFinishedPartitions = new AtomicInteger(0);
-
-        CompletableFuture.runAsync(() -> {
-            for (int begin = 0; begin < allPartitions.size(); begin += batchSize) {
-                int end = Math.min(begin + batchSize, allPartitions.size());
-                if (batchException.get() != null || splitAssignment.isStop()) {
-                    break;
+        SubmittedTaskFinalizer profileFinalizer = new SubmittedTaskFinalizer(() -> {
+            try {
+                List<ConnectorScanProfile> profiles = onPluginClassLoader(scanProvider,
+                        () -> scanProvider.collectScanProfiles(connectorSession));
+                writeScanProfilesInto(batchExecutionSummary, profiles);
+            } catch (Exception e) {
+                UserException profileFailure = new UserException(e.getMessage(), e);
+                UserException primaryFailure = batchException.get();
+                if (primaryFailure == null) {
+                    batchException.compareAndSet(null, profileFailure);
+                } else {
+                    primaryFailure.addSuppressed(profileFailure);
                 }
-                List<String> batch = allPartitions.subList(begin, end);
-                int curBatchSize = end - begin;
-                try {
-                    CompletableFuture.runAsync(() -> {
-                        try {
-                            List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
-                                    () -> scanProvider.planScanForPartitionBatch(
-                                            connectorSession, batchRequest, batch));
-                            List<Split> batchSplits = new ArrayList<>(ranges.size());
-                            for (ConnectorScanRange range : ranges) {
-                                batchSplits.add(new PluginDrivenSplit(range));
-                            }
-                            if (splitAssignment.needMoreSplit()) {
-                                splitAssignment.addToQueue(batchSplits);
-                            }
-                        } catch (Exception e) {
-                            batchException.set(new UserException(e.getMessage(), e));
-                        } finally {
-                            if (batchException.get() != null) {
-                                splitAssignment.setException(batchException.get());
-                            }
-                            if (numFinishedPartitions.addAndGet(curBatchSize) == allPartitions.size()) {
-                                splitAssignment.finishSchedule();
-                            }
-                        }
-                    }, scheduleExecutor);
-                } catch (Exception e) {
-                    batchException.set(new UserException(e.getMessage(), e));
-                }
-                if (batchException.get() != null) {
-                    splitAssignment.setException(batchException.get());
-                }
+                splitAssignment.setException(batchException.get());
+            } finally {
+                splitAssignment.finishSchedule();
             }
-        }, scheduleExecutor);
+        });
+
+        Runnable dispatch = () -> {
+            try {
+                for (int begin = 0; begin < allPartitions.size(); begin += batchSize) {
+                    int end = Math.min(begin + batchSize, allPartitions.size());
+                    if (batchException.get() != null || splitAssignment.isStop()) {
+                        break;
+                    }
+                    List<String> batch = allPartitions.subList(begin, end);
+                    profileFinalizer.taskSubmitted();
+                    try {
+                        CompletableFuture.runAsync(() -> {
+                            try {
+                                List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
+                                        () -> scanProvider.planScanForPartitionBatch(
+                                                connectorSession, batchRequest, batch));
+                                List<Split> batchSplits = new ArrayList<>(ranges.size());
+                                for (ConnectorScanRange range : ranges) {
+                                    batchSplits.add(new PluginDrivenSplit(range));
+                                }
+                                if (splitAssignment.needMoreSplit()) {
+                                    splitAssignment.addToQueue(batchSplits);
+                                }
+                            } catch (Exception e) {
+                                batchException.compareAndSet(null, new UserException(e.getMessage(), e));
+                            } finally {
+                                if (batchException.get() != null) {
+                                    splitAssignment.setException(batchException.get());
+                                }
+                                profileFinalizer.taskFinished();
+                            }
+                        }, scheduleExecutor);
+                    } catch (Exception e) {
+                        batchException.compareAndSet(null, new UserException(e.getMessage(), e));
+                        profileFinalizer.taskFinished();
+                    }
+                    if (batchException.get() != null) {
+                        splitAssignment.setException(batchException.get());
+                    }
+                }
+            } finally {
+                profileFinalizer.closeDispatch();
+            }
+        };
+        try {
+            CompletableFuture.runAsync(dispatch, scheduleExecutor);
+        } catch (Exception e) {
+            batchException.compareAndSet(null, new UserException(e.getMessage(), e));
+            splitAssignment.setException(batchException.get());
+            profileFinalizer.closeDispatch();
+        }
     }
 
     /**

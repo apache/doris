@@ -27,6 +27,7 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVRefreshContext.PreparedPartitionSnapshots;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -58,6 +59,7 @@ public class MTMVPartitionUtilTest {
     private MockedStatic<MTMVUtil> mtmvUtilStatic;
     private MockedStatic<MTMVRefreshContext> refreshContextStatic;
     private MTMVRefreshContext context = Mockito.mock(MTMVRefreshContext.class);
+    private PreparedPartitionSnapshots partitionSnapshots = Mockito.mock(PreparedPartitionSnapshots.class);
     private MTMVBaseVersions versions = Mockito.mock(MTMVBaseVersions.class);
 
     private Set<BaseTableInfo> baseTables = Sets.newHashSet();
@@ -80,6 +82,7 @@ public class MTMVPartitionUtilTest {
         Mockito.when(context.getBaseVersions()).thenReturn(versions);
 
         Mockito.when(context.getBaseTableSnapshotCache()).thenReturn(Maps.newHashMap());
+        Mockito.when(context.prepareComparablePartitionSnapshots(Mockito.anySet())).thenReturn(partitionSnapshots);
 
         Mockito.when(mtmv.getPartitions()).thenReturn(Lists.newArrayList(p1));
 
@@ -107,6 +110,9 @@ public class MTMVPartitionUtilTest {
         Mockito.when(relation.getBaseTablesOneLevelAndFromView()).thenReturn(baseTables);
 
         Mockito.when(baseOlapTable.getPartitionSnapshot(Mockito.anyString(), Mockito.any(MTMVRefreshContext.class), Mockito.any(Optional.class)))
+                .thenReturn(baseSnapshotIf);
+
+        Mockito.when(partitionSnapshots.get(baseOlapTable, "name2"))
                 .thenReturn(baseSnapshotIf);
 
         Mockito.when(refreshSnapshot.equalsWithPct(Mockito.anyString(), Mockito.anyString(), Mockito.any(MTMVSnapshotIf.class),
@@ -150,7 +156,8 @@ public class MTMVPartitionUtilTest {
     @Test
     public void testIsSyncWithPartition() throws AnalysisException {
         boolean isSyncWithPartition = MTMVPartitionUtil
-                .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"), baseOlapTable);
+                .isSyncWithPartitions(
+                        context, partitionSnapshots, "name1", Sets.newHashSet("name2"), baseOlapTable);
         Assert.assertTrue(isSyncWithPartition);
     }
 
@@ -159,7 +166,8 @@ public class MTMVPartitionUtilTest {
         Mockito.when(refreshSnapshot.getPctSnapshots(Mockito.anyString(), Mockito.any(BaseTableInfo.class)))
                 .thenReturn(Sets.newHashSet("name2", "name3"));
         boolean isSyncWithPartition = MTMVPartitionUtil
-                .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"), baseOlapTable);
+                .isSyncWithPartitions(
+                        context, partitionSnapshots, "name1", Sets.newHashSet("name2"), baseOlapTable);
         Assert.assertFalse(isSyncWithPartition);
     }
 
@@ -169,7 +177,8 @@ public class MTMVPartitionUtilTest {
                 Mockito.any(BaseTableInfo.class)))
                 .thenReturn(false);
         boolean isSyncWithPartition = MTMVPartitionUtil
-                .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"), baseOlapTable);
+                .isSyncWithPartitions(
+                        context, partitionSnapshots, "name1", Sets.newHashSet("name2"), baseOlapTable);
         Assert.assertFalse(isSyncWithPartition);
     }
 
@@ -182,8 +191,8 @@ public class MTMVPartitionUtilTest {
         Mockito.when(mtmvPartitionInfo.getPctTables()).thenReturn(Sets.newHashSet(baseOlapTable));
 
         Set<TableNameInfo> excludedTriggerTables = ImmutableSet.of();
-        boolean isMTMVPartitionSync = MTMVPartitionUtil.isMTMVPartitionSync(context, "name1", baseTables,
-                excludedTriggerTables);
+        boolean isMTMVPartitionSync = MTMVPartitionUtil.isMTMVPartitionSync(
+                context, partitionSnapshots, "name1", baseTables, excludedTriggerTables);
 
         Assert.assertTrue(isMTMVPartitionSync);
         Assert.assertTrue(excludedTriggerTables.isEmpty());

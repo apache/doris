@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hudi;
 
+import org.apache.doris.connector.hms.HmsClientConfig;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
@@ -81,6 +82,10 @@ public final class HudiCatalogProperties {
             description = "size of the metastore client pool")
     private int hmsClientPoolSize = DEFAULT_HMS_CLIENT_POOL_SIZE;
 
+    @ConnectorProperty(names = {HmsClientConfig.PARTITION_BATCH_SIZE_KEY}, required = false,
+            description = "maximum partition names sent in one Hive Metastore RPC")
+    private int hmsPartitionsBatchSizePerRpc = HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE;
+
     @ConnectorProperty(names = {USE_HIVE_SYNC_PARTITION}, required = false,
             description = "read partition names from the metastore instead of the table's file layout")
     private boolean useHiveSyncPartition;
@@ -98,6 +103,7 @@ public final class HudiCatalogProperties {
                 .require(p.metastoreUri,
                         "HMS URI ('" + HIVE_METASTORE_URIS + "') is required for Hudi connector")
                 .validate();
+        new HmsClientConfig(p.raw, p.hmsClientPoolSize);
         return p;
     }
 

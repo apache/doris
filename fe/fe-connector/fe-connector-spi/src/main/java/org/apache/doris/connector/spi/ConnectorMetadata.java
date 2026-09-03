@@ -136,6 +136,23 @@ public interface ConnectorMetadata extends
     }
 
     /**
+     * Bulk form of {@link #getPartitionFreshnessMillis(ConnectorSession, ConnectorTableHandle, String)}.
+     * Connectors with a native bulk metadata API should override this method. The default preserves
+     * compatibility and the existing behavior for connectors that only support single-partition lookup.
+     */
+    default Map<String, Long> getPartitionsFreshnessMillis(
+            ConnectorSession session, ConnectorTableHandle handle, List<String> partitionNames) {
+        Map<String, Long> freshness = new java.util.LinkedHashMap<>();
+        for (String partitionName : partitionNames) {
+            OptionalLong value = getPartitionFreshnessMillis(session, handle, partitionName);
+            if (value.isPresent()) {
+                freshness.put(partitionName, value.getAsLong());
+            }
+        }
+        return freshness;
+    }
+
+    /**
      * Resolves an explicit time-travel spec (extracted from {@code FOR TIME AS OF} /
      * {@code FOR VERSION AS OF}, or the {@code @tag} / {@code @branch} / {@code @incr}
      * scan params) into a pinned snapshot.

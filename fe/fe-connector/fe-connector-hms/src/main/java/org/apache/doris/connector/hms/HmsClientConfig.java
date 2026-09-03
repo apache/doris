@@ -41,6 +41,10 @@ public final class HmsClientConfig {
     /** Standard HMS (Thrift). */
     public static final String METASTORE_TYPE_HMS = "hms";
 
+    public static final String PARTITION_BATCH_SIZE_KEY = "hive.hms_partitions_batch_size_per_rpc";
+
+    public static final int DEFAULT_PARTITION_BATCH_SIZE = 5000;
+
     /**
      * Metastore types that have been REMOVED and are no longer routable, mapped to what each one was.
      *
@@ -85,6 +89,7 @@ public final class HmsClientConfig {
     private final Map<String, String> properties;
     private final String confResources;
     private final int poolSize;
+    private final int partitionBatchSize;
 
     /**
      * Creates a new HMS client configuration.
@@ -106,6 +111,8 @@ public final class HmsClientConfig {
             throw new IllegalArgumentException("poolSize must be >= 0, got " + poolSize);
         }
         this.poolSize = poolSize;
+        this.partitionBatchSize = parsePositiveInt(
+                properties, PARTITION_BATCH_SIZE_KEY, DEFAULT_PARTITION_BATCH_SIZE);
     }
 
     public Map<String, String> getProperties() {
@@ -128,10 +135,32 @@ public final class HmsClientConfig {
         return properties.getOrDefault(METASTORE_TYPE_KEY, METASTORE_TYPE_HMS);
     }
 
+    public int getPartitionBatchSize() {
+        return partitionBatchSize;
+    }
+
+    private static int parsePositiveInt(Map<String, String> properties, String key, int defaultValue) {
+        String value = properties.get(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        int parsed;
+        try {
+            parsed = Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(key + " must be a positive integer, got " + value, e);
+        }
+        if (parsed <= 0) {
+            throw new IllegalArgumentException(key + " must be a positive integer, got " + value);
+        }
+        return parsed;
+    }
+
     @Override
     public String toString() {
         return "HmsClientConfig{uri=" + getMetastoreUri()
                 + ", type=" + getMetastoreType()
-                + ", poolSize=" + poolSize + "}";
+                + ", poolSize=" + poolSize
+                + ", partitionBatchSize=" + partitionBatchSize + "}";
     }
 }

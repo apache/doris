@@ -23,15 +23,20 @@ import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
 import org.apache.doris.connector.cache.ScopePath;
 
-import org.apache.hadoop.hive.common.FileUtils;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 
 /**
@@ -116,6 +121,8 @@ public class CachingHmsClient implements HmsClient {
     private final MetaCache<PartitionNamesKey, List<String>> partitionNamesCache;
     private final MetaCache<PartitionKey, HmsPartitionInfo> partitionsCache;
     private final MetaCache<ColumnStatsKey, List<HmsColumnStatistics>> columnStatsCache;
+    private final ConcurrentMap<PartitionKey, PartitionLoadBatch> inFlightPartitionLoads =
+            new ConcurrentHashMap<>();
 
     public CachingHmsClient(CatalogMetaCache owner, HmsClient delegate, Map<String, String> properties) {
         Objects.requireNonNull(owner, "owner can not be null");
@@ -203,76 +210,293 @@ public class CachingHmsClient implements HmsClient {
 
     @Override
     public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
-        if (partNames == null || partNames.isEmpty()) {
-            return Collections.emptyList();
-        }
-        // Per-partition assembly (Trino CachingHiveMetastore / legacy HiveExternalMetaCache shape): serve each
-        // requested partition from its own entry and fetch only the misses in ONE delegate round-trip, so
-        // overlapping requests share partition objects and the capacity bounds partition OBJECTS, not
-        // request-lists. Correctness is independent of name-parse fidelity: a LOOKUP is keyed by the requested
-        // name parsed to values, but a STORE is always keyed by the partition's OWN values, so a name whose
-        // parse diverges (a rare escaped value) simply misses and is re-fetched — never a wrong or dropped
-        // partition. Callers consume the result as a SET (they never rely on order or 1:1 name↔result
-        // correspondence — the delegate get_partitions_by_names never guaranteed either).
-        List<HmsPartitionInfo> result = new ArrayList<>(partNames.size());
-        List<String> missNames = null;
-        for (String name : partNames) {
-            HmsPartitionInfo hit =
-                    partitionsCache.getIfPresent(new PartitionKey(dbName, tableName, toPartitionValues(name)));
-            if (hit != null) {
-                result.add(hit);
-            } else {
-                if (missNames == null) {
-                    missNames = new ArrayList<>();
-                }
-                missNames.add(name);
-            }
-        }
-        if (missNames != null) {
-            // Capture the invalidation generation BEFORE the delegate RPC so a REFRESH (flush) that races this
-            // in-flight cold-cache fetch does not get silently undone by re-caching the pre-refresh partitions.
-            // The pre-D2 code went through partitionsCache.get(key, loader) -> getWithManualLoad, which had this
-            // guard; the per-partition put must restore it (getTable/listPartitionNames/getTableColumnStatistics
-            // still use the guarded get path). The delegate results still populate the RESULT list directly,
-            // preserving the misparse->never-drop safety (only the CACHE put is generation-guarded).
-            try (MetaCache.BulkLoad<PartitionKey, HmsPartitionInfo> load =
-                    partitionsCache.beginBulkLoad(ScopePath.table(dbName, tableName))) {
-                for (HmsPartitionInfo info : delegate.getPartitions(dbName, tableName, missNames)) {
-                    load.publish(new PartitionKey(dbName, tableName, info.getValues()), info);
-                    result.add(info);
-                }
-            }
-        }
-        return result;
+        return getPartitionsWithStats(dbName, tableName, partNames).getPartitions();
     }
 
-    /**
-     * Splits a Hive partition name ("c1=a/c2=b") into its ordered values ("a", "b"), unescaping each via
-     * Hive's {@code FileUtils} (already a hms-module dependency — {@code HmsEventParser} uses it). Semantics
-     * match the write path's {@code HiveWriteUtils.toPartitionValues}, so scan and write correlate partitions
-     * identically. Only used to build the per-partition LOOKUP key: a parse that diverges from the stored
-     * partition's own values just misses and re-fetches (never a wrong/dropped partition), so this is a
-     * hit-rate optimization, not a correctness dependency.
-     */
-    private static List<String> toPartitionValues(String partitionName) {
-        List<String> values = new ArrayList<>();
-        int start = 0;
-        while (true) {
-            while (start < partitionName.length() && partitionName.charAt(start) != '=') {
-                start++;
-            }
-            start++;
-            int end = start;
-            while (end < partitionName.length() && partitionName.charAt(end) != '/') {
-                end++;
-            }
-            if (start > partitionName.length()) {
-                break;
-            }
-            values.add(FileUtils.unescapePathName(partitionName.substring(start, end)));
-            start = end + 1;
+    @Override
+    public HmsPartitionBatchResult getPartitionsWithStats(
+            String dbName, String tableName, List<String> partNames) {
+        return getPartitionsWithStats(dbName, tableName, partNames, false);
+    }
+
+    @Override
+    public List<HmsPartitionInfo> getExistingPartitions(
+            String dbName, String tableName, List<String> partNames) {
+        return getExistingPartitionsWithStats(dbName, tableName, partNames).getPartitions();
+    }
+
+    @Override
+    public HmsPartitionBatchResult getExistingPartitionsWithStats(
+            String dbName, String tableName, List<String> partNames) {
+        return getPartitionsWithStats(dbName, tableName, partNames, true);
+    }
+
+    private HmsPartitionBatchResult getPartitionsWithStats(
+            String dbName, String tableName, List<String> partNames, boolean allowMissing) {
+        long logicalStartNanos = System.nanoTime();
+        if (partNames.isEmpty()) {
+            HmsPartitionBatchStats stats = HmsPartitionBatchStats.builder()
+                    .logicalElapsedNanos(System.nanoTime() - logicalStartNanos)
+                    .build();
+            return new HmsPartitionBatchResult(Collections.emptyList(), stats);
         }
-        return values;
+        HmsPartitionRequest request = new HmsPartitionRequest(dbName, tableName, partNames);
+        // Keep the existing cache policy: aggregate every miss into one logical delegate request and publish
+        // only after that request succeeds. Reassemble from partition identities afterwards because a mixed
+        // hit/miss request must preserve the caller's exact order even when HMS returns a different order.
+        List<List<String>> requestedValues = new ArrayList<>(partNames.size());
+        Map<List<String>, HmsPartitionInfo> resultByIdentity = new HashMap<>();
+        List<HmsPartitionIdentity.ParsedPartitionName> misses = new ArrayList<>();
+        for (HmsPartitionIdentity.ParsedPartitionName partition : request.getPartitions()) {
+            List<String> values = partition.getValues();
+            requestedValues.add(values);
+            HmsPartitionInfo hit = partitionsCache.getIfPresent(new PartitionKey(dbName, tableName, values));
+            if (hit != null) {
+                resultByIdentity.put(values, hit);
+            } else {
+                misses.add(partition);
+            }
+        }
+        PartitionStatsAccumulator physicalStats = new PartitionStatsAccumulator();
+        if (!misses.isEmpty()) {
+            try {
+                loadMissingPartitions(dbName, tableName, allowMissing, misses,
+                        resultByIdentity, physicalStats);
+            } catch (HmsClientException e) {
+                HmsPartitionBatchStats failedStats = e.getPartitionBatchStats();
+                if (failedStats != null) {
+                    physicalStats.add(failedStats);
+                    e.withPartitionBatchStats(physicalStats.build(
+                            partNames.size(), System.nanoTime() - logicalStartNanos));
+                }
+                throw e;
+            }
+        }
+        List<HmsPartitionInfo> result = new ArrayList<>(partNames.size());
+        for (int i = 0; i < requestedValues.size(); i++) {
+            List<String> values = requestedValues.get(i);
+            if (allowMissing && !resultByIdentity.containsKey(values)) {
+                continue;
+            }
+            HmsPartitionInfo partition = resultByIdentity.get(values);
+            if (partition == null) {
+                throw HmsPartitionResultException.builder(partNames.size(), resultByIdentity.size())
+                        .missing(request.getPartitions().get(i).getName())
+                        .build();
+            }
+            result.add(partition);
+        }
+        HmsPartitionBatchStats stats = physicalStats.build(
+                partNames.size(), System.nanoTime() - logicalStartNanos);
+        return new HmsPartitionBatchResult(result, stats);
+    }
+
+    private void loadMissingPartitions(String dbName, String tableName, boolean allowMissing,
+            List<HmsPartitionIdentity.ParsedPartitionName> initialMisses,
+            Map<List<String>, HmsPartitionInfo> resultByIdentity,
+            PartitionStatsAccumulator physicalStats) {
+        List<HmsPartitionIdentity.ParsedPartitionName> pending = initialMisses;
+        while (!pending.isEmpty()) {
+            // Elect one owner per missing identity. One caller can own a batch and wait on identities owned by
+            // another caller, so partially overlapping requests still issue one transport load per identity.
+            PartitionLoadBatch ownedBatch = new PartitionLoadBatch(allowMissing);
+            List<PartitionLoadRegistration> owned = new ArrayList<>();
+            Map<PartitionLoadBatch, List<PartitionLoadRegistration>> waiting = new IdentityHashMap<>();
+            try {
+                for (HmsPartitionIdentity.ParsedPartitionName partition : pending) {
+                    registerPartitionLoad(dbName, tableName, partition, ownedBatch,
+                            resultByIdentity, owned, waiting);
+                }
+                afterPartitionLoadRegistrationForTest();
+                if (!owned.isEmpty()) {
+                    loadOwnedPartitions(dbName, tableName, allowMissing, registrationsToPartitions(owned),
+                            resultByIdentity, physicalStats, ownedBatch);
+                }
+                ownedBatch.complete(null);
+            } catch (RuntimeException | Error failure) {
+                ownedBatch.complete(failure);
+                releaseWaitingBatches(waiting.keySet());
+                throw failure;
+            } finally {
+                releaseOwnedPartitionLoads(ownedBatch);
+            }
+            List<HmsPartitionIdentity.ParsedPartitionName> retries = new ArrayList<>();
+            consumeWaitingBatches(waiting, resultByIdentity, retries, allowMissing);
+            pending = retries;
+        }
+    }
+
+    void afterPartitionLoadRegistrationForTest() {
+    }
+
+    void beforePartitionLoadElectionForTest() {
+    }
+
+    void afterPartitionLoadOwnershipForTest() {
+    }
+
+    int inFlightPartitionLoadCountForTest() {
+        return inFlightPartitionLoads.size();
+    }
+
+    private void registerPartitionLoad(String dbName, String tableName,
+            HmsPartitionIdentity.ParsedPartitionName partition, PartitionLoadBatch ownedBatch,
+            Map<List<String>, HmsPartitionInfo> resultByIdentity,
+            List<PartitionLoadRegistration> owned,
+            Map<PartitionLoadBatch, List<PartitionLoadRegistration>> waiting) {
+        PartitionKey key = new PartitionKey(dbName, tableName, partition.getValues());
+        HmsPartitionInfo hit = partitionsCache.getIfPresent(key);
+        if (hit != null) {
+            resultByIdentity.put(partition.getValues(), hit);
+            return;
+        }
+        beforePartitionLoadElectionForTest();
+        while (true) {
+            PartitionLoadBatch existing = inFlightPartitionLoads.putIfAbsent(key, ownedBatch);
+            if (existing == null) {
+                ownedBatch.claimedKeys.add(key);
+                afterPartitionLoadOwnershipForTest();
+                hit = partitionsCache.getIfPresent(key);
+                if (hit == null) {
+                    owned.add(new PartitionLoadRegistration(partition, key));
+                } else {
+                    resultByIdentity.put(partition.getValues(), hit);
+                    ownedBatch.claimedKeys.remove(key);
+                    inFlightPartitionLoads.remove(key, ownedBatch);
+                }
+                return;
+            }
+            List<PartitionLoadRegistration> registrations = waiting.get(existing);
+            if (registrations != null) {
+                registrations.add(new PartitionLoadRegistration(partition, key));
+                return;
+            }
+            if (existing.tryRegisterWaiter()) {
+                waiting.computeIfAbsent(existing, ignored -> new ArrayList<>())
+                        .add(new PartitionLoadRegistration(partition, key));
+                return;
+            }
+            inFlightPartitionLoads.remove(key, existing);
+        }
+    }
+
+    private void loadOwnedPartitions(String dbName, String tableName, boolean allowMissing,
+            List<HmsPartitionIdentity.ParsedPartitionName> owned,
+            Map<List<String>, HmsPartitionInfo> resultByIdentity,
+            PartitionStatsAccumulator physicalStats, PartitionLoadBatch ownedBatch) {
+        List<String> names = new ArrayList<>(owned.size());
+        for (HmsPartitionIdentity.ParsedPartitionName partition : owned) {
+            names.add(partition.getName());
+        }
+        MetaCache.BulkLoad<PartitionKey, HmsPartitionInfo> load =
+                partitionsCache.beginBulkLoad(ScopePath.table(dbName, tableName));
+        ownedBatch.setLoad(load);
+        HmsPartitionBatchResult loadedResult = allowMissing
+                ? delegate.getExistingPartitionsWithStats(dbName, tableName, names)
+                : delegate.getPartitionsWithStats(dbName, tableName, names);
+        physicalStats.add(loadedResult.getStats());
+        List<HmsPartitionInfo> loaded = loadedResult.getPartitions();
+        for (HmsPartitionInfo info : loaded) {
+            PartitionKey key = new PartitionKey(dbName, tableName, info.getValues());
+            load.publish(key, info);
+            resultByIdentity.put(info.getValues(), info);
+            ownedBatch.resolvedPartitions.put(key, info);
+        }
+    }
+
+    private static List<HmsPartitionIdentity.ParsedPartitionName> registrationsToPartitions(
+            List<PartitionLoadRegistration> registrations) {
+        List<HmsPartitionIdentity.ParsedPartitionName> partitions = new ArrayList<>(registrations.size());
+        for (PartitionLoadRegistration registration : registrations) {
+            partitions.add(registration.partition);
+        }
+        return partitions;
+    }
+
+    private void releaseOwnedPartitionLoads(PartitionLoadBatch ownedBatch) {
+        for (PartitionKey key : ownedBatch.claimedKeys) {
+            inFlightPartitionLoads.remove(key, ownedBatch);
+        }
+        ownedBatch.releaseOwner();
+    }
+
+    private static void releaseWaitingBatches(Set<PartitionLoadBatch> batches) {
+        for (PartitionLoadBatch batch : batches) {
+            batch.releaseWaiter();
+        }
+    }
+
+    private void consumeWaitingBatches(
+            Map<PartitionLoadBatch, List<PartitionLoadRegistration>> waiting,
+            Map<List<String>, HmsPartitionInfo> resultByIdentity,
+            List<HmsPartitionIdentity.ParsedPartitionName> retries, boolean allowMissing) {
+        List<Map.Entry<PartitionLoadBatch, List<PartitionLoadRegistration>>> entries =
+                new ArrayList<>(waiting.entrySet());
+        for (int i = 0; i < entries.size(); i++) {
+            try {
+                Map.Entry<PartitionLoadBatch, List<PartitionLoadRegistration>> entry = entries.get(i);
+                consumeWaitingBatch(entry.getKey(), entry.getValue(), resultByIdentity, retries, allowMissing);
+            } catch (RuntimeException | Error failure) {
+                for (int remaining = i + 1; remaining < entries.size(); remaining++) {
+                    entries.get(remaining).getKey().releaseWaiter();
+                }
+                throw failure;
+            }
+        }
+    }
+
+    private void consumeWaitingBatch(PartitionLoadBatch batch,
+            List<PartitionLoadRegistration> registrations,
+            Map<List<String>, HmsPartitionInfo> resultByIdentity,
+            List<HmsPartitionIdentity.ParsedPartitionName> retries, boolean allowMissing) {
+        try {
+            Throwable failure = batch.await();
+            if (failure != null) {
+                if (failure instanceof HmsPartitionResultException
+                        && (batch.allowMissing != allowMissing
+                        || batch.claimedKeys.size() != registrations.size()
+                        || registrations.stream().anyMatch(
+                                registration -> !batch.claimedKeys.contains(registration.key)))) {
+                    for (PartitionLoadRegistration registration : registrations) {
+                        retries.add(registration.partition);
+                    }
+                    return;
+                }
+                rethrow(failure, batch.getFailureStats());
+            }
+            for (PartitionLoadRegistration registration : registrations) {
+                HmsPartitionInfo hit = partitionsCache.getIfPresent(registration.key);
+                if (hit != null) {
+                    resultByIdentity.put(hit.getValues(), hit);
+                } else if (failure == null && batch.canReuse(registration.key)) {
+                    HmsPartitionInfo resolved = batch.resolvedPartitions.get(registration.key);
+                    if (resolved != null) {
+                        resultByIdentity.put(resolved.getValues(), resolved);
+                    }
+                } else {
+                    retries.add(registration.partition);
+                }
+            }
+        } finally {
+            batch.releaseWaiter();
+        }
+    }
+
+    private static void rethrow(Throwable failure, HmsPartitionBatchStats failureStats) {
+        if (failure instanceof HmsClientException) {
+            HmsClientException callerFailure = new HmsClientException(failure.getMessage(), failure);
+            if (failureStats != null) {
+                callerFailure.withPartitionBatchStats(failureStats);
+            }
+            throw callerFailure;
+        }
+        if (failure instanceof RuntimeException) {
+            throw (RuntimeException) failure;
+        }
+        if (failure instanceof Error) {
+            throw (Error) failure;
+        }
+        throw new HmsClientException("HMS in-flight partition load failed", failure);
     }
 
     @Override
@@ -477,6 +701,133 @@ public class CachingHmsClient implements HmsClient {
         @Override
         public int hashCode() {
             return Objects.hash(dbName, tableName, maxParts);
+        }
+    }
+
+    private static final class PartitionStatsAccumulator {
+        private int transportInvocations;
+        private long transportItems;
+        private int largestBatchSize;
+        private int smallestBatchSize;
+        private int fallbackCount;
+        private long transportElapsedNanos;
+        private long maxTransportElapsedNanos;
+
+        private void add(HmsPartitionBatchStats stats) {
+            transportInvocations += stats.getTransportInvocations();
+            transportItems += stats.getTransportItems();
+            largestBatchSize = Math.max(largestBatchSize, stats.getLargestBatchSize());
+            if (stats.getSmallestBatchSize() > 0) {
+                smallestBatchSize = smallestBatchSize == 0
+                        ? stats.getSmallestBatchSize()
+                        : Math.min(smallestBatchSize, stats.getSmallestBatchSize());
+            }
+            fallbackCount += stats.getFallbackCount();
+            transportElapsedNanos += stats.getTransportElapsedNanos();
+            maxTransportElapsedNanos = Math.max(
+                    maxTransportElapsedNanos, stats.getMaxTransportElapsedNanos());
+        }
+
+        private HmsPartitionBatchStats build(int requestedItems, long logicalElapsedNanos) {
+            return HmsPartitionBatchStats.builder()
+                    .requestedItems(requestedItems)
+                    .transportInvocations(transportInvocations)
+                    .transportItems(transportItems)
+                    .largestBatchSize(largestBatchSize)
+                    .smallestBatchSize(smallestBatchSize)
+                    .fallbackCount(fallbackCount)
+                    .logicalElapsedNanos(logicalElapsedNanos)
+                    .transportElapsedNanos(transportElapsedNanos)
+                    .maxTransportElapsedNanos(maxTransportElapsedNanos)
+                    .build();
+        }
+    }
+
+    private static final class PartitionLoadRegistration {
+        private final HmsPartitionIdentity.ParsedPartitionName partition;
+        private final PartitionKey key;
+
+        private PartitionLoadRegistration(
+                HmsPartitionIdentity.ParsedPartitionName partition, PartitionKey key) {
+            this.partition = partition;
+            this.key = key;
+        }
+    }
+
+    private static final class PartitionLoadBatch {
+        private final CompletableFuture<Throwable> completion = new CompletableFuture<>();
+        // The owner finishes these collections before completing the future; waiters read them only after await().
+        private final Set<PartitionKey> claimedKeys = new HashSet<>();
+        private final Map<PartitionKey, HmsPartitionInfo> resolvedPartitions = new HashMap<>();
+        private final boolean allowMissing;
+        // Kept open until every registered waiter consumes the result. Its publication fence distinguishes
+        // harmless capacity eviction from invalidation, allowing waiters to reuse an evicted-but-current value.
+        private MetaCache.BulkLoad<PartitionKey, HmsPartitionInfo> load;
+        private boolean acceptingWaiters = true;
+        private int waiters;
+        private boolean ownerReleased;
+        private HmsPartitionBatchStats failureStats;
+
+        private PartitionLoadBatch(boolean allowMissing) {
+            this.allowMissing = allowMissing;
+        }
+
+        private synchronized boolean tryRegisterWaiter() {
+            if (!acceptingWaiters) {
+                return false;
+            }
+            waiters++;
+            return true;
+        }
+
+        private synchronized void setLoad(MetaCache.BulkLoad<PartitionKey, HmsPartitionInfo> load) {
+            this.load = load;
+        }
+
+        private void complete(Throwable failure) {
+            synchronized (this) {
+                acceptingWaiters = false;
+                if (failure instanceof HmsClientException) {
+                    failureStats = ((HmsClientException) failure).getPartitionBatchStats();
+                }
+            }
+            completion.complete(failure);
+        }
+
+        private synchronized HmsPartitionBatchStats getFailureStats() {
+            return failureStats;
+        }
+
+        private Throwable await() {
+            try {
+                return completion.get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new HmsClientException("HMS in-flight partition load wait was interrupted", e);
+            } catch (ExecutionException e) {
+                throw new AssertionError("partition load completion must carry failures as values", e);
+            }
+        }
+
+        private synchronized boolean canReuse(PartitionKey key) {
+            return load != null && load.isCurrent(key);
+        }
+
+        private synchronized void releaseWaiter() {
+            waiters--;
+            closeLoadIfReleased();
+        }
+
+        private synchronized void releaseOwner() {
+            ownerReleased = true;
+            closeLoadIfReleased();
+        }
+
+        private void closeLoadIfReleased() {
+            if (ownerReleased && waiters == 0 && load != null) {
+                load.close();
+                load = null;
+            }
         }
     }
 

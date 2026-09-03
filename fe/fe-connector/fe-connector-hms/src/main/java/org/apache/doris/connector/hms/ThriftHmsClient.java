@@ -105,6 +105,7 @@ public class ThriftHmsClient implements HmsClient {
     private final AuthAction authAction;
     private final MetaStoreClientProvider clientProvider;
     private final HmsTypeMapping.Options typeMappingOptions;
+    private final int partitionBatchSize;
     private volatile boolean closed;
 
     /**
@@ -142,6 +143,7 @@ public class ThriftHmsClient implements HmsClient {
         this.authAction = authAction != null ? authAction : Callable::call;
         this.clientProvider = clientProvider;
         this.typeMappingOptions = typeMappingOptions;
+        this.partitionBatchSize = config.getPartitionBatchSize();
         if (config.getPoolSize() > 0) {
             this.clientPool = new GenericObjectPool<>(
                     new HmsClientFactory(), createPoolConfig(config.getPoolSize()));
@@ -240,13 +242,77 @@ public class ThriftHmsClient implements HmsClient {
     @Override
     public List<HmsPartitionInfo> getPartitions(String dbName,
             String tableName, List<String> partNames) {
-        return execute(client -> {
-            List<Partition> partitions =
-                    client.getPartitionsByNames(dbName, tableName, partNames);
-            return partitions.stream()
-                    .map(ThriftHmsClient::convertPartition)
-                    .collect(Collectors.toList());
-        });
+        return getPartitionsWithStats(dbName, tableName, partNames).getPartitions();
+    }
+
+    @Override
+    public List<HmsPartitionInfo> getExistingPartitions(
+            String dbName, String tableName, List<String> partNames) {
+        return getExistingPartitionsWithStats(dbName, tableName, partNames).getPartitions();
+    }
+
+    @Override
+    public HmsPartitionBatchResult getExistingPartitionsWithStats(
+            String dbName, String tableName, List<String> partNames) {
+        HmsPartitionRequest request = partitionRequest(dbName, tableName, partNames);
+        if (clientPool != null) {
+            return newPartitionBatchExecutor(this::getPartitionsByNames).executeExistingWithStats(request);
+        }
+        return executeUnpooledPartitionBatch(request, true);
+    }
+
+    @Override
+    public HmsPartitionBatchResult getPartitionsWithStats(String dbName,
+            String tableName, List<String> partNames) {
+        HmsPartitionRequest request = partitionRequest(dbName, tableName, partNames);
+        if (clientPool != null) {
+            return newPartitionBatchExecutor(this::getPartitionsByNames).executeWithStats(request);
+        }
+        return executeUnpooledPartitionBatch(request, false);
+    }
+
+    private HmsPartitionBatchResult executeUnpooledPartitionBatch(
+            HmsPartitionRequest request, boolean allowMissing) {
+        HmsPartitionBatchResult completed = null;
+        try (UnpooledPartitionTransport transport = new UnpooledPartitionTransport()) {
+            HmsPartitionBatchExecutor executor = newPartitionBatchExecutor(transport);
+            completed = allowMissing
+                    ? executor.executeExistingWithStats(request)
+                    : executor.executeWithStats(request);
+            return completed;
+        } catch (RuntimeException e) {
+            if (completed == null) {
+                throw e;
+            }
+            throw new HmsClientException(
+                    "Failed to close unpooled HMS client after partition batch completed", e)
+                    .withPartitionBatchStats(completed.getStats());
+        }
+    }
+
+    private static HmsPartitionRequest partitionRequest(
+            String dbName, String tableName, List<String> partNames) {
+        return new HmsPartitionRequest(dbName, tableName, partNames);
+    }
+
+    private HmsPartitionBatchExecutor newPartitionBatchExecutor(HmsPartitionTransport transport) {
+        return new HmsPartitionBatchExecutor(partitionBatchSize, transport);
+    }
+
+    private List<HmsPartitionInfo> getPartitionsByNames(
+            String dbName, String tableName, List<String> partNames) {
+        return executePartitionCall(client -> loadPartitionsByNames(client, dbName, tableName, partNames));
+    }
+
+    private List<HmsPartitionInfo> loadPartitionsByNames(IMetaStoreClient client,
+            String dbName, String tableName, List<String> partNames) throws Exception {
+        List<Partition> partitions = client.getPartitionsByNames(dbName, tableName, partNames);
+        if (partitions == null) {
+            return null;
+        }
+        return partitions.stream()
+                .map(partition -> partition == null ? null : convertPartition(partition))
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -692,6 +758,39 @@ public class ThriftHmsClient implements HmsClient {
         }
     }
 
+    /** Executes one physical partition RPC while keeping pool/setup failures non-degradable. */
+    private <T> T executePartitionCall(HmsAction<T> action) {
+        if (closed) {
+            throw new HmsClientException("HMS client is closed");
+        }
+        try (PooledHmsClient pooled = borrowClient()) {
+            return executePartitionCall(pooled, action);
+        } catch (HmsClientException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new HmsClientException("HMS partition operation failed: " + e.getMessage(), e);
+        }
+    }
+
+    private <T> T executePartitionCall(PooledHmsClient pooled, HmsAction<T> action) {
+        try {
+            return doAs(() -> {
+                try {
+                    return action.call(pooled.client);
+                } catch (Exception e) {
+                    throw new HmsPartitionBatchExecutor.RemoteCallException(
+                            "Remote HMS partition operation failed: " + e.getMessage(), e);
+                }
+            });
+        } catch (Exception e) {
+            pooled.taint(e);
+            if (e instanceof HmsClientException) {
+                throw (HmsClientException) e;
+            }
+            throw new HmsClientException("HMS partition operation failed: " + e.getMessage(), e);
+        }
+    }
+
     private <T> T doAs(Callable<T> callable) throws Exception {
         ClassLoader original = Thread.currentThread().getContextClassLoader();
         try {
@@ -905,6 +1004,43 @@ public class ThriftHmsClient implements HmsClient {
             } catch (Exception e) {
                 destroy();
                 throw e;
+            }
+        }
+    }
+
+    /** Reuses one temporary client across successful chunks when catalog pooling is disabled. */
+    private final class UnpooledPartitionTransport implements HmsPartitionTransport, AutoCloseable {
+        private PooledHmsClient current;
+
+        @Override
+        public List<HmsPartitionInfo> getPartitionsByNames(
+                String dbName, String tableName, List<String> partitionNames) {
+            if (closed) {
+                throw new HmsClientException("HMS client is closed");
+            }
+            if (current == null) {
+                current = createFreshClient();
+            }
+            try {
+                return executePartitionCall(current,
+                        client -> loadPartitionsByNames(client, dbName, tableName, partitionNames));
+            } catch (RuntimeException e) {
+                PooledHmsClient failed = current;
+                current = null;
+                try {
+                    failed.destroy();
+                } catch (RuntimeException cleanupFailure) {
+                    e.addSuppressed(cleanupFailure);
+                }
+                throw e;
+            }
+        }
+
+        @Override
+        public void close() {
+            if (current != null) {
+                current.destroy();
+                current = null;
             }
         }
     }

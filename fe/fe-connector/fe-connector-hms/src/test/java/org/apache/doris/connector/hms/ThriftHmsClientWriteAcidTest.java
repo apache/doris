@@ -39,6 +39,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashMap;
@@ -46,6 +47,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Tests the write / read-ACID primitives added to {@link ThriftHmsClient} — the SPI-clean port of
@@ -201,6 +203,157 @@ public class ThriftHmsClientWriteAcidTest {
     }
 
     // ---- table / partition statistics -----------------------------------------------------------
+
+    @Test
+    public void testGetPartitionsUsesConfiguredPhysicalBatches() {
+        RecordingClient fake = new RecordingClient().answer("getPartitionsByNames", args -> {
+            @SuppressWarnings("unchecked")
+            List<String> names = (List<String>) args[2];
+            List<Partition> partitions = new ArrayList<>(names.size());
+            for (String name : names) {
+                Partition partition = new Partition();
+                partition.setValues(partitionValues(name));
+                partitions.add(partition);
+            }
+            return partitions;
+        });
+        Map<String, String> properties = new HashMap<>();
+        properties.put(HmsClientConfig.PARTITION_BATCH_SIZE_KEY, "2");
+        AtomicInteger clientCreates = new AtomicInteger();
+        ThriftHmsClient client = newClient(fake, properties, clientCreates);
+
+        List<HmsPartitionInfo> result = client.getPartitions(
+                "db", "t", Arrays.asList("p=1", "p=2", "p=3", "p=4", "p=5"));
+
+        Assertions.assertEquals(5, result.size());
+        List<Integer> batchSizes = new ArrayList<>();
+        for (int i = 0; i < fake.methodNames.size(); i++) {
+            if ("getPartitionsByNames".equals(fake.methodNames.get(i))) {
+                batchSizes.add(((List<?>) fake.argsList.get(i)[2]).size());
+            }
+        }
+        Assertions.assertEquals(Arrays.asList(2, 2, 1), batchSizes);
+        Assertions.assertEquals(1, clientCreates.get());
+        Assertions.assertEquals(1, fake.closeCalls);
+    }
+
+    @Test
+    public void testUnpooledPartitionFallbackReplacesOnlyFailedClient() {
+        RecordingClient fake = new RecordingClient().answer("getPartitionsByNames", args -> {
+            @SuppressWarnings("unchecked")
+            List<String> names = (List<String>) args[2];
+            if (names.size() > 2) {
+                throw new shade.doris.hive.org.apache.thrift.TException(
+                        "Number of partitions scanned exceeds limit: "
+                                + "hive.metastore.limit.partition.request");
+            }
+            List<Partition> partitions = new ArrayList<>(names.size());
+            for (String name : names) {
+                Partition partition = new Partition();
+                partition.setValues(partitionValues(name));
+                partitions.add(partition);
+            }
+            return partitions;
+        });
+        Map<String, String> properties = new HashMap<>();
+        properties.put(HmsClientConfig.PARTITION_BATCH_SIZE_KEY, "4");
+        AtomicInteger clientCreates = new AtomicInteger();
+        ThriftHmsClient client = newClient(fake, properties, clientCreates);
+
+        Assertions.assertEquals(4, client.getPartitions("db", "t", names("p", 4)).size());
+        Assertions.assertEquals(2, clientCreates.get());
+        Assertions.assertEquals(2, fake.closeCalls);
+    }
+
+    @Test
+    public void testUnpooledPartitionFallbackPreservesRemoteFailureWhenCloseFails() {
+        RecordingClient fake = new RecordingClient().answer("getPartitionsByNames", args -> {
+            @SuppressWarnings("unchecked")
+            List<String> names = (List<String>) args[2];
+            if (names.size() > 2) {
+                throw new shade.doris.hive.org.apache.thrift.TException(
+                        "Number of partitions scanned exceeds limit: "
+                                + "hive.metastore.limit.partition.request");
+            }
+            List<Partition> partitions = new ArrayList<>(names.size());
+            for (String name : names) {
+                Partition partition = new Partition();
+                partition.setValues(partitionValues(name));
+                partitions.add(partition);
+            }
+            return partitions;
+        }).failCloseTimes(1);
+        Map<String, String> properties = new HashMap<>();
+        properties.put(HmsClientConfig.PARTITION_BATCH_SIZE_KEY, "4");
+        AtomicInteger clientCreates = new AtomicInteger();
+        ThriftHmsClient client = newClient(fake, properties, clientCreates);
+
+        Assertions.assertEquals(4, client.getPartitions("db", "t", names("p", 4)).size());
+        Assertions.assertEquals(2, clientCreates.get(),
+                "the oversize failure must remain visible to adaptive fallback when cleanup also fails");
+        Assertions.assertEquals(2, fake.closeCalls);
+    }
+
+    @Test
+    public void testUnpooledExactPartitionCloseFailureCarriesCompletedStats() {
+        RecordingClient fake = partitionEchoClient().failCloseTimes(1);
+        Map<String, String> properties = new HashMap<>();
+        properties.put(HmsClientConfig.PARTITION_BATCH_SIZE_KEY, "2");
+        ThriftHmsClient client = newClient(fake, properties);
+
+        HmsClientException failure = Assertions.assertThrows(HmsClientException.class,
+                () -> client.getPartitionsWithStats("db", "t", names("p", 3)));
+
+        assertCompletedCloseFailure(failure);
+        Assertions.assertEquals(1, fake.closeCalls);
+    }
+
+    @Test
+    public void testUnpooledExistingPartitionCloseFailureCarriesCompletedStats() {
+        RecordingClient fake = partitionEchoClient().failCloseTimes(1);
+        Map<String, String> properties = new HashMap<>();
+        properties.put(HmsClientConfig.PARTITION_BATCH_SIZE_KEY, "2");
+        ThriftHmsClient client = newClient(fake, properties);
+
+        HmsClientException failure = Assertions.assertThrows(HmsClientException.class,
+                () -> client.getExistingPartitionsWithStats("db", "t", names("p", 3)));
+
+        assertCompletedCloseFailure(failure);
+        Assertions.assertEquals(1, fake.closeCalls);
+    }
+
+    private static RecordingClient partitionEchoClient() {
+        return new RecordingClient().answer("getPartitionsByNames", args -> {
+            @SuppressWarnings("unchecked")
+            List<String> partitionNames = (List<String>) args[2];
+            List<Partition> partitions = new ArrayList<>(partitionNames.size());
+            for (String partitionName : partitionNames) {
+                Partition partition = new Partition();
+                partition.setValues(partitionValues(partitionName));
+                partitions.add(partition);
+            }
+            return partitions;
+        });
+    }
+
+    private static void assertCompletedCloseFailure(HmsClientException failure) {
+        Assertions.assertEquals(
+                "Failed to close unpooled HMS client after partition batch completed", failure.getMessage());
+        Assertions.assertEquals("injected close failure", failure.getCause().getMessage());
+        HmsPartitionBatchStats stats = failure.getPartitionBatchStats();
+        Assertions.assertNotNull(stats);
+        Assertions.assertEquals(3, stats.getRequestedItems());
+        Assertions.assertEquals(2, stats.getTransportInvocations());
+        Assertions.assertEquals(3, stats.getTransportItems());
+        Assertions.assertEquals(2, stats.getLargestBatchSize());
+        Assertions.assertEquals(1, stats.getSmallestBatchSize());
+        Assertions.assertEquals(0, stats.getFallbackCount());
+    }
+
+    private static List<String> partitionValues(String partitionName) {
+        return new HmsPartitionRequest("db", "table", Collections.singletonList(partitionName))
+                .getPartitions().get(0).getValues();
+    }
 
     @Test
     public void testUpdateTableStatisticsRebuildsParamsAndAlters() {
@@ -411,13 +564,33 @@ public class ThriftHmsClientWriteAcidTest {
     // ---- harness --------------------------------------------------------------------------------
 
     private static ThriftHmsClient newClient(RecordingClient handler) {
+        return newClient(handler, Collections.emptyMap());
+    }
+
+    private static ThriftHmsClient newClient(RecordingClient handler, Map<String, String> properties) {
+        return newClient(handler, properties, new AtomicInteger());
+    }
+
+    private static ThriftHmsClient newClient(
+            RecordingClient handler, Map<String, String> properties, AtomicInteger clientCreates) {
         IMetaStoreClient fake = (IMetaStoreClient) Proxy.newProxyInstance(
                 IMetaStoreClient.class.getClassLoader(),
                 new Class<?>[] {IMetaStoreClient.class},
                 handler);
-        // poolSize 0 -> no pool: every call creates a fresh client via the provider (our fake).
-        HmsClientConfig config = new HmsClientConfig(new HashMap<>(), 0);
-        return new ThriftHmsClient(config, null, hiveConf -> fake, HmsTypeMapping.Options.DEFAULT);
+        // poolSize 0 -> no cross-request pool; one logical partition request may reuse this temporary client.
+        HmsClientConfig config = new HmsClientConfig(properties, 0);
+        return new ThriftHmsClient(config, null, hiveConf -> {
+            clientCreates.incrementAndGet();
+            return fake;
+        }, HmsTypeMapping.Options.DEFAULT);
+    }
+
+    private static List<String> names(String key, int count) {
+        List<String> names = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            names.add(key + "=" + i);
+        }
+        return names;
     }
 
     private static Object[] argsOf(RecordingClient handler, String method) {
@@ -436,9 +609,21 @@ public class ThriftHmsClientWriteAcidTest {
         private final List<String> methodNames = new ArrayList<>();
         private final List<Object[]> argsList = new ArrayList<>();
         private final Map<String, Object> responses = new HashMap<>();
+        private int closeCalls;
+        private int closeFailuresRemaining;
 
         RecordingClient stub(String method, Object value) {
             responses.put(method, value);
+            return this;
+        }
+
+        RecordingClient answer(String method, InvocationAnswer answer) {
+            responses.put(method, answer);
+            return this;
+        }
+
+        RecordingClient failCloseTimes(int count) {
+            closeFailuresRemaining = count;
             return this;
         }
 
@@ -458,6 +643,11 @@ public class ThriftHmsClientWriteAcidTest {
                 }
             }
             if ("close".equals(name)) {
+                closeCalls++;
+                if (closeFailuresRemaining > 0) {
+                    closeFailuresRemaining--;
+                    throw new IllegalStateException("injected close failure");
+                }
                 return null;
             }
             methodNames.add(name);
@@ -466,6 +656,9 @@ public class ThriftHmsClientWriteAcidTest {
                 Object value = responses.get(name);
                 if (value instanceof Throwable) {
                     throw (Throwable) value;
+                }
+                if (value instanceof InvocationAnswer) {
+                    return ((InvocationAnswer) value).answer(args);
                 }
                 return value;
             }
@@ -499,5 +692,10 @@ public class ThriftHmsClientWriteAcidTest {
             }
             return 0d;
         }
+    }
+
+    @FunctionalInterface
+    private interface InvocationAnswer {
+        Object answer(Object[] args) throws Throwable;
     }
 }

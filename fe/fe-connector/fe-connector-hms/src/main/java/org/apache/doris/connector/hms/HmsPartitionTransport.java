@@ -17,30 +17,11 @@
 
 package org.apache.doris.connector.hms;
 
-/**
- * Exception thrown when an HMS client operation fails.
- */
-public class HmsClientException extends RuntimeException {
-    private HmsPartitionBatchStats partitionBatchStats;
+import java.util.List;
 
-    public HmsClientException(String message) {
-        super(message);
-    }
-
-    public HmsClientException(String message, Throwable cause) {
-        super(message, cause);
-    }
-
-    public HmsClientException(String formatString, Object... args) {
-        super(String.format(formatString, args));
-    }
-
-    public HmsPartitionBatchStats getPartitionBatchStats() {
-        return partitionBatchStats;
-    }
-
-    HmsClientException withPartitionBatchStats(HmsPartitionBatchStats stats) {
-        this.partitionBatchStats = stats;
-        return this;
-    }
+/** Leaf transport contract: one invocation enters the configured getPartitionsByNames transport once. */
+@FunctionalInterface
+interface HmsPartitionTransport {
+    List<HmsPartitionInfo> getPartitionsByNames(
+            String dbName, String tableName, List<String> partitionNames) throws Exception;
 }
