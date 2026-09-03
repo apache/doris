@@ -101,6 +101,21 @@ class LitefuseOtelExporterTest(unittest.TestCase):
             body["parentObservationId"] = parent_id
         return {"type": "span-create", "body": body}
 
+    def reject_payloads_above(self, server_limit, request_sizes):
+        def fake_urlopen(request, timeout):
+            request_sizes.append(len(request.data))
+            if len(request.data) > server_limit:
+                raise urllib.error.HTTPError(
+                    request.full_url,
+                    413,
+                    "Payload Too Large",
+                    {},
+                    io.BytesIO(b"payload too large"),
+                )
+            return FakeResponse()
+
+        return fake_urlopen
+
     def test_converts_legacy_events_to_otlp_hierarchy_and_attributes(self):
         root_id = "2" * 32
         child_id = "3" * 32
@@ -124,6 +139,60 @@ class LitefuseOtelExporterTest(unittest.TestCase):
             attributes["langfuse.trace.tags"],
             ["doris-ai-review", "codex-jsonl"],
         )
+
+    def test_bounds_and_shrinks_failed_turn_status_message(self):
+        args = SimpleNamespace(
+            repository="apache/doris",
+            workflow="Code Review",
+            run_id="run-123",
+            pr_number="67413",
+            head_sha="a" * 40,
+            base_sha="b" * 40,
+            reasoning_effort="xhigh",
+            max_json_chars=20_000,
+            max_context_json_chars=0,
+            trace_name="doris-ai-review",
+            session_id="run-123",
+            environment="github-actions",
+            model="gpt-5.6-sol",
+        )
+        events = [
+            {"type": "turn.failed", "error": {"message": "e" * 50_000}}
+        ]
+        _trace_id, payload, _observation_count = MODULE.build_ingestion_payload(
+            args, "review task", "", events
+        )
+        turn_event = next(
+            event
+            for event in payload["batch"]
+            if (event.get("body") or {}).get("name") == "codex.turn"
+        )
+        source_status = turn_event["body"]["statusMessage"]
+
+        self.assertLess(len(source_status), 20_100)
+        self.assertIn("[truncated to first 20000 chars]", source_status)
+        trace_body = MODULE.trace_body_from_payload(payload)
+        self.assertGreater(
+            MODULE.json_payload_bytes(MODULE.otlp_payload(trace_body, [turn_event])),
+            20_000,
+        )
+
+        chunks = MODULE.otlp_chunks(payload, max_payload_bytes=20_000)
+        spans = [
+            span
+            for _legacy, otel, _size in chunks
+            for resource in otel["resourceSpans"]
+            for scope in resource["scopeSpans"]
+            for span in scope["spans"]
+        ]
+        turn_span = next(span for span in spans if span["name"] == "codex.turn")
+        attributes = attribute_values(turn_span)
+
+        self.assertEqual(turn_span["status"], {"code": 2})
+        self.assertIn(
+            "[truncated to first", attributes["langfuse.observation.status_message"]
+        )
+        self.assertTrue(all(size <= 20_000 for _legacy, _otel, size in chunks))
 
     def test_subagent_root_observation_preserves_task_input(self):
         args = SimpleNamespace(
@@ -463,20 +532,10 @@ class LitefuseOtelExporterTest(unittest.TestCase):
         )
         request_sizes = []
 
-        def reject_first_request(request, timeout):
-            request_sizes.append(len(request.data))
-            if len(request.data) > server_limit:
-                raise urllib.error.HTTPError(
-                    request.full_url,
-                    413,
-                    "Payload Too Large",
-                    {},
-                    io.BytesIO(b"payload too large"),
-                )
-            return FakeResponse()
-
         with mock.patch.object(
-            MODULE.urllib.request, "urlopen", side_effect=reject_first_request
+            MODULE.urllib.request,
+            "urlopen",
+            side_effect=self.reject_payloads_above(server_limit, request_sizes),
         ):
             status = MODULE.post_payload(
                 "https://litefuse.example/api/public/otel/v1/traces",
@@ -496,6 +555,78 @@ class LitefuseOtelExporterTest(unittest.TestCase):
         self.assertLessEqual(request_sizes[1], server_limit)
         self.assertLess(request_sizes[1], request_sizes[0])
         self.assertGreater(request_sizes[1], request_sizes[0] // 2)
+
+    def test_adapts_single_span_413_for_lower_server_limit(self):
+        trace_body = {
+            **self.trace_body(),
+            "metadata": {"repository": "apache/doris", "fixed": "m" * 3_000},
+        }
+        trace_event = {"type": "trace-create", "body": trace_body}
+        span_event = self.span_event("2" * 32, output_size=5_000)
+        initial_size = MODULE.json_payload_bytes(
+            MODULE.otlp_payload(trace_body, [span_event])
+        )
+        server_limit = initial_size - 1_000
+        request_sizes = []
+
+        with mock.patch.object(
+            MODULE.urllib.request,
+            "urlopen",
+            side_effect=self.reject_payloads_above(server_limit, request_sizes),
+        ):
+            status = MODULE.post_payload(
+                "https://litefuse.example/api/public/otel/v1/traces",
+                "public",
+                "secret",
+                {"batch": [trace_event, span_event]},
+                10_000,
+                30,
+                5,
+                0,
+            )
+
+        self.assertEqual(initial_size, 9_486)
+        self.assertEqual(len(request_sizes), 3)
+        self.assertTrue(
+            all(
+                current > following
+                for current, following in zip(request_sizes, request_sizes[1:])
+            )
+        )
+        self.assertLessEqual(request_sizes[-1], server_limit)
+        self.assertEqual(status["payload_too_large_retries"], 2)
+        self.assertEqual(status["post_attempt_count"], len(request_sizes))
+        self.assertEqual(status["success_count"], 1)
+
+    def test_stops_single_span_413_after_retry_budget(self):
+        trace_event = {"type": "trace-create", "body": self.trace_body()}
+        span_event = self.span_event("2" * 32, output_size=5_000)
+        request_sizes = []
+
+        with mock.patch.object(
+            MODULE.urllib.request,
+            "urlopen",
+            side_effect=self.reject_payloads_above(-1, request_sizes),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "after 3 retries"):
+                MODULE.post_payload(
+                    "https://litefuse.example/api/public/otel/v1/traces",
+                    "public",
+                    "secret",
+                    {"batch": [trace_event, span_event]},
+                    10_000,
+                    30,
+                    3,
+                    0,
+                )
+
+        self.assertEqual(len(request_sizes), 4)
+        self.assertTrue(
+            all(
+                current > following
+                for current, following in zip(request_sizes, request_sizes[1:])
+            )
+        )
 
 
 if __name__ == "__main__":
