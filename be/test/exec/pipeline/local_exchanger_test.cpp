@@ -20,6 +20,7 @@
 
 #include <memory>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -29,12 +30,13 @@
 #include "exec/exchange/local_exchange_sink_operator.h"
 #include "exec/exchange/local_exchange_source_operator.h"
 #include "exec/pipeline/dependency.h"
+#include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/pipeline/thrift_builder.h"
 #include "exprs/vslot_ref.h"
 
 namespace doris {
 
-class LocalExchangerTest : public testing::Test {
+class LocalExchangerTest : public testing::TestWithParam<int> {
 public:
     LocalExchangerTest() = default;
     ~LocalExchangerTest() override = default;
@@ -43,6 +45,7 @@ public:
                                  .set_enable_local_exchange(true)
                                  .set_enable_local_shuffle(true)
                                  .set_runtime_filter_max_in_num(15)
+                                 .set_be_exec_version(SUPPORT_UNCONDITIONAL_PASS_TO_ONE_VERSION)
                                  .build();
         auto fe_address = TNetworkAddress();
         fe_address.hostname = LOCALHOST;
@@ -532,9 +535,55 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
     }
 }
 
-TEST_F(LocalExchangerTest, PassToOneExchanger) {
+TEST_F(LocalExchangerTest, FePlannedPassToOneUsesOneDownstreamSource) {
+    constexpr int num_instances = 4;
+    TPipelineFragmentParams params;
+    auto context = std::make_shared<PipelineFragmentContext>(
+            _query_id, params, _query_ctx, ExecEnv::GetInstance(), [](RuntimeState*, Status*) {});
+    context->_num_instances = num_instances;
+    context->_total_instances = num_instances;
+    context->_runtime_state = RuntimeState::create_unique(_query_id, _fragment_id, _query_options,
+                                                          _query_ctx->query_globals,
+                                                          ExecEnv::GetInstance(), _query_ctx.get());
+
+    auto downstream_pipe = context->add_pipeline();
+    downstream_pipe->set_num_tasks(1);
+    auto upstream_pipe = downstream_pipe;
+
+    TLocalExchangeNode local_exchange_node;
+    local_exchange_node.__set_partition_type(TLocalPartitionType::PASS_TO_ONE);
+    TPlanNode tnode;
+    tnode.__set_node_type(TPlanNodeType::LOCAL_EXCHANGE_NODE);
+    tnode.__set_node_id(0);
+    tnode.__set_num_children(1);
+    tnode.__set_local_exchange_node(local_exchange_node);
+
+    ObjectPool pool;
+    DescriptorTbl descs;
+    OperatorPtr op;
+    OperatorPtr cache_op;
+    ASSERT_TRUE(context->_create_operator(&pool, tnode, descs, op, upstream_pipe,
+                                          /*parent_idx=*/-1, /*child_idx=*/0,
+                                          /*followed_by_shuffled_operator=*/false,
+                                          /*require_bucket_distribution=*/false, cache_op)
+                        .ok());
+    ASSERT_EQ(context->_deferred_exchangers.size(), 1);
+    EXPECT_EQ(downstream_pipe->num_tasks(), 1);
+    EXPECT_EQ(upstream_pipe->num_tasks(), num_instances);
+
+    const auto& deferred = context->_deferred_exchangers.front();
+    EXPECT_EQ(deferred.shared_state->source_deps.size(), 1);
+    EXPECT_EQ(deferred.shared_state->mem_counters.size(), 1);
+    ASSERT_TRUE(context->_create_deferred_local_exchangers().ok());
+    ASSERT_NE(deferred.shared_state->exchanger, nullptr);
+    EXPECT_EQ(deferred.shared_state->exchanger->get_type(), TLocalPartitionType::PASS_TO_ONE);
+    EXPECT_EQ(deferred.shared_state->exchanger->_num_senders, num_instances);
+    EXPECT_EQ(deferred.shared_state->exchanger->_num_sources, 1);
+}
+
+TEST_P(LocalExchangerTest, PassToOneExchanger) {
     int num_sink = 4;
-    int num_sources = 4;
+    int num_sources = GetParam();
     int free_block_limit = 0;
 
     const auto expect_block_bytes = 128;
@@ -555,6 +604,8 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
     shared_state->create_source_dependencies(num_sources, 0, 0, "TEST");
 
     auto* exchanger = (PassToOneExchanger*)shared_state->exchanger.get();
+    EXPECT_EQ(exchanger->_num_senders, num_sink);
+    EXPECT_EQ(exchanger->_num_sources, num_sources);
     for (size_t i = 0; i < num_sink; i++) {
         auto* compute_hash_value_timer =
                 ADD_TIMER(profile, "ComputeHashValueTime" + std::to_string(i));
@@ -585,10 +636,15 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
                 "MemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
         shared_state->mem_counters[i] = _local_states[i]->_memory_used_counter;
     }
+    auto source_debug_string = _local_states[0]->debug_string(0);
+    EXPECT_NE(source_debug_string.find("_num_senders: " + std::to_string(num_sink)),
+              std::string::npos);
+    EXPECT_NE(source_debug_string.find("_num_sources: " + std::to_string(num_sources)),
+              std::string::npos);
 
     {
-        // Enqueue `num_blocks` blocks with 10 rows for each data queue.
-        for (size_t i = 0; i < num_sources; i++) {
+        // Enqueue `num_blocks` blocks with 10 rows from every sender.
+        for (size_t i = 0; i < num_sink; i++) {
             for (size_t j = 0; j < num_blocks; j++) {
                 Block in_block;
                 DataTypePtr int_type = std::make_shared<DataTypeInt32>();
@@ -743,6 +799,8 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
         }
     }
 }
+
+INSTANTIATE_TEST_SUITE_P(SourceCardinality, LocalExchangerTest, testing::Values(4, 1));
 
 TEST_F(LocalExchangerTest, BroadcastExchanger) {
     int num_sink = 4;
