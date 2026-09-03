@@ -170,7 +170,7 @@ class DateTimeExtractAndTransformTest {
 
     @Test
     void testConvertTzDstTransition() {
-        // Spring gap maps skipped local times to the transition instant.
+        // Spring gap maps the whole-second part to the transition instant.
         Assertions.assertEquals(
                 new DateTimeV2Literal("2021-03-28 01:00:00"),
                 DateTimeExtractAndTransform.convertTz(
@@ -189,6 +189,13 @@ class DateTimeExtractAndTransformTest {
                         new DateTimeV2Literal("2021-03-28 03:00:00"),
                         new VarcharLiteral("Europe/Paris"),
                         new VarcharLiteral("UTC")));
+        // The fractional-second part is preserved after the whole-second part is normalized.
+        Assertions.assertEquals(
+                new DateTimeV2Literal(DateTimeV2Type.of(6), "2024-03-10 07:00:00.123457"),
+                DateTimeExtractAndTransform.convertTz(
+                        new DateTimeV2Literal(DateTimeV2Type.of(6), "2024-03-10 02:30:00.123456789"),
+                        new VarcharLiteral("America/New_York"),
+                        new VarcharLiteral("+00:00")));
         // Fall overlap uses the pre-transition offset.
         Assertions.assertEquals(
                 new DateTimeV2Literal("2021-10-31 00:15:00"),

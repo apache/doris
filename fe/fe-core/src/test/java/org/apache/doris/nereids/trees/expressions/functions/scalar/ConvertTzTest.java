@@ -19,8 +19,10 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -159,6 +161,22 @@ class ConvertTzTest {
         Assertions.assertTrue(convertTz.isMonotonic(
                 new DateTimeLiteral("2021-03-28 02:00:00"),
                 new DateTimeLiteral("2021-03-28 04:00:00")));
+    }
+
+    @Test
+    void testIsNotMonotonicAcrossDstGapForFractionalValues() {
+        ConvertTz convertTz = new ConvertTz(new SlotReference("ts", DateTimeV2Type.of(6)),
+                new VarcharLiteral("Europe/Paris"), new VarcharLiteral("UTC"));
+
+        Assertions.assertFalse(convertTz.isMonotonic(
+                new DateTimeV2Literal(DateTimeV2Type.of(6), "2021-03-28 02:00:00.000000"),
+                new DateTimeV2Literal(DateTimeV2Type.of(6), "2021-03-28 03:00:00.000000")));
+        Assertions.assertFalse(convertTz.isMonotonic(
+                null,
+                new DateTimeV2Literal(DateTimeV2Type.of(6), "2021-03-28 03:00:00.000000")));
+        Assertions.assertTrue(convertTz.isMonotonic(
+                new DateTimeV2Literal(DateTimeV2Type.of(6), "2021-03-28 02:00:00.100000"),
+                new DateTimeV2Literal(DateTimeV2Type.of(6), "2021-03-28 02:00:00.900000")));
     }
 
     @Test
