@@ -167,10 +167,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // PaimonScanNode.getSplits gate, sessionVariable.isForceJniScanner()), bypassing the native ORC/Parquet
     // readers to dodge native-reader bugs. Default false (legacy default).
     //
-    // NOTE: enable_paimon_cpp_reader is deliberately NOT read here. Upstream #66008 removed the paimon-cpp
-    // arm from PaimonScanNode.setPaimonParams (file-scanner-v2 has no split-aware paimon-cpp adapter and
-    // hard-rejects a PAIMON_CPP range), so the flag no longer influences planning — see
-    // PaimonScanRange.populateRangeParams.
     private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
     // Session variable name (byte-identical to SessionVariable.IGNORE_SPLIT_TYPE) surfaced through the same
@@ -642,8 +638,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
         // FIX-L14: honor the ignore_split_type debugging escape hatch (legacy PaimonScanNode.getSplits):
         // IGNORE_JNI drops JNI splits (nonDataSplit + DataSplit-JNI arms), IGNORE_NATIVE drops native splits.
-        // The COUNT(*) arm is never dropped (legacy parity); IGNORE_PAIMON_CPP stays a no-op (legacy getSplits
-        // never consulted it). Read once here so discarded JNI splits bypass carrier compatibility checks.
+        // The COUNT(*) arm is never dropped. The deprecated IGNORE_PAIMON_CPP compatibility value stays
+        // a no-op. Read once here so discarded JNI splits bypass carrier compatibility checks.
         String ignoreSplitType = resolveIgnoreSplitType(session);
         boolean ignoreJni = IGNORE_SPLIT_TYPE_JNI.equals(ignoreSplitType);
         boolean ignoreNative = IGNORE_SPLIT_TYPE_NATIVE.equals(ignoreSplitType);
@@ -1433,11 +1429,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
         String serializedSplit = encodeSplit(split);
 
-        // FIX-JNI-FILE-FORMAT (P7-1) + FIX-L11: emit the real data-file format (orc/parquet/avro), NOT "jni".
-        // JNI routing is gated by the paimon.split property (PaimonScanRange.populateRangeParams), so this
-        // string only feeds fileDesc.file_format, which BE's paimon_cpp_reader backfills into
-        // FILE_FORMAT/MANIFEST_FORMAT (an invalid "jni" breaks the manifest read). Mirrors legacy
-        // PaimonScanNode.setPaimonParams's fileDesc.setFileFormat(getFileFormat(getPathString())): for a
+        // Emit the real data-file format (orc/parquet/avro), not the reader transport name "jni".
+        // JNI routing is gated by the paimon.split property. For a
         // DataSplit the format is the FIRST data-file suffix (falling back to the table default); a
         // non-DataSplit has no data file and falls back to the table default (legacy DUMMY_PATH -> orElse).
         String fileFormat = isDataSplit
@@ -1883,7 +1876,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (!PaimonCatalogProperties.JDBC.equals(catalogProps.getFlavor())) {
             return options;
         }
-        // Forward relevant JDBC catalog properties for BE's paimon-cpp reader
+        // Forward relevant JDBC catalog properties for the BE Paimon JNI reader.
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
             if (key.startsWith("jdbc.") || key.equals("warehouse")
@@ -2375,12 +2368,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Serializes a paimon {@link Split} for the BE JNI reader: ALWAYS Java object serialization, which is
-     * what BE's PaimonJniScanner deserializes. Mirrors upstream {@code PaimonScanNode.setPaimonParams} +
-     * {@code PaimonUtil.encodeObjectToString} after #66008 removed the paimon-cpp arm — a logical
-     * {@link DataSplit} may span several files, and file-scanner-v2 has no split-aware paimon-cpp adapter,
-     * so the native-binary ({@code DataSplit.serialize} / {@code paimon::Split::Deserialize}) encoding is
-     * never emitted and {@code enable_paimon_cpp_reader} no longer influences the wire format.
+     * Serializes a paimon {@link Split} for the BE JNI reader using Java object serialization, which is
+     * what {@code PaimonJniScanner} deserializes. The native-binary
+     * ({@code DataSplit.serialize}) encoding is not part of this wire path.
      */
     static String encodeSplit(Split split) {
         return encodeObjectToString(split);

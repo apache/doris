@@ -80,15 +80,6 @@ TFileRangeDesc hudi_range_with_delta_logs() {
     return range;
 }
 
-TFileRangeDesc paimon_cpp_jni_range() {
-    auto range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
-    TPaimonFileDesc paimon_params;
-    paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_CPP);
-    paimon_params.__set_file_format("parquet");
-    range.table_format_params.__set_paimon_params(std::move(paimon_params));
-    return range;
-}
-
 TFileRangeDesc legacy_paimon_jni_range_without_reader_type() {
     auto range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
     TPaimonFileDesc paimon_params;
@@ -509,18 +500,9 @@ TEST(FileScannerV2Test, LegacyCountExemptionRequiresMetadataCountOnEveryRange) {
 TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
     TQueryOptions query_options;
     query_options.__set_enable_file_scanner_v2(true);
-    query_options.__set_enable_paimon_cpp_reader(true);
 
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_JNI);
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    const auto cpp_range = paimon_cpp_jni_range();
-    EXPECT_FALSE(FileScannerV2::is_supported(params, cpp_range));
-    const auto cpp_status = FileScannerV2::TEST_validate_scan_range(params, cpp_range);
-    EXPECT_TRUE(cpp_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
-
-    // Older FE plans without reader_type used Java whenever the C++ option was disabled.
-    query_options.__set_enable_paimon_cpp_reader(false);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     EXPECT_TRUE(FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
 }
