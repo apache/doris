@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.lance.LanceTableMetadata;
 import org.apache.doris.thrift.TFtsCoverageMode;
+import org.apache.doris.thrift.TFtsMatchOperator;
+import org.apache.doris.thrift.TFtsQueryType;
 
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -46,6 +48,26 @@ public class FullTextSearchTableValuedFunctionTest {
         AnalysisException invalid = Assert.assertThrows(AnalysisException.class,
                 () -> FullTextSearchTableValuedFunction.parseCoverageMode("flat"));
         Assert.assertTrue(invalid.getMessage().contains("strict or index_only"));
+    }
+
+    @Test
+    public void testParseQueryTypeAndMatchOperator() throws Exception {
+        Assert.assertEquals(TFtsQueryType.MATCH,
+                FullTextSearchTableValuedFunction.parseQueryType(" MATCH "));
+        Assert.assertEquals(TFtsQueryType.PHRASE,
+                FullTextSearchTableValuedFunction.parseQueryType("phrase"));
+        Assert.assertEquals(TFtsMatchOperator.OR,
+                FullTextSearchTableValuedFunction.parseMatchOperator(" OR "));
+        Assert.assertEquals(TFtsMatchOperator.AND,
+                FullTextSearchTableValuedFunction.parseMatchOperator("and"));
+
+        AnalysisException invalidType = Assert.assertThrows(AnalysisException.class,
+                () -> FullTextSearchTableValuedFunction.parseQueryType("boolean"));
+        Assert.assertTrue(invalidType.getMessage().contains("match or phrase"));
+
+        AnalysisException invalidOperator = Assert.assertThrows(AnalysisException.class,
+                () -> FullTextSearchTableValuedFunction.parseMatchOperator("xor"));
+        Assert.assertTrue(invalidOperator.getMessage().contains("'or' or 'and'"));
     }
 
     @Test

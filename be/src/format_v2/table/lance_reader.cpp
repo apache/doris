@@ -168,6 +168,19 @@ Status LanceTableReader::init(TableReadOptions&& options) {
             _scanner_profile->add_info_string(
                     "LanceFtsCoverageMode",
                     full_text.coverage_mode == TFtsCoverageMode::STRICT ? "STRICT" : "INDEX_ONLY");
+            if (full_text.query_type == TFtsQueryType::MATCH) {
+                _scanner_profile->add_info_string("LanceFtsQueryType", "MATCH");
+                _scanner_profile->add_info_string(
+                        "LanceFtsMatchOperator",
+                        full_text.match_operator == TFtsMatchOperator::AND ? "AND" : "OR");
+                _scanner_profile->add_info_string(
+                        "LanceFtsMaxFuzzyDistance",
+                        std::to_string(full_text.max_fuzzy_distance));
+            } else {
+                _scanner_profile->add_info_string("LanceFtsQueryType", "PHRASE");
+                _scanner_profile->add_info_string("LanceFtsPhraseSlop",
+                                                  std::to_string(full_text.phrase_slop));
+            }
         }
         _scanner_profile->add_info_string("LanceTopK", std::to_string(top_k));
         _scanner_profile->add_info_string("LanceOffset", std::to_string(offset));
@@ -541,6 +554,41 @@ Status LanceTableReader::_validate_external_search_request() const {
             return Status::InvalidArgument(
                     "Lance full-text search global_statistics must not be empty when set");
         }
+        if (!full_text.__isset.query_type ||
+            (full_text.query_type != TFtsQueryType::MATCH &&
+             full_text.query_type != TFtsQueryType::PHRASE)) {
+            return Status::InvalidArgument(
+                    "Lance full-text search requires MATCH or PHRASE query_type");
+        }
+        if (full_text.query_type == TFtsQueryType::MATCH) {
+            if (!full_text.__isset.match_operator ||
+                (full_text.match_operator != TFtsMatchOperator::OR &&
+                 full_text.match_operator != TFtsMatchOperator::AND)) {
+                return Status::InvalidArgument(
+                        "Lance MATCH query requires OR or AND match_operator");
+            }
+            if (!full_text.__isset.max_fuzzy_distance || full_text.max_fuzzy_distance < 0) {
+                return Status::InvalidArgument(
+                        "Lance MATCH query max_fuzzy_distance must be non-negative");
+            }
+            if (full_text.max_fuzzy_distance != 0) {
+                return Status::NotSupported(
+                        "Lance prepared FTS does not yet support max_fuzzy_distance={}",
+                        full_text.max_fuzzy_distance);
+            }
+            if (full_text.__isset.phrase_slop) {
+                return Status::InvalidArgument("Lance MATCH query cannot set phrase_slop");
+            }
+        } else {
+            if (!full_text.__isset.phrase_slop || full_text.phrase_slop < 0) {
+                return Status::InvalidArgument(
+                        "Lance PHRASE query phrase_slop must be non-negative");
+            }
+            if (full_text.__isset.match_operator || full_text.__isset.max_fuzzy_distance) {
+                return Status::InvalidArgument(
+                        "Lance PHRASE query cannot set MATCH-only parameters");
+            }
+        }
         if (request.__isset.vector_search_options) {
             return Status::InvalidArgument(
                     "Lance full-text search cannot set vector_search_options");
@@ -631,8 +679,19 @@ Status LanceTableReader::_prepare_fts_query_context() {
     // Keep statistics preparation at the reader/scanner lifetime today. A future FE-provided
     // opaque statistics payload should enter through this boundary and create the same context,
     // leaving segment-scoped scanner execution unchanged.
-    _fts_query_context = lance_dataset_prepare_fts_query(_dataset, full_text.column.c_str(),
-                                                         full_text.query.c_str(), 0, coverage_mode);
+    if (full_text.query_type == TFtsQueryType::MATCH) {
+        const auto match_operator = full_text.match_operator == TFtsMatchOperator::AND
+                                            ? LANCE_FTS_MATCH_OPERATOR_AND
+                                            : LANCE_FTS_MATCH_OPERATOR_OR;
+        _fts_query_context = lance_dataset_prepare_fts_match_query(
+                _dataset, full_text.column.c_str(), full_text.query.c_str(), match_operator,
+                static_cast<uint32_t>(full_text.max_fuzzy_distance), coverage_mode);
+    } else {
+        DORIS_CHECK(full_text.query_type == TFtsQueryType::PHRASE);
+        _fts_query_context = lance_dataset_prepare_fts_phrase_query(
+                _dataset, full_text.column.c_str(), full_text.query.c_str(),
+                full_text.phrase_slop, coverage_mode);
+    }
     if (_fts_query_context == nullptr) {
         return lance_error("prepare Lance FTS query context");
     }

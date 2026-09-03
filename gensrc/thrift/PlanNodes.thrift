@@ -483,8 +483,18 @@ enum TFtsCoverageMode {
     INDEX_ONLY
 }
 
-// Logical parameters for one full-text query. `query` initially carries the backend query string;
-// richer structured query forms can be added as new fields without changing this basic contract.
+enum TFtsQueryType {
+    MATCH,
+    PHRASE
+}
+
+enum TFtsMatchOperator {
+    OR,
+    AND
+}
+
+// Logical parameters for one full-text query. MATCH combines analyzed terms with match_operator;
+// PHRASE searches the analyzed terms in order and permits phrase_slop intervening positions.
 struct TFullTextSearchParams {
     1: optional string column
     2: optional string query
@@ -493,10 +503,23 @@ struct TFullTextSearchParams {
     // STRICT requires the selected FTS index to cover the complete pinned snapshot. INDEX_ONLY
     // searches and scores only fragments covered by committed FTS index segments.
     5: optional TFtsCoverageMode coverage_mode
-    // Opaque, versioned global BM25 statistics prepared by Lance for this exact snapshot and
-    // query. Unset while BE scanners prepare statistics locally; future FE versions may populate
-    // this field once the bundled lance-c exposes the corresponding consumer API.
+    // Reserved for distributed FTS. Every BE may search a different index-segment subset, so
+    // statistics prepared independently on each BE would produce BM25 scores that are not
+    // comparable during the final TopK merge. The payload must be prepared once for the exact
+    // snapshot, logical FTS index, segment set, and query (including its final fuzzy vocabulary),
+    // then validated and installed unchanged on every BE scanner.
+    //
+    // Doris currently leaves this field unset and BE rejects a set value because Lance/lance-c
+    // does not yet provide the complete producer and consumer contract. Track the upstream work
+    // at https://github.com/lance-format/lance/issues/8937.
     6: optional binary global_statistics
+    7: optional TFtsQueryType query_type
+    // MATCH-only parameters. max_fuzzy_distance is reserved as zero until the bundled Lance-C
+    // supports one canonical fuzzy vocabulary across all prepared index segments.
+    8: optional TFtsMatchOperator match_operator
+    9: optional i32 max_fuzzy_distance
+    // PHRASE-only parameter. Zero requires an exact phrase.
+    10: optional i32 phrase_slop
 }
 
 enum TSearchFilterFormat {

@@ -279,13 +279,18 @@ TFileScanRangeParams make_float32_vector_search_params(
 TFileScanRangeParams make_full_text_search_params(
         std::string query_text, int64_t top_k, int64_t offset,
         TFtsCoverageMode::type coverage_mode = TFtsCoverageMode::STRICT,
-        std::optional<std::string> filter = std::nullopt) {
+        std::optional<std::string> filter = std::nullopt,
+        TFtsMatchOperator::type match_operator = TFtsMatchOperator::OR,
+        int32_t max_fuzzy_distance = 0) {
     TFullTextSearchParams full_text_params;
     full_text_params.__set_column("body");
     full_text_params.__set_query(std::move(query_text));
     full_text_params.__set_top_k(top_k);
     full_text_params.__set_offset(offset);
     full_text_params.__set_coverage_mode(coverage_mode);
+    full_text_params.__set_query_type(TFtsQueryType::MATCH);
+    full_text_params.__set_match_operator(match_operator);
+    full_text_params.__set_max_fuzzy_distance(max_fuzzy_distance);
 
     TExternalSearchQuery query;
     query.__set_full_text_search(std::move(full_text_params));
@@ -303,6 +308,21 @@ TFileScanRangeParams make_full_text_search_params(
     lance_scan_params.__set_external_search_request(std::move(request));
     TFileScanRangeParams scan_params;
     scan_params.__set_lance_scan_params(std::move(lance_scan_params));
+    return scan_params;
+}
+
+TFileScanRangeParams make_phrase_search_params(
+        std::string query_text, int64_t top_k, int64_t offset, int32_t slop,
+        TFtsCoverageMode::type coverage_mode = TFtsCoverageMode::STRICT,
+        std::optional<std::string> filter = std::nullopt) {
+    auto scan_params = make_full_text_search_params(std::move(query_text), top_k, offset,
+                                                    coverage_mode, std::move(filter));
+    auto& full_text = scan_params.lance_scan_params.external_search_request.search_query
+                              .full_text_search;
+    full_text.__set_query_type(TFtsQueryType::PHRASE);
+    full_text.__isset.match_operator = false;
+    full_text.__isset.max_fuzzy_distance = false;
+    full_text.__set_phrase_slop(slop);
     return scan_params;
 }
 
@@ -378,6 +398,12 @@ TEST(LanceTableReaderFullTextSearchTest, ValidatesRequestAndScoreTypeBeforeDatas
     EXPECT_EQ("FULL_TEXT", *valid_profile.get_info_string("LanceSearchType"));
     ASSERT_NE(valid_profile.get_info_string("LanceFtsCoverageMode"), nullptr);
     EXPECT_EQ("STRICT", *valid_profile.get_info_string("LanceFtsCoverageMode"));
+    ASSERT_NE(valid_profile.get_info_string("LanceFtsQueryType"), nullptr);
+    EXPECT_EQ("MATCH", *valid_profile.get_info_string("LanceFtsQueryType"));
+    ASSERT_NE(valid_profile.get_info_string("LanceFtsMatchOperator"), nullptr);
+    EXPECT_EQ("OR", *valid_profile.get_info_string("LanceFtsMatchOperator"));
+    ASSERT_NE(valid_profile.get_info_string("LanceFtsMaxFuzzyDistance"), nullptr);
+    EXPECT_EQ("0", *valid_profile.get_info_string("LanceFtsMaxFuzzyDistance"));
     ASSERT_NE(valid_profile.get_info_string("LanceTopKPlusOffset"), nullptr);
     EXPECT_EQ("5", *valid_profile.get_info_string("LanceTopKPlusOffset"));
 
@@ -409,6 +435,55 @@ TEST(LanceTableReaderFullTextSearchTest, ValidatesRequestAndScoreTypeBeforeDatas
             init_reader(&score_reader, wrong_score_columns, &state, &score_profile, &score_params);
     EXPECT_FALSE(score_status.ok());
     EXPECT_NE(score_status.to_string().find("must have Doris FLOAT type"), std::string::npos);
+}
+
+TEST(LanceTableReaderFullTextSearchTest, ValidatesQuerySpecificParameters) {
+    const Columns columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("_score", TYPE_FLOAT, true),
+    };
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+
+    RuntimeProfile phrase_profile("lance_fts_phrase_request");
+    auto phrase_params = make_phrase_search_params("lance search", 4, 0, 1);
+    LanceTableReader phrase_reader;
+    ASSERT_TRUE(init_reader(&phrase_reader, columns, &state, &phrase_profile, &phrase_params).ok());
+    ASSERT_NE(phrase_profile.get_info_string("LanceFtsQueryType"), nullptr);
+    EXPECT_EQ("PHRASE", *phrase_profile.get_info_string("LanceFtsQueryType"));
+    ASSERT_NE(phrase_profile.get_info_string("LanceFtsPhraseSlop"), nullptr);
+    EXPECT_EQ("1", *phrase_profile.get_info_string("LanceFtsPhraseSlop"));
+
+    RuntimeProfile fuzzy_profile("lance_fts_fuzzy_request");
+    auto fuzzy_params = make_full_text_search_params(
+            "lance", 4, 0, TFtsCoverageMode::STRICT, std::nullopt,
+            TFtsMatchOperator::OR, 1);
+    LanceTableReader fuzzy_reader;
+    const auto fuzzy_status =
+            init_reader(&fuzzy_reader, columns, &state, &fuzzy_profile, &fuzzy_params);
+    EXPECT_FALSE(fuzzy_status.ok());
+    EXPECT_NE(fuzzy_status.to_string().find("does not yet support max_fuzzy_distance=1"),
+              std::string::npos);
+
+    RuntimeProfile match_slop_profile("lance_fts_match_with_slop");
+    auto match_slop_params = make_full_text_search_params("lance", 4, 0);
+    match_slop_params.lance_scan_params.external_search_request.search_query.full_text_search
+            .__set_phrase_slop(1);
+    LanceTableReader match_slop_reader;
+    const auto match_slop_status = init_reader(&match_slop_reader, columns, &state,
+                                               &match_slop_profile, &match_slop_params);
+    EXPECT_FALSE(match_slop_status.ok());
+    EXPECT_NE(match_slop_status.to_string().find("MATCH query cannot set phrase_slop"),
+              std::string::npos);
+
+    RuntimeProfile negative_slop_profile("lance_fts_negative_phrase_slop");
+    auto negative_slop_params = make_phrase_search_params("lance search", 4, 0, -1);
+    LanceTableReader negative_slop_reader;
+    const auto negative_slop_status = init_reader(&negative_slop_reader, columns, &state,
+                                                  &negative_slop_profile, &negative_slop_params);
+    EXPECT_FALSE(negative_slop_status.ok());
+    EXPECT_NE(negative_slop_status.to_string().find("phrase_slop must be non-negative"),
+              std::string::npos);
 }
 
 std::vector<std::pair<int64_t, float>> read_full_text_search_rows(LanceTableReader* reader,
@@ -488,6 +563,77 @@ TEST(LanceTableReaderFullTextSearchTest, SearchesIndexedSnapshotWithOptionalScor
     }
     EXPECT_EQ((std::vector<int64_t> {3, 2}), row_ids);
     EXPECT_TRUE(row_id_reader.close().ok());
+}
+
+TEST(LanceTableReaderFullTextSearchTest, SupportsMatchAndPhraseQueries) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/fts_indexed.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+    auto range = make_full_text_search_range(dataset_uri, fixture, "body_fts");
+
+    const Columns columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("_score", TYPE_FLOAT, true),
+    };
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+
+    RuntimeProfile match_and_profile("lance_fts_match_and");
+    auto match_and_params = make_full_text_search_params(
+            "lance storage", 10, 0, TFtsCoverageMode::STRICT, std::nullopt,
+            TFtsMatchOperator::AND);
+    LanceTableReader match_and_reader;
+    ASSERT_TRUE(init_reader(&match_and_reader, columns, &state, &match_and_profile,
+                            &match_and_params)
+                        .ok());
+    ASSERT_TRUE(prepare_range(&match_and_reader, range).ok());
+    Block match_and_block;
+    add_output_columns(&match_and_block, columns);
+    const auto match_and_rows =
+            read_full_text_search_rows(&match_and_reader, &match_and_block);
+    ASSERT_EQ(1U, match_and_rows.size());
+    EXPECT_EQ(7, match_and_rows[0].first);
+    EXPECT_TRUE(match_and_reader.close().ok());
+
+    RuntimeProfile phrase_profile("lance_fts_phrase_exact");
+    auto phrase_params = make_phrase_search_params("lance search", 10, 0, 0);
+    LanceTableReader phrase_reader;
+    ASSERT_TRUE(init_reader(&phrase_reader, columns, &state, &phrase_profile, &phrase_params).ok());
+    ASSERT_TRUE(prepare_range(&phrase_reader, range).ok());
+    Block phrase_block;
+    add_output_columns(&phrase_block, columns);
+    const auto phrase_rows = read_full_text_search_rows(&phrase_reader, &phrase_block);
+    std::vector<int64_t> phrase_row_ids;
+    phrase_row_ids.reserve(phrase_rows.size());
+    for (const auto& [row_id, score] : phrase_rows) {
+        EXPECT_GT(score, 0.0F);
+        phrase_row_ids.emplace_back(row_id);
+    }
+    std::sort(phrase_row_ids.begin(), phrase_row_ids.end());
+    EXPECT_EQ((std::vector<int64_t> {1, 2, 3}), phrase_row_ids);
+    EXPECT_TRUE(phrase_reader.close().ok());
+
+    RuntimeProfile phrase_slop_profile("lance_fts_phrase_slop");
+    auto phrase_slop_params = make_phrase_search_params("lance engine", 10, 0, 1);
+    LanceTableReader phrase_slop_reader;
+    ASSERT_TRUE(init_reader(&phrase_slop_reader, columns, &state, &phrase_slop_profile,
+                            &phrase_slop_params)
+                        .ok());
+    ASSERT_TRUE(prepare_range(&phrase_slop_reader, range).ok());
+    Block phrase_slop_block;
+    add_output_columns(&phrase_slop_block, columns);
+    const auto phrase_slop_rows =
+            read_full_text_search_rows(&phrase_slop_reader, &phrase_slop_block);
+    std::vector<int64_t> phrase_slop_row_ids;
+    phrase_slop_row_ids.reserve(phrase_slop_rows.size());
+    for (const auto& [row_id, score] : phrase_slop_rows) {
+        EXPECT_GT(score, 0.0F);
+        phrase_slop_row_ids.emplace_back(row_id);
+    }
+    std::sort(phrase_slop_row_ids.begin(), phrase_slop_row_ids.end());
+    EXPECT_EQ((std::vector<int64_t> {1, 2, 3}), phrase_slop_row_ids);
+    EXPECT_TRUE(phrase_slop_reader.close().ok());
 }
 
 TEST(LanceTableReaderVectorSearchTest, RejectsMalformedIndexSegmentUuid) {

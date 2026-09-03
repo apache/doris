@@ -31,6 +31,8 @@ import org.apache.doris.thrift.TExternalSearchQuery;
 import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFtsCoverageMode;
+import org.apache.doris.thrift.TFtsMatchOperator;
+import org.apache.doris.thrift.TFtsQueryType;
 import org.apache.doris.thrift.TFullTextSearchParams;
 import org.apache.doris.thrift.TVectorMetric;
 import org.apache.doris.thrift.TVectorSearchOptions;
@@ -304,6 +306,36 @@ public class LanceScanNodeTest {
                 splitRequest.getSearchQuery().getFullTextSearch().getOffset());
         Assert.assertEquals(5, request.getSearchQuery().getFullTextSearch().getTopK());
         Assert.assertEquals(2, request.getSearchQuery().getFullTextSearch().getOffset());
+        Assert.assertEquals(TFtsQueryType.MATCH,
+                splitRequest.getSearchQuery().getFullTextSearch().getQueryType());
+        Assert.assertEquals(TFtsMatchOperator.OR,
+                splitRequest.getSearchQuery().getFullTextSearch().getMatchOperator());
+        Assert.assertEquals(0,
+                splitRequest.getSearchQuery().getFullTextSearch().getMaxFuzzyDistance());
+    }
+
+    @Test
+    public void testFullTextSplitRequestPreservesPhraseQuery() {
+        TExternalSearchRequest logicalRequest = phraseSearchRequest(5, 2, 1);
+        LanceScanNode node = LanceScanNode.forExternalSearch(
+                new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), null,
+                null, -1, logicalRequest, new SessionVariable());
+
+        TExternalSearchRequest splitRequest = node.createSplitSearchRequest();
+
+        TFullTextSearchParams splitFullText =
+                splitRequest.getSearchQuery().getFullTextSearch();
+        Assert.assertEquals(7, splitFullText.getTopK());
+        Assert.assertEquals(0, splitFullText.getOffset());
+        Assert.assertEquals(TFtsQueryType.PHRASE, splitFullText.getQueryType());
+        Assert.assertEquals(1, splitFullText.getPhraseSlop());
+        Assert.assertFalse(splitFullText.isSetMatchOperator());
+        Assert.assertFalse(splitFullText.isSetMaxFuzzyDistance());
+
+        TFullTextSearchParams logicalFullText =
+                logicalRequest.getSearchQuery().getFullTextSearch();
+        Assert.assertEquals(5, logicalFullText.getTopK());
+        Assert.assertEquals(2, logicalFullText.getOffset());
     }
 
     @Test
@@ -487,7 +519,23 @@ public class LanceScanNodeTest {
                 .setQuery("lance")
                 .setTopK(topK)
                 .setOffset(offset)
-                .setCoverageMode(coverageMode);
+                .setCoverageMode(coverageMode)
+                .setQueryType(TFtsQueryType.MATCH)
+                .setMatchOperator(TFtsMatchOperator.OR)
+                .setMaxFuzzyDistance(0);
+        return new TExternalSearchRequest()
+                .setSearchQuery(TExternalSearchQuery.full_text_search(fullText));
+    }
+
+    private static TExternalSearchRequest phraseSearchRequest(long topK, long offset, int slop) {
+        TFullTextSearchParams fullText = new TFullTextSearchParams()
+                .setColumn("body")
+                .setQuery("lance search")
+                .setTopK(topK)
+                .setOffset(offset)
+                .setCoverageMode(TFtsCoverageMode.STRICT)
+                .setQueryType(TFtsQueryType.PHRASE)
+                .setPhraseSlop(slop);
         return new TExternalSearchRequest()
                 .setSearchQuery(TExternalSearchQuery.full_text_search(fullText));
     }

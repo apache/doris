@@ -40,6 +40,7 @@ import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFtsCoverageMode;
+import org.apache.doris.thrift.TFtsQueryType;
 import org.apache.doris.thrift.TFullTextSearchParams;
 import org.apache.doris.thrift.TLanceFileDesc;
 import org.apache.doris.thrift.TLanceScanParams;
@@ -554,6 +555,17 @@ public class LanceScanNode extends FileQueryScanNode {
                         .append(fullText.getColumn()).append("\n");
                 result.append(prefix).append("lanceFtsCoverageMode=")
                         .append(fullText.getCoverageMode()).append("\n");
+                result.append(prefix).append("lanceFtsQueryType=")
+                        .append(fullText.getQueryType()).append("\n");
+                if (fullText.getQueryType() == TFtsQueryType.MATCH) {
+                    result.append(prefix).append("lanceFtsMatchOperator=")
+                            .append(fullText.getMatchOperator()).append("\n");
+                    result.append(prefix).append("lanceFtsMaxFuzzyDistance=")
+                            .append(fullText.getMaxFuzzyDistance()).append("\n");
+                } else {
+                    result.append(prefix).append("lanceFtsPhraseSlop=")
+                            .append(fullText.getPhraseSlop()).append("\n");
+                }
             }
             result.append(prefix).append("lanceVersion=")
                     .append(plannedMetadata.getVersion()).append("\n");

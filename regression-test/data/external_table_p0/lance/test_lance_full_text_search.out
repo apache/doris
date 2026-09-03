@@ -5,6 +5,25 @@
 1	0.74574697
 7	0.6000379
 
+-- !fts_match_or --
+1
+2
+3
+7
+
+-- !fts_match_and --
+7
+
+-- !fts_phrase_exact --
+1
+2
+3
+
+-- !fts_phrase_slop --
+1
+2
+3
+
 -- !fts_offset --
 2
 1
@@ -15,4 +34,3 @@
 -- !fts_index_only --
 101
 102
-

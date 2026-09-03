@@ -64,6 +64,8 @@ suite("test_lance_full_text_search", "p0,external") {
             contains "externalSearchType=FULL_TEXT"
             contains "lanceFullTextColumn=body"
             contains "lanceFtsCoverageMode=STRICT"
+            contains "lanceFtsQueryType=MATCH"
+            contains "lanceFtsMatchOperator=OR"
             contains "lanceSearchUnindexedFragments=0"
             contains "lanceSearchIndexSegments="
         }
@@ -73,6 +75,45 @@ suite("test_lance_full_text_search", "p0,external") {
             FROM ${search(fullTable, "lance", "4")}
             ORDER BY _score DESC, row_id
         """
+
+        // MATCH defaults to OR, while AND requires every analyzed query term to be present.
+        qt_fts_match_or """
+            SELECT row_id
+            FROM ${search(fullTable, "lance storage", "10", "0", "strict",
+                    ', "query_type"="match", "operator"="or"')}
+            ORDER BY row_id
+        """
+        qt_fts_match_and """
+            SELECT row_id
+            FROM ${search(fullTable, "lance storage", "10", "0", "strict",
+                    ', "query_type"="match", "operator"="and"')}
+            ORDER BY row_id
+        """
+
+        // This fixture stores token positions. Exact Phrase matches adjacent terms, while slop=1
+        // permits the intervening "search" token in "lance search engine".
+        qt_fts_phrase_exact """
+            SELECT row_id
+            FROM ${search(fullTable, "lance search", "10", "0", "strict",
+                    ', "query_type"="phrase", "slop"="0"')}
+            ORDER BY row_id
+        """
+        qt_fts_phrase_slop """
+            SELECT row_id
+            FROM ${search(fullTable, "lance engine", "10", "0", "strict",
+                    ', "query_type"="phrase", "slop"="1"')}
+            ORDER BY row_id
+        """
+
+        // The wire contract already reserves fuzzy distance, but the bundled Lance revision does
+        // not yet provide one canonical fuzzy vocabulary across prepared index segments.
+        test {
+            sql """SELECT row_id
+                    FROM ${search(fullTable, "lance", "10", "0", "strict",
+                            ', "max_fuzzy_distance"="1"')}
+                    ORDER BY row_id"""
+            exception "does not yet support prepared fuzzy matching"
+        }
 
         // OFFSET belongs to the snapshot-wide TopN. It must not be applied independently by
         // every physical FTS index split.
