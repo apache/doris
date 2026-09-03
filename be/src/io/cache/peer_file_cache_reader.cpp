@@ -61,6 +61,8 @@ struct PeerConnectionHealth {
 bthread::Mutex peer_connection_health_mutex;
 std::unordered_map<std::string, PeerConnectionHealth> peer_connection_health;
 
+// Every true result must be paired with exactly one finish_peer_connection_attempt() call.
+// Use Defer at the call site so every return path completes the attempt.
 bool peer_connection_circuit_allows(const std::string& address) {
     std::unique_lock<bthread::Mutex> lock(peer_connection_health_mutex);
     auto it = peer_connection_health.find(address);
@@ -76,8 +78,13 @@ bool peer_connection_circuit_allows(const std::string& address) {
     return true;
 }
 
-void record_peer_connection_failure(const std::string& address) {
+// Completes an attempt admitted by peer_connection_circuit_allows().
+void finish_peer_connection_attempt(const std::string& address, bool succeeded) {
     std::unique_lock<bthread::Mutex> lock(peer_connection_health_mutex);
+    if (succeeded) {
+        peer_connection_health.erase(address);
+        return;
+    }
     auto& health = peer_connection_health[address];
     health.probe_in_flight = false;
     ++health.consecutive_failures;
@@ -86,11 +93,6 @@ void record_peer_connection_failure(const std::string& address) {
                 std::chrono::steady_clock::now() +
                 std::chrono::seconds(std::max(0, config::cache_peer_read_circuit_open_seconds));
     }
-}
-
-void record_peer_connection_success(const std::string& address) {
-    std::unique_lock<bthread::Mutex> lock(peer_connection_health_mutex);
-    peer_connection_health.erase(address);
 }
 
 struct ExpectedPeerFetch {
@@ -263,16 +265,16 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
     if (!peer_connection_circuit_allows(brpc_addr)) {
         return Status::RpcError<false>("Peer connection circuit is open for {}", brpc_addr);
     }
-    Status st = Status::OK();
+    bool transport_succeeded = false;
+    Defer finish_connection_attempt {
+            [&] { finish_peer_connection_attempt(brpc_addr, transport_succeeded); }};
     std::shared_ptr<PBackendService_Stub> brpc_stub =
             ExecEnv::GetInstance()->brpc_internal_client_cache()->get_new_client_no_cache(
                     brpc_addr, "", "", "", 200, 0);
     if (!brpc_stub) {
-        record_peer_connection_failure(brpc_addr);
         peer_cache_reader_failed_counter << 1;
         LOG(WARNING) << "failed to get brpc stub " << brpc_addr;
-        st = Status::RpcError<false>("Address {} is wrong", brpc_addr);
-        return st;
+        return Status::RpcError<false>("Address {} is wrong", brpc_addr);
     }
 
     size_t filled = 0;
@@ -296,10 +298,9 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
     peer_cache_reader_read_counter << 1;
     brpc_stub->fetch_peer_data(&cntl, &req, &resp, nullptr);
     if (cntl.Failed()) {
-        record_peer_connection_failure(brpc_addr);
         return Status::RpcError<false>(cntl.ErrorText());
     }
-    record_peer_connection_success(brpc_addr);
+    transport_succeeded = true;
     if (resp.has_status()) {
         Status st2 = Status::create<false>(resp.status());
         LOG_EVERY_N(WARNING, 1000) << "peer cache read failed, status=" << st2.msg();
