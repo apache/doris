@@ -160,16 +160,17 @@ struct JaroDistance {
     static constexpr auto name = NameJaro::name;
 
     static Status ascii(const StringRef& left, const StringRef& right, double& result) {
-        result = Jaro::similarity(left.size, right.size,
-                                  [&](size_t i, size_t j) { return ascii_equal_at(left, right, i, j); });
+        auto equal = [&](size_t i, size_t j) { return ascii_equal_at(left, right, i, j); };
+        result = Jaro::similarity(left.size, right.size, equal);
         return Status::OK();
     }
 
     static Status utf8(const StringRef& left, const Utf8Offsets& left_offsets,
                        const StringRef& right, const Utf8Offsets& right_offsets, double& result) {
-        result = Jaro::similarity(left_offsets.size(), right_offsets.size(), [&](size_t i, size_t j) {
+        auto equal = [&](size_t i, size_t j) {
             return utf8_equal_at(left, left_offsets, right, right_offsets, i, j);
-        });
+        };
+        result = Jaro::similarity(left_offsets.size(), right_offsets.size(), equal);
         return Status::OK();
     }
 };
@@ -183,23 +184,21 @@ struct JaroWinklerDistance {
     static constexpr size_t MAX_PREFIX = 4;
 
     static Status ascii(const StringRef& left, const StringRef& right, double& result) {
+        auto equal = [&](size_t i, size_t j) { return ascii_equal_at(left, right, i, j); };
         size_t prefix = 0;
-        const double jaro = Jaro::similarity(
-                left.size, right.size, [&](size_t i, size_t j) { return ascii_equal_at(left, right, i, j); },
-                &prefix, MAX_PREFIX);
+        const double jaro = Jaro::similarity(left.size, right.size, equal, &prefix, MAX_PREFIX);
         result = jaro + static_cast<double>(prefix) * PREFIX_WEIGHT * (1.0 - jaro);
         return Status::OK();
     }
 
     static Status utf8(const StringRef& left, const Utf8Offsets& left_offsets,
                        const StringRef& right, const Utf8Offsets& right_offsets, double& result) {
+        auto equal = [&](size_t i, size_t j) {
+            return utf8_equal_at(left, left_offsets, right, right_offsets, i, j);
+        };
         size_t prefix = 0;
-        const double jaro = Jaro::similarity(
-                left_offsets.size(), right_offsets.size(),
-                [&](size_t i, size_t j) {
-                    return utf8_equal_at(left, left_offsets, right, right_offsets, i, j);
-                },
-                &prefix, MAX_PREFIX);
+        const double jaro = Jaro::similarity(left_offsets.size(), right_offsets.size(), equal,
+                                             &prefix, MAX_PREFIX);
         result = jaro + static_cast<double>(prefix) * PREFIX_WEIGHT * (1.0 - jaro);
         return Status::OK();
     }
@@ -314,9 +313,9 @@ private:
         get_utf8_char_offsets(constant, constant_offsets);
         Utf8Offsets value_offsets;
         for (size_t i = 0; i < size; ++i) {
-            RETURN_IF_ERROR(similarity_with_const_offsets(string_ref_at(data, offsets, i),
-                                                           value_offsets, constant, constant_offsets,
-                                                           constant_ascii, res[i]));
+            const auto value = string_ref_at(data, offsets, i);
+            RETURN_IF_ERROR(similarity_with_const_offsets(
+                    value, value_offsets, constant, constant_offsets, constant_ascii, res[i]));
         }
         return Status::OK();
     }
@@ -331,7 +330,8 @@ private:
     }
 
     static Status similarity(const StringRef& left, const StringRef& right,
-                             Utf8Offsets& left_offsets, Utf8Offsets& right_offsets, double& result) {
+                             Utf8Offsets& left_offsets, Utf8Offsets& right_offsets,
+                             double& result) {
         RETURN_IF_ERROR(check_length(left));
         RETURN_IF_ERROR(check_length(right));
         const bool left_ascii = simd::VStringFunctions::is_ascii(left);
@@ -370,8 +370,9 @@ struct JaccardSimilarityImpl : public SimilarityImplBase<JaccardSimilarityDistan
 using FunctionJaro = FunctionBinaryToType<DataTypeString, DataTypeString, JaroImpl, NameJaro>;
 using FunctionJaroWinkler =
         FunctionBinaryToType<DataTypeString, DataTypeString, JaroWinklerImpl, NameJaroWinkler>;
-using FunctionJaccardSimilarity = FunctionBinaryToType<DataTypeString, DataTypeString,
-                                                        JaccardSimilarityImpl, NameJaccardSimilarity>;
+using FunctionJaccardSimilarity =
+        FunctionBinaryToType<DataTypeString, DataTypeString, JaccardSimilarityImpl,
+                             NameJaccardSimilarity>;
 
 void register_function_string_similarity(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJaro>();

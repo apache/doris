@@ -4141,7 +4141,8 @@ TEST(function_string_test, function_jaro_winkler_test) {
             {{std::string("a"), std::string("b")}, double(0.0)},
             {{std::string("MARTHA"), std::string("MARHTA")}, double(0.9611111111111111)},
             {{std::string("DWAYNE"), std::string("DUANE")}, double(0.8400000000000001)},
-            {{std::string("你好世界"), std::string("你好世间")}, double(0.8833333333333334)},
+            {{std::string("你好世界"), std::string("你好世间")},
+             double(0.8833333333333334)},
             {{Null(), std::string("abc")}, Null()},
             {{std::string("abc"), Null()}, Null()},
     };
