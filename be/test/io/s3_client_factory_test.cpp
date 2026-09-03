@@ -136,7 +136,27 @@ private:
     bool _was_enabled;
 };
 
-} // namespace
+TEST_F(S3ClientFactoryTest, ClientIdentityDistinguishesAddressingAndEndpointOverride) {
+    S3ClientConf path_style_conf {
+            .endpoint = "https://config-identity-test.example.com",
+            .region = "us-east-1",
+            .ak = "access-key",
+            .sk = "secret-key",
+            .use_virtual_addressing = false,
+            .need_override_endpoint = true,
+    };
+    S3ClientConf virtual_hosted_conf = path_style_conf;
+    virtual_hosted_conf.use_virtual_addressing = true;
+    virtual_hosted_conf.need_override_endpoint = false;
+
+    EXPECT_NE(path_style_conf, virtual_hosted_conf);
+
+    auto path_style_client = S3ClientFactory::instance().create(path_style_conf);
+    auto virtual_hosted_client = S3ClientFactory::instance().create(virtual_hosted_conf);
+    ASSERT_NE(path_style_client, nullptr);
+    ASSERT_NE(virtual_hosted_client, nullptr);
+    EXPECT_NE(path_style_client, virtual_hosted_client);
+}
 
 TEST_F(S3ClientFactoryTest, DistinguishesHashCollisions) {
     auto external_conf =
@@ -163,12 +183,10 @@ TEST_F(S3ClientFactoryTest, DistinguishesHashCollisions) {
     EXPECT_EQ(cached_internal.value(), internal_client);
 }
 
-TEST_F(S3ClientFactoryTest, ObjClientHolderResetDistinguishesHashCollisions) {
-    auto external_conf =
-            make_hash_collision_conf("s3-client-holder-hash-collision.example.com", false);
-    auto internal_conf =
-            make_hash_collision_conf("s3-client-holder-hash-collision.example.com", true);
-    ASSERT_EQ(external_conf.get_hash(), internal_conf.get_hash());
+TEST_F(S3ClientFactoryTest, ObjClientHolderResetDistinguishesClientScope) {
+    auto external_conf = make_factory_conf("s3-client-holder-client-scope.example.com", false);
+    auto internal_conf = make_factory_conf("s3-client-holder-client-scope.example.com", true);
+    ASSERT_NE(external_conf, internal_conf);
 
     auto external_client =
             std::make_shared<io::S3ObjStorageClient>(std::shared_ptr<Aws::S3::S3Client> {});
@@ -295,6 +313,9 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
     S3ClientConf web_identity_conf;
     web_identity_conf.cred_provider_type = CredProviderType::WebIdentity;
 
+    S3ClientConf gcp_workload_identity_conf;
+    gcp_workload_identity_conf.cred_provider_type = CredProviderType::GcpWorkloadIdentity;
+
     config::aws_credentials_provider_version = "v2";
     {
         auto provider_v2 = factory.create_aws_credentials_provider(anonymous_conf).provider;
@@ -331,6 +352,12 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
                         provider_v2);
         ASSERT_NE(web_identity_v2, nullptr);
     }
+    {
+        auto provider =
+                factory.create_aws_credentials_provider(gcp_workload_identity_conf).provider;
+        ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::AnonymousAWSCredentialsProvider>(provider),
+                  nullptr);
+    }
 
     config::aws_credentials_provider_version = "v1";
     {
@@ -361,8 +388,28 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
                 std::dynamic_pointer_cast<Aws::Auth::STSAssumeRoleCredentialsProvider>(provider_v1);
         ASSERT_NE(default_chain_v1, nullptr);
     }
+    {
+        auto provider =
+                factory.create_aws_credentials_provider(gcp_workload_identity_conf).provider;
+        ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::AnonymousAWSCredentialsProvider>(provider),
+                  nullptr);
+    }
 
     config::aws_credentials_provider_version = "v2";
+}
+
+TEST_F(S3ClientFactoryTest, WorkloadIdentityAlwaysUsesAnonymousAwsCredentials) {
+    for (auto version : {AwsCredentialProviderVersion::V1, AwsCredentialProviderVersion::V2}) {
+        auto result = AwsCredentialFactory::create({
+                .version = version,
+                .provider_type = CredProviderType::GcpWorkloadIdentity,
+                .empty_credentials = EmptyCredentialsBehavior::DEFAULT_CHAIN,
+        });
+        ASSERT_TRUE(result);
+        ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::AnonymousAWSCredentialsProvider>(
+                          result.provider),
+                  nullptr);
+    }
 }
 
 TEST_F(S3ClientFactoryTest, RefreshCaCertForCredentialsProvider) {
@@ -448,6 +495,21 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfRoleArnProviderType) {
     properties["AWS_CREDENTIALS_PROVIDER_TYPE"] = "WEB_IDENTITY";
     ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
     ASSERT_EQ(s3_conf.client_conf.cred_provider_type, CredProviderType::WebIdentity);
+}
+
+TEST_F(S3ClientFactoryTest, ConvertPropertiesRejectsWorkloadIdentityOutsideStorageVaults) {
+    std::map<std::string, std::string> properties {
+            {"AWS_ENDPOINT", "https://storage.googleapis.com"},
+            {"AWS_REGION", "us-central1"},
+            {"AWS_CREDENTIALS_PROVIDER_TYPE", "GCP_WORKLOAD_IDENTITY"},
+    };
+    S3URI s3_uri("s3://test-bucket/test-prefix");
+    ASSERT_TRUE(s3_uri.parse().ok());
+
+    S3Conf s3_conf;
+    auto status = S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("only supported for storage vaults"), std::string::npos);
 }
 
 TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfProviderTypeMatrix) {

@@ -38,6 +38,7 @@
 #include "common/network_util.h"
 #include "common/stats.h"
 #include "common/string_util.h"
+#include "cpp/aws_common.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
@@ -768,9 +769,69 @@ static bool use_credential_provider(const ObjectStoreInfoPB& obj) {
     return obj.has_cred_provider_type() || has_non_empty_role_arn(obj);
 }
 
+static bool is_gcp_workload_identity_cred_provider(const ObjectStoreInfoPB& obj) {
+    return obj.has_cred_provider_type() &&
+           obj.cred_provider_type() == CredProviderTypePB::GCP_WORKLOAD_IDENTITY;
+}
+
+static void resolve_stale_gcp_workload_identity(ObjectStoreInfoPB* obj) {
+    if (!is_gcp_workload_identity_cred_provider(*obj)) {
+        return;
+    }
+    if (obj->has_ak() && obj->has_sk() && !obj->ak().empty() && !obj->sk().empty()) {
+        obj->clear_cred_provider_type();
+    } else if (has_non_empty_role_arn(*obj)) {
+        obj->set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+    }
+}
+
+static bool normalize_gcs_xml_endpoint(std::string* endpoint, bool allow_legacy_http = false) {
+    trim(*endpoint);
+    std::string lowercase_endpoint = *endpoint;
+    std::transform(lowercase_endpoint.begin(), lowercase_endpoint.end(), lowercase_endpoint.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    if (lowercase_endpoint == "storage.googleapis.com" || lowercase_endpoint == GCS_XML_ENDPOINT ||
+        (allow_legacy_http && lowercase_endpoint == "http://storage.googleapis.com")) {
+        *endpoint = GCS_XML_ENDPOINT;
+        return true;
+    }
+    return false;
+}
+
+static bool validate_credential_provider(ObjectStoreInfoPB* obj, bool allow_legacy_gcs_http,
+                                         MetaServiceCode& code, std::string& msg) {
+    if (!use_credential_provider(*obj)) {
+        return true;
+    }
+
+    if (!is_gcp_workload_identity_cred_provider(*obj)) {
+        if (obj->has_provider() && obj->provider() == ObjectStoreInfoPB::S3) {
+            return true;
+        }
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "s3 conf info err with credentials_provider_type, please check it";
+        return false;
+    }
+
+    if (!obj->has_provider() || obj->provider() != ObjectStoreInfoPB::GCP || obj->has_ak() ||
+        obj->has_sk() || has_non_empty_role_arn(*obj)) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "GCP workload identity requires provider GCP and no ak/sk or role_arn";
+        return false;
+    }
+    auto endpoint = obj->endpoint();
+    if (!normalize_gcs_xml_endpoint(&endpoint, allow_legacy_gcs_http)) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("GCP workload identity requires endpoint {}", GCS_XML_ENDPOINT);
+        return false;
+    }
+    obj->set_endpoint(std::move(endpoint));
+    return true;
+}
+
 static void create_object_info_with_encrypt(const InstanceInfoPB& instance, ObjectStoreInfoPB* obj,
-                                            bool sse_enabled, MetaServiceCode& code,
-                                            std::string& msg) {
+                                            bool sse_enabled, bool storage_vault,
+                                            MetaServiceCode& code, std::string& msg) {
     std::string plain_ak = obj->has_ak() ? obj->ak() : "";
     std::string plain_sk = obj->has_sk() ? obj->sk() : "";
     std::string bucket = obj->has_bucket() ? obj->bucket() : "";
@@ -781,7 +842,17 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     std::string external_endpoint = obj->has_external_endpoint() ? obj->external_endpoint() : "";
     std::string region = obj->has_region() ? obj->region() : "";
 
-    if (obj->has_role_arn()) {
+    if (storage_vault && is_gcp_workload_identity_cred_provider(*obj)) {
+        if (bucket.empty() || endpoint.empty() || region.empty() ||
+            !validate_credential_provider(obj, false, code, msg)) {
+            if (code == MetaServiceCode::OK) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = "s3 conf info err with credentials provider, please check it";
+            }
+            return;
+        }
+        endpoint = obj->endpoint();
+    } else if (obj->has_role_arn()) {
         if (obj->role_arn().empty() || !obj->has_cred_provider_type() || !obj->has_provider() ||
             obj->provider() != ObjectStoreInfoPB::S3 || bucket.empty() || endpoint.empty() ||
             region.empty()) {
@@ -840,7 +911,8 @@ static int add_vault_into_instance(InstanceInfoPB& instance, Transaction* txn,
         return add_hdfs_storage_vault(instance, txn, vault_param, code, msg);
     }
 
-    create_object_info_with_encrypt(instance, vault_param.mutable_obj_info(), true, code, msg);
+    create_object_info_with_encrypt(instance, vault_param.mutable_obj_info(), true, true, code,
+                                    msg);
     if (code != MetaServiceCode::OK) {
         return -1;
     }
@@ -968,7 +1040,6 @@ static int alter_hdfs_storage_vault_by_id(InstanceInfoPB& instance,
         msg = ss.str();
         return -1;
     }
-
     auto origin_vault_info = new_vault.DebugString();
     if (vault.has_alter_name()) {
         if (!is_valid_storage_vault_name(vault.alter_name())) {
@@ -1105,6 +1176,7 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
         msg = ss.str();
         return -1;
     }
+    resolve_stale_gcp_workload_identity(new_vault.mutable_obj_info());
 
     auto origin_vault_info = new_vault.DebugString();
 
@@ -1146,6 +1218,38 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
         return -1;
     }
 
+    if (is_gcp_workload_identity_cred_provider(obj_info)) {
+        if (obj_info.has_ak() || obj_info.has_role_arn()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "invalid argument, GCP workload identity can not be set together with ak/sk or "
+                  "role_arn";
+            LOG(WARNING) << msg;
+            return -1;
+        }
+        if (!new_vault.obj_info().has_provider() ||
+            new_vault.obj_info().provider() != ObjectStoreInfoPB::GCP) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "GCP workload identity is only supported for provider GCP";
+            LOG(WARNING) << msg;
+            return -1;
+        }
+        auto endpoint = new_vault.obj_info().endpoint();
+        if (!normalize_gcs_xml_endpoint(&endpoint, true)) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = fmt::format("GCP workload identity requires endpoint {}", GCS_XML_ENDPOINT);
+            LOG(WARNING) << msg;
+            return -1;
+        }
+        new_vault.mutable_obj_info()->clear_ak();
+        new_vault.mutable_obj_info()->clear_sk();
+        new_vault.mutable_obj_info()->clear_encryption_info();
+        new_vault.mutable_obj_info()->clear_role_arn();
+        new_vault.mutable_obj_info()->clear_external_id();
+        new_vault.mutable_obj_info()->set_endpoint(std::move(endpoint));
+        new_vault.mutable_obj_info()->set_cred_provider_type(
+                CredProviderTypePB::GCP_WORKLOAD_IDENTITY);
+    }
+
     if (obj_info.has_ak()) {
         EncryptionInfoPB encryption_info = new_vault.obj_info().encryption_info();
         AkSkPair new_ak_sk_pair {new_vault.obj_info().ak(), new_vault.obj_info().sk()};
@@ -1178,6 +1282,11 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
         if (obj_info.has_external_id()) {
             new_vault.mutable_obj_info()->set_external_id(obj_info.external_id());
         }
+    }
+
+    if (!validate_credential_provider(new_vault.mutable_obj_info(), true, code, msg)) {
+        LOG(WARNING) << msg;
+        return -1;
     }
 
     if (obj_info.has_use_path_style()) {
@@ -1496,7 +1605,20 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         }
 
         if (use_credential_provider(obj)) {
-            if (!obj.has_provider() || obj.provider() != ObjectStoreInfoPB::S3) {
+            if (is_gcp_workload_identity_cred_provider(obj)) {
+                if (!obj.has_provider() || obj.provider() != ObjectStoreInfoPB::GCP ||
+                    has_non_empty_role_arn(obj)) {
+                    code = MetaServiceCode::INVALID_ARGUMENT;
+                    msg = "GCP workload identity requires provider GCP and no role_arn";
+                    return;
+                }
+                if (!normalize_gcs_xml_endpoint(&endpoint)) {
+                    code = MetaServiceCode::INVALID_ARGUMENT;
+                    msg = fmt::format("GCP workload identity requires endpoint {}",
+                                      GCS_XML_ENDPOINT);
+                    return;
+                }
+            } else if (!obj.has_provider() || obj.provider() != ObjectStoreInfoPB::S3) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 msg = "s3 conf info err with credentials_provider_type, please check it";
                 return;
@@ -1582,7 +1704,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             ret != 0) {
             return;
         }
-        return;
+        break;
     }
     case AlterObjStoreInfoRequest::DROP_HDFS_INFO: {
         if (auto ret = remove_hdfs_storage_vault(instance, txn.get(), request->vault(), code, msg);
@@ -1620,11 +1742,15 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         break;
     }
     case AlterObjStoreInfoRequest::ALTER_S3_VAULT: {
-        alter_s3_storage_vault(instance, txn, request->vault(), code, msg, response);
+        if (alter_s3_storage_vault(instance, txn, request->vault(), code, msg, response) != 0) {
+            return;
+        }
         break;
     }
     case AlterObjStoreInfoRequest::ALTER_HDFS_VAULT: {
-        alter_hdfs_storage_vault(instance, txn, request->vault(), code, msg, response);
+        if (alter_hdfs_storage_vault(instance, txn, request->vault(), code, msg, response) != 0) {
+            return;
+        }
         break;
     }
     case AlterObjStoreInfoRequest::DROP_S3_VAULT:
@@ -2272,7 +2398,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
     if (request->has_obj_info()) {
         create_object_info_with_encrypt(instance,
                                         const_cast<ObjectStoreInfoPB*>(&request->obj_info()),
-                                        request->sse_enabled(), code, msg);
+                                        request->sse_enabled(), false, code, msg);
         if (code != MetaServiceCode::OK) {
             return;
         }

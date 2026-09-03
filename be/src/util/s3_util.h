@@ -36,10 +36,10 @@
 #include <unordered_map>
 
 #include "common/status.h"
-#include "core/string_ref.h"
 #include "cpp/aws_common.h"
 #include "cpp/obj-client/auth/aws_credential_factory.h"
 #include "cpp/obj-client/obj_storage_client.h"
+#include "util/hash_util.hpp"
 
 namespace Aws::S3 {
 class S3Client;
@@ -86,23 +86,23 @@ struct S3ClientConf {
     bool operator==(const S3ClientConf&) const = default;
 
     uint64_t get_hash() const {
-        uint64_t hash_code = 0;
-        // Use crc32_hash(ak + sk) hash to prevent swapped AK/SK order from producing same result.
-        hash_code ^= crc32_hash(ak + sk);
-        hash_code ^= crc32_hash(token);
-        hash_code ^= crc32_hash(endpoint);
-        hash_code ^= crc32_hash(region);
-        hash_code ^= crc32_hash(bucket);
-        hash_code ^= max_connections;
-        hash_code ^= request_timeout_ms;
-        hash_code ^= connect_timeout_ms;
-        hash_code ^= use_virtual_addressing;
-        hash_code ^= static_cast<int>(provider);
-
-        hash_code ^= static_cast<int>(cred_provider_type);
-        hash_code ^= crc32_hash(role_arn);
-        hash_code ^= crc32_hash(external_id);
-        hash_code ^= is_internal_bucket;
+        size_t hash_code = 0;
+        HashUtil::hash_combine(hash_code, endpoint);
+        HashUtil::hash_combine(hash_code, region);
+        HashUtil::hash_combine(hash_code, ak);
+        HashUtil::hash_combine(hash_code, sk);
+        HashUtil::hash_combine(hash_code, token);
+        HashUtil::hash_combine(hash_code, bucket);
+        HashUtil::hash_combine(hash_code, static_cast<int>(provider));
+        HashUtil::hash_combine(hash_code, max_connections);
+        HashUtil::hash_combine(hash_code, request_timeout_ms);
+        HashUtil::hash_combine(hash_code, connect_timeout_ms);
+        HashUtil::hash_combine(hash_code, use_virtual_addressing);
+        HashUtil::hash_combine(hash_code, need_override_endpoint);
+        HashUtil::hash_combine(hash_code, static_cast<int>(cred_provider_type));
+        HashUtil::hash_combine(hash_code, role_arn);
+        HashUtil::hash_combine(hash_code, external_id);
+        HashUtil::hash_combine(hash_code, is_internal_bucket);
         return hash_code;
     }
 

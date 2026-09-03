@@ -70,6 +70,7 @@
 #include <memory>
 #include <ranges>
 
+#include "auth/gcp_workload_identity_token_provider.h"
 #include "client_bvar.h"
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
@@ -90,8 +91,11 @@ ObjStorageStatus s3fs_error(const Aws::S3::S3Error& err, std::string_view msg);
 class S3ObjStorageClient final : public ObjStorageClient {
 public:
     S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client,
-                       ObjStorageEndpointInfo config = {})
-            : _config(std::move(config)), _client(std::move(client)) {}
+                       ObjStorageEndpointInfo config = {},
+                       std::shared_ptr<GcpWorkloadIdentityTokenProvider> token_provider = nullptr)
+            : _config(std::move(config)),
+              _client(std::move(client)),
+              _token_provider(std::move(token_provider)) {}
     ~S3ObjStorageClient() override = default;
     ObjStorageUploadResult create_multipart_upload(const ObjStoragePath& opts) override;
     ObjStorageResponse put_object(const ObjStoragePath& opts, std::string_view stream) override;
@@ -123,8 +127,25 @@ protected:
                                                std::string_view continuation_token) override;
 
 private:
+    template <typename Request>
+    bool _set_gcp_authorization_header(Request& request) const {
+        if (_token_provider == nullptr) {
+            return true;
+        }
+        auto token = _token_provider->get_token();
+        if (token.empty()) {
+            return false;
+        }
+        request.SetAdditionalCustomHeaderValue("Authorization",
+                                               Aws::String("Bearer ") + token.c_str());
+        return true;
+    }
+
+    static ObjStorageResponse _gcp_token_unavailable();
+
     ObjStorageEndpointInfo _config;
     std::shared_ptr<Aws::S3::S3Client> _client;
+    std::shared_ptr<GcpWorkloadIdentityTokenProvider> _token_provider;
 };
 
 } // namespace doris

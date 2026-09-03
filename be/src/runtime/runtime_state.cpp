@@ -533,8 +533,12 @@ std::string RuntimeState::get_error_log_file_path() {
     auto presigned_url =
             s3_error_fs->generate_presigned_url(remote_error_log_file_path, EXPIRATION_SECONDS,
                                                 config::use_public_endpoint_for_error_log);
+    if (!presigned_url) {
+        LOG(WARNING) << "Failed to generate error log URL: " << presigned_url.error();
+        return local_error_log_file_path;
+    }
     std::lock_guard<std::mutex> load_lock(_load_error_log_lock);
-    _error_log_file_path = std::move(presigned_url);
+    _error_log_file_path = std::move(presigned_url).value();
     return _error_log_file_path;
 }
 

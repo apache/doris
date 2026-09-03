@@ -62,7 +62,11 @@ public final class CloudObjectStoreAdapter {
     public static Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB(Map<String, String> properties) {
         Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
         if (properties.containsKey(ENDPOINT)) {
-            builder.setEndpoint(properties.get(ENDPOINT));
+            String endpoint = properties.get(ENDPOINT);
+            if (S3ResourceCompat.isGcpWorkloadIdentityCredentialsProvider(properties)) {
+                endpoint = S3ResourceCompat.normalizeGcpWorkloadIdentityEndpoint(endpoint);
+            }
+            builder.setEndpoint(endpoint);
         }
         if (properties.containsKey(REGION)) {
             builder.setRegion(properties.get(REGION));
@@ -99,7 +103,24 @@ public final class CloudObjectStoreAdapter {
         }
 
         if (hasCredentialsProviderType(properties)) {
-            builder.setCredProviderType(getCredProviderTypePB(properties));
+            if (S3ResourceCompat.isGcpWorkloadIdentityCredentialsProvider(properties)) {
+                Preconditions.checkArgument(!builder.hasProvider() || builder.getProvider() == Provider.GCP,
+                        "%s=%s is only supported with provider GCP",
+                        CREDENTIALS_PROVIDER_TYPE,
+                        S3ResourceCompat.GCP_WORKLOAD_IDENTITY_CREDENTIALS_PROVIDER);
+                Preconditions.checkArgument(!builder.hasAk() && !builder.hasSk(),
+                        "%s=%s cannot be used together with %s/%s",
+                        CREDENTIALS_PROVIDER_TYPE,
+                        S3ResourceCompat.GCP_WORKLOAD_IDENTITY_CREDENTIALS_PROVIDER,
+                        ACCESS_KEY, SECRET_KEY);
+                Preconditions.checkArgument(Strings.isNullOrEmpty(properties.get(ROLE_ARN)),
+                        "%s=%s cannot be used together with %s",
+                        CREDENTIALS_PROVIDER_TYPE,
+                        S3ResourceCompat.GCP_WORKLOAD_IDENTITY_CREDENTIALS_PROVIDER, ROLE_ARN);
+                builder.setCredProviderType(CredProviderTypePB.GCP_WORKLOAD_IDENTITY);
+            } else {
+                builder.setCredProviderType(getCredProviderTypePB(properties));
+            }
         }
 
         if (properties.containsKey(ROLE_ARN)) {

@@ -51,6 +51,8 @@ public final class S3ResourceCompat {
     public static final String EXTERNAL_ID = S3CompatibleFileSystemProperties.PROP_EXTERNAL_ID;
     public static final String CREDENTIALS_PROVIDER_TYPE =
             S3CompatibleFileSystemProperties.PROP_CREDENTIALS_PROVIDER_TYPE;
+    public static final String GCP_WORKLOAD_IDENTITY_CREDENTIALS_PROVIDER = "gcp_workload_identity";
+    public static final String GCS_XML_ENDPOINT = "https://storage.googleapis.com";
     public static final String USE_PATH_STYLE = S3CompatibleFileSystemProperties.PROP_USE_PATH_STYLE;
     public static final String VALIDITY_CHECK = "s3_validity_check";
     public static final String FS_PROVIDER_KEY = S3CompatibleFileSystemProperties.PROP_PROVIDER;
@@ -184,6 +186,25 @@ public final class S3ResourceCompat {
         if (properties.containsKey(Env.CREDENTIALS_PROVIDER_TYPE)) {
             properties.putIfAbsent(CREDENTIALS_PROVIDER_TYPE, properties.get(Env.CREDENTIALS_PROVIDER_TYPE));
         }
+    }
+
+    public static boolean isGcpWorkloadIdentityCredentialsProvider(Map<String, String> properties) {
+        String mode = properties.get(CREDENTIALS_PROVIDER_TYPE);
+        if (StringUtils.isBlank(mode)) {
+            mode = properties.get(Env.CREDENTIALS_PROVIDER_TYPE);
+        }
+        return GCP_WORKLOAD_IDENTITY_CREDENTIALS_PROVIDER.equalsIgnoreCase(mode);
+    }
+
+    public static String normalizeGcpWorkloadIdentityEndpoint(String endpoint) {
+        String normalized = StringUtils.trimToEmpty(endpoint);
+        if (normalized.equalsIgnoreCase("storage.googleapis.com")
+                || normalized.equalsIgnoreCase(GCS_XML_ENDPOINT)) {
+            return GCS_XML_ENDPOINT;
+        }
+        throw new IllegalArgumentException(String.format(
+                "%s requires the HTTPS GCS XML endpoint %s",
+                GCP_WORKLOAD_IDENTITY_CREDENTIALS_PROVIDER, GCS_XML_ENDPOINT));
     }
 
     public static String getRegionOfEndpoint(String endpoint) {
