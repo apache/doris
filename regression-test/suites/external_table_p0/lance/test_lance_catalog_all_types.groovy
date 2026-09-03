@@ -74,12 +74,12 @@ suite("test_lance_catalog_all_types","p0,external") {
      * | fixed_size_list<float16> | array<float> | Item type is widened recursively |
      * | map | map<...,...> | Key/value types are converted recursively |
      * | dictionary<int16, utf8> | smallint | SDK currently exposes only the physical index type |
-     * | Lance Blob v2 | varbinary(2147483647) | Materialized as the complete binary payload |
+     * | Lance Blob v2 | UNSUPPORTED | Blob materialization is not implemented |
      * | Arrow JSON extension | json | Returned as Doris JSON |
      * | fixed_size_list<Lance BFloat16> | array<float> | BFloat16 values are widened exactly |
      *
      * Dataset.getSchema() preserves extension metadata for Blob, JSON, and BFloat16,
-     * allowing Doris to validate each physical storage type before mapping it.
+     * allowing Doris to reject them without interpreting their physical storage.
      * The current Lance Java SDK erases Dictionary metadata from getSchema(), and
      * getLanceSchema() fails on a schema containing Dictionary, so Dictionary remains
      * a physical fallback until the SDK conversion is fixed.
@@ -137,7 +137,6 @@ suite("test_lance_catalog_all_types","p0,external") {
                 duration_ms_col,
                 duration_us_col,
                 duration_ns_col,
-                hex(blob_col) AS blob_col,
                 CAST(json_col AS STRING) AS json_col,
                 bfloat16_vector_col
             FROM `${catalogName}`.`${databaseName}`.`${tableName}`

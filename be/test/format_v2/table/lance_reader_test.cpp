@@ -1715,23 +1715,14 @@ TEST(LanceTableReaderSchemaTest, MapsAdditionalTypesAndPreservesUnknownExtension
             arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"arrow.json"});
     const auto bfloat16_extension_metadata =
             arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
-    const auto blob_extension_metadata =
-            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.blob.v2"});
     const auto bfloat16_item =
             arrow::field("item", arrow::fixed_size_binary(2))->WithMetadata(
                     bfloat16_extension_metadata);
-    const auto blob_type = arrow::struct_({
-            arrow::field("data", arrow::large_binary()),
-            arrow::field("uri", arrow::utf8()),
-            arrow::field("position", arrow::uint64()),
-            arrow::field("size", arrow::uint64()),
-    });
     const auto arrow_schema = arrow::schema({
             arrow::field("row_id", arrow::int64()),
             arrow::field("null_value", arrow::null()),
             arrow::field("duration", arrow::duration(arrow::TimeUnit::MILLI)),
             arrow::field("json", arrow::utf8())->WithMetadata(json_extension_metadata),
-            arrow::field("blob", blob_type)->WithMetadata(blob_extension_metadata),
             arrow::field("bfloat16_vector", arrow::fixed_size_list(bfloat16_item, 4)),
             arrow::field("dictionary", arrow::dictionary(arrow::int16(), arrow::utf8())),
             arrow::field("unknown_extension", arrow::utf8())
@@ -1743,7 +1734,7 @@ TEST(LanceTableReaderSchemaTest, MapsAdditionalTypesAndPreservesUnknownExtension
     std::vector<DataTypePtr> column_types;
     ASSERT_TRUE(convert_arrow_schema_to_doris(arrow_schema, &column_names, &column_types).ok());
 
-    EXPECT_EQ((std::vector<std::string> {"row_id", "null_value", "duration", "json", "blob",
+    EXPECT_EQ((std::vector<std::string> {"row_id", "null_value", "duration", "json",
                                          "bfloat16_vector", "dictionary", "unknown_extension",
                                          "name"}),
               column_names);
@@ -1755,14 +1746,13 @@ TEST(LanceTableReaderSchemaTest, MapsAdditionalTypesAndPreservesUnknownExtension
     EXPECT_TRUE(column_types[1]->is_null_literal());
     EXPECT_EQ(TYPE_BIGINT, column_types[2]->get_primitive_type());
     EXPECT_EQ(TYPE_JSONB, column_types[3]->get_primitive_type());
-    EXPECT_EQ(TYPE_VARBINARY, column_types[4]->get_primitive_type());
-    ASSERT_EQ(TYPE_ARRAY, column_types[5]->get_primitive_type());
+    ASSERT_EQ(TYPE_ARRAY, column_types[4]->get_primitive_type());
     const auto& bfloat16_array =
-            assert_cast<const DataTypeArray&>(*remove_nullable(column_types[5]));
+            assert_cast<const DataTypeArray&>(*remove_nullable(column_types[4]));
     EXPECT_EQ(TYPE_FLOAT, bfloat16_array.get_nested_type()->get_primitive_type());
+    EXPECT_EQ(INVALID_TYPE, column_types[5]->get_primitive_type());
     EXPECT_EQ(INVALID_TYPE, column_types[6]->get_primitive_type());
-    EXPECT_EQ(INVALID_TYPE, column_types[7]->get_primitive_type());
-    EXPECT_EQ(TYPE_STRING, column_types[8]->get_primitive_type());
+    EXPECT_EQ(TYPE_STRING, column_types[7]->get_primitive_type());
 }
 
 // Verifies malformed storage for known extensions remains unsupported.
@@ -1771,19 +1761,16 @@ TEST(LanceTableReaderSchemaTest, RejectsMalformedKnownExtensionStorage) {
             arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"arrow.json"});
     const auto bfloat16_extension_metadata =
             arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
-    const auto blob_extension_metadata =
-            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.blob.v2"});
     const auto arrow_schema = arrow::schema({
             arrow::field("json", arrow::binary())->WithMetadata(json_extension_metadata),
             arrow::field("bfloat16", arrow::fixed_size_binary(4))
                     ->WithMetadata(bfloat16_extension_metadata),
-            arrow::field("blob", arrow::struct_({}))->WithMetadata(blob_extension_metadata),
     });
 
     std::vector<std::string> column_names;
     std::vector<DataTypePtr> column_types;
     ASSERT_TRUE(convert_arrow_schema_to_doris(arrow_schema, &column_names, &column_types).ok());
-    ASSERT_EQ(3, column_types.size());
+    ASSERT_EQ(2, column_types.size());
     for (const auto& column_type : column_types) {
         ASSERT_NE(nullptr, column_type);
         EXPECT_EQ(INVALID_TYPE, column_type->get_primitive_type());
@@ -1906,6 +1893,26 @@ TEST(LanceTableReaderTypeTest, ReadsAdditionalArrowAndLanceTypes) {
     EXPECT_TRUE(reader.close().ok());
 }
 
+// Verifies ordinary nested columns bypass Arrow reconstruction when no BFloat16 exists.
+TEST(LanceTableReaderTypeTest, KeepsOrdinaryNestedArrayUnchangedDuringNormalization) {
+    const auto nested_type = arrow::struct_({
+            arrow::field("items",
+                         arrow::list(arrow::field(
+                                 "item", arrow::struct_({arrow::field("value", arrow::int64())})))),
+            arrow::field("metadata", arrow::struct_({arrow::field("name", arrow::utf8()),
+                                                     arrow::field("enabled", arrow::boolean())})),
+    });
+    const auto field = arrow::field("ordinary_nested", nested_type);
+    auto array_result = arrow::MakeArrayOfNull(nested_type, 3);
+    ASSERT_TRUE(array_result.ok()) << array_result.status().ToString();
+    const auto array = std::move(array_result).ValueUnsafe();
+
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(field, array, &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(array.get(), normalized.get());
+}
+
 // Verifies the additional types through the full scan path.
 TEST(LanceTableReaderTypeTest, ReadsAdditionalTypesFromCompatibilityFixture) {
     const std::filesystem::path dataset_uri =
@@ -1913,8 +1920,6 @@ TEST(LanceTableReaderTypeTest, ReadsAdditionalTypesFromCompatibilityFixture) {
             "all_types.lance";
     const auto bfloat16_array_type = make_nullable(
             std::make_shared<DataTypeArray>(nullable_type(TYPE_FLOAT)));
-    const auto blob_type = DataTypeFactory::instance().create_data_type(
-            TYPE_VARBINARY, true, 0, 0, std::numeric_limits<int32_t>::max());
     const Columns columns {
             projected_column("row_id", TYPE_BIGINT, false),
             projected_column("null_col", nullable_type(TYPE_NULL)),
@@ -1922,7 +1927,6 @@ TEST(LanceTableReaderTypeTest, ReadsAdditionalTypesFromCompatibilityFixture) {
             projected_column("duration_ms_col", TYPE_BIGINT, true),
             projected_column("duration_us_col", TYPE_BIGINT, true),
             projected_column("duration_ns_col", TYPE_BIGINT, true),
-            projected_column("blob_col", blob_type),
             projected_column("json_col", TYPE_JSONB, true),
             projected_column("bfloat16_vector_col", bfloat16_array_type),
     };
@@ -1966,20 +1970,13 @@ TEST(LanceTableReaderTypeTest, ReadsAdditionalTypesFromCompatibilityFixture) {
                 EXPECT_EQ(expected_durations[duration_idx], values.get_data()[row]);
             }
 
-            const auto& blobs =
-                    assert_cast<const ColumnNullable&>(*block.get_by_position(6).column);
-            const auto& blob_values =
-                    assert_cast<const ColumnVarbinary&>(blobs.get_nested_column());
-            EXPECT_EQ(0, blobs.get_null_map_data()[row]);
-            EXPECT_EQ("blob payload", blob_values.get_data_at(row).to_string());
-
             const auto& json_values =
-                    assert_cast<const ColumnNullable&>(*block.get_by_position(7).column);
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(6).column);
             EXPECT_EQ(R"({"engine":"doris","format":"lance"})",
-                      columns[7].type->to_string(json_values, row));
+                      columns[6].type->to_string(json_values, row));
 
             const auto& vectors =
-                    assert_cast<const ColumnNullable&>(*block.get_by_position(8).column);
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(7).column);
             const auto& vector_values =
                     assert_cast<const ColumnArray&>(vectors.get_nested_column());
             const auto [begin, end] = array_range(vector_values, row);
