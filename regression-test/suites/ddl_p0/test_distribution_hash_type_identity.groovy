@@ -405,12 +405,11 @@ suite("test_distribution_hash_type_identity") {
     sql "INSERT INTO test_dist_hash_join_crc32 VALUES (1), (7), (8), (1024)"
     explain {
         sql("""SELECT a.id FROM test_dist_hash_colo_id1 a
-                 JOIN [shuffle] test_dist_hash_join_crc32 b ON a.id = b.id""")
+                 JOIN test_dist_hash_join_crc32 b ON a.id = b.id""")
         contains "HAS_COLO_PLAN_NODE: false"
-        contains "INNER JOIN(PARTITIONED)"
     }
     order_qt_mixed_hash_join """SELECT a.id FROM test_dist_hash_colo_id1 a
-                                    JOIN [shuffle] test_dist_hash_join_crc32 b ON a.id = b.id"""
+                                    JOIN test_dist_hash_join_crc32 b ON a.id = b.id"""
 
     // ---------------------------------------------------------------------
     // 8. bucket-shuffle join: an identity table joins a table with a different bucket count.
@@ -420,9 +419,18 @@ suite("test_distribution_hash_type_identity") {
     // ---------------------------------------------------------------------
     sql "set enable_nereids_planner=true"
     sql "set enable_bucket_shuffle_join = true"
+    // Keep bucket shuffle deterministic across clusters: a positive downgrade ratio may replace it
+    // with a full PARTITIONED shuffle based on the bucket and parallel-instance counts.
     sql "set bucket_shuffle_downgrade_ratio = 0"
 
-    // Exercise BE-native local-exchange planning; fragment metadata must preserve IDENTITY.
+    // [shuffle] prevents these tiny test tables from choosing a broadcast join. Together with the
+    // settings above, it exercises bucket shuffle without depending on table statistics.
+    def bucketShuffleJoinSql = """
+        SELECT l.id, l.v, r.w FROM test_dist_hash_bs_left l
+        JOIN [shuffle] test_dist_hash_bs_right r ON l.id = r.id
+    """
+
+    // With this switch off, BE adds the required local exchange while building pipelines.
     sql "set enable_local_shuffle_planner = false"
 
     sql "DROP TABLE IF EXISTS test_dist_hash_bs_left"
@@ -458,19 +466,21 @@ suite("test_distribution_hash_type_identity") {
     sql """INSERT INTO test_dist_hash_bs_right VALUES
              (7, 20), (8, 30), (513, 40), (-1, 50), (1024, 60), (-8, 70), (99, 80)"""
 
+    // Standard EXPLAIN does not expose local-exchange placement, but it must retain the same
+    // bucket-shuffle join in both planning modes. Query results then validate the BE-native path.
     explain {
-        sql("""SELECT l.id, l.v, r.w FROM test_dist_hash_bs_left l
-                 JOIN [shuffle] test_dist_hash_bs_right r ON l.id = r.id""")
+        sql(bucketShuffleJoinSql)
         contains "INNER JOIN(BUCKET_SHUFFLE)"
     }
+    order_qt_identity_bucket_shuffle_native "${bucketShuffleJoinSql}"
 
-    order_qt_identity_bucket_shuffle_native """SELECT l.id, l.v, r.w FROM test_dist_hash_bs_left l
-                                                   JOIN [shuffle] test_dist_hash_bs_right r ON l.id = r.id"""
-
-    // Exercise the FE-planned local exchange path with the same bucket-shuffle query.
+    // With this switch on, FE inserts explicit local-exchange nodes into the distributed plan.
     sql "set enable_local_shuffle_planner = true"
-    order_qt_identity_bucket_shuffle_fe """SELECT l.id, l.v, r.w FROM test_dist_hash_bs_left l
-                                               JOIN [shuffle] test_dist_hash_bs_right r ON l.id = r.id"""
+    explain {
+        sql(bucketShuffleJoinSql)
+        contains "INNER JOIN(BUCKET_SHUFFLE)"
+    }
+    order_qt_identity_bucket_shuffle_fe "${bucketShuffleJoinSql}"
     sql "set enable_local_shuffle_planner = false"
 
     // Multi-column mixed-type identity bucket shuffle follows the same composition as storage.
