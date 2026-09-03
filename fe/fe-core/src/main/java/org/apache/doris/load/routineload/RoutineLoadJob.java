@@ -19,6 +19,7 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
@@ -41,6 +42,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
@@ -58,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -258,8 +261,7 @@ public abstract class RoutineLoadJob
     // The tasks belong to this job
     protected List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
 
-    // this is the origin stmt of CreateRoutineLoadStmt, we use it to persist the RoutineLoadJob,
-    // because we can not serialize the Expressions contained in job.
+    // Persist the current effective load definition as a CREATE statement.
     @SerializedName("ostmt")
     protected OriginStatement origStmt;
     // User who submit this job. Maybe null for the old version job(before v1.1)
@@ -2006,6 +2008,9 @@ public abstract class RoutineLoadJob
             ctx.setStatementContext(statementContext);
             ctx.setEnv(Env.getCurrentEnv());
             ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+            if (sessionVariables.containsKey(SessionVariable.SQL_MODE)) {
+                ctx.getSessionVariable().setSqlMode(Long.parseLong(sessionVariables.get(SessionVariable.SQL_MODE)));
+            }
             ctx.getState().reset();
             try {
                 ctx.setThreadLocalInfo();
@@ -2038,6 +2043,88 @@ public abstract class RoutineLoadJob
         if (userIdentity != null) {
             userIdentity.setIsAnalyzed();
         }
+    }
+
+    protected void replayLoadDefinition(OriginStatement alterStatement, Long sqlMode) {
+        if (alterStatement == null) {
+            return;
+        }
+        Database database = Env.getCurrentEnv().getInternalCatalog().getDb(dbId).get();
+        ConnectContext ctx = createLoadDefinitionContext(database, sqlMode);
+        try {
+            ctx.setThreadLocalInfo();
+            AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) parsePersistedStatement(alterStatement);
+            if (command.hasLoadProperty()) {
+                setRoutineLoadDesc(command.analyzeLoadProperties(ctx, this));
+                sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(ctx.getSessionVariable().getSqlMode()));
+                mergeLoadDescToOriginStatement();
+            }
+        } catch (UserException e) {
+            throw new IllegalStateException("failed to replay routine load definition for job " + id, e);
+        } finally {
+            ctx.cleanup();
+        }
+    }
+
+    protected void replayLoadDefinition(OriginStatement alterStatement) {
+        replayLoadDefinition(alterStatement, null);
+    }
+
+    private ConnectContext createLoadDefinitionContext(Database database, Long sqlMode) {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setDatabase(database.getName());
+        StatementContext statementContext = new StatementContext();
+        statementContext.setConnectContext(ctx);
+        ctx.setStatementContext(statementContext);
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+        if (sqlMode != null) {
+            ctx.getSessionVariable().setSqlMode(sqlMode);
+        } else if (sessionVariables.containsKey(SessionVariable.SQL_MODE)) {
+            ctx.getSessionVariable().setSqlMode(Long.parseLong(sessionVariables.get(SessionVariable.SQL_MODE)));
+        }
+        ctx.getState().reset();
+        return ctx;
+    }
+
+    protected void mergeLoadDescToOriginStatement() throws UserException {
+        List<ImportColumnDesc> columns =
+                columnDescs == null ? null : Lists.newArrayList(columnDescs.descs);
+        RoutineLoadDesc loadDesc = new RoutineLoadDesc(columnSeparator, lineDelimiter, columns,
+                precedingFilter, whereExpr, partitionNamesInfo, deleteCondition, mergeType, sequenceCol);
+        StringBuilder sql = new StringBuilder("CREATE ROUTINE LOAD ")
+                .append(SqlUtils.getIdentSql(name));
+        if (!isMultiTable) {
+            sql.append(" ON ").append(SqlUtils.getIdentSql(getTableName()));
+        }
+        sql.append(" WITH ").append(mergeType.name());
+        String loadClauseSql = loadDesc.toSql();
+        if (!loadClauseSql.isEmpty()) {
+            sql.append(" ").append(loadClauseSql);
+        }
+        sql.append(" PROPERTIES (\"desired_concurrent_number\" = \"1\")");
+        sql.append(buildPersistedDataSourceSql());
+        OriginStatement effectiveStatement = new OriginStatement(sql.toString(), 0);
+        Preconditions.checkState(parsePersistedStatement(effectiveStatement) instanceof CreateRoutineLoadCommand,
+                effectiveStatement.originStmt);
+        origStmt = effectiveStatement;
+    }
+
+    protected void updateLoadDefinitionSqlMode(long sqlMode) {
+        sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(sqlMode));
+    }
+
+    private String buildPersistedDataSourceSql() {
+        if (dataSourceType == LoadDataSourceType.KINESIS) {
+            return " FROM KINESIS (\"aws.region\" = \"us-east-1\", "
+                    + "\"kinesis_stream\" = \"__routine_load_persistence__\")";
+        }
+        return " FROM KAFKA (\"kafka_broker_list\" = \"127.0.0.1:9092\", "
+                + "\"kafka_topic\" = \"__routine_load_persistence__\")";
+    }
+
+    private LogicalPlan parsePersistedStatement(OriginStatement statement) {
+        return new NereidsParser().parseMultiple(statement.originStmt).get(statement.idx).first;
     }
 
     public abstract void modifyProperties(AlterRoutineLoadCommand command) throws UserException;

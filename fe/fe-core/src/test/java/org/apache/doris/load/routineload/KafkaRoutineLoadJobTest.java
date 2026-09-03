@@ -30,6 +30,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
 import org.apache.doris.load.RoutineLoadDesc;
@@ -40,11 +41,15 @@ import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
 import org.apache.doris.mysql.privilege.MockedAuth;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TRoutineLoadTask;
 
@@ -58,14 +63,20 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 public class KafkaRoutineLoadJobTest {
@@ -93,6 +104,7 @@ public class KafkaRoutineLoadJobTest {
     @Before
     public void init() {
         connectContextStatic = MockedAuth.mockedConnectContext(connectContext, "root", "192.168.1.1");
+        Mockito.when(connectContext.getDatabase()).thenReturn("db1");
 
         List<String> partitionNameList = Lists.newArrayList();
         partitionNameList.add("p1");
@@ -270,6 +282,102 @@ public class KafkaRoutineLoadJobTest {
 
         String otherMsg = Deencapsulation.getField(routineLoadJob, "otherMsg");
         Assert.assertTrue(otherMsg.contains("some records may be in uncommitted transactions"));
+    }
+
+    @Test
+    public void testAlterPersistsOriginStatementForReplay() throws Exception {
+        KafkaRoutineLoadJob leader = createPausedJob();
+        KafkaRoutineLoadJob follower = createPausedJob();
+        RoutineLoadDesc originalDesc = new RoutineLoadDesc(new Separator("|", "|"), null, null,
+                null, null, null, null, LoadTask.MergeType.APPEND, "original_sequence");
+        leader.setRoutineLoadDesc(originalDesc);
+        follower.setRoutineLoadDesc(originalDesc);
+        leader.origStmt = initialOriginStatement();
+        follower.origStmt = initialOriginStatement();
+
+        Map<String, String> jobProperties = Maps.newHashMap();
+        RoutineLoadDesc delta = new RoutineLoadDesc(new Separator(";", ";"), null, null,
+                null, null, null, null, LoadTask.MergeType.APPEND, null);
+        OriginStatement alterStatement = new OriginStatement(
+                "ALTER ROUTINE LOAD FOR job1 COLUMNS TERMINATED BY ';'", 0);
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(jobProperties);
+        Mockito.when(command.getDataSourceProperties()).thenReturn(null);
+        Mockito.when(command.getRoutineLoadDesc()).thenReturn(delta);
+        Mockito.when(command.getOriginStatement()).thenReturn(alterStatement);
+        Mockito.when(command.hasLoadProperty()).thenReturn(true);
+
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
+        Mockito.when(catalog.getDb(1L)).thenReturn(Optional.of(database));
+        Mockito.when(catalog.getDb("db1")).thenReturn(Optional.of(database));
+        Mockito.when(catalog.getDbOrMetaException(1L)).thenReturn(database);
+        Mockito.when(catalog.getDbOrAnalysisException("db1")).thenReturn(database);
+        Mockito.when(database.getName()).thenReturn("db1");
+        Mockito.when(database.getFullName()).thenReturn("db1");
+        Mockito.when(database.getTableOrMetaException(1L)).thenReturn(table);
+        Mockito.when(database.getTableOrAnalysisException("table1")).thenReturn(table);
+        Mockito.when(table.getName()).thenReturn("table1");
+        Mockito.when(table.getFullSchema()).thenReturn(Lists.newArrayList());
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+
+            leader.modifyProperties(command);
+
+            ArgumentCaptor<AlterRoutineLoadJobOperationLog> logCaptor =
+                    ArgumentCaptor.forClass(AlterRoutineLoadJobOperationLog.class);
+            Mockito.verify(editLog).logAlterRoutineLoadJob(logCaptor.capture());
+            AlterRoutineLoadJobOperationLog alterLog = logCaptor.getValue();
+            Assert.assertEquals(alterStatement.originStmt, alterLog.getOriginStatement().originStmt);
+            Assert.assertEquals(jobProperties, alterLog.getJobProperties());
+            assertAlterState(leader);
+
+            follower.replayModifyProperties(alterLog);
+            assertAlterState(follower);
+            Assert.assertEquals(leader.origStmt.originStmt, follower.origStmt.originStmt);
+
+            assertAlterState(imageRoundTrip(leader));
+            assertAlterState(imageRoundTrip(follower));
+        }
+    }
+
+    private static KafkaRoutineLoadJob createPausedJob() {
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "job1", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.PAUSED);
+        return job;
+    }
+
+    private static void assertAlterState(RoutineLoadJob job) {
+        Assert.assertEquals(";", job.getColumnSeparator().getSeparator());
+        Assert.assertNull(job.getLineDelimiter());
+        Assert.assertEquals("original_sequence", job.getSequenceCol());
+    }
+
+    private static OriginStatement initialOriginStatement() {
+        return new OriginStatement("CREATE ROUTINE LOAD db1.job1 ON table1 "
+                + "COLUMNS TERMINATED BY '|', ORDER BY original_sequence "
+                + "FROM KAFKA (\"kafka_broker_list\" = \"127.0.0.1:9020\", "
+                + "\"kafka_topic\" = \"topic1\")", 0);
+    }
+
+    private static RoutineLoadJob imageRoundTrip(RoutineLoadJob routineLoadJob) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            routineLoadJob.write(out);
+        }
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            return RoutineLoadJob.read(in);
+        }
     }
 
     @Test
