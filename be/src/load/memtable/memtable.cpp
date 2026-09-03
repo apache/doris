@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -84,6 +85,10 @@ MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schem
     _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
     _row_lsn_col_pos = tablet_schema->row_lsn_col_idx();
     // TODO: Support ZOrderComparator in the future
+    _duplicate_key_row_positions = std::make_unique<DorisVector<uint32_t>>();
+    if (_need_lsn) {
+        _duplicate_key_allocated_lsns = std::make_unique<DorisVector<int64_t>>();
+    }
     _row_in_blocks = std::make_unique<DorisVector<std::shared_ptr<RowInBlock>>>();
     _load_mem_limit = MemInfo::mem_limit() * config::load_process_max_memory_limit_percent / 100;
 }
@@ -184,6 +189,8 @@ MemTable::~MemTable() {
 
         _arena.clear(true);
         _vec_row_comparator.reset();
+        _duplicate_key_row_positions.reset();
+        _duplicate_key_allocated_lsns.reset();
         _row_in_blocks.reset();
         _agg_functions.clear();
         _input_mutable_block.clear();
@@ -266,6 +273,20 @@ Status MemTable::insert(const Block* input_block, const TabletAddRowsPayload& ro
 
     auto num_rows = row_idxs.size();
     size_t cursor_in_mutableblock = _input_mutable_block.rows();
+    constexpr auto max_rows = static_cast<size_t>(std::numeric_limits<int32_t>::max());
+    DORIS_CHECK(num_rows <= max_rows && cursor_in_mutableblock <= max_rows - num_rows);
+    // Reserve all row metadata before appending columns. After add_rows() succeeds, filling the
+    // already-reserved vectors cannot leave the block and its permutation out of sync.
+    if (_keys_type == KeysType::DUP_KEYS) {
+        RETURN_IF_CATCH_EXCEPTION(
+                _duplicate_key_row_positions->reserve(cursor_in_mutableblock + num_rows));
+        if (_need_lsn) {
+            RETURN_IF_CATCH_EXCEPTION(
+                    _duplicate_key_allocated_lsns->reserve(cursor_in_mutableblock + num_rows));
+        }
+    } else {
+        RETURN_IF_CATCH_EXCEPTION(_row_in_blocks->reserve(_row_in_blocks->size() + num_rows));
+    }
     RETURN_IF_ERROR(_input_mutable_block.add_rows(input_block, row_idxs.data(),
                                                   row_idxs.data() + num_rows, &_column_offset));
     if (_need_lsn && _row_lsn_col_pos >= 0) {
@@ -274,9 +295,27 @@ Status MemTable::insert(const Block* input_block, const TabletAddRowsPayload& ro
         _input_mutable_block.get_column_by_position(_row_lsn_col_pos)
                 ->replace_column_data_range(*lsn_column, 0, num_rows, cursor_in_mutableblock);
     }
-    for (int i = 0; i < num_rows; i++) {
-        _row_in_blocks->emplace_back(std::make_shared<RowInBlock>(
-                cursor_in_mutableblock + i, _need_lsn ? allocated_lsns[i] : 0));
+    if (_keys_type == KeysType::DUP_KEYS) {
+        // The mutable block appends rows contiguously, so the initial permutation for this batch
+        // is exactly [cursor, cursor + num_rows). Sorting later mutates only this compact vector.
+        auto& positions = *_duplicate_key_row_positions;
+        DORIS_CHECK(positions.size() == cursor_in_mutableblock);
+        DORIS_CHECK(cursor_in_mutableblock + num_rows <= positions.capacity());
+        positions.resize(cursor_in_mutableblock + num_rows);
+        std::iota(positions.begin() + cursor_in_mutableblock, positions.end(),
+                  static_cast<uint32_t>(cursor_in_mutableblock));
+        if (_need_lsn) {
+            DORIS_CHECK(_duplicate_key_allocated_lsns->size() == cursor_in_mutableblock);
+            DORIS_CHECK(cursor_in_mutableblock + num_rows <=
+                        _duplicate_key_allocated_lsns->capacity());
+            _duplicate_key_allocated_lsns->insert(_duplicate_key_allocated_lsns->end(),
+                                                  allocated_lsns.begin(), allocated_lsns.end());
+        }
+    } else {
+        for (size_t i = 0; i < num_rows; i++) {
+            _row_in_blocks->emplace_back(std::make_shared<RowInBlock>(
+                    cursor_in_mutableblock + i, _need_lsn ? allocated_lsns[i] : 0));
+        }
     }
 
     _stat.raw_rows += num_rows;
@@ -383,60 +422,87 @@ void MemTable::_aggregate_two_row_in_block(MutableBlock& mutable_block, RowInBlo
 }
 Status MemTable::_put_into_output(Block& in_block) {
     SCOPED_RAW_TIMER(&_stat.put_into_output_ns);
-    DorisVector<uint32_t> row_pos_vec;
     DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
-    row_pos_vec.reserve(in_block.rows());
     if (_need_lsn) {
         _output_allocated_lsns->reserve(_output_allocated_lsns->size() + in_block.rows());
     }
-    for (int i = 0; i < _row_in_blocks->size(); i++) {
-        row_pos_vec.emplace_back((*_row_in_blocks)[i]->_row_pos);
-        _append_output_allocated_lsn((*_row_in_blocks)[i].get());
+    if (_keys_type == KeysType::DUP_KEYS) {
+        DCHECK_EQ(_duplicate_key_row_positions->size(), in_block.rows());
+        if (_need_lsn) {
+            // LSNs are stored in physical input order. Apply the row permutation here so each
+            // sorted output row keeps the LSN assigned to its original position.
+            DCHECK_EQ(_duplicate_key_allocated_lsns->size(), in_block.rows());
+            for (const auto row_pos : *_duplicate_key_row_positions) {
+                _output_allocated_lsns->emplace_back((*_duplicate_key_allocated_lsns)[row_pos]);
+            }
+        }
+        return _output_mutable_block.add_rows(
+                &in_block, _duplicate_key_row_positions->data(),
+                _duplicate_key_row_positions->data() + _duplicate_key_row_positions->size());
+    }
+
+    DorisVector<uint32_t> row_pos_vec;
+    row_pos_vec.reserve(in_block.rows());
+    for (const auto& row : *_row_in_blocks) {
+        row_pos_vec.emplace_back(row->_row_pos);
+        _append_output_allocated_lsn(row.get());
     }
     return _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
-                                          row_pos_vec.data() + in_block.rows());
+                                          row_pos_vec.data() + row_pos_vec.size());
+}
+
+template <typename RowRef, typename RowPosGetter>
+size_t MemTable::_sort_rows(DorisVector<RowRef>& rows, RowPosGetter&& get_row_pos) {
+    // Both representations sort by the same block rows. RowPosGetter keeps DUP_KEYS compact while
+    // allowing UNIQUE_KEYS and AGG_KEYS to retain their aggregation-bearing RowInBlock objects.
+    size_t same_keys_num = 0;
+    Tie tie(_last_sorted_pos, rows.size());
+    for (size_t i = 0; i < _tablet_schema->num_key_columns(); i++) {
+        auto cmp = [&](const RowRef& lhs, const RowRef& rhs) -> int {
+            return _input_mutable_block.compare_one_column(get_row_pos(lhs), get_row_pos(rhs), i,
+                                                           -1);
+        };
+        _sort_one_column(rows, tie, cmp);
+    }
+
+    const bool is_dup = (_keys_type == KeysType::DUP_KEYS);
+    // Preserve the existing deterministic tie order: newer DUP rows precede older rows, whereas
+    // aggregation models retain increasing row position before equal rows are merged.
+    auto iter = tie.iter();
+    while (iter.next()) {
+        pdqsort(std::next(rows.begin(), iter.left()), std::next(rows.begin(), iter.right()),
+                [&](const RowRef& lhs, const RowRef& rhs) -> bool {
+                    return is_dup ? get_row_pos(lhs) > get_row_pos(rhs)
+                                  : get_row_pos(lhs) < get_row_pos(rhs);
+                });
+        same_keys_num += iter.right() - iter.left();
+    }
+
+    auto cmp = [&](const RowRef& lhs, const RowRef& rhs) -> bool {
+        const auto lhs_pos = get_row_pos(lhs);
+        const auto rhs_pos = get_row_pos(rhs);
+        const auto value = _input_mutable_block.compare_at(
+                lhs_pos, rhs_pos, _tablet_schema->num_key_columns(), _input_mutable_block, -1);
+        if (value == 0) {
+            same_keys_num++;
+            return is_dup ? lhs_pos > rhs_pos : lhs_pos < rhs_pos;
+        }
+        return value < 0;
+    };
+    auto new_row_it = std::next(rows.begin(), _last_sorted_pos);
+    std::inplace_merge(rows.begin(), new_row_it, rows.end(), cmp);
+    _last_sorted_pos = rows.size();
+    return same_keys_num;
 }
 
 size_t MemTable::_sort() {
     SCOPED_RAW_TIMER(&_stat.sort_ns);
     _stat.sort_times++;
-    size_t same_keys_num = 0;
-    // sort new rows
-    Tie tie = Tie(_last_sorted_pos, _row_in_blocks->size());
-    for (size_t i = 0; i < _tablet_schema->num_key_columns(); i++) {
-        auto cmp = [&](RowInBlock* lhs, RowInBlock* rhs) -> int {
-            return _input_mutable_block.compare_one_column(lhs->_row_pos, rhs->_row_pos, i, -1);
-        };
-        _sort_one_column(*_row_in_blocks, tie, cmp);
+    if (_keys_type == KeysType::DUP_KEYS) {
+        return _sort_rows(*_duplicate_key_row_positions, [](uint32_t row_pos) { return row_pos; });
     }
-    bool is_dup = (_keys_type == KeysType::DUP_KEYS);
-    // sort extra round by _row_pos to make the sort stable
-    auto iter = tie.iter();
-    while (iter.next()) {
-        pdqsort(std::next(_row_in_blocks->begin(), iter.left()),
-                std::next(_row_in_blocks->begin(), iter.right()),
-                [&is_dup](const std::shared_ptr<RowInBlock>& lhs,
-                          const std::shared_ptr<RowInBlock>& rhs) -> bool {
-                    return is_dup ? lhs->_row_pos > rhs->_row_pos : lhs->_row_pos < rhs->_row_pos;
-                });
-        same_keys_num += iter.right() - iter.left();
-    }
-    // merge new rows and old rows
-    _vec_row_comparator->set_block(&_input_mutable_block);
-    auto cmp_func = [this, is_dup, &same_keys_num](const std::shared_ptr<RowInBlock>& l,
-                                                   const std::shared_ptr<RowInBlock>& r) -> bool {
-        auto value = (*(this->_vec_row_comparator))(l.get(), r.get());
-        if (value == 0) {
-            same_keys_num++;
-            return is_dup ? l->_row_pos > r->_row_pos : l->_row_pos < r->_row_pos;
-        } else {
-            return value < 0;
-        }
-    };
-    auto new_row_it = std::next(_row_in_blocks->begin(), _last_sorted_pos);
-    std::inplace_merge(_row_in_blocks->begin(), new_row_it, _row_in_blocks->end(), cmp_func);
-    _last_sorted_pos = _row_in_blocks->size();
-    return same_keys_num;
+    return _sort_rows(*_row_in_blocks,
+                      [](const std::shared_ptr<RowInBlock>& row) { return row->_row_pos; });
 }
 
 Status MemTable::_sort_by_cluster_keys() {
@@ -470,7 +536,8 @@ Status MemTable::_sort_by_cluster_keys() {
             return Status::InternalError("could not find cluster key column with unique_id=" +
                                          std::to_string(cid) + " in tablet schema");
         }
-        auto cmp = [&](const RowInBlock* lhs, const RowInBlock* rhs) -> int {
+        auto cmp = [&](const std::shared_ptr<RowInBlock>& lhs,
+                       const std::shared_ptr<RowInBlock>& rhs) -> int {
             return mutable_block.compare_one_column(lhs->_row_pos, rhs->_row_pos, index, -1);
         };
         _sort_one_column(row_in_blocks, tie, cmp);
@@ -502,16 +569,16 @@ Status MemTable::_sort_by_cluster_keys() {
                                           row_pos_vec.data() + in_block.rows(), &column_offset);
 }
 
-void MemTable::_sort_one_column(DorisVector<std::shared_ptr<RowInBlock>>& row_in_blocks, Tie& tie,
-                                std::function<int(RowInBlock*, RowInBlock*)> cmp) {
+template <typename RowRef, typename Comparator>
+void MemTable::_sort_one_column(DorisVector<RowRef>& rows, Tie& tie, Comparator&& cmp) {
     auto iter = tie.iter();
     while (iter.next()) {
-        pdqsort(std::next(row_in_blocks.begin(), static_cast<int>(iter.left())),
-                std::next(row_in_blocks.begin(), static_cast<int>(iter.right())),
-                [&cmp](auto lhs, auto rhs) -> bool { return cmp(lhs.get(), rhs.get()) < 0; });
+        pdqsort(std::next(rows.begin(), static_cast<int>(iter.left())),
+                std::next(rows.begin(), static_cast<int>(iter.right())),
+                [&](const RowRef& lhs, const RowRef& rhs) -> bool { return cmp(lhs, rhs) < 0; });
         tie[iter.left()] = 0;
         for (auto i = iter.left() + 1; i < iter.right(); i++) {
-            tie[i] = (cmp(row_in_blocks[i - 1].get(), row_in_blocks[i].get()) == 0);
+            tie[i] = (cmp(rows[i - 1], rows[i]) == 0);
         }
     }
 }
@@ -815,20 +882,24 @@ size_t MemTable::get_flush_reserve_memory_size() const {
 
 Status MemTable::_to_block(std::unique_ptr<Block>* res) {
     _output_allocated_lsns = std::make_shared<std::vector<int64_t>>();
+    if (_keys_type == KeysType::DUP_KEYS && _tablet_schema->num_key_columns() == 0) {
+        // There is no key to sort. Keep the physical block and LSN sidecar in insertion order and
+        // avoid building Tie state or sorting a permutation that would be discarded immediately.
+        _output_mutable_block.swap(_input_mutable_block);
+        if (_need_lsn) {
+            DCHECK_EQ(_duplicate_key_allocated_lsns->size(), _output_mutable_block.rows());
+            _output_allocated_lsns->assign(_duplicate_key_allocated_lsns->begin(),
+                                           _duplicate_key_allocated_lsns->end());
+        }
+        _input_mutable_block.clear();
+        *res = Block::create_unique(_output_mutable_block.to_block());
+        return Status::OK();
+    }
+
     size_t same_keys_num = _sort();
     if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
-        if (_keys_type == KeysType::DUP_KEYS && _tablet_schema->num_key_columns() == 0) {
-            _output_mutable_block.swap(_input_mutable_block);
-            if (_need_lsn) {
-                _output_allocated_lsns->reserve(_row_in_blocks->size());
-                for (const auto& row : *_row_in_blocks) {
-                    _append_output_allocated_lsn(row.get());
-                }
-            }
-        } else {
-            Block in_block = _input_mutable_block.to_block();
-            RETURN_IF_ERROR(_put_into_output(in_block));
-        }
+        Block in_block = _input_mutable_block.to_block();
+        RETURN_IF_ERROR(_put_into_output(in_block));
     } else {
         (_skip_bitmap_col_idx == -1) ? _aggregate<true, false>() : _aggregate<true, true>();
     }
