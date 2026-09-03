@@ -74,8 +74,14 @@ import java.util.stream.Collectors;
  */
 public class CreateMTMVInfo extends CreateTableInfo {
     public static final Logger LOG = LogManager.getLogger(CreateMTMVInfo.class);
+    // CONVERT_INNER_JOIN_TO_SEMI_JOIN rewrites the inner self-join (used as an existence filter)
+    // in the MV query into a left semi join. The MV partition track check (PartitionIncrementMaintainer)
+    // marks the right side of a semi join as an invalid catalog relation, and for a self-join both sides
+    // are the same table, so the partition column on the valid left side is misjudged and the MV DDL
+    // fails with "Unable to find a suitable base table for partitioning". Disable the rule when analyzing
+    // the MV definition so the partition track column can still be found.
     public static final String MTMV_PLANER_DISABLE_RULES = "OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION,"
-                + "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, ELIMINATE_GROUP_BY_KEY";
+            + "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, ELIMINATE_GROUP_BY_KEY,CONVERT_INNER_JOIN_TO_SEMI_JOIN";
     private LogicalPlan logicalQuery;
     private List<SimpleColumnDefinition> simpleColumnDefinitions;
     private MTMVPartitionDefinition mvPartitionDefinition;

@@ -54,6 +54,7 @@ import org.apache.doris.nereids.rules.rewrite.CollectLimitAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.CollectPredicateOnScan;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConstantPropagation;
+import org.apache.doris.nereids.rules.rewrite.ConvertInnerJoinToSemiJoin;
 import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.ConvertOuterJoinToAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
@@ -667,7 +668,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("eliminate join according unique or foreign key",
                     cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalJoin.class),
                     bottomUp(new EliminateJoinByFK()),
-                    topDown(new EliminateJoinByUnique())
+                    topDown(new EliminateJoinByUnique()),
+                    topDown(new ConvertInnerJoinToSemiJoin())
                 ),
                 topic("join skew salting rewrite",
                         topDown(new SaltJoin())),
