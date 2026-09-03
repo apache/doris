@@ -41,6 +41,7 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -144,6 +145,18 @@ public class VariableMgr {
     private static final ReadWriteLock rwlock = new ReentrantReadWriteLock();
     private static final Lock rlock = rwlock.readLock();
     private static final Lock wlock = rwlock.writeLock();
+
+    // Session variables that have been removed from SessionVariable.java but may still appear in
+    // user scripts, JDBC client connection init, or older replayed-edit logs. Looking up these
+    // names by SET or SELECT @@ silently no-ops instead of throwing ERR_UNKNOWN_SYSTEM_VARIABLE,
+    // so a BE-then-FE rolling upgrade does not break existing workloads. All entries in this set
+    // must use lowercase to match the case-insensitive comparison.
+    private static final ImmutableSet<String> REMOVED_SESSION_VAR_NAMES = ImmutableSet.of(
+            "enable_paimon_cpp_reader");
+
+    private static boolean isRemovedSessionVar(String varName) {
+        return varName != null && REMOVED_SESSION_VAR_NAMES.contains(varName.toLowerCase());
+    }
 
     // Form map from variable name to its field in Java class.
     static {
@@ -302,6 +315,13 @@ public class VariableMgr {
             throws DdlException {
         VarContext varCtx = getVarContext(setVar.getVariable());
         if (varCtx == null) {
+            // Silently ignore variables that have been removed from SessionVariable.
+            // This preserves backward compatibility for clients still issuing SET on the old name
+            // during a BE-then-FE rolling upgrade.
+            if (isRemovedSessionVar(setVar.getVariable())) {
+                LOG.debug("Ignoring removed session variable: {}", setVar.getVariable());
+                return;
+            }
             // Check if the variable is in the MySQL compatibility whitelist
             if (isInMySQLCompatWhitelist(setVar.getVariable())) {
                 // Silently ignore whitelisted variables for MySQL compatibility
@@ -347,6 +367,10 @@ public class VariableMgr {
             throws DdlException {
         VarContext varCtx = getVarContext(setVar.getVariable());
         if (varCtx == null) {
+            if (isRemovedSessionVar(setVar.getVariable())) {
+                LOG.debug("Ignoring removed session variable: {}", setVar.getVariable());
+                return;
+            }
             // Check if the variable is in the MySQL compatibility whitelist
             if (isInMySQLCompatWhitelist(setVar.getVariable())) {
                 // Silently ignore whitelisted variables for MySQL compatibility
@@ -528,6 +552,13 @@ public class VariableMgr {
     public static void fillValue(SessionVariable var, VariableExpr desc) throws AnalysisException {
         VarContext ctx = getVarContext(desc.getName());
         if (ctx == null) {
+            if (isRemovedSessionVar(desc.getName())) {
+                // Treat removed session variables as empty string for read access,
+                // preserving compatibility with clients that still SELECT @@<removed_var>.
+                desc.setType(Type.VARCHAR);
+                desc.setStringValue("");
+                return;
+            }
             ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, desc.getName());
         }
 
@@ -605,6 +636,9 @@ public class VariableMgr {
     private static String getValue(SessionVariable var, String name, SetType setType) throws AnalysisException {
         VarContext ctx = ctxByVarName.get(name);
         if (ctx == null) {
+            if (isRemovedSessionVar(name)) {
+                return "";
+            }
             ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, name);
         }
 
@@ -628,6 +662,12 @@ public class VariableMgr {
 
     // For Nereids optimizer
     public static @Nullable Literal getLiteral(SessionVariable var, String name, SetType setType) {
+        if (isRemovedSessionVar(name)) {
+            // Match the no-op behavior used by setVar/getValue for removed session
+            // variables so that SELECT @@<removed_var> doesn't break clients during
+            // a BE-then-FE rolling upgrade.
+            return new org.apache.doris.nereids.trees.expressions.literal.StringLiteral("");
+        }
         VarContext ctx = getVarContext(name);
         if (ctx == null) {
             return null;

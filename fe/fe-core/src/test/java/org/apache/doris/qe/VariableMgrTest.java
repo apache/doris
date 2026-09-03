@@ -187,6 +187,26 @@ public class VariableMgrTest {
     }
 
     @Test
+    public void testRemovedPaimonCppReaderVariableCompatibility() throws Exception {
+        String removedVariable = "ENABLE_PAIMON_CPP_READER";
+        SessionVariable sessionVariable = new SessionVariable();
+        SetVar setVar = new SetVar(SetType.SESSION, removedVariable, new StringLiteral("true"));
+
+        VariableMgr.setVar(sessionVariable, setVar);
+        VariableMgr.setVarForNonMasterFE(sessionVariable, setVar);
+
+        VariableExpr variableExpr = new VariableExpr(removedVariable);
+        VariableMgr.fillValue(sessionVariable, variableExpr);
+        Assert.assertEquals(Type.VARCHAR, variableExpr.getType());
+        Assert.assertEquals("", variableExpr.getLiteralExpr().getStringValue());
+        Assert.assertEquals("", VariableMgr.getValue(sessionVariable, variableExpr));
+
+        Literal literal = VariableMgr.getLiteral(sessionVariable, removedVariable, SetType.SESSION);
+        Assert.assertNotNull(literal);
+        Assert.assertEquals("", literal.getStringValue());
+    }
+
+    @Test
     public void testCheckSqlConvertorFeatures() throws DdlException {
         // set wrong var
         SetVar setVar = new SetVar(SetType.SESSION, SessionVariable.ENABLE_SQL_CONVERTOR_FEATURES,
