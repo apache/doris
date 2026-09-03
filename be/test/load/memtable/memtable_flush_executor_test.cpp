@@ -589,9 +589,8 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushTaskOutlivesToken) {
     std::atomic<int> binlog_flush_cnt = 0;
     std::atomic<int> binlog_flush_enter_cnt = 0;
     auto data_writer = std::make_shared<MockRowsetWriter>(&data_flush_cnt);
-    auto binlog_writer =
-            std::make_shared<MockRowsetWriter>(&binlog_flush_cnt, false, "", 500,
-                                               &binlog_flush_enter_cnt);
+    auto binlog_writer = std::make_shared<MockRowsetWriter>(&binlog_flush_cnt, false, "", 500,
+                                                            &binlog_flush_enter_cnt);
     std::shared_ptr<GroupRowsetWriter> group_writer;
     ASSERT_TRUE(create_group_rowset_writer(ctx, 4, data_writer, binlog_writer, &group_writer).ok());
 
