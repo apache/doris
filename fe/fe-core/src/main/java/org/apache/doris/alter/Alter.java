@@ -35,6 +35,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.cloud.alter.CloudSchemaChangeHandler;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -467,6 +468,27 @@ public class Alter {
             Env.getCurrentEnv().getEditLog().logModifyComment(op);
         } finally {
             tbl.writeUnlock();
+        }
+    }
+
+    /**
+     * Modify the comment of a table stream, e.g. ALTER STREAM s1 SET COMMENT 'new comment'.
+     * The comment of a stream is kept in the Table metadata only, so it shares the same
+     * edit log entry and the same replay path with ALTER TABLE ... MODIFY COMMENT.
+     */
+    public void processAlterStreamComment(long dbId, BaseTableStream stream, String comment) throws DdlException {
+        if (!Config.enable_table_stream) {
+            throw new DdlException("Table Stream is experimental."
+                    + " Please set enable_table_stream=true to enable it.");
+        }
+        stream.writeLockOrDdlException();
+        try {
+            stream.setComment(comment);
+            // log
+            ModifyCommentOperationLog op = ModifyCommentOperationLog.forTable(dbId, stream.getId(), comment);
+            Env.getCurrentEnv().getEditLog().logModifyComment(op);
+        } finally {
+            stream.writeUnlock();
         }
     }
 

@@ -666,6 +666,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStorageVaultCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterStreamCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemRenameComputeGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
@@ -7266,6 +7267,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String catalogName = stripQuotes(ctx.name.getText());
         String comment = stripQuotes(ctx.comment.getText());
         return new AlterCatalogCommentCommand(catalogName, comment);
+    }
+
+    @Override
+    public LogicalPlan visitAlterStreamComment(DorisParser.AlterStreamCommentContext ctx) {
+        TableNameInfo streamName = new TableNameInfo(visitMultipartIdentifier(ctx.name));
+        String comment = stripQuotes(ctx.comment.getText());
+        return AlterStreamCommand.forSetComment(streamName, comment);
     }
 
     @Override
