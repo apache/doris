@@ -5002,7 +5002,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TShowUserResult showUser(TShowUserRequest request) {
-        List<List<String>> userInfo = Env.getCurrentEnv().getAuth().getAllUserInfo();
+        UserIdentity currentUser = null;
+        if (request.isSetCurrentUserIdent()) {
+            currentUser = UserIdentity.fromThrift(request.current_user_ident);
+        }
+        List<List<String>> userInfo = Env.getCurrentEnv().getAuth().getAllUserInfo(currentUser);
         TShowUserResult result = new TShowUserResult();
         result.setUserinfoList(userInfo);
         return result;
