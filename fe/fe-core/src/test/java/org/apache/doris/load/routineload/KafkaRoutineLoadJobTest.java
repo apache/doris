@@ -25,6 +25,8 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -44,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TRoutineLoadTask;
@@ -245,6 +248,59 @@ public class KafkaRoutineLoadJobTest {
                                     && "PLAIN".equals(properties.get("sasl.mechanism"))),
                     Mockito.argThat(partitions -> partitions.size() == 1 && partitions.contains(1)),
                     Mockito.nullable(String.class)));
+        }
+    }
+
+    @Test
+    public void testReplayKafkaClientPropertiesKeepsCloudProgress() throws Exception {
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        String originalMetaServiceEndpoint = Config.meta_service_endpoint;
+        try {
+            Config.cloud_unique_id = "test-cloud";
+            Config.meta_service_endpoint = "127.0.0.1:20121";
+
+            KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                    1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+            Map<Integer, Long> partitionOffsets = Maps.newHashMap();
+            partitionOffsets.put(1, 10L);
+            Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionOffsets));
+
+            Map<String, String> alteredProperties = Maps.newHashMap();
+            alteredProperties.put("property.group.id", "replayed-group");
+            alteredProperties.put("property.client.id", "replayed-client");
+            KafkaDataSourceProperties dataSourceProperties = new KafkaDataSourceProperties(alteredProperties);
+            dataSourceProperties.setAlter(true);
+            dataSourceProperties.setTimezone("Asia/Shanghai");
+            dataSourceProperties.analyze();
+
+            Env env = Mockito.mock(Env.class);
+            MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
+            Cloud.ResetRLProgressResponse response = Cloud.ResetRLProgressResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(Cloud.MetaServiceCode.OK))
+                    .build();
+            Mockito.when(metaServiceProxy.resetRLProgress(Mockito.any())).thenReturn(response);
+            try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                    MockedStatic<MetaServiceProxy> metaServiceProxyStatic =
+                            Mockito.mockStatic(MetaServiceProxy.class)) {
+                envStatic.when(Env::getCurrentEnv).thenReturn(env);
+                metaServiceProxyStatic.when(MetaServiceProxy::getInstance).thenReturn(metaServiceProxy);
+
+                routineLoadJob.replayModifyProperties(new AlterRoutineLoadJobOperationLog(
+                        routineLoadJob.getId(), Maps.newHashMap(), dataSourceProperties));
+
+                Mockito.verify(metaServiceProxy, Mockito.never()).resetRLProgress(Mockito.any());
+            }
+
+            Assert.assertEquals("replayed-group",
+                    routineLoadJob.getConvertedCustomProperties().get("group.id"));
+            Assert.assertEquals("replayed-client",
+                    routineLoadJob.getConvertedCustomProperties().get("client.id"));
+            Assert.assertEquals(partitionOffsets,
+                    ((KafkaProgress) routineLoadJob.getProgress()).getOffsetByPartition());
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+            Config.meta_service_endpoint = originalMetaServiceEndpoint;
         }
     }
 
