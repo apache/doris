@@ -874,8 +874,7 @@ std::shared_ptr<arrow::Array> make_duration_array(arrow::TimeUnit::type unit, in
 
 // Creates a Lance BFloat16 array with one vector and one null.
 std::shared_ptr<arrow::Array> make_bfloat16_vector_array() {
-    auto values =
-            std::make_shared<arrow::FixedSizeBinaryBuilder>(arrow::fixed_size_binary(2));
+    auto values = std::make_shared<arrow::FixedSizeBinaryBuilder>(arrow::fixed_size_binary(2));
     arrow::FixedSizeListBuilder builder(arrow::default_memory_pool(), values, 2);
     EXPECT_TRUE(builder.Append().ok());
     const std::array<uint8_t, 2> one {0x80, 0x3F};
@@ -946,9 +945,8 @@ TEST(LanceTableReaderSchemaTest, MapsAdditionalTypesAndPreservesUnknownExtension
             arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"arrow.json"});
     const auto bfloat16_extension_metadata =
             arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
-    const auto bfloat16_item =
-            arrow::field("item", arrow::fixed_size_binary(2))->WithMetadata(
-                    bfloat16_extension_metadata);
+    const auto bfloat16_item = arrow::field("item", arrow::fixed_size_binary(2))
+                                       ->WithMetadata(bfloat16_extension_metadata);
     const auto arrow_schema = arrow::schema({
             arrow::field("row_id", arrow::int64()),
             arrow::field("null_value", arrow::null()),
@@ -1012,8 +1010,7 @@ TEST(LanceTableReaderSchemaTest, RejectsMalformedKnownExtensionStorage) {
 TEST(LanceTableReaderSchemaTest, MarksNestedNullTypesAsUnsupported) {
     const auto arrow_schema = arrow::schema({
             arrow::field("null_list", arrow::list(arrow::field("item", arrow::null()))),
-            arrow::field("null_struct",
-                         arrow::struct_({arrow::field("value", arrow::null())})),
+            arrow::field("null_struct", arrow::struct_({arrow::field("value", arrow::null())})),
     });
 
     std::vector<std::string> column_names;
@@ -1034,9 +1031,8 @@ TEST(LanceTableReaderTypeTest, ReadsAdditionalArrowAndLanceTypes) {
             arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"arrow.json"});
     const auto bfloat16_extension_metadata =
             arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
-    const auto bfloat16_item =
-            arrow::field("item", arrow::fixed_size_binary(2))->WithMetadata(
-                    bfloat16_extension_metadata);
+    const auto bfloat16_item = arrow::field("item", arrow::fixed_size_binary(2))
+                                       ->WithMetadata(bfloat16_extension_metadata);
     const auto schema = arrow::schema({
             arrow::field("null_value", arrow::null()),
             arrow::field("duration_s", arrow::duration(arrow::TimeUnit::SECOND)),
@@ -1053,20 +1049,20 @@ TEST(LanceTableReaderTypeTest, ReadsAdditionalArrowAndLanceTypes) {
     std::shared_ptr<arrow::StringArray> json_array;
     ASSERT_TRUE(json_builder.Finish(&json_array).ok());
 
-    const auto record_batch = arrow::RecordBatch::Make(
-            schema, 2,
-            {
-                    std::make_shared<arrow::NullArray>(2),
-                    make_duration_array(arrow::TimeUnit::SECOND, 1),
-                    make_duration_array(arrow::TimeUnit::MILLI, 1000),
-                    make_duration_array(arrow::TimeUnit::MICRO, 1000000),
-                    make_duration_array(arrow::TimeUnit::NANO, 1000000000),
-                    json_array,
-                    make_bfloat16_vector_array(),
-            });
+    const auto record_batch =
+            arrow::RecordBatch::Make(schema, 2,
+                                     {
+                                             std::make_shared<arrow::NullArray>(2),
+                                             make_duration_array(arrow::TimeUnit::SECOND, 1),
+                                             make_duration_array(arrow::TimeUnit::MILLI, 1000),
+                                             make_duration_array(arrow::TimeUnit::MICRO, 1000000),
+                                             make_duration_array(arrow::TimeUnit::NANO, 1000000000),
+                                             json_array,
+                                             make_bfloat16_vector_array(),
+                                     });
 
-    const auto bfloat16_array_type = make_nullable(
-            std::make_shared<DataTypeArray>(nullable_type(TYPE_FLOAT)));
+    const auto bfloat16_array_type =
+            make_nullable(std::make_shared<DataTypeArray>(nullable_type(TYPE_FLOAT)));
     const Columns columns {
             projected_column("null_value", nullable_type(TYPE_NULL)),
             projected_column("duration_s", TYPE_BIGINT, true),
@@ -1089,36 +1085,31 @@ TEST(LanceTableReaderTypeTest, ReadsAdditionalArrowAndLanceTypes) {
     ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
     ASSERT_EQ(2, rows);
 
-    const auto& null_values =
-            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& null_values = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
     EXPECT_EQ((ColumnUInt8::Container {1, 1}), null_values.get_null_map_data());
 
     const std::array<int64_t, 4> expected_durations {1, 1000, 1000000, 1000000000};
     for (size_t column_idx = 0; column_idx < expected_durations.size(); ++column_idx) {
-        const auto& duration = assert_cast<const ColumnNullable&>(
-                *block.get_by_position(column_idx + 1).column);
+        const auto& duration =
+                assert_cast<const ColumnNullable&>(*block.get_by_position(column_idx + 1).column);
         const auto& values = assert_cast<const ColumnInt64&>(duration.get_nested_column());
         EXPECT_EQ(0, duration.get_null_map_data()[0]);
         EXPECT_EQ(1, duration.get_null_map_data()[1]);
         EXPECT_EQ(expected_durations[column_idx], values.get_data()[0]);
     }
 
-    const auto& json_values =
-            assert_cast<const ColumnNullable&>(*block.get_by_position(5).column);
+    const auto& json_values = assert_cast<const ColumnNullable&>(*block.get_by_position(5).column);
     EXPECT_EQ(0, json_values.get_null_map_data()[0]);
     EXPECT_EQ(1, json_values.get_null_map_data()[1]);
     EXPECT_EQ(R"({"engine":"doris"})", columns[5].type->to_string(json_values, 0));
 
-    const auto& vectors =
-            assert_cast<const ColumnNullable&>(*block.get_by_position(6).column);
+    const auto& vectors = assert_cast<const ColumnNullable&>(*block.get_by_position(6).column);
     EXPECT_EQ(0, vectors.get_null_map_data()[0]);
     EXPECT_EQ(1, vectors.get_null_map_data()[1]);
     const auto& vector_values = assert_cast<const ColumnArray&>(vectors.get_nested_column());
     EXPECT_EQ((ColumnArray::Offsets64 {2, 4}), vector_values.get_offsets());
-    const auto& bfloat16_values =
-            assert_cast<const ColumnNullable&>(vector_values.get_data());
-    const auto& floats =
-            assert_cast<const ColumnFloat32&>(bfloat16_values.get_nested_column());
+    const auto& bfloat16_values = assert_cast<const ColumnNullable&>(vector_values.get_data());
+    const auto& floats = assert_cast<const ColumnFloat32&>(bfloat16_values.get_nested_column());
     EXPECT_FLOAT_EQ(1.0F, floats.get_data()[0]);
     EXPECT_FLOAT_EQ(2.0F, floats.get_data()[1]);
     EXPECT_TRUE(reader.close().ok());
@@ -1195,8 +1186,7 @@ TEST(LanceTableReaderTypeTest, ReadsAdditionalTypesFromCompatibilityFixture) {
                  ++duration_idx) {
                 const auto& duration = assert_cast<const ColumnNullable&>(
                         *block.get_by_position(duration_idx + 2).column);
-                const auto& values =
-                        assert_cast<const ColumnInt64&>(duration.get_nested_column());
+                const auto& values = assert_cast<const ColumnInt64&>(duration.get_nested_column());
                 EXPECT_EQ(0, duration.get_null_map_data()[row]);
                 EXPECT_EQ(expected_durations[duration_idx], values.get_data()[row]);
             }

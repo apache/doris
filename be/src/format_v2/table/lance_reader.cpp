@@ -93,8 +93,7 @@ Status get_lance_extension(const std::shared_ptr<arrow::Field>& field,
         }
     }
     if (field->type()->id() == arrow::Type::EXTENSION) {
-        const auto extension_type =
-                std::dynamic_pointer_cast<arrow::ExtensionType>(field->type());
+        const auto extension_type = std::dynamic_pointer_cast<arrow::ExtensionType>(field->type());
         if (extension_type == nullptr) {
             return Status::InvalidArgument("invalid Arrow extension type for Lance field '{}'",
                                            field->name());
@@ -132,7 +131,8 @@ Status get_lance_extension(const std::shared_ptr<arrow::Field>& field,
     }
     if (*extension_name == LANCE_BFLOAT16_EXTENSION) {
         if ((*storage_type)->id() != arrow::Type::FIXED_SIZE_BINARY ||
-            std::static_pointer_cast<arrow::FixedSizeBinaryType>(*storage_type)->byte_width() != 2) {
+            std::static_pointer_cast<arrow::FixedSizeBinaryType>(*storage_type)->byte_width() !=
+                    2) {
             return Status::NotSupported(
                     "Lance BFloat16 extension for field '{}' requires FIXED_SIZE_BINARY(2) "
                     "storage, got {}",
@@ -366,11 +366,10 @@ Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
 
     switch (arrow_type->id()) {
     case arrow::Type::NA:
-        return allow_null
-                       ? nullable_primitive(TYPE_NULL)
-                       : Status::NotSupported(
-                                 "nested Arrow null type is unsupported for Lance field '{}'",
-                                 field->name());
+        return allow_null ? nullable_primitive(TYPE_NULL)
+                          : Status::NotSupported(
+                                    "nested Arrow null type is unsupported for Lance field '{}'",
+                                    field->name());
     case arrow::Type::BOOL:
         return nullable_primitive(TYPE_BOOLEAN);
     case arrow::Type::INT8:
@@ -1469,8 +1468,7 @@ Status LanceTableReader::_fill_block_from_record_batch(
                 continue;
             }
             std::shared_ptr<arrow::Array> normalized_column;
-            RETURN_IF_ERROR(
-                    normalize_lance_arrow_array(field, arrow_column, &normalized_column));
+            RETURN_IF_ERROR(normalize_lance_arrow_array(field, arrow_column, &normalized_column));
             RETURN_IF_ERROR(columns_guard.get_datatype_by_position(output_idx)
                                     ->get_serde()
                                     ->read_column_from_arrow(*columns[output_idx],
