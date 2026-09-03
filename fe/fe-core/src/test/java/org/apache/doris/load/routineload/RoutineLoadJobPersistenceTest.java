@@ -22,6 +22,7 @@ import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -105,7 +106,7 @@ public class RoutineLoadJobPersistenceTest {
         }
 
         Assert.assertTrue(job.origStmt.originStmt.startsWith("CREATE ROUTINE LOAD"));
-        Assert.assertTrue(job.origStmt.originStmt.contains("COLUMNS TERMINATED BY \"|\""));
+        Assert.assertTrue(job.origStmt.originStmt.contains("COLUMNS TERMINATED BY '|'"));
         Assert.assertTrue(job.origStmt.originStmt.contains("COLUMNS("));
         Assert.assertTrue(job.origStmt.originStmt.contains("WHERE"));
         Assert.assertTrue(job.origStmt.originStmt.contains("PRECEDING FILTER"));
@@ -154,6 +155,116 @@ public class RoutineLoadJobPersistenceTest {
                 job.sessionVariables.get(SessionVariable.SQL_MODE));
     }
 
+    @Test
+    public void testHexSeparatorSurvivesCanonicalCreateAndImageRoundTrip() throws Exception {
+        KafkaRoutineLoadJob job = newPausedJob(4001L, "hex_separator_job");
+        job.origStmt = createOriginStatement("hex_separator_job", "COLUMNS TERMINATED BY ','");
+
+        try (MockedStatic<Env> ignored = mockCatalog("current_table")) {
+            job = (KafkaRoutineLoadJob) imageRoundTrip(job);
+            job.replayLoadDefinition(new OriginStatement(
+                    "ALTER ROUTINE LOAD FOR hex_separator_job COLUMNS TERMINATED BY '\\x01'", 0));
+            Assert.assertEquals(1, job.getColumnSeparator().getSeparator().charAt(0));
+            Assert.assertEquals("\\x01", job.getColumnSeparator().getOriSeparator());
+            job = (KafkaRoutineLoadJob) imageRoundTrip(job);
+        }
+
+        Assert.assertEquals(1, job.getColumnSeparator().getSeparator().charAt(0));
+        Assert.assertEquals("\\x01", job.getColumnSeparator().getOriSeparator());
+    }
+
+    @Test
+    public void testTabSeparatorSurvivesCanonicalCreateAndImageRoundTrip() throws Exception {
+        KafkaRoutineLoadJob job = newPausedJob(4002L, "tab_separator_job");
+        job.origStmt = createOriginStatement("tab_separator_job", "COLUMNS TERMINATED BY ','");
+
+        try (MockedStatic<Env> ignored = mockCatalog("current_table")) {
+            job = (KafkaRoutineLoadJob) imageRoundTrip(job);
+            job.replayLoadDefinition(new OriginStatement(
+                    "ALTER ROUTINE LOAD FOR tab_separator_job COLUMNS TERMINATED BY '\\t'", 0));
+            Assert.assertEquals("\t", job.getColumnSeparator().getSeparator());
+            job = (KafkaRoutineLoadJob) imageRoundTrip(job);
+        }
+
+        Assert.assertEquals("\t", job.getColumnSeparator().getSeparator());
+        Assert.assertEquals("\\t", job.getColumnSeparator().getOriSeparator());
+    }
+
+    @Test
+    public void testBackslashLiteralSurvivesCanonicalCreateAndImageRoundTrip() throws Exception {
+        KafkaRoutineLoadJob job = newPausedJob(5001L, "backslash_literal_job");
+        job.origStmt = createOriginStatement("backslash_literal_job", "WHERE text1 = 'old'");
+
+        try (MockedStatic<Env> ignored = mockCatalog("current_table")) {
+            job = (KafkaRoutineLoadJob) imageRoundTrip(job);
+            job.replayLoadDefinition(new OriginStatement(
+                    "ALTER ROUTINE LOAD FOR backslash_literal_job WHERE text1 = 'A\\\\nB'", 0));
+            String expectedWhere = getWhereSql(job);
+            Assert.assertTrue(expectedWhere.contains("\\n"));
+            Assert.assertFalse(expectedWhere.contains("\n"));
+            job = (KafkaRoutineLoadJob) imageRoundTrip(job);
+            Assert.assertEquals(expectedWhere, getWhereSql(job));
+        }
+    }
+
+    @Test
+    public void testAlterSqlModeSurvivesCanonicalCreateAndImageRoundTrip() throws Exception {
+        KafkaRoutineLoadJob job = newPausedJob(5002L, "no_backslash_literal_job");
+        job.origStmt = createOriginStatement("no_backslash_literal_job", "WHERE text1 = 'old'");
+
+        try (MockedStatic<Env> ignored = mockCatalog("current_table")) {
+            job = (KafkaRoutineLoadJob) imageRoundTrip(job);
+            job.replayLoadDefinition(new OriginStatement(
+                    "ALTER ROUTINE LOAD FOR no_backslash_literal_job WHERE text1 = 'A\\nB'", 0),
+                    SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+            String expectedWhere = getWhereSql(job);
+            Assert.assertTrue(expectedWhere.contains("\\n"));
+            Assert.assertFalse(expectedWhere.contains("\n"));
+            job = (KafkaRoutineLoadJob) imageRoundTrip(job);
+            Assert.assertEquals(expectedWhere, getWhereSql(job));
+        }
+
+        Assert.assertEquals(Long.toString(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES),
+                job.sessionVariables.get(SessionVariable.SQL_MODE));
+    }
+
+    @Test
+    public void testJsonFunctionLiteralSurvivesCanonicalCreateAndImageRoundTrip() throws Exception {
+        KafkaRoutineLoadJob job = newPausedJob(5003L, "json_function_literal_job");
+        job.origStmt = createOriginStatement("json_function_literal_job", "WHERE text1 = 'old'");
+
+        try (MockedStatic<Env> ignored = mockCatalog("current_table")) {
+            job = (KafkaRoutineLoadJob) imageRoundTrip(job);
+            job.replayLoadDefinition(new OriginStatement(
+                    "ALTER ROUTINE LOAD FOR json_function_literal_job "
+                            + "WHERE json_object('key', 'A\\\\nB') IS NOT NULL", 0));
+            String expectedWhere = getWhereSql(job);
+            Assert.assertTrue(expectedWhere.contains("json_object"));
+            Assert.assertTrue(expectedWhere.contains("\\n"));
+            Assert.assertFalse(expectedWhere.contains("\n"));
+            job = (KafkaRoutineLoadJob) imageRoundTrip(job);
+            Assert.assertEquals(expectedWhere, getWhereSql(job));
+        }
+    }
+
+    private static KafkaRoutineLoadJob newPausedJob(long jobId, String jobName) {
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(jobId, jobName, 8001L,
+                9001L, "127.0.0.1:9092", "persistence_topic", UserIdentity.ADMIN);
+        job.state = RoutineLoadJob.JobState.PAUSED;
+        return job;
+    }
+
+    private static OriginStatement createOriginStatement(String jobName, String loadClause) {
+        return new OriginStatement("CREATE ROUTINE LOAD legacy_db." + jobName + " ON current_table "
+                + loadClause + " FROM KAFKA (\"kafka_broker_list\" = \"127.0.0.1:9092\", "
+                + "\"kafka_topic\" = \"persistence_topic\")", 0);
+    }
+
+    private static String getWhereSql(RoutineLoadJob job) {
+        return JsonParser.parseString(job.jobPropertiesToJsonString()).getAsJsonObject()
+                .get("whereExpr").getAsString();
+    }
+
     private static MockedStatic<Env> mockCatalog(String tableName) throws Exception {
         Env env = Mockito.mock(Env.class);
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
@@ -161,6 +272,7 @@ public class RoutineLoadJobPersistenceTest {
         Database database = Mockito.mock(Database.class);
         OlapTable table = Mockito.mock(OlapTable.class);
         Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(env.getFunctionRegistry()).thenReturn(new FunctionRegistry());
         Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
         Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
         Mockito.when(catalog.getDb(8001L)).thenReturn(Optional.of(database));
