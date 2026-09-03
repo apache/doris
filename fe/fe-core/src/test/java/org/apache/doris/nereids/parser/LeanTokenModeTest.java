@@ -25,7 +25,9 @@ import org.apache.doris.nereids.properties.SelectHintOrdered;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.sqlparser.DorisSqlParser;
 
 import org.antlr.v4.runtime.Token;
@@ -86,24 +88,36 @@ class LeanTokenModeTest extends ParserTestBase {
     }
 
     @Test
-    void preservesErrorsInBothQueryOrganizationModes() {
-        boolean previous = GlobalVariable.enable_ansi_query_organization_behavior;
+    void producesSameErrorsWithoutHiddenTokens() {
+        boolean previousAnsi = GlobalVariable.enable_ansi_query_organization_behavior;
+        long previousSqlMode = ConnectContext.get().getSessionVariable().getSqlMode();
         try {
-            for (boolean ansi : new boolean[] {false, true}) {
-                GlobalVariable.enable_ansi_query_organization_behavior = ansi;
-                for (String sql : List.of(
-                        "SELECT a\n-- skipped comment\nFROM t WHERE )",
-                        "CREATE TABLE t ( k1 BOOL )")) {
-                    ParseException fullException = Assertions.assertThrows(ParseException.class,
-                            () -> new DorisSqlParser(false, ansi).parseStatement(sql));
-                    ParseException leanException = Assertions.assertThrows(ParseException.class,
-                            () -> parser.parseSingle(sql));
-                    Assertions.assertEquals(fullException.getClass(), leanException.getClass());
-                    Assertions.assertEquals(fullException.getMessage(), leanException.getMessage());
+            for (boolean noBackslashEscapes : new boolean[] {false, true}) {
+                long sqlMode = noBackslashEscapes
+                        ? previousSqlMode | SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
+                        : previousSqlMode & ~SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES;
+                ConnectContext.get().getSessionVariable().setSqlMode(sqlMode);
+                for (boolean ansi : new boolean[] {false, true}) {
+                    GlobalVariable.enable_ansi_query_organization_behavior = ansi;
+                    for (String sql : List.of(
+                            "SELECT a\n-- skipped comment\nFROM t WHERE )",
+                            "SELECT 1,\n-- missing expression\nFROM t",
+                            "SELECT * FROM -- missing relation\r\n",
+                            "SELECT /*+ ORDERED */ FROM t",
+                            "CREATE TABLE t ( k1 BOOL )",
+                            "SELECT 'a\\' FROM t WHERE )")) {
+                        ParseException fullException = Assertions.assertThrows(ParseException.class,
+                                () -> new DorisSqlParser(noBackslashEscapes, ansi).parseStatement(sql));
+                        ParseException leanException = Assertions.assertThrows(ParseException.class,
+                                () -> parser.parseSingle(sql));
+                        Assertions.assertEquals(fullException.getClass(), leanException.getClass());
+                        Assertions.assertEquals(fullException.getMessage(), leanException.getMessage());
+                    }
                 }
             }
         } finally {
-            GlobalVariable.enable_ansi_query_organization_behavior = previous;
+            GlobalVariable.enable_ansi_query_organization_behavior = previousAnsi;
+            ConnectContext.get().getSessionVariable().setSqlMode(previousSqlMode);
         }
     }
 }
