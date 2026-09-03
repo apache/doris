@@ -57,8 +57,8 @@ PAIMON_BUILD_SCHEMA_VERSION="1"
 # The current shared automation prebuilt was published from master with the former
 # whole-script fingerprint. Keep these exact markers during the schema transition;
 # version and complete artifact validation are still mandatory before reuse.
-ARROW_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT="ab79ab0bbfbf93f9860050fb751b20fee9e40d96"
-PAIMON_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT="cb82e41ba46f534e611cdd52e66b53c227d49bf8"
+ARROW_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT="c36d3a82585c3955764e07a2599f01db909d424e"
+PAIMON_LEGACY_COMPATIBLE_SEMANTIC_FINGERPRINT="bbc8cca3ed90f3afdeb093576c59dd82d7df29c0"
 ARROW_LEGACY_BUILD_FINGERPRINTS=(
     9d03645dd1cded5184a8126f5c7f4a6eb9b92b53
 )
