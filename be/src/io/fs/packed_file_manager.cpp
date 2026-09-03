@@ -337,7 +337,9 @@ Status PackedFileManager::ensure_file_system(const std::string& resource_id,
 }
 
 Status PackedFileManager::append_small_file(const std::string& path, const Slice& data,
-                                            const PackedAppendContext& info) {
+                                            const PackedAppendContext& info,
+                                            PackedSliceHandlePtr* handle) {
+    *handle = nullptr;
     // Check if file is too large to be merged
     if (data.get_size() > config::small_file_threshold_bytes) {
         return Status::OK(); // Skip merging for large files
@@ -387,7 +389,8 @@ Status PackedFileManager::append_small_file(const std::string& path, const Slice
     location.resource_id = info.resource_id;
     location.txn_id = info.txn_id;
 
-    active_state->slice_locations[path] = location;
+    auto slice_handle = std::make_shared<PackedSliceHandle>(std::move(location));
+    active_state->slice_locations[path] = slice_handle;
     active_state->current_offset += data.get_size();
     active_state->total_size += data.get_size();
 
@@ -409,9 +412,10 @@ Status PackedFileManager::append_small_file(const std::string& path, const Slice
     // Update global index
     {
         std::lock_guard<std::mutex> global_lock(_global_index_mutex);
-        _global_slice_locations[path] = location;
+        _global_slice_locations[path] = slice_handle;
     }
 
+    *handle = std::move(slice_handle);
     return Status::OK();
 }
 
@@ -431,16 +435,19 @@ Status PackedFileManager::wait_for_packed_file_upload(PackedFileContext* packed_
     return Status::OK();
 }
 
-Status PackedFileManager::wait_upload_done(const std::string& path) {
-    std::string packed_file_path;
-    {
-        std::lock_guard<std::mutex> global_lock(_global_index_mutex);
-        auto it = _global_slice_locations.find(path);
-        if (it == _global_slice_locations.end()) {
-            return Status::InternalError("File not found in global index: " + path);
-        }
-        packed_file_path = it->second.packed_file_path;
+Status PackedFileManager::wait_upload_done(const PackedSliceHandlePtr& handle) {
+    if (handle == nullptr) {
+        return Status::InternalError("Missing packed slice handle");
     }
+
+    // The upload already finished, so there is no need to look up the PackedFileContext,
+    // which is only kept for a limited time after the upload.
+    auto upload_state = handle->upload_state();
+    if (upload_state == PackedSliceUploadState::UPLOADED) {
+        return Status::OK();
+    }
+    const bool upload_failed = upload_state == PackedSliceUploadState::FAILED;
+    const std::string& packed_file_path = handle->packed_file_path();
 
     // Find the packed file in uploaded files first - if already uploaded, no need to wait
     std::shared_ptr<PackedFileContext> managed_packed_file;
@@ -498,8 +505,12 @@ Status PackedFileManager::wait_upload_done(const std::string& path) {
     }
 
     if (!packed_file_ptr) {
+        if (upload_failed) {
+            // The context carrying the original error has already been recycled
+            return Status::InternalError("Packed file upload failed: " + packed_file_path);
+        }
         // Packed file not found in any location, this is unexpected
-        return Status::InternalError("Packed file not found for path: " + path);
+        return Status::InternalError("Packed file not found: " + packed_file_path);
     }
 
     Status wait_status = wait_for_packed_file_upload(packed_file_ptr);
@@ -515,8 +526,15 @@ Status PackedFileManager::get_packed_slice_location(const std::string& path,
         return Status::NotFound("File not found in global packed index: {}", path);
     }
 
-    *location = it->second;
+    *location = it->second->location();
     return Status::OK();
+}
+
+void PackedFileManager::mark_slices_upload_result(const PackedFileContext& packed_file,
+                                                  PackedSliceUploadState state) {
+    for (const auto& [_, handle] : packed_file.slice_locations) {
+        handle->set_upload_result(state, packed_file.total_size);
+    }
 }
 
 void PackedFileManager::start_background_manager() {
@@ -733,18 +751,11 @@ void PackedFileManager::process_uploading_packed_files() {
                 slices_stream << "; ";
             }
             first_slice = false;
-            slices_stream << small_file_path << "(txn=" << index.txn_id
-                          << ", offset=" << index.offset << ", size=" << index.size << ")";
-
-            // Update packed_file_size in global index
-            {
-                std::lock_guard<std::mutex> global_lock(_global_index_mutex);
-                auto it = _global_slice_locations.find(small_file_path);
-                if (it != _global_slice_locations.end()) {
-                    it->second.packed_file_size = packed_file->total_size;
-                }
-            }
+            auto location = index->location();
+            slices_stream << small_file_path << "(txn=" << location.txn_id
+                          << ", offset=" << location.offset << ", size=" << location.size << ")";
         }
+        mark_slices_upload_result(*packed_file, PackedSliceUploadState::UPLOADED);
         LOG(INFO) << "Packed file " << packed_file->packed_file_path
                   << " uploaded; slices=" << packed_file->slice_locations.size()
                   << ", total_bytes=" << packed_file->total_size << ", slice_detail=["
@@ -770,6 +781,7 @@ void PackedFileManager::process_uploading_packed_files() {
                               const Status& status) {
         LOG(WARNING) << "Failed to upload packed file: " << packed_file->packed_file_path
                      << ", error: " << status.to_string();
+        mark_slices_upload_result(*packed_file, PackedSliceUploadState::FAILED);
         {
             std::lock_guard<std::mutex> upload_lock(packed_file->upload_mutex);
             packed_file->state = PackedFileState::FAILED;
@@ -797,19 +809,20 @@ void PackedFileManager::process_uploading_packed_files() {
         packed_file_info.set_resource_id(packed_file->resource_id);
 
         for (const auto& [small_file_path, index] : packed_file->slice_locations) {
+            auto location = index->location();
             auto* small_file = packed_file_info.add_slices();
             small_file->set_path(small_file_path);
-            small_file->set_offset(index.offset);
-            small_file->set_size(index.size);
+            small_file->set_offset(location.offset);
+            small_file->set_size(location.size);
             small_file->set_deleted(false);
-            if (index.tablet_id != 0) {
-                small_file->set_tablet_id(index.tablet_id);
+            if (location.tablet_id != 0) {
+                small_file->set_tablet_id(location.tablet_id);
             }
-            if (!index.rowset_id.empty()) {
-                small_file->set_rowset_id(index.rowset_id);
+            if (!location.rowset_id.empty()) {
+                small_file->set_rowset_id(location.rowset_id);
             }
-            if (index.txn_id != 0) {
-                small_file->set_txn_id(index.txn_id);
+            if (location.txn_id != 0) {
+                small_file->set_txn_id(location.txn_id);
             }
         }
 
@@ -842,8 +855,9 @@ void PackedFileManager::process_uploading_packed_files() {
                     oss << ", ";
                 }
                 first = false;
-                oss << "[" << small_file_path << ", offset=" << index.offset
-                    << ", size=" << index.size << "]";
+                auto location = index->location();
+                oss << "[" << small_file_path << ", offset=" << location.offset
+                    << ", size=" << location.size << "]";
             }
             VLOG_DEBUG << oss.str();
         } else {
@@ -940,9 +954,9 @@ void PackedFileManager::cleanup_expired_data() {
         std::lock_guard<std::mutex> global_lock(_global_index_mutex);
         auto it = _global_slice_locations.begin();
         while (it != _global_slice_locations.end()) {
-            const auto& index = it->second;
-            if (index.create_time > 0 &&
-                current_time - index.create_time > config::uploaded_file_retention_seconds) {
+            const auto create_time = it->second->create_time();
+            if (create_time > 0 &&
+                current_time - create_time > config::uploaded_file_retention_seconds) {
                 it = _global_slice_locations.erase(it);
             } else {
                 ++it;
