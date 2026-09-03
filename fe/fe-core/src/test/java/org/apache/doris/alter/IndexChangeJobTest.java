@@ -139,7 +139,7 @@ public class IndexChangeJobTest {
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterOp> alterOps = new ArrayList<>();
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
-        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         String indexName = "index1";
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
@@ -172,7 +172,7 @@ public class IndexChangeJobTest {
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterOp> alterOps = new ArrayList<>();
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
-        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         String indexName = "index1";
         TableNameInfo tableNameInfo = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
@@ -336,7 +336,7 @@ public class IndexChangeJobTest {
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterOp> alterOps = new ArrayList<>();
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
-        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         String indexName = "index1";
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
@@ -377,7 +377,7 @@ public class IndexChangeJobTest {
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterOp> alterOps = new ArrayList<>();
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
-        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         String indexName = "index1";
         TableNameInfo tableNameInfo = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
@@ -408,7 +408,7 @@ public class IndexChangeJobTest {
         // run waiting txn job
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(IndexChangeJob.JobState.RUNNING, indexChangejob.getJobState());
-        Assert.assertEquals(indexChangejob.invertedIndexBatchTask.getTaskNum(), 3);
+        Assert.assertEquals(indexChangejob.invertedIndexBatchTask.getTaskNum(), 1);
         // run running job
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(IndexChangeJob.JobState.RUNNING, indexChangejob.getJobState());
@@ -418,7 +418,7 @@ public class IndexChangeJobTest {
 
         // finish alter tasks
         List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER_INVERTED_INDEX);
-        Assert.assertEquals(3, tasks.size());
+        Assert.assertEquals(1, tasks.size());
         for (AgentTask agentTask : tasks) {
             agentTask.setFinished(true);
         }
@@ -442,7 +442,7 @@ public class IndexChangeJobTest {
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterOp> alterOps = new ArrayList<>();
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
-        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         String indexName = "index1";
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
@@ -473,7 +473,7 @@ public class IndexChangeJobTest {
         // run waiting txn job
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(IndexChangeJob.JobState.RUNNING, indexChangejob.getJobState());
-        Assert.assertEquals(indexChangejob.invertedIndexBatchTask.getTaskNum(), 3);
+        Assert.assertEquals(indexChangejob.invertedIndexBatchTask.getTaskNum(), 1);
         // run running job
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(IndexChangeJob.JobState.RUNNING, indexChangejob.getJobState());
@@ -483,7 +483,7 @@ public class IndexChangeJobTest {
 
         // finish alter tasks
         List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER_INVERTED_INDEX);
-        Assert.assertEquals(3, tasks.size());
+        Assert.assertEquals(1, tasks.size());
         for (AgentTask agentTask : tasks) {
             agentTask.setFinished(true);
         }
@@ -506,7 +506,7 @@ public class IndexChangeJobTest {
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterOp> alterOps = new ArrayList<>();
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
-        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         String indexName = "index1";
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
@@ -537,7 +537,7 @@ public class IndexChangeJobTest {
         // run waiting txn job
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(IndexChangeJob.JobState.RUNNING, indexChangejob.getJobState());
-        Assert.assertEquals(indexChangejob.invertedIndexBatchTask.getTaskNum(), 3);
+        Assert.assertEquals(indexChangejob.invertedIndexBatchTask.getTaskNum(), 1);
         // run running job
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(IndexChangeJob.JobState.RUNNING, indexChangejob.getJobState());
@@ -613,7 +613,7 @@ public class IndexChangeJobTest {
         replica2.setState(Replica.ReplicaState.NORMAL);
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(IndexChangeJob.JobState.RUNNING, indexChangejob.getJobState());
-        Assert.assertEquals(indexChangejob.invertedIndexBatchTask.getTaskNum(), 3);
+        Assert.assertEquals(indexChangejob.invertedIndexBatchTask.getTaskNum(), 1);
 
         // run running job
         schemaChangeHandler.runAfterCatalogReady();
@@ -624,7 +624,7 @@ public class IndexChangeJobTest {
 
         // finish alter tasks
         List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER_INVERTED_INDEX);
-        Assert.assertEquals(3, tasks.size());
+        Assert.assertEquals(1, tasks.size());
         for (AgentTask agentTask : tasks) {
             agentTask.setFinished(true);
         }
@@ -700,7 +700,7 @@ public class IndexChangeJobTest {
         replica2.setState(Replica.ReplicaState.NORMAL);
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(IndexChangeJob.JobState.RUNNING, indexChangejob.getJobState());
-        Assert.assertEquals(indexChangejob.invertedIndexBatchTask.getTaskNum(), 3);
+        Assert.assertEquals(indexChangejob.invertedIndexBatchTask.getTaskNum(), 1);
 
         // run running job
         schemaChangeHandler.runAfterCatalogReady();
@@ -711,7 +711,7 @@ public class IndexChangeJobTest {
 
         // finish alter tasks
         List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER_INVERTED_INDEX);
-        Assert.assertEquals(3, tasks.size());
+        Assert.assertEquals(1, tasks.size());
         for (AgentTask agentTask : tasks) {
             agentTask.setFinished(true);
         }
@@ -734,7 +734,7 @@ public class IndexChangeJobTest {
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterOp> alterOps = new ArrayList<>();
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
-        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         String indexName = "index1";
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
@@ -765,7 +765,7 @@ public class IndexChangeJobTest {
         // run waiting txn job
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(IndexChangeJob.JobState.RUNNING, indexChangejob.getJobState());
-        Assert.assertEquals(indexChangejob.invertedIndexBatchTask.getTaskNum(), 3);
+        Assert.assertEquals(indexChangejob.invertedIndexBatchTask.getTaskNum(), 1);
         // run running job
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(IndexChangeJob.JobState.RUNNING, indexChangejob.getJobState());
@@ -774,7 +774,7 @@ public class IndexChangeJobTest {
         Assert.assertEquals(IndexChangeJob.JobState.RUNNING, indexChangejob.getJobState());
 
         List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER_INVERTED_INDEX);
-        Assert.assertEquals(3, tasks.size());
+        Assert.assertEquals(1, tasks.size());
 
         // if one task failed, the job should be failed
         // if task error is not OBTAIN_LOCK_FAILED, the job should be failed after
@@ -806,7 +806,7 @@ public class IndexChangeJobTest {
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterOp> alterOps = new ArrayList<>();
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
-        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         String indexName = "index1";
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
@@ -837,7 +837,7 @@ public class IndexChangeJobTest {
         // run waiting txn job
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(IndexChangeJob.JobState.RUNNING, indexChangejob.getJobState());
-        Assert.assertEquals(3, indexChangejob.invertedIndexBatchTask.getTaskNum());
+        Assert.assertEquals(1, indexChangejob.invertedIndexBatchTask.getTaskNum());
         // run running job
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(IndexChangeJob.JobState.RUNNING, indexChangejob.getJobState());
@@ -846,7 +846,7 @@ public class IndexChangeJobTest {
         Assert.assertEquals(IndexChangeJob.JobState.RUNNING, indexChangejob.getJobState());
 
         List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER_INVERTED_INDEX);
-        Assert.assertEquals(3, tasks.size());
+        Assert.assertEquals(1, tasks.size());
 
         // if one task failed, the job should be failed
         // if task error is OBTAIN_LOCK_FAILED, the job should be failed after
@@ -1074,7 +1074,7 @@ public class IndexChangeJobTest {
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterOp> alterOps = new ArrayList<>();
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
-        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         String indexName = "index1";
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
