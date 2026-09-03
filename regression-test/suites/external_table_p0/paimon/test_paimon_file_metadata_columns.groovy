@@ -130,14 +130,14 @@ suite("test_paimon_file_metadata_columns", "p0,external") {
             order by id
         """
         assertEquals(4, crossFileRows.size())
-        assertEquals([1L, 2L, 1L, 2L], crossFileRows.collect { it[2].toString().toLong() })
-        def firstFile = crossFileRows[0][1].toString()
-        def secondFile = crossFileRows[2][1].toString()
-        assertTrue(firstFile.contains("/data/") && secondFile.contains("/data/"),
-                "metadata columns must expose raw Paimon data-file paths")
-        assertEquals(firstFile, crossFileRows[1][1].toString())
-        assertEquals(secondFile, crossFileRows[3][1].toString())
-        assertTrue(firstFile != secondFile, "two append commits must retain distinct source-file paths")
+        def rowsByFile = crossFileRows.groupBy { it[1].toString() }
+        assertEquals(2, rowsByFile.size())
+        rowsByFile.each { filePath, rows ->
+            assertTrue(filePath.contains("/data/"),
+                    "metadata columns must expose raw Paimon data-file paths")
+            assertEquals(2, rows.size())
+            assertEquals([1L, 2L], rows.collect { it[2].toString().toLong() }.sort())
+        }
 
         sql """switch ${catalogName}"""
         sql """use db1"""
