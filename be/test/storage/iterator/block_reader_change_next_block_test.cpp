@@ -67,7 +67,7 @@ namespace {
 // row-binlog scan produces after merge:
 //   0: key         (Int64, the primary key used to group same-key rows)
 //   1: val         (Int64, the "after" value of a data column)
-//   2: __BEFORE__val__ (Int64, the "before" value mirror of `val`)
+//   2: __DORIS_BEFORE__val__ (Int64, the "before" value mirror of `val`)
 //   3: __DORIS_BINLOG_TSO__ (Int64)
 //   4: __DORIS_BINLOG_LSN__ (Int64)
 //   5: __DORIS_BINLOG_OP__  (Int64, one of ROW_BINLOG_APPEND/UPDATE/DELETE)
@@ -214,9 +214,9 @@ std::shared_ptr<Block> make_colliding_name_source_block(int64_t after_v, int64_t
     const std::vector<std::pair<std::string, int64_t>> values = {
             {"key", 1},
             {"v", after_v},
-            {"__BEFORE__v__", after_collision},
+            {"__DORIS_BEFORE__v__", after_collision},
             {binlog::build_before_column_name("v"), before_v},
-            {binlog::build_before_column_name("__BEFORE__v__"), before_collision},
+            {binlog::build_before_column_name("__DORIS_BEFORE__v__"), before_collision},
             {BINLOG_TSO_COL, 1},
             {BINLOG_LSN_COL, 1},
             {BINLOG_OP_COL, ROW_BINLOG_UPDATE},
@@ -337,9 +337,9 @@ private:
 };
 
 // Read schema mirroring the merged binlog block layout above.
-ReadSchemaSPtr make_read_schema(const std::vector<std::string>& names = {
-                                        "key", "val", binlog::build_before_column_name("val"),
-                                        BINLOG_TSO_COL, BINLOG_LSN_COL, BINLOG_OP_COL}) {
+ReadSchemaSPtr make_read_schema(const std::vector<std::string>& names,
+                                ReadSchema::RowBinlogValueColumnPairs value_pairs,
+                                int32_t tso_ordinal, int32_t lsn_ordinal, int32_t op_ordinal) {
     std::vector<TabletColumnPtr> cols;
     auto add_bigint = [&](const std::string& name) {
         auto col = std::make_shared<TabletColumn>();
@@ -350,7 +350,12 @@ ReadSchemaSPtr make_read_schema(const std::vector<std::string>& names = {
     for (const auto& name : names) {
         add_bigint(name);
     }
-    return std::make_shared<ReadSchema>(std::move(cols));
+    auto read_schema = std::make_shared<ReadSchema>(std::move(cols));
+    DORIS_CHECK(read_schema
+                        ->init_row_binlog_column_mappings(std::move(value_pairs), tso_ordinal,
+                                                          lsn_ordinal, op_ordinal)
+                        .ok());
+    return read_schema;
 }
 
 // Wire a BlockReader as if init() had already completed for a row-binlog change
@@ -360,8 +365,8 @@ void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t
     config::enable_adaptive_batch_size = false;
     reader._reader_context.batch_size = batch_size;
 
-    // The physical tablet schema supplies stable unique ids for AFTER/BEFORE pairing. The fake
-    // source block supplies the materialized types used by this read schema.
+    // The fake fixture layout is [key][current values][before values][TSO][LSN][OP]. Supply its
+    // relationships explicitly, as OlapScanner does before constructing BlockReader.
     reader._tablet_schema = std::move(schema);
     ASSERT_EQ(reader._tablet_schema->num_columns(), source->columns());
     std::vector<DataTypePtr> read_types;
@@ -371,7 +376,16 @@ void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t
     }
     auto read_schema =
             std::make_shared<ReadSchema>(reader._tablet_schema->columns(), std::move(read_types));
-    read_schema->init_row_binlog_column_mappings(*reader._tablet_schema);
+    const ColumnId value_count = cast_set<ColumnId>((source->columns() - 4) / 2);
+    ReadSchema::RowBinlogValueColumnPairs value_pairs;
+    for (ColumnId i = 0; i < value_count; ++i) {
+        value_pairs.emplace_back(1 + i, 1 + value_count + i);
+    }
+    DORIS_CHECK(read_schema
+                        ->init_row_binlog_column_mappings(std::move(value_pairs),
+                                                          1 + 2 * value_count, 2 + 2 * value_count,
+                                                          3 + 2 * value_count)
+                        .ok());
     reader._read_schema = std::move(read_schema);
 
     reader._next_row.block = source;
@@ -453,14 +467,16 @@ protected:
 };
 
 TEST_F(BlockReaderChangeNextBlockTest, BinlogSchemaWithoutBeforeUsesCurrentColumn) {
-    auto read_schema = make_read_schema({"key", "val", BINLOG_TSO_COL, BINLOG_OP_COL});
+    auto read_schema =
+            make_read_schema({"key", "val", BINLOG_TSO_COL, BINLOG_OP_COL}, {}, 2, -1, 3);
 
     EXPECT_EQ(VAL_IDX, read_schema->before_column_ordinal(VAL_IDX));
 }
 
 TEST_F(BlockReaderChangeNextBlockTest, BinlogSchemaDoesNotRequireLsn) {
     auto read_schema = make_read_schema(
-            {"key", "val", binlog::build_before_column_name("val"), BINLOG_TSO_COL, BINLOG_OP_COL});
+            {"key", "val", binlog::build_before_column_name("val"), BINLOG_TSO_COL, BINLOG_OP_COL},
+            {{1, 2}}, 3, -1, 4);
 
     EXPECT_EQ(-1, read_schema->lsn_ordinal());
     EXPECT_EQ(2, read_schema->before_column_ordinal(VAL_IDX));
@@ -512,7 +528,7 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaDelete) {
     ASSERT_EQ(out.size(), 1);
     EXPECT_EQ(out[0].op, binlog::STREAM_CHANGE_DELETE);
     EXPECT_EQ(out[0].key, 1);
-    // delete uses the first op's before value (val's __BEFORE__ mirror of row 0).
+    // delete uses the first op's before value (val's __DORIS_BEFORE__ mirror of row 0).
     EXPECT_EQ(out[0].val, 10);
 }
 
@@ -570,8 +586,9 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaAllNullBeforeImageIsRetained) {
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaNoOpWithCollidingBeforeNameIsSkipped) {
     auto source = make_colliding_name_source_block(/*after_v=*/10, /*after_collision=*/20,
                                                    /*before_v=*/10, /*before_collision=*/20);
-    auto schema = make_test_tablet_schema({{"v", FieldType::OLAP_FIELD_TYPE_BIGINT},
-                                           {"__BEFORE__v__", FieldType::OLAP_FIELD_TYPE_BIGINT}});
+    auto schema =
+            make_test_tablet_schema({{"v", FieldType::OLAP_FIELD_TYPE_BIGINT},
+                                     {"__DORIS_BEFORE__v__", FieldType::OLAP_FIELD_TYPE_BIGINT}});
     BlockReader reader;
     configure_reader(reader, source, 16, std::move(schema));
 
@@ -953,7 +970,7 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailDelete) {
     ASSERT_EQ(out.size(), 1);
     EXPECT_EQ(out[0].op, binlog::STREAM_CHANGE_DELETE);
     EXPECT_EQ(out[0].key, 1);
-    EXPECT_EQ(out[0].val, 99); // delete uses __BEFORE__ mirror
+    EXPECT_EQ(out[0].val, 99); // delete uses __DORIS_BEFORE__ mirror
 }
 
 // UPDATE -> a BEFORE (before value) + AFTER (after value) pair.
@@ -975,8 +992,9 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailUpdatePair) {
 TEST_F(BlockReaderChangeNextBlockTest, DetailUsesOrdinalBeforePairWhenNamesCollide) {
     auto source = make_colliding_name_source_block(/*after_v=*/11, /*after_collision=*/20,
                                                    /*before_v=*/10, /*before_collision=*/20);
-    auto schema = make_test_tablet_schema({{"v", FieldType::OLAP_FIELD_TYPE_BIGINT},
-                                           {"__BEFORE__v__", FieldType::OLAP_FIELD_TYPE_BIGINT}});
+    auto schema =
+            make_test_tablet_schema({{"v", FieldType::OLAP_FIELD_TYPE_BIGINT},
+                                     {"__DORIS_BEFORE__v__", FieldType::OLAP_FIELD_TYPE_BIGINT}});
     BlockReader reader;
     configure_reader(reader, source, 16, std::move(schema));
 

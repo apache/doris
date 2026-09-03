@@ -23,6 +23,7 @@
 #include <unistd.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -145,6 +146,33 @@ TEST_F(GroupRowsetBuilderTest, buildWithRowBinlogMeta) {
 
     GroupRowsetBuilder builder(*engine_ref, group_req, data_req, row_binlog_req, profile.get());
     ASSERT_TRUE(builder.init().ok());
+    const auto& mappings = builder.row_binlog_builder()
+                                   ->rowset_writer()
+                                   ->context()
+                                   .write_binlog_opt()
+                                   .write_binlog_config()
+                                   .column_mappings;
+    ASSERT_EQ(mappings.size(), 2U);
+    EXPECT_EQ(mappings[0], (segment_v2::RowBinlogColumnCidMapping {0, 0, std::nullopt}));
+    EXPECT_EQ(mappings[1], (segment_v2::RowBinlogColumnCidMapping {1, 1, std::nullopt}));
+    const auto& data_writer_meta = builder.txn_rowset_builder()->rowset_writer()->rowset_meta();
+    ASSERT_TRUE(data_writer_meta->has_row_binlog_column_mappings());
+    const auto& persisted_mappings = data_writer_meta->row_binlog_column_mappings();
+    ASSERT_TRUE(persisted_mappings.has_need_historical_value());
+    EXPECT_FALSE(persisted_mappings.need_historical_value());
+    ASSERT_EQ(persisted_mappings.entries_size(), 2);
+    const auto& requested_mappings = param->indexes()[0]->row_binlog_column_mappings;
+    for (int i = 0; i < persisted_mappings.entries_size(); ++i) {
+        EXPECT_EQ(persisted_mappings.entries(i).source_column_unique_id(),
+                  requested_mappings[i].source_uid);
+        EXPECT_EQ(persisted_mappings.entries(i).current_column_unique_id(),
+                  requested_mappings[i].current_uid);
+        EXPECT_FALSE(persisted_mappings.entries(i).has_before_column_unique_id());
+    }
+    EXPECT_FALSE(builder.row_binlog_builder()
+                         ->rowset_writer()
+                         ->rowset_meta()
+                         ->has_row_binlog_column_mappings());
     ASSERT_TRUE(builder.rowset_writer()->flush().ok());
     ASSERT_TRUE(builder.build_rowset().ok());
 

@@ -547,7 +547,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         // 5. MoW table with BITMAP NOT NULL.
         //    This specifically exercises MIN_DELTA UPDATE_BEFORE/AFTER on a
         //    complex-type value column. Before the Column.java fix, the
-        //    UPDATE_BEFORE row read from nullable __BEFORE__b__ would be
+        //    UPDATE_BEFORE row read from nullable __DORIS_BEFORE__b__ would be
         //    copied into the non-nullable after-slot and BE would crash with
         //    "Bad cast from type ColumnNullable to ColumnComplexType<BITMAP>".
         // ============================================================

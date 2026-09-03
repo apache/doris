@@ -54,6 +54,7 @@
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_cache.h"
 #include "storage/tablet_info.h"
+#include "storage/transform/row_binlog_derive.h"
 #include "storage/txn/txn_manager.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
@@ -583,6 +584,37 @@ Status GroupRowsetBuilder::init() {
         cfg.source.is_transient_rowset_writer = data_ctx.is_transient_rowset_writer;
         cfg.source.source_write_type = data_ctx.write_type;
         cfg.source.base_tablet = _txn_rs_builder->tablet_sptr();
+
+        const OlapTableIndexSchema* source_index_schema = nullptr;
+        for (const auto* index_schema : _req.table_schema_param->indexes()) {
+            if (index_schema->index_id == data_ctx.index_id) {
+                source_index_schema = index_schema;
+                break;
+            }
+        }
+        DORIS_CHECK(source_index_schema != nullptr);
+        DORIS_CHECK_EQ(source_index_schema->row_binlog_id, binlog_ctx.index_id);
+        cfg.need_historical_value = source_index_schema->row_binlog_need_historical_value;
+        auto mappings = segment_v2::resolve_row_binlog_column_mappings(
+                *data_ctx.tablet_schema, *binlog_ctx.tablet_schema,
+                source_index_schema->row_binlog_column_mappings);
+        if (!mappings.has_value()) {
+            return mappings.error();
+        }
+        cfg.column_mappings = std::move(*mappings);
+
+        auto* persisted_mappings = _txn_rs_builder->rowset_writer()
+                                           ->rowset_meta()
+                                           ->mutable_row_binlog_column_mappings();
+        persisted_mappings->set_need_historical_value(cfg.need_historical_value);
+        for (const auto& mapping : source_index_schema->row_binlog_column_mappings) {
+            auto* entry = persisted_mappings->add_entries();
+            entry->set_source_column_unique_id(mapping.source_uid);
+            entry->set_current_column_unique_id(mapping.current_uid);
+            if (mapping.before_uid.has_value()) {
+                entry->set_before_column_unique_id(*mapping.before_uid);
+            }
+        }
     }
 
     _rowset_writer = std::move(group_writer);

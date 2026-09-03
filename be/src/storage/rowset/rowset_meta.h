@@ -145,6 +145,20 @@ public:
         return _rowset_meta_pb.has_is_row_binlog() && _rowset_meta_pb.is_row_binlog();
     }
 
+    bool has_row_binlog_column_mappings() const {
+        return _rowset_meta_pb.has_row_binlog_column_mappings();
+    }
+
+    const PRowBinlogWriteColumnMappings& row_binlog_column_mappings() const {
+        return _rowset_meta_pb.row_binlog_column_mappings();
+    }
+
+    PRowBinlogWriteColumnMappings* mutable_row_binlog_column_mappings() {
+        return _rowset_meta_pb.mutable_row_binlog_column_mappings();
+    }
+
+    void clear_row_binlog_column_mappings() { _rowset_meta_pb.clear_row_binlog_column_mappings(); }
+
     RowsetTypePB rowset_type() const { return _rowset_meta_pb.rowset_type(); }
 
     void set_rowset_type(RowsetTypePB rowset_type) { _rowset_meta_pb.set_rowset_type(rowset_type); }

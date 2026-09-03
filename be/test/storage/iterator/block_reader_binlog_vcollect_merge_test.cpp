@@ -75,7 +75,7 @@ namespace {
 // merge-heap key comparison and for MIN_DELTA group boundaries:
 //   0: key                  (Int64, the only key column)
 //   1: val                  (Int64, "after" value)
-//   2: __BEFORE__val__       (Int64, "before" value mirror)
+//   2: __DORIS_BEFORE__val__ (Int64, "before" value mirror)
 //   3: __DORIS_BINLOG_TSO__  (Int64, the merge sequence / order column)
 //   4: __DORIS_BINLOG_LSN__  (Int64)
 //   5: __DORIS_BINLOG_OP__   (Int64, ROW_BINLOG_APPEND/UPDATE/DELETE)
@@ -96,7 +96,7 @@ struct Row {
     int64_t op;
 };
 
-// Row-binlog read schema: single leading key column, a value column plus its __BEFORE__
+// Row-binlog read schema: single leading key column, a value column plus its __DORIS_BEFORE__
 // mirror, and the three binlog meta columns. Marking BINLOG_TSO_COL by name makes
 // TabletSchema::binlog_tso_col_idx() return its position, which Level1Iterator::init()
 // uses to pick the TSO as the merge sequence column.
@@ -174,6 +174,10 @@ public:
         meta->set_rowset_type(BETA_ROWSET);
         _rowset = std::make_shared<FakeRowset>(nullptr, meta);
         _read_schema = std::make_shared<ReadSchema>(make_binlog_schema()->columns());
+        DORIS_CHECK(_read_schema
+                            ->init_row_binlog_column_mappings({{VAL_IDX, BEFORE_VAL_IDX}}, TSO_IDX,
+                                                              LSN_IDX, OP_IDX)
+                            .ok());
     }
 
     Status init(RowsetReaderContext*, const RowSetSplits&) override { return Status::OK(); }
@@ -248,11 +252,13 @@ void configure_two_rowset_merge(BlockReader& reader, std::vector<Row> rowset0_ro
     reader._reader_type = ReaderType::READER_BASE_COMPACTION;
 
     reader._tablet_schema = make_binlog_schema();
-    // Identity read schema over the full row-binlog layout. ReadSchema derives num_key_columns()
-    // from is_key() and tso_ordinal() from the BINLOG_TSO_COL name, which Level1Iterator::init()
-    // uses to pick the TSO as the merge sequence column, and which
-    // _validate_merge_compare_contract() checks for the leading key prefix.
+    // Identity read schema over the full row-binlog layout. The explicit TSO ordinal is the merge
+    // sequence column; _validate_merge_compare_contract() also checks the leading key prefix.
     reader._read_schema = std::make_shared<ReadSchema>(reader._tablet_schema->columns());
+    DORIS_CHECK(reader._read_schema
+                        ->init_row_binlog_column_mappings({{VAL_IDX, BEFORE_VAL_IDX}}, TSO_IDX,
+                                                          LSN_IDX, OP_IDX)
+                        .ok());
 
     // Mirror BlockReader::_init_collect_iter: init the collect iterator (force_merge=true,
     // as a MIN_DELTA stream does), add one child per rowset, then build the heap.
@@ -377,7 +383,7 @@ TEST_F(BlockReaderBinlogVCollectMergeTest, MinDeltaInterleavedKeysAcrossRowsets)
     EXPECT_EQ(out[0].val, 15); // most recent value for key 1
     EXPECT_EQ(out[1].key, 2);
     EXPECT_EQ(out[1].op, binlog::STREAM_CHANGE_DELETE);
-    EXPECT_EQ(out[1].val, 18); // delete uses the first op's __BEFORE__ value
+    EXPECT_EQ(out[1].val, 18); // delete uses the first op's __DORIS_BEFORE__ value
 }
 
 // DETAIL scan over the same two-rowset / same-key / different-TSO input emits every event

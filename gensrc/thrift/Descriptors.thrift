@@ -338,6 +338,12 @@ struct TOlapTableIndex {
   7: optional list<i32> column_unique_ids
 }
 
+struct TRowBinlogWriteColumnMapping {
+    1: required i32 source_column_unique_id
+    2: required i32 current_column_unique_id
+    3: optional i32 before_column_unique_id
+}
+
 struct TOlapTableIndexSchema {
     1: required i64 id
     2: required list<string> columns
@@ -346,6 +352,8 @@ struct TOlapTableIndexSchema {
     5: optional list<TOlapTableIndex> indexes_desc
     6: optional Exprs.TExpr where_clause
     7: optional i64 row_binlog_id
+    8: optional list<TRowBinlogWriteColumnMapping> row_binlog_column_mappings
+    9: optional bool row_binlog_need_historical_value
 }
 
 struct TOlapTableSchemaParam {

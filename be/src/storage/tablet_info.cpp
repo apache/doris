@@ -74,6 +74,16 @@ void OlapTableIndexSchema::to_protobuf(POlapTableIndexSchema* pindex) const {
     pindex->set_schema_hash(schema_hash);
     if (row_binlog_id > 0) {
         pindex->set_row_binlog_id(row_binlog_id);
+        auto* pmappings = pindex->mutable_row_binlog_column_mappings();
+        pmappings->set_need_historical_value(row_binlog_need_historical_value);
+        for (const auto& mapping : row_binlog_column_mappings) {
+            auto* pmapping = pmappings->add_entries();
+            pmapping->set_source_column_unique_id(mapping.source_uid);
+            pmapping->set_current_column_unique_id(mapping.current_uid);
+            if (mapping.before_uid.has_value()) {
+                pmapping->set_before_column_unique_id(*mapping.before_uid);
+            }
+        }
     }
     for (auto* slot : slots) {
         pindex->add_columns(slot->col_name());
@@ -196,6 +206,28 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         index->schema_hash = p_index.schema_hash();
         if (p_index.has_row_binlog_id()) {
             index->row_binlog_id = p_index.row_binlog_id();
+        }
+        if (index->row_binlog_id > 0 && !p_index.has_row_binlog_column_mappings()) {
+            return Status::InvalidArgument(
+                    "Row-binlog column mappings are required for source index {}", index->index_id);
+        }
+        if (index->row_binlog_id > 0 &&
+            !p_index.row_binlog_column_mappings().has_need_historical_value()) {
+            return Status::InvalidArgument(
+                    "Row-binlog historical-value flag is required for source index {}",
+                    index->index_id);
+        }
+        if (p_index.has_row_binlog_column_mappings()) {
+            index->row_binlog_need_historical_value =
+                    p_index.row_binlog_column_mappings().need_historical_value();
+            for (const auto& pmapping : p_index.row_binlog_column_mappings().entries()) {
+                index->row_binlog_column_mappings.push_back(
+                        {.source_uid = pmapping.source_column_unique_id(),
+                         .current_uid = pmapping.current_column_unique_id(),
+                         .before_uid = pmapping.has_before_column_unique_id()
+                                               ? std::optional(pmapping.before_column_unique_id())
+                                               : std::nullopt});
+            }
         }
         for (const auto& pcolumn_desc : p_index.columns_desc()) {
             if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
@@ -357,6 +389,28 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         index->schema_hash = t_index.schema_hash;
         if (t_index.__isset.row_binlog_id) {
             index->row_binlog_id = t_index.row_binlog_id;
+        }
+        if (index->row_binlog_id > 0 && !t_index.__isset.row_binlog_column_mappings) {
+            return Status::InvalidArgument(
+                    "Row-binlog column mappings are required for source index {}", index->index_id);
+        }
+        if (index->row_binlog_id > 0 && !t_index.__isset.row_binlog_need_historical_value) {
+            return Status::InvalidArgument(
+                    "Row-binlog historical-value flag is required for source index {}",
+                    index->index_id);
+        }
+        if (t_index.__isset.row_binlog_need_historical_value) {
+            index->row_binlog_need_historical_value = t_index.row_binlog_need_historical_value;
+        }
+        if (t_index.__isset.row_binlog_column_mappings) {
+            for (const auto& tmapping : t_index.row_binlog_column_mappings) {
+                index->row_binlog_column_mappings.push_back(
+                        {.source_uid = tmapping.source_column_unique_id,
+                         .current_uid = tmapping.current_column_unique_id,
+                         .before_uid = tmapping.__isset.before_column_unique_id
+                                               ? std::optional(tmapping.before_column_unique_id)
+                                               : std::nullopt});
+            }
         }
         for (const auto& tcolumn_desc : t_index.columns_desc) {
             if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||

@@ -115,6 +115,10 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     }
 
     reader_params.read_schema = std::make_shared<ReadSchema>(cur_tablet_schema.columns());
+    if (reader_params.read_row_binlog) {
+        RETURN_IF_ERROR(
+                reader_params.read_schema->init_row_binlog_column_mappings({}, cur_tablet_schema));
+    }
     RETURN_IF_ERROR(reader.init(reader_params));
 
     Block block = reader_params.read_schema->create_read_block();
@@ -303,6 +307,10 @@ Status Merger::vertical_compact_one_group(
 
     reader_params.read_schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(tablet_schema.columns(), column_group));
+    if (reader_params.read_row_binlog) {
+        RETURN_IF_ERROR(
+                reader_params.read_schema->init_row_binlog_column_mappings({}, tablet_schema));
+    }
     reader_params.batch_size = batch_size;
     RETURN_IF_ERROR(reader.init(reader_params, sample_info));
 

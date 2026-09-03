@@ -101,6 +101,7 @@ message POlapTableIndexSchema {
     repeated ColumnPB columns_desc = 4;
     repeated TabletIndexPB indexes_desc = 5;
     optional int64 row_binlog_id = 6;
+    optional PRowBinlogWriteColumnMappings row_binlog_column_mappings = 7;
 };
 
 message POlapTableSchemaParam {
@@ -125,4 +126,3 @@ message POlapTableSchemaParam {
     optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 17 [default = APPEND];
     repeated POlapTableIndexSchema row_binlog_index_schemas = 18;
 };
-

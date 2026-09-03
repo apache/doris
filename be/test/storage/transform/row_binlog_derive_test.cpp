@@ -34,6 +34,8 @@
 //
 // Oracle values are ported from the deleted RowBinlogSegmentWriter.
 
+#include "storage/transform/row_binlog_derive.h"
+
 #include <gtest/gtest.h>
 
 #include <string>
@@ -47,6 +49,7 @@
 #include "storage/binlog.h"
 #include "storage/mow/mow_transform_test_base.h"
 #include "storage/partial_update_info.h"
+#include "storage/tablet_info.h"
 #include "storage/transform/block_transform.h"
 
 namespace doris {
@@ -56,6 +59,46 @@ using segment_v2::TransformExecContext;
 
 class RowBinlogDeriveTest : public MowTransformTestBase {
 protected:
+    struct TestColumn {
+        int32_t uid;
+        std::string name;
+        std::string type;
+        bool is_key = false;
+        bool visible = true;
+        bool nullable = false;
+    };
+
+    static TabletSchemaSPtr create_test_schema(const std::vector<TestColumn>& columns,
+                                               int32_t tso_cid = -1, int32_t lsn_cid = -1,
+                                               int32_t op_cid = -1) {
+        TabletSchemaPB pb;
+        pb.set_keys_type(DUP_KEYS);
+        pb.set_num_short_key_columns(1);
+        pb.set_num_rows_per_row_block(1024);
+        pb.set_compress_kind(COMPRESS_LZ4);
+        pb.set_next_column_unique_id(1000);
+        for (const auto& column : columns) {
+            auto* pb_column = pb.add_column();
+            pb_column->set_unique_id(column.uid);
+            pb_column->set_name(column.name);
+            pb_column->set_type(column.type);
+            pb_column->set_is_key(column.is_key);
+            const int32_t length = column.type == "BIGINT" ? 8 : 4;
+            pb_column->set_length(length);
+            pb_column->set_index_length(length);
+            pb_column->set_is_nullable(column.nullable);
+            pb_column->set_aggregation("NONE");
+            pb_column->set_visible(column.visible);
+        }
+        pb.set_binlog_tso_col_idx(tso_cid);
+        pb.set_binlog_lsn_col_idx(lsn_cid);
+        pb.set_binlog_op_col_idx(op_cid);
+
+        auto schema = std::make_shared<TabletSchema>();
+        schema->init_from_pb(pb);
+        return schema;
+    }
+
     // Reads a (nullable) BIGINT op cell from the binlog block.
     static int64_t read_op(const Block& block, int col_pos, size_t row) {
         const IColumn* col = block.get_by_position(col_pos).column.get();
@@ -74,15 +117,14 @@ protected:
         return assert_cast<const ColumnInt64&>(*col).get_data()[row];
     }
 
-    // A row-binlog DUP schema WITH __BEFORE__* mirror columns for the binlog
+    // A row-binlog DUP schema WITH __DORIS_BEFORE__* mirror columns for the binlog
     // source `create_binlog_pu_source_schema()` (k1 key, v1, v2, hidden
-    // delete_sign). Layout matches resolve_binlog_context's before_col_start =
-    // normal_col_start + normal_col_num: the visible source columns first, then
-    // one BEFORE column per visible value column, then TSO/LSN/OP.
-    //   [k1(0), v1(1), v2(2), __BEFORE__v1__(3), __BEFORE__v2__(4),
+    // delete_sign). The visible source columns come first, followed by one BEFORE
+    // column per visible value column, then TSO/LSN/OP.
+    //   [k1(0), v1(1), v2(2), __DORIS_BEFORE__v1__(3), __DORIS_BEFORE__v2__(4),
     //    __DORIS_BINLOG_TSO__(5), __DORIS_BINLOG_LSN__(6), __DORIS_BINLOG_OP__(7)]
     // The fixture's create_binlog_tablet builds a binlog schema with no BEFORE
-    // columns, so this variant is defined locally for the write_before=true path.
+    // columns, so this variant is defined locally for explicit BEFORE mappings.
     TabletSchemaSPtr create_binlog_before_schema() {
         TabletSchemaPB pb;
         pb.set_keys_type(DUP_KEYS); // row binlog is written as a DUP block
@@ -108,6 +150,8 @@ protected:
             }
             c->set_length(len);
             c->set_index_length(len);
+            c->set_precision(0);
+            c->set_frac(0);
             c->set_is_nullable(nullable);
             c->set_aggregation("NONE");
         };
@@ -115,13 +159,13 @@ protected:
         add_col(1, "v1", "INT", false, true);
         add_col(2, "v2", "INT", false, true);
         // BEFORE mirror columns -- always nullable (NULL when no historical row).
-        add_col(3, "__BEFORE__v1__", "INT", false, true);
-        add_col(4, "__BEFORE__v2__", "INT", false, true);
+        add_col(3, "__DORIS_BEFORE__v1__", "INT", false, true);
+        add_col(4, "__DORIS_BEFORE__v2__", "INT", false, true);
         add_col(5, BINLOG_TSO_COL, "BIGINT", false, true);
         add_col(6, BINLOG_LSN_COL, "BIGINT", false, false);
         add_col(7, BINLOG_OP_COL, "BIGINT", false, false);
         // init_from_pb reads this straight from the PB (it is not inferred from
-        // the column name). [k1,v1,v2,__BEFORE__v1__,__BEFORE__v2__,TSO,LSN,OP]
+        // the column name). [k1,v1,v2,__DORIS_BEFORE__v1__,__DORIS_BEFORE__v2__,TSO,LSN,OP]
         pb.set_binlog_tso_col_idx(5);
         pb.set_binlog_lsn_col_idx(6);
         pb.set_binlog_op_col_idx(7);
@@ -131,7 +175,7 @@ protected:
         return schema;
     }
 
-    // A row-binlog DUP schema with __BEFORE__* columns for a key-only source
+    // A row-binlog DUP schema with __DORIS_BEFORE__* columns for a key-only source
     // (k1 key, hidden delete_sign, 0 visible value columns) -- the BEFORE no-op
     // case. Layout: [k1(0), TSO(1), LSN(2), OP(3)]; no BEFORE column is emitted
     // because num_visible_value_columns()==0.
@@ -316,7 +360,181 @@ protected:
         rwc.allocated_lsn_map = std::make_shared<segment_v2::SegmentAllocatedLsnMap>();
         rwc.insert_segment_allocated_lsns(0, make_seg_lsn(num_rows));
     }
+
+    void set_test_column_mappings(RowsetWriterContext& rwc, bool need_historical_value) {
+        auto& cfg = rwc.write_binlog_opt().write_binlog_config();
+        cfg.need_historical_value = need_historical_value;
+        std::vector<RowBinlogColumnUidMapping> uid_mappings;
+        for (ColumnId source_cid = 0; source_cid < cfg.source.tablet_schema->num_columns();
+             ++source_cid) {
+            const auto& source_column = cfg.source.tablet_schema->column(source_cid);
+            if (!source_column.visible() && !source_column.is_key()) {
+                continue;
+            }
+            const int32_t current_cid = rwc.tablet_schema->field_index(source_column.name());
+            ASSERT_GE(current_cid, 0);
+            std::optional<int32_t> before_uid;
+            if (need_historical_value && source_column.visible() && !source_column.is_key()) {
+                const int32_t before_cid = rwc.tablet_schema->field_index(
+                        binlog::build_before_column_name(source_column.name()));
+                ASSERT_GE(before_cid, 0);
+                before_uid = rwc.tablet_schema->column(before_cid).unique_id();
+            }
+            uid_mappings.push_back({source_column.unique_id(),
+                                    rwc.tablet_schema->column(current_cid).unique_id(),
+                                    before_uid});
+        }
+        auto result = segment_v2::resolve_row_binlog_column_mappings(
+                *cfg.source.tablet_schema, *rwc.tablet_schema, uid_mappings);
+        ASSERT_TRUE(result.has_value()) << result.error();
+        cfg.column_mappings = std::move(*result);
+    }
 };
+
+TEST_F(RowBinlogDeriveTest, ResolvesExplicitUidMappings) {
+    auto source_schema = create_test_schema({
+            {10, "key", "INT", true},
+            {11, "value_1", "INT", false, true, false},
+            {12, "hidden", "INT", false, false, true},
+            {13, "value_2", "INT", false, true, true},
+    });
+    auto target_schema = create_test_schema(
+            {
+                    {103, "before_1", "INT", false, true, true},
+                    {100, "current_key", "INT", true},
+                    {200, "tso", "BIGINT", false, true, true},
+                    {101, "current_1", "INT", false, true, true},
+                    {201, "lsn", "BIGINT"},
+                    {102, "current_2", "INT", false, true, true},
+                    {202, "op", "BIGINT"},
+            },
+            2, 4, 6);
+    const std::vector<RowBinlogColumnUidMapping> uid_mappings {
+            {10, 100, std::nullopt}, {11, 101, 103}, {13, 102, std::nullopt}};
+
+    auto result = segment_v2::resolve_row_binlog_column_mappings(*source_schema, *target_schema,
+                                                                 uid_mappings);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(*result, (std::vector<segment_v2::RowBinlogColumnCidMapping> {
+                               {0, 1, std::nullopt}, {1, 3, 0}, {3, 5, std::nullopt}}));
+}
+
+TEST_F(RowBinlogDeriveTest, RejectsInvalidUidMappings) {
+    auto source_schema = create_test_schema({
+            {10, "key", "INT", true},
+            {11, "value_1", "INT", false, true, false},
+            {12, "hidden", "INT", false, false, true},
+            {13, "value_2", "INT", false, true, true},
+    });
+    auto target_schema = create_test_schema(
+            {
+                    {103, "before_1", "INT", false, true, true},
+                    {100, "current_key", "INT", true},
+                    {200, "tso", "BIGINT", false, true, true},
+                    {101, "current_1", "INT", false, true, true},
+                    {201, "lsn", "BIGINT"},
+                    {102, "current_2", "INT", false, true, true},
+                    {202, "op", "BIGINT"},
+            },
+            2, 4, 6);
+    const std::vector<std::vector<RowBinlogColumnUidMapping>> invalid_mappings {
+            {{999, 100, std::nullopt}, {11, 101, 103}, {13, 102, std::nullopt}},
+            {{10, 999, std::nullopt}, {11, 101, 103}, {13, 102, std::nullopt}},
+            {{10, 100, std::nullopt}, {11, 101, 999}, {13, 102, std::nullopt}},
+            {{10, 100, std::nullopt}, {10, 101, 103}, {13, 102, std::nullopt}},
+            {{10, 100, std::nullopt}, {11, 100, 103}, {13, 102, std::nullopt}},
+            {{10, 100, std::nullopt}, {11, 101, 103}, {13, 102, 103}},
+            {{10, 100, std::nullopt}, {11, 101, 103}},
+            {{10, 200, std::nullopt}, {11, 101, 103}, {13, 102, std::nullopt}},
+            {{10, 100, std::nullopt}, {11, 101, 100}, {13, 102, std::nullopt}},
+            {{10, 101, std::nullopt}, {11, 100, 103}, {13, 102, std::nullopt}},
+    };
+
+    for (const auto& mappings : invalid_mappings) {
+        auto result = segment_v2::resolve_row_binlog_column_mappings(*source_schema, *target_schema,
+                                                                     mappings);
+        EXPECT_FALSE(result.has_value());
+    }
+
+    auto target_with_extra = create_test_schema(
+            {
+                    {103, "before_1", "INT", false, true, true},
+                    {100, "current_key", "INT", true},
+                    {200, "tso", "BIGINT", false, true, true},
+                    {101, "current_1", "INT", false, true, true},
+                    {201, "lsn", "BIGINT"},
+                    {102, "current_2", "INT", false, true, true},
+                    {104, "unmapped", "INT", false, true, true},
+                    {202, "op", "BIGINT"},
+            },
+            2, 4, 7);
+    EXPECT_FALSE(segment_v2::resolve_row_binlog_column_mappings(
+                         *source_schema, *target_with_extra,
+                         {{10, 100, std::nullopt}, {11, 101, 103}, {13, 102, std::nullopt}})
+                         .has_value());
+
+    auto target_with_bad_type = create_test_schema(
+            {
+                    {103, "before_1", "INT", false, true, true},
+                    {100, "current_key", "INT", true},
+                    {200, "tso", "BIGINT", false, true, true},
+                    {101, "current_1", "BIGINT", false, true, true},
+                    {201, "lsn", "BIGINT"},
+                    {102, "current_2", "INT", false, true, true},
+                    {202, "op", "BIGINT"},
+            },
+            2, 4, 6);
+    EXPECT_FALSE(segment_v2::resolve_row_binlog_column_mappings(
+                         *source_schema, *target_with_bad_type,
+                         {{10, 100, std::nullopt}, {11, 101, 103}, {13, 102, std::nullopt}})
+                         .has_value());
+}
+
+TEST_F(RowBinlogDeriveTest, PlainUsesExplicitInterleavedTargetCids) {
+    auto source_schema = create_test_schema(
+            {{10, "key", "INT", true}, {11, "value_1", "INT"}, {12, "value_2", "INT"}});
+    auto target_schema = create_test_schema(
+            {
+                    {200, "tso", "BIGINT", false, true, true},
+                    {102, "current_2", "INT", false, true, true},
+                    {201, "lsn", "BIGINT"},
+                    {100, "current_key", "INT", true},
+                    {202, "op", "BIGINT"},
+                    {101, "current_1", "INT", false, true, true},
+            },
+            0, 2, 4);
+
+    RowsetWriterContext rwc;
+    rwc.tablet_schema = target_schema;
+    rwc.write_type = DataWriteType::TYPE_DIRECT;
+    rwc.write_binlog_opt().enable = true;
+    auto& cfg = rwc.write_binlog_opt().write_binlog_config();
+    cfg.source.tablet_schema = source_schema;
+    cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
+    cfg.column_mappings = *segment_v2::resolve_row_binlog_column_mappings(
+            *source_schema, *target_schema,
+            {{10, 100, std::nullopt}, {11, 101, std::nullopt}, {12, 102, std::nullopt}});
+    register_segment_lsns(rwc, 1);
+
+    Block block = source_schema->create_storage_block();
+    {
+        auto guard = block.mutate_columns_scoped();
+        auto& columns = guard.mutable_columns();
+        int32_t values[] = {7, 70, 700};
+        for (size_t cid = 0; cid < 3; ++cid) {
+            columns[cid]->insert_data(reinterpret_cast<const char*>(&values[cid]), sizeof(int32_t));
+        }
+    }
+
+    auto chain = build_transform_chain(rwc);
+    TransformExecContext ctx = exec_ctx(target_schema, &rwc);
+    ASSERT_TRUE(chain.apply(ctx, &block).ok());
+    EXPECT_EQ(read_int(block, 3, 0), 7);
+    EXPECT_EQ(read_int(block, 5, 0), 70);
+    EXPECT_EQ(read_int(block, 1, 0), 700);
+    EXPECT_EQ(read_lsn(block, 2, 0), 1000);
+    EXPECT_EQ(read_op(block, 4, 0), ROW_BINLOG_APPEND);
+}
 
 // ===========================================================================
 // §5.2 Plain derive (no probe): op comes only from the row's own delete sign.
@@ -341,7 +559,7 @@ TEST_F(RowBinlogDeriveTest, PlainAppendAndDeleteWithAfterAndLsn) {
     cfg.source.tablet_schema = source_schema;
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
-    cfg.write_before = false; // no PU, no BEFORE -> plain derive
+    set_test_column_mappings(rwc, false);
     register_segment_lsns(rwc, 2);
 
     auto chain = build_transform_chain(rwc);
@@ -407,7 +625,7 @@ TEST_F(RowBinlogDeriveTest, PlainNoDeleteSignColumnAllAppend) {
     cfg.source.tablet_schema = source_schema;
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
-    cfg.write_before = false;
+    set_test_column_mappings(rwc, false);
     register_segment_lsns(rwc, 2);
 
     auto chain = build_transform_chain(rwc);
@@ -499,6 +717,7 @@ TEST_F(RowBinlogDeriveTest, PlainMapsHiddenKeysAndSkipsHiddenNonKeys) {
     cfg.source.tablet_schema = source_schema;
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
+    set_test_column_mappings(rwc, false);
     register_segment_lsns(rwc, 2);
 
     Block block = source_schema->create_storage_block();
@@ -585,7 +804,7 @@ TEST_F(RowBinlogDeriveTest, MowUpdateAndAppendTakesHistoryV2) {
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
-    cfg.write_before = false;
+    set_test_column_mappings(rwc, false);
     register_segment_lsns(rwc, 2);
 
     auto chain = build_transform_chain(rwc);
@@ -729,7 +948,7 @@ TEST_F(RowBinlogDeriveTest, MowHiddenKeyColumnIsPartOfTheProbeKey) {
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
-    cfg.write_before = false;
+    set_test_column_mappings(rwc, false);
     register_segment_lsns(rwc, 1);
 
     auto chain = build_transform_chain(rwc);
@@ -771,7 +990,7 @@ TEST_F(RowBinlogDeriveTest, MowHiddenKeyColumnIsPartOfTheProbeKey) {
 // BEFORE is read first, then the op is revised from the old delete signs.
 TEST_F(RowBinlogDeriveTest, MowPartialUpdateWithBeforeImage) {
     auto source_schema = create_binlog_pu_source_schema(); // k1,v1,v2,delete_sign(hidden)
-    auto binlog_schema = create_binlog_before_schema();    // + __BEFORE__v1__/v2__ + TSO/LSN/OP
+    auto binlog_schema = create_binlog_before_schema(); // + __DORIS_BEFORE__v1__/v2__ + TSO/LSN/OP
 
     // history: key 1 -> (v1=100, v2=777); key 99 does not exist
     TabletSharedPtr probe_tablet;
@@ -807,7 +1026,7 @@ TEST_F(RowBinlogDeriveTest, MowPartialUpdateWithBeforeImage) {
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
-    cfg.write_before = true;
+    set_test_column_mappings(rwc, true);
     register_segment_lsns(rwc, 2);
 
     auto chain = build_transform_chain(rwc);
@@ -900,7 +1119,7 @@ TEST_F(RowBinlogDeriveTest, MowInsertAfterDeletedHistoryRowIsAppend) {
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
-    cfg.write_before = false;
+    set_test_column_mappings(rwc, false);
     register_segment_lsns(rwc, 2);
 
     auto chain = build_transform_chain(rwc);
@@ -986,7 +1205,7 @@ TEST_F(RowBinlogDeriveTest, MowLooksUpHistoryInBaseTabletNotBinlogTablet) {
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
-    cfg.write_before = false;
+    set_test_column_mappings(rwc, false);
     register_segment_lsns(rwc, 1);
 
     auto chain = build_transform_chain(rwc);
@@ -1060,7 +1279,7 @@ TEST_F(RowBinlogDeriveTest, MowDeleteExistingAndNewKey) {
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
-    cfg.write_before = false;
+    set_test_column_mappings(rwc, false);
     register_segment_lsns(rwc, 2);
 
     auto chain = build_transform_chain(rwc);
@@ -1097,15 +1316,15 @@ TEST_F(RowBinlogDeriveTest, MowDeleteExistingAndNewKey) {
 }
 
 // ===========================================================================
-// §5.3.3 / §5.3.4 BEFORE image (write_before=true). Previously 0 coverage.
+// §5.3.3 / §5.3.4 BEFORE image. Previously 0 coverage.
 // ===========================================================================
 
 // B19/B21: UPDATE & DELETE rows mirror the historical value columns into the
-// __BEFORE__* columns; the APPEND row (no history) has BEFORE == NULL. BEFORE
+// __DORIS_BEFORE__* columns; the APPEND row (no history) has BEFORE == NULL. BEFORE
 // covers value columns only (not the key, not delete_sign).
 TEST_F(RowBinlogDeriveTest, MowBeforeImageMirrorsHistory) {
     auto source_schema = create_binlog_pu_source_schema(); // k1,v1,v2,delete_sign(3 hidden)
-    auto binlog_schema = create_binlog_before_schema();    // + __BEFORE__v1__/v2__ + TSO/LSN/OP
+    auto binlog_schema = create_binlog_before_schema(); // + __DORIS_BEFORE__v1__/v2__ + TSO/LSN/OP
     ASSERT_EQ(binlog_schema->binlog_lsn_col_idx(), 6);
     ASSERT_EQ(binlog_schema->num_columns(), 8U);
 
@@ -1138,12 +1357,12 @@ TEST_F(RowBinlogDeriveTest, MowBeforeImageMirrorsHistory) {
     auto& cfg = rwc.write_binlog_opt().write_binlog_config();
     cfg.source.tablet_schema = source_schema;
     cfg.source.base_tablet = probe_tablet;
-    // write_before=true alone (no PU) routes to the MoW derive; the source block
+    // Explicit BEFORE mappings alone (no PU) route to the MoW derive; the source block
     // is a full-width upsert, no partial_update_info.
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
-    cfg.write_before = true;
+    set_test_column_mappings(rwc, true);
     register_segment_lsns(rwc, 3);
 
     // setup_retriever_and_lookup requires partial_update_info on the retriever
@@ -1156,7 +1375,7 @@ TEST_F(RowBinlogDeriveTest, MowBeforeImageMirrorsHistory) {
                         .ok());
     cfg.source.partial_update_info = pui;
 
-    auto chain = build_transform_chain(rwc); // write_before -> MoW derive
+    auto chain = build_transform_chain(rwc); // BEFORE mappings -> MoW derive
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"MowRowBinlogDerive"}));
 
     TransformExecContext ctx = exec_ctx(binlog_schema, &rwc);
@@ -1209,7 +1428,7 @@ TEST_F(RowBinlogDeriveTest, MowBeforeImageMirrorsHistory) {
     EXPECT_EQ(read_int(block, before_v1, 0), 100);
     EXPECT_EQ(read_int(block, before_v2, 0), 0);
     // BEFORE of DELETE row 1 == history (v1=300, v2=400) -- delete rows still
-    // read history when write_before=true (skip_delete_sign is off)
+    // read history when BEFORE mappings are present (skip_delete_sign is off)
     EXPECT_FALSE(read_is_null(block, before_v1, 1));
     EXPECT_FALSE(read_is_null(block, before_v2, 1));
     EXPECT_EQ(read_int(block, before_v1, 1), 300);
@@ -1225,7 +1444,7 @@ TEST_F(RowBinlogDeriveTest, MowBeforeImageMirrorsHistory) {
 }
 
 // B20: BEFORE no-op -- a key-only source (0 visible value columns) emits no
-// BEFORE column even with write_before=true; fill_before_columns returns early.
+// BEFORE column even when historical values are requested; fill_before_columns returns early.
 TEST_F(RowBinlogDeriveTest, MowBeforeNoopZeroValueColumns) {
     auto source_schema = create_binlog_keyonly_source_schema(); // k1, delete_sign(hidden)
     auto binlog_schema = create_binlog_keyonly_before_schema(); // [k1, TSO, LSN, OP]
@@ -1265,7 +1484,7 @@ TEST_F(RowBinlogDeriveTest, MowBeforeNoopZeroValueColumns) {
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
-    cfg.write_before = true;
+    set_test_column_mappings(rwc, true);
     register_segment_lsns(rwc, 2);
 
     auto chain = build_transform_chain(rwc);
@@ -1353,7 +1572,7 @@ TEST_F(RowBinlogDeriveTest, MowSeqSourceSeqLosesStillReadsHistory) {
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
-    cfg.write_before = false;
+    set_test_column_mappings(rwc, false);
     register_segment_lsns(rwc, 2);
 
     auto chain = build_transform_chain(rwc);
@@ -1436,7 +1655,7 @@ TEST_F(RowBinlogDeriveTest, MowMaterializesFlexiblePartialUpdate) {
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
-    cfg.write_before = false;
+    set_test_column_mappings(rwc, false);
     register_segment_lsns(rwc, 1);
 
     auto chain = build_transform_chain(rwc);
@@ -1498,7 +1717,7 @@ TEST_F(RowBinlogDeriveTest, MowFixedPartialUpdateRejectsBadWidth) {
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
-    cfg.write_before = false;
+    set_test_column_mappings(rwc, false);
 
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"MowRowBinlogDerive"}));
@@ -1553,7 +1772,6 @@ TEST_F(RowBinlogDeriveTest, RejectsMissingSourceSchema) {
     cfg.source.tablet_schema = nullptr; // missing source schema
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
-    cfg.write_before = false;
     register_segment_lsns(rwc, 1);
 
     auto chain = build_transform_chain(rwc); // no PU, no BEFORE -> plain derive
@@ -1590,7 +1808,7 @@ TEST_F(RowBinlogDeriveTest, RejectsNegativeSegmentId) {
     cfg.source.tablet_schema = source_schema;
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.source.is_transient_rowset_writer = false;
-    cfg.write_before = false;
+    set_test_column_mappings(rwc, false);
     register_segment_lsns(rwc, 1);
 
     auto chain = build_transform_chain(rwc);
@@ -1607,43 +1825,6 @@ TEST_F(RowBinlogDeriveTest, RejectsNegativeSegmentId) {
     auto st = chain.apply(ctx, &block);
     EXPECT_FALSE(st.ok());
     EXPECT_NE(st.to_string().find("flush_single_block"), std::string::npos) << st;
-}
-
-// The schema and write_before have to agree about the BEFORE columns. Both
-// directions are rejected: a schema without BEFORE columns while write_before is
-// on would fill over the TSO/LSN columns, and one with them while write_before is
-// off would leave those columns empty in an otherwise full block.
-TEST_F(RowBinlogDeriveTest, RejectsSchemaAndWriteBeforeDisagreement) {
-    auto tablets = create_binlog_tablets(/*tablet_id=*/8901, TKeysType::DUP_KEYS, /*mow=*/false);
-    auto binlog_schema = tablets.binlog->tablet_schema(); // no BEFORE columns
-    auto source_schema = create_binlog_pu_source_schema();
-
-    RowsetWriterContext rwc;
-    rwc.tablet = tablets.binlog;
-    rwc.tablet_schema = binlog_schema;
-    rwc.write_type = DataWriteType::TYPE_DIRECT;
-    rwc.write_binlog_opt().enable = true;
-    auto& cfg = rwc.write_binlog_opt().write_binlog_config();
-    cfg.source.tablet_schema = source_schema;
-    cfg.source.base_tablet = tablets.source;
-    cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
-    cfg.source.is_transient_rowset_writer = false;
-    cfg.source.mow_context = make_mow_context(100, {});
-    cfg.write_before = true; // the schema has no BEFORE columns
-    register_segment_lsns(rwc, 1);
-
-    auto chain = build_transform_chain(rwc);
-    TransformExecContext ctx = exec_ctx(binlog_schema, &rwc);
-    ctx.tablet = tablets.binlog;
-    ctx.mow_context = cfg.source.mow_context;
-
-    Block block = source_schema->create_storage_block();
-    for (size_t cid = 0; cid < source_schema->num_columns(); ++cid) {
-        block.get_by_position(cid).column->assert_mutable()->insert_default();
-    }
-    auto st = chain.apply(ctx, &block);
-    EXPECT_FALSE(st.ok());
-    EXPECT_NE(st.to_string().find("does not match the derived block"), std::string::npos) << st;
 }
 
 } // namespace doris

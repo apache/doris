@@ -97,8 +97,8 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
                        k3,
                        v1,
                        v2,
-                       __BEFORE__v1__,
-                       __BEFORE__v2__
+                       __DORIS_BEFORE__v1__,
+                       __DORIS_BEFORE__v2__
                 FROM binlog("table" = "test_mow_multi_segment_with_binlog")
                 WHERE k1 IN (1, 3000, 5000)
                 ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
@@ -144,8 +144,8 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
                        k3,
                        v1,
                        v2,
-                       __BEFORE__v1__,
-                       __BEFORE__v2__
+                       __DORIS_BEFORE__v1__,
+                       __DORIS_BEFORE__v2__
                 FROM binlog("table" = "test_mow_multi_segment_with_binlog")
                 WHERE k1 IN (1, 3000, 5000)
                 ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
@@ -200,8 +200,8 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
                        k3,
                        v1,
                        v2,
-                       __BEFORE__v1__,
-                       __BEFORE__v2__
+                       __DORIS_BEFORE__v1__,
+                       __DORIS_BEFORE__v2__
                 FROM binlog("table" = "test_mow_multi_segment_with_binlog")
                 WHERE k1 IN (1, 3000, 5000)
                 ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
@@ -217,8 +217,8 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
                        k3,
                        v1,
                        v2,
-                       __BEFORE__v1__,
-                       __BEFORE__v2__
+                       __DORIS_BEFORE__v1__,
+                       __DORIS_BEFORE__v2__
                 FROM binlog("table" = "test_mow_multi_segment_with_binlog")
                 WHERE k1 IN (1, 3000, 5000)
                 ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__

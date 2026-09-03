@@ -138,8 +138,8 @@ suite("test_cloud_row_binlog_compaction", "nonConcurrent") {
                    k1,
                    v1,
                    v2,
-                   __BEFORE__v1__,
-                   __BEFORE__v2__
+                   __DORIS_BEFORE__v1__,
+                   __DORIS_BEFORE__v2__
             FROM binlog("table" = "test_cloud_binlog_compaction_mow_historical")
         """
 
@@ -202,8 +202,8 @@ suite("test_cloud_row_binlog_compaction", "nonConcurrent") {
                    k1,
                    v1,
                    v2,
-                   __BEFORE__v1__,
-                   __BEFORE__v2__
+                   __DORIS_BEFORE__v1__,
+                   __DORIS_BEFORE__v2__
             FROM binlog("table" = "test_cloud_binlog_compaction_mow_seq_historical")
         """
 
@@ -213,8 +213,8 @@ suite("test_cloud_row_binlog_compaction", "nonConcurrent") {
                    k1,
                    v1,
                    v2,
-                   __BEFORE__v1__,
-                   __BEFORE__v2__
+                   __DORIS_BEFORE__v1__,
+                   __DORIS_BEFORE__v2__
             FROM binlog("table" = "test_cloud_binlog_compaction_mow_seq_historical")
         """
         sql "SET skip_delete_bitmap = false"
@@ -278,8 +278,8 @@ suite("test_cloud_row_binlog_compaction", "nonConcurrent") {
                    k1,
                    v1,
                    v2,
-                   __BEFORE__v1__,
-                   __BEFORE__v2__
+                   __DORIS_BEFORE__v1__,
+                   __DORIS_BEFORE__v2__
             FROM binlog("table" = "test_cloud_binlog_compaction_mow_historical_long_chain")
         """
     }

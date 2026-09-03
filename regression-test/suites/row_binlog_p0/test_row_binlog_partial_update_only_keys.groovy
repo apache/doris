@@ -64,8 +64,8 @@ suite("test_row_binlog_partial_update_only_keys", "nonConcurrent") {
                    k2,
                    v_default,
                    v_nullable,
-                   __BEFORE__v_default__,
-                   __BEFORE__v_nullable__
+                   __DORIS_BEFORE__v_default__,
+                   __DORIS_BEFORE__v_nullable__
             FROM binlog("table" = "test_row_binlog_partial_update_only_keys")
             ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
