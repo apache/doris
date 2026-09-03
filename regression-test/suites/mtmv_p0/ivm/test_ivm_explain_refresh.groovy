@@ -36,6 +36,22 @@ suite("test_ivm_explain_refresh") {
                             .replaceAll(/\b([A-Za-z][A-Za-z0-9_]*)\[\d+\]/, '$1[]')
                             .replaceAll(/selectedIndexId=[^,\s\)]+/, "selectedIndexId=<id>")
                             .replaceAll(/__doris_ivm_stream_\d+_/, "__doris_ivm_stream_")
+                            // Physical join implementation and runtime filters are cost-driven
+                            // (they depend on stats/env, not on the IVM structure), so they must
+                            // not be locked into the shape expectation: normalize the join
+                            // distribution and strip the RF markers.
+                            // ShuffleType values come from shuffleType() (AbstractPhysicalJoin):
+                            // the whole enum is listed so no value can slip through unnormalized.
+                            .replaceAll(/hashJoin\[([A-Z_]+) (bucketShuffle|shuffleBucket|broadcast|shuffle|colocated|unknown)\]/, 'hashJoin[$1 joinImpl]')
+                            // FE appends these RF clauses at the end of the node's single-line
+                            // shapeInfo: " build RFs:" on HashJoin/NestedLoopJoin/SetOperation,
+                            // " apply RFs:" on scan/CTE consumers. Each entry is
+                            // "[(ignored)]RF<n> <src>-><tgt>" (RuntimeFilter.shapeInfo), joined by
+                            // ";" (hash/nestloop joins) or " " (set operations). RF count/ids are
+                            // cost/env-driven, so strip the whole clause structurally instead of
+                            // pinning exact filter ids.
+                            .replaceAll(/ build RFs:((\(ignored\))?RF\d+[^;\n]*)([; ](\(ignored\))?RF\d+[^;\n]*)*/, "")
+                            .replaceAll(/ apply RFs:( ?RF\d+)+/, "")
                     def converted = []
                     for (int i = 0; i < row.size(); i++) {
                         converted.add(i == planIndex ? plan : row[i].toString())
@@ -45,11 +61,14 @@ suite("test_ivm_explain_refresh") {
         )
     }
 
-    sql "set disable_join_reorder=true"
-    // 固定 join 分布：剔除 broadcast 候选后，bucketShuffle 与 shuffle 的取舍只取决于
-    // 重分布数据量（bucketShuffle 恒优），不再受 BE 数量等环境因素影响
-    sql "set broadcast_row_count_limit = 0"
-
+    // Note: EXPLAIN ... REFRESH is planned in a fresh ConnectContext rebuilt from the MV's
+    // CREATE-time snapshot of affectQueryResultInPlan session variables (LogicalPlanBuilder:
+    // CreateMTMVInfo -> getAffectQueryResultInPlanVariables), not from the session running the
+    // EXPLAIN. The variables that could pin this plan (join distribution, runtime filters,
+    // ignore_shape_nodes) carry no affectQueryResultInPlan flag, so `set` cannot reach them —
+    // verified empirically (regenerating with ignore_shape_nodes set produced identical output).
+    // The normalization in explainIvmPlanWithoutStreamId is therefore the only reliable way to
+    // keep these shape expectations stable across environments.
     sql """drop materialized view if exists test_ivm_explain_refresh_mv;"""
     sql """drop table if exists test_ivm_explain_refresh_t1;"""
     sql """drop table if exists test_ivm_explain_refresh_t2;"""

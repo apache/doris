@@ -6,7 +6,7 @@ PhysicalOlapTableSink
 ------PhysicalUnion
 --------PhysicalDistribute[DistributionSpecExecutionAny]
 ----------PhysicalProject
-------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((k1 = k1)) otherCondition=()
+------------hashJoin[LEFT_OUTER_JOIN joinImpl] hashCondition=((k1 = k1)) otherCondition=()
 --------------PhysicalProject
 ----------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
 --------------PhysicalProject
@@ -14,21 +14,21 @@ PhysicalOlapTableSink
 ------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
 --------PhysicalDistribute[DistributionSpecExecutionAny]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((k1 = __DORIS_IVM_NULL_SIDE_EVENT_KEY_0)) otherCondition=()
+------------hashJoin[INNER_JOIN joinImpl] hashCondition=((k1 = __DORIS_IVM_NULL_SIDE_EVENT_KEY_0)) otherCondition=()
 --------------PhysicalProject
 ----------------filter((test_ivm_explain_refresh_t1.__DORIS_DELETE_SIGN__ = 0))
 ------------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
 --------------PhysicalUnion
 ----------------PhysicalDistribute[DistributionSpecExecutionAny]
 ------------------PhysicalProject
---------------------hashJoin[LEFT_ANTI_JOIN broadcast] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
+--------------------hashJoin[LEFT_ANTI_JOIN joinImpl] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
 ----------------------PhysicalEmptyRelation
 ----------------------PhysicalProject
 ------------------------filter((test_ivm_explain_refresh_t2.__DORIS_DELETE_SIGN__ = 0))
 --------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
 ----------------PhysicalDistribute[DistributionSpecExecutionAny]
 ------------------PhysicalProject
---------------------hashJoin[LEFT_ANTI_JOIN broadcast] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
+--------------------hashJoin[LEFT_ANTI_JOIN joinImpl] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
 ----------------------PhysicalEmptyRelation
 ----------------------PhysicalProject
 ------------------------filter((test_ivm_explain_refresh_t2.__DORIS_DELETE_SIGN__ = 0))
@@ -38,7 +38,7 @@ PhysicalOlapTableSink
 PhysicalOlapTableSink
 --PhysicalDistribute[DistributionSpecOlapTableSinkHashPartitioned]
 ----PhysicalProject
-------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((k1 = test_ivm_explain_refresh_t2.k1)) otherCondition=()
+------hashJoin[LEFT_OUTER_JOIN joinImpl] hashCondition=((k1 = test_ivm_explain_refresh_t2.k1)) otherCondition=()
 --------PhysicalProject
 ----------PhysicalOlapScan[test_ivm_explain_refresh_t1]
 --------PhysicalProject
