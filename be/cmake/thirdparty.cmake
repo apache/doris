@@ -113,9 +113,13 @@ add_thirdparty(arrow_acero LIB64)
 add_thirdparty(adbc_driver_manager LIB64)
 add_thirdparty(parquet LIB64)
 # liblance_c.a contains compiler_builtins cbrt symbols. Place libm before it
-# so the final linker resolves C math symbols from the system library first.
+# so the final linker resolves C math symbols from the system library first
 add_thirdparty(lance_c LIB64 NOTADD)
-list(APPEND COMMON_THIRDPARTY m lance_c)
+# liblance_c.a contains compiler_builtins cbrt symbols. Place libm before it
+# so the final linker resolves C math symbols from the system library first.
+if (NOT GLIBC_COMPATIBILITY)
+    list(APPEND COMMON_THIRDPARTY m lance_c)
+endif()
 add_thirdparty(brpc LIB64)
 add_thirdparty(rocksdb)
 add_thirdparty(cyrus-sasl LIBNAME "lib/libsasl2.a")
@@ -189,18 +193,3 @@ add_thirdparty(icudata LIB64)
 
 
 add_thirdparty(pugixml LIB64)
-
-if (ENABLE_PAIMON_CPP)
-    add_thirdparty(paimon LIB64)
-    add_thirdparty(paimon_parquet_file_format LIB64)
-    add_thirdparty(paimon_orc_file_format LIB64)
-    add_thirdparty(paimon_blob_file_format LIB64)
-    add_thirdparty(paimon_local_file_system LIB64)
-    add_thirdparty(paimon_file_index LIB64)
-    add_thirdparty(paimon_global_index LIB64)
-
-    add_thirdparty(roaring_bitmap_paimon LIB64)
-    add_thirdparty(xxhash_paimon LIB64)
-    add_thirdparty(fmt_paimon LIB64)
-    add_thirdparty(tbb_paimon LIB64)
-endif()

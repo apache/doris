@@ -24,6 +24,31 @@ options { tokenVocab = DorisLexer; }
 @members {
     public boolean ansiSQLSyntax = false;
 
+    private void replaceTokenByIdentifier(ParserRuleContext ctx, int stripMargins,
+            boolean unescapeBackticks) {
+        if (!getBuildParseTree()) {
+            return;
+        }
+        ParserRuleContext parent = ctx.getParent();
+        parent.removeLastChild();
+        Token token = (Token) ctx.getChild(0).getPayload();
+        CommonToken identifier = new CommonToken(
+                new Pair<>(token.getTokenSource(), token.getInputStream()),
+                IDENTIFIER,
+                token.getChannel(),
+                token.getStartIndex() + stripMargins,
+                token.getStopIndex() - stripMargins);
+        if (unescapeBackticks) {
+            identifier.setText(identifier.getText().replace("``", "`"));
+        }
+        parent.addChild(new TerminalNodeImpl(identifier));
+    }
+
+    private void reportUnquotedIdentifier(ErrorIdentContext ctx) {
+        throw org.apache.doris.nereids.errors.QueryParsingErrors.unquotedIdentifierError(
+                ctx.getParent().getText(), ctx);
+    }
+
     private boolean isTupleLambdaBody() {
         if (_input.LA(1) != LEFT_PAREN) {
             return false;
@@ -105,8 +130,10 @@ statementBase
     ;
 
 queryOrDmlStatement
-    : explain? query outFileClause?     #statementDefault
-    | dmlStatement                      #dmlStatementAlias
+    : explainContext=explain? cteContext=cte?
+        (queryTerm queryOrganization outFileClause?
+        | dmlStatementBody[$explainContext.ctx, $cteContext.ctx])    #explainableStatement
+    | nonExplainableDmlStatement        #dmlStatementAlias
     | describeStatement                 #describeStatementAlias
     | otherStatement                    #otherStatementAlias
     | loadDmlStatement                  #loadStatementAlias
@@ -274,31 +301,40 @@ optSpecBranch
     ;
 
 dmlStatement
-    : explain? cte? INSERT INTO tvfName=identifier
+    : explainContext=explain? cteContext=cte?
+        dmlStatementBody[$explainContext.ctx, $cteContext.ctx]      #explainableDmlStatement
+    | nonExplainableDmlStatement                                   #nonExplainableDmlStatementAlias
+    ;
+
+dmlStatementBody[ExplainContext explainContext, CteContext cteContext]
+    : INSERT INTO tvfName=identifier
         LEFT_PAREN tvfProperties=propertyItemList RIGHT_PAREN
         (WITH LABEL labelName=identifier)?
         query                                                          #insertIntoTVF
-    | explain? cte? INSERT (INTO | OVERWRITE TABLE)
+    | INSERT (INTO | OVERWRITE TABLE)
         (tableName=multipartIdentifier (optSpecBranch)? | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
         partitionSpec?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
         query                                                          #insertTable
-    | explain? cte? UPDATE tableName=multipartIdentifier tableAlias
+    | UPDATE tableName=multipartIdentifier tableAlias
         SET updateAssignmentSeq
         fromClause?
         whereClause?
         queryOrganization                                              #update
-    | explain? cte? DELETE FROM tableName=multipartIdentifier
+    | DELETE FROM tableName=multipartIdentifier
         partitionSpec? tableAlias
         (USING relations)?
         whereClause?
         queryOrganization                                              #delete
-    | explain? cte? MERGE INTO targetTable=multipartIdentifier
+    | MERGE INTO targetTable=multipartIdentifier
         (AS? identifier)? USING srcRelation=relationPrimary
         ON expression
         (mergeMatchedClause | mergeNotMatchedClause)+                   #mergeInto
-    | LOAD LABEL lableName=multipartIdentifier
+    ;
+
+nonExplainableDmlStatement
+    : LOAD LABEL lableName=multipartIdentifier
         LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
         (withRemoteStorageSystem)?
         propertyClause?
@@ -1616,9 +1652,11 @@ sortItem
     ;
 
 limitClause
-    : (LIMIT limit=INTEGER_VALUE)
-    | (LIMIT limit=INTEGER_VALUE OFFSET offset=INTEGER_VALUE)
-    | (LIMIT offset=INTEGER_VALUE COMMA limit=INTEGER_VALUE)
+    : LIMIT limit=INTEGER_VALUE
+      (OFFSET offset=INTEGER_VALUE
+      // Preserve the existing semantic labels for MySQL's LIMIT offset, count form.
+      | COMMA commaLimit=INTEGER_VALUE {$ctx.offset = $ctx.limit; $ctx.limit = $ctx.commaLimit;}
+      )?
     ;
 
 partitionClause
@@ -1872,6 +1910,10 @@ valueExpression
     ;
 
 primaryExpression
+    : primaryExpressionBase primaryExpressionSuffix*
+    ;
+
+primaryExpressionBase
     : name=CURRENT_DATE                                                                        #currentDate
     | name=CURRENT_TIME                                                                        #currentTime
     | name=CURRENT_TIMESTAMP                                                                   #currentTimestamp
@@ -1879,8 +1921,7 @@ primaryExpression
     | name=LOCALTIMESTAMP                                                                      #localTimestamp
     | name=CURRENT_USER                                                                        #currentUser
     | name=SESSION_USER                                                                        #sessionUser
-    | CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
-    | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
+    | CASE caseExpression                                                                      #caseExpressionBase
     | name=CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                              #cast
     | name=TRY_CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                          #tryCast
     | DEFAULT LEFT_PAREN qualifiedName RIGHT_PAREN                                             #defaultValue
@@ -1892,8 +1933,8 @@ primaryExpression
                 arguments+=expression (COMMA arguments+=expression)*
                 (USING charSet=identifierOrText)?
           RIGHT_PAREN                                                                          #charFunction
-    | CONVERT LEFT_PAREN argument=expression USING charSet=identifierOrText RIGHT_PAREN        #convertCharSet
-    | CONVERT LEFT_PAREN argument=expression COMMA castDataType RIGHT_PAREN                    #convertType
+    | CONVERT LEFT_PAREN argument=expression
+        (USING charSet=identifierOrText | COMMA castDataType) RIGHT_PAREN                      #convertExpression
     | GROUP_CONCAT LEFT_PAREN (DISTINCT|ALL)?
         (LEFT_BRACKET identifier RIGHT_BRACKET)?
         argument=expression
@@ -1908,19 +1949,25 @@ primaryExpression
     | (ISNULL | IS_NULL_PRED) LEFT_PAREN expression RIGHT_PAREN                                #isnull
     | IS_NOT_NULL_PRED LEFT_PAREN expression RIGHT_PAREN                                       #is_not_null_pred
     | functionCallExpression                                                                   #functionCall
-    | value=primaryExpression LEFT_BRACKET index=valueExpression RIGHT_BRACKET                 #elementAt
-    | value=primaryExpression LEFT_BRACKET begin=valueExpression
-      COLON (end=valueExpression)? RIGHT_BRACKET                                               #arraySlice
-    | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
+    | LEFT_PAREN (query | expression) RIGHT_PAREN                                              #parenthesizedExpression
     | ATSIGN identifierOrText                                                                  #userVariable
     | DOUBLEATSIGN (kind=(GLOBAL | SESSION) DOT)? identifier                                   #systemVariable
     | BINARY? identifier                                                                       #columnReference
-    | base=primaryExpression DOT fieldName=identifier                                          #dereference
-    | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
     | KEY (dbName=identifier DOT)? keyName=identifier                                          #encryptKey
     | EXTRACT LEFT_PAREN field=unitIdentifier FROM (DATE | TIMESTAMP)?
       source=valueExpression RIGHT_PAREN                                                       #extract
-    | primaryExpression COLLATE (identifier | STRING_LITERAL | DEFAULT)                        #collate
+    ;
+
+primaryExpressionSuffix
+    : LEFT_BRACKET begin=valueExpression
+        (COLON (end=valueExpression)?)? RIGHT_BRACKET                                          #arrayAccess
+    | DOT fieldName=identifier                                                                 #dereference
+    | COLLATE (identifier | STRING_LITERAL | DEFAULT)                                          #collate
+    ;
+
+caseExpression
+    : whenClause+ (ELSE elseExpression=expression)? END                                        #searchedCase
+    | value=expression whenClause+ (ELSE elseExpression=expression)? END                       #simpleCase
     ;
 
 exceptOrReplace
@@ -2149,6 +2196,11 @@ errorCapturingIdentifierExtra
     : (SUBTRACT identifier)+ #errorIdent
     |                        #realIdent
     ;
+finally {
+    if ($ctx instanceof ErrorIdentContext) {
+        reportUnquotedIdentifier((ErrorIdentContext) $ctx);
+    }
+}
 
 identifier
     : strictIdentifier
@@ -2161,6 +2213,7 @@ strictIdentifier
     ;
 
 quotedIdentifier
+@after { replaceTokenByIdentifier($ctx, 1, true); }
     : BACKQUOTED_IDENTIFIER
     ;
 
@@ -2179,6 +2232,7 @@ dollarQuotedString
 // The non-reserved keywords are listed in `nonReserved`.
 // TODO: need to stay consistent with the legacy
 nonReserved
+@after { replaceTokenByIdentifier($ctx, 0, false); }
 //--DEFAULT-NON-RESERVED-START
     : ACTIONS
     | AFTER

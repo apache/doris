@@ -367,6 +367,7 @@ struct TPaimonDeletionFileDesc {
 enum TPaimonReaderType {
     PAIMON_NATIVE = 0,
     PAIMON_JNI = 1,
+    // Deprecated wire value kept during rolling upgrades. New plans never emit it.
     PAIMON_CPP = 2,
 }
 

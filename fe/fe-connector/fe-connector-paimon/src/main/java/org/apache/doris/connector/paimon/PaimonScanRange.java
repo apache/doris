@@ -209,13 +209,7 @@ public class PaimonScanRange implements ConnectorScanRange {
         if (paimonSplitVal != null) {
             // JNI reader path
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
-            // FIX-READER-TYPE (3645dc94306): tell BE's file-scanner-v2 which paimon reader stack to use.
-            // ALWAYS the Java JNI reader (upstream #66008 removed the paimon-cpp arm from
-            // PaimonScanNode.setPaimonParams): a logical DataSplit may span several files, and
-            // file-scanner-v2 has no split-aware paimon-cpp adapter, so it HARD-REJECTS a PAIMON_CPP range
-            // ("FileScannerV2 does not support table format paimon", file_scanner_v2.cpp
-            // is_supported_jni_table_format -> _validate_scan_range) with no per-range V1 fallback.
-            // enable_paimon_cpp_reader is therefore a no-op on the plan path, exactly like on master.
+            // A serialized logical split is always consumed by the Java JNI reader.
             fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
             fileDesc.setPaimonSplit(paimonSplitVal);
             String weightStr = props.get("paimon.self_split_weight");
@@ -297,10 +291,7 @@ public class PaimonScanRange implements ConnectorScanRange {
         private long start;
         private long length = -1;
         private long fileSize = -1;
-        // Every production caller sets fileFormat explicitly (the real orc/parquet). Default empty (NOT
-        // "jni", an invalid paimon format): BE's paimon_cpp_reader skips its FILE_FORMAT/MANIFEST_FORMAT
-        // backfill when this is empty (guarded !file_format.empty()), so a missing set can never inject an
-        // invalid format (FIX-JNI-FILE-FORMAT).
+        // Every production caller sets fileFormat explicitly to the real data-file format.
         private String fileFormat = "";
         private Map<String, String> partitionValues;
         private long selfSplitWeight;

@@ -300,7 +300,7 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
-    public void testPostProcessor() {
+    public void testQuotedIdentifierNormalization() {
         parsePlan("select `AD``D` from t1 where a = 1")
                 .matches(
                         logicalProject().when(p -> "AD`D".equals(p.getProjects().get(0).getName()))

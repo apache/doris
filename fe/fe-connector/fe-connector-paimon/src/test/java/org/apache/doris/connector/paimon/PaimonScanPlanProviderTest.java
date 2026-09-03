@@ -34,11 +34,8 @@ import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.properties.StorageProperties;
-import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
-import org.apache.doris.thrift.TPaimonReaderType;
 import org.apache.doris.thrift.TPrimitiveType;
-import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.schema.external.TField;
 import org.apache.doris.thrift.schema.external.TFieldPtr;
 import org.apache.doris.thrift.schema.external.TSchema;
@@ -1435,7 +1432,7 @@ public class PaimonScanPlanProviderTest {
         }
     }
 
-    /** The paimon-cpp NATIVE binary split encoding (DataSplit.serialize + Base64) — what FE must NEVER emit. */
+    /** The native binary split encoding (DataSplit.serialize + Base64), which is not used by JNI. */
     private static String nativeBinaryEncode(DataSplit dataSplit) throws Exception {
         java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
         dataSplit.serialize(new org.apache.paimon.io.DataOutputViewStreamWrapper(baos));
@@ -1446,21 +1443,14 @@ public class PaimonScanPlanProviderTest {
     public void encodeSplitAlwaysUsesJavaSerializationForDataSplit(@TempDir Path warehouse) throws Exception {
         DataSplit dataSplit = buildRealDataSplit(warehouse);
 
-        // WHY: upstream #66008 removed the paimon-cpp arm from PaimonScanNode.setPaimonParams, so the ONLY
-        // split wire format FE emits is Java object serialization (what BE's PaimonJniScanner deserializes).
-        // Emitting the native binary format would now be fatal, not just different: file-scanner-v2 (default
-        // ON) has no split-aware paimon-cpp adapter, so is_supported_jni_table_format rejects a PAIMON_CPP
-        // range and _validate_scan_range fails the query — there is no per-range V1 fallback.
-        // MUTATION: re-adding a cpp/native-binary branch -> the wire stops matching the Java encoding and
-        // starts matching the native one -> both assertions red.
+        // The JNI split wire format is Java object serialization, which PaimonJniScanner deserializes.
         String wire = PaimonScanPlanProvider.encodeSplit(dataSplit);
         Assertions.assertEquals(feJavaEncode(dataSplit), wire,
                 "a DataSplit must be Java-object-serialized byte-for-byte (the Java JNI reader's format)");
         Assertions.assertNotEquals(nativeBinaryEncode(dataSplit), wire,
-                "FE must never emit the paimon-cpp native binary split format (file-scanner-v2 rejects it)");
+                "FE must not emit the native binary split format for a JNI range");
 
-        // Sanity-check the negative reference really is the paimon-cpp format (else the assertion above
-        // would pass vacuously): it decodes back to an equal DataSplit via paimon's native deserializer.
+        // Sanity-check that the negative reference decodes through Paimon's native deserializer.
         byte[] nativeBytes = Base64.getDecoder().decode(
                 nativeBinaryEncode(dataSplit).getBytes(StandardCharsets.UTF_8));
         Assertions.assertEquals(dataSplit, DataSplit.deserialize(
@@ -1605,10 +1595,8 @@ public class PaimonScanPlanProviderTest {
     @Test
     public void jniAndCountRangesCarryRealFileFormatNotJni(@TempDir Path warehouse) throws Exception {
         // FIX-JNI-FILE-FORMAT (P7-1): a JNI-serialized split (the default reader path AND the COUNT(*)
-        // collapse range) must emit the REAL data-file format in fileDesc.file_format, NOT "jni" — BE's
-        // paimon_cpp_reader backfills paimon FILE_FORMAT/MANIFEST_FORMAT from it (an invalid "jni" breaks
-        // the manifest read). JNI routing is gated by the paimon.split property, NOT this string, so the
-        // real format is safe to emit (legacy PaimonScanNode.setPaimonParams does the same). The table is
+        // collapse range) must emit the REAL data-file format in fileDesc.file_format, NOT "jni". JNI
+        // routing is gated by the paimon.split property, NOT this string. The table is
         // created with explicit file.format=orc so the asserted value is the table option (distinct from
         // the "parquet" fallback) — proving the real option is read, not a constant.
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
@@ -1683,8 +1671,8 @@ public class PaimonScanPlanProviderTest {
         // file_format from the split's FIRST data-file SUFFIX (legacy PaimonScanNode.getFileFormat(getPathString)
         // -> dataSplitFileFormat), NOT the table-level file.format option. These DIVERGE for an altered /
         // mixed-format table: the option is changed to parquet while historical data files remain .orc. HEAD
-        // regressed to emitting the bare table default, so BE's paimon_cpp_reader would backfill the WRONG
-        // format for those files. WHY it matters: unlike jniAndCountRangesCarryRealFileFormatNotJni (where the
+        // regressed to emitting the bare table default, which would describe those files incorrectly.
+        // WHY it matters: unlike jniAndCountRangesCarryRealFileFormatNotJni (where the
         // table default == the .orc suffix, so it cannot distinguish default from suffix), this test forces a
         // mismatch and thus is the one that actually goes RED if the emission points revert to defaultFileFormat.
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
@@ -2148,7 +2136,7 @@ public class PaimonScanPlanProviderTest {
     public void ignorePaimonCppIsNoOpParity(@TempDir Path warehouse) throws Exception {
         // FIX-L14: IGNORE_PAIMON_CPP is a documented ignore_split_type value that legacy
         // PaimonScanNode.getSplits NEVER consulted, so it stays a no-op (legacy parity) — the scan emits the
-        // same ranges as NONE. Pins that a future change does not add a half-implemented CPP arm.
+        // same ranges as NONE. Retain this compatibility behavior while the enum value remains on the wire.
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
                 new org.apache.paimon.fs.Path(warehouse.toUri()))) {
             catalog.createDatabase("db", false);
@@ -2187,81 +2175,6 @@ public class PaimonScanPlanProviderTest {
             Assertions.assertTrue(noneCount > 0, "baseline scan must emit >=1 range");
             Assertions.assertEquals(noneCount, cppCount,
                     "IGNORE_PAIMON_CPP must be a no-op (legacy parity): same range count as NONE");
-        }
-    }
-
-    @Test
-    public void cppReaderSessionFlagNoLongerChangesThePlan(@TempDir Path warehouse) throws Exception {
-        // WHY (upstream #66008): enable_paimon_cpp_reader must be a NO-OP on the plan path. It stays a
-        // documented (fuzzy=true!) session variable, so the regression fuzzer and the upstream suites
-        // test_paimon_cpp_reader / test_paimon_partition_*_refs do set it to true — and if the connector
-        // still answered with PAIMON_CPP, every such query would HARD-FAIL under the default
-        // enable_file_scanner_v2=true ("FileScannerV2 does not support table format paimon with file format
-        // FORMAT_JNI": file_scanner_v2.cpp is_supported_jni_table_format -> _validate_scan_range, with no
-        // per-range fallback to the V1 scanner that still implements PaimonCppReader).
-        // MUTATION: reinstating a cpp arm keyed off this session flag -> reader_type flips to PAIMON_CPP
-        // (and paimon_table reappears) -> red.
-        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
-                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
-            catalog.createDatabase("db", false);
-            Identifier id = Identifier.create("db", "t");
-            catalog.createTable(id, Schema.newBuilder()
-                    .column("id", DataTypes.INT())
-                    .column("val", DataTypes.BIGINT())
-                    .primaryKey("id")
-                    .option("bucket", "1")
-                    .build(), false);
-            Table table = catalog.getTable(id);
-            BatchWriteBuilder wb = table.newBatchWriteBuilder();
-            try (BatchTableWrite write = wb.newWrite()) {
-                write.write(GenericRow.of(1, 100L));
-                write.write(GenericRow.of(2, 200L));
-                List<CommitMessage> messages = write.prepareCommit();
-                try (BatchTableCommit commit = wb.newCommit()) {
-                    commit.commit(messages);
-                }
-            }
-
-            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
-            ops.table = table;
-            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
-            PaimonTableHandle handle = new PaimonTableHandle(
-                    "db", "t", Collections.emptyList(), Collections.emptyList());
-            List<ConnectorColumnHandle> noColumns = Collections.emptyList();
-
-            // force_jni_scanner pins every split onto the JNI arm (the only arm the cpp flag ever touched).
-            Map<String, String> cppOn = new HashMap<>();
-            cppOn.put("force_jni_scanner", "true");
-            cppOn.put("enable_paimon_cpp_reader", "true");
-            Map<String, String> cppOff = new HashMap<>();
-            cppOff.put("force_jni_scanner", "true");
-            cppOff.put("enable_paimon_cpp_reader", "false");
-
-            List<ConnectorScanRange> onRanges = provider.planScan(sessionWithProps(cppOn),
-                    ConnectorScanRequest.builder(handle, noColumns)
-                    .build());
-            List<ConnectorScanRange> offRanges = provider.planScan(sessionWithProps(cppOff),
-                    ConnectorScanRequest.builder(handle, noColumns)
-                    .build());
-            Assertions.assertFalse(onRanges.isEmpty(), "baseline scan must emit >=1 JNI range");
-            Assertions.assertEquals(offRanges.size(), onRanges.size(),
-                    "the cpp flag must not change the emitted range count");
-
-            for (int i = 0; i < onRanges.size(); i++) {
-                TTableFormatFileDesc onDesc = new TTableFormatFileDesc();
-                onRanges.get(i).populateRangeParams(onDesc, new TFileRangeDesc());
-                TTableFormatFileDesc offDesc = new TTableFormatFileDesc();
-                offRanges.get(i).populateRangeParams(offDesc, new TFileRangeDesc());
-
-                Assertions.assertEquals(TPaimonReaderType.PAIMON_JNI,
-                        onDesc.getPaimonParams().getReaderType(),
-                        "reader_type must stay PAIMON_JNI even with enable_paimon_cpp_reader=true");
-                Assertions.assertFalse(onDesc.getPaimonParams().isSetPaimonTable(),
-                        "paimon_table is cpp-reader-only state and must no longer be shipped");
-                Assertions.assertEquals(offDesc.getPaimonParams().getPaimonSplit(),
-                        onDesc.getPaimonParams().getPaimonSplit(),
-                        "the split wire format must be identical with the cpp flag on and off");
-            }
         }
     }
 
