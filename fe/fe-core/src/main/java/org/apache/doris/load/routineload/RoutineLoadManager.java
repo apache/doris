@@ -908,6 +908,7 @@ public class RoutineLoadManager implements Writable {
         RoutineLoadJob job = getJob(operation.getId());
         try {
             job.updateState(operation.getJobState(), operation.getErrorReason(), true /* is replay */);
+            job.replayRestoreOperatorMetadata(operation);
         } catch (UserException e) {
             LOG.error("should not happened", e);
         } catch (NullPointerException npe) {

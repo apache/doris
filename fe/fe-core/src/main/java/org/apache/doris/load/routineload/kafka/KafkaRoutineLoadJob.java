@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
@@ -78,6 +79,7 @@ import org.apache.commons.lang3.BooleanUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -114,6 +116,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @SerializedName("cskp")
     private List<Integer> customKafkaPartitions = Lists.newArrayList();
     // current kafka partitions is the actual partition which will be fetched
+    @SerializedName("ckp")
     private List<Integer> currentKafkaPartitions = Lists.newArrayList();
     // optional, user want to set default offset when new partition add or offset not set.
     // kafkaDefaultOffSet has two formats, one is the time format, eg: "2021-10-10 11:00:00",
@@ -127,6 +130,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     // The latest offset of each partition fetched from kafka server.
     // Will be updated periodically by calling hasMoreDataToConsume()
+    @SerializedName("cplo")
     private Map<Integer, Long> cachedPartitionWithLatestOffsets = Maps.newConcurrentMap();
 
     // The kafka partition fetch from kafka server.
@@ -155,6 +159,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         this.topic = topic;
         this.progress = new KafkaProgress();
         setMultiTable(isMultiTable);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        Map<Integer, Long> replayedLatestOffsets = Maps.newConcurrentMap();
+        replayedLatestOffsets.putAll(Preconditions.checkNotNull(cachedPartitionWithLatestOffsets));
+        cachedPartitionWithLatestOffsets = replayedLatestOffsets;
     }
 
     public String getTopic() {
@@ -541,6 +553,21 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         } finally {
             writeUnlock();
         }
+    }
+
+    @Override
+    protected RoutineLoadOperation createPauseOperation(ErrorReason reason) {
+        return new RoutineLoadOperation(id, JobState.PAUSED, reason, progress, jobStatistic,
+                currentKafkaPartitions, cachedPartitionWithLatestOffsets);
+    }
+
+    @Override
+    protected void replayRestoreDataSourceOperatorMetadata(RoutineLoadOperation operation) {
+        currentKafkaPartitions = Lists.newArrayList(
+                Preconditions.checkNotNull(operation.getCurrentKafkaPartitions()));
+        cachedPartitionWithLatestOffsets = Maps.newConcurrentMap();
+        cachedPartitionWithLatestOffsets.putAll(
+                Preconditions.checkNotNull(operation.getCachedPartitionWithLatestOffsets()));
     }
 
     @Override
