@@ -57,6 +57,14 @@ suite("test_datasketches_hll_union_agg") {
         FROM ${tableName}
     """
 
+    qt_explicit_lg_max_k """SELECT
+            CAST(ROUND(datasketches_hll_union_agg(sk, 7)) AS BIGINT),
+            CAST(ROUND(datasketches_hll_union_agg(sk, 21)) AS BIGINT),
+            CAST(ROUND(ds_hll_estimate(sk, 8)) AS BIGINT),
+            CAST(ROUND(datasketches_hll_estimate(sk, 8)) AS BIGINT)
+        FROM ${tableName}
+    """
+
     // 3) Group-by
     qt_group_by """SELECT id, CAST(ROUND(datasketches_hll_union_agg(sk)) AS BIGINT)
         FROM ${tableName}
@@ -147,6 +155,27 @@ suite("test_datasketches_hll_union_agg") {
     test {
         sql """SELECT datasketches_hll_estimate(from_base64('AA=='))"""
         exception "CORRUPTION"
+    }
+
+    test {
+        sql """SELECT datasketches_hll_union_agg(sk, 6) FROM ${tableName}"""
+        exception "requires lg_max_k to be between 7 and 21"
+    }
+    test {
+        sql """SELECT datasketches_hll_union_agg(sk, 22) FROM ${tableName}"""
+        exception "requires lg_max_k to be between 7 and 21"
+    }
+    test {
+        sql """SELECT datasketches_hll_union_agg(sk, NULL) FROM ${tableName}"""
+        exception "requires lg_max_k to be a constant integer"
+    }
+    test {
+        sql """SELECT datasketches_hll_union_agg(sk, 8.5) FROM ${tableName}"""
+        exception "requires lg_max_k to be a constant integer"
+    }
+    test {
+        sql """SELECT datasketches_hll_union_agg(sk, id) FROM ${tableName}"""
+        exception "requires lg_max_k to be a constant integer"
     }
 
     // Empty string is a valid STRING value, but it is an invalid serialized DataSketches HLL sketch.

@@ -24,10 +24,11 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
-import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -39,12 +40,18 @@ import java.util.List;
 
 /** datasketches_hll_union_agg agg function. */
 public class DataSketchesHllUnionAgg extends NotNullableAggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, FunctionTrait, RollUpTrait {
+        implements ExplicitlyCastableSignature, FunctionTrait, RollUpTrait {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(StringType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(VarBinaryType.INSTANCE)
+            FunctionSignature.ret(DoubleType.INSTANCE).args(VarBinaryType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(StringType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, IntegerType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(VarBinaryType.INSTANCE, IntegerType.INSTANCE)
     );
+
+    private static final int MIN_LG_MAX_K = 7;
+    private static final int MAX_LG_MAX_K = 21;
 
     /**
      * constructor with 1 argument.
@@ -53,11 +60,21 @@ public class DataSketchesHllUnionAgg extends NotNullableAggregateFunction
         super("datasketches_hll_union_agg", arg);
     }
 
+    /** constructor with 2 arguments. */
+    public DataSketchesHllUnionAgg(Expression arg0, Expression arg1) {
+        super("datasketches_hll_union_agg", arg0, arg1);
+    }
+
     /**
      * constructor with 1 argument.
      */
     public DataSketchesHllUnionAgg(boolean distinct, Expression arg) {
         this(arg);
+    }
+
+    /** constructor with 2 arguments. */
+    public DataSketchesHllUnionAgg(boolean distinct, Expression arg0, Expression arg1) {
+        super("datasketches_hll_union_agg", distinct, arg0, arg1);
     }
 
     /** constructor for withChildren and reuse signature */
@@ -73,6 +90,27 @@ public class DataSketchesHllUnionAgg extends NotNullableAggregateFunction
             throw new AnalysisException(getName()
                 + " function's argument should be of STRING/VARCHAR/VARBINARY type, but was " + inputType);
         }
+        if (arity() == 2
+                && (!getArgument(1).isConstant() || !getArgumentType(1).isIntegralType())) {
+            throw new AnalysisException(getName()
+                    + " requires lg_max_k to be a constant integer: " + this.toSql());
+        }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        if (arity() == 1) {
+            return;
+        }
+        Expression lgMaxK = getArgument(1);
+        if (!(lgMaxK instanceof IntegerLikeLiteral)) {
+            throw new AnalysisException(getName() + " requires lg_max_k to be a constant integer: " + this.toSql());
+        }
+        long value = ((IntegerLikeLiteral) lgMaxK).getLongValue();
+        if (value < MIN_LG_MAX_K || value > MAX_LG_MAX_K) {
+            throw new AnalysisException(getName() + " requires lg_max_k to be between "
+                    + MIN_LG_MAX_K + " and " + MAX_LG_MAX_K + ", but was " + value);
+        }
     }
 
     @Override
@@ -87,7 +125,7 @@ public class DataSketchesHllUnionAgg extends NotNullableAggregateFunction
 
     @Override
     public DataSketchesHllUnionAgg withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
+        Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
         return new DataSketchesHllUnionAgg(getFunctionParams(distinct, children));
     }
 
@@ -98,7 +136,9 @@ public class DataSketchesHllUnionAgg extends NotNullableAggregateFunction
 
     @Override
     public Function constructRollUp(Expression param, Expression... varParams) {
-        return new DataSketchesHllUnionAgg(getFunctionParams(ImmutableList.of(param)));
+        return arity() == 1
+                ? new DataSketchesHllUnionAgg(getFunctionParams(ImmutableList.of(param)))
+                : new DataSketchesHllUnionAgg(getFunctionParams(ImmutableList.of(param, getArgument(1))));
     }
 
     @Override

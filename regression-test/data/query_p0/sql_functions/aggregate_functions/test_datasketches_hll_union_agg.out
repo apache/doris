@@ -5,6 +5,9 @@
 -- !aliases --
 17	17	17
 
+-- !explicit_lg_max_k --
+18	17	17	17
+
 -- !group_by --
 1	7
 2	10
