@@ -581,13 +581,18 @@ public class OlapScanNode extends ScanNode {
                         parseBinlogScanType(scanParams, ((OlapTableWrapper) olapTable).getOriginTable());
                 Pair<Long, Long> update = getPartitionOffset(partition.getId());
                 if (update != null) {
+                    // The BE evaluates the TSO scan range as left-closed right-open
+                    // [startTso, endTso). Shift the recorded bounds by +1 here so the scanned
+                    // row set stays identical to the previous (startTso, endTso] semantics.
+                    // table stream, @incr and snapshot reads all funnel through here, so this
+                    // single point keeps their interval semantics unified.
                     if (update.first != null) {
-                        paloRange.setStartTso(update.first);
+                        paloRange.setStartTso(update.first + 1);
                     }
                     if (update.second != null) {
-                        paloRange.setEndTso(update.second);
+                        paloRange.setEndTso(update.second + 1);
                     } else {
-                        paloRange.setEndTso(partition.getTso());
+                        paloRange.setEndTso(partition.getTso() + 1);
                     }
                 }
                 if (binlogScanType != TBinlogScanType.NONE) {
@@ -1962,14 +1967,6 @@ public class OlapScanNode extends ScanNode {
 
     public TableScanParams getScanParams() {
         return scanParams;
-    }
-
-    public long getIncrementalScanEndTime() {
-        if (scanParams != null && scanParams.incrementalRead()
-                && scanParams.getMapParams().containsKey(OLAP_END_TIMESTAMP)) {
-            return parseChangeTimestamp(scanParams.getMapParams().get(OLAP_END_TIMESTAMP));
-        }
-        return 0;
     }
 
     public static long parseChangeTimestamp(String ts) {

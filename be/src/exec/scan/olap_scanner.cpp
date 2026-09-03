@@ -332,13 +332,17 @@ Status OlapScanner::_init_tso_predicates() {
 
     const auto* tso_column = read_schema->column(tso_ordinal);
     const auto& tso_data_type = read_schema->data_type(tso_ordinal);
+    // The TSO scan range is left-closed right-open [start_tso, end_tso). The FE has
+    // already shifted the raw bounds by +1 so that this range selects the same rows as
+    // the previous (start_tso, end_tso] semantics. table stream, @incr and snapshot
+    // reads all funnel through here, so the interval semantics stay unified.
     if (_start_tso.has_value()) {
-        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
+        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::GE>(
                 tso_ordinal, tso_column->name(), tso_data_type,
                 Field::create_field<TYPE_BIGINT>(*_start_tso), false));
     }
     if (_end_tso.has_value()) {
-        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::LE>(
+        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::LT>(
                 tso_ordinal, tso_column->name(), tso_data_type,
                 Field::create_field<TYPE_BIGINT>(*_end_tso), false));
     }
