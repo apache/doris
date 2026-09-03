@@ -197,6 +197,7 @@ public class AddLocalExchange {
                 ? LocalExchangeTypeRequire.noRequire() : sink.getLocalExchangeTypeRequire();
         PlanNode root = fragment.getPlanRoot();
         context.setHasSerialAncestorInPipeline(root, false);
+        context.setHasSerialParentPipeline(root, false);
         Pair<PlanNode, LocalExchangeType> output = root
                 .enforceAndDeriveLocalExchange(context, null, require);
         PlanNode newRoot = output.first;

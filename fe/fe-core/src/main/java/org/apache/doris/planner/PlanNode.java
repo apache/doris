@@ -1069,7 +1069,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         //   node's sink, e.g. Exchange is in AGG_Sink pipeline).
         // For non-splitting operators (shouldReset=false, e.g. streaming AGG):
         //   Inherit parent's serial flag + this node's own.
-        boolean inheritedSerial = shouldResetSerialFlagForChild(childIndex)
+        boolean startsNewPipeline = shouldResetSerialFlagForChild(childIndex);
+        boolean currentPipelineSerial = translatorContext.hasSerialAncestorInPipeline(this)
+                || isSerialOperatorOnBe(translatorContext.getConnectContext());
+        boolean inheritedSerial = startsNewPipeline
                 ? false : translatorContext.hasSerialAncestorInPipeline(this);
         // Use isSerialOperatorOnBe (= isSerialNode && fragment.useSerialSource) instead of the
         // raw isSerialNode().  BE's OperatorBase reads the Thrift `is_serial_operator` flag —
@@ -1080,6 +1083,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         boolean childHasSerialAncestor = inheritedSerial
                 || isSerialOperatorOnBe(translatorContext.getConnectContext());
         translatorContext.setHasSerialAncestorInPipeline(child, childHasSerialAncestor);
+        translatorContext.setHasSerialParentPipeline(child, startsNewPipeline
+                ? currentPipelineSerial : translatorContext.hasSerialParentPipeline(this));
 
         // 1b. Propagate shuffle-for-correctness-ancestor flag to child.
         // Mirrors BE's _followed_by_shuffled_operator: a downstream operator needs hash
@@ -1140,7 +1145,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         // Use isSerialOperatorOnBe (not isSerialNode) because BE's Pipeline::need_to_local_exchange
         // checks op->is_serial_operator() which reads the Thrift flag set from isSerialOperatorOnBe;
         // when fragment.useSerialSource is false, BE treats this node as non-serial.
-        if (translatorContext.hasSerialAncestorInPipeline(this)
+        if (translatorContext.hasSerialParentPipeline(this)
+                || translatorContext.hasSerialAncestorInPipeline(this)
                 || isSerialOperatorOnBe(translatorContext.getConnectContext())) {
             return childOutput;
         }
