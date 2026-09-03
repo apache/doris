@@ -182,6 +182,7 @@ public:
     IntGauge* compaction_waitting_permits = nullptr;
 
     HistogramMetric* tablet_version_num_distribution = nullptr;
+    HistogramMetric* tablet_approximate_num_rowsets_distribution = nullptr;
 
     // The following metrics will be calculated
     // by metric calculator

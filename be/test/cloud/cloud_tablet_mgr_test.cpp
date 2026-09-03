@@ -28,6 +28,8 @@
 #include <thread>
 
 #include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet.h"
+#include "common/metrics/doris_metrics.h"
 #include "cpp/sync_point.h"
 #include "storage/tablet/tablet_meta.h"
 #include "util/uid_util.h"
@@ -208,6 +210,28 @@ TEST_F(CloudTabletMgrTest, TestGetTabletIfCachedOnlyReturnsCachedTablet) {
 
     sp->disable_processing();
     sp->clear_all_call_backs();
+}
+
+TEST_F(CloudTabletMgrTest, TestApproximateRowsetsMetricIncludesActiveTablets) {
+    CloudTabletMgr mgr(_engine);
+    auto tablet = std::make_shared<CloudTablet>(_engine, _tablet_meta);
+    auto* metric = DorisMetrics::instance()->tablet_approximate_num_rowsets_distribution;
+    metric->clear();
+    tablet->reset_approximate_stats(0, 0, 0, 0);
+    tablet->fetch_add_approximate_num_rowsets(8);
+    tablet->last_access_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                          std::chrono::system_clock::now().time_since_epoch())
+                                          .count();
+    mgr.put_tablet_for_UT(tablet);
+
+    std::map<TTabletId, TTablet> tablets_info;
+    uint64_t tablet_num = 0;
+    mgr.build_all_report_tablets_info(&tablets_info, &tablet_num);
+
+    EXPECT_EQ(1, tablet_num);
+    EXPECT_TRUE(tablets_info.empty());
+    EXPECT_EQ(1, metric->num());
+    EXPECT_EQ(8, metric->max());
 }
 
 } // namespace doris
