@@ -590,6 +590,12 @@ public class MTMVPlanUtil {
                 statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
             }
             Plan analyzedPlan = planner.getAnalyzedPlan();
+            Set<TableIf> baseTables = Sets.newHashSet(statementContext.getTables().values());
+            Set<TableIf> oneLevelTables = Sets.newHashSet(statementContext.getOneLevelTables().values());
+            MTMVRelation relation = generateMTMVRelation(baseTables, oneLevelTables);
+            // Row TTL injects a time-dependent internal predicate. Report the unsupported table policy before
+            // the generic nondeterministic-expression check so the policy cannot be bypassed by MV properties.
+            MTMVUtil.checkNoRowTtlBaseTable(relation);
             // can not contain Random function
             analyzeExpressions(analyzedPlan, mvProperties);
             // can not contain partition or tablets
@@ -599,8 +605,6 @@ public class MTMVPlanUtil {
                 throw new AnalysisException("can not contain invalid expression");
             }
 
-            Set<TableIf> baseTables = Sets.newHashSet(statementContext.getTables().values());
-            Set<TableIf> oneLevelTables = Sets.newHashSet(statementContext.getOneLevelTables().values());
             for (TableIf table : baseTables) {
                 if (table.isTemporary()) {
                     throw new AnalysisException("do not support create materialized view on temporary table ("
@@ -613,7 +617,6 @@ public class MTMVPlanUtil {
                     }
                 }
             }
-            MTMVRelation relation = generateMTMVRelation(baseTables, oneLevelTables);
             MTMVPartitionInfo mvPartitionInfo = mvPartitionDefinition.analyzeAndTransferToMTMVPartitionInfo(planner);
             List<ColumnDefinition> columns = MTMVPlanUtil.generateColumns(plan, ctx, mvPartitionInfo.getPartitionCol(),
                     (distribution == null || CollectionUtils.isEmpty(distribution.getCols())) ? Sets.newHashSet()

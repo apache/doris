@@ -947,7 +947,23 @@ int64_t CloudTablet::get_cloud_base_compaction_score() const {
 int64_t CloudTablet::get_cloud_cumu_compaction_score() const {
     // TODO(plat1ko): Propose an algorithm that considers tablet's key type, number of delete rowsets,
     //  number of tablet versions simultaneously.
-    return _approximate_cumu_num_deltas.load(std::memory_order_relaxed);
+    int64_t score = _approximate_cumu_num_deltas.load(std::memory_order_relaxed);
+    if (!is_row_binlog_tablet()) {
+        return score;
+    }
+    std::shared_lock lock(_meta_lock);
+    int64_t cutoff = _tablet_meta->binlog_config().row_ttl_cutoff_tso(
+            _tablet_meta->row_binlog_ttl_reference_tso());
+    if (cutoff < 0) {
+        return score;
+    }
+    for (const auto& [_, rowset_meta] : _tablet_meta->all_rs_metas()) {
+        if (rowset_meta->num_rows() > 0 && rowset_meta->has_commit_tso() &&
+            rowset_meta->commit_tso().end_tso() <= cutoff) {
+            return std::max<int64_t>(score, 1);
+        }
+    }
+    return score;
 }
 
 // return a json string to show the compaction status of this tablet
@@ -1554,6 +1570,8 @@ Status CloudTablet::sync_meta() {
     auto new_disable_auto_compaction = tablet_meta->tablet_schema()->disable_auto_compaction();
     auto new_vertical_compaction_num_columns_per_group =
             tablet_meta->vertical_compaction_num_columns_per_group();
+    auto new_binlog_config = tablet_meta->binlog_config();
+    auto new_row_binlog_ttl_reference_tso = tablet_meta->row_binlog_ttl_reference_tso();
 
     {
         std::unique_lock wlock(_meta_lock);
@@ -1597,6 +1615,17 @@ Status CloudTablet::sync_meta() {
             new_vertical_compaction_num_columns_per_group) {
             _tablet_meta->set_vertical_compaction_num_columns_per_group(
                     new_vertical_compaction_num_columns_per_group);
+        }
+        bool row_ttl_changed =
+                _tablet_meta->binlog_config().row_ttl_enabled() !=
+                        new_binlog_config.row_ttl_enabled() ||
+                _tablet_meta->binlog_config().ttl_seconds() != new_binlog_config.ttl_seconds();
+        _tablet_meta->set_binlog_config(std::move(new_binlog_config));
+        if (row_ttl_changed) {
+            _tablet_meta->reset_row_binlog_ttl_reference_tso();
+        }
+        if (new_row_binlog_ttl_reference_tso > 0) {
+            _tablet_meta->set_row_binlog_ttl_reference_tso(new_row_binlog_ttl_reference_tso);
         }
     }
 

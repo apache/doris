@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.analysis.CaseExpr;
+import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.binlog.BinlogUtils;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -58,6 +60,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.normalize.QueryCacheNormalizer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBinlogScanType;
 import org.apache.doris.thrift.TPaloScanRange;
@@ -132,6 +135,10 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 + "properties(\"replication_num\"=\"1\","
                 + "\"binlog.enable\"=\"true\",\"binlog.format\"=\"ROW\")";
         createTable(createDuplicateBaseTable);
+        createTable("create table test_stream.tbl_dup_stream_ttl (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 1 properties("
+                + "\"replication_num\"=\"1\",\"binlog.enable\"=\"true\","
+                + "\"binlog.format\"=\"ROW\",\"binlog.ttl_seconds\"=\"10\")");
         OlapTable duplicateBaseTable = (OlapTable) db.getTableOrMetaException("tbl_dup_stream_base");
         bumpPartitionsAndReplicas(duplicateBaseTable, 1001L);
         String createDuplicateInitialStream =
@@ -619,6 +626,65 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         }
         Assertions.assertTrue(assertedAtLeastOne,
                 "expected at least one incremental scan range to assert TSO bounds against");
+    }
+
+    @Test
+    public void testRowBinlogTtlCutoffPropagatesToScanRanges() throws Exception {
+        ConnectContext ctx = createDefaultCtx();
+        ctx.setDatabase("test_stream");
+        String sql = "explain select * from test_stream.tbl_dup_stream_ttl"
+                + "@incr('incrementType' = 'DETAIL')";
+        long referenceTso = TSOTimestamp.composeFullTimestamp(System.currentTimeMillis() + 60_000);
+        long expectedCutoff = TSOTimestamp.calculateCutoff(referenceTso, 10);
+
+        StatementContext statementContext = MemoTestUtils.createStatementContext(ctx, sql);
+        statementContext.getOrRegisterRowBinlogReferenceTso(() -> referenceTso);
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        LogicalPlan logicalPlan = (LogicalPlan) ((Explainable) (((ExplainCommand) parser.parseSingle(sql))
+                .getLogicalPlan())).getExplainPlan(ctx);
+        PhysicalPlan plan = planner.planWithLock(logicalPlan, PhysicalProperties.ANY);
+        PlanFragment fragment = new PhysicalPlanTranslator(new PlanTranslatorContext(planner.getCascadesContext()))
+                .translatePlan(plan);
+
+        List<OlapScanNode> scanNodes = new ArrayList<>();
+        collectOlapScanNodes(fragment.getPlanRoot(), scanNodes);
+        List<TPaloScanRange> ranges = scanNodes.stream()
+                .filter(scan -> scan.getOlapTable() instanceof RowBinlogTableWrapper)
+                .flatMap(scan -> scan.getScanRangeLocations(Long.MAX_VALUE).stream())
+                .map(location -> location.getScanRange().getPaloScanRange())
+                .collect(java.util.stream.Collectors.toList());
+        Assertions.assertFalse(ranges.isEmpty());
+        ranges.forEach(range -> Assertions.assertEquals(expectedCutoff, range.getStartTso()));
+    }
+
+    @Test
+    public void testRowBinlogTtlRejectsExpiredMinDeltaOffset() throws Exception {
+        ConnectContext ctx = createDefaultCtx();
+        ctx.setDatabase("test_stream");
+        String sql = "explain select * from test_stream.tbl_dup_stream_ttl@incr("
+                + "'startTimestamp' = '1971-01-01 00:00:00', 'incrementType' = 'MIN_DELTA')";
+        StatementContext statementContext = MemoTestUtils.createStatementContext(ctx, sql);
+        statementContext.getOrRegisterRowBinlogReferenceTso(
+                () -> TSOTimestamp.composeFullTimestamp(System.currentTimeMillis()));
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        LogicalPlan logicalPlan = (LogicalPlan) ((Explainable) (((ExplainCommand) parser.parseSingle(sql))
+                .getLogicalPlan())).getExplainPlan(ctx);
+
+        org.apache.doris.nereids.exceptions.AnalysisException exception = Assertions.assertThrows(
+                org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> planner.planWithLock(logicalPlan, PhysicalProperties.ANY));
+        Assertions.assertTrue(exception.getMessage().contains(BinlogUtils.ROW_BINLOG_OFFSET_EXPIRED));
+    }
+
+    @Test
+    public void testRowBinlogTtlDisablesQueryCache() throws Exception {
+        ConnectContext ctx = createDefaultCtx();
+        ctx.setDatabase("test_stream");
+        PlanFragment fragment = getFragment(ctx, "explain select count(*) "
+                + "from test_stream.tbl_dup_stream_ttl@incr('incrementType' = 'DETAIL')");
+
+        Assertions.assertTrue(new QueryCacheNormalizer(fragment, new DescriptorTable())
+                .normalize(ctx).isEmpty());
     }
 
     @Test

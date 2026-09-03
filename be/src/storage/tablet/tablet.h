@@ -281,14 +281,16 @@ public:
 
     void check_tablet_path_exists();
 
-    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction();
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction(
+            std::optional<int64_t> row_binlog_ttl_cutoff_tso = std::nullopt);
     // MUST hold shared `_meta_lock`. Use this when the caller already holds the
     // header lock (e.g. the time-series cumulative score path under
     // suitable_for_compaction) to avoid recursive shared acquisition.
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction_unlocked();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
-    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_binlog_compaction();
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_binlog_compaction(
+            std::optional<int64_t> row_binlog_ttl_cutoff_tso = std::nullopt);
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_build_inverted_index(
             const std::set<int64_t>& alter_index_uids, bool is_drop_op);
 

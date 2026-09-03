@@ -29,6 +29,16 @@
 #include "util/time.h"
 
 namespace doris {
+namespace {
+
+bool is_rowset_expired(Tablet* tablet, const RowsetMetaSharedPtr& rowset_meta) {
+    const auto& meta = tablet->tablet_meta();
+    int64_t cutoff = meta->binlog_config().row_ttl_cutoff_tso(meta->row_binlog_ttl_reference_tso());
+    return cutoff >= 0 && rowset_meta->num_rows() > 0 && rowset_meta->has_commit_tso() &&
+           rowset_meta->commit_tso().end_tso() <= cutoff;
+}
+
+} // namespace
 
 bool BinlogCumulativeCompactionPolicy::is_compaction_enough(
         const RowsetMetaSharedPtr& rowset_meta) const {
@@ -243,6 +253,13 @@ uint32_t BinlogCumulativeCompactionPolicy::calc_binlog_compaction_level_score(
 
 uint32_t BinlogCumulativeCompactionPolicy::calc_binlog_compaction_score(
         Tablet* tablet, int8_t* prefer_compaction_level) const {
+    std::optional<int8_t> expired_level;
+    for (const auto& [_, rowset_meta] : tablet->tablet_meta()->all_rs_metas()) {
+        if (is_rowset_expired(tablet, rowset_meta)) {
+            expired_level = cast_set<int8_t>(rowset_meta->compaction_level());
+            break;
+        }
+    }
     uint32_t max_score = 0;
     int8_t max_level = -1;
     for (int8_t level = 0; level < kBinlogCompactionMaxLevel; ++level) {
@@ -251,6 +268,10 @@ uint32_t BinlogCumulativeCompactionPolicy::calc_binlog_compaction_score(
             max_score = score;
             max_level = level;
         }
+    }
+    if (max_score == 0 && expired_level.has_value()) {
+        max_score = 1;
+        max_level = *expired_level;
     }
     if (prefer_compaction_level != nullptr) {
         *prefer_compaction_level = max_level;

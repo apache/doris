@@ -60,6 +60,7 @@
 #include "storage/mow/key_probe.h"
 #include "storage/olap_common.h"
 #include "storage/row_cursor.h" // RowCursor // IWYU pragma: keep
+#include "storage/row_ttl.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "storage/rowset/segment_creator.h"

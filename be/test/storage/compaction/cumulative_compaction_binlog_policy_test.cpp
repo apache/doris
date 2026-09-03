@@ -220,6 +220,44 @@ TEST_F(TestBinlogCumulativeCompactionPolicy, calc_l0_score) {
     EXPECT_EQ(0, prefer_level);
 }
 
+TEST_F(TestBinlogCumulativeCompactionPolicy, expired_rowset_has_minimum_schedule_score) {
+    RowsetMetaSharedPtr rowset(new RowsetMeta());
+    init_rs_meta(rowset, 0, 0, 0);
+    rowset->set_commit_tso(100);
+    ASSERT_TRUE(_tablet_meta->add_rs_meta(rowset).ok());
+
+    BinlogConfig binlog_config(true, 0, 1024, 10, BinlogFormatPB::ROW, false);
+    binlog_config.set_row_ttl_enabled(true);
+    _tablet_meta->set_binlog_config(std::move(binlog_config));
+    _tablet_meta->set_row_binlog_ttl_reference_tso(100);
+    TabletSharedPtr tablet(new Tablet(_engine, _tablet_meta, nullptr));
+    ASSERT_TRUE(tablet->init().ok());
+
+    int8_t prefer_level = -1;
+    EXPECT_EQ(
+            dynamic_cast<BinlogCumulativeCompactionPolicy*>(tablet->cumulative_compaction_policy())
+                    ->calc_binlog_compaction_score(tablet.get(), &prefer_level),
+            1);
+    EXPECT_EQ(prefer_level, 0);
+}
+
+TEST_F(TestBinlogCumulativeCompactionPolicy, expired_singleton_bypasses_visible_wait) {
+    config::binlog_compaction_wait_timesec_after_visible = 600;
+    RowsetMetaSharedPtr rowset(new RowsetMeta());
+    init_rs_meta(rowset, 2, 2, 0);
+    rowset->set_commit_tso(100);
+    rowset->set_newest_write_timestamp(UnixSeconds());
+    ASSERT_TRUE(_tablet_meta->add_rs_meta(rowset).ok());
+
+    TabletSharedPtr tablet(new Tablet(_engine, _tablet_meta, nullptr));
+    ASSERT_TRUE(tablet->init().ok());
+    EXPECT_TRUE(tablet->pick_candidate_rowsets_to_binlog_compaction().empty());
+
+    auto candidates = tablet->pick_candidate_rowsets_to_binlog_compaction(100);
+    ASSERT_EQ(candidates.size(), 1);
+    EXPECT_EQ(candidates.front()->version(), Version(2, 2));
+}
+
 // Pick level from candidate rowsets. Versions are ordered old -> new as higher -> lower level:
 // L2, L2, L1, L1, L0, L0. Even if the whole tablet has a higher L0 score, this round's
 // candidate set only contains L1 rowsets, so the policy should choose L1.

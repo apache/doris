@@ -66,6 +66,9 @@ public class BinlogConfig {
 
     @SerializedName("needHistoricalValue")
     private boolean needHistoricalValue;
+
+    @SerializedName("rowTtlEnabled")
+    private boolean rowTtlEnabled;
     public static final long NO_TTL = -1L;
     public static final long TTL_SECONDS = 86400L; // 1 day
     public static final long MAX_BYTES = 0x7fffffffffffffffL;
@@ -86,6 +89,7 @@ public class BinlogConfig {
     public BinlogConfig(BinlogConfig config) {
         this(config.enable, config.ttlSeconds, config.maxBytes, config.maxHistoryNums,
                 config.getBinlogFormat(), config.needHistoricalValue);
+        this.rowTtlEnabled = config.rowTtlEnabled;
     }
 
     public BinlogConfig() {
@@ -111,6 +115,10 @@ public class BinlogConfig {
         }
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)) {
             ttlSeconds = Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS));
+        }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ROW_TTL_ENABLED)) {
+            rowTtlEnabled = Boolean.parseBoolean(
+                    properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_ROW_TTL_ENABLED));
         }
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)) {
             maxBytes = Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES));
@@ -162,6 +170,23 @@ public class BinlogConfig {
 
     public void setTtlSeconds(long ttlSeconds) {
         this.ttlSeconds = ttlSeconds;
+    }
+
+    public void applyExplicitRowTtl(long ttlSeconds) {
+        setTtlSeconds(ttlSeconds);
+        setRowTtlEnabled(ttlSeconds >= 0);
+    }
+
+    public boolean hasRowTtl() {
+        return rowTtlEnabled;
+    }
+
+    public boolean isRowTtlEnabled() {
+        return rowTtlEnabled && isEnableForStreaming() && ttlSeconds >= 0;
+    }
+
+    public void setRowTtlEnabled(boolean rowTtlEnabled) {
+        this.rowTtlEnabled = rowTtlEnabled;
     }
 
     public long getMaxBytes() {
@@ -218,6 +243,7 @@ public class BinlogConfig {
             tBinlogConfig.setBinlogFormat(TBinlogFormat.valueOf(binlogFormat.name()));
         }
         tBinlogConfig.setNeedHistoricalValue(needHistoricalValue);
+        tBinlogConfig.setRowTtlEnabled(rowTtlEnabled);
         return tBinlogConfig;
     }
 
@@ -231,6 +257,7 @@ public class BinlogConfig {
             binlogConfigBuilder.setBinlogFormat(OlapFile.BinlogFormatPB.valueOf(binlogFormat.name()));
         }
         binlogConfigBuilder.setNeedHistoricalValue(needHistoricalValue);
+        binlogConfigBuilder.setRowTtlEnabled(rowTtlEnabled);
         return binlogConfigBuilder.build();
     }
 
@@ -242,6 +269,7 @@ public class BinlogConfig {
         properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS, String.valueOf(maxHistoryNums));
         properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT, String.valueOf(binlogFormat));
         properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE, String.valueOf(needHistoricalValue));
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ROW_TTL_ENABLED, String.valueOf(hasRowTtl()));
         return properties;
     }
 
@@ -256,7 +284,8 @@ public class BinlogConfig {
                 && maxBytes == other.maxBytes
                 && maxHistoryNums == other.maxHistoryNums
                 && binlogFormat == other.binlogFormat
-                && needHistoricalValue == other.needHistoricalValue;
+                && needHistoricalValue == other.needHistoricalValue
+                && rowTtlEnabled == other.rowTtlEnabled;
     }
 
     @Override
@@ -268,7 +297,8 @@ public class BinlogConfig {
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE).append("\" = \"")
                 .append(enable).append("\"");
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS).append("\" = \"")
-                .append(ttlSeconds).append("\"");
+                .append(binlogFormat == BinlogFormat.ROW && !hasRowTtl() ? NO_TTL : ttlSeconds)
+                .append("\"");
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES).append("\" = \"")
                 .append(maxBytes).append("\"");
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS).append("\" = \"")

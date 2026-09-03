@@ -111,6 +111,10 @@ protected:
 
     Status merge_input_rowsets();
 
+    void snapshot_row_binlog_ttl();
+    bool pick_expired_row_binlog_rowset(const std::vector<RowsetSharedPtr>& candidates);
+    void filter_row_binlog_ttl_rowsets();
+
     virtual Status prepare_merge_input_rowsets(MergeInputRowsetsResult* /*result*/) {
         return Status::OK();
     }
@@ -166,6 +170,9 @@ protected:
     BaseTabletSPtr _tablet;
 
     std::vector<RowsetSharedPtr> _input_rowsets;
+    std::vector<RowsetSharedPtr> _data_input_rowsets;
+    std::optional<int64_t> _row_binlog_ttl_cutoff_tso;
+    int64_t _row_binlog_ttl_filtered_rows {0};
     int64_t _input_rowsets_data_size {0};
     int64_t _input_rowsets_index_size {0};
     int64_t _input_rowsets_total_size {0};

@@ -1256,15 +1256,17 @@ Status Tablet::_contains_version(const Version& version) {
     return Status::OK();
 }
 
-std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compaction() {
+std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compaction(
+        std::optional<int64_t> row_binlog_ttl_cutoff_tso) {
+    if (is_row_binlog_tablet()) {
+        return pick_candidate_rowsets_to_binlog_compaction(row_binlog_ttl_cutoff_tso);
+    }
     std::shared_lock rlock(_meta_lock);
     return pick_candidate_rowsets_to_cumulative_compaction_unlocked();
 }
 
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compaction_unlocked() {
-    if (is_row_binlog_tablet()) {
-        return pick_candidate_rowsets_to_binlog_compaction();
-    }
+    DORIS_CHECK(!is_row_binlog_tablet());
 
     std::vector<RowsetSharedPtr> candidate_rowsets;
     if (_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
@@ -1330,7 +1332,8 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_full_compaction()
     return candidate_rowsets;
 }
 
-std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_binlog_compaction() {
+std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_binlog_compaction(
+        std::optional<int64_t> row_binlog_ttl_cutoff_tso) {
     auto [visible_version, _] = get_visible_version_and_time();
     int64_t now = UnixSeconds();
     std::vector<RowsetSharedPtr> candidate_rowsets;
@@ -1342,7 +1345,10 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_binlog_compaction
                 _rs_version_map.size() <= config::binlog_compaction_file_count_threshold;
         for (const auto& [version, rs] : _rs_version_map) {
             max_version = std::max(max_version, version.second);
-            if (filter_new_rowset && rs->rowset_meta()->is_singleton_delta() &&
+            bool expired = row_binlog_ttl_cutoff_tso.has_value() && rs->num_rows() > 0 &&
+                           rs->rowset_meta()->has_commit_tso() &&
+                           rs->commit_tso().end_tso() <= *row_binlog_ttl_cutoff_tso;
+            if (!expired && filter_new_rowset && rs->rowset_meta()->is_singleton_delta() &&
                 rs->rowset_meta()->newest_write_timestamp() +
                                 config::binlog_compaction_wait_timesec_after_visible >
                         now) {
@@ -2765,7 +2771,14 @@ bool Tablet::can_add_binlog(uint64_t total_binlog_size) const {
 }
 
 void Tablet::set_binlog_config(BinlogConfig binlog_config) {
+    std::lock_guard wlock(_meta_lock);
+    bool row_ttl_changed =
+            tablet_meta()->binlog_config().row_ttl_enabled() != binlog_config.row_ttl_enabled() ||
+            tablet_meta()->binlog_config().ttl_seconds() != binlog_config.ttl_seconds();
     tablet_meta()->set_binlog_config(binlog_config);
+    if (row_ttl_changed) {
+        tablet_meta()->reset_row_binlog_ttl_reference_tso();
+    }
 }
 
 void Tablet::gc_binlogs(int64_t version) {

@@ -46,6 +46,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * TableProperty contains additional information about OlapTable
@@ -620,6 +621,10 @@ public class TableProperty implements GsonPostProcessable {
             binlogConfig.setNeedHistoricalValue(Boolean.parseBoolean(
                     properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE)));
         }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ROW_TTL_ENABLED)) {
+            binlogConfig.setRowTtlEnabled(Boolean.parseBoolean(
+                    properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_ROW_TTL_ENABLED)));
+        }
         this.binlogConfig = binlogConfig;
         return this;
     }
@@ -644,6 +649,8 @@ public class TableProperty implements GsonPostProcessable {
                 String.valueOf(newBinlogConfig.getBinlogFormat()));
         binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE,
                 String.valueOf(newBinlogConfig.getNeedHistoricalValue()));
+        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ROW_TTL_ENABLED,
+                String.valueOf(newBinlogConfig.hasRowTtl()));
         modifyTableProperties(binlogProperties);
         this.binlogConfig = newBinlogConfig;
     }
@@ -814,6 +821,42 @@ public class TableProperty implements GsonPostProcessable {
     public String getSequenceMapCol() {
         return properties.get(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
                 + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL);
+    }
+
+    public String getRowTtlCol() {
+        return properties.get(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_TTL_COL);
+    }
+
+    public boolean getEnableRowTtl() {
+        return Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL, "false"));
+    }
+
+    public long getRowTtlDurationMicros() {
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_TTL);
+        if (value == null) {
+            return -1;
+        }
+        try {
+            return PropertyAnalyzer.parseRowTtlDurationMicros(value);
+        } catch (AnalysisException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    public Optional<Integer> getRowTtlTimeZoneOffsetSeconds() {
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_TTL_TIME_ZONE);
+        if (value == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(PropertyAnalyzer.parseRowTtlTimeZoneOffsetSeconds(value));
+        } catch (AnalysisException e) {
+            throw new IllegalStateException("invalid persisted row ttl time zone: " + value, e);
+        }
     }
 
     public void setGroupCommitIntervalMs(int groupCommitIntervalMs) {

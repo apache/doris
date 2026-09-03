@@ -175,6 +175,10 @@ public class SqlCacheContext {
         if (tableIf == null) {
             return;
         }
+        if (tableIf instanceof OlapTable && (((OlapTable) tableIf).hasRowTtl()
+                || ((OlapTable) tableIf).hasRowBinlogTtl())) {
+            setHasUnsupportedTables(true);
+        }
         DatabaseIf database = tableIf.getDatabase();
         if (database == null) {
             setCannotProcessExpression(true);

@@ -306,6 +306,9 @@ public class RestoreCommand extends Command implements ForwardWithSync {
 
         // is force replace
         isForceReplace = eatBooleanProperty(copiedProperties, PROP_FORCE_REPLACE, isForceReplace);
+        if (isForceReplace && !isAtomicRestore) {
+            throw new AnalysisException("force_replace requires atomic_restore=true");
+        }
 
         if (!copiedProperties.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,

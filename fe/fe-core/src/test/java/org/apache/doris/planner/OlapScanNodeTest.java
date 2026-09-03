@@ -34,6 +34,7 @@ import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
@@ -81,6 +82,27 @@ public class OlapScanNodeTest {
         }
         index.appendTablets(tablets);
         return index;
+    }
+
+    @Test
+    public void testRowTtlScanRejectsIncompatibleBackendAtPlacement() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Backend backend = Mockito.mock(Backend.class);
+        Mockito.when(table.hasRowTtl()).thenReturn(true);
+        Mockito.when(backend.isNodeFeatureIncompatible()).thenReturn(true);
+        Assertions.assertFalse(OlapScanNode.isBackendCompatibleForScan(table, backend));
+
+        Mockito.when(backend.isNodeFeatureIncompatible()).thenReturn(false);
+        Assertions.assertTrue(OlapScanNode.isBackendCompatibleForScan(table, backend));
+        Mockito.when(table.hasRowTtl()).thenReturn(false);
+        Mockito.when(backend.isNodeFeatureIncompatible()).thenReturn(true);
+        Assertions.assertTrue(OlapScanNode.isBackendCompatibleForScan(table, backend));
+
+        OlapTable originTable = Mockito.mock(OlapTable.class);
+        OlapTableWrapper wrapper = Mockito.mock(OlapTableWrapper.class);
+        Mockito.when(wrapper.getOriginTable()).thenReturn(originTable);
+        Mockito.when(originTable.hasRowTtl()).thenReturn(true);
+        Assertions.assertFalse(OlapScanNode.isBackendCompatibleForScan(wrapper, backend));
     }
 
     // columnA in (1) hashmode=3

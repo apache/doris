@@ -65,6 +65,7 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
@@ -326,15 +327,16 @@ public class NereidsStreamLoadPlanner {
         queryOptions.setNewVersionBitmapOpCount(true);
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
+        Instant queryNow = Instant.now();
         queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-        queryGlobals.setTimestampMs(System.currentTimeMillis());
+        queryGlobals.setTimestampMs(queryNow.toEpochMilli());
         queryGlobals.setTimeZone(taskInfo.getTimezone());
         if (taskInfo instanceof NereidsRoutineLoadTaskInfo) {
             queryGlobals.setLoadZeroTolerance(false);
         } else {
             queryGlobals.setLoadZeroTolerance(taskInfo.getMaxFilterRatio() <= 0.0);
         }
-        queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
+        queryGlobals.setNanoSeconds(queryNow.getNano());
 
         params.setQueryGlobals(queryGlobals);
         params.setTableName(destTable.getName());
