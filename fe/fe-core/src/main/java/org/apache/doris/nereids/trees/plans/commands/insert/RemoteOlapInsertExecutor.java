@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AuthenticationException;
-import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.QuotaExceedException;
@@ -54,7 +53,6 @@ import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -260,20 +258,6 @@ public class RemoteOlapInsertExecutor extends OlapInsertExecutor {
         }
     }
 
-    private String buildFinalErrorMessage(Throwable t) {
-        String localErrMsg = t.getMessage() == null ? "unknown reason" : t.getMessage();
-        String firstErrorMsgPart = "";
-        String urlPart = "";
-        if (!Strings.isNullOrEmpty(coordinator.getFirstErrorMsg())) {
-            firstErrorMsgPart = StringUtils.abbreviate(coordinator.getFirstErrorMsg(),
-                    org.apache.doris.common.Config.first_error_msg_max_length);
-        }
-        if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
-            urlPart = coordinator.getTrackingUrl();
-        }
-        return InsertUtils.getFinalErrorMsg(localErrMsg, firstErrorMsgPart, urlPart);
-    }
-
     @Override
     protected void onFail(Throwable t) {
         errMsg = t.getMessage() == null ? "unknown reason" : t.getMessage();
@@ -287,8 +271,7 @@ public class RemoteOlapInsertExecutor extends OlapInsertExecutor {
                         labelName, queryId, txnId, abortTxnException);
             }
         }
-        String finalErrorMsg = buildFinalErrorMessage(t);
-        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, finalErrorMsg);
+        setErrorState();
     }
 
     @Override
