@@ -32,6 +32,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
@@ -40,10 +41,14 @@ import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
 import org.apache.doris.mysql.privilege.MockedAuth;
+import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TRoutineLoadTask;
@@ -270,6 +275,45 @@ public class KafkaRoutineLoadJobTest {
 
         String otherMsg = Deencapsulation.getField(routineLoadJob, "otherMsg");
         Assert.assertTrue(otherMsg.contains("some records may be in uncommitted transactions"));
+    }
+
+    @Test
+    public void testAlterCsvParserPropertiesUpdateNewTasksAndReplay() throws Exception {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Map<String, String> jobProperties = Deencapsulation.getField(routineLoadJob, "jobProperties");
+        jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, "~");
+        jobProperties.put(CsvFileFormatProperties.PROP_ESCAPE, "!");
+
+        Map<String, String> alteredProperties = Maps.newHashMap();
+        alteredProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, "^");
+        alteredProperties.put(CsvFileFormatProperties.PROP_ESCAPE, "?");
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(alteredProperties);
+        Mockito.when(command.getDataSourceProperties()).thenReturn(null);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            routineLoadJob.modifyProperties(command);
+        }
+
+        Assert.assertEquals((byte) '^', routineLoadJob.getEnclose());
+        Assert.assertEquals((byte) '?', routineLoadJob.getEscape());
+        NereidsRoutineLoadTaskInfo taskInfo = routineLoadJob.toNereidsRoutineLoadTaskInfo();
+        Assert.assertEquals((byte) '^', taskInfo.getEnclose());
+        Assert.assertEquals((byte) '?', taskInfo.getEscape());
+
+        KafkaRoutineLoadJob replayJob = new KafkaRoutineLoadJob(2L, "replay_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Map<String, String> replayJobProperties = Deencapsulation.getField(replayJob, "jobProperties");
+        replayJobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, "~");
+        replayJobProperties.put(CsvFileFormatProperties.PROP_ESCAPE, "!");
+        replayJob.replayModifyProperties(new AlterRoutineLoadJobOperationLog(
+                replayJob.getId(), alteredProperties, null));
+        Assert.assertEquals((byte) '^', replayJob.getEnclose());
+        Assert.assertEquals((byte) '?', replayJob.getEscape());
     }
 
     @Test
