@@ -40,6 +40,8 @@ TEST_F(FunctionCastTest, test_from_string_strict_mode_to_time) {
                 {{std::string("5656.3000000009")}, std::string("00:56:56.300000")},
                 {{std::string("5656.3000007001")}, std::string("00:56:56.300001")},
                 {{std::string("12:34:56.123")}, std::string("12:34:56.123")},
+                {{std::string("838:59:59.000000")}, std::string("838:59:59.000000")},
+                {{std::string("-838:59:59.000000")}, std::string("-838:59:59.000000")},
         };
         check_function_for_cast_strict_mode<DataTypeTimeV2>(input_types, data_set, "", 6);
     }
@@ -54,6 +56,8 @@ TEST_F(FunctionCastTest, test_from_string_strict_mode_to_time) {
                 {{std::string("12:34:")}, Null()},
                 {{std::string("76")}, Null()},
                 {{std::string("200595912")}, Null()},
+                {{std::string("838:59:59.999999")}, Null()},
+                {{std::string("-838:59:59.999999")}, Null()},
                 {{std::string("8385959.9999999")}, Null()},
                 {{std::string("   1   ")}, Null()},
         };
@@ -80,6 +84,8 @@ TEST_F(FunctionCastTest, test_from_string_non_strict_mode_to_time) {
             {{std::string("5656.3000000009")}, std::string("00:56:56.300000")},
             {{std::string("5656.3000007001")}, std::string("00:56:56.300001")},
             {{std::string("12:34:56.123")}, std::string("12:34:56.123")},
+            {{std::string("838:59:59.000000")}, std::string("838:59:59.000000")},
+            {{std::string("-838:59:59.000000")}, std::string("-838:59:59.000000")},
             {{std::string("   1   ")}, std::string("00:00:01.000000")},
             {{std::string(".123")}, Null()},
             {{std::string(":12:34")}, Null()},
@@ -89,6 +95,8 @@ TEST_F(FunctionCastTest, test_from_string_non_strict_mode_to_time) {
             {{std::string("12:34:")}, Null()},
             {{std::string("76")}, Null()},
             {{std::string("200595912")}, Null()},
+            {{std::string("838:59:59.999999")}, Null()},
+            {{std::string("-838:59:59.999999")}, Null()},
             {{std::string("8385959.9999999")}, Null()},
             {{Null()}, Null()},
     };
