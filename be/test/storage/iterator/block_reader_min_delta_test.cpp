@@ -136,4 +136,104 @@ TEST_F(BlockReaderMinDeltaTest, RowBinlogOperationCodeLayoutGuard) {
     EXPECT_EQ(2, ROW_BINLOG_DELETE);
 }
 
+// Contract test for the group-boundary rule in BlockReader::_min_delta_next_block. A MIN_DELTA
+// group is a run of consecutive rows sharing the same user key; the reader folds each group into
+// one net change via calculate_result(first_op, last_op). Exercising _min_delta_next_block end to
+// end needs a fully constructed BlockReader + VCollectIterator + rowset readers, which is far too
+// heavy for a unit test, so we pin the boundary rule itself.
+//
+// The subtle bug this guards against: the reader used to split groups on IteratorRowRef::is_same,
+// which the segment merge sets only for CROSS-segment same-key matches (it drives dedup). When a
+// compaction / row-binlog LMax quick-merge folds a key's whole change chain into ONE segment, those
+// consecutive same-key rows carry is_same = false, so an is_same-based grouping shatters one key
+// into many single-row groups. The fix groups by comparing the leading key columns directly.
+namespace {
+struct QmRow {
+    int64_t key;
+    int64_t op;
+    bool is_same; // as produced by the segment merge (cross-segment dedup marker)
+};
+
+// Old behavior: start a new group whenever is_same is false.
+std::vector<ResultType> fold_by_is_same(const std::vector<QmRow>& rows) {
+    std::vector<ResultType> out;
+    size_t i = 0;
+    while (i < rows.size()) {
+        int64_t first_op = rows[i].op;
+        int64_t last_op = rows[i].op;
+        size_t j = i + 1;
+        while (j < rows.size() && rows[j].is_same) {
+            last_op = rows[j].op;
+            ++j;
+        }
+        out.push_back(binlog::AggregateFunctionMinDelta::calculate_result(first_op, last_op));
+        i = j;
+    }
+    return out;
+}
+
+// New behavior: start a new group when the user key changes (input is globally key-ordered).
+std::vector<ResultType> fold_by_key(const std::vector<QmRow>& rows) {
+    std::vector<ResultType> out;
+    size_t i = 0;
+    while (i < rows.size()) {
+        int64_t first_op = rows[i].op;
+        int64_t last_op = rows[i].op;
+        size_t j = i + 1;
+        while (j < rows.size() && rows[j].key == rows[i].key) {
+            last_op = rows[j].op;
+            ++j;
+        }
+        out.push_back(binlog::AggregateFunctionMinDelta::calculate_result(first_op, last_op));
+        i = j;
+    }
+    return out;
+}
+} // namespace
+
+TEST_F(BlockReaderMinDeltaTest, GroupBoundaryUsesKeyNotIsSame) {
+    // Three keys, each with a whole change chain folded into a single quick-merge segment, so every
+    // row's is_same is false (no cross-segment match). Rows are globally key-ordered by TSO.
+    //   key 1: APPEND, UPDATE, UPDATE  -> folds to INSERT
+    //   key 2: UPDATE, UPDATE          -> folds to UPDATE_BEFORE_AFTER
+    //   key 3: APPEND, DELETE          -> folds to SKIP
+    const std::vector<QmRow> rows = {
+            {1, ROW_BINLOG_APPEND, false}, {1, ROW_BINLOG_UPDATE, false},
+            {1, ROW_BINLOG_UPDATE, false}, {2, ROW_BINLOG_UPDATE, false},
+            {2, ROW_BINLOG_UPDATE, false}, {3, ROW_BINLOG_APPEND, false},
+            {3, ROW_BINLOG_DELETE, false},
+    };
+
+    // Grouping by key yields exactly one folded change per key.
+    const std::vector<ResultType> by_key = fold_by_key(rows);
+    ASSERT_EQ(3u, by_key.size());
+    EXPECT_EQ(ResultType::INSERT, by_key[0]);
+    EXPECT_EQ(ResultType::UPDATE_BEFORE_AFTER, by_key[1]);
+    EXPECT_EQ(ResultType::SKIP, by_key[2]);
+
+    // The old is_same-based grouping shatters each key into single-row groups: 7 rows -> 7 groups,
+    // none of which reflect the true per-key net change (each APPEND/UPDATE alone folds to INSERT/
+    // UPDATE, and the key-3 APPEND+DELETE that should cancel to SKIP is instead two separate rows).
+    const std::vector<ResultType> by_is_same = fold_by_is_same(rows);
+    EXPECT_EQ(7u, by_is_same.size());
+    EXPECT_NE(by_key.size(), by_is_same.size());
+}
+
+TEST_F(BlockReaderMinDeltaTest, GroupBoundaryMixedIsSameStillGroupsByKey) {
+    // Realistic mix: some same-key rows are cross-segment (is_same=true), others were folded into one
+    // segment (is_same=false). Grouping by key must be insensitive to how is_same happened to be set.
+    //   key 1: APPEND(false), UPDATE(true), UPDATE(false)  -> INSERT
+    //   key 2: UPDATE(false), DELETE(false)                -> DELETE
+    const std::vector<QmRow> rows = {
+            {1, ROW_BINLOG_APPEND, false}, {1, ROW_BINLOG_UPDATE, true},
+            {1, ROW_BINLOG_UPDATE, false}, {2, ROW_BINLOG_UPDATE, false},
+            {2, ROW_BINLOG_DELETE, false},
+    };
+
+    const std::vector<ResultType> by_key = fold_by_key(rows);
+    ASSERT_EQ(2u, by_key.size());
+    EXPECT_EQ(ResultType::INSERT, by_key[0]);
+    EXPECT_EQ(ResultType::DELETE, by_key[1]);
+}
+
 } // namespace doris

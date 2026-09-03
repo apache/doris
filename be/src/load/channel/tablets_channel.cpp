@@ -126,12 +126,6 @@ void BaseTabletsChannel::_init_profile(RuntimeProfile* profile) {
             memory_usage->AddHighWaterMarkCounter("MaxTabletFlush", TUnit::BYTES);
 }
 
-void TabletsChannel::_init_profile(RuntimeProfile* profile) {
-    DCHECK(profile != nullptr);
-    BaseTabletsChannel::_init_profile(profile);
-    _slave_replica_timer = ADD_TIMER(_profile, "SlaveReplicaTime");
-}
-
 Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     std::lock_guard<std::mutex> l(_lock);
     // if _state is kOpened, it's a normal case, already open by other sender
@@ -418,8 +412,6 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
         }
     }
 
-    _write_single_replica = req.write_single_replica();
-
     // 2. wait all writer finished flush.
     for (auto* writer : need_wait_writers) {
         RETURN_IF_ERROR((writer->wait_flush()));
@@ -459,49 +451,14 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
     for (auto* writer : need_wait_writers) {
         // close may return failed, but no need to handle it here.
         // tablet_vec will only contains success tablet, and then let FE judge it.
-        _commit_txn(writer, req, res);
-    }
-
-    if (_write_single_replica) {
-        auto* success_slave_tablet_node_ids = res->mutable_success_slave_tablet_node_ids();
-        // The operation waiting for all slave replicas to complete must end before the timeout,
-        // so that there is enough time to collect completed replica. Otherwise, the task may
-        // timeout and fail even though most of the replicas are completed. Here we set 0.9
-        // times the timeout as the maximum waiting time.
-        SCOPED_TIMER(_slave_replica_timer);
-        while (!need_wait_writers.empty() &&
-               (time(nullptr) - parent->last_updated_time()) < (parent->timeout() * 0.9)) {
-            std::set<DeltaWriter*>::iterator it;
-            for (it = need_wait_writers.begin(); it != need_wait_writers.end();) {
-                bool is_done = (*it)->check_slave_replicas_done(success_slave_tablet_node_ids);
-                if (is_done) {
-                    need_wait_writers.erase(it++);
-                } else {
-                    it++;
-                }
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-        for (auto* writer : need_wait_writers) {
-            writer->add_finished_slave_replicas(success_slave_tablet_node_ids);
-        }
-        _engine.txn_manager()->clear_txn_tablet_delta_writer(_txn_id);
+        _commit_txn(writer, res);
     }
 
     return Status::OK();
 }
 
-void TabletsChannel::_commit_txn(DeltaWriter* writer, const PTabletWriterAddBlockRequest& req,
-                                 PTabletWriterAddBlockResult* res) {
-    PSlaveTabletNodes slave_nodes;
-    if (_write_single_replica) {
-        auto& nodes_map = req.slave_tablet_nodes();
-        auto it = nodes_map.find(writer->tablet_id());
-        if (it != nodes_map.end()) {
-            slave_nodes = it->second;
-        }
-    }
-    Status st = writer->commit_txn(slave_nodes);
+void TabletsChannel::_commit_txn(DeltaWriter* writer, PTabletWriterAddBlockResult* res) {
+    Status st = writer->commit_txn();
     if (st.ok()) [[likely]] {
         auto* tablet_vec = res->mutable_tablet_vec();
         PTabletInfo* tablet_info = tablet_vec->Add();
@@ -644,14 +601,6 @@ Status BaseTabletsChannel::cancel() {
     return Status::OK();
 }
 
-Status TabletsChannel::cancel() {
-    RETURN_IF_ERROR(BaseTabletsChannel::cancel());
-    if (_write_single_replica) {
-        _engine.txn_manager()->clear_txn_tablet_delta_writer(_txn_id);
-    }
-    return Status::OK();
-}
-
 std::string TabletsChannelKey::to_string() const {
     std::stringstream ss;
     ss << *this;
@@ -678,14 +627,14 @@ Status BaseTabletsChannel::_write_block_data(
                 print_id(_load_id), _index_id, request.packet_seq(), send_data.rows(),
                 request.tablet_ids_size());
     }
-    bool has_row_binlog_lsn = request.row_binlog_lsns_size() > 0;
-    if (has_row_binlog_lsn) {
-        if (send_data.rows() != request.row_binlog_lsns_size()) {
+    bool has_allocated_lsn = request.allocated_lsns_size() > 0;
+    if (has_allocated_lsn) {
+        if (send_data.rows() != request.allocated_lsns_size()) {
             return Status::InternalError(
-                    "invalid add block request row-binlog lsn count, load_id={}, index_id={}, "
-                    "packet_seq={}, block_rows={}, row_binlog_lsns_size={}",
+                    "invalid add block request allocated lsn count, load_id={}, index_id={}, "
+                    "packet_seq={}, block_rows={}, allocated_lsns_size={}",
                     print_id(_load_id), _index_id, request.packet_seq(), send_data.rows(),
-                    request.row_binlog_lsns_size());
+                    request.allocated_lsns_size());
         }
     }
 
@@ -842,10 +791,10 @@ Status BaseTabletsChannel::_write_block_data_for_adaptive_random_bucket(
         RETURN_IF_ERROR(_prepare_adaptive_random_bucket_writer(tablet_writer));
 
         TabletAddRowsPayload rows {.row_idxs = row_idxs};
-        if (request.row_binlog_lsns_size() > 0) {
-            rows.row_binlog_lsns.reserve(row_idxs.size());
+        if (request.allocated_lsns_size() > 0) {
+            rows.allocated_lsns.reserve(row_idxs.size());
             for (auto row_idx : row_idxs) {
-                rows.row_binlog_lsns.emplace_back(request.row_binlog_lsns(row_idx));
+                rows.allocated_lsns.emplace_back(request.allocated_lsns(row_idx));
             }
         }
         bool memtable_flushed = false;
@@ -971,14 +920,14 @@ void BaseTabletsChannel::_build_tablet_to_rows(
     // tests show that a relatively coarse-grained read lock here performs better under multicore scenario
     // see: https://github.com/apache/doris/pull/28552
     std::shared_lock<std::shared_mutex> rlock(_broken_tablets_lock);
-    bool has_row_binlog_lsn = request.row_binlog_lsns_size() > 0;
+    bool has_allocated_lsn = request.allocated_lsns_size() > 0;
     if (request.is_single_tablet_block()) {
         // The cloud mode need the tablet ids to prepare rowsets.
         int64_t tablet_id = request.tablet_ids(0);
         auto& rows = (*tablet_to_rows)[tablet_id];
         rows.row_idxs.emplace_back(0);
-        if (has_row_binlog_lsn) {
-            rows.row_binlog_lsns.emplace_back(request.row_binlog_lsns(0));
+        if (has_allocated_lsn) {
+            rows.allocated_lsns.emplace_back(request.allocated_lsns(0));
         }
         return;
     }
@@ -991,8 +940,8 @@ void BaseTabletsChannel::_build_tablet_to_rows(
         }
         auto& rows = (*tablet_to_rows)[tablet_id];
         rows.row_idxs.emplace_back(i);
-        if (has_row_binlog_lsn) {
-            rows.row_binlog_lsns.emplace_back(request.row_binlog_lsns(i));
+        if (has_allocated_lsn) {
+            rows.allocated_lsns.emplace_back(request.allocated_lsns(i));
         }
     }
 }

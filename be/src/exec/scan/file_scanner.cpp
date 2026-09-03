@@ -23,6 +23,7 @@
 #include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Status_types.h>
 #include <glog/logging.h>
 
 #include <algorithm>
@@ -71,6 +72,7 @@
 #include "format/table/hudi_reader.h"
 #include "format/table/iceberg_position_delete_sys_table_reader.h"
 #include "format/table/iceberg_reader.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "format/table/iceberg_sys_table_jni_reader.h"
 #include "format/table/jdbc_jni_reader.h"
 #include "format/table/max_compute_jni_reader.h"
@@ -99,20 +101,6 @@ class ShardedKVCache;
 
 namespace doris {
 using namespace ErrorCode;
-
-namespace {
-constexpr int kIcebergPositionDeleteContent = 1;
-constexpr int kIcebergDeletionVectorContent = 3;
-
-bool is_iceberg_position_deletes_sys_table(const TFileRangeDesc& range) {
-    return range.__isset.table_format_params &&
-           range.table_format_params.table_format_type == "iceberg" &&
-           range.table_format_params.__isset.iceberg_params &&
-           range.table_format_params.iceberg_params.__isset.content &&
-           (range.table_format_params.iceberg_params.content == kIcebergPositionDeleteContent ||
-            range.table_format_params.iceberg_params.content == kIcebergDeletionVectorContent);
-}
-} // namespace
 
 const std::string FileScanner::FileReadBytesProfile = "FileReadBytes";
 const std::string FileScanner::FileReadTimeProfile = "FileReadTime";

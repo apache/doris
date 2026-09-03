@@ -41,9 +41,9 @@ import java.util.Map;
 public class RemoteOlapTableSink extends OlapTableSink {
 
     public RemoteOlapTableSink(RemoteOlapTable dstTable, TupleDescriptor tupleDescriptor,
-            List<Long> partitionIds, boolean singleReplicaLoad,
+            List<Long> partitionIds,
             List<Expr> partitionExprs, Map<Long, Expr> syncMvWhereClauses) {
-        super(dstTable, tupleDescriptor, partitionIds, singleReplicaLoad, partitionExprs, syncMvWhereClauses);
+        super(dstTable, tupleDescriptor, partitionIds, partitionExprs, syncMvWhereClauses);
         masterAddress = getRemoteTable().getCatalog().getFeServiceClient().getMasterAddress();
     }
 

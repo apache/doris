@@ -324,6 +324,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         MaterializedIndex baseIndex = new MaterializedIndex(tbl.getBaseIndexId(), IndexState.NORMAL);
+        TInvertedIndexFileStorageFormat partitionInvertedIndexFileStorageFormat =
+                tbl.getPartitionInvertedIndexFileStorageFormat();
 
         LOG.info("begin create cloud partition");
         // create partition with base index
@@ -358,7 +360,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             // create tablets
             int schemaHash = indexMeta.getSchemaHash();
             TabletMeta tabletMeta = new TabletMeta(dbId, tbl.getId(), partitionId,
-                    indexId, schemaHash, dataProperty.getStorageMedium());
+                    indexId, schemaHash, dataProperty.getStorageMedium(), isRowBinlogIndex);
             if (isRowBinlogIndex) {
                 createCloudRowBinlogTablets(index, baseIndex, version, tabletMeta, tabletIdSet);
             } else {
@@ -403,7 +405,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getTimeSeriesCompactionLevelThreshold(),
                         tbl.disableAutoCompaction(),
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                        tbl.getInvertedIndexFileStorageFormat(),
+                        indexId == tbl.getBaseIndexId() ? partitionInvertedIndexFileStorageFormat : null,
                         tbl.rowStorePageSize(),
                         tbl.variantEnableFlattenNested(), clusterKeyUids,
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
@@ -501,11 +503,14 @@ public class CloudInternalCatalog extends InternalCatalog {
         schemaBuilder.setNumShortKeyColumns(shortKeyColumnCount);
         schemaBuilder.setNumRowsPerRowBlock(1024);
         schemaBuilder.setCompressKind(OlapCommon.CompressKind.COMPRESS_LZ4);
-        schemaBuilder.setBfFpp(bfFpp);
+        if (bfColumns != null && !bfColumns.isEmpty()) {
+            schemaBuilder.setBfFpp(bfFpp);
+        }
 
         int deleteSign = -1;
         int sequenceCol = -1;
         int commitTsoCol = -1;
+        int rowLsnCol = -1;
         for (int i = 0; i < schemaColumns.size(); i++) {
             Column column = schemaColumns.get(i);
             if (column.isDeleteSignColumn()) {
@@ -517,10 +522,14 @@ public class CloudInternalCatalog extends InternalCatalog {
             if (column.isCommitTsoColumn()) {
                 commitTsoCol = i;
             }
+            if (column.isRowLsnColumn()) {
+                rowLsnCol = i;
+            }
         }
         schemaBuilder.setDeleteSignIdx(deleteSign);
         schemaBuilder.setSequenceColIdx(sequenceCol);
         schemaBuilder.setCommitTsoColIdx(commitTsoCol);
+        schemaBuilder.setRowLsnColIdx(rowLsnCol);
         schemaBuilder.setStoreRowColumn(storeRowColumn);
 
         if (dataSortInfo.getSortType() == TSortType.LEXICAL) {
@@ -602,11 +611,15 @@ public class CloudInternalCatalog extends InternalCatalog {
                 schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
             } else if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V3) {
                 schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V3);
+            } else if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII) {
+                schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.SNII);
             } else if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.DEFAULT) {
                 if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
                     schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V1);
                 } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
                     schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
+                } else if (Config.inverted_index_storage_format.equalsIgnoreCase("SNII")) {
+                    schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.SNII);
                 } else {
                     schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V3);
                 }
@@ -636,6 +649,12 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
         builder.setSchema(schema);
+        // schema KV is shared by (index_id, schema_version). Persist the physical tablet format
+        // separately only after partition-level format rollout is enabled.
+        if (Config.enable_partition_inverted_index_storage_format_rollout
+                && schema.hasInvertedIndexStorageFormat()) {
+            builder.setInvertedIndexStorageFormat(schema.getInvertedIndexStorageFormat());
+        }
         if (createInitialRowset) {
             // rowset
             OlapFile.RowsetMetaCloudPB.Builder rowsetBuilder = createInitialRowset(tablet, partitionId,
@@ -672,6 +691,10 @@ public class CloudInternalCatalog extends InternalCatalog {
         rowsetBuilder.setRowsetIdV2(rowsetIdV2Str);
 
         rowsetBuilder.setTabletSchema(schema);
+        if (Config.enable_partition_inverted_index_storage_format_rollout
+                && schema.hasInvertedIndexStorageFormat()) {
+            rowsetBuilder.setInvertedIndexStorageFormat(schema.getInvertedIndexStorageFormat());
+        }
         return rowsetBuilder;
     }
 

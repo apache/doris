@@ -18,6 +18,7 @@
 #include "core/data_type_serde/data_type_array_serde.h"
 
 #include <arrow/array/builder_nested.h>
+#include <gen_cpp/types.pb.h>
 
 #include <algorithm>
 
@@ -35,6 +36,7 @@
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/string_ref.h"
 #include "exprs/function/function_helpers.h"
+#include "storage/field_type.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 

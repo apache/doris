@@ -38,7 +38,6 @@
 #include "core/column/column_variant.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
-#include "core/data_type/data_type_variant.h"
 #include "exec/common/variant_util.h"
 #include "io/fs/file_reader.h"
 #include "runtime/descriptors.h"
@@ -252,7 +251,8 @@ Status VariantColumnReader::_create_hierarchical_reader(
         ColumnIteratorUPtr* reader, int32_t col_uid, PathInData path,
         const SubcolumnColumnMetaInfo::Node* node, const SubcolumnColumnMetaInfo::Node* root,
         ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats,
-        HierarchicalDataIterator::ReadType read_type, const io::IOContext* io_ctx) {
+        HierarchicalDataIterator::ReadType read_type, bool use_variant_v2,
+        const io::IOContext* io_ctx) {
     // make sure external meta is loaded otherwise can't find any meta data for extracted columns
     // TODO(lhy): this will load all external meta if not loaded, and memory will be consumed.
     RETURN_IF_ERROR(load_external_meta_once(stats, io_ctx));
@@ -294,7 +294,7 @@ Status VariantColumnReader::_create_hierarchical_reader(
     }
     RETURN_IF_ERROR(HierarchicalDataIterator::create(
             reader, col_uid, path, node, std::move(sparse_iter), std::move(root_column_reader),
-            column_reader_cache, stats, read_type, io_ctx));
+            column_reader_cache, stats, read_type, use_variant_v2, io_ctx));
     return Status::OK();
 }
 
@@ -416,13 +416,10 @@ Result<BinaryColumnCacheSPtr> VariantColumnReader::_get_binary_column_cache(
     return binary_column_cache_ptr->at(path);
 }
 
-DataTypePtr create_variant_type(const TabletColumn& target_col) {
-    return target_col.is_nullable()
-                   ? make_nullable(std::make_shared<DataTypeVariant>(
-                             target_col.variant_max_subcolumns_count(),
-                             target_col.variant_enable_doc_mode()))
-                   : std::make_shared<DataTypeVariant>(target_col.variant_max_subcolumns_count(),
-                                                       target_col.variant_enable_doc_mode());
+static DataTypePtr create_variant_storage_type(const TabletColumn& target_col) {
+    TabletColumn storage_col = target_col;
+    storage_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    return DataTypeFactory::instance().create_data_type(storage_col);
 }
 
 Status VariantColumnReader::_build_read_plan_flat_leaves(
@@ -502,8 +499,11 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
 
         if (relative_path.empty()) {
             // root path, use VariantRootColumnIterator
+            // ROOT_FLAT is the legacy ColumnVariant compaction/checksum path.
+            // TODO: Remove it together with legacy ColumnVariant readers.
+            DORIS_CHECK(!target_col.variant_is_v2());
             plan->kind = ReadKind::ROOT_FLAT;
-            plan->type = create_variant_type(target_col);
+            plan->type = create_variant_storage_type(target_col);
             plan->relative_path = relative_path;
             plan->needs_root_merge = _needs_root_nested_group_merge(relative_path);
             return Status::OK();
@@ -520,7 +520,7 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
                     _binary_column_reader->select_reader_and_cache_key(relative_path.get_path());
             DCHECK(reader != nullptr);
             plan->kind = ReadKind::BINARY_EXTRACT;
-            plan->type = create_variant_type(target_col);
+            plan->type = create_variant_storage_type(target_col);
             plan->relative_path = relative_path;
             plan->binary_column_reader = std::move(reader);
             plan->binary_cache_key = std::move(cache_key);
@@ -877,7 +877,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
     // read root: from doc value column
     if (root->path == relative_path && _statistics->has_doc_value_column_non_null_size()) {
         plan->kind = ReadKind::HIERARCHICAL_DOC;
-        plan->type = create_variant_type(target_col);
+        plan->type = create_variant_storage_type(target_col);
         plan->relative_path = relative_path;
         plan->root = root;
         plan->needs_root_merge = _needs_root_nested_group_merge(relative_path);
@@ -903,7 +903,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
     if (target_col.variant_enable_doc_mode() &&
         _statistics->has_prefix_path_in_doc_value_column(dot_prefix)) {
         plan->kind = ReadKind::HIERARCHICAL_DOC;
-        plan->type = create_variant_type(target_col);
+        plan->type = create_variant_storage_type(target_col);
         plan->relative_path = relative_path;
         plan->root = root;
         plan->needs_root_merge = _needs_root_nested_group_merge(relative_path);
@@ -921,7 +921,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
         // b.c is sparse column, b.e is subcolumn, so b is both the prefix of sparse column and
         // subcolumn
         plan->kind = ReadKind::HIERARCHICAL;
-        plan->type = create_variant_type(target_col);
+        plan->type = create_variant_storage_type(target_col);
         plan->relative_path = relative_path;
         plan->node = node;
         plan->root = root;
@@ -939,7 +939,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
                 _binary_column_reader->select_reader_and_cache_key(relative_path.get_path());
         DCHECK(reader);
         plan->kind = ReadKind::BINARY_EXTRACT;
-        plan->type = create_variant_type(target_col);
+        plan->type = create_variant_storage_type(target_col);
         plan->relative_path = relative_path;
         plan->binary_column_reader = std::move(reader);
         plan->binary_cache_key = std::move(cache_key);
@@ -961,7 +961,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
 
         if (_statistics->has_prefix_path_in_doc_value_column(dot_prefix)) {
             plan->kind = ReadKind::HIERARCHICAL_DOC;
-            plan->type = create_variant_type(target_col);
+            plan->type = create_variant_storage_type(target_col);
             plan->relative_path = relative_path;
             plan->root = root;
             plan->needs_root_merge = _needs_root_nested_group_merge(relative_path);
@@ -976,7 +976,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
                     _binary_column_reader->select_reader_and_cache_key(relative_path.get_path());
             DCHECK(reader);
             plan->kind = ReadKind::BINARY_EXTRACT;
-            plan->type = create_variant_type(target_col);
+            plan->type = create_variant_storage_type(target_col);
             plan->relative_path = relative_path;
             plan->binary_column_reader = std::move(reader);
             plan->binary_cache_key = std::move(cache_key);
@@ -987,7 +987,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
             // Sparse stats are truncated, so a missing exact sparse path does not prove that the
             // path is absent. It may still be nested under a recorded sparse object.
             plan->kind = ReadKind::HIERARCHICAL;
-            plan->type = create_variant_type(target_col);
+            plan->type = create_variant_storage_type(target_col);
             plan->relative_path = relative_path;
             plan->node = node;
             plan->root = root;
@@ -1027,7 +1027,7 @@ Status VariantColumnReader::_create_iterator_from_plan(
         RETURN_IF_ERROR(_create_hierarchical_reader(
                 iterator, col_uid, plan.relative_path, plan.node, plan.root, column_reader_cache,
                 opt->stats, HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE,
-                &opt->io_ctx));
+                target_col.variant_is_v2(), &opt->io_ctx));
         return _maybe_wrap_root_merge_iterator(iterator, plan, opt);
     }
     case ReadKind::LEAF: {
@@ -1042,8 +1042,9 @@ Status VariantColumnReader::_create_iterator_from_plan(
         DCHECK(plan.binary_column_reader != nullptr);
         BinaryColumnCacheSPtr binary_column_cache = DORIS_TRY(_get_binary_column_cache(
                 binary_column_cache_ptr, plan.binary_cache_key, plan.binary_column_reader));
-        *iterator = std::make_unique<BinaryColumnExtractIterator>(
-                plan.relative_path.get_path(), std::move(binary_column_cache), opt);
+        *iterator = std::make_unique<BinaryColumnExtractIterator>(plan.relative_path.get_path(),
+                                                                  std::move(binary_column_cache),
+                                                                  opt, target_col.variant_is_v2());
         if (opt && opt->stats) {
             opt->stats->variant_subtree_sparse_iter_count++;
         }
@@ -1081,7 +1082,8 @@ Status VariantColumnReader::_create_iterator_from_plan(
                                                       : target_col.parent_unique_id();
         RETURN_IF_ERROR(_create_hierarchical_reader(
                 iterator, col_uid, plan.relative_path, plan.node, plan.root, column_reader_cache,
-                opt->stats, HierarchicalDataIterator::ReadType::DOC_VALUE_COLUMN, &opt->io_ctx));
+                opt->stats, HierarchicalDataIterator::ReadType::DOC_VALUE_COLUMN,
+                target_col.variant_is_v2(), &opt->io_ctx));
         if (opt && opt->stats) {
             opt->stats->variant_doc_value_column_iter_count++;
         }

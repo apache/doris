@@ -158,7 +158,7 @@ public class CloudProcVersionDisplayTest {
         tablet.addReplica(replica, true);
 
         TabletMeta tabletMeta = new TabletMeta(DB_ID, TABLE_ID, PARTITION_ID, INDEX_ID, SCHEMA_HASH,
-                TStorageMedium.HDD);
+                TStorageMedium.HDD, false /* isRowBinlog */);
         index.addTablet(tablet, tabletMeta, true);
 
         CloudPartition partition = new CloudPartition(PARTITION_ID, "p1", index, distributionInfo, DB_ID, TABLE_ID);

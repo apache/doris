@@ -54,14 +54,13 @@ namespace doris::io {
 
 Result<std::shared_ptr<HdfsFileSystem>> HdfsFileSystem::create(
         const std::map<std::string, std::string>& properties, std::string fs_name, std::string id,
-        RuntimeProfile* profile, std::string root_path) {
+        std::string root_path) {
     return HdfsFileSystem::create(parse_properties(properties), std::move(fs_name), std::move(id),
-                                  profile, std::move(root_path));
+                                  std::move(root_path));
 }
 
 Result<std::shared_ptr<HdfsFileSystem>> HdfsFileSystem::create(const THdfsParams& hdfs_params,
                                                                std::string fs_name, std::string id,
-                                                               RuntimeProfile* profile,
                                                                std::string root_path) {
 #ifdef USE_HADOOP_HDFS
     if (!config::enable_java_support) {
@@ -70,18 +69,17 @@ Result<std::shared_ptr<HdfsFileSystem>> HdfsFileSystem::create(const THdfsParams
                 "true."));
     }
 #endif
-    std::shared_ptr<HdfsFileSystem> fs(new HdfsFileSystem(
-            hdfs_params, std::move(fs_name), std::move(id), profile, std::move(root_path)));
+    std::shared_ptr<HdfsFileSystem> fs(new HdfsFileSystem(hdfs_params, std::move(fs_name),
+                                                          std::move(id), std::move(root_path)));
     RETURN_IF_ERROR_RESULT(fs->init());
     return fs;
 }
 
 HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, std::string fs_name, std::string id,
-                               RuntimeProfile* profile, std::string root_path)
+                               std::string root_path)
         : RemoteFileSystem(std::move(root_path), std::move(id), FileSystemType::HDFS),
           _hdfs_params(hdfs_params),
-          _fs_name(std::move(fs_name)),
-          _profile(profile) {
+          _fs_name(std::move(fs_name)) {
     if (_fs_name.empty()) {
         _fs_name = hdfs_params.fs_name;
     }
@@ -112,8 +110,7 @@ Status HdfsFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
 Status HdfsFileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader,
                                           const FileReaderOptions& opts) {
     CHECK_HDFS_HANDLER(_fs_handler);
-    *reader =
-            DORIS_TRY(HdfsFileReader::create(file, _fs_handler->hdfs_fs, _fs_name, opts, _profile));
+    *reader = DORIS_TRY(HdfsFileReader::create(file, _fs_handler->hdfs_fs, _fs_name, opts));
     return Status::OK();
 }
 

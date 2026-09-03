@@ -252,6 +252,13 @@ suite("test_create_view_nereids") {
     qt_test_alias "select * from test_view_alias order by c1,c2,c3;"
     qt_test_alias_sql "show create view test_view_alias;"
 
+    // test view column name with special chars (string literal alias contains parens)
+    sql "drop view if exists test_view_special_col_name"
+    sql "create view test_view_special_col_name as select 1 as '(第一列)'"
+    qt_test_view_special_col_name "select * from test_view_special_col_name"
+    qt_test_view_special_col_name_sql "show create view test_view_special_col_name"
+    sql "drop view if exists test_view_special_col_name"
+
     // test * except
     sql "drop view if exists test_view_star_except;"
     sql """

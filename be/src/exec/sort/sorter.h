@@ -22,6 +22,7 @@
 
 #include <cstddef>
 #include <deque>
+#include <limits>
 #include <memory>
 #include <queue>
 #include <vector>
@@ -39,6 +40,18 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
+
+struct SorterReserveMemory {
+    size_t retained_growth = 0;
+    size_t retained_growth_trigger_bytes = 0;
+    size_t transient_workspace = 0;
+
+    size_t total() const {
+        return retained_growth > std::numeric_limits<size_t>::max() - transient_workspace
+                       ? std::numeric_limits<size_t>::max()
+                       : retained_growth + transient_workspace;
+    }
+};
 class ObjectPool;
 class RowDescriptor;
 } // namespace doris
@@ -193,6 +206,12 @@ public:
     size_t data_size() const override;
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) const override;
+
+    SorterReserveMemory get_reserve_mem_size_components(RuntimeState* state, bool eos) const;
+
+    SorterReserveMemory get_reserve_mem_size_components(RuntimeState* state, bool eos,
+                                                        size_t incoming_rows,
+                                                        size_t incoming_bytes) const;
 
     Status merge_sort_read_for_spill(RuntimeState* state, doris::Block* block, int batch_size,
                                      bool* eos) override;

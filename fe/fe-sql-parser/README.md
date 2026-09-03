@@ -58,6 +58,23 @@ mvn -pl fe-sql-parser -am package
 
 Output: `fe/fe-sql-parser/target/doris-fe-sql-parser.jar` (~1.3 MB). This jar contains only the parser classes; it expects `org.antlr:antlr4-runtime:4.13.1` to be provided by the consuming project's classpath.
 
+### Parser microbenchmarks
+
+The optional `benchmark` profile builds a self-contained JMH jar without adding JMH to the default parser jar or its runtime dependencies:
+
+```bash
+# From the fe/ directory
+mvn -Pbenchmark -pl fe-sql-parser-benchmark -am package -DskipTests
+java -jar fe-sql-parser-benchmark/target/doris-fe-sql-parser-benchmarks.jar \
+  '.*StringLiteralBenchmark.*' -prof gc -rf json -rff /tmp/string-literal-benchmark.json
+
+# Run the primary-expression end-to-end and pre-tokenized parser benchmarks
+java -jar fe-sql-parser-benchmark/target/doris-fe-sql-parser-benchmarks.jar \
+  '.*PrimaryExpressionBenchmark.*' -prof gc -rf json -rff /tmp/primary-expression-benchmark.json
+```
+
+Use the same JDK, corpus parameters, JMH arguments, and machine state for baseline and candidate runs. Run the same baseline artifact twice before comparing a change; the raw JSON and artifact hash should be retained with the result summary.
+
 To install it to your local Maven repository so other projects can resolve it:
 
 ```bash
@@ -372,8 +389,8 @@ import org.antlr.v4.runtime.tree.ParseTreeWalker;
 
 public class DropGuardListener extends DorisParserBaseListener {
     @Override
-    public void enterSupportedDropStatement(DorisParser.SupportedDropStatementContext ctx) {
-        throw new SecurityException("DROP statements are not allowed: " + ctx.getText());
+    public void enterDropTable(DorisParser.DropTableContext ctx) {
+        throw new SecurityException("DROP TABLE statements are not allowed: " + ctx.getText());
     }
 }
 
@@ -398,8 +415,8 @@ public class AuditListener extends DorisParserBaseListener {
     @Override public void enterDelete(DorisParser.DeleteContext ctx) {
         writes.add("DELETE " + ctx.tableName.getText());
     }
-    @Override public void enterSupportedDropStatement(DorisParser.SupportedDropStatementContext ctx) {
-        writes.add("DROP " + ctx.getText());
+    @Override public void enterDropTable(DorisParser.DropTableContext ctx) {
+        writes.add("DROP TABLE " + ctx.name.getText());
     }
 }
 ```

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableKeyMeta;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
@@ -47,8 +48,10 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Represents the SHOW COLUMNS command.
@@ -184,6 +187,12 @@ public class ShowColumnsCommand extends ShowCommand {
         }
         table.readLock();
         try {
+            // The Key column has to say the same thing here as it does when a WHERE clause
+            // routes this same command through information_schema.columns, or SHOW COLUMNS
+            // would change meaning just because a predicate was added.
+            boolean mysqlCompatible = ctx.getSessionVariable().enableMysqlCompatibleIndexMetadata();
+            Map<String, String> columnKeys = mysqlCompatible
+                    ? TableKeyMeta.buildColumnKeys(table) : Collections.emptyMap();
             List<Column> columns = table.getBaseSchema();
             for (Column col : columns) {
                 if (matcher != null && !matcher.match(col.getName())) {
@@ -192,7 +201,8 @@ public class ShowColumnsCommand extends ShowCommand {
                 final String columnName = col.getName();
                 final String columnType = col.getOriginType().hideVersionForVersionColumn(false);
                 final String isAllowNull = col.isAllowNull() ? "YES" : "NO";
-                final String isKey = col.isKey() ? "YES" : "NO";
+                final String isKey = mysqlCompatible
+                        ? columnKeys.getOrDefault(columnName, "") : (col.isKey() ? "YES" : "NO");
                 final String defaultValue = col.getDefaultValue();
                 final String aggType = col.getAggregationType() == null ? "" : col.getAggregationType().toSql();
                 if (isFull) {

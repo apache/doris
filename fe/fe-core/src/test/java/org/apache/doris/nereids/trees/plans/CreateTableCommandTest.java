@@ -32,6 +32,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
@@ -240,6 +241,27 @@ public class CreateTableCommandTest extends TestWithFeService {
         Assertions.assertSame(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType(), AggregateType.NONE);
         Assertions.assertSame(tbl13.getColumn(Column.SEQUENCE_COL).getType(), Type.INT);
         Assertions.assertEquals(tbl13.getSequenceMapCol(), "v1");
+    }
+
+    @Test
+    public void testPartitionInvertedIndexStorageFormatRejectedInLocalMode() {
+        String originDeployMode = Config.deploy_mode;
+        String originCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.deploy_mode = "local";
+            Config.cloud_unique_id = "";
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> createTable("create table test.partition_inverted_index_storage_format_local\n"
+                            + "(k1 int, v1 varchar(10))\n"
+                            + "duplicate key(k1)\n"
+                            + "distributed by hash(k1) buckets 1\n"
+                            + "properties('replication_num' = '1', "
+                            + "'partition.inverted_index_storage_format' = 'SNII')"));
+            Assertions.assertTrue(exception.getMessage().contains("only supported in cloud mode"));
+        } finally {
+            Config.deploy_mode = originDeployMode;
+            Config.cloud_unique_id = originCloudUniqueId;
+        }
     }
 
     @Test
@@ -1027,6 +1049,37 @@ public class CreateTableCommandTest extends TestWithFeService {
         command.getCreateMTMVInfo().analyze(connectContext);
 
         return command.getCreateMTMVInfo();
+    }
+
+    @Test
+    public void testRejectMaxValueInListPartition() {
+        // MAXVALUE can only be used in RANGE partition's VALUES LESS THAN, it is not a
+        // concrete LIST partition value, so creating a LIST partition with it must fail.
+        String invalidSql = "create table test.tbl_list_maxvalue ("
+                + "k int not null, v int) "
+                + "duplicate key(k) "
+                + "partition by list(k) ("
+                + "  partition p1 values in (('1')),"
+                + "  partition p2 values in ((MAXVALUE))"
+                + ") "
+                + "distributed by hash(k) buckets 1 "
+                + "properties('replication_num' = '1')";
+        AnalysisException ex = Assertions.assertThrows(
+                AnalysisException.class, () -> getCreateTableStmt(invalidSql));
+        Assertions.assertTrue(ex.getMessage().contains("MAXVALUE is not allowed in LIST partition"));
+        Assertions.assertTrue(ex.getMessage().contains("p2"));
+
+        // RANGE partition's VALUES LESS THAN (MAXVALUE) stays allowed.
+        String validSql = "create table test.tbl_range_maxvalue ("
+                + "k int not null, v int) "
+                + "duplicate key(k) "
+                + "partition by range(k) ("
+                + "  partition p1 values less than ('10'),"
+                + "  partition p2 values less than (MAXVALUE)"
+                + ") "
+                + "distributed by hash(k) buckets 1 "
+                + "properties('replication_num' = '1')";
+        Assertions.assertDoesNotThrow(() -> getCreateTableStmt(validSql));
     }
 
     @Test

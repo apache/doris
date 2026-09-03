@@ -345,4 +345,23 @@ TEST_F(AnalyzerTest, TestAnalyzerFunctionality) {
     }
 }
 
+TEST_F(AnalyzerTest, CommonGramsQueryPurposeSelection) {
+    EXPECT_EQ(select_analysis_purpose(InvertedIndexQueryType::MATCH_ANY_QUERY, 0, false),
+              AnalysisPurpose::kPlainQuery);
+    EXPECT_EQ(select_analysis_purpose(InvertedIndexQueryType::MATCH_ALL_QUERY, 0, false),
+              AnalysisPurpose::kPlainQuery);
+    EXPECT_EQ(select_analysis_purpose(InvertedIndexQueryType::MATCH_PHRASE_QUERY, 0, false),
+              AnalysisPurpose::kExactPhraseQuery);
+    EXPECT_EQ(select_analysis_purpose(InvertedIndexQueryType::MATCH_PHRASE_QUERY, 2, false),
+              AnalysisPurpose::kPlainQuery);
+    EXPECT_EQ(select_analysis_purpose(InvertedIndexQueryType::MATCH_PHRASE_QUERY, 0, true),
+              AnalysisPurpose::kPlainQuery);
+    EXPECT_EQ(select_analysis_purpose(InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, 0, false),
+              AnalysisPurpose::kPhrasePrefixQuery);
+    EXPECT_EQ(select_analysis_purpose(InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, 0, true),
+              AnalysisPurpose::kPlainQuery);
+    EXPECT_EQ(select_analysis_purpose(InvertedIndexQueryType::MATCH_REGEXP_QUERY, 0, false),
+              AnalysisPurpose::kPlainQuery);
+}
+
 } // namespace doris::segment_v2::inverted_index

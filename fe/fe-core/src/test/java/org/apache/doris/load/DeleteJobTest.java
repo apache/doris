@@ -88,7 +88,8 @@ public class DeleteJobTest {
 
     @Before
     public void setUp() throws Exception {
-        invertedIndex.addTablet(TABLET_ID, new TabletMeta(DB_ID, TABLE_ID, PARTITION_ID, 5L, 6, TStorageMedium.HDD));
+        invertedIndex.addTablet(TABLET_ID, new TabletMeta(DB_ID, TABLE_ID, PARTITION_ID, 5L, 6,
+                TStorageMedium.HDD, false /* isRowBinlog */));
 
         catalog = Mockito.spy(catalog);
         Mockito.doReturn(database).when(catalog).getDbOrMetaException(DB_ID);

@@ -18,11 +18,15 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest.h>
 
+#include "common/config.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/frontend_info.h"
+#include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "storage/id_manager.h"
+#include "util/defer_op.h"
 
 namespace doris {
 

@@ -23,7 +23,6 @@
 // and modified by Doris
 #pragma once
 
-#include <boost/math/special_functions/fpclassify.hpp>
 #include <cassert>
 #include <cfloat>
 #include <cmath>
@@ -37,13 +36,28 @@
 
 /// Use same extended double for all platforms
 #if (LDBL_MANT_DIG == 64)
+#include <boost/math/special_functions/fpclassify.hpp>
+
 #define CONSTEXPR_FROM_DOUBLE constexpr
+#define DORIS_WIDE_FROM_DOUBLE_INLINE 1
 using FromDoubleIntermediateType = long double;
-#else
+#elif defined(DORIS_WIDE_INTEGER_FROM_DOUBLE_IMPL_TU)
+#include <boost/math/special_functions/fpclassify.hpp>
 #include <boost/multiprecision/cpp_bin_float.hpp>
 /// `wide_integer_from_builtin` can't be constexpr with non-literal `cpp_bin_float_double_extended`
 #define CONSTEXPR_FROM_DOUBLE
+#define DORIS_WIDE_FROM_DOUBLE_INLINE 1
 using FromDoubleIntermediateType = boost::multiprecision::cpp_bin_float_double_extended;
+#else
+/// Platforms without an 80-bit long double emulate the intermediate type with
+/// boost::multiprecision, which drags ~4.3MB of preprocessed closure into every
+/// TU. Ordinary TUs therefore see only declarations of the two from-double
+/// members below; the bodies are compiled once in
+/// core/wide_integer_from_double.cpp (which defines the *_IMPL_TU macro above
+/// and emits explicit instantiations). wide_integer_from_builtin(double) was
+/// never constexpr on these platforms, so no constant evaluation is lost.
+#define CONSTEXPR_FROM_DOUBLE
+#define DORIS_WIDE_FROM_DOUBLE_INLINE 0
 #endif
 
 namespace wide {
@@ -308,7 +322,11 @@ struct integer<Bits, Signed>::_impl {
      * a_(n - 1) = a_n * max_int + b2, a_n <= max_int <- base case.
      */
     template <class T>
-    constexpr static void set_multiplier(integer<Bits, Signed>& self, T t) noexcept {
+    CONSTEXPR_FROM_DOUBLE static void set_multiplier(integer<Bits, Signed>& self, T t) noexcept
+#if !DORIS_WIDE_FROM_DOUBLE_INLINE
+            ;
+#else
+    {
         constexpr uint64_t max_int = std::numeric_limits<uint64_t>::max();
         static_assert(std::is_same_v<T, double> || std::is_same_v<T, FromDoubleIntermediateType>);
         /// Implementation specific behaviour on overflow (if we don't check here, stack overflow will triggered in bigint_cast).
@@ -343,9 +361,14 @@ struct integer<Bits, Signed>::_impl {
         self += static_cast<uint64_t>(t - floor(static_cast<double>(alpha)) *
                                                   static_cast<T>(max_int)); // += b_i
     }
+#endif
 
     CONSTEXPR_FROM_DOUBLE static void wide_integer_from_builtin(integer<Bits, Signed>& self,
-                                                                double rhs) noexcept {
+                                                                double rhs) noexcept
+#if !DORIS_WIDE_FROM_DOUBLE_INLINE
+            ;
+#else
+    {
         constexpr int64_t max_int = std::numeric_limits<int64_t>::max();
         constexpr int64_t min_int = std::numeric_limits<int64_t>::lowest();
 
@@ -374,6 +397,7 @@ struct integer<Bits, Signed>::_impl {
             self = -self;
         }
     }
+#endif
 
     template <size_t Bits2, typename Signed2>
     constexpr static void wide_integer_from_wide_integer(

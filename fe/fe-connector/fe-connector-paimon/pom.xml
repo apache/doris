@@ -47,19 +47,15 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
-        <!-- fe-connector-cache: the shared external meta-cache framework (CacheSpec property validation +
-             MetaCacheEntry/CacheFactory). fe-core does NOT depend on it, so under the parent-first
-             org.apache.doris.connector.* prefix these classes resolve parent→miss→CHILD, i.e. they load from
-             this plugin's own bundled jar and link against THIS plugin's Caffeine (below). PaimonLatestSnapshotCache
-             is backed by MetaCacheEntry, which needs Caffeine at runtime — see the caffeine dependency next. -->
+        <!-- Shared declarative metadata-cache framework used by Paimon metadata caches. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-connector-cache</artifactId>
             <version>${project.version}</version>
         </dependency>
 
-        <!-- Caffeine: the runtime library the shared meta-cache framework (fe-connector-cache's MetaCacheEntry/
-             CacheFactory) links against. fe-connector-cache declares Caffeine `provided` (compiles against, never
+        <!-- Caffeine: the runtime library the shared meta-cache framework links against.
+             fe-connector-cache declares Caffeine `provided` (compiles against, never
              bundles), so each consuming plugin must carry its own Caffeine. Unlike the iceberg plugin (which gets
              2.9.3 transitively from iceberg-core), paimon has no Caffeine on its classpath, so declare it here so
              it is bundled into the paimon plugin zip. Pinned to 2.9.3 to match the version fe-connector-cache is
@@ -133,6 +129,29 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <!-- PARENT-FIRST NOTE, read before the hadoop comments below. org.apache.hadoop. is in
+             ConnectorPluginManager.CONNECTOR_PARENT_FIRST_PREFIXES (added for the credential-aware
+             FileSystem cache: the kernel's Doris-patched org.apache.hadoop.fs.FileSystem keys
+             FileSystem.CACHE on doris.fs.cache.key.<scheme>, and a child-loaded vanilla copy would
+             silently ignore it), so the FE kernel's class wins for everything under that namespace.
+             It is a delegation ORDER, not an exclusion — whatever the kernel lacks still falls back to
+             the jars declared here, which is how org.apache.hadoop.hive.* keeps coming from the plugin.
+             Two consequences for the comments that follow: the cross-loader cast failures they record
+             are HISTORY (FileSystem and the FS impls now come from one and the same loader), and the
+             dependencies nevertheless stay, because they remain this plugin's own compile/runtime
+             closure, they are what the fallback resolves against, and the intended end state — see that
+             constant's javadoc — is an FE kernel with no hadoop classes at all, where child-first
+             resumes and self-containment is load-bearing again. Every hadoop-namespace artifact
+             declared here — including the hadoop-huaweicloud in the `obs` profile at the bottom, which
+             -Ddisable.obs=true drops from the kernel and from this plugin together — resolves to the
+             same GAV as the kernel's, which is what makes the shadowing a
+             no-op. The same applies to the META-INF/services/org.apache.hadoop.fs.FileSystem
+             registrations these jars carry: hadoop-deps' DORIS-PATCH binds FileSystem.loadFileSystems'
+             ServiceLoader to FileSystem.class's own (kernel) loader, so discovery runs off the kernel's
+             service files; the plugin's entries are a subset of those, and the schemes this plugin
+             routes are pinned through fs.<scheme>.impl anyway. Non-hadoop namespaces
+             (software.amazon.awssdk, com.obs, com.aliyun.jindodata) are NOT parent-first. -->
+
         <!-- hadoop-common supplies org.apache.hadoop.conf.Configuration, reconstructed minimally
              from the raw property map in PaimonCatalogFactory.buildHadoopConfiguration (this
              replaces fe-core StorageProperties.getHadoopStorageConfig, which the connector cannot
@@ -153,7 +172,9 @@ under the License.
              ExternalCatalog.buildDbForInit into a misleading 'Unknown database' (CI 969249
              test_paimon_catalog_varbinary / test_catalog_upgrade_test). SAME self-contained child-first
              reasoning as hadoop-aws/hadoop-huaweicloud: co-locate the FS impl with the plugin's own
-             hadoop-common FileSystem so the SPI cast succeeds. runtime scope (DistributedFileSystem is
+             hadoop-common FileSystem so the SPI cast succeeds — historical, see the PARENT-FIRST NOTE:
+             both halves come from the kernel now, and 'hdfs' is discovered from the kernel's service
+             file rather than this jar's. runtime scope (DistributedFileSystem is
              loaded reflectively via the Hadoop FileSystem SPI, not referenced at compile time); still
              bundled by plugin-zip.xml. NOT in fe/pom.xml dependencyManagement, so the version is pinned
              explicitly to ${hadoop.version}. hadoop-common is excluded so the plugin keeps a SINGLE
@@ -177,12 +198,14 @@ under the License.
              is NOT in the plugin closure — FIX-PAIMON-HMS-THRIFT-SHADE made hive-common <optional> in
              fe-connector-paimon-hive-shade, and maven-shade then dropped it + its transitive
              hadoop-client-api, which had been the only carrier of DistributedFileSystem.) The plugin
-             runs child-first (org.apache.hadoop is not parent-first); bundling hadoop-common
+             ran child-first at the time (org.apache.hadoop was not yet parent-first — see the
+             PARENT-FIRST NOTE above); bundling hadoop-common
              WITHOUT hadoop-aws left FileSystem in the child loader while S3AFileSystem resolved from the
              parent 'app' loader — a cross-classloader split that threw 'S3AFileSystem cannot be cast to
              FileSystem' and poisoned SecurityUtil (FIX-PAIMON-HADOOP-CLASSLOADER). Self-containing the
-             FS impls here (not delegating hadoop to the parent) is the correct end-state: fe-core's
-             hadoop/hive-catalog-shade is removed after full connector migration. Version + exclusions
+             FS impls here (not delegating hadoop to the parent) is still the correct end-state: fe-core's
+             hadoop/hive-catalog-shade is removed after full connector migration, and the parent-first
+             prefix goes away with it. Version + exclusions
              inherited from fe-core's dependencyManagement (${hadoop.version}). hadoop-aws:3.4.2 declares
              its AWS SDK v2 as software.amazon.awssdk:bundle, which fe/pom.xml excludes on the hadoop-aws
              dep — so the SDK is bundled here explicitly (below) child-first (RC-3), giving the plugin's S3A
@@ -192,24 +215,8 @@ under the License.
             <artifactId>hadoop-aws</artifactId>
         </dependency>
 
-        <!-- hadoop-huaweicloud supplies org.apache.hadoop.fs.obs.OBSFileSystem for obs:// warehouses, the
-             SAME self-contained reasoning as hadoop-aws above: the plugin runs child-first with hadoop-common
-             (FileSystem) bundled in the child loader. Without hadoop-huaweicloud here, OBSFileSystem resolved
-             from the parent 'app' loader while FileSystem resolved from the child ChildFirstClassLoader, so
-             FileSystem.createFileSystem's cast threw "OBSFileSystem cannot be cast to FileSystem"
-             (FIX-PAIMON-OBS-SELFCONTAINED, CI 968994 paimon_base_filesystem). Bundling it child-first
-             co-locates OBSFileSystem with the plugin's own FileSystem so the cast succeeds. runtime scope
-             (mirrors fe-core: OBSFileSystem is loaded reflectively via the Hadoop FileSystem SPI, not
-             referenced at compile time) — still bundled by plugin-zip.xml, which packs the runtime closure.
-             The -hw-46 jar is a fat jar self-containing the esdk-obs SDK (com/obs/*); hadoop-common stays the
-             plugin's own direct (depth-1) copy via Maven mediation, so no duplicate FileSystem is introduced.
-             NOTE: the -hw-46 artifact is NOT in Maven Central — it lives in the huawei-obs-sdk repo declared
-             in <repositories> below (fe-core declares the same repo for the same dep). -->
-        <dependency>
-            <groupId>com.huaweicloud</groupId>
-            <artifactId>hadoop-huaweicloud</artifactId>
-            <scope>runtime</scope>
-        </dependency>
+        <!-- Huawei OBS: hadoop-huaweicloud (runtime OBSFileSystem) and its Maven repository live in the
+             `obs` profile below; disabled via -Ddisable.obs=true (build.sh exclude-obs-dependencies flag). -->
 
         <!-- AWS SDK v2 for the child-bundled hadoop-aws S3AFileSystem (RC-3, completes
              FIX-PAIMON-HADOOP-CLASSLOADER). Without it the plugin bundles S3AFileSystem child-first but NO
@@ -291,17 +298,55 @@ under the License.
         </dependency>
     </dependencies>
 
-    <!-- FIX-PAIMON-OBS-SELFCONTAINED (CI 968994): com.huaweicloud:hadoop-huaweicloud:3.1.1-hw-46 is NOT
-         published to Maven Central / the Apache repos, so a connector-module build resolves only against
-         central+apache-snapshots and fails ("hadoop-huaweicloud ... was not found in repo.maven.apache.org").
-         fe-core declares this exact repo to resolve the same dep; the connector module does not inherit it
-         (fe-connector / fe declare no repositories), so it must be declared here too. -->
-    <repositories>
-        <repository>
-            <id>huawei-obs-sdk</id>
-            <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
-        </repository>
-    </repositories>
+    <!-- Huawei OBS support. Active by default; disabled by -Ddisable.obs=true
+         (build.sh exclude-obs-dependencies flag), which drops hadoop-huaweicloud and the Huawei
+         Maven repository so nothing from com.huaweicloud is resolved or bundled into the paimon plugin. -->
+    <profiles>
+        <profile>
+            <id>obs</id>
+            <activation>
+                <property>
+                    <name>!disable.obs</name>
+                </property>
+            </activation>
+            <dependencies>
+                <!-- hadoop-huaweicloud supplies org.apache.hadoop.fs.obs.OBSFileSystem for obs:// warehouses, the
+                     SAME self-contained reasoning as hadoop-aws: the plugin ran child-first with hadoop-common
+                     (FileSystem) bundled in the child loader. Without hadoop-huaweicloud here, OBSFileSystem resolved
+                     from the parent 'app' loader while FileSystem resolved from the child ChildFirstClassLoader, so
+                     FileSystem.createFileSystem's cast threw "OBSFileSystem cannot be cast to FileSystem"
+                     (FIX-PAIMON-OBS-SELFCONTAINED, CI 968994 paimon_base_filesystem). Bundling it child-first
+                     co-located OBSFileSystem with the plugin's own FileSystem so the cast succeeded. Under the
+                     PARENT-FIRST NOTE in <dependencies> above both now come from the kernel, which carries the
+                     identical ${huaweiobs.version} artifact — and drops it in lockstep under -Ddisable.obs=true,
+                     so the two sides never diverge. The one behavioural difference is that a parent-loaded
+                     OBSFileSystem resolves its com.obs.* SDK in the parent too, i.e. against fe/lib's
+                     esdk-obs-java-bundle rather than the copy inlined in this fat jar. runtime scope
+                     (mirrors fe-core: OBSFileSystem is loaded reflectively via the Hadoop FileSystem SPI, not
+                     referenced at compile time) — still bundled by plugin-zip.xml, which packs the runtime closure.
+                     The -hw-46 jar is a fat jar self-containing the esdk-obs SDK (com/obs/*); hadoop-common stays the
+                     plugin's own direct (depth-1) copy via Maven mediation, so no duplicate FileSystem is introduced.
+                     NOTE: the -hw-46 artifact is NOT in Maven Central — it lives in the huawei-obs-sdk repo declared
+                     in <repositories> below (fe-core declares the same repo for the same dep). -->
+                <dependency>
+                    <groupId>com.huaweicloud</groupId>
+                    <artifactId>hadoop-huaweicloud</artifactId>
+                    <scope>runtime</scope>
+                </dependency>
+            </dependencies>
+            <repositories>
+                <!-- FIX-PAIMON-OBS-SELFCONTAINED (CI 968994): com.huaweicloud:hadoop-huaweicloud:3.1.1-hw-46 is NOT
+                     published to Maven Central / the Apache repos, so a connector-module build resolves only against
+                     central+apache-snapshots and fails ("hadoop-huaweicloud ... was not found in repo.maven.apache.org").
+                     fe-core declares this exact repo to resolve the same dep; the connector module does not inherit it
+                     (fe-connector / fe declare no repositories), so it must be declared here too. -->
+                <repository>
+                    <id>huawei-obs-sdk</id>
+                    <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
+                </repository>
+            </repositories>
+        </profile>
+    </profiles>
 
     <build>
         <finalName>doris-fe-connector-paimon</finalName>

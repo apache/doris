@@ -152,6 +152,10 @@ public class SchemaScanNode extends ScanNode {
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null) {
             msg.schema_scan_node.setThreadId(ConnectContext.get().getConnectionId());
+            // Read the session here and carry it in the plan: the BE calls back into the FE
+            // for column metadata on its own connection, where this session is not reachable.
+            msg.schema_scan_node.setMysqlCompatibleIndexMetadata(
+                    ctx.getSessionVariable().enableMysqlCompatibleIndexMetadata());
         }
         msg.schema_scan_node.setIp(frontendIP);
         msg.schema_scan_node.setPort(frontendPort);

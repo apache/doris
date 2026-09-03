@@ -72,10 +72,10 @@ OPENSSL_SOURCE=openssl-OpenSSL_1_1_1s
 OPENSSL_MD5SUM="7e79a7560dee77c0758baa33c61af4b4"
 
 # thrift
-THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.16.0/thrift-0.16.0.tar.gz"
-THRIFT_NAME=thrift-0.16.0.tar.gz
-THRIFT_SOURCE=thrift-0.16.0
-THRIFT_MD5SUM="44cf1b54b4ec1890576c85804acfa637"
+THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.24.0/thrift-0.24.0.tar.gz"
+THRIFT_NAME=thrift-0.24.0.tar.gz
+THRIFT_SOURCE=thrift-0.24.0
+THRIFT_MD5SUM="232e035ff80c5fb4b7243f0be3a76b02"
 
 # protobuf
 # brpc is not yet compatible with protobuf >= 22
@@ -379,13 +379,18 @@ BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
 # aws sdk
-AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.219.tar.gz"
-AWS_SDK_NAME="aws-sdk-cpp-1.11.219.tar.gz"
-AWS_SDK_SOURCE="aws-sdk-cpp-1.11.219"
-AWS_SDK_MD5SUM="80aa616efe1a3e7a9bf0dfbc44a97864"
+AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.221.tar.gz"
+AWS_SDK_NAME="aws-sdk-cpp-1.11.221.tar.gz"
+AWS_SDK_SOURCE="aws-sdk-cpp-1.11.221"
+AWS_SDK_MD5SUM="95ea128da58829117a544b092bc39033"
 
 # tsan_header
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
+# Not every CI runner can reach gcc.gnu.org, and download_func() spends the first
+# of its two passes re-checking the file that is already on disk, so an
+# unreachable host costs a single attempt and then fails the build. The gcc-7
+# branch is closed, so this mirror serves a byte identical file.
+TSAN_HEADER_FALLBACK_DOWNLOAD="https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-7/libsanitizer/include/sanitizer/tsan_interface_atomic.h"
 TSAN_HEADER_NAME="tsan_interface_atomic.h"
 TSAN_HEADER_FILE="tsan_interface_atomic.h"
 TSAN_HEADER_MD5SUM="d72679bea167d6a513d959f5abd149dc"
@@ -493,16 +498,10 @@ FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
 # libhdfs
-HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.6.6-for-doris.tar.gz"
-HADOOP_LIBS_NAME="hadoop-3.3.6.6-for-doris.tar.gz"
-HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.6-for-doris"
-HADOOP_LIBS_MD5SUM="13b66d5f2abffd1740e692b65df5962e"
-
-# libhdfs 3.4
-HADOOP_LIBS_3_4_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.4.2.2-for-doris.tar.gz"
-HADOOP_LIBS_3_4_NAME="hadoop-3.4.2.2-for-doris.tar.gz"
-HADOOP_LIBS_3_4_SOURCE="doris-thirdparty-hadoop-3.4.2.2-for-doris"
-HADOOP_LIBS_3_4_MD5SUM="b649508cdff5c8603abd659b754a2796"
+HADOOP_LIBS_3_4_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.4.2.4-for-doris.tar.gz"
+HADOOP_LIBS_3_4_NAME="hadoop-3.4.2.4-for-doris.tar.gz"
+HADOOP_LIBS_3_4_SOURCE="doris-thirdparty-hadoop-3.4.2.4-for-doris"
+HADOOP_LIBS_3_4_MD5SUM="729a7ef9126f65255d1da124a88ffd50"
 
 # AvxToNeon
 AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
@@ -564,6 +563,12 @@ ICU_NAME=release-69-1.tar.gz
 ICU_SOURCE=icu-release-69-1
 ICU_MD5SUM="135125f633864285d637db5c01e0388b"
 
+# mecab-ipadic (UTF-8) for the Japanese kuromoji analyzer
+MECAB_IPADIC_DOWNLOAD="https://github.com/lindera/mecab-ipadic/archive/refs/tags/2.7.0-20250920.tar.gz"
+MECAB_IPADIC_NAME="mecab-ipadic-2.7.0-20250920.tar.gz"
+MECAB_IPADIC_SOURCE="mecab-ipadic-2.7.0-20250920"
+MECAB_IPADIC_MD5SUM="a95c409f12f1023fce8ef91f991ef042"
+
 # jindofs
 JINDOFS_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/alibabacloud-jindodata-releases/jindofs-6.10.4-libs-0.1.tar.gz"
 JINDOFS_NAME=jindofs-6.10.4-libs-0.1.tar.gz
@@ -584,13 +589,14 @@ PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # lance-c
-LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.2.tar.gz"
-LANCE_C_NAME="lance-c-v0.1.2.tar.gz"
-LANCE_C_SOURCE="lance-c-0.1.2"
-LANCE_C_MD5SUM="eb6ec9bc63fa5245864282f24b521d0b"
+LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.8.tar.gz"
+LANCE_C_NAME="lance-c-v0.1.8.tar.gz"
+LANCE_C_SOURCE="lance-c-0.1.8"
+LANCE_C_MD5SUM="2a4af9398cdec19d5d379a27353b1266"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
+    'MECAB_IPADIC'
     'LIBEVENT'
     'OPENSSL'
     'THRIFT'
@@ -659,7 +665,6 @@ export TP_ARCHIVES=(
     'XXHASH'
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
-    'HADOOP_LIBS'
     'HADOOP_LIBS_3_4'
     'AVX2NEON'
     'LIBDEFLATE'

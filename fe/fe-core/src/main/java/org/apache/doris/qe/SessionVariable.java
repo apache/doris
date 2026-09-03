@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VarAttrDef.VarAttr;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.thrift.TGroupCommitMode;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TQueryOptions;
@@ -113,6 +115,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SQL_MODE = "sql_mode";
     public static final String WORKLOAD_VARIABLE = "workload_group";
     public static final String RESOURCE_VARIABLE = "resource_group";
+    public static final String PREFERRED_BACKEND_SELECTION_KEY = "preferred_backend_selection_key";
+    public static final String BACKEND_SELECTION_MODE = "backend_selection_mode";
+    public static final String ENABLE_LOAD_BACKEND_SELECTION = "enable_load_backend_selection";
     public static final String AUTO_COMMIT = "autocommit";
     public static final String TX_ISOLATION = "tx_isolation";
     public static final String TX_READ_ONLY = "tx_read_only";
@@ -214,6 +219,8 @@ public class SessionVariable implements Serializable, Writable {
 
     // if set to true, some of stmt will be forwarded to master FE to get result
     public static final String FORWARD_TO_MASTER = "forward_to_master";
+    // if set to true, all queries of this session will be forwarded to master FE
+    public static final String FORCE_FORWARD_ALL_QUERIES = "force_forward_all_queries";
     // user can set instance num after exchange, no need to be equal to nums of before exchange
     public static final String PARALLEL_EXCHANGE_INSTANCE_NUM = "parallel_exchange_instance_num";
     public static final String SHOW_HIDDEN_COLUMNS = "show_hidden_columns";
@@ -225,6 +232,11 @@ public class SessionVariable implements Serializable, Writable {
 
     // Compatible with  mysql
     public static final String PROFILLING = "profiling";
+
+    // Report index/key metadata the way MySQL does, so that MySQL ODBC/JDBC clients
+    // and BI tools can discover the primary key of a table.
+    public static final String ENABLE_MYSQL_COMPATIBLE_INDEX_METADATA
+            = "enable_mysql_compatible_index_metadata";
 
     public static final String DIV_PRECISION_INCREMENT = "div_precision_increment";
 
@@ -458,13 +470,15 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_RUNTIME_FILTER_PARTITION_PRUNE =
             "enable_runtime_filter_partition_prune";
 
+    public static final String ENABLE_RUNTIME_FILTER_BUCKET_PRUNE =
+            "enable_runtime_filter_bucket_prune";
+
     public static final String ENABLE_PRUNE_NESTED_COLUMN = "enable_prune_nested_column";
 
     static final String SESSION_CONTEXT = "session_context";
 
     public static final String DEFAULT_ORDER_BY_LIMIT = "default_order_by_limit";
 
-    public static final String ENABLE_SINGLE_REPLICA_INSERT = "enable_single_replica_insert";
 
     public static final String ENABLE_FAST_ANALYZE_INSERT_INTO_VALUES = "enable_fast_analyze_into_values";
 
@@ -524,6 +538,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FILE_CACHE_QUERY_LIMIT_BYTES =
             "file_cache_query_limit_bytes";
+
+    public static final String INVERTED_INDEX_SNII_READ_NO_WRITE_FILE_CACHE =
+            "inverted_index_snii_read_no_write_file_cache";
 
     public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
 
@@ -816,6 +833,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_EXTENDED_REGEX = "enable_extended_regex";
 
+    public static final String ENABLE_HYPERSCAN_FALLBACK = "enable_hyperscan_fallback";
+
     public static final String CLOUD_PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION =
             "cloud_partitions_table_use_cached_visible_version";
 
@@ -848,7 +867,6 @@ public class SessionVariable implements Serializable, Writable {
     @Deprecated
     public static final String ENABLE_VARIANT_FLATTEN_NESTED = "enable_variant_flatten_nested";
     public static final String ENABLE_VARIANT_SCHEMA_AUTO_CAST = "enable_variant_schema_auto_cast";
-    public static final String ENABLE_VARIANT_V2 = "enable_variant_v2";
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
@@ -1261,6 +1279,26 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = RESOURCE_VARIABLE)
     public String resourceGroup = "";
 
+    @VarAttrDef.VarAttr(name = PREFERRED_BACKEND_SELECTION_KEY, needForward = true,
+            checker = "checkPreferredBackendSelectionKey",
+            description = "The preferred backend selection key for the current session. The default empty string "
+                    + "means no selection preference is provided.")
+    public String preferredBackendSelectionKey = "";
+
+    @VarAttrDef.VarAttr(name = BACKEND_SELECTION_MODE, needForward = true,
+            checker = "checkBackendSelectionMode",
+            setter = "setBackendSelectionMode",
+            options = {"prefer", "require", "default"},
+            description = "Backend selection mode for optional policies. The default policy is a no-op and does "
+                    + "not change replica or backend selection behavior. `require` is available only when the "
+                    + "extension declares support. Supported values are `prefer`, `require`, and `default`.")
+    public String backendSelectionMode = "prefer";
+
+    @VarAttrDef.VarAttr(name = ENABLE_LOAD_BACKEND_SELECTION, needForward = true,
+            description = "Whether optional backend selection policies may participate in load scheduling. "
+                    + "The default policy is a no-op and does not change load behavior.")
+    public boolean enableLoadBackendSelection = false;
+
     // this is used to make mysql client happy
     // autocommit is actually a boolean value, but @@autocommit is type of BIGINT.
     // So we need to set convertBoolToLongMethod to make "select @@autocommit" happy.
@@ -1565,6 +1603,9 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = FORWARD_TO_MASTER)
     public boolean forwardToMaster = true;
 
+    @VarAttrDef.VarAttr(name = FORCE_FORWARD_ALL_QUERIES)
+    public boolean forceForwardAllQueries = false;
+
     // compatible with some mysql client connect, say DataGrip of JetBrains
     @VarAttrDef.VarAttr(name = EVENT_SCHEDULER)
     public String eventScheduler = "OFF";
@@ -1574,6 +1615,14 @@ public class SessionVariable implements Serializable, Writable {
     public String defaultStorageEngine = "olap";
     @VarAttrDef.VarAttr(name = DEFAULT_TMP_STORAGE_ENGINE)
     public String defaultTmpStorageEngine = "olap";
+
+    @VarAttrDef.VarAttr(name = ENABLE_MYSQL_COMPATIBLE_INDEX_METADATA,
+            description = "Report index and key metadata the way MySQL does. When ON, SHOW KEYS|INDEX returns "
+                    + "one row per indexed column and exposes the UNIQUE/AGGREGATE key of a table as an index "
+                    + "named PRIMARY, which is what MySQL ODBC/JDBC drivers and BI tools look for. OFF by "
+                    + "default, which keeps the legacy output that only lists secondary indexes. Set it "
+                    + "globally to turn it on for every client of the cluster.")
+    public boolean enableMysqlCompatibleIndexMetadata = false;
 
     @VarAttrDef.VarAttr(name = MAX_SCAN_KEY_NUM)
     public int maxScanKeyNum = 48;
@@ -1943,7 +1992,12 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = GLOBAL_PARTITION_TOPN_THRESHOLD)
     private double globalPartitionTopNThreshold = 100;
 
-    @VarAttrDef.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY)
+    // Forwarded to the BE as a query option and read by the MySQL result writer: when it is false
+    // the object types (HLL / BITMAP / QUANTILE_STATE) are serialized as NULL instead of their raw
+    // bytes. It therefore changes the result rows the sql cache stores, and must take part in the
+    // cache key, otherwise a session that turns it on replays the NULLs cached by a session that
+    // had it off. It only affects execution, not the plan, so it does not force forwarding.
+    @VarAttrDef.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY, affectQueryResultInExecution = true)
     private boolean returnObjectDataAsBinary = false;
 
     @VarAttrDef.VarAttr(name = BLOCK_ENCRYPTION_MODE, affectQueryResultInPlan = true)
@@ -2130,6 +2184,9 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true)
     public boolean enableRuntimeFilterPartitionPrune = true;
 
+    @VarAttrDef.VarAttr(name = ENABLE_RUNTIME_FILTER_BUCKET_PRUNE, needForward = true, fuzzy = true)
+    public boolean enableRuntimeFilterBucketPrune = true;
+
     /**
      * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
      * For example, trace_id can be passed to trace the query request sent by the user.
@@ -2137,10 +2194,6 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VarAttrDef.VarAttr(name = SESSION_CONTEXT, needForward = true)
     public String sessionContext = "";
-
-    @VarAttrDef.VarAttr(name = ENABLE_SINGLE_REPLICA_INSERT,
-            needForward = true, varType = VariableAnnotation.EXPERIMENTAL)
-    public boolean enableSingleReplicaInsert = false;
 
     @VarAttrDef.VarAttr(
             name = ENABLE_FAST_ANALYZE_INSERT_INTO_VALUES, fuzzy = true,
@@ -3011,6 +3064,15 @@ public class SessionVariable implements Serializable, Writable {
                     + "> 0 disables file cache writes after the threshold is reached.")
     public long fileCacheQueryLimitBytes = -1;
 
+    @VarAttrDef.VarAttr(name = INVERTED_INDEX_SNII_READ_NO_WRITE_FILE_CACHE, needForward = true,
+            description = "SNII inverted index reads take the remote-only-on-miss file cache "
+                    + "policy: hits are still served from cache, but a miss reads the "
+                    + "remote object directly without writing back into the file cache. "
+                    + "Data (.dat) and segment-meta reads are unaffected, and so are "
+                    + "CLucene (V1/V2/V3) index reads. "
+                    + "Intended for one-shot / ad-hoc cold queries.")
+    public boolean invertedIndexSniiReadNoWriteFileCache = false;
+
     public void setAggPhase(int phase) {
         aggPhase = phase;
     }
@@ -3483,15 +3545,6 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableVariantSchemaAutoCast = true;
 
     @VarAttrDef.VarAttr(
-            name = ENABLE_VARIANT_V2,
-            needForward = true,
-            affectQueryResultInPlan = true,
-            varType = VariableAnnotation.EXPERIMENTAL,
-            description = "Whether to enable ColumnVariantV2 for compute expressions. The default is false."
-    )
-    public boolean enableVariantV2 = false;
-
-    @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
             needForward = true,
             fuzzy = true
@@ -3509,6 +3562,10 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_EXTENDED_REGEX, needForward = true, affectQueryResultInExecution = true,
             description = "Enable extended regular expressions, support look-around zero-width assertions")
     public boolean enableExtendedRegex = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_HYPERSCAN_FALLBACK, needForward = true, affectQueryResultInExecution = true,
+            description = "Whether to fall back to RE2 when Hyperscan cannot compile a regular expression")
+    public boolean enableHyperscanFallback = true;
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT,
@@ -3562,13 +3619,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
     @VarAttrDef.VarAttr(name = IGNORE_ICEBERG_DANGLING_DELETE,
-            description = " Whether to ignore the impact of dangling delete files in Iceberg tables on COUNT(*) "
-                    + "statistics. "
-                    + "The default is true, COUNT(*) will directly obtain the number of rows from metadata, "
-                    + "which has better performance, but if there are dangling deletes, "
-                    + "the result may be inaccurate. "
-                    + "When set to false, COUNT(*) will scan data files "
-                    + "to exclude the impact of dangling delete files.")
+            description = "Whether Iceberg metadata COUNT(*) may subtract position-delete record counts from "
+                    + "current data-manifest rows. This improves performance but can be inaccurate for dangling "
+                    + "delete entries. Equality deletes always disable metadata COUNT(*).")
     public boolean ignoreIcebergDanglingDelete = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_ICEBERG_MERGE_PARTITIONING,
@@ -3668,6 +3721,7 @@ public class SessionVariable implements Serializable, Writable {
         this.enableParallelScan = random.nextInt(2) == 0;
         this.enableRuntimeFilterPrune = (randomInt % 10) == 0;
         this.enableRuntimeFilterPartitionPrune = (randomInt % 2) == 0;
+        this.enableRuntimeFilterBucketPrune = (randomInt % 2) == 0;
         this.runtimeFilterTreePublishMaxSendBytes =
                 Util.getRandomLong(0, 64L * 1024L * 1024L, 128L * 1024L * 1024L,
                         256L * 1024L * 1024L);
@@ -4246,8 +4300,61 @@ public class SessionVariable implements Serializable, Writable {
         return resourceGroup;
     }
 
+    public String getPreferredBackendSelectionKey() {
+        return preferredBackendSelectionKey;
+    }
+
+    public String getBackendSelectionMode() {
+        return backendSelectionMode;
+    }
+
+    public boolean isEnableLoadBackendSelection() {
+        return enableLoadBackendSelection;
+    }
+
     public void setResourceGroup(String resourceGroup) {
         this.resourceGroup = resourceGroup;
+    }
+
+    public void checkPreferredBackendSelectionKey(String preferredBackendSelectionKey) {
+        if (Strings.isNullOrEmpty(preferredBackendSelectionKey)) {
+            return;
+        }
+        try {
+            FeNameFormat.checkCommonName(PREFERRED_BACKEND_SELECTION_KEY, preferredBackendSelectionKey);
+        } catch (Exception e) {
+            LOG.warn("preferred_backend_selection_key value is invalid, the invalid value is {}",
+                    preferredBackendSelectionKey, e);
+            throw new UnsupportedOperationException(
+                    "preferred_backend_selection_key value is invalid, the invalid value is "
+                            + preferredBackendSelectionKey);
+        }
+    }
+
+    public void checkBackendSelectionMode(String backendSelectionMode) {
+        String normalized = Strings.nullToEmpty(backendSelectionMode).toLowerCase(Locale.ROOT);
+        if (!"prefer".equals(normalized)
+                && !"require".equals(normalized)
+                && !"default".equals(normalized)) {
+            LOG.warn("backend_selection_mode value is invalid, the invalid value is {}",
+                    backendSelectionMode);
+            throw new UnsupportedOperationException(
+                    "backend_selection_mode value is invalid, the invalid value is "
+                            + backendSelectionMode
+                            + ", supported values are prefer, require and default");
+        }
+        if ("require".equals(normalized) && Config.isCloudMode()) {
+            throw new UnsupportedOperationException(
+                    "Required backend selection is not supported in cloud mode");
+        }
+        if ("require".equals(normalized) && !BackendSelectionManager.supportsRequiredSelection()) {
+            throw new UnsupportedOperationException(
+                    "Backend selection provider does not support required backend selection");
+        }
+    }
+
+    public void setBackendSelectionMode(String backendSelectionMode) {
+        this.backendSelectionMode = Strings.nullToEmpty(backendSelectionMode).toLowerCase(Locale.ROOT);
     }
 
     public boolean isDisableFileCache() {
@@ -4466,6 +4573,10 @@ public class SessionVariable implements Serializable, Writable {
         return forwardToMaster;
     }
 
+    public boolean isForceForwardAllQueries() {
+        return forceForwardAllQueries;
+    }
+
     // for unit test
 
     public String getEventScheduler() {
@@ -4530,6 +4641,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setShowHiddenColumns(boolean showHiddenColumns) {
         this.showHiddenColumns = showHiddenColumns;
+    }
+
+    public boolean enableMysqlCompatibleIndexMetadata() {
+        return enableMysqlCompatibleIndexMetadata;
+    }
+
+    public void setEnableMysqlCompatibleIndexMetadata(boolean enableMysqlCompatibleIndexMetadata) {
+        this.enableMysqlCompatibleIndexMetadata = enableMysqlCompatibleIndexMetadata;
     }
 
     public boolean skipStorageEngineMerge() {
@@ -5152,14 +5271,6 @@ public class SessionVariable implements Serializable, Writable {
         return enableExprTrace;
     }
 
-    public boolean isEnableSingleReplicaInsert() {
-        return enableSingleReplicaInsert;
-    }
-
-    public void setEnableSingleReplicaInsert(boolean enableSingleReplicaInsert) {
-        this.enableSingleReplicaInsert = enableSingleReplicaInsert;
-    }
-
     public boolean isEnableFastAnalyzeInsertIntoValues() {
         return enableFastAnalyzeInsertIntoValues;
     }
@@ -5190,6 +5301,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableRuntimeFilterPartitionPrune(boolean enableRuntimeFilterPartitionPrune) {
         this.enableRuntimeFilterPartitionPrune = enableRuntimeFilterPartitionPrune;
+    }
+
+    public boolean isEnableRuntimeFilterBucketPrune() {
+        return enableRuntimeFilterBucketPrune;
+    }
+
+    public void setEnableRuntimeFilterBucketPrune(boolean enableRuntimeFilterBucketPrune) {
+        this.enableRuntimeFilterBucketPrune = enableRuntimeFilterBucketPrune;
     }
 
     public void setFragmentTransmissionCompressionCodec(String codec) {
@@ -5377,6 +5496,9 @@ public class SessionVariable implements Serializable, Writable {
      */
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
+        // Fragment reports are decoded by FE, whose limit can be lower than a rolling-upgrade BE's.
+        tResult.setCoordinatorThriftMaxMessageSize(Config.thrift_max_message_size);
+        tResult.setSupportsExternalFileReportAck(true);
         tResult.setMemLimit(maxExecMemByte);
         tResult.setMaxScanMemRatio(maxScanMemRatio);
         tResult.setEnableAdaptiveScan(enableAdaptiveScan);
@@ -5567,6 +5689,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setIgnoreRuntimeFilterError(ignoreRuntimeFilterError);
         tResult.setProfileLevel(getProfileLevel());
         tResult.setEnableRuntimeFilterPartitionPrune(enableRuntimeFilterPartitionPrune);
+        tResult.setEnableRuntimeFilterBucketPrune(enableRuntimeFilterBucketPrune);
 
         tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
         tResult.setExchangeMultiBlocksByteSize(exchangeMultiBlocksByteSize);
@@ -5584,6 +5707,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setAnnIndexCandidateRowsPercentThreshold(annIndexCandidateRowsPercentThreshold);
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
         tResult.setEnableExtendedRegex(enableExtendedRegex);
+        tResult.setEnableHyperscanFallback(enableHyperscanFallback);
         if (fileCacheQueryLimitPercent > 0) {
             tResult.setFileCacheQueryLimitPercent(Math.min(fileCacheQueryLimitPercent,
                     Config.file_cache_query_limit_max_percent));
@@ -5597,6 +5721,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableLocalShufflePlanner(enableLocalShufflePlanner);
         tResult.setFileCacheQueryLimitBytes(fileCacheQueryLimitBytes);
+        tResult.setInvertedIndexSniiReadNoWriteFileCache(invertedIndexSniiReadNoWriteFileCache);
         return tResult;
     }
 
@@ -6384,10 +6509,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableVariantSchemaAutoCast() {
         return enableVariantSchemaAutoCast;
-    }
-
-    public boolean isEnableVariantV2() {
-        return enableVariantV2;
     }
 
     public void setProfileLevel(String profileLevel) {

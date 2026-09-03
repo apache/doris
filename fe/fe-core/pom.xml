@@ -70,8 +70,89 @@ under the License.
                 <fe_ut_parallel>${env.FE_UT_PARALLEL}</fe_ut_parallel>
             </properties>
         </profile>
+        <!-- Huawei Cloud OBS support. Active by default; disabled by passing
+             -Ddisable.obs=true (build.sh exclude-obs-dependencies flag), which drops the
+             fe-filesystem-obs test coupling so nothing from com.huaweicloud reaches the test
+             classpath and the Huawei OBS jars (only on repo.huaweicloud.com) are never resolved. -->
+        <profile>
+            <id>obs</id>
+            <activation>
+                <property>
+                    <name>!disable.obs</name>
+                </property>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>${project.groupId}</groupId>
+                    <artifactId>fe-filesystem-obs</artifactId>
+                    <version>${project.version}</version>
+                    <scope>test</scope>
+                    <!-- The cloud SDK's okhttp (3.x/5.x) must not shadow fe-core's own okhttp on the
+                         test classpath; the bind-parity tests never open SDK http connections. -->
+                    <exclusions>
+                        <exclusion>
+                            <groupId>com.squareup.okhttp3</groupId>
+                            <artifactId>*</artifactId>
+                        </exclusion>
+                        <exclusion>
+                            <groupId>com.squareup.okio</groupId>
+                            <artifactId>*</artifactId>
+                        </exclusion>
+                    </exclusions>
+                </dependency>
+            </dependencies>
+        </profile>
+        <!-- Tencent Cloud COS support. Active by default; disabled by passing
+             -Ddisable.cos=true (build.sh exclude-cos-dependencies flag), which drops the
+             fe-filesystem-cos test coupling so the Tencent COS SDK is never pulled onto the
+             test classpath. -->
+        <profile>
+            <id>cos</id>
+            <activation>
+                <property>
+                    <name>!disable.cos</name>
+                </property>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>${project.groupId}</groupId>
+                    <artifactId>fe-filesystem-cos</artifactId>
+                    <version>${project.version}</version>
+                    <scope>test</scope>
+                    <!-- The cloud SDK's okhttp (3.x/5.x) must not shadow fe-core's own okhttp on the
+                         test classpath; the bind-parity tests never open SDK http connections. -->
+                    <exclusions>
+                        <exclusion>
+                            <groupId>com.squareup.okhttp3</groupId>
+                            <artifactId>*</artifactId>
+                        </exclusion>
+                        <exclusion>
+                            <groupId>com.squareup.okio</groupId>
+                            <artifactId>*</artifactId>
+                        </exclusion>
+                    </exclusions>
+                </dependency>
+            </dependencies>
+        </profile>
     </profiles>
     <dependencies>
+        <!-- Must stay the FIRST dependency: it carries the DORIS-PATCH copy of
+             org.apache.hadoop.fs.FileSystem (credential-aware cache key, see
+             doris.fs.cache.key) which has to precede hadoop-common on every
+             classpath. start_fe.sh prepends this jar at runtime; declaring it
+             first here keeps the maven test classpath consistent with that.
+             All transitives are excluded — FE manages its own hadoop deps. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>hadoop-deps</artifactId>
+            <version>${project.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-foundation</artifactId>
@@ -114,6 +195,11 @@ under the License.
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-connector-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-cache</artifactId>
             <version>${project.version}</version>
         </dependency>
         <!-- Connector impl modules, TEST SCOPE ONLY. Production loads these from the
@@ -219,42 +305,10 @@ under the License.
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>fe-filesystem-obs</artifactId>
-            <version>${project.version}</version>
-            <scope>test</scope>
-            <!-- The cloud SDK's okhttp (3.x/5.x) must not shadow fe-core's own okhttp on the
-                 test classpath; the bind-parity tests never open SDK http connections. -->
-            <exclusions>
-                <exclusion>
-                    <groupId>com.squareup.okhttp3</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.squareup.okio</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>fe-filesystem-cos</artifactId>
-            <version>${project.version}</version>
-            <scope>test</scope>
-            <!-- The cloud SDK's okhttp (3.x/5.x) must not shadow fe-core's own okhttp on the
-                 test classpath; the bind-parity tests never open SDK http connections. -->
-            <exclusions>
-                <exclusion>
-                    <groupId>com.squareup.okhttp3</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.squareup.okio</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
+        <!-- fe-filesystem-obs (test scope) lives in the `obs` profile above;
+             disabled via -Ddisable.obs=true (build.sh exclude-obs-dependencies flag). -->
+        <!-- fe-filesystem-cos (test scope) lives in the `cos` profile above;
+             disabled via -Ddisable.cos=true (build.sh exclude-cos-dependencies flag). -->
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-filesystem-gcs</artifactId>

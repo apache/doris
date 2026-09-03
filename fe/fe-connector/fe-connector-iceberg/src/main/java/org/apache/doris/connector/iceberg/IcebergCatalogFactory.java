@@ -38,6 +38,7 @@ import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -108,8 +109,6 @@ public final class IcebergCatalogFactory {
     private static final String REST_SIGV4_ENABLED_KEY = "rest.sigv4-enabled";
     private static final String REST_SIGNING_REGION_KEY = "rest.signing-region";
     private static final String SECURITY_TYPE_OAUTH2 = "oauth2";
-    private static final String SIGNING_NAME_GLUE = "glue";
-    private static final String SIGNING_NAME_S3TABLES = "s3tables";
 
     // GLUE.
     private static final String GLUE_CREDENTIALS_PROVIDER_KEY = "client.credentials-provider";
@@ -211,6 +210,25 @@ public final class IcebergCatalogFactory {
             }
         }
         return Optional.ofNullable(target != null ? target : fallback);
+    }
+
+    /**
+     * Selects the storage bindings Iceberg should consume together. All non-S3-compatible bindings are
+     * preserved, while the S3-compatible family is reduced to the same single binding selected for S3FileIO:
+     * a cloud-specific provider such as OSS/COS/OBS wins over the generic S3 fallback. Raw-property routing can
+     * legitimately bind both (for legacy parity), but merging both maps would let a later generic S3 binding
+     * overwrite the explicit provider's endpoint, credentials, and path-style setting.
+     */
+    public static List<StorageProperties> selectEffectiveStorages(
+            List<? extends StorageProperties> storages) {
+        S3CompatibleFileSystemProperties chosenS3 = chooseS3Compatible(storages).orElse(null);
+        List<StorageProperties> selected = new ArrayList<>();
+        for (StorageProperties storage : storages) {
+            if (!(storage instanceof S3CompatibleFileSystemProperties) || storage == chosenS3) {
+                selected.add(storage);
+            }
+        }
+        return selected;
     }
 
     /**
@@ -333,7 +351,7 @@ public final class IcebergCatalogFactory {
             case IcebergCatalogProperties.TYPE_REST:
                 return "org.apache.iceberg.rest.RESTCatalog";
             case IcebergCatalogProperties.TYPE_HMS:
-                return "org.apache.iceberg.hive.HiveCatalog";
+                return DorisHiveCatalog.class.getName();
             case IcebergCatalogProperties.TYPE_GLUE:
                 return "org.apache.iceberg.aws.glue.GlueCatalog";
             case IcebergCatalogProperties.TYPE_HADOOP:
@@ -461,8 +479,8 @@ public final class IcebergCatalogFactory {
     /**
      * Mirrors legacy {@code IcebergRestProperties}: core ({@code uri} always, default empty), optional
      * ({@code prefix} / vended-credentials header / the two effectively-always timeouts), oauth2, and the glue
-     * sigv4 signing block (with credentials sourced from the chosen S3 store for glue/s3tables, else from the
-     * {@code iceberg.rest.*} aliases). PURE.
+     * sigv4 signing block (with credentials sourced from the chosen S3 store for managed signing names, else
+     * from the {@code iceberg.rest.*} aliases). PURE.
      *
      * <p>Every {@code iceberg.rest.*} value is read off the BOUND {@code rest} holder, which declares the alias
      * set once. {@code props} is still needed for the credential-provider mode, whose alias set spans the
@@ -515,9 +533,8 @@ public final class IcebergCatalogFactory {
         opts.put(REST_SIGNING_NAME_KEY, signingName);
         opts.put(REST_SIGV4_ENABLED_KEY, rest.getSigV4Enabled());
         opts.put(REST_SIGNING_REGION_KEY, rest.getSigningRegion());
-        if (SIGNING_NAME_GLUE.equals(signingName)
-                || SIGNING_NAME_S3TABLES.equals(signingName)) {
-            // glue/s3tables: credentials come from the chosen S3 store, switching on its credential type
+        if (rest.usesS3CredentialsForRestSigning()) {
+            // glue/s3tables/osstables: credentials come from the chosen S3-compatible store, switching on its type
             // (legacy getCredentialType precedence: EXPLICIT before ASSUME_ROLE before PROVIDER_CHAIN).
             if (chosenS3.isPresent()) {
                 S3CompatibleFileSystemProperties s3 = chosenS3.get();

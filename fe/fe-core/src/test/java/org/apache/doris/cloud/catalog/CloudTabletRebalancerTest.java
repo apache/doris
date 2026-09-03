@@ -49,6 +49,7 @@ import java.lang.reflect.Modifier;
 import java.util.AbstractList;
 import java.util.AbstractMap;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -88,7 +89,11 @@ public class CloudTabletRebalancerTest {
         private final Set<Long> internalDbIds = new HashSet<>();
 
         TestRebalancer() {
-            super(null);
+            this(null);
+        }
+
+        TestRebalancer(CloudSystemInfoService cloudSystemInfoService) {
+            super(cloudSystemInfoService);
         }
 
         void setInternalDbIds(Set<Long> ids) {
@@ -705,6 +710,107 @@ public class CloudTabletRebalancerTest {
         Assertions.assertEquals(List.of(0, 0), rebalancer.globalTabletSetInitialCapacities);
     }
 
+    @Test
+    public void testReleaseSchedulingIndexesKeepsGlobalRoutesAndAllowsNextRebuild() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        Long srcBe = 10_001L;
+        Long dbId = 15_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        String clusterId = "cluster-a";
+        RouteMaps current = new RouteMaps();
+        RouteMaps future = new RouteMaps();
+        initializeRouteMaps(rebalancer, current, future, srcBe, tableId, partitionId, indexId, tabletId);
+
+        invokePrivate(rebalancer, "releaseSchedulingIndexes", new Class<?>[] {}, new Object[] {});
+
+        ConcurrentHashMap<Long, Set<Long>> currentGlobal = getField(rebalancer, "beToTabletsGlobal");
+        ConcurrentHashMap<Long, Set<Long>> futureGlobal = getField(rebalancer, "futureBeToTabletsGlobal");
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> releasedCurrentByTable =
+                getField(rebalancer, "beToTabletsInTable");
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> releasedFutureByTable =
+                getField(rebalancer, "futureBeToTabletsInTable");
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+                releasedCurrentByPartition = getField(rebalancer, "partitionToTablets");
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+                releasedFutureByPartition = getField(rebalancer, "futurePartitionToTablets");
+        Assertions.assertSame(current.global, currentGlobal);
+        Assertions.assertSame(future.global, futureGlobal);
+        Assertions.assertNotSame(current.byTable, releasedCurrentByTable);
+        Assertions.assertNotSame(future.byTable, releasedFutureByTable);
+        Assertions.assertNotSame(current.byPartition, releasedCurrentByPartition);
+        Assertions.assertNotSame(future.byPartition, releasedFutureByPartition);
+        Assertions.assertTrue(releasedCurrentByTable.isEmpty());
+        Assertions.assertTrue(releasedFutureByTable.isEmpty());
+        Assertions.assertTrue(releasedCurrentByPartition.isEmpty());
+        Assertions.assertTrue(releasedFutureByPartition.isEmpty());
+
+        setField(rebalancer, "clusterToBes", Collections.singletonMap(clusterId, List.of(srcBe)));
+        setField(rebalancer, "allBes", Set.of(srcBe));
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tabletId, clusterId, srcBe)) {
+            rebalancer.statRouteInfo();
+        }
+
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> rebuiltCurrentByTable =
+                getField(rebalancer, "beToTabletsInTable");
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> rebuiltFutureByTable =
+                getField(rebalancer, "futureBeToTabletsInTable");
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+                rebuiltCurrentByPartition = getField(rebalancer, "partitionToTablets");
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+                rebuiltFutureByPartition = getField(rebalancer, "futurePartitionToTablets");
+        Assertions.assertEquals(Set.of(tabletId), rebuiltCurrentByTable.get(tableId).get(srcBe));
+        Assertions.assertEquals(Set.of(tabletId), rebuiltFutureByTable.get(tableId).get(srcBe));
+        Assertions.assertEquals(Set.of(tabletId),
+                rebuiltCurrentByPartition.get(partitionId).get(indexId).get(srcBe));
+        Assertions.assertEquals(Set.of(tabletId),
+                rebuiltFutureByPartition.get(partitionId).get(indexId).get(srcBe));
+    }
+
+    @Test
+    public void testRunAfterCatalogReadyReleasesSchedulingIndexesWhenMigrationFails() throws Exception {
+        Long srcBe = 10_001L;
+        Long destBe = 10_002L;
+        Long dbId = 15_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        String clusterId = "cluster-a";
+        CloudSystemInfoService systemInfoService = Mockito.mock(CloudSystemInfoService.class);
+        Backend srcBackend = Mockito.mock(Backend.class);
+        Mockito.when(systemInfoService.getAllBackendIds()).thenReturn(List.of(srcBe));
+        Mockito.when(systemInfoService.getBackend(srcBe)).thenReturn(srcBackend);
+        Mockito.when(srcBackend.getCloudClusterId()).thenReturn(clusterId);
+        TestRebalancer rebalancer = new TestRebalancer(systemInfoService);
+        rebalancer.addTabletMigrationTask(srcBe, destBe);
+
+        boolean oldEnableCloudMultiReplica = Config.enable_cloud_multi_replica;
+        Config.enable_cloud_multi_replica = false;
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tabletId, clusterId, srcBe)) {
+            TabletInvertedIndex invertedIndex = Env.getCurrentEnv().getTabletInvertedIndex();
+            Mockito.when(invertedIndex.getTabletMeta(tabletId))
+                    .thenThrow(new RuntimeException("injected migration failure"));
+
+            RuntimeException exception = Assertions.assertThrows(
+                    RuntimeException.class, rebalancer::runAfterCatalogReady);
+
+            Assertions.assertEquals("injected migration failure", exception.getMessage());
+            ConcurrentHashMap<Long, Set<Long>> currentGlobal = getField(rebalancer, "beToTabletsGlobal");
+            Assertions.assertEquals(Set.of(tabletId), currentGlobal.get(srcBe));
+            Assertions.assertTrue(((Map<?, ?>) getField(rebalancer, "beToTabletsInTable")).isEmpty());
+            Assertions.assertTrue(((Map<?, ?>) getField(rebalancer, "futureBeToTabletsInTable")).isEmpty());
+            Assertions.assertTrue(((Map<?, ?>) getField(rebalancer, "partitionToTablets")).isEmpty());
+            Assertions.assertTrue(((Map<?, ?>) getField(rebalancer, "futurePartitionToTablets")).isEmpty());
+        } finally {
+            Config.enable_cloud_multi_replica = oldEnableCloudMultiReplica;
+        }
+    }
+
     private static void initializeRouteMaps(TestRebalancer rebalancer, RouteMaps current, RouteMaps future,
             Long srcBe, Long tableId, Long partitionId, Long indexId, Long tabletId) throws Exception {
         rebalancer.fillBeToTablets(srcBe, tableId, partitionId, indexId, tabletId,
@@ -805,6 +911,7 @@ public class CloudTabletRebalancerTest {
         Mockito.when(systemInfoService.getBackendByIdWithBoxedId(srcBe)).thenReturn(primaryBackend);
         Mockito.when(replica.getPrimaryBackend(clusterId, false)).thenReturn(primaryBackend);
         Mockito.when(primaryBackend.getId()).thenReturn(srcBe);
+        Mockito.when(primaryBackend.isQueryAvailable()).thenReturn(true);
 
         MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
         mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
@@ -1116,6 +1223,41 @@ public class CloudTabletRebalancerTest {
                     "compute_cluster_a", "cluster-a", CloudTabletRebalancer.StatType.PARTITION, 0L));
             metricRepo.verify(() -> MetricRepo.updateClusterCloudBalanceNum(
                     "compute_cluster_b", "cluster-b", CloudTabletRebalancer.StatType.PARTITION, 0L));
+        }
+    }
+
+    @Test
+    public void testStaleRouteSweepGate() {
+        boolean saved = Config.enable_cloud_replica_stale_route_clean;
+        try {
+            Config.enable_cloud_replica_stale_route_clean = true;
+            TestRebalancer rebalancer = new TestRebalancer();
+            Set<Long> bes = new HashSet<>(Arrays.asList(1L, 2L));
+
+            // no baseline yet, so sweep -- twice, to catch route writers in flight during the first pass
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(bes));
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(bes));
+            // unchanged topology: nothing can have gone stale
+            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(bes));
+
+            // a new backend strands nothing, so it does not trigger a sweep on its own
+            Set<Long> grown = new HashSet<>(Arrays.asList(1L, 2L, 3L));
+            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(grown));
+            // ... but it must have entered the baseline, so dropping it again is still seen as a removal
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(new HashSet<>(Arrays.asList(1L, 2L))));
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(new HashSet<>(Arrays.asList(1L, 2L))));
+            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(new HashSet<>(Arrays.asList(1L, 2L))));
+
+            // a backend that disappeared triggers a sweep
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(new HashSet<>(Arrays.asList(1L))));
+
+            // turning the switch off drops the baseline so turning it back on sweeps again
+            Config.enable_cloud_replica_stale_route_clean = false;
+            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(bes));
+            Config.enable_cloud_replica_stale_route_clean = true;
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(bes));
+        } finally {
+            Config.enable_cloud_replica_stale_route_clean = saved;
         }
     }
 }

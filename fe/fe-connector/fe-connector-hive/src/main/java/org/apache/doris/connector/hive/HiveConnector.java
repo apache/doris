@@ -17,13 +17,17 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
+import org.apache.doris.connector.hms.HmsConfHelper;
 import org.apache.doris.connector.hms.ThriftHmsClient;
 import org.apache.doris.connector.hms.event.HmsEventSource;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
+import org.apache.doris.connector.metastore.spi.AbstractHmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorCapability;
@@ -38,6 +42,8 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.kerberos.AuthType;
+import org.apache.doris.kerberos.AuthenticationConfig;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.kerberos.KerberosAuthSpec;
 import org.apache.doris.kerberos.KerberosAuthenticationConfig;
@@ -65,9 +71,6 @@ public class HiveConnector implements Connector {
 
     private static final Logger LOG = LogManager.getLogger(HiveConnector.class);
 
-    // Catalog property key gating the plugin-side Kerberos authenticator (value matches AuthType.KERBEROS).
-    private static final String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
-
     // The sibling connector type a flipped hms gateway delegates iceberg-on-HMS tables to. A string literal
     // (not the iceberg plugin's own type constant, which is child-first and invisible from the hive loader);
     // matches the type name IcebergConnectorProvider registers.
@@ -84,6 +87,7 @@ public class HiveConnector implements Connector {
     // every (re)build of the connector, including the lazy one an FE does after replaying the edit log.
     private final HiveCatalogProperties props;
     private final ConnectorContext context;
+    private final CatalogMetaCache metaCache = new CatalogMetaCache();
     private volatile HmsClient hmsClient;
 
     // Lazily-built plugin-side Kerberos authenticator (single-owner auth), null for a non-Kerberos catalog.
@@ -130,13 +134,16 @@ public class HiveConnector implements Connector {
     private volatile Connector hudiSibling;
 
     public HiveConnector(Map<String, String> properties, ConnectorContext context) {
+        HmsConfHelper.initializeHadoopConfigDir(context);
         this.props = HiveCatalogProperties.of(properties);
         this.properties = props.getRaw();
         this.context = context;
-        this.fileListingCache = new HiveFileListingCache(props);
+        this.fileListingCache = new HiveFileListingCache(metaCache, props);
         // Reads its own meta.cache.hive.partition_view.(enable|ttl-second|capacity) from the catalog properties
         // via the framework's CacheSpec (default ON / 24h / 1000).
-        this.partitionViewCache = new ConnectorMetadataCache<>("hive", "partition_view", this.properties);
+        this.partitionViewCache = new ConnectorMetadataCache<>(metaCache, "hive-partition-view",
+                "hive", "partition_view", this.properties,
+                key -> ScopePath.partitionCollection(key.getDb(), key.getTable()));
     }
 
     @Override
@@ -347,7 +354,7 @@ public class HiveConnector implements Connector {
 
     /**
      * REFRESH TABLE hook: drop this table's connector-owned scan caches. Clears BOTH cache layers for the table —
-     * the metastore-metadata entries ({@link CachingHmsClient#flush}: table meta, partition names, partition
+     * the metastore-metadata entries (table meta, partition names, partition
      * objects, column stats) AND the {@link HiveFileListingCache} directory listings — because a hive table's
      * schema, partitions AND files are all mutable, so a REFRESH must re-read all of them (unlike iceberg, whose
      * manifests are immutable and kept across REFRESH TABLE). fe-core already routes {@code REFRESH TABLE} to
@@ -356,66 +363,32 @@ public class HiveConnector implements Connector {
      */
     @Override
     public void invalidateTable(String dbName, String tableName) {
-        // Read the client field WITHOUT building it (getOrCreateClient would force a real ThriftHmsClient just to
-        // flush an empty cache): a never-built client means no metastore cache exists to flush. The file cache is
-        // a final field and always present.
-        invalidateTable(hmsClient, dbName, tableName);
+        metaCache.invalidateTable(dbName, tableName);
         forEachBuiltSibling(sibling -> sibling.invalidateTable(dbName, tableName));
-    }
-
-    // Package-private seam: the metastore half needs an observable CachingHmsClient, which a unit test can build
-    // via wrapWithCache (the hmsClient field is otherwise only set by getOrCreateClient building a real client).
-    void invalidateTable(HmsClient client, String dbName, String tableName) {
-        if (client instanceof CachingHmsClient) {
-            ((CachingHmsClient) client).flush(dbName, tableName);
-        }
-        fileListingCache.invalidateTable(dbName, tableName);
-        // PERF-06: also drop this table's cached derived partition-view entry, so the next listPartitions
-        // re-derives live.
-        partitionViewCache.invalidateTable(dbName, tableName);
     }
 
     /**
      * REFRESH DATABASE hook: drop the connector-owned scan caches for EVERY table in this database — both cache
-     * layers ({@link CachingHmsClient#flushDb} metastore-metadata + {@link HiveFileListingCache#invalidateDb}
+     * layers (metastore-metadata + {@link HiveFileListingCache#invalidateDb}
      * directory listings). Same no-force-build read of the client as {@link #invalidateTable(String, String)}.
      * fe-core routes {@code REFRESH DATABASE} to {@code connector.invalidateDb} for a plugin-driven catalog.
      * Also forwarded to the already-built embedded siblings — see {@link #forEachBuiltSibling}.
      */
     @Override
     public void invalidateDb(String dbName) {
-        invalidateDb(hmsClient, dbName);
+        metaCache.invalidateDatabase(dbName);
         forEachBuiltSibling(sibling -> sibling.invalidateDb(dbName));
-    }
-
-    // Package-private seam (see invalidateTable above).
-    void invalidateDb(HmsClient client, String dbName) {
-        if (client instanceof CachingHmsClient) {
-            ((CachingHmsClient) client).flushDb(dbName);
-        }
-        fileListingCache.invalidateDb(dbName);
-        partitionViewCache.invalidateDb(dbName);
     }
 
     /**
      * REFRESH CATALOG hook: drop ALL of this catalog's connector-owned scan caches — every metastore-metadata
-     * entry ({@link CachingHmsClient#flushAll}) and every directory listing. Same no-force-build read of the
-     * client as {@link #invalidateTable(String, String)}.
+     * entry and every directory listing.
      * Also forwarded to the already-built embedded siblings — see {@link #forEachBuiltSibling}.
      */
     @Override
     public void invalidateAll() {
-        invalidateAll(hmsClient);
+        metaCache.invalidateCatalog();
         forEachBuiltSibling(Connector::invalidateAll);
-    }
-
-    // Package-private seam (see invalidateTable above).
-    void invalidateAll(HmsClient client) {
-        if (client instanceof CachingHmsClient) {
-            ((CachingHmsClient) client).flushAll();
-        }
-        fileListingCache.invalidateAll();
-        partitionViewCache.invalidateAll();
     }
 
     /**
@@ -423,7 +396,7 @@ public class HiveConnector implements Connector {
      * {@code HiveExternalMetaCache}'s per-partition invalidation. The partition NAMES are parsed into VALUES
      * purely ({@link HiveWriteUtils#toPartitionValues}, no metastore round-trip), which key both connector
      * caches: the directory-listing cache ({@link HiveFileListingCache#invalidatePartitions}) and the metastore
-     * partition-metadata cache ({@link CachingHmsClient#invalidatePartitions}). Deriving values from the name
+     * partition-metadata cache. Deriving values from the name
      * (rather than looking the partition up) is exactly what stops an evicted partition-metadata entry from
      * leaving a stale file listing — the #65334 failure mode. Table-level column stats and the table object are
      * intentionally left intact (legacy did not drop them on a partition-level refresh). Also forwarded to the
@@ -431,23 +404,12 @@ public class HiveConnector implements Connector {
      */
     @Override
     public void invalidatePartition(String dbName, String tableName, List<String> partitionNames) {
-        invalidatePartition(hmsClient, dbName, tableName, partitionNames);
-        forEachBuiltSibling(sibling -> sibling.invalidatePartition(dbName, tableName, partitionNames));
-    }
-
-    // Package-private seam (mirrors invalidateTable): the metastore half needs an observable CachingHmsClient.
-    void invalidatePartition(HmsClient client, String dbName, String tableName, List<String> partitionNames) {
         Set<List<String>> partitionValues = new HashSet<>();
         for (String name : partitionNames) {
             partitionValues.add(HiveWriteUtils.toPartitionValues(name));
         }
-        if (client instanceof CachingHmsClient) {
-            ((CachingHmsClient) client).invalidatePartitions(dbName, tableName, partitionValues);
-        }
-        fileListingCache.invalidatePartitions(dbName, tableName, partitionValues);
-        // PERF-06: cache A's key carries no partition-name axis (only db/table/-1/-1), so a partition-level
-        // change cannot be scoped finer than the whole table's single cached entry — invalidate it wholesale.
-        partitionViewCache.invalidateTable(dbName, tableName);
+        metaCache.invalidatePartitions(dbName, tableName, partitionValues);
+        forEachBuiltSibling(sibling -> sibling.invalidatePartition(dbName, tableName, partitionNames));
     }
 
     /**
@@ -587,18 +549,15 @@ public class HiveConnector implements Connector {
         // connector's constructor built. A catalog created before the type was removed, or one carrying no
         // metastore URI, fails when the connector is (re)built — including on the lazy build an FE does for a
         // catalog it loaded from the image — with the same messages this method used to produce.
-        int poolSize = props.getHmsClientPoolSize();
-
-        // getHmsClientProperties(), not the raw map: the metastore URI must reach HiveConf under its canonical
-        // key even when the catalog spells it with the "uri" short form.
-        HmsClientConfig config = new HmsClientConfig(props.getHmsClientProperties(), poolSize);
+        HmsClientConfig config = buildHmsClientConfig();
+        int poolSize = config.getPoolSize();
         LOG.info("Creating Hive connector client for catalog='{}', uri={}, type={}, poolSize={}",
                 context.getCatalogName(), config.getMetastoreUri(),
                 config.getMetastoreType(), poolSize);
 
-        // For a Kerberos catalog run the metastore RPC under the PLUGIN's UGI doAs (buildPluginAuthenticator),
-        // NOT the FE-injected context: after the catalog flip that context resolves to NOOP (SIMPLE) auth, which
-        // would silently downgrade a Kerberos HMS. AuthAction.execute is a generic method (<T> T execute(...)),
+        // Run the metastore RPC under the PLUGIN's UGI doAs (buildPluginAuthenticator), NOT the FE-injected
+        // context: after the catalog flip that context resolves to NOOP auth and loses both the configured simple
+        // user and Kerberos login. AuthAction.execute is a generic method (<T> T execute(...)),
         // so it cannot be a lambda — use an anonymous class. ThriftHmsClient.doAs pins the RPC's TCCL to the
         // plugin (child-first) classloader (so SecurityUtil.<clinit> resolves hadoop from the plugin copy, not a
         // split-brain against fe-core's copy); the plugin's HadoopAuthenticator only wraps it in a UGI doAs.
@@ -623,6 +582,16 @@ public class HiveConnector implements Connector {
                 HiveConnectorMetadata.buildTypeMappingOptions(props)));
     }
 
+    HmsClientConfig buildHmsClientConfig() {
+        // Use canonical properties so the URI short alias and deployment timeout both reach HiveConf.
+        AbstractHmsMetaStoreProperties hms = (AbstractHmsMetaStoreProperties) MetaStoreProviders.bindForType(
+                HmsClientConfig.METASTORE_TYPE_HMS, props.getHmsClientProperties(), Collections.emptyMap());
+        return new HmsClientConfig(hms.getConfResources(), HmsConfHelper.mergeCatalogProperties(
+                props.getHmsClientProperties(),
+                hms.toHiveConfOverrides(HmsConfHelper.metastoreClientTimeoutSecond(context))),
+                props.getHmsClientPoolSize());
+    }
+
     /**
      * Wraps the raw pooled metastore client in the connector-owned {@link CachingHmsClient} so this connector
      * keeps caching its scan-side metastore reads AFTER the hms cutover. Once a hive catalog becomes plugin-driven
@@ -645,15 +614,14 @@ public class HiveConnector implements Connector {
      * {@code HiveConnector}, and {@link #createClient()} wraps its {@code ThriftHmsClient} here.
      */
     HmsClient wrapWithCache(HmsClient raw) {
-        return new CachingHmsClient(raw, properties);
+        return new CachingHmsClient(metaCache, raw, properties);
     }
 
     /**
-     * Lazily builds and memoizes the plugin-side Kerberos authenticator that {@link #createClient()} wraps the
+     * Lazily builds and memoizes the plugin-side authenticator that {@link #createClient()} wraps the
      * metastore RPC under, so the RPC uses the PLUGIN's own {@code UserGroupInformation} copy (hadoop +
-     * fe-kerberos are bundled child-first in the hive plugin). Returns {@code null} for a non-Kerberos catalog
-     * so the FE-injected auth path is preserved unchanged. Construction is cheap — the keytab login is lazy in
-     * {@code getUGI()} on the first {@code doAs}.
+     * fe-kerberos are bundled child-first in the hive plugin). Construction is cheap — the keytab login is lazy
+     * in {@code getUGI()} on the first {@code doAs}.
      */
     private HadoopAuthenticator pluginAuthenticator() {
         if (!pluginAuthComputed) {
@@ -668,19 +636,16 @@ public class HiveConnector implements Connector {
     }
 
     /**
-     * Resolves the plugin-side Kerberos authenticator for the catalog, or {@code null} for a non-Kerberos
-     * catalog. Two Kerberos sources are covered, in precedence order (mirroring the legacy
-     * {@code HMSBaseProperties.initHadoopAuthenticator}):
+     * Resolves the plugin-side authenticator for the catalog. Authentication modes are covered in precedence
+     * order, mirroring the legacy {@code HMSBaseProperties.initHadoopAuthenticator}:
      * <ol>
-     *   <li><b>Storage</b> Kerberos — the raw {@code hadoop.security.authentication=kerberos} passthrough
-     *       (HDFS login), built from the catalog Hadoop configuration. When storage is Kerberos this single
-     *       login also carries the HMS metastore RPC (same UGI).</li>
-     *   <li><b>HMS-metastore</b> Kerberos with non-Kerberos storage — a secured Hive Metastore whose data
-     *       storage is simple (e.g. a Kerberized HMS over S3). The HMS client principal/keytab facts
+     *   <li><b>Explicit HMS mode</b> — SIMPLE selects the configured metastore user even when storage is
+     *       Kerberos; KERBEROS uses the HMS client principal/keytab facts
      *       ({@link HmsMetaStoreProperties#kerberos()}, resolved through the shared metastore-spi parser) feed a
      *       {@link KerberosAuthenticationConfig}, so the {@code doAs} logs in the same client identity fe-core
-     *       used. The HMS <em>service</em> principal / SASL settings ride the catalog's own HiveConf, not the
-     *       login.</li>
+     *       used.</li>
+     *   <li><b>Storage fallback</b> — only when HMS mode is absent, storage Kerberos may supply the HMS login;
+     *       otherwise the configured simple user or legacy {@code hadoop} default drives {@code set_ugi}.</li>
      * </ol>
      * Package-visible + static for KDC-free unit testing.
      */
@@ -691,26 +656,30 @@ public class HiveConnector implements Connector {
         // SecurityUtil.<clinit>, whose internal `new Configuration()` captures the current TCCL. This runs on the
         // (unpinned) createClient thread, so without the pin it would resolve hadoop's DNSDomainNameResolver from
         // fe-core's system-loader copy and split-brain-poison SecurityUtil against the plugin copy (the same
-        // failure ThriftHmsClient.doAs guards). buildHadoopConf pins only the OUTER conf's loader, not the TCCL
+        // failure ThriftHmsClient.doAs guards). buildHmsConf pins only the OUTER conf's loader, not the TCCL
         // that SecurityUtil's own Configuration reads — so the thread pin is required here too.
         // (HadoopKerberosAuthenticator's keytab login is lazy in getUGI, already under doAs's pin.)
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(HiveConnector.class.getClassLoader());
-            if ("kerberos".equalsIgnoreCase(properties.get(HADOOP_SECURITY_AUTHENTICATION))) {
-                return HadoopAuthenticator.getHadoopAuthenticator(buildHadoopConf(properties));
-            }
-            HmsMetaStoreProperties hms = (HmsMetaStoreProperties) MetaStoreProviders.bindForType(
+            AbstractHmsMetaStoreProperties hms = (AbstractHmsMetaStoreProperties) MetaStoreProviders.bindForType(
                     HmsClientConfig.METASTORE_TYPE_HMS, properties, Collections.emptyMap());
             Optional<KerberosAuthSpec> spec = hms.kerberos();
             if (spec.isPresent() && spec.get().hasCredentials()) {
-                Configuration conf = buildHadoopConf(properties);
+                Configuration conf = buildHmsConf(hms);
                 conf.set("hadoop.security.authentication", "kerberos");
                 conf.set("hive.metastore.sasl.enabled", "true");
                 return HadoopAuthenticator.getHadoopAuthenticator(
                         new KerberosAuthenticationConfig(spec.get().getPrincipal(), spec.get().getKeytab(), conf));
             }
-            return null;
+            if (hms.getAuthType() == AuthType.KERBEROS) {
+                return null;
+            }
+            Configuration conf = buildHmsConf(hms);
+            // HMS set_ugi reads the current UGI; resolve it from the HMS configuration without changing the
+            // separate storage identity used by the connector's file operations.
+            return HadoopAuthenticator.getHadoopAuthenticator(
+                    AuthenticationConfig.getSimpleAuthenticationConfig(conf));
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }
@@ -722,15 +691,13 @@ public class HiveConnector implements Connector {
      * hadoop-mapreduce onto the unit-test classpath. The classloader is pinned to the plugin loader so the
      * child-first (plugin) copy of the auth classes is resolved.
      */
-    private static Configuration buildHadoopConf(Map<String, String> properties) {
-        Configuration conf = new Configuration();
-        conf.setClassLoader(HiveConnector.class.getClassLoader());
-        properties.forEach(conf::set);
-        return conf;
+    private static Configuration buildHmsConf(AbstractHmsMetaStoreProperties hms) {
+        return HmsConfHelper.createHadoopConfWithResources(hms.getConfResources(), hms.toHiveConfOverrides(""));
     }
 
     @Override
     public void close() throws IOException {
+        metaCache.close();
         HmsClient c = hmsClient;
         if (c != null) {
             c.close();

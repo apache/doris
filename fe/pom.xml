@@ -170,7 +170,11 @@ under the License.
                         <propertyExpansion>config_loc=${maven.multiModuleProjectDirectory}/check/checkstyle</propertyExpansion>
                         <excludes>
                             **/apache/doris/thrift/**/*,
-                            **/apache/parquet/**/*
+                            **/apache/parquet/**/*,
+                            <!-- be-java-extensions/hadoop-deps' verbatim copy of
+                                 org.apache.hadoop.fs.FileSystem. Scoped to fs/ so that
+                                 fe-connector-hms' org/apache/hadoop/hive/** stays checked. -->
+                            **/apache/hadoop/fs/**/*
                         </excludes>
                     </configuration>
                     <executions>
@@ -200,6 +204,11 @@ under the License.
                             </goals>
                         </execution>
                     </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-shade-plugin</artifactId>
+                    <version>${maven-shade-plugin.version}</version>
                 </plugin>
             </plugins>
         </pluginManagement>
@@ -278,10 +287,12 @@ under the License.
         <commons-validator.version>1.9.0</commons-validator.version>
         <gson.version>2.10.1</gson.version>
         <guava.version>33.2.1-jre</guava.version>
-        <jackson.version>2.16.0</jackson.version>
+        <!-- Jackson 2.16.0 is affected by multiple 2026 parser and polymorphic-deserialization
+             vulnerabilities, including CVE-2026-54512. Version 2.21.5 contains the complete fixes. -->
+        <jackson.version>2.21.5</jackson.version>
         <javassist.version>3.18.2-GA</javassist.version>
         <javax.servlet-api.version>3.1.0</javax.servlet-api.version>
-        <!-- Jetty 12.0.34 (jetty-ee10-servlet) invokes jakarta.servlet.http.Cookie#getAttributes(),
+        <!-- Jetty 12.0.38 (jetty-ee10-servlet) invokes jakarta.servlet.http.Cookie#getAttributes(),
              which only exists since Jakarta Servlet 6.1. Pin the API to 6.1.0 so it matches the
              jetty version; otherwise the transitive 6.0.0 from spring-boot triggers NoSuchMethodError
              when the FE HTTP server writes a Set-Cookie (SameSite) header. -->
@@ -293,7 +304,7 @@ under the License.
         <open-json.version>1.8</open-json.version>
         <junit.version>5.14.1</junit.version>
         <hikaricp.version>6.0.0</hikaricp.version>
-        <thrift.version>0.16.0</thrift.version>
+        <thrift.version>0.24.0</thrift.version>
         <tomcat-embed.version>9.0.104</tomcat-embed.version>
         <log4j2.version>2.25.4</log4j2.version>
         <log4j-1.2.version>2.25.4</log4j-1.2.version>
@@ -302,6 +313,9 @@ under the License.
         <resilience4j.version>2.4.0</resilience4j.version>
         <!-- Keep Netty compatible with Arrow Flight SQL 19 and other transitive Netty users. -->
         <netty-all.version>4.2.15.Final</netty-all.version>
+        <!-- OpenTelemetry versions before 1.62.0 allow unbounded allocation while parsing W3C
+             baggage (CVE-2026-45292); align the complete OpenTelemetry graph on the fixed BOM. -->
+        <opentelemetry.version>1.62.0</opentelemetry.version>
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
         <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
@@ -370,6 +384,11 @@ under the License.
         <hamcrest.version>2.1</hamcrest.version>
         <httpclient.version>4.5.13</httpclient.version>
         <httpcore.version>4.4.15</httpcore.version>
+        <!-- HttpClient 5.5.2 can leak pooled connections on decode errors (CVE-2026-64607),
+             and HttpCore 5.3.6 is affected by HTTP/1 and HTTP/2 memory-exhaustion issues
+             (CVE-2026-54399 and CVE-2026-54428). Use their fixed maintenance releases. -->
+        <httpclient5.version>5.6.3</httpclient5.version>
+        <httpcore5.version>5.4.3</httpcore5.version>
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
         <postgresql.version>42.7.13</postgresql.version>
@@ -383,18 +402,32 @@ under the License.
         <antlr4.version>4.13.1</antlr4.version>
         <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
-        <spring.version>3.5.14</spring.version>
-        <spring-framework.version>6.2.18</spring-framework.version>
+        <!-- Spring Boot 3.5.16 manages fixed Spring LDAP 3.3.8, Spring Data 3.5.13,
+             Micrometer 1.15.12, and Logback 1.5.34 releases for their 2026 advisories. -->
+        <spring.version>3.5.16</spring.version>
+        <!-- Spring Framework 6.2.19 fixes the June 2026 security advisory set, including
+             CVE-2026-41848; keep the explicit framework BOM aligned with that release. -->
+        <spring-framework.version>6.2.19</spring-framework.version>
         <orc.version>1.8.4</orc.version>
         <zookeeper.version>3.9.3</zookeeper.version>
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
         <ranger-plugins-common.version>2.8.0</ranger-plugins-common.version>
-        <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
+        <!-- Huawei IAM pulls bcprov-jdk15on 1.69, whose final 1.70 release is vulnerable to
+             CVE-2023-33202. Use the compatible jdk18on line at 1.84, which also fixes
+             CVE-2025-14813, CVE-2026-0636, CVE-2026-3505, CVE-2026-5588, and CVE-2026-5598. -->
+        <bcprov-jdk18on.version>1.84</bcprov-jdk18on.version>
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
-        <jetty.version>12.0.34</jetty.version>
+        <!-- Jetty 12.0.34 is affected by CVE-2026-6790, CVE-2026-8384,
+             CVE-2026-10050, and CVE-2026-10051; 12.0.38 contains all published fixes. -->
+        <jetty.version>12.0.38</jetty.version>
         <jetty-http.version>11.0.26</jetty-http.version>
+        <!-- org.lz4:lz4-java is archived and vulnerable through its final 1.8.x line.
+             Resolve its official 1.8.1 relocation POM, then manage the maintained coordinate at
+             1.11.1 to fix CVE-2025-12183, CVE-2025-66566, and CVE-2026-59949. -->
+        <lz4-java-relocation.version>1.8.1</lz4-java-relocation.version>
+        <lz4-java.version>1.11.1</lz4-java.version>
         <immutables.version>2.9.3</immutables.version> 
         <ivy.version>2.5.2</ivy.version>
         <icu4j.version>78.1</icu4j.version>
@@ -417,6 +450,9 @@ under the License.
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
         <flatbuffers.version>1.12.0</flatbuffers.version>
         <jacoco.version>0.8.10</jacoco.version>
+        <!-- Maven Shade 3.4.1 cannot parse the Java 21 multi-release classes shipped by
+             Jackson 2.21.x. Version 3.6.2 uses a current ASM release that supports them. -->
+        <maven-shade-plugin.version>3.6.2</maven-shade-plugin.version>
         <argLine></argLine>
         <trino.version>435</trino.version>
         <nimbusds.version>10.0.1</nimbusds.version>
@@ -436,6 +472,13 @@ under the License.
         <fastutil.version>8.5.18</fastutil.version>
     </properties>
     <profiles>
+        <profile>
+            <!-- Keep benchmarks out of the default FE reactor and all published runtime jars. -->
+            <id>benchmark</id>
+            <modules>
+                <module>fe-sql-parser-benchmark</module>
+            </modules>
+        </profile>
         <profile>
             <id>general-env</id>
             <activation>
@@ -568,12 +611,47 @@ under the License.
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!-- Keep all OpenTelemetry API, SDK, and exporter artifacts on the CVE-2026-45292-fixed line. -->
+            <dependency>
+                <groupId>io.opentelemetry</groupId>
+                <artifactId>opentelemetry-bom</artifactId>
+                <version>${opentelemetry.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>com.fasterxml.jackson</groupId>
                 <artifactId>jackson-bom</artifactId>
                 <version>${jackson.version}</version>
                 <scope>import</scope>
                 <type>pom</type>
+            </dependency>
+            <!-- Override Spring Boot's vulnerable HttpComponents 5 versions. -->
+            <dependency>
+                <groupId>org.apache.httpcomponents.client5</groupId>
+                <artifactId>httpclient5</artifactId>
+                <version>${httpclient5.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.httpcomponents.core5</groupId>
+                <artifactId>httpcore5</artifactId>
+                <version>${httpcore5.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.httpcomponents.core5</groupId>
+                <artifactId>httpcore5-h2</artifactId>
+                <version>${httpcore5.version}</version>
+            </dependency>
+            <!-- First redirect archived org.lz4 dependencies, then select the fixed maintained release. -->
+            <dependency>
+                <groupId>org.lz4</groupId>
+                <artifactId>lz4-java</artifactId>
+                <version>${lz4-java-relocation.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>at.yawk.lz4</groupId>
+                <artifactId>lz4-java</artifactId>
+                <version>${lz4-java.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.ivy</groupId>
@@ -611,6 +689,15 @@ under the License.
             <dependency>
                 <groupId>org.eclipse.jetty</groupId>
                 <artifactId>jetty-bom</artifactId>
+                <version>${jetty.version}</version>
+                <scope>import</scope>
+                <type>pom</type>
+            </dependency>
+            <!-- The core Jetty BOM does not manage Jakarta EE 10 artifacts; import the matching
+                 EE10 BOM before Spring Boot so the complete Jetty 12 graph stays on 12.0.38. -->
+            <dependency>
+                <groupId>org.eclipse.jetty.ee10</groupId>
+                <artifactId>jetty-ee10-bom</artifactId>
                 <version>${jetty.version}</version>
                 <scope>import</scope>
                 <type>pom</type>
@@ -720,11 +807,11 @@ under the License.
                 <artifactId>woodstox-core</artifactId>
                 <version>${woodstox.version}</version>
             </dependency>
-            <!-- bcprov-jdk15on -->
+            <!-- Replacement for Huawei IAM's vulnerable bcprov-jdk15on dependency. -->
             <dependency>
                 <groupId>org.bouncycastle</groupId>
-                <artifactId>bcprov-jdk15on</artifactId>
-                <version>${bcprov-jdk15on.version}</version>
+                <artifactId>bcprov-jdk18on</artifactId>
+                <version>${bcprov-jdk18on.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>

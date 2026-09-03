@@ -20,15 +20,18 @@ package org.apache.doris.service;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
@@ -36,6 +39,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.tablefunction.BackendsTableValuedFunction;
 import org.apache.doris.thrift.TBackendsMetadataParams;
+import org.apache.doris.thrift.TCheckAuthRequest;
+import org.apache.doris.thrift.TCheckAuthResult;
 import org.apache.doris.thrift.TCommitTxnRequest;
 import org.apache.doris.thrift.TCreatePartitionRequest;
 import org.apache.doris.thrift.TCreatePartitionResult;
@@ -53,19 +58,26 @@ import org.apache.doris.thrift.TMaxComputeBlockIdResult;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TNullableStringLiteral;
+import org.apache.doris.thrift.TPrivilegeCtrl;
+import org.apache.doris.thrift.TPrivilegeHier;
+import org.apache.doris.thrift.TPrivilegeType;
 import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TSchemaTableRequestParams;
+import org.apache.doris.thrift.TShowProcessListRequest;
 import org.apache.doris.thrift.TShowUserRequest;
 import org.apache.doris.thrift.TShowUserResult;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTableStatus;
+import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.WriteBlockAllocatingTransaction;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.Level;
+import org.apache.thrift.TException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -115,6 +127,40 @@ public class FrontendServiceImplTest extends TestWithFeService {
         Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);
         field.set(target, value);
+    }
+
+    @Test
+    public void testCheckAuthDoesNotLogPassword() throws Exception {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TPrivilegeCtrl privilegeCtrl = new TPrivilegeCtrl();
+        privilegeCtrl.setPrivHier(TPrivilegeHier.GLOBAL);
+        TCheckAuthRequest request = new TCheckAuthRequest();
+        request.setUser("root");
+        request.setPasswd("plain_text_secret");
+        request.setUserIp("127.0.0.1");
+        request.setPrivCtrl(privilegeCtrl);
+        request.setPrivType(TPrivilegeType.LOAD);
+
+        try (TestLogAppender appender = TestLogAppender.attach(FrontendServiceImpl.class)) {
+            TCheckAuthResult result = impl.checkAuth(request);
+
+            Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, result.getStatus().getStatusCode());
+            Assertions.assertTrue(appender.contains(Level.DEBUG,
+                    "receive auth request: TCheckAuthRequest"));
+            Assertions.assertTrue(appender.contains(Level.DEBUG, "user:root"));
+            Assertions.assertTrue(appender.contains(Level.DEBUG, "passwd:***MASKED***"));
+            Assertions.assertTrue(appender.contains(Level.DEBUG, "user_ip:127.0.0.1"));
+            Assertions.assertTrue(appender.contains(Level.DEBUG, "priv_hier:GLOBAL"));
+            Assertions.assertFalse(appender.contains(Level.DEBUG, "plain_text_secret"));
+        }
+    }
+
+    public void testShowProcessListRejectsMissingUserIdentity() {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TShowProcessListRequest request = new TShowProcessListRequest();
+
+        TException exception = Assertions.assertThrows(TException.class, () -> impl.showProcessList(request));
+        Assertions.assertEquals("Current user identity is not set", exception.getMessage());
     }
 
     @Test
@@ -340,6 +386,54 @@ public class FrontendServiceImplTest extends TestWithFeService {
         Assertions.assertEquals(partition.getStatus().getStatusCode(), TStatusCode.OK);
         Partition p20230807 = table.getPartition("p20230807000000");
         Assertions.assertNotNull(p20230807);
+    }
+
+    @Test
+    public void testCreatePartitionWithRowBinlog() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.partition_range_with_row_binlog(\n"
+                + "    event_day DATETIME NOT NULL,\n"
+                + "    site_id INT,\n"
+                + "    city_code VARCHAR(100)\n"
+                + ")\n"
+                + "DUPLICATE KEY(event_day, site_id, city_code)\n"
+                + "AUTO PARTITION BY RANGE (date_trunc(event_day, 'day')) ()\n"
+                + "DISTRIBUTED BY HASH(event_day, site_id) BUCKETS 2\n"
+                + "PROPERTIES(\"replication_num\" = \"1\", \"binlog.enable\" = \"true\", "
+                + "\"binlog.format\" = \"ROW\");";
+        createTable(createOlapTblStmt);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_range_with_row_binlog");
+        TNullableStringLiteral start = new TNullableStringLiteral();
+        start.setValue("2023-08-09 00:00:00");
+        TCreatePartitionRequest request = new TCreatePartitionRequest();
+        request.setDbId(db.getId());
+        request.setTableId(table.getId());
+        request.setPartitionValues(Collections.singletonList(Collections.singletonList(start)));
+
+        TCreatePartitionResult result = new FrontendServiceImpl(exeEnv).createPartition(request);
+
+        Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
+        Assertions.assertEquals(1, result.getPartitionsSize());
+        Assertions.assertEquals(table.getIndexNumber(), result.getPartitions().get(0).getIndexesSize());
+
+        Partition createdPartition = table.getPartition("p20230809000000");
+        Assertions.assertNotNull(createdPartition);
+        MaterializedIndex rowBinlogIndex = createdPartition
+                .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true).stream()
+                .filter(MaterializedIndex::isRowBinlog)
+                .findFirst()
+                .orElseThrow();
+        Assertions.assertEquals(createdPartition.getBaseIndex().getTablets().size() * 2,
+                result.getTabletsSize());
+        for (Tablet rowBinlogTablet : rowBinlogIndex.getTablets()) {
+            TTabletLocation location = result.getTablets().stream()
+                    .filter(tablet -> tablet.getTabletId() == rowBinlogTablet.getId())
+                    .findFirst()
+                    .orElseThrow();
+            Assertions.assertTrue(location.isSetBaseTabletId());
+            Assertions.assertEquals(rowBinlogTablet.getRowBinlogBaseTabletId(), location.getBaseTabletId());
+        }
     }
 
     @Test

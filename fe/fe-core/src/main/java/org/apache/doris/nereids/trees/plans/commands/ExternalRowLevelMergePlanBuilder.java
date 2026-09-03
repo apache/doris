@@ -409,6 +409,8 @@ public class ExternalRowLevelMergePlanBuilder {
                 writeSchema.getWriteMetadataIdentity(),
                 ConnectorWriteSchemaUtils.pinAndGet(ctx, icebergTable),
                 outputExprs,
+                matchedClauses.stream().anyMatch(clause -> !clause.isDelete())
+                        || !notMatchedClauses.isEmpty(),
                 true,
                 Optional.empty(),
                 Optional.empty(),

@@ -30,6 +30,8 @@
 #include "cloud/cloud_tablet_mgr.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
+#include "io/fs/local_file_system.h"
+#include "io/fs/remote_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
@@ -37,6 +39,78 @@
 #include "util/uid_util.h"
 
 namespace doris {
+
+namespace {
+
+class LocalRemoteFileSystem final : public io::RemoteFileSystem {
+public:
+    explicit LocalRemoteFileSystem(std::string root_path)
+            : RemoteFileSystem(std::move(root_path), "cloud_schema_change_job_test_fs",
+                               io::FileSystemType::BROKER) {}
+
+private:
+    Status create_file_impl(const io::Path& file, io::FileWriterPtr* writer,
+                            const io::FileWriterOptions* opts) override {
+        return io::global_local_filesystem()->create_file(file, writer, opts);
+    }
+
+    Status create_directory_impl(const io::Path& dir, bool failed_if_exists) override {
+        return io::global_local_filesystem()->create_directory(dir, failed_if_exists);
+    }
+
+    Status delete_file_impl(const io::Path& file) override {
+        return io::global_local_filesystem()->delete_file(file);
+    }
+
+    Status batch_delete_impl(const std::vector<io::Path>& files) override {
+        return io::global_local_filesystem()->batch_delete(files);
+    }
+
+    Status delete_directory_impl(const io::Path& dir) override {
+        return io::global_local_filesystem()->delete_directory(dir);
+    }
+
+    Status exists_impl(const io::Path& path, bool* res) const override {
+        return io::global_local_filesystem()->exists(path, res);
+    }
+
+    Status file_size_impl(const io::Path& file, int64_t* file_size) const override {
+        return io::global_local_filesystem()->file_size(file, file_size);
+    }
+
+    Status list_impl(const io::Path& dir, bool only_file, std::vector<io::FileInfo>* files,
+                     bool* exists) override {
+        return io::global_local_filesystem()->list(dir, only_file, files, exists);
+    }
+
+    Status rename_impl(const io::Path& orig_name, const io::Path& new_name) override {
+        return io::global_local_filesystem()->rename(orig_name, new_name);
+    }
+
+    Status upload_impl(const io::Path& local_file, const io::Path& remote_file) override {
+        return io::global_local_filesystem()->link_file(local_file, remote_file);
+    }
+
+    Status batch_upload_impl(const std::vector<io::Path>& local_files,
+                             const std::vector<io::Path>& remote_files) override {
+        DCHECK_EQ(local_files.size(), remote_files.size());
+        for (size_t i = 0; i < local_files.size(); ++i) {
+            RETURN_IF_ERROR(upload_impl(local_files[i], remote_files[i]));
+        }
+        return Status::OK();
+    }
+
+    Status download_impl(const io::Path& remote_file, const io::Path& local_file) override {
+        return io::global_local_filesystem()->link_file(remote_file, local_file);
+    }
+
+    Status open_file_internal(const io::Path& file, io::FileReaderSPtr* reader,
+                              const io::FileReaderOptions& opts) override {
+        return io::global_local_filesystem()->open_file(file, reader, &opts);
+    }
+};
+
+} // namespace
 
 class CloudSchemaChangeJobTest : public testing::Test {
 public:
@@ -46,6 +120,7 @@ public:
         _cluster_info = std::make_shared<CloudClusterInfo>();
         _cluster_info->_is_in_standby = false;
         ExecEnv::GetInstance()->_cluster_info = _cluster_info.get();
+        _engine.set_latest_fs(std::make_shared<LocalRemoteFileSystem>("/tmp"));
 
         _json_rowset_meta = R"({
             "rowset_id": 540081,
@@ -56,11 +131,11 @@ public:
             "rowset_state": "VISIBLE",
             "start_version": 2,
             "end_version": 2,
-            "num_rows": 100,
+            "num_rows": 0,
             "total_disk_size": 41,
             "data_disk_size": 41,
             "index_disk_size": 235,
-            "empty": false,
+            "empty": true,
             "load_id": {
                 "hi": -5350970832824939812,
                 "lo": -6717994719194512122
@@ -78,15 +153,17 @@ public:
 
 protected:
     RowsetSharedPtr create_rowset(TabletSchemaSPtr schema, int64_t tablet_id, int64_t start,
-                                  int64_t end) {
+                                  int64_t end, int64_t rowset_id = 540081) const {
         RowsetMetaPB pb;
         json2pb::JsonToProtoMessage(_json_rowset_meta, &pb);
+        pb.set_rowset_id(rowset_id);
         pb.set_tablet_id(tablet_id);
         pb.set_start_version(start);
         pb.set_end_version(end);
         auto rs_meta = std::make_shared<RowsetMeta>();
         rs_meta->init_from_pb(pb);
         rs_meta->set_tablet_schema(schema);
+        rs_meta->set_newest_write_timestamp(1553765670);
         RowsetSharedPtr rowset;
         static_cast<void>(RowsetFactory::create_rowset(schema, "", rs_meta, &rowset));
         return rowset;
@@ -96,6 +173,66 @@ protected:
     CloudStorageEngine _engine;
     std::shared_ptr<CloudClusterInfo> _cluster_info;
 };
+
+// GTest assertion macros inflate cognitive complexity for this linear scenario.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(CloudSchemaChangeJobTest, DeleteBitmapTmpTabletDoesNotInheritStaleRowsets) {
+    constexpr int64_t new_tablet_id = 60002;
+
+    TabletMetaSharedPtr new_meta(new TabletMeta(
+            1, 2, new_tablet_id, new_tablet_id + 100, 4, 5, TTabletSchema(), 6, {{7, 8}},
+            UniqueId(11, 12), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F, -1, true));
+    auto placeholder = create_rowset(new_meta->tablet_schema(), new_tablet_id, 0, 1, 6000201);
+    auto compacted = create_rowset(new_meta->tablet_schema(), new_tablet_id, 2, 3, 6000202);
+    auto sc_output_2 = create_rowset(new_meta->tablet_schema(), new_tablet_id, 2, 2, 6000203);
+    auto sc_output_3 = create_rowset(new_meta->tablet_schema(), new_tablet_id, 3, 3, 6000204);
+    auto sc_output_4 = create_rowset(new_meta->tablet_schema(), new_tablet_id, 4, 4, 6000205);
+    ASSERT_NE(placeholder, nullptr);
+    ASSERT_NE(compacted, nullptr);
+    ASSERT_NE(sc_output_2, nullptr);
+    ASSERT_NE(sc_output_3, nullptr);
+    ASSERT_NE(sc_output_4, nullptr);
+
+    ASSERT_TRUE(new_meta->add_rs_meta(placeholder->rowset_meta()).ok());
+    ASSERT_TRUE(new_meta->add_rs_meta(compacted->rowset_meta()).ok());
+    new_meta->modify_rs_metas({}, {compacted->rowset_meta()});
+    ASSERT_EQ(new_meta->all_stale_rs_metas().size(), 1);
+
+    auto new_tablet = std::make_shared<CloudTablet>(_engine, new_meta);
+    auto* sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+    sp->set_call_back("CloudMetaMgr::prepare_tablet_job", [](auto&& outcome) {
+        auto* pairs = try_any_cast_ret<Status>(outcome);
+        pairs->second = true;
+        pairs->first = Status::OK();
+        auto* resp = try_any_cast<cloud::StartTabletJobResponse*>(outcome[1]);
+        resp->mutable_status()->set_code(cloud::MetaServiceCode::OK);
+    });
+
+    Status captured_status = Status::InternalError("temporary tablet was not inspected");
+    RowsetIdUnorderedSet captured_rowset_ids;
+    sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets", [&](auto&& outcome) {
+        auto* tablet = try_any_cast<CloudTablet*>(outcome[0]);
+        std::shared_lock rlock(tablet->get_header_lock());
+        captured_status = tablet->get_all_rs_id_unlocked(4, &captured_rowset_ids);
+        auto* pairs = try_any_cast_ret<Status>(outcome);
+        pairs->second = true;
+        pairs->first = Status::InternalError("stop after inspecting temporary tablet");
+    });
+
+    CloudSchemaChangeJob sc_job(_engine, "test_tmp_tablet_stale_rowsets", 9999999999);
+    sc_job._new_tablet = new_tablet;
+    sc_job._output_rowsets = {sc_output_2, sc_output_3, sc_output_4};
+    auto status = sc_job._process_delete_bitmap(4, 5, 12345, "");
+    ASSERT_TRUE(_engine.unregister_compaction_stop_token(new_tablet, false).ok());
+
+    ASSERT_FALSE(status.ok());
+    ASSERT_NE(status.to_string().find("stop after inspecting temporary tablet"), std::string::npos);
+    ASSERT_TRUE(captured_status.ok()) << captured_status.to_string();
+    ASSERT_EQ(captured_rowset_ids.size(), 3);
+    ASSERT_EQ(new_meta->all_stale_rs_metas().size(), 1);
+}
 
 TEST_F(CloudSchemaChangeJobTest, FillVersionHolesBeforeNewTabletRunning) {
     int64_t base_tablet_id = 40001;
@@ -112,8 +249,10 @@ TEST_F(CloudSchemaChangeJobTest, FillVersionHolesBeforeNewTabletRunning) {
     auto new_tablet = std::make_shared<CloudTablet>(_engine, std::move(new_meta));
     static_cast<void>(new_tablet->set_tablet_state(TABLET_NOTREADY));
 
+    auto base_rowset = create_rowset(base_tablet->tablet_schema(), base_tablet_id, 2, 2);
     auto placeholder = create_rowset(new_tablet->tablet_schema(), new_tablet_id, 0, 1);
     auto rowset_after_hole = create_rowset(new_tablet->tablet_schema(), new_tablet_id, 4, 4);
+    ASSERT_NE(base_rowset, nullptr);
     ASSERT_NE(placeholder, nullptr);
     ASSERT_NE(rowset_after_hole, nullptr);
 
@@ -135,7 +274,12 @@ TEST_F(CloudSchemaChangeJobTest, FillVersionHolesBeforeNewTabletRunning) {
     CloudTablet* loaded_new_tablet = nullptr;
     sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets", [&](auto&& outcome) {
         auto* tablet = try_any_cast<CloudTablet*>(outcome[0]);
-        if (tablet->tablet_id() == new_tablet_id) {
+        if (tablet->tablet_id() == base_tablet_id) {
+            std::unique_lock lock(tablet->get_header_lock());
+            if (!tablet->rowset_map().count(Version(2, 2))) {
+                tablet->add_rowsets({base_rowset}, false, lock, false);
+            }
+        } else if (tablet->tablet_id() == new_tablet_id) {
             loaded_new_tablet = tablet;
             std::unique_lock lock(tablet->get_header_lock());
             std::vector<RowsetSharedPtr> rowsets;
@@ -160,6 +304,18 @@ TEST_F(CloudSchemaChangeJobTest, FillVersionHolesBeforeNewTabletRunning) {
         auto* resp = try_any_cast<cloud::StartTabletJobResponse*>(outcome[1]);
         resp->mutable_status()->set_code(cloud::MetaServiceCode::OK);
         resp->set_alter_version(2);
+    });
+
+    sp->set_call_back("CloudMetaMgr::prepare_rowset", [](auto&& outcome) {
+        auto* pairs = try_any_cast_ret<Status>(outcome);
+        pairs->second = true;
+        pairs->first = Status::OK();
+    });
+
+    sp->set_call_back("CloudMetaMgr::commit_rowset", [](auto&& outcome) {
+        auto* pairs = try_any_cast_ret<Status>(outcome);
+        pairs->second = true;
+        pairs->first = Status::OK();
     });
 
     bool commit_called = false;

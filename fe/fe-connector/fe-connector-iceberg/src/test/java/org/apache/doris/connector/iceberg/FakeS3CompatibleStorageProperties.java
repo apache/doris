@@ -18,11 +18,15 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.filesystem.properties.BackendStorageKind;
+import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -43,6 +47,7 @@ final class FakeS3CompatibleStorageProperties implements S3CompatibleFileSystemP
     private String roleArn = "";
     private String externalId = "";
     private String usePathStyle = "";
+    private Map<String, String> backendProperties = Collections.emptyMap();
 
     FakeS3CompatibleStorageProperties(String providerName) {
         this.providerName = providerName;
@@ -85,6 +90,11 @@ final class FakeS3CompatibleStorageProperties implements S3CompatibleFileSystemP
 
     FakeS3CompatibleStorageProperties usePathStyle(String v) {
         this.usePathStyle = v;
+        return this;
+    }
+
+    FakeS3CompatibleStorageProperties backendProperties(Map<String, String> v) {
+        this.backendProperties = Collections.unmodifiableMap(new HashMap<>(v));
         return this;
     }
 
@@ -182,5 +192,20 @@ final class FakeS3CompatibleStorageProperties implements S3CompatibleFileSystemP
     public Set<String> getSupportedSchemes() {
         // Mirrors the real S3 provider (this fake's type() is FileSystemType.S3); no test asserts on it.
         return Set.of("s3", "s3a", "s3n");
+    }
+
+    @Override
+    public Optional<BackendStorageProperties> toBackendProperties() {
+        return Optional.of(new BackendStorageProperties() {
+            @Override
+            public BackendStorageKind backendKind() {
+                return BackendStorageKind.S3_COMPATIBLE;
+            }
+
+            @Override
+            public Map<String, String> toMap() {
+                return backendProperties;
+            }
+        });
     }
 }

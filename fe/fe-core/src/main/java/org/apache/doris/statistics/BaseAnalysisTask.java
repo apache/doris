@@ -66,6 +66,21 @@ public abstract class BaseAnalysisTask {
     public static final double LIMIT_FACTOR = 1.2;
 
     /**
+     * The statistics collection algorithm chosen for a sampled analyze task. It determines
+     * both the SQL template used to collect stats and the params rendered into it, so callers
+     * must derive the template and the params from the same algorithm decision.
+     */
+    public enum AnalyzeSampleAlgorithm {
+        // Full table scan without sampling, used when the table is small or the sample
+        // tablets contain too few rows. Statistics are computed with the LINEAR template.
+        FULL,
+        // Linear estimator, used for single unique key column / single distribution column.
+        LINEAR,
+        // DUJ1 estimator, based on the PostgreSQL analyze algorithm.
+        DUJ1
+    }
+
+    /**
      * Marker string embedded in {@code assert_true} inside statistics collection SQL.
      * When any row's string column length exceeds the configured limit, BE throws an
      * error whose message contains this marker; FE detects it and converts the task
@@ -513,14 +528,22 @@ public abstract class BaseAnalysisTask {
                 if (partitionRowCount > hugePartitionThreshold && AnalysisInfo.JobType.SYSTEM.equals(info.jobType)) {
                     hasHughPartition = true;
                     // -1 means it's skipped because this partition is too large.
-                    jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), -1L);
+                    // Skip the write when the task is cancelled: the job may already be in a
+                    // terminal state and have cleared the shared map, so a late write would
+                    // re-populate it and keep the memory alive.
+                    if (!killed) {
+                        jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), -1L);
+                    }
                     LOG.info("Partition {} in table {} is too large, skip it.", part, tbl.getName());
                     continue;
                 }
                 batchRowCount += partitionRowCount;
                 // For cluster upgrade compatible (older version metadata doesn't have partition update rows map)
                 // and insert before first analyze, set partition update rows to 0.
-                jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), 0L);
+                // Skip the write when the task is cancelled: see the comment above.
+                if (!killed) {
+                    jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), 0L);
+                }
             }
             params.put("partId", partition == null ? "-1" : String.valueOf(partition.getId()));
             // Skip partitions that not changed after last analyze.
@@ -652,9 +675,12 @@ public abstract class BaseAnalysisTask {
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_STATISTICS_INVALID_STATS.increase(1L);
                 }
-                String message = String.format("ColStatsData is invalid, skip analyzing. %s", colStatsData.toSQL(true));
-                LOG.warn(message);
-                throw new RuntimeException(message);
+                // Don't throw: keep writing the row into the statistics table so that the
+                // whole job still finishes. toColumnStatistic() will defensively convert
+                // this pattern to ColumnStatistic.UNKNOWN at read time, so the optimizer
+                // never sees the bogus numbers. See issue #64122.
+                LOG.warn("ColStatsData is invalid, will write to table but be treated as UNKNOWN at read time. {}",
+                        colStatsData.toSQL(true));
             }
             // Update index row count after analyze.
             if (this instanceof OlapAnalysisTask) {

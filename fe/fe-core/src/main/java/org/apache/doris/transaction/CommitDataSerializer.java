@@ -23,6 +23,7 @@ import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Serializes connector-specific Thrift commit fragments produced by BE and feeds
@@ -48,11 +49,27 @@ public final class CommitDataSerializer {
     public static void feed(Transaction txn, List<? extends TBase<?, ?>> fragments) {
         try {
             TSerializer serializer = new TSerializer(new TBinaryProtocol.Factory());
-            for (TBase<?, ?> fragment : fragments) {
-                txn.addCommitData(serializer.serialize(fragment));
+            List<byte[]> serializedFragments = fragments.stream().map(fragment -> {
+                try {
+                    return serializer.serialize(fragment);
+                } catch (TException e) {
+                    throw new CommitDataSerializationException(e);
+                }
+            }).collect(Collectors.toList());
+            // Serialize the complete vector before mutating the transaction so malformed input is retry-safe.
+            for (byte[] serializedFragment : serializedFragments) {
+                txn.addCommitData(serializedFragment);
             }
         } catch (TException e) {
-            throw new RuntimeException("failed to serialize connector commit data", e);
+            throw new RuntimeException("failed to initialize connector commit-data serialization", e);
+        } catch (CommitDataSerializationException e) {
+            throw new RuntimeException("failed to serialize connector commit data", e.getCause());
+        }
+    }
+
+    private static final class CommitDataSerializationException extends RuntimeException {
+        private CommitDataSerializationException(TException cause) {
+            super(cause);
         }
     }
 }

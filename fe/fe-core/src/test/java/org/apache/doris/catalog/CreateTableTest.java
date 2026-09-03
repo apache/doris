@@ -26,6 +26,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;
@@ -230,6 +231,19 @@ public class CreateTableTest extends TestWithFeService {
         Assert.assertNotNull(rowBinlogNormal.getAutoIncrementGenerator());
         Assert.assertEquals((long) Column.BINLOG_LSN_AUTO_INC_ID,
                 rowBinlogNormal.getAutoIncrementGenerator().getColumnId());
+        boolean foundRowBinlogIndex = false;
+        for (Partition partition : rowBinlogNormal.getPartitions()) {
+            for (MaterializedIndex index
+                    : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true)) {
+                foundRowBinlogIndex |= index.isRowBinlog();
+                for (Tablet tablet : index.getTablets()) {
+                    TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(tablet.getId());
+                    Assert.assertNotNull(tabletMeta);
+                    Assert.assertEquals(index.isRowBinlog(), tabletMeta.isRowBinlog());
+                }
+            }
+        }
+        Assert.assertTrue(foundRowBinlogIndex);
 
         OlapTable rowBinlogUnique = (OlapTable) db.getTableOrDdlException("row_binlog_unique");
         Assert.assertTrue(rowBinlogUnique.needRowBinlog());
@@ -269,6 +283,23 @@ public class CreateTableTest extends TestWithFeService {
         ExceptionChecker.expectThrowsNoException(
                 () -> createTable("create table test.tbl17\n" + "(k1 int, k2 decimal(10,2) default 10.3)\n" + "duplicate key(k1)\n"
                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
+    }
+
+    @Test
+    public void testPartitionsStoreTableInvertedIndexStorageFormat() throws Exception {
+        createTable("CREATE TABLE test.partition_inverted_index_format (k1 INT) "
+                + "DUPLICATE KEY(k1) PARTITION BY RANGE(k1) "
+                + "(PARTITION p1 VALUES LESS THAN ('10')) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num' = '1', 'inverted_index_storage_format' = 'SNII')");
+        executeSql("ALTER TABLE test.partition_inverted_index_format "
+                + "ADD PARTITION p2 VALUES LESS THAN ('20')");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        OlapTable table = (OlapTable) db.getTableOrDdlException("partition_inverted_index_format");
+        Assert.assertEquals(TInvertedIndexFileStorageFormat.SNII, table.getPartitionInfo()
+                .getInvertedIndexFileStorageFormat(table.getPartition("p1").getId()));
+        Assert.assertEquals(TInvertedIndexFileStorageFormat.SNII, table.getPartitionInfo()
+                .getInvertedIndexFileStorageFormat(table.getPartition("p2").getId()));
     }
 
     @Test

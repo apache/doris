@@ -533,9 +533,13 @@ public class TypeCoercionUtils {
         return CheckCast.checkWithLooseAggState(input, target, SessionVariable.enableStrictCast());
     }
 
+    /** Check whether input can be cast to target and report an actionable analysis error. */
     public static void checkCanCastTo(DataType input, DataType target) {
         if (canCastTo(input, target)) {
             return;
+        }
+        if (CheckCast.requiresExactAggStateMatch(input, target)) {
+            throw new AnalysisException(CheckCast.exactAggStateMatchError(input, target));
         }
         throw new AnalysisException("can not cast from origin type " + input + " to target type=" + target);
     }
@@ -1195,10 +1199,7 @@ public class TypeCoercionUtils {
     }
 
     private static Optional<DataType> findCommonVariantType(VariantType left, VariantType right) {
-        if (!left.isExecutionCompatibleWith(right)) {
-            return Optional.empty();
-        }
-        return Optional.of(left.isComputeV2() ? VariantType.COMPUTE_V2_INSTANCE : left);
+        return left.equals(right) ? Optional.of(left) : Optional.empty();
     }
 
     private static Optional<DataType> findWiderPrimitiveTypeForTwo(

@@ -1614,5 +1614,54 @@ suite("test_local_shuffle_rqg_bugs") {
         assertTrue(false, "Bug 25: COLOCATE+NLJ CROSS probe: ${t.message}")
     }
 
+
+    // ============================================================
+    //  Bug 26: scalar count(distinct) over shuffle+broadcast joins returns
+    //  correct-value × task-count when agg_phase=1 + broadcast-join
+    //  force-passthrough with the FE local-shuffle planner.
+    //  Root cause (FE-planned): AggregationNode handed NoRequire to a finalize
+    //  merge agg with no group keys but DISTINCT aggregates; the PASSTHROUGH
+    //  local exchange below the broadcast-join probe scattered same-key rows,
+    //  and sum0(multi_distinct_count(...)) summed the overlapping per-instance
+    //  values. Fixed by keying the hash requirement on the effective partition
+    //  exprs (mirrors BE `_partition_exprs`).
+    // ============================================================
+    try {
+        logger.info("Bug 26: count(distinct) under agg_phase=1 + broadcast force-passthrough")
+        sql "DROP TABLE IF EXISTS rqg_local_shuffle_distinct_t1"
+        sql "DROP TABLE IF EXISTS rqg_local_shuffle_distinct_t2"
+        sql """CREATE TABLE rqg_local_shuffle_distinct_t1 (pk INT NOT NULL, k2 INT NOT NULL)
+               ENGINE=OLAP DUPLICATE KEY(pk) DISTRIBUTED BY HASH(pk) BUCKETS 5
+               PROPERTIES ("replication_num"="1")"""
+        sql """CREATE TABLE rqg_local_shuffle_distinct_t2 (pk INT NOT NULL, k2 INT NOT NULL, other INT NOT NULL)
+               ENGINE=OLAP DUPLICATE KEY(pk) DISTRIBUTED BY HASH(pk) BUCKETS 5
+               PROPERTIES ("replication_num"="1")"""
+        // Two rows sharing the same distinct key. batch_size=1 with 4 local tasks
+        // forces the PASSTHROUGH exchange to send separate blocks to different
+        // channels, so the pre-fix plan counts the shared key once per task.
+        sql "INSERT INTO rqg_local_shuffle_distinct_t1 VALUES (1, 5), (2, 5)"
+        sql "INSERT INTO rqg_local_shuffle_distinct_t2 VALUES (1, 5, 10), (2, 5, 20)"
+
+        def distinctJoinQuery = { vars -> """
+            SELECT /*+SET_VAR(${vars})*/
+                count(distinct t1.k2) AS cnt_distinct
+            FROM rqg_local_shuffle_distinct_t1 t1
+            LEFT JOIN [shuffle] rqg_local_shuffle_distinct_t2 t2 ON t1.k2 = t2.k2
+            LEFT JOIN [broadcast] rqg_local_shuffle_distinct_t2 t3 ON t2.pk = t3.pk
+        """ }
+        def distinctJoinVariables = "enable_sql_cache=false, agg_phase=1, " +
+                "enable_broadcast_join_force_passthrough=true, parallel_pipeline_task_num=4, batch_size=1"
+        // Pin both implementations to the mathematically correct result (1). Using
+        // one implementation as the other's oracle would let a shared bug pass.
+        order_qt_bug26_be_native(distinctJoinQuery(
+                "${distinctJoinVariables}, enable_local_shuffle_planner=false"))
+        order_qt_bug26_fe_planned(distinctJoinQuery(
+                "${distinctJoinVariables}, enable_local_shuffle_planner=true"))
+        logger.info("Bug 26: PASSED")
+    } catch (Throwable t) {
+        logger.error("Bug 26 FAILED: ${t.message}")
+        assertTrue(false, "Bug 26: ${t.message}")
+    }
+
     logger.info("=== All RQG bug reproduction tests completed ===")
 }

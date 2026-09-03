@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <memory> // for unique_ptr
 #include <ostream>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -51,12 +52,19 @@ class BlockCompressionCodec;
 class TabletColumn;
 class TabletIndex;
 struct RowsetWriterContext;
+struct VariantColumnData;
 
 namespace io {
 class FileWriter;
 }
 
 namespace segment_v2 {
+
+enum class VariantWriterInputFormat : uint8_t {
+    UNSET,
+    V1,
+    V2,
+};
 
 struct ColumnWriterOptions {
     // input and output parameter:
@@ -78,6 +86,13 @@ struct ColumnWriterOptions {
     BloomFilterOptions bf_options;
     std::vector<const TabletIndex*> inverted_indexes;
     IndexFileWriter* index_file_writer = nullptr;
+    // The owning segment serves a direct load (stream/broker load,
+    // DataWriteType::TYPE_DIRECT) rather than compaction / schema change. Set
+    // once by the segment writer and propagated to variant subcolumn writers;
+    // forwarded to every created IndexColumnWriter via set_direct_load() so
+    // SNII can select its direct-load PRX zstd level without plumbing
+    // DataWriteType itself down here.
+    bool is_direct_load = false;
 
     SegmentFooterPB* footer = nullptr;
     io::FileWriter* file_writer = nullptr;
@@ -111,6 +126,8 @@ class PageBuilder;
 class BloomFilterIndexWriter;
 class ZoneMapIndexWriter;
 class VariantColumnWriterImpl;
+class VariantShredder;
+class VariantPathBuilder;
 class ColumnWriter;
 
 class ColumnWriter {
@@ -586,7 +603,7 @@ class VariantSubcolumnWriter : public ColumnWriter {
 public:
     explicit VariantSubcolumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column);
 
-    ~VariantSubcolumnWriter() override = default;
+    ~VariantSubcolumnWriter() override;
 
     Status init() override;
 
@@ -630,11 +647,19 @@ public:
     Status finalize();
 
 private:
+    Status _append(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
+    Status _append_v2(const VariantColumnData& column, size_t num_rows,
+                      std::span<const uint8_t> outer_nulls);
+    Status _ensure_input_format(const VariantColumnData& column);
+    Status _initialize_v2_builder();
     bool is_finalized() const;
     bool _is_finalized = false;
     ordinal_t _next_rowid = 0;
     size_t none_null_size = 0;
-    ColumnVariant::MutablePtr _column;
+    VariantWriterInputFormat _input_format = VariantWriterInputFormat::UNSET;
+    ColumnVariant::MutablePtr _v1_column;
+    std::unique_ptr<VariantPathBuilder> _v2_builder;
+    size_t _num_rows = 0;
     ColumnWriterOptions _opts;
     std::unique_ptr<ColumnWriter> _writer;
     TabletIndexes _indexes;

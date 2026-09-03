@@ -127,6 +127,20 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         this(catalogName, catalogId, () -> NOOP_AUTH);
     }
 
+    /**
+     * Creates the lightweight pre-initialization context used by the catalog factory for CREATE validation and
+     * edit-log replay. It exposes a snapshot of the raw storage properties so connector construction and
+     * connectivity checks can bind credentials, but it does not provide runtime authentication,
+     * connector-derived storage defaults, backend adapters, or a filesystem.
+     */
+    public static DefaultConnectorContext forCatalogCreationValidation(String catalogName, long catalogId,
+            Map<String, String> rawStorageProperties) {
+        Map<String, String> rawSnapshot = Collections.unmodifiableMap(
+                new HashMap<>(Objects.requireNonNull(rawStorageProperties, "rawStorageProperties")));
+        return new DefaultConnectorContext(catalogName, catalogId, () -> NOOP_AUTH,
+                Collections::emptyMap, () -> new HashMap<>(rawSnapshot));
+    }
+
     public DefaultConnectorContext(String catalogName, long catalogId,
             Supplier<ExecutionAuthenticator> authSupplier) {
         this(catalogName, catalogId, authSupplier, Collections::emptyMap);
@@ -589,6 +603,8 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         if (dorisHome != null) {
             env.put("doris_home", dorisHome);
         }
+        // HMS resources may be read before storage binding publishes this process-global FE setting.
+        env.put("hadoop_config_dir", Config.hadoop_config_dir);
         env.put("jdbc_drivers_dir", Config.jdbc_drivers_dir);
         env.put("force_sqlserver_jdbc_encrypt_false",
                 String.valueOf(Config.force_sqlserver_jdbc_encrypt_false));

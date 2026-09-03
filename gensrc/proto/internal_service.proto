@@ -189,9 +189,8 @@ message PTabletWriterAddBlockRequest {
     // for auto-partition first stage close, we should hang.
     optional bool hang_wait = 15 [default = false];
     optional bool is_adaptive_random_bucket = 16 [default = false];
-    // Per-row row-binlog LSNs allocated by olap table sink. The order is the same
-    // as rows in block/tablet_ids.
-    repeated int64 row_binlog_lsns = 17;
+    // Per-row LSNs allocated by olap table sink. The order is the same as rows in block/tablet_ids.
+    repeated int64 allocated_lsns = 17;
 };
 
 message PSlaveTabletNodes {
@@ -792,35 +791,35 @@ message PJdbcTestConnectionResult {
 }
 
 message PRowLocation {
-    optional int64 tablet_id = 1;
-    optional string rowset_id = 2;
-    optional uint64 segment_id = 3;
-    optional uint64 ordinal_id = 4;
+    optional int64 tablet_id = 1 [deprecated = true];
+    optional string rowset_id = 2 [deprecated = true];
+    optional uint64 segment_id = 3 [deprecated = true];
+    optional uint64 ordinal_id = 4 [deprecated = true];
 }
 
 message PMultiGetRequest {
-    repeated PRowLocation row_locs = 1;
-    optional PTupleDescriptor desc = 2;
-    repeated PSlotDescriptor slots = 3;
+    repeated PRowLocation row_locs = 1 [deprecated = true];
+    optional PTupleDescriptor desc = 2 [deprecated = true];
+    repeated PSlotDescriptor slots = 3 [deprecated = true];
     // for compability
-    optional int32 be_exec_version = 4;
-    optional bool fetch_row_store = 5;
-    optional PUniqueId query_id = 6;
-    repeated ColumnPB column_desc = 7;
+    optional int32 be_exec_version = 4 [deprecated = true];
+    optional bool fetch_row_store = 5 [deprecated = true];
+    optional PUniqueId query_id = 6 [deprecated = true];
+    repeated ColumnPB column_desc = 7 [deprecated = true];
 };
 
 message PMultiGetResponse {
-    optional PBlock block = 1;
-    optional PStatus status = 2;
+    optional PBlock block = 1 [deprecated = true];
+    optional PStatus status = 2 [deprecated = true];
  
     // more effecient serialization fields for row store
     enum RowFormat {
         JSONB = 0;
     };
-    optional RowFormat format = 3;
-    repeated bytes binary_row_data = 4;
+    optional RowFormat format = 3 [deprecated = true];
+    repeated bytes binary_row_data = 4 [deprecated = true];
     // for sorting rows
-    repeated PRowLocation row_locs = 5;
+    repeated PRowLocation row_locs = 5 [deprecated = true];
 };
 
 // Eeach block have own schema to read
@@ -949,6 +948,7 @@ message RecycleCacheMeta {
     optional string rowset_id = 2;
     optional int64 num_segments = 3;
     repeated string index_file_names = 4;
+    repeated int64 segment_ids = 5;
 }
 
 message PRecycleCacheRequest {
@@ -1101,6 +1101,17 @@ message PAlterVaultSyncRequest {
 message PAlterVaultSyncResponse {
 }
 
+message PSyncTabletMetaRequest {
+    repeated int64 tablet_ids = 1;
+}
+
+message PSyncTabletMetaResponse {
+    optional PStatus status = 1;
+    optional int64 synced_tablets = 2;
+    optional int64 skipped_tablets = 3;
+    optional int64 failed_tablets = 4;
+}
+
 message PGetBeResourceRequest {
 }
 
@@ -1250,7 +1261,9 @@ service PBackendService {
     rpc response_slave_tablet_pull_rowset(PTabletWriteSlaveDoneRequest) returns (PTabletWriteSlaveDoneResult);
     rpc outfile_write_success(POutfileWriteSuccessRequest) returns (POutfileWriteSuccessResult);
     rpc fetch_table_schema(PFetchTableSchemaRequest) returns (PFetchTableSchemaResult);
-    rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
+    rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse) {
+        option deprecated = true;
+    }
     rpc multiget_data_v2(PMultiGetRequestV2) returns (PMultiGetResponseV2);
     rpc get_file_cache_meta_by_tablet_id(PGetFileCacheMetaRequest) returns (PGetFileCacheMetaResponse);
     rpc warm_up_rowset(PWarmUpRowsetRequest) returns (PWarmUpRowsetResponse);
@@ -1266,6 +1279,7 @@ service PBackendService {
     rpc fetch_remote_tablet_schema(PFetchRemoteSchemaRequest) returns (PFetchRemoteSchemaResponse);
     rpc test_jdbc_connection(PJdbcTestConnectionRequest) returns (PJdbcTestConnectionResult);
     rpc alter_vault_sync(PAlterVaultSyncRequest) returns (PAlterVaultSyncResponse);
+    rpc sync_tablet_meta(PSyncTabletMetaRequest) returns (PSyncTabletMetaResponse);
     rpc get_be_resource(PGetBeResourceRequest) returns (PGetBeResourceResponse);
     rpc delete_dictionary(PDeleteDictionaryRequest) returns (PDeleteDictionaryResponse);
     rpc commit_refresh_dictionary(PCommitRefreshDictionaryRequest) returns (PCommitRefreshDictionaryResponse);

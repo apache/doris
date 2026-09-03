@@ -353,6 +353,17 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * Whether this connector can answer the current table-level COUNT(*) without decoding data files.
+     * The default is false; connectors may use snapshot metadata to prove the stronger condition.
+     */
+    default boolean canServeMetadataOnlyCount(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            Optional<ConnectorExpression> filter) {
+        return false;
+    }
+
+    /**
      * Builds a lazy {@link ConnectorSplitSource} for streaming split generation. Called once, on a
      * background task, only when {@link #streamingSplitEstimate} returned a non-negative value. The
      * engine pulls ranges from the source with backpressure and pumps them into the split queue

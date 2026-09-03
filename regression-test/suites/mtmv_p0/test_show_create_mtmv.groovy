@@ -95,7 +95,7 @@ suite("test_show_create_mtmv","mtmv") {
     """
     showCreateMTMVResult = sql """show CREATE MATERIALIZED VIEW ${mvName}"""
     logger.info("showCreateMTMVResult: " + showCreateMTMVResult.toString())
-    assertTrue(showCreateMTMVResult.toString().contains("aa comment 'aa_comment',bb"))
+    assertTrue(showCreateMTMVResult.toString().contains("`aa` comment 'aa_comment',`bb`"))
     assertTrue(showCreateMTMVResult.toString().contains("BUILD IMMEDIATE REFRESH COMPLETE ON COMMIT"))
     assertTrue(showCreateMTMVResult.toString().contains("DISTRIBUTED BY RANDOM BUCKETS AUTO"))
 

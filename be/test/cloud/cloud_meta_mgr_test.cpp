@@ -26,9 +26,11 @@
 #include <memory>
 #include <random>
 #include <set>
+#include <utility>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/pb_convert.h"
 #include "cpp/sync_point.h"
 #include "load/stream_load/stream_load_context.h"
 #include "storage/olap_common.h"
@@ -56,15 +58,45 @@ TEST_F(CloudMetaMgrTest, response_status_uses_actual_code_when_valid) {
     status.set_actual_code(static_cast<int32_t>(MetaServiceCode::KV_TXN_CONFLICT));
     EXPECT_EQ(get_response_code(status), MetaServiceCode::KV_TXN_CONFLICT);
 
+    status.set_code(MetaServiceCode::KV_TXN_CONFLICT);
+    status.set_actual_code(static_cast<int32_t>(MetaServiceCode::OK));
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::OK);
+
+    status.clear_code();
+    status.set_actual_code(static_cast<int32_t>(MetaServiceCode::MS_TOO_BUSY));
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::MS_TOO_BUSY);
+
+    status.set_code(MetaServiceCode::KV_TXN_CONFLICT);
     status.clear_actual_code();
     EXPECT_EQ(get_response_code(status), MetaServiceCode::KV_TXN_CONFLICT);
 }
 
-TEST_F(CloudMetaMgrTest, response_status_falls_back_for_invalid_actual_code) {
+TEST_F(CloudMetaMgrTest, response_status_falls_back_to_non_ok_code_for_invalid_actual_code) {
     MetaServiceResponseStatus status;
     status.set_code(MetaServiceCode::KV_TXN_CONFLICT);
     status.set_actual_code(std::numeric_limits<int32_t>::max());
     EXPECT_EQ(get_response_code(status), MetaServiceCode::KV_TXN_CONFLICT);
+}
+
+TEST_F(CloudMetaMgrTest, response_status_returns_undefined_for_invalid_actual_code_with_ok) {
+    MetaServiceResponseStatus status;
+    status.set_code(MetaServiceCode::OK);
+    status.set_actual_code(std::numeric_limits<int32_t>::max());
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::UNDEFINED_ERR);
+}
+
+TEST_F(CloudMetaMgrTest, response_status_returns_undefined_for_invalid_actual_code_without_code) {
+    MetaServiceResponseStatus status;
+    status.set_actual_code(std::numeric_limits<int32_t>::max());
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::UNDEFINED_ERR);
+}
+
+TEST_F(CloudMetaMgrTest, response_status_returns_undefined_without_any_code) {
+    MetaServiceResponseStatus status;
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::UNDEFINED_ERR);
+
+    status.set_code(MetaServiceCode::OK);
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::OK);
 }
 
 static AbortTxnRequest get_abort_txn_request(CloudMetaMgr* meta_mgr, const StreamLoadContext& ctx) {
@@ -253,6 +285,57 @@ TEST_F(CloudMetaMgrTest, abort_txn_uses_label_when_txn_id_is_missing) {
     EXPECT_EQ(captured_req.db_id(), ctx.db_id);
     EXPECT_TRUE(captured_req.has_label());
     EXPECT_EQ(captured_req.label(), ctx.label);
+}
+
+TEST_F(CloudMetaMgrTest, inverted_index_format_survives_meta_pb_conversion) {
+    RowsetMetaPB local_rowset;
+    local_rowset.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+    auto cloud_rowset = doris_rowset_meta_to_cloud(local_rowset);
+    ASSERT_TRUE(cloud_rowset.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, cloud_rowset.inverted_index_storage_format());
+
+    auto restored_rowset = cloud_rowset_meta_to_doris(cloud_rowset);
+    ASSERT_TRUE(restored_rowset.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, restored_rowset.inverted_index_storage_format());
+
+    RowsetMetaPB movable_rowset;
+    movable_rowset.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+    RowsetMetaCloudPB moved_cloud_rowset;
+    doris_rowset_meta_to_cloud(&moved_cloud_rowset, std::move(movable_rowset));
+    ASSERT_TRUE(moved_cloud_rowset.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3, moved_cloud_rowset.inverted_index_storage_format());
+
+    RowsetMetaPB moved_local_rowset;
+    cloud_rowset_meta_to_doris(&moved_local_rowset, std::move(moved_cloud_rowset));
+    ASSERT_TRUE(moved_local_rowset.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3, moved_local_rowset.inverted_index_storage_format());
+
+    TabletMetaPB local_tablet;
+    local_tablet.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+    auto cloud_tablet = doris_tablet_meta_to_cloud(local_tablet);
+    ASSERT_TRUE(cloud_tablet.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V2, cloud_tablet.inverted_index_storage_format());
+
+    auto restored_tablet = cloud_tablet_meta_to_doris(cloud_tablet);
+    ASSERT_TRUE(restored_tablet.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V2, restored_tablet.inverted_index_storage_format());
+
+    TabletMetaPB movable_tablet;
+    movable_tablet.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+    TabletMetaCloudPB moved_cloud_tablet;
+    doris_tablet_meta_to_cloud(&moved_cloud_tablet, std::move(movable_tablet));
+    ASSERT_TRUE(moved_cloud_tablet.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3, moved_cloud_tablet.inverted_index_storage_format());
+
+    TabletMetaPB moved_local_tablet;
+    cloud_tablet_meta_to_doris(&moved_local_tablet, std::move(moved_cloud_tablet));
+    ASSERT_TRUE(moved_local_tablet.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3, moved_local_tablet.inverted_index_storage_format());
+
+    RowsetMetaPB legacy_rowset;
+    EXPECT_FALSE(doris_rowset_meta_to_cloud(legacy_rowset).has_inverted_index_storage_format());
+    TabletMetaPB legacy_tablet;
+    EXPECT_FALSE(doris_tablet_meta_to_cloud(legacy_tablet).has_inverted_index_storage_format());
 }
 
 TEST_F(CloudMetaMgrTest, test_fill_version_holes_no_holes) {

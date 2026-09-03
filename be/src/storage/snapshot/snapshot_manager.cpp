@@ -778,6 +778,8 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 }
             }};
 
+            // Binlog is local-mode only. These files use contiguous segment indexes because
+            // segment-list rowsets are cloud-only.
             // link segment files and index files
             for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
                 segment_file_path = ref_tablet->get_segment_filepath(rowset_id, segment_index);
@@ -816,7 +818,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                         linked_success_files.push_back(snapshot_segment_index_file_path);
                     }
                 } else {
-                    if (tablet_schema.has_inverted_index() || tablet_schema.has_ann_index()) {
+                    if (tablet_schema.has_inverted_or_ann_index()) {
                         auto index_file = InvertedIndexDescriptor::get_index_file_path_v2(
                                 InvertedIndexDescriptor::get_index_file_path_prefix(
                                         segment_file_path));

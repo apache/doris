@@ -943,6 +943,44 @@ TEST_F(ColumnZoneMapTest, DoubleFiniteExtremesRoundTrip) {
     EXPECT_EQ(pzm.max_value.get<TYPE_DOUBLE>(), std::numeric_limits<double>::max());
 }
 
+TEST_F(ColumnZoneMapTest, LegacyUnparsableDoubleBoundDegradesToPassAll) {
+    auto make_zone_map = [](const std::string& min, const std::string& max) {
+        ZoneMapPB pb;
+        pb.set_min(min);
+        pb.set_max(max);
+        pb.set_has_null(false);
+        pb.set_has_not_null(true);
+        pb.set_pass_all(false);
+        return pb;
+    };
+    // 16g renderings of ±DBL_MAX, both of which read back as ∓inf.
+    const std::string legacy_min = "-1.797693134862316e+308";
+    const std::string legacy_max = "1.797693134862316e+308";
+    const std::string exact_min = "-1.7976931348623157e+308";
+    const std::string exact_max = "1.7976931348623157e+308";
+
+    for (bool nullable : {false, true}) {
+        auto data_type = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, nullable);
+
+        for (const auto& pb :
+             {make_zone_map(legacy_min, legacy_max), make_zone_map(legacy_min, exact_max),
+              make_zone_map(exact_min, legacy_max)}) {
+            ZoneMap zm;
+            ASSERT_TRUE(ZoneMap::from_proto(pb, data_type, zm).ok()) << "nullable=" << nullable;
+            EXPECT_TRUE(zm.pass_all) << "nullable=" << nullable << ", min='" << pb.min()
+                                     << "', max='" << pb.max() << "'";
+            EXPECT_TRUE(zm.has_not_null);
+            EXPECT_FALSE(zm.has_null);
+        }
+
+        ZoneMap zm;
+        ASSERT_TRUE(ZoneMap::from_proto(make_zone_map(exact_min, exact_max), data_type, zm).ok());
+        EXPECT_FALSE(zm.pass_all) << "nullable=" << nullable;
+        EXPECT_EQ(zm.min_value.get<TYPE_DOUBLE>(), std::numeric_limits<double>::lowest());
+        EXPECT_EQ(zm.max_value.get<TYPE_DOUBLE>(), std::numeric_limits<double>::max());
+    }
+}
+
 TabletColumnPtr create_timestamptz_column(int32_t id, bool is_nullable) {
     auto column = std::make_shared<TabletColumn>();
     column->_unique_id = id;

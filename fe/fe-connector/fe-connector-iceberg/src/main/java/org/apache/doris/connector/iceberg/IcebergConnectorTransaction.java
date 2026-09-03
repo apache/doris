@@ -130,12 +130,15 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     private final long transactionId;
     private final IcebergCatalogOps catalogOps;
     private final ConnectorContext context;
+    private final IcebergCatalogResourceTracker resourceTracker;
+    private final String catalogFlavor;
     private final List<TIcebergCommitData> commitDataList = new ArrayList<>();
 
     // The single SDK transaction / table, opened lazily by beginWrite (the write plan binds the target
     // table only when the sink is planned). volatile: addCommitData / commit may run on different threads.
     private volatile Transaction transaction;
     private volatile Table table;
+    private volatile IcebergStatementScope.TrackedTableLease tableLease;
 
     // Begin-once guard. A normal single-statement write calls beginWrite exactly once. A distributed
     // rewrite_data_files runs N per-group INSERT-SELECTs that SHARE this one transaction, and each group's
@@ -146,6 +149,8 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     // coordinator, the distributed tasks only write" model. No effect on single-statement writes.
     private final Object beginLock = new Object();
     private volatile boolean writeStarted = false;
+    private boolean beginInProgress;
+    private boolean closed;
 
     // Op context captured at begin time, consumed by commit() (the volatile transaction write at the end of
     // beginWrite publishes these plain writes to the commit thread).
@@ -154,8 +159,8 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     private Map<String, String> staticPartitionValues = Collections.emptyMap();
     private String branchName;
     private IcebergWriteSchemaContext writeSchemaContext;
-    // The current snapshot pinned at begin time for a DELETE/MERGE (null for INSERT/OVERWRITE). Consumed by
-    // the commit validation suite (validateFromSnapshot).
+    // The snapshot pinned at begin time for DELETE/MERGE and OVERWRITE (null for INSERT). Consumed by the
+    // commit validation suite (validateFromSnapshot).
     private Long baseSnapshotId;
     // Session zone for human-readable TIMESTAMP partition value parsing (DV-T04-f).
     private ZoneId zone = ZoneOffset.UTC;
@@ -179,9 +184,21 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
 
     public IcebergConnectorTransaction(long transactionId, IcebergCatalogOps catalogOps,
             ConnectorContext context) {
+        this(transactionId, catalogOps, context, null, null);
+    }
+
+    IcebergConnectorTransaction(long transactionId, IcebergCatalogOps catalogOps,
+            ConnectorContext context, IcebergCatalogResourceTracker resourceTracker) {
+        this(transactionId, catalogOps, context, resourceTracker, null);
+    }
+
+    IcebergConnectorTransaction(long transactionId, IcebergCatalogOps catalogOps,
+            ConnectorContext context, IcebergCatalogResourceTracker resourceTracker, String catalogFlavor) {
         this.transactionId = transactionId;
         this.catalogOps = catalogOps;
         this.context = context;
+        this.resourceTracker = resourceTracker;
+        this.catalogFlavor = catalogFlavor;
     }
 
     /**
@@ -199,6 +216,17 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
      */
     public void beginWrite(ConnectorSession session, String db, String tableName, IcebergWriteContext ctx) {
         synchronized (beginLock) {
+            while (beginInProgress && !writeStarted && !closed) {
+                try {
+                    beginLock.wait();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new DorisConnectorException("Interrupted while beginning iceberg write", e);
+                }
+            }
+            if (closed) {
+                throw new DorisConnectorException("Iceberg transaction is already closed");
+            }
             if (writeStarted) {
                 // Already begun. A shared distributed-rewrite transaction is opened once by the first group's
                 // planWrite; subsequent concurrent group writes reuse the same loaded table + pinned OCC
@@ -206,19 +234,30 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 // for them (byte-identical to the pre-guard path).
                 return;
             }
-            this.writeOperation = ctx.getWriteOperation();
-            this.staticPartitionOverwrite = ctx.isStaticPartitionOverwrite();
-            this.staticPartitionValues = ctx.getStaticPartitionValues();
-            this.writeSchemaContext = ctx.getWriteSchemaContext();
-            this.zone = IcebergTimeUtils.resolveSessionZone(session);
-            try {
-                context.executeAuthenticated(() -> {
-                    // Reuse the write planner's mutable table, never the frozen read view: newTransaction
-                    // refreshes operations to establish a fresh OCC base without mutating bound read metadata.
-                    // The pinned write context is validated on this write-only table and again at the final CAS.
-                    Table loaded = IcebergStatementScope.sharedWritableTable(session, db, tableName,
-                            () -> catalogOps.loadTable(db, tableName));
-                    this.table = loaded;
+            beginInProgress = true;
+        }
+        this.writeOperation = ctx.getWriteOperation();
+        this.staticPartitionOverwrite = ctx.isStaticPartitionOverwrite();
+        this.staticPartitionValues = ctx.getStaticPartitionValues();
+        this.writeSchemaContext = ctx.getWriteSchemaContext();
+        this.zone = IcebergTimeUtils.resolveSessionZone(session);
+        try {
+            context.executeAuthenticated(() -> {
+                // Reuse the write planner's mutable table, never the frozen read view: newTransaction
+                // refreshes operations to establish a fresh OCC base without mutating bound read metadata.
+                // The pinned write context is validated on this write-only table and again at the final CAS.
+                IcebergStatementScope.TrackedTable tracked = resourceTracker == null ? null
+                        : IcebergStatementScope.sharedTrackedWritableTable(session, db, tableName,
+                                resourceTracker, () -> catalogOps.loadTable(db, tableName),
+                                table -> IcebergConnector.cachedTableCleanup(table, catalogFlavor));
+                Table loaded = tracked == null
+                        ? IcebergStatementScope.sharedWritableTable(session, db, tableName,
+                                () -> catalogOps.loadTable(db, tableName))
+                        : tracked.table();
+                IcebergStatementScope.TrackedTableLease retained = tracked == null
+                        ? null : tracked.retainLease();
+                this.table = loaded;
+                try {
                     validateBoundWriteGeneration(ctx, loaded);
                     if (writeSchemaContext != null) {
                         writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
@@ -231,16 +270,41 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                     if (writeSchemaContext != null) {
                         writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
                     }
-                    this.transaction = opened;
+                    synchronized (beginLock) {
+                        if (closed) {
+                            this.table = null;
+                            throw new IllegalStateException(
+                                    "Iceberg transaction closed while its write table was loading");
+                        }
+                        this.transaction = opened;
+                        this.tableLease = retained;
+                        retained = null;
+                        writeStarted = true;
+                    }
                     return null;
-                });
-            } catch (Exception e) {
-                throw new DorisConnectorException(
-                        "Failed to begin write for iceberg table " + tableName + ": " + e.getMessage(), e);
+                } finally {
+                    if (retained != null) {
+                        retained.close();
+                    }
+                    if (tracked != null && !tracked.isStatementOwned()) {
+                        tracked.close();
+                    }
+                }
+            });
+        } catch (Exception e) {
+            synchronized (beginLock) {
+                if (!writeStarted) {
+                    table = null;
+                    transaction = null;
+                }
             }
-            // Only flip after a fully successful begin, so a failed load can be retried (writeStarted stays
-            // false) rather than wedging the transaction in a half-begun state.
-            writeStarted = true;
+            throw new DorisConnectorException(
+                    "Failed to begin write for iceberg table " + tableName + ": " + e.getMessage(), e);
+        } finally {
+            synchronized (beginLock) {
+                beginInProgress = false;
+                beginLock.notifyAll();
+            }
         }
     }
 
@@ -413,14 +477,14 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             // scan used, S_read), threaded onto the write handle and carried on the ctx. The commit-time
             // removeDeletes (option D) re-derives from baseSnapshotId, and BE unions the scan-time (S_read)
             // old deletes into the new DV — anchoring both at S_read keeps supply and remove on one snapshot
-            // (no resurrection under a concurrent commit in the read->begin-write window).
+            // (no resurrection under a concurrent commit in the read->begin-write window). An explicitly pinned
+            // -1 is the empty-table generation and must remain an OCC fence; only an unpinned caller may fall
+            // back to the begin-time current snapshot.
             long pinnedReadSnapshot = ctx.getReadSnapshotId();
-            if (ctx.isReadSnapshotResolved()) {
-                // An explicitly empty read stays null so validation covers a concurrent first append.
-                this.baseSnapshotId = pinnedReadSnapshot >= 0 ? Long.valueOf(pinnedReadSnapshot) : null;
-            } else {
-                this.baseSnapshotId = getSnapshotIdIfPresent(table);
-            }
+            // Keep both ternary arms boxed (Long): getSnapshotIdIfPresent returns null for an empty table
+            // (no snapshot), and a primitive arm would force-unbox that null into an NPE.
+            this.baseSnapshotId = ctx.isReadSnapshotResolved()
+                    ? Long.valueOf(pinnedReadSnapshot) : getSnapshotIdIfPresent(table);
             if (table instanceof HasTableOperations) {
                 int formatVersion = ((HasTableOperations) table).operations().current().formatVersion();
                 if (formatVersion < 2) {
@@ -430,7 +494,6 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             }
         } else {
             // INSERT / OVERWRITE (append path).
-            this.baseSnapshotId = null;
             if (ctx.getBranchName().isPresent()) {
                 this.branchName = ctx.getBranchName().get();
                 SnapshotRef branchRef = table.refs().get(branchName);
@@ -440,10 +503,51 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                     throw new IllegalArgumentException(branchName
                             + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
                 }
+                this.baseSnapshotId = op == WriteOperation.OVERWRITE
+                        ? resolveOverwriteBaseSnapshot(ctx, branchRef.snapshotId(), tableName) : null;
             } else {
                 this.branchName = null;
+                this.baseSnapshotId = op == WriteOperation.OVERWRITE
+                        ? resolveOverwriteBaseSnapshot(ctx, getSnapshotIdIfPresent(table), tableName) : null;
             }
         }
+    }
+
+    private Long resolveOverwriteBaseSnapshot(IcebergWriteContext ctx, Long targetHead, String tableName) {
+        if (!ctx.isReadSnapshotResolved()) {
+            return targetHead;
+        }
+        long readSnapshotId = ctx.getReadSnapshotId();
+        if (readSnapshotId < 0) {
+            // An explicit empty read must conflict with any snapshot created before beginWrite.
+            if (targetHead != null) {
+                throw new DorisConnectorException("Iceberg table " + tableName
+                        + " changed after the statement read an empty snapshot");
+            }
+            // Keep the empty generation pinned across Transactions.newTransaction(), whose refresh may
+            // otherwise adopt a first snapshot committed between the guard and transaction creation.
+            return readSnapshotId;
+        }
+        if (targetHead == null || !isAncestorOfTarget(readSnapshotId, targetHead)) {
+            throw new DorisConnectorException("Read snapshot " + readSnapshotId
+                    + " is not an ancestor of the target branch for Iceberg table " + tableName);
+        }
+        return readSnapshotId;
+    }
+
+    private boolean isAncestorOfTarget(long ancestorId, long targetHeadId) {
+        Long snapshotId = targetHeadId;
+        while (snapshotId != null) {
+            if (snapshotId == ancestorId) {
+                return true;
+            }
+            Snapshot snapshot = table.snapshot(snapshotId);
+            if (snapshot == null) {
+                return false;
+            }
+            snapshotId = snapshot.parentId();
+        }
+        return false;
     }
 
     @Override
@@ -705,6 +809,8 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 if (branchName != null) {
                     overwriteFiles = overwriteFiles.toBranch(branchName);
                 }
+                // Clearing a table must fail if any data or delete landed after the statement's base snapshot.
+                overwriteFiles = validateOverwrite(overwriteFiles, Expressions.alwaysTrue());
                 TableScan overwriteScan = table.newScan();
                 if (branchName != null) {
                     overwriteScan = overwriteScan.useRef(branchName);
@@ -724,6 +830,11 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         if (branchName != null) {
             appendPartitionOp = appendPartitionOp.toBranch(branchName);
         }
+        // Partition replacement must preserve concurrent files instead of deleting or reviving them silently.
+        if (baseSnapshotId != null) {
+            appendPartitionOp = appendPartitionOp.validateFromSnapshot(baseSnapshotId);
+        }
+        appendPartitionOp = appendPartitionOp.validateNoConflictingData().validateNoConflictingDeletes();
         for (WriteResult result : pendingResults) {
             Preconditions.checkState(result.referencedDataFiles().length == 0,
                     "Should have no referenced data files.");
@@ -749,6 +860,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             overwriteFiles = overwriteFiles.toBranch(branchName);
         }
         overwriteFiles = overwriteFiles.overwriteByRowFilter(partitionFilter);
+        overwriteFiles = validateOverwrite(overwriteFiles, partitionFilter);
 
         for (WriteResult result : pendingResults) {
             Preconditions.checkState(result.referencedDataFiles().length == 0,
@@ -756,6 +868,14 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             Arrays.stream(result.dataFiles()).forEach(overwriteFiles::addFile);
         }
         overwriteFiles.commit();
+    }
+
+    private OverwriteFiles validateOverwrite(OverwriteFiles overwriteFiles, Expression conflictFilter) {
+        overwriteFiles = overwriteFiles.conflictDetectionFilter(conflictFilter);
+        if (baseSnapshotId != null) {
+            overwriteFiles = overwriteFiles.validateFromSnapshot(baseSnapshotId);
+        }
+        return overwriteFiles.validateNoConflictingData().validateNoConflictingDeletes();
     }
 
     /**
@@ -1279,7 +1399,16 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
 
     @Override
     public void close() {
-        // No resources to release: the SDK transaction holds no connections of its own.
+        IcebergStatementScope.TrackedTableLease lease;
+        synchronized (beginLock) {
+            closed = true;
+            lease = tableLease;
+            tableLease = null;
+            beginLock.notifyAll();
+        }
+        if (lease != null) {
+            lease.close();
+        }
     }
 
     /** Package-visible accessors for the unit tests (and the T05 validation suite). */

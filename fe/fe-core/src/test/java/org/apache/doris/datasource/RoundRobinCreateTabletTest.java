@@ -102,7 +102,8 @@ public class RoundRobinCreateTabletTest {
         MaterializedIndex index = new MaterializedIndex();
         HashDistributionInfo distributionInfo = new HashDistributionInfo(48, null);
         ReplicaAllocation replicaAlloc = new ReplicaAllocation((short) 3);
-        TabletMeta tabletMeta = new TabletMeta(1L, 2L, 3L, 4L, 5, TStorageMedium.HDD);
+        TabletMeta tabletMeta = new TabletMeta(1L, 2L, 3L, 4L, 5, TStorageMedium.HDD,
+                false /* isRowBinlog */);
         IdGeneratorBuffer idGeneratorBuffer = Env.getCurrentEnv().getIdGeneratorBuffer(1000);
         Set<Long> tabletIdSet = new HashSet<>();
 

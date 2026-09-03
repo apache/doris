@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Regexp;
+import org.apache.doris.nereids.trees.expressions.functions.LambdaBindingSpecs;
 import org.apache.doris.nereids.trees.expressions.functions.ai.AIClassify;
 import org.apache.doris.nereids.trees.expressions.functions.ai.AIExtract;
 import org.apache.doris.nereids.trees.expressions.functions.ai.AIFilter;
@@ -331,10 +332,16 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.LtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeTime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapAll;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapApply;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapEntries;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapExists;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapFilter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapFromArrays;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapFromEntries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapValues;
@@ -540,6 +547,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileSta
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToSeconds;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TopLevelDomain;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TransformKeys;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TransformValues;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Translate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Trim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimIn;
@@ -597,6 +606,26 @@ import java.util.List;
  */
 public class BuiltinScalarFunctions implements FunctionHelper {
     public final List<ScalarFunc> scalarFunctions = ImmutableList.of(
+            lambdaScalar(ArrayCount.class, LambdaBindingSpecs.ARRAY_ZIP, "array_count"),
+            lambdaScalar(ArrayExists.class, LambdaBindingSpecs.ARRAY_ZIP, "array_exists"),
+            lambdaScalar(ArrayFilter.class, LambdaBindingSpecs.ARRAY_ZIP, "array_filter"),
+            lambdaScalar(ArrayFirst.class, LambdaBindingSpecs.ARRAY_ZIP, "array_first"),
+            lambdaScalar(ArrayFirstIndex.class, LambdaBindingSpecs.ARRAY_ZIP, "array_first_index"),
+            lambdaScalar(ArrayLast.class, LambdaBindingSpecs.ARRAY_ZIP, "array_last"),
+            lambdaScalar(ArrayLastIndex.class, LambdaBindingSpecs.ARRAY_ZIP, "array_last_index"),
+            lambdaScalar(ArrayMap.class, LambdaBindingSpecs.ARRAY_ZIP, "array_map"),
+            lambdaScalar(ArrayMatchAll.class, LambdaBindingSpecs.ARRAY_ZIP, "array_match_all"),
+            lambdaScalar(ArrayMatchAny.class, LambdaBindingSpecs.ARRAY_ZIP, "array_match_any"),
+            lambdaScalar(ArrayReverseSplit.class, LambdaBindingSpecs.ARRAY_ZIP, "array_reverse_split"),
+            lambdaScalar(ArraySort.class, LambdaBindingSpecs.ARRAY_COMPARATOR, "array_sort"),
+            lambdaScalar(ArraySortBy.class, LambdaBindingSpecs.ARRAY_ZIP, "array_sortby"),
+            lambdaScalar(ArraySplit.class, LambdaBindingSpecs.ARRAY_ZIP, "array_split"),
+            lambdaScalar(MapAll.class, LambdaBindingSpecs.MAP_ENTRIES, "map_all"),
+            lambdaScalar(MapApply.class, LambdaBindingSpecs.MAP_ENTRIES, "map_apply"),
+            lambdaScalar(MapExists.class, LambdaBindingSpecs.MAP_ENTRIES, "map_exists"),
+            lambdaScalar(MapFilter.class, LambdaBindingSpecs.MAP_ENTRIES, "map_filter"),
+            lambdaScalar(TransformKeys.class, LambdaBindingSpecs.MAP_ENTRIES, "transform_keys"),
+            lambdaScalar(TransformValues.class, LambdaBindingSpecs.MAP_ENTRIES, "transform_values"),
             scalar(Abs.class, "abs"),
             scalar(Acos.class, "acos"),
             scalar(Acosh.class, "acosh"),
@@ -621,7 +650,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayConcat.class, "array_concat"),
             scalar(ArrayContains.class, "array_contains"),
             scalar(ArrayContainsAll.class, "array_contains_all", "hasSubstr"),
-            scalar(ArrayCount.class, "array_count"),
             scalar(ArrayCrossProduct.class, "array_cross_product", "cross_product"),
             scalar(ArrayCumSum.class, "array_cum_sum"),
             scalar(ArrayDifference.class, "array_difference"),
@@ -629,18 +657,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayEnumerate.class, "array_enumerate"),
             scalar(ArrayEnumerateUniq.class, "array_enumerate_uniq"),
             scalar(ArrayExcept.class, "array_except"),
-            scalar(ArrayExists.class, "array_exists"),
-            scalar(ArrayFilter.class, "array_filter"),
-            scalar(ArrayFirst.class, "array_first"),
-            scalar(ArrayFirstIndex.class, "array_first_index"),
             scalar(ArrayFlatten.class, "array_flatten"),
             scalar(ArrayIntersect.class, "array_intersect"),
             scalar(ArrayJoin.class, "array_join"),
-            scalar(ArrayLast.class, "array_last"),
-            scalar(ArrayLastIndex.class, "array_last_index"),
-            scalar(ArrayMap.class, "array_map"),
-            scalar(ArrayMatchAll.class, "array_match_all"),
-            scalar(ArrayMatchAny.class, "array_match_any"),
             scalar(ArrayMax.class, "array_max"),
             scalar(ArrayMin.class, "array_min"),
             scalar(ArrayPopBack.class, "array_popback"),
@@ -653,11 +672,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayRemove.class, "array_remove"),
             scalar(ArrayRepeat.class, "array_repeat"),
             scalar(ArrayReverseSort.class, "array_reverse_sort"),
-            scalar(ArrayReverseSplit.class, "array_reverse_split"),
             scalar(ArraySlice.class, "array_slice"),
-            scalar(ArraySort.class, "array_sort"),
-            scalar(ArraySortBy.class, "array_sortby"),
-            scalar(ArraySplit.class, "array_split"),
             scalar(ArrayShuffle.class, "array_shuffle", "shuffle"),
             scalar(ArraySum.class, "array_sum"),
             scalar(ArrayUnion.class, "array_union"),
@@ -917,6 +932,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MapContainsKey.class, "map_contains_key"),
             scalar(MapContainsValue.class, "map_contains_value"),
             scalar(MapEntries.class, "map_entries"),
+            scalar(MapFromArrays.class, "map_from_arrays"),
+            scalar(MapFromEntries.class, "map_from_entries"),
             scalar(MapKeys.class, "map_keys"),
             scalar(MapSize.class, "map_size"),
             scalar(MapValues.class, "map_values"),

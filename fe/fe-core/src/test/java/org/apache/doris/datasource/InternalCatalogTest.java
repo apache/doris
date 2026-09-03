@@ -154,7 +154,7 @@ public class InternalCatalogTest {
         MaterializedIndex baseIndex = new MaterializedIndex(INDEX_ID, IndexState.NORMAL);
         LocalTablet tablet = new LocalTablet(TABLET_ID);
         TabletMeta tabletMeta = new TabletMeta(CatalogTestUtil.testDbId1, TABLE_ID, PARTITION_ID, INDEX_ID, 0,
-                TStorageMedium.HDD);
+                TStorageMedium.HDD, false /* isRowBinlog */);
         baseIndex.addTablet(tablet, tabletMeta);
         tablet.addReplica(new LocalReplica(REPLICA_ID, BACKEND_ID, 0, ReplicaState.NORMAL));
 

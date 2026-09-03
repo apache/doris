@@ -26,90 +26,16 @@
 #include "common/cast_set.h"
 #include "common/exception.h"
 #include "core/assert_cast.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/vexpr.h"
-#include "format_v2/expr/cast.h"
 #include "gen_cpp/Exprs_types.h"
 
 namespace doris::format {
 
 namespace {
-
-static bool is_cast_expr(const VExprSPtr& expr) {
-    return dynamic_cast<const Cast*>(expr.get()) != nullptr;
-}
-
-static bool is_signed_integer_type(PrimitiveType type) {
-    switch (type) {
-    case TYPE_TINYINT:
-    case TYPE_SMALLINT:
-    case TYPE_INT:
-    case TYPE_BIGINT:
-    case TYPE_LARGEINT:
-        return true;
-    default:
-        return false;
-    }
-}
-
-static int primitive_integer_width(PrimitiveType type) {
-    switch (type) {
-    case TYPE_TINYINT:
-        return 1;
-    case TYPE_SMALLINT:
-        return 2;
-    case TYPE_INT:
-        return 4;
-    case TYPE_BIGINT:
-        return 8;
-    case TYPE_LARGEINT:
-        return 16;
-    default:
-        return 0;
-    }
-}
-
-static bool is_decimal_type(PrimitiveType type) {
-    switch (type) {
-    case TYPE_DECIMAL32:
-    case TYPE_DECIMAL64:
-    case TYPE_DECIMALV2:
-    case TYPE_DECIMAL128I:
-    case TYPE_DECIMAL256:
-        return true;
-    default:
-        return false;
-    }
-}
-
-static bool is_order_preserving_safe_cast(const DataTypePtr& from_type,
-                                          const DataTypePtr& to_type) {
-    if (from_type == nullptr || to_type == nullptr) {
-        return false;
-    }
-    const auto from_nested_type = remove_nullable(from_type);
-    const auto to_nested_type = remove_nullable(to_type);
-    if (from_nested_type->equals(*to_nested_type)) {
-        return true;
-    }
-
-    const auto from_primitive_type = from_nested_type->get_primitive_type();
-    const auto to_primitive_type = to_nested_type->get_primitive_type();
-    if (is_signed_integer_type(from_primitive_type) && is_signed_integer_type(to_primitive_type)) {
-        return primitive_integer_width(to_primitive_type) >=
-               primitive_integer_width(from_primitive_type);
-    }
-    if (from_primitive_type == TYPE_FLOAT && to_primitive_type == TYPE_DOUBLE) {
-        return true;
-    }
-    if (is_decimal_type(from_primitive_type) && is_decimal_type(to_primitive_type)) {
-        return from_nested_type->get_scale() == to_nested_type->get_scale() &&
-               to_nested_type->get_precision() >= from_nested_type->get_precision();
-    }
-    return false;
-}
 
 static bool parse_struct_child_selector(const VExprSPtr& expr, StructChildSelector* selector) {
     DORIS_CHECK(selector != nullptr);
@@ -163,7 +89,13 @@ static bool parse_struct_child_selector(const VExprSPtr& expr, StructChildSelect
 
 static bool extract_nested_struct_path(const VExprSPtr& expr, NestedStructPath* path) {
     DORIS_CHECK(path != nullptr);
-    if (!is_struct_element_expr(expr)) {
+    const bool is_struct_element = is_struct_element_expr(expr);
+    const bool is_array_element =
+            expr != nullptr && expr->get_num_children() == 2 &&
+            expr->fn().name.function_name == "element_at" &&
+            expr->children()[0]->data_type() != nullptr &&
+            remove_nullable(expr->children()[0]->data_type())->get_primitive_type() == TYPE_ARRAY;
+    if (!is_struct_element && !is_array_element) {
         return false;
     }
 
@@ -172,11 +104,19 @@ static bool extract_nested_struct_path(const VExprSPtr& expr, NestedStructPath* 
     if (!parse_struct_child_selector(expr->children()[1], &selector)) {
         return false;
     }
+    if (is_array_element) {
+        if (selector.by_name) {
+            return false;
+        }
+        // Every array ordinal is represented by the same repeated Parquet element projection.
+        selector.is_array_element = true;
+    }
 
     const auto& parent = expr->children()[0];
     if (parent->is_slot_ref()) {
         const auto* slot_ref = assert_cast<const VSlotRef*>(parent.get());
         path->root_global_index = slot_ref_global_index(*slot_ref);
+        path->root_table_type = slot_ref->data_type();
         path->selectors.clear();
         path->selectors.push_back(std::move(selector));
         return true;
@@ -191,29 +131,11 @@ static bool extract_nested_struct_path(const VExprSPtr& expr, NestedStructPath* 
     return true;
 }
 
-static bool extract_nested_struct_path_for_pruning(const VExprSPtr& expr, NestedStructPath* path) {
-    DORIS_CHECK(path != nullptr);
-    // Simple `ELEMENT_AT`
-    if (extract_nested_struct_path(expr, path)) {
-        return true;
-    }
-
-    // `ELEMENT_AT` with `CAST`
-    if (!is_cast_expr(expr) || expr->get_num_children() != 1) {
-        return false;
-    }
-    const auto& child = expr->children()[0];
-    if (!is_order_preserving_safe_cast(child->data_type(), expr->data_type())) {
-        return false;
-    }
-    // A safe widening cast is null-preserving and keeps the comparison ordering of the nested
-    // primitive leaf, so file-layer pruning can target the original leaf statistics. The row-level
-    // filter still evaluates the original cast expression after read.
-    return extract_nested_struct_path_for_pruning(child, path);
-}
-
 static const ColumnDefinition* resolve_file_child(const std::vector<ColumnDefinition>& children,
                                                   const StructChildSelector& selector) {
+    if (selector.is_array_element) {
+        return children.size() == 1 ? &children[0] : nullptr;
+    }
     if (selector.by_name) {
         const auto child_it = std::ranges::find_if(children, [&](const ColumnDefinition& child) {
             return child.name == selector.name;
@@ -237,8 +159,42 @@ static const DataTypeStruct* struct_type_or_null(const DataTypePtr& type) {
     return assert_cast<const DataTypeStruct*>(nested_type.get());
 }
 
+static DataTypePtr resolve_table_child_type(const DataTypePtr& parent_type,
+                                            const StructChildSelector& selector) {
+    if (parent_type == nullptr) {
+        return nullptr;
+    }
+    const auto nested_type = remove_nullable(parent_type);
+    if (selector.is_array_element) {
+        if (nested_type->get_primitive_type() != TYPE_ARRAY) {
+            return nullptr;
+        }
+        return assert_cast<const DataTypeArray*>(nested_type.get())->get_nested_type();
+    }
+    const auto* struct_type = struct_type_or_null(nested_type);
+    if (struct_type == nullptr) {
+        return nullptr;
+    }
+    if (selector.by_name) {
+        const auto position = struct_type->try_get_position_by_name(selector.name);
+        return position.has_value() ? struct_type->get_element(*position) : nullptr;
+    }
+    if (selector.ordinal == 0 || selector.ordinal > struct_type->get_elements().size()) {
+        return nullptr;
+    }
+    return struct_type->get_element(selector.ordinal - 1);
+}
+
 static std::optional<int32_t> struct_child_index(const ColumnMapping& mapping,
                                                  const StructChildSelector& selector) {
+    if (selector.is_array_element) {
+        const auto nested_type = remove_nullable(mapping.table_type);
+        if (nested_type == nullptr || nested_type->get_primitive_type() != TYPE_ARRAY ||
+            mapping.child_mappings.size() != 1) {
+            return std::nullopt;
+        }
+        return 0;
+    }
     const auto* struct_type = struct_type_or_null(mapping.table_type);
     if (struct_type == nullptr) {
         return std::nullopt;
@@ -345,8 +301,10 @@ static NestedProjectionResolveResult resolve_nested_projection_with_mapping(
     return NestedProjectionResolveResult::RESOLVED;
 }
 
-static bool table_root_is_struct(const ColumnMapping& mapping) {
-    return struct_type_or_null(mapping.table_type) != nullptr;
+static bool table_root_is_nested_container(const ColumnMapping& mapping) {
+    const auto nested_type = remove_nullable(mapping.table_type);
+    return nested_type != nullptr && (nested_type->get_primitive_type() == TYPE_STRUCT ||
+                                      nested_type->get_primitive_type() == TYPE_ARRAY);
 }
 
 static const std::vector<ColumnDefinition>& scan_file_children(const ColumnMapping& mapping) {
@@ -440,7 +398,7 @@ bool resolve_nested_struct_path_for_file(const NestedStructPath& path,
         return false;
     }
     if (mapping_result == NestedProjectionResolveResult::NOT_REPRESENTED) {
-        if (!table_root_is_struct(*mapping_it)) {
+        if (!table_root_is_nested_container(*mapping_it)) {
             return false;
         }
         LocalColumnIndex child_projection;
@@ -478,6 +436,20 @@ bool resolve_nested_struct_path_for_file(const NestedStructPath& path,
         *resolved = {};
         return false;
     }
+    resolved->file_array_elements.reserve(path.selectors.size());
+    resolved->table_child_types.reserve(path.selectors.size());
+    auto table_child_type = path.root_table_type;
+    for (const auto& selector : path.selectors) {
+        resolved->file_array_elements.push_back(selector.is_array_element);
+        if (path.root_table_type != nullptr) {
+            table_child_type = resolve_table_child_type(table_child_type, selector);
+            if (table_child_type == nullptr) {
+                *resolved = {};
+                return false;
+            }
+            resolved->table_child_types.push_back(table_child_type);
+        }
+    }
     return true;
 }
 
@@ -491,26 +463,6 @@ bool resolve_nested_struct_expr_for_file(const VExprSPtr& expr,
         return false;
     }
     return resolve_nested_struct_path_for_file(path, mappings, resolved, true);
-}
-
-// Collect nested struct leaf references that can be turned into file-reader projections. For
-// example, from `s.a > 1 AND element_at(s, 'b') = 2`, this records two paths rooted at `s`:
-// `s -> a` and `s -> b`. Non-struct expressions are traversed recursively, while a recognized
-// struct path is emitted once so the caller can merge it into the scan projection for that
-// top-level file column.
-void collect_nested_struct_paths(const VExprSPtr& expr, std::vector<NestedStructPath>* paths) {
-    DORIS_CHECK(paths != nullptr);
-    if (expr == nullptr) {
-        return;
-    }
-    NestedStructPath path;
-    if (extract_nested_struct_path_for_pruning(expr, &path)) {
-        paths->push_back(std::move(path));
-        return;
-    }
-    for (const auto& child : expr->children()) {
-        collect_nested_struct_paths(child, paths);
-    }
 }
 
 std::vector<const ColumnMapping*> present_child_mappings_in_file_order(

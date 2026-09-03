@@ -40,7 +40,6 @@ import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BitNot;
@@ -73,6 +72,8 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.LambdaBinding;
+import org.apache.doris.nereids.trees.expressions.functions.LambdaBindingSpec;
 import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -428,7 +429,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
      * bind function
      * ******************************************************************************************** */
     private UnboundFunction processHighOrderFunction(UnboundFunction unboundFunction,
-            ExpressionRewriteContext context) {
+            LambdaBindingSpec bindingSpec, ExpressionRewriteContext context) {
         int childrenSize = unboundFunction.children().size();
         List<Expression> subChildren = new ArrayList<>();
         for (int i = 1; i < childrenSize; i++) {
@@ -438,12 +439,17 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         // bindLambdaFunction
         Lambda lambda = (Lambda) unboundFunction.children().get(0);
         Expression lambdaFunction = lambda.getLambdaFunction();
-        List<ArrayItemReference> arrayItemReferences = lambda.makeArguments(unboundFunction.getName(), subChildren);
+        LambdaBinding binding = bindingSpec.bind(unboundFunction.getName(), lambda, subChildren);
+        lambdaFunction = analyzeLambdaFunction(
+                lambda, lambdaFunction, binding.getAnalysisSlots(), context);
+        Lambda lambdaClosure = binding.close(lambdaFunction);
 
-        List<Slot> boundedSlots = arrayItemReferences.stream()
-                .map(ArrayItemReference::toSlot)
-                .collect(ImmutableList.toImmutableList());
+        // We don't add the ArrayExpression in high order function at all
+        return unboundFunction.withChildren(ImmutableList.of(lambdaClosure));
+    }
 
+    private Expression analyzeLambdaFunction(Lambda lambda, Expression lambdaFunction,
+            List<Slot> boundedSlots, ExpressionRewriteContext context) {
         ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(Optional.of(getScope()),
                 boundedSlots), context == null ? null : context.cascadesContext,
                 true, true) {
@@ -454,52 +460,42 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                         + " in lambda arguments" + lambda.getLambdaArgumentNames());
             }
         };
-        lambdaFunction = lambdaAnalyzer.analyze(lambdaFunction, context);
-
-        Lambda lambdaClosure = lambda.withLambdaFunctionArguments(lambdaFunction, arrayItemReferences);
-
-        // We don't add the ArrayExpression in high order function at all
-        return unboundFunction.withChildren(ImmutableList.of(lambdaClosure));
+        return lambdaAnalyzer.analyze(lambdaFunction, context);
     }
 
     UnboundFunction preProcessUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
-        if (unboundFunction.isHighOrder()) {
-            unboundFunction = processHighOrderFunction(unboundFunction, context);
-        } else {
-            // NOTICE: some trick code here. because for time arithmetic functions,
-            //  the first argument of them is TimeUnit, but is cannot distinguish with UnboundSlot in parser.
-            //  So, convert the UnboundSlot to a fake SlotReference with ExprId = -1 here
-            //  And, the SlotReference will be processed in DatetimeFunctionBinder
-            if (StringUtils.isEmpty(unboundFunction.getDbName())
-                    && DatetimeFunctionBinder.isDatetimeArithmeticFunction(unboundFunction.getName())
-                    && unboundFunction.arity() == 3
-                    && unboundFunction.child(0) instanceof UnboundSlot) {
-                SlotReference slotReference = new SlotReference(new ExprId(-1),
-                        ((UnboundSlot) unboundFunction.child(0)).getName(),
-                        TinyIntType.INSTANCE, false, ImmutableList.of());
-                ImmutableList.Builder<Expression> newChildrenBuilder = ImmutableList.builder();
-                newChildrenBuilder.add(slotReference);
-                for (int i = 1; i < unboundFunction.arity(); i++) {
-                    newChildrenBuilder.add(unboundFunction.child(i));
-                }
-                unboundFunction = unboundFunction.withChildren(newChildrenBuilder.build());
-            } else if (StringUtils.isEmpty(unboundFunction.getDbName())
-                    && "get_format".equalsIgnoreCase(unboundFunction.getName())
-                    && unboundFunction.arity() == 2
-                    && unboundFunction.child(0) instanceof UnboundSlot) {
-                SlotReference slotReference = new SlotReference(new ExprId(-1),
-                        ((UnboundSlot) unboundFunction.child(0)).getName(),
-                        StringType.INSTANCE, false, ImmutableList.of());
-                ImmutableList.Builder<Expression> newChildrenBuilder = ImmutableList.builder();
-                newChildrenBuilder.add(slotReference);
-                for (int i = 1; i < unboundFunction.arity(); i++) {
-                    newChildrenBuilder.add(unboundFunction.child(i));
-                }
-                unboundFunction = unboundFunction.withChildren(newChildrenBuilder.build());
+        // NOTICE: some trick code here. because for time arithmetic functions,
+        //  the first argument of them is TimeUnit, but is cannot distinguish with UnboundSlot in parser.
+        //  So, convert the UnboundSlot to a fake SlotReference with ExprId = -1 here
+        //  And, the SlotReference will be processed in DatetimeFunctionBinder
+        if (StringUtils.isEmpty(unboundFunction.getDbName())
+                && DatetimeFunctionBinder.isDatetimeArithmeticFunction(unboundFunction.getName())
+                && unboundFunction.arity() == 3
+                && unboundFunction.child(0) instanceof UnboundSlot) {
+            SlotReference slotReference = new SlotReference(new ExprId(-1),
+                    ((UnboundSlot) unboundFunction.child(0)).getName(),
+                    TinyIntType.INSTANCE, false, ImmutableList.of());
+            ImmutableList.Builder<Expression> newChildrenBuilder = ImmutableList.builder();
+            newChildrenBuilder.add(slotReference);
+            for (int i = 1; i < unboundFunction.arity(); i++) {
+                newChildrenBuilder.add(unboundFunction.child(i));
             }
-            unboundFunction = (UnboundFunction) super.visit(unboundFunction, context);
+            unboundFunction = unboundFunction.withChildren(newChildrenBuilder.build());
+        } else if (StringUtils.isEmpty(unboundFunction.getDbName())
+                && "get_format".equalsIgnoreCase(unboundFunction.getName())
+                && unboundFunction.arity() == 2
+                && unboundFunction.child(0) instanceof UnboundSlot) {
+            SlotReference slotReference = new SlotReference(new ExprId(-1),
+                    ((UnboundSlot) unboundFunction.child(0)).getName(),
+                    StringType.INSTANCE, false, ImmutableList.of());
+            ImmutableList.Builder<Expression> newChildrenBuilder = ImmutableList.builder();
+            newChildrenBuilder.add(slotReference);
+            for (int i = 1; i < unboundFunction.arity(); i++) {
+                newChildrenBuilder.add(unboundFunction.child(i));
+            }
+            unboundFunction = unboundFunction.withChildren(newChildrenBuilder.build());
         }
-        return unboundFunction;
+        return (UnboundFunction) super.visit(unboundFunction, context);
     }
 
     List<Object> constructUnboundFunctionArguments(UnboundFunction unboundFunction) {
@@ -524,10 +520,22 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     @Override
     public Expression visitUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
-        unboundFunction = preProcessUnboundFunction(unboundFunction, context);
+        FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
+        FunctionBuilder builder = null;
+        if (unboundFunction.isHighOrder()) {
+            String lambdaFunctionName = unboundFunction.getName();
+            builder = functionRegistry.findFunctionBuilder(
+                    unboundFunction.getDbName(), lambdaFunctionName,
+                    ImmutableList.of(unboundFunction.child(0)));
+            LambdaBindingSpec bindingSpec = builder.getLambdaBindingSpec()
+                    .orElseThrow(() -> new AnalysisException(String.format(
+                            "Function %s does not support lambda arguments", lambdaFunctionName)));
+            unboundFunction = processHighOrderFunction(unboundFunction, bindingSpec, context);
+        } else {
+            unboundFunction = preProcessUnboundFunction(unboundFunction, context);
+        }
 
         // bind function
-        FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
         List<Object> arguments = constructUnboundFunctionArguments(unboundFunction);
         String dbName = unboundFunction.getDbName();
         if (StringUtils.isEmpty(dbName)) {
@@ -567,8 +575,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
 
         String functionName = unboundFunction.getName();
-        FunctionBuilder builder = functionRegistry.findFunctionBuilder(
-                dbName, functionName, arguments);
+        if (builder == null) {
+            builder = functionRegistry.findFunctionBuilder(dbName, functionName, arguments);
+        }
         // for create view stmt
         if (builder instanceof UdfBuilder) {
             unboundFunction.getIndexInSqlString().ifPresent(index -> {
@@ -1031,13 +1040,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
         cast = (Cast) super.visitCast(cast, context);
-        CascadesContext cascadesContext = getCascadesContext();
-        if (cast.isExplicitType() && cascadesContext != null
-                && cascadesContext.getConnectContext().getSessionVariable().isEnableVariantV2()
-                && VariantType.containsVariant(cast.getDataType())) {
-            // TODO: Remove this V1/V2 compatibility conversion after legacy Variant V1 is removed.
-            cast = cast.withTargetType(VariantType.toComputeV2(cast.getDataType()));
-        }
 
         // NOTICE: just for compatibility with legacy planner.
         if (cast.child().getDataType().isComplexType() || cast.getDataType().isComplexType()) {

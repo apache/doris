@@ -58,7 +58,6 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
@@ -335,6 +334,9 @@ public class CheckCast implements ExpressionPatternRuleFactory {
                     DataType originalType = cast.child().getDataType();
                     DataType targetType = cast.getDataType();
                     if (!check(originalType, targetType, SessionVariable.enableStrictCast())) {
+                        if (requiresExactAggStateMatch(originalType, targetType)) {
+                            throw new AnalysisException(exactAggStateMatchError(originalType, targetType));
+                        }
                         throw new AnalysisException("cannot cast " + originalType.toSql()
                                 + " to " + targetType.toSql());
                     }
@@ -356,11 +358,6 @@ public class CheckCast implements ExpressionPatternRuleFactory {
      */
     public static boolean check(DataType originalType, DataType targetType,
             boolean isStrictMode, boolean looseAggState) {
-        if (originalType.isVariantType() && targetType.isVariantType()) {
-            ConnectContext connectContext = ConnectContext.get();
-            return (connectContext != null && connectContext.getSessionVariable().isEnableVariantV2())
-                    || originalType.equals(targetType);
-        }
         if (originalType.isVariantType() && (targetType instanceof PrimitiveType || targetType.isArrayType())) {
             // variant could cast to primitive types and array
             return true;
@@ -376,7 +373,8 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         if (looseAggState && originalType instanceof AggStateType && targetType instanceof AggStateType) {
             AggStateType originalAggState = (AggStateType) originalType;
             AggStateType targetAggState = (AggStateType) targetType;
-            if (originalAggState.getFunctionName().equalsIgnoreCase(targetAggState.getFunctionName())
+            if (originalAggState.isLooseTypeCoercionAllowed()
+                    && originalAggState.getFunctionName().equalsIgnoreCase(targetAggState.getFunctionName())
                     && originalAggState.getSubTypes().size() == targetAggState.getSubTypes().size()) {
                 return true;
             }
@@ -439,6 +437,20 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         } else {
             return true;
         }
+    }
+
+    /** Whether the source AggState only allows an exact target type. */
+    public static boolean requiresExactAggStateMatch(DataType originalType, DataType targetType) {
+        return originalType instanceof AggStateType
+                && targetType instanceof AggStateType
+                && !((AggStateType) originalType).isLooseTypeCoercionAllowed()
+                && !originalType.equals(targetType);
+    }
+
+    /** Build the analysis error for a non-exact aggregate combine state cast. */
+    public static String exactAggStateMatchError(DataType originalType, DataType targetType) {
+        return "Aggregate combine state requires an exact AggState type match: cannot cast "
+                + originalType.toSql() + " to " + targetType.toSql();
     }
 
     /**

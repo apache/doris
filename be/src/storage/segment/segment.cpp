@@ -40,9 +40,11 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_variant.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "cpp/sync_point.h"
+#include "exec/common/variant_util.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/vexpr_context.h"
 #include "io/cache/block_file_cache.h"
@@ -71,11 +73,11 @@
 #include "storage/segment/column_meta_accessor.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
+#include "storage/segment/common.h" // k_segment_magic
 #include "storage/segment/empty_segment_iterator.h"
 #include "storage/segment/page_io.h"
 #include "storage/segment/page_pointer.h"
 #include "storage/segment/segment_iterator.h"
-#include "storage/segment/segment_writer.h" // k_segment_magic_length
 #include "storage/segment/stream_reader.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/tablet/tablet_schema.h"
@@ -87,11 +89,9 @@
 
 namespace doris::segment_v2 {
 
-class InvertedIndexIterator;
-
 namespace {
 
-Status build_segment_zonemap_context(Segment* segment, const Schema& schema,
+Status build_segment_zonemap_context(Segment* segment, const ReadSchema& schema,
                                      const StorageReadOptions& read_options,
                                      const VExprContextSPtrs& conjuncts, ZoneMapEvalContext* ctx) {
     DORIS_CHECK(segment != nullptr);
@@ -111,17 +111,15 @@ Status build_segment_zonemap_context(Segment* segment, const Schema& schema,
         root->collect_slot_column_ids(slot_indexes);
     }
     for (const int slot_index : slot_indexes) {
-        if (slot_index < 0 || cast_set<size_t>(slot_index) >= schema.num_column_ids()) {
-            continue;
-        }
-        const auto column_id = schema.column_id(cast_set<size_t>(slot_index));
-        const auto* tablet_column = schema.column(column_id);
-        DORIS_CHECK(tablet_column != nullptr);
+        const auto ordinal = cast_set<ColumnId>(slot_index);
+        DORIS_CHECK_LT(ordinal, schema.num_block_columns());
+        const auto* tablet_column = schema.column(ordinal);
         if (!segment->can_apply_predicate_safely(
-                    column_id, schema, read_options.target_cast_type_for_variants, read_options)) {
+                    slot_index, schema, read_options.target_cast_type_for_variants, read_options)) {
             continue;
         }
-        auto data_type = segment->get_data_type_of(*tablet_column, read_options);
+        auto data_type =
+                segment->get_data_type_of(*tablet_column, schema.data_type(ordinal), read_options);
         if (data_type == nullptr) {
             continue;
         }
@@ -141,6 +139,40 @@ Status build_segment_zonemap_context(Segment* segment, const Schema& schema,
             slot_zone_map.zone_map = std::make_shared<ZoneMap>(std::move(zone_map));
         }
         ctx->slots.emplace(slot_index, std::move(slot_zone_map));
+    }
+    return Status::OK();
+}
+
+// The statistics iterator answers pushed-down aggregates from the segment zone maps alone. An
+// invalid zone map has no min/max to answer with, so the caller has to read the data instead.
+Status segment_zone_maps_can_answer_agg(Segment* segment, const ReadSchema& schema,
+                                        const StorageReadOptions& read_options, bool* usable) {
+    *usable = true;
+    for (size_t ordinal = 0; ordinal < schema.num_block_columns(); ++ordinal) {
+        // The commit-tso column is only served correctly once its reader is created with the
+        // rowset's commit_tso as a const value. Creating it here without one would cache a reader
+        // that hands every later read the on-disk placeholder instead.
+        if (static_cast<int32_t>(ordinal) == schema.commit_tso_ordinal()) {
+            continue;
+        }
+        std::shared_ptr<ColumnReader> reader;
+        Status st = segment->get_column_reader(*schema.column(ordinal), &reader, read_options.stats,
+                                               &read_options.io_ctx);
+        if (st.is<ErrorCode::NOT_FOUND>()) {
+            continue;
+        }
+        RETURN_IF_ERROR(st);
+        // Columns without a zone map keep the existing behaviour: the statistics iterator reports
+        // the missing zone map itself.
+        if (reader == nullptr || !reader->has_zone_map()) {
+            continue;
+        }
+        ZoneMap zone_map;
+        RETURN_IF_ERROR(reader->get_segment_zone_map(&zone_map));
+        if (zone_map.pass_all) {
+            *usable = false;
+            return Status::OK();
+        }
     }
     return Status::OK();
 }
@@ -366,7 +398,7 @@ Status Segment::_open_index_file_reader() {
     return Status::OK();
 }
 
-bool Segment::is_tso_placeholder_col(int cid, const Schema& schema,
+bool Segment::is_tso_placeholder_col(int cid, const ReadSchema& schema,
                                      const StorageReadOptions& read_options) const {
     if (read_options.version.first != read_options.version.second) {
         return false;
@@ -374,11 +406,11 @@ bool Segment::is_tso_placeholder_col(int cid, const Schema& schema,
     if (!read_options.read_row_binlog) {
         return false;
     }
-    // tso_col_idx() is -1 for non-binlog schemas, so this returns false there.
-    return cid == schema.tso_col_idx();
+    // tso_ordinal() is -1 for non-binlog schemas, so this returns false there.
+    return cid == schema.tso_ordinal();
 }
 
-Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
+Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
     if (read_options.runtime_state != nullptr) {
         _be_exec_version = read_options.runtime_state->be_exec_version();
@@ -388,12 +420,9 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
     read_options.stats->total_segment_number++;
     // trying to prune the current segment by segment-level zone map
     for (const auto& entry : read_options.col_id_to_predicates) {
+        // col_id_to_predicates is keyed by read-schema ordinal.
         int32_t column_id = entry.first;
-        // schema change
-        if (_tablet_schema->num_columns() <= column_id) {
-            continue;
-        }
-        const TabletColumn& col = read_options.tablet_schema->column(column_id);
+        const TabletColumn& col = *schema->column(column_id);
         std::shared_ptr<ColumnReader> reader;
         // __DORIS_COMMIT_TSO_COL__ on a single-version segment stores a 0 placeholder on disk
         // (replaced with the rowset's real commit_tso at read time). Its on-disk zonemap [0,0]
@@ -401,7 +430,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         // commit_tso to prune against the real value instead.
         std::optional<Field> const_value;
         if (read_options.version.first == read_options.version.second &&
-            column_id == schema->commit_tso_col_idx() && read_options.commit_tso.end_tso() != -1) {
+            column_id == schema->commit_tso_ordinal() && read_options.commit_tso.end_tso() != -1) {
             const_value = Field::create_field<TYPE_BIGINT>(read_options.commit_tso.end_tso());
         }
         Status st = get_column_reader(col, &reader, read_options.stats, &read_options.io_ctx,
@@ -453,8 +482,6 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         }
     }
 
-    // Segment-level expr-zonemap runs before SegmentIterator can rebind storage expressions to
-    // the reader schema. Only apply it when scan tuple slot ordinals already match this schema.
     if (expr_zonemap::is_expr_zonemap_filter_enabled(read_options.runtime_state) &&
         !read_options.common_expr_ctxs_push_down.empty()) {
         ZoneMapEvalContext ctx;
@@ -476,9 +503,18 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         RETURN_IF_ERROR(load_index(read_options.stats, &read_options.io_ctx));
     }
 
-    if (read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
-        read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
-        read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
+    bool use_statistics_iterator =
+            read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
+            read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
+            read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX;
+    // COUNT only fills defaults, every other pushed-down aggregate reads min/max out of the
+    // segment zone maps.
+    if (use_statistics_iterator && read_options.push_down_agg_type_opt != TPushAggOp::COUNT) {
+        bool usable = false;
+        RETURN_IF_ERROR(segment_zone_maps_can_answer_agg(this, *schema, read_options, &usable));
+        use_statistics_iterator = usable;
+    }
+    if (use_statistics_iterator) {
         iter->reset(new_vstatistics_iterator(this->shared_from_this(), *schema));
     } else {
         *iter = std::make_unique<SegmentIterator>(this->shared_from_this(), schema);
@@ -491,9 +527,13 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         auto pruned = false;
         for (auto& it : _column_reader_cache->get_available_readers(false)) {
             const auto uid = it.first;
-            const auto column_id = read_options.tablet_schema->field_index(uid);
+            // Column readers are keyed by UID; predicates use read schema ordinals.
+            const auto ordinal = schema->ordinal_by_uid(uid);
+            if (ordinal < 0) {
+                continue;
+            }
             bool tmp_pruned = false;
-            RETURN_IF_ERROR(it.second->prune_predicates_by_zone_map(pruned_predicates, column_id,
+            RETURN_IF_ERROR(it.second->prune_predicates_by_zone_map(pruned_predicates, ordinal,
                                                                     &tmp_pruned));
             pruned |= tmp_pruned;
         }
@@ -517,7 +557,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
                 // Key columns may still be required by key range seeks even if the segment zone
                 // map proves their predicates always true. Only mark non-key columns as safe for
                 // the no-need-read path.
-                if (!read_options.tablet_schema->column(pred_cid).is_key() &&
+                if (!schema->column(pred_cid)->is_key() &&
                     !options_with_pruned_predicates.col_id_to_predicates.contains(pred_cid)) {
                     options_with_pruned_predicates.zonemap_always_true_pred_cols.insert(pred_cid);
                 }
@@ -777,23 +817,23 @@ Status Segment::healthy_status() {
     }
 }
 
-// Return the storage datatype of related column to field.
-DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
+DataTypePtr Segment::get_data_type_of(const TabletColumn& read_column, const DataTypePtr& read_type,
                                       const StorageReadOptions& read_options) {
-    const PathInDataPtr path = column.path_info_ptr();
+    const PathInDataPtr path = read_column.path_info_ptr();
 
     // none variant column
     if (path == nullptr || path->empty()) {
-        return DataTypeFactory::instance().create_data_type(column);
+        return read_type;
     }
 
     // Path exists, proceed with variant logic.
     PathInData relative_path = path->copy_pop_front();
-    int32_t unique_id = column.unique_id() >= 0 ? column.unique_id() : column.parent_unique_id();
+    int32_t unique_id =
+            read_column.unique_id() >= 0 ? read_column.unique_id() : read_column.parent_unique_id();
 
     // If this uid does not exist in segment meta, fallback to schema type.
     if (!_column_meta_accessor->has_column_uid(unique_id)) {
-        return DataTypeFactory::instance().create_data_type(column);
+        return DataTypeFactory::instance().create_data_type(read_column);
     }
 
     std::shared_ptr<ColumnReader> v_reader;
@@ -807,7 +847,7 @@ DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
     auto* variant_reader = static_cast<VariantColumnReader*>(v_reader.get());
     // Delegate type inference for variant paths to VariantColumnReader.
     DataTypePtr type;
-    THROW_IF_ERROR(variant_reader->infer_data_type_for_path(&type, column, read_options,
+    THROW_IF_ERROR(variant_reader->infer_data_type_for_path(&type, read_column, read_options,
                                                             _column_reader_cache.get()));
     return type;
 }
@@ -1240,21 +1280,26 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
             .io_ctx = io_ctx,
     };
 
+    const auto runtime_type = remove_nullable(slot->type());
+    const auto* variant_type = typeid_cast<const DataTypeVariant*>(runtime_type.get());
+    const auto* variant_v2_type = typeid_cast<const DataTypeVariantV2*>(runtime_type.get());
+
     if (!slot->column_paths().empty()) {
+        DORIS_CHECK(variant_type != nullptr || variant_v2_type != nullptr);
         // here need create column readers to make sure column reader is created before seek_and_read_by_rowid
         // if segment cache miss, column reader will be created to make sure the variant column result not coredump
         RETURN_IF_ERROR(
                 _create_column_meta_once(storage_read_options.stats, &storage_read_options.io_ctx));
 
-        const auto& dt_variant =
-                assert_cast<const DataTypeVariant&>(*remove_nullable(slot->type()));
-        TabletColumn column = TabletColumn::create_materialized_variant_column(
-                schema.column_by_uid(slot->col_unique_id()).name_lower_case(), slot->column_paths(),
-                slot->col_unique_id(), dt_variant.variant_max_subcolumns_count(),
-                dt_variant.enable_doc_mode());
-        auto storage_type = get_data_type_of(column, storage_read_options);
-        MutableColumnPtr file_storage_column = storage_type->create_column();
+        const PathInData path(schema.column_by_uid(slot->col_unique_id()).name_lower_case(),
+                              slot->column_paths());
+        TabletColumn column = variant_util::get_column_by_type(
+                make_nullable(slot->type()), path.get_path(),
+                variant_util::ExtraInfo {.parent_unique_id = slot->col_unique_id(),
+                                         .path_info = path});
+        auto storage_type = get_data_type_of(column, slot->type(), storage_read_options);
         DCHECK(storage_type != nullptr);
+        MutableColumnPtr file_storage_column = storage_type->create_column();
 
         if (iterator_hint == nullptr) {
             RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_options));
@@ -1267,6 +1312,13 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         RETURN_IF_ERROR(variant_util::cast_column(
                 ColumnWithTypeAndName(file_storage_column->get_ptr(), storage_type, column.name()),
                 slot->type(), &source_ptr));
+        // An empty Variant V2 destination has no representation to preserve. Adopt the cast
+        // result so a homogeneous scalar leaf stays in typed state; subsequent batches with the
+        // same typed identity can append without converting every value to encoded Variant bytes.
+        if (variant_v2_type != nullptr && result->empty()) {
+            result = IColumn::mutate(std::move(source_ptr));
+            return Status::OK();
+        }
         RETURN_IF_CATCH_EXCEPTION(result->insert_range_from(*source_ptr, 0, row_ids.size()));
     } else {
         int index = (slot->col_unique_id() >= 0) ? schema.field_index(slot->col_unique_id())
@@ -1277,9 +1329,13 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
                << ", field_name_to_index=" << schema.get_all_field_names();
             return Status::InternalError(ss.str());
         }
+        TabletColumn column = schema.column(index);
+        if (column.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
+            DORIS_CHECK(variant_type != nullptr || variant_v2_type != nullptr);
+            column.set_variant_is_v2(variant_v2_type != nullptr);
+        }
         if (iterator_hint == nullptr) {
-            RETURN_IF_ERROR(new_column_iterator(schema.column(index), &iterator_hint,
-                                                &storage_read_options));
+            RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_options));
             RETURN_IF_ERROR(iterator_hint->init(opt));
         }
         RETURN_IF_ERROR(iterator_hint->read_by_rowids(row_ids.data(), row_ids.size(), result));

@@ -17,9 +17,13 @@
 
 package org.apache.doris.connector.paimon;
 
-import java.util.Map;
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.ScopePath;
+
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 /**
@@ -51,11 +55,21 @@ final class PaimonSchemaAtMemo {
     /** Default best-effort bound; the keyspace (table, branch, schemaId) is naturally tiny. */
     static final int DEFAULT_MAX_SIZE = 10000;
 
-    private final Map<MemoKey, PaimonCatalogOps.PaimonSchemaSnapshot> cache = new ConcurrentHashMap<>();
-    private final int maxSize;
+    private final CatalogMetaCache owner;
+    private final MetaCache<MemoKey, PaimonCatalogOps.PaimonSchemaSnapshot> cache;
 
     PaimonSchemaAtMemo(int maxSize) {
-        this.maxSize = maxSize;
+        this(new CatalogMetaCache(), maxSize);
+    }
+
+    PaimonSchemaAtMemo(CatalogMetaCache owner, int maxSize) {
+        this.owner = owner;
+        CacheSpec spec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, maxSize);
+        this.cache = owner.create(MetaCacheDefinition
+                .<MemoKey, PaimonCatalogOps.PaimonSchemaSnapshot>builder(
+                        "paimon-schema-at", spec,
+                        key -> ScopePath.table(key.databaseName, key.tableName))
+                .build());
     }
 
     /**
@@ -70,24 +84,12 @@ final class PaimonSchemaAtMemo {
     PaimonCatalogOps.PaimonSchemaSnapshot getOrLoad(PaimonTableHandle handle, long schemaId,
             Supplier<PaimonCatalogOps.PaimonSchemaSnapshot> loader) {
         MemoKey key = new MemoKey(handle, schemaId);
-        PaimonCatalogOps.PaimonSchemaSnapshot hit = cache.get(key);
-        if (hit != null) {
-            return hit;
-        }
-        PaimonCatalogOps.PaimonSchemaSnapshot loaded = loader.get();
-        // Best-effort size bound (honors the "bounded memo" requirement). The keyspace is
-        // (table, branch, schemaId) — naturally tiny — so this valve effectively never fires; values are
-        // immutable, so flushing only causes re-reads (= the pre-fix behavior), never a stale/wrong value.
-        if (cache.size() >= maxSize) {
-            cache.clear();
-        }
-        PaimonCatalogOps.PaimonSchemaSnapshot prev = cache.putIfAbsent(key, loaded);
-        return prev != null ? prev : loaded;
+        return cache.get(key, ignored -> loader.get());
     }
 
     /** Test-only: current number of cached entries. */
     int size() {
-        return cache.size();
+        return Math.toIntExact(cache.size());
     }
 
     /**
@@ -98,7 +100,7 @@ final class PaimonSchemaAtMemo {
      * dropping an entry only forces a re-read (the pre-memo behavior), never a stale/wrong value.
      */
     void invalidate(String databaseName, String tableName) {
-        cache.keySet().removeIf(key -> key.matches(databaseName, tableName));
+        owner.invalidateTable(databaseName, tableName);
     }
 
     /**
@@ -109,12 +111,12 @@ final class PaimonSchemaAtMemo {
      * schemaId does not serve a stale time-travel schema. Db-scoped analogue of {@link #invalidate}.
      */
     void invalidateDb(String databaseName) {
-        cache.keySet().removeIf(key -> key.matchesDb(databaseName));
+        owner.invalidateDatabase(databaseName);
     }
 
     /** Drop the whole memo. Wired onto {@code REFRESH CATALOG} (alongside the connector rebuild). */
     void invalidateAll() {
-        cache.clear();
+        owner.invalidateCatalog();
     }
 
     /**
@@ -139,16 +141,6 @@ final class PaimonSchemaAtMemo {
             this.sysTableName = handle.getSysTableName();
             this.branchName = handle.getBranchName();
             this.schemaId = schemaId;
-        }
-
-        /** True if this key belongs to {@code (db, table)} (any schemaId / sys-table / branch). */
-        boolean matches(String db, String table) {
-            return databaseName.equals(db) && tableName.equals(table);
-        }
-
-        /** True if this key belongs to database {@code db} (any table / schemaId / sys-table / branch). */
-        boolean matchesDb(String db) {
-            return databaseName.equals(db);
         }
 
         @Override

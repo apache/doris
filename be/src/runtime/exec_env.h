@@ -301,6 +301,9 @@ public:
 
     StreamLoadExecutor* stream_load_executor() { return _stream_load_executor.get(); }
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
+    StreamLoadRecorderManager* stream_load_recorder_manager() {
+        return _stream_load_recorder_manager;
+    }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
     FileMetaCache* file_meta_cache() { return _file_meta_cache; }
     MemTableMemoryLimiter* memtable_memory_limiter() { return _memtable_memory_limiter.get(); }

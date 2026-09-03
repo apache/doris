@@ -22,8 +22,6 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
@@ -44,8 +42,6 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.transaction.TransactionStatus;
 
-import com.google.common.base.Strings;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -192,18 +188,7 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
         String queryId = DebugUtil.printId(ctx.queryId());
         // if any throwable being thrown during insert operation, first we should abort this txn
         LOG.warn("insert [{}] with query id {} failed, url={}", labelName, queryId, coordinator.getTrackingUrl(), t);
-        String firstErrorMsgPart = "";
-        String urlPart = "";
-        if (!Strings.isNullOrEmpty(coordinator.getFirstErrorMsg())) {
-            firstErrorMsgPart = StringUtils.abbreviate(coordinator.getFirstErrorMsg(),
-                    Config.first_error_msg_max_length);
-        }
-        if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
-            urlPart = coordinator.getTrackingUrl();
-        }
-
-        String finalErrorMsg = InsertUtils.getFinalErrorMsg(errMsg, firstErrorMsgPart, urlPart);
-        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, finalErrorMsg);
+        setErrorState();
     }
 
     @Override

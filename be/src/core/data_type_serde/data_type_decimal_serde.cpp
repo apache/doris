@@ -680,12 +680,8 @@ Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(
     const auto row = str.size();
     column.resize(row);
 
-    const ColumnString::Chars* chars = &str.get_chars();
-    const IColumn::Offsets* offsets = &str.get_offsets();
-
     auto& column_to = assert_cast<ColumnType&>(column);
     auto& vec_to = column_to.get_data();
-    size_t current_offset = 0;
     auto arg_precision = static_cast<UInt32>(precision);
     auto arg_scale = static_cast<UInt32>(scale);
     CastParameters params;
@@ -694,16 +690,10 @@ Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(
         if (null_map && null_map[i]) {
             continue;
         }
-        size_t next_offset = (*offsets)[i];
-        size_t string_size = next_offset - current_offset;
-
-        if (!CastToDecimal::from_string(StringRef(&(*chars)[current_offset], string_size),
-                                        vec_to[i], arg_precision, arg_scale, params)) {
-            return Status::InvalidArgument(
-                    "parse number fail, string: '{}'",
-                    std::string((char*)&(*chars)[current_offset], string_size));
+        const auto str_ref = str.get_data_at(i);
+        if (!CastToDecimal::from_string(str_ref, vec_to[i], arg_precision, arg_scale, params)) {
+            return Status::InvalidArgument("parse number fail, string: '{}'", str_ref.to_string());
         }
-        current_offset = next_offset;
     }
     return Status::OK();
 }
@@ -1417,7 +1407,10 @@ const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_column(const uint8
     auto& col = assert_cast<ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column);
     data += sizeof(uint8_t);
     data += sizeof(uint8_t);
-    if constexpr (T == TYPE_DECIMAL32) {
+    if constexpr (T == TYPE_DECIMALV2) {
+        col.insert_value(DecimalV2Value(unaligned_load<Int128>(data)));
+        data += sizeof(Int128);
+    } else if constexpr (T == TYPE_DECIMAL32) {
         col.insert_value(unaligned_load<Int32>(data));
         data += sizeof(Int32);
     } else if constexpr (T == TYPE_DECIMAL64) {
@@ -1445,7 +1438,11 @@ const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_field(const uint8_
     data += sizeof(uint8_t);
     info.precision = static_cast<int>(precision);
     info.scale = static_cast<int>(scale);
-    if constexpr (T == TYPE_DECIMAL32) {
+    if constexpr (T == TYPE_DECIMALV2) {
+        const auto value = DecimalV2Value(unaligned_load<Int128>(data));
+        field = Field::create_field<TYPE_DECIMALV2>(value);
+        data += sizeof(Int128);
+    } else if constexpr (T == TYPE_DECIMAL32) {
         Int32 v = unaligned_load<Int32>(data);
         field = Field::create_field<TYPE_DECIMAL32>(Decimal32(v));
         data += sizeof(Int32);
