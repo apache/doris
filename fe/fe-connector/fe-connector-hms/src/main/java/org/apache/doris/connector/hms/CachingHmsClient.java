@@ -452,7 +452,10 @@ public class CachingHmsClient implements HmsClient {
         try {
             Throwable failure = batch.await();
             if (failure != null) {
-                if (batch.allowMissing != allowMissing) {
+                if (batch.allowMissing != allowMissing
+                        || batch.claimedKeys.size() != registrations.size()
+                        || registrations.stream().anyMatch(
+                                registration -> !batch.claimedKeys.contains(registration.key))) {
                     for (PartitionLoadRegistration registration : registrations) {
                         retries.add(registration.partition);
                     }

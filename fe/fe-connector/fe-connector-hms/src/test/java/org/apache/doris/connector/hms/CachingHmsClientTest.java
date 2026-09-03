@@ -399,6 +399,57 @@ public class CachingHmsClientTest {
     }
 
     @Test
+    public void partialExactWaiterRetriesOwnerFailureOutsideItsRequest() throws Exception {
+        CountDownLatch ownerLoadEntered = new CountDownLatch(1);
+        CountDownLatch releaseOwnerLoad = new CountDownLatch(1);
+        CountDownLatch waiterRegistered = new CountDownLatch(1);
+        AtomicInteger registrations = new AtomicInteger();
+        RecordingHmsClient delegate = new RecordingHmsClient() {
+            @Override
+            public HmsPartitionBatchResult getPartitionsWithStats(
+                    String dbName, String tableName, List<String> partNames) {
+                HmsPartitionBatchResult result = super.getPartitionsWithStats(dbName, tableName, partNames);
+                if (partNames.size() > 1) {
+                    ownerLoadEntered.countDown();
+                    awaitLatch(releaseOwnerLoad);
+                    throw new HmsClientException("owner request failed on p=2")
+                            .withPartitionBatchStats(result.getStats());
+                }
+                return result;
+            }
+        };
+        CachingHmsClient cache = new CachingHmsClient(new CatalogMetaCache(), delegate,
+                Collections.emptyMap()) {
+            @Override
+            void afterPartitionLoadRegistrationForTest() {
+                if (registrations.incrementAndGet() == 2) {
+                    waiterRegistered.countDown();
+                }
+            }
+        };
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<List<HmsPartitionInfo>> owner = executor.submit(
+                    () -> cache.getPartitions("db", "t", Arrays.asList("p=1", "p=2")));
+            Assertions.assertTrue(ownerLoadEntered.await(10, TimeUnit.SECONDS));
+            Future<List<HmsPartitionInfo>> waiter = executor.submit(
+                    () -> cache.getPartitions("db", "t", Collections.singletonList("p=1")));
+            Assertions.assertTrue(waiterRegistered.await(10, TimeUnit.SECONDS));
+
+            releaseOwnerLoad.countDown();
+
+            Assertions.assertThrows(ExecutionException.class, () -> owner.get(10, TimeUnit.SECONDS));
+            Assertions.assertEquals("1", waiter.get(10, TimeUnit.SECONDS).get(0).getValues().get(0));
+            Assertions.assertEquals(Arrays.asList(
+                    Arrays.asList("p=1", "p=2"), Collections.singletonList("p=1")),
+                    delegate.getPartitionsArgs);
+        } finally {
+            releaseOwnerLoad.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void getPartitionsInvalidationRacingInFlightFetchDoesNotRecacheStale() {
         RecordingHmsClient delegate = new RecordingHmsClient();
         CatalogMetaCache owner = new CatalogMetaCache();
