@@ -25,6 +25,7 @@
 #include "common/config.h"
 #include "cpp/sync_point.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "gen_cpp/Status_types.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_writer.h"

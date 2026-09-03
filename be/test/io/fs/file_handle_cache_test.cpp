@@ -28,6 +28,7 @@
 
 #include "cpp/sync_point.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
+#include "gen_cpp/Status_types.h"
 #include "io/fs/hdfs_file_reader.h"
 
 namespace doris::io {
