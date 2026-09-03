@@ -33,7 +33,7 @@
 #include "storage/iterator/block_reader.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_reader.h"

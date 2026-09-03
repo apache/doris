@@ -408,7 +408,6 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         }
 
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
-        // TODO if support VerticalSegmentWriter, also need to handle cluster key primary key index
         bool vertical = false;
         if (sc_sorting && !_new_tablet->tablet_schema()->cluster_key_uids().empty()) {
             // see VBaseSchemaChangeWithSorting::_external_sorting

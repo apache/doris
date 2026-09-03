@@ -85,7 +85,7 @@
 #include "storage/rowset/segment_creator.h"
 #include "storage/schema.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
@@ -108,8 +108,8 @@ constexpr std::string_view kGoldenOutputDirEnv = "DORIS_SEGMENT_FLUSHER_GOLDEN_O
 // regenerating all golden files.
 constexpr int32_t kGoldenBeExecVersion = 10;
 constexpr int32_t kRowBinlogSystemColumnCount = 3;
-constexpr size_t kExpectedGoldenCaseCount = 81;
-constexpr size_t kExpectedGoldenSegmentCount = 164;
+constexpr size_t kExpectedGoldenCaseCount = 73;
+constexpr size_t kExpectedGoldenSegmentCount = 148;
 constexpr size_t kExternalIndexRows = 180;
 constexpr size_t kAnnDimensions = 4;
 constexpr std::array<std::string_view, 6> kGoldenProducerTests {
@@ -2698,7 +2698,6 @@ protected:
     }
 
     void SetUp() override {
-        _saved_enable_vertical_writer = config::enable_vertical_segment_writer;
         _saved_compression_threshold_kb = config::segment_compression_threshold_kb;
         _saved_omp_threads_limit = config::omp_threads_limit;
         _saved_omp_max_threads = omp_get_max_threads();
@@ -2715,7 +2714,6 @@ protected:
     }
 
     void TearDown() override {
-        config::enable_vertical_segment_writer = _saved_enable_vertical_writer;
         config::segment_compression_threshold_kb = _saved_compression_threshold_kb;
         config::omp_threads_limit = _saved_omp_threads_limit;
         omp_set_num_threads(_saved_omp_max_threads);
@@ -2725,7 +2723,7 @@ protected:
 
     Result<std::vector<SegmentFingerprint>> flush_blocks(
             std::string_view case_name, const TabletSchemaSPtr& schema, std::vector<Block> blocks,
-            bool enable_vertical_writer, int32_t compression_threshold_kb = 0,
+            bool use_flush_single_block, int32_t compression_threshold_kb = 0,
             DataWriteType write_type = DataWriteType::TYPE_DIRECT,
             bool enable_unique_key_merge_on_write = false,
             const std::function<void(RowsetWriterContext&)>& configure_context = {}) {
@@ -2759,7 +2757,6 @@ protected:
             configure_context(context);
         }
 
-        config::enable_vertical_segment_writer = enable_vertical_writer;
         config::segment_compression_threshold_kb = compression_threshold_kb;
         std::vector<uint32_t> expected_segment_ids(blocks.size());
         std::iota(expected_segment_ids.begin(), expected_segment_ids.end(), 0);
@@ -2775,7 +2772,7 @@ protected:
         std::vector<uint32_t> vertical_segment_ids;
         SyncPoint::CallbackGuard vertical_writer_guard;
         sync_point->set_call_back(
-                "SegmentFlusher::flush_vertical_segment_writer",
+                "SegmentFlusher::write_block_path",
                 [&vertical_segment_ids](auto&& args) {
                     auto* segment_id = try_any_cast<uint32_t*>(args[0]);
                     vertical_segment_ids.push_back(*segment_id);
@@ -2784,23 +2781,36 @@ protected:
 
         SegmentFileCollection segment_files;
         InvertedIndexFileCollection index_files;
-        SegmentFlusher flusher(context, segment_files, index_files);
-        for (size_t segment_id = 0; segment_id < blocks.size(); ++segment_id) {
-            RETURN_IF_ERROR_RESULT(flusher.flush_single_block(&blocks[segment_id],
-                                                              static_cast<int32_t>(segment_id)));
+        if (use_flush_single_block) {
+            SegmentFlusher flusher(context, segment_files, index_files);
+            for (size_t segment_id = 0; segment_id < blocks.size(); ++segment_id) {
+                RETURN_IF_ERROR_RESULT(flusher.flush_single_block(
+                        &blocks[segment_id], static_cast<int32_t>(segment_id)));
+            }
+            RETURN_IF_ERROR_RESULT(flusher.close());
+        } else {
+            // The whole-schema single-group shape now exists only on the
+            // add_block feed (push load, horizontal compaction merge output,
+            // schema change), so that is what produces these cases: one
+            // add_block + flush per block keeps one segment per block.
+            SegmentCreator creator(context, segment_files, index_files);
+            for (auto& block : blocks) {
+                RETURN_IF_ERROR_RESULT(creator.add_block(&block));
+                RETURN_IF_ERROR_RESULT(creator.flush());
+            }
+            RETURN_IF_ERROR_RESULT(creator.close());
         }
-        RETURN_IF_ERROR_RESULT(flusher.close());
 
         if (segment_collector->segment_ids != expected_segment_ids) {
             return ResultError(Status::InternalError("unexpected collected segment ids"));
         }
         const auto expected_vertical_segment_ids =
-                enable_vertical_writer ? expected_segment_ids : std::vector<uint32_t> {};
+                use_flush_single_block ? expected_segment_ids : std::vector<uint32_t> {};
         if (vertical_segment_ids != expected_vertical_segment_ids) {
             return ResultError(Status::InternalError(
                     "unexpected Segment writer path for {}: vertical={}, expected {} vertical "
                     "flushes, observed {}",
-                    case_name, enable_vertical_writer, expected_vertical_segment_ids.size(),
+                    case_name, use_flush_single_block, expected_vertical_segment_ids.size(),
                     vertical_segment_ids.size()));
         }
         std::vector<SegmentFingerprint> fingerprints;
@@ -2887,18 +2897,18 @@ protected:
 
     Result<std::vector<SegmentFingerprint>> flush_twice(
             std::string_view case_name, const TabletSchemaSPtr& schema, std::vector<Block> blocks,
-            bool enable_vertical_writer, int32_t compression_threshold_kb = 0,
+            bool use_flush_single_block, int32_t compression_threshold_kb = 0,
             DataWriteType write_type = DataWriteType::TYPE_DIRECT,
             bool enable_unique_key_merge_on_write = false,
             const std::function<void(RowsetWriterContext&)>& configure_context = {}) {
-        auto first = flush_blocks(case_name, schema, blocks, enable_vertical_writer,
+        auto first = flush_blocks(case_name, schema, blocks, use_flush_single_block,
                                   compression_threshold_kb, write_type,
                                   enable_unique_key_merge_on_write, configure_context);
         if (!first.has_value()) {
             return unexpected(first.error());
         }
         auto second = flush_blocks(fmt::format("{}_repeat", case_name), schema, std::move(blocks),
-                                   enable_vertical_writer, compression_threshold_kb, write_type,
+                                   use_flush_single_block, compression_threshold_kb, write_type,
                                    enable_unique_key_merge_on_write, configure_context);
         if (!second.has_value()) {
             return unexpected(second.error());
@@ -2963,7 +2973,6 @@ protected:
     }
 
 private:
-    bool _saved_enable_vertical_writer = false;
     int32_t _saved_compression_threshold_kb = 0;
     int32_t _saved_omp_threads_limit = -1;
     int _saved_omp_max_threads = 1;
@@ -3373,10 +3382,9 @@ TEST_F(SegmentFlusherTransformFormatTest,
     // The chain wraps the AFTER values before any writer sees them, so both
     // writers have to persist them. Pin the writer instead of inheriting the
     // config default, which now sends binlog through the vertical one.
-    for (const bool enable_vertical_writer : {false, true}) {
-        config::enable_vertical_segment_writer = enable_vertical_writer;
-        const int64_t id_offset = enable_vertical_writer ? 100 : 0;
-        const std::string case_suffix = enable_vertical_writer ? "_vertical" : "";
+    {
+        const int64_t id_offset = 100;
+        const std::string case_suffix = "_vertical";
 
         auto full_update_tablets = create_complex_row_binlog_tablets(schemas, 22005 + id_offset);
         auto full_update_block_result = create_complex_row_binlog_block(schemas.source, 0);
@@ -3681,7 +3689,7 @@ TEST_F(SegmentFlusherFormatTest, PhysicalMetadataOracleIgnoresOnlyPageOffsets) {
 
 TEST_F(SegmentFlusherFormatTest, WideKeyTableModelsKeepTheirSegmentBytes) {
     auto run_case = [this](std::string_view name, const WideKeySchemaOptions& options,
-                           bool enable_vertical_writer) -> testing::AssertionResult {
+                           bool use_flush_single_block) -> testing::AssertionResult {
         auto schema = create_wide_key_schema(options);
         std::vector<Block> blocks;
         for (int segment_id = 0; segment_id < 2; ++segment_id) {
@@ -3695,8 +3703,8 @@ TEST_F(SegmentFlusherFormatTest, WideKeyTableModelsKeepTheirSegmentBytes) {
                 fmt::format("{}_{}_{}_{}", name,
                             options.storage_format == TABLET_STORAGE_FORMAT_V2 ? "v2" : "v3",
                             options.nullable_keys ? "nullable" : "not_nullable",
-                            enable_vertical_writer ? "vertical" : "horizontal");
-        auto result = flush_twice(case_name, schema, std::move(blocks), enable_vertical_writer, 0,
+                            use_flush_single_block ? "vertical" : "horizontal");
+        auto result = flush_twice(case_name, schema, std::move(blocks), use_flush_single_block, 0,
                                   DataWriteType::TYPE_DIRECT, options.enable_mow);
         if (!result.has_value()) {
             return testing::AssertionFailure() << result.error();
@@ -3782,7 +3790,7 @@ TEST_F(SegmentFlusherFormatTest, AllSupportedScalarValueTypesKeepTheirSegmentByt
         TabletStorageFormatPB storage_format;
         bool nullable_values;
         bool with_bloom_filters;
-        bool enable_vertical_writer;
+        bool use_flush_single_block;
     };
     // Four pairwise cases cover storage format, nullability, writer implementation, and classic
     // Bloom filter generation across every scalar type that supports it.
@@ -3807,11 +3815,11 @@ TEST_F(SegmentFlusherFormatTest, AllSupportedScalarValueTypesKeepTheirSegmentByt
                             scalar_case.storage_format == TABLET_STORAGE_FORMAT_V2 ? "v2" : "v3",
                             scalar_case.nullable_values ? "nullable" : "not_nullable",
                             scalar_case.with_bloom_filters ? "with_bloom" : "without_bloom",
-                            scalar_case.enable_vertical_writer ? "vertical" : "horizontal");
-        auto first = flush_blocks(case_name, schema, blocks, scalar_case.enable_vertical_writer);
+                            scalar_case.use_flush_single_block ? "vertical" : "horizontal");
+        auto first = flush_blocks(case_name, schema, blocks, scalar_case.use_flush_single_block);
         ASSERT_TRUE(first.has_value()) << first.error();
         auto second = flush_blocks(case_name + "_repeat", schema, std::move(blocks),
-                                   scalar_case.enable_vertical_writer);
+                                   scalar_case.use_flush_single_block);
         ASSERT_TRUE(second.has_value()) << second.error();
         ASSERT_EQ(first.value(), second.value()) << case_name;
     }
@@ -3821,7 +3829,7 @@ TEST_F(SegmentFlusherFormatTest, EmbeddedAndExternalIndexesKeepTheirSegmentBytes
     struct EmbeddedIndexCase {
         TabletStorageFormatPB storage_format;
         bool nullable_values;
-        bool enable_vertical_writer;
+        bool use_flush_single_block;
     };
     constexpr std::array embedded_index_cases {
             EmbeddedIndexCase {TABLET_STORAGE_FORMAT_V2, false, false},
@@ -3842,11 +3850,11 @@ TEST_F(SegmentFlusherFormatTest, EmbeddedAndExternalIndexesKeepTheirSegmentBytes
                 fmt::format("embedded_bloom_{}_{}_{}",
                             index_case.storage_format == TABLET_STORAGE_FORMAT_V2 ? "v2" : "v3",
                             index_case.nullable_values ? "nullable" : "not_nullable",
-                            index_case.enable_vertical_writer ? "vertical" : "horizontal");
-        auto first = flush_blocks(case_name, schema, blocks, index_case.enable_vertical_writer);
+                            index_case.use_flush_single_block ? "vertical" : "horizontal");
+        auto first = flush_blocks(case_name, schema, blocks, index_case.use_flush_single_block);
         ASSERT_TRUE(first.has_value()) << first.error();
         auto second = flush_blocks(case_name + "_repeat", schema, std::move(blocks),
-                                   index_case.enable_vertical_writer);
+                                   index_case.use_flush_single_block);
         ASSERT_TRUE(second.has_value()) << second.error();
         ASSERT_EQ(first.value(), second.value()) << case_name;
     }
@@ -3859,7 +3867,7 @@ TEST_F(SegmentFlusherFormatTest, EmbeddedAndExternalIndexesKeepTheirSegmentBytes
         InvertedIndexStorageFormatPB storage_format;
         std::string_view storage_format_name;
         bool nullable_value;
-        bool enable_vertical_writer;
+        bool use_flush_single_block;
     };
     constexpr std::array external_index_cases {
             ExternalIndexCase {InvertedIndexStorageFormatPB::V1, "v1", false, false},
@@ -3881,9 +3889,9 @@ TEST_F(SegmentFlusherFormatTest, EmbeddedAndExternalIndexesKeepTheirSegmentBytes
         const auto case_name =
                 fmt::format("external_inverted_{}_{}_{}", index_case.storage_format_name,
                             index_case.nullable_value ? "nullable" : "not_nullable",
-                            index_case.enable_vertical_writer ? "vertical" : "horizontal");
+                            index_case.use_flush_single_block ? "vertical" : "horizontal");
         auto result = flush_twice(case_name, schema, std::move(blocks),
-                                  index_case.enable_vertical_writer);
+                                  index_case.use_flush_single_block);
         ASSERT_TRUE(result.has_value()) << result.error();
         for (const auto& segment : result.value()) {
             ASSERT_EQ(segment.auxiliary_files.size(), 1) << case_name;
@@ -3897,7 +3905,7 @@ TEST_F(SegmentFlusherFormatTest, EmbeddedAndExternalIndexesKeepTheirSegmentBytes
     for (const auto& [storage_format, storage_format_name] :
          std::array {kInvertedIndexFormats[1], kInvertedIndexFormats[2]}) {
         auto schema = create_ann_index_schema(storage_format);
-        for (const bool enable_vertical_writer : {false, true}) {
+        for (const bool use_flush_single_block : {false, true}) {
             std::vector<Block> blocks;
             for (int segment_id = 0; segment_id < 2; ++segment_id) {
                 auto block_result = create_ann_index_block(schema, segment_id);
@@ -3905,8 +3913,8 @@ TEST_F(SegmentFlusherFormatTest, EmbeddedAndExternalIndexesKeepTheirSegmentBytes
                 blocks.push_back(std::move(block_result).value());
             }
             const auto case_name = fmt::format("ann_{}_{}", storage_format_name,
-                                               enable_vertical_writer ? "vertical" : "horizontal");
-            auto result = flush_twice(case_name, schema, std::move(blocks), enable_vertical_writer);
+                                               use_flush_single_block ? "vertical" : "horizontal");
+            auto result = flush_twice(case_name, schema, std::move(blocks), use_flush_single_block);
             ASSERT_TRUE(result.has_value()) << result.error();
             for (const auto& segment : result.value()) {
                 ASSERT_EQ(segment.auxiliary_files.size(), 1) << case_name;
@@ -3922,20 +3930,23 @@ TEST_F(SegmentFlusherFormatTest, ComplexObjectAndVariantValuesKeepTheirSegmentBy
         TabletStorageFormatPB storage_format;
         bool nullable_values;
         bool with_variant_bloom_filter;
-        bool enable_vertical_writer;
+        bool use_flush_single_block;
+        // only flush_single_block honours segment_compression_threshold_kb
         bool compressed;
     };
     constexpr std::array complex_cases {
             ComplexCase {TABLET_STORAGE_FORMAT_V2, false, false, false, true},
-            ComplexCase {TABLET_STORAGE_FORMAT_V2, false, true, false, false},
+            ComplexCase {TABLET_STORAGE_FORMAT_V2, false, true, false, true},
             ComplexCase {TABLET_STORAGE_FORMAT_V2, true, false, true, true},
             ComplexCase {TABLET_STORAGE_FORMAT_V2, true, true, true, false},
             ComplexCase {TABLET_STORAGE_FORMAT_V3, false, false, true, false},
             ComplexCase {TABLET_STORAGE_FORMAT_V3, false, true, true, true},
-            ComplexCase {TABLET_STORAGE_FORMAT_V3, true, false, false, false},
+            ComplexCase {TABLET_STORAGE_FORMAT_V3, true, false, false, true},
             ComplexCase {TABLET_STORAGE_FORMAT_V3, true, true, false, true},
     };
     for (const auto& complex_case : complex_cases) {
+        ASSERT_TRUE(complex_case.use_flush_single_block || complex_case.compressed)
+                << "the add_block feed never disables compression";
         auto schema = create_complex_value_schema(complex_case.storage_format,
                                                   complex_case.nullable_values,
                                                   complex_case.with_variant_bloom_filter);
@@ -3954,13 +3965,13 @@ TEST_F(SegmentFlusherFormatTest, ComplexObjectAndVariantValuesKeepTheirSegmentBy
                             complex_case.nullable_values ? "nullable" : "not_nullable",
                             complex_case.with_variant_bloom_filter ? "with_variant_bloom"
                                                                    : "without_variant_bloom",
-                            complex_case.enable_vertical_writer ? "vertical" : "horizontal",
+                            complex_case.use_flush_single_block ? "vertical" : "horizontal",
                             complex_case.compressed ? "compressed" : "uncompressed");
-        auto first = flush_blocks(case_name, schema, blocks, complex_case.enable_vertical_writer,
+        auto first = flush_blocks(case_name, schema, blocks, complex_case.use_flush_single_block,
                                   compression_threshold_kb);
         ASSERT_TRUE(first.has_value()) << first.error();
         auto second = flush_blocks(case_name + "_repeat", schema, std::move(blocks),
-                                   complex_case.enable_vertical_writer, compression_threshold_kb);
+                                   complex_case.use_flush_single_block, compression_threshold_kb);
         ASSERT_TRUE(second.has_value()) << second.error();
         ASSERT_EQ(first.value(), second.value()) << case_name;
     }
@@ -3969,7 +3980,7 @@ TEST_F(SegmentFlusherFormatTest, ComplexObjectAndVariantValuesKeepTheirSegmentBy
 TEST_F(SegmentFlusherFormatTest, RowStoreAndSegmentCreatorPathsKeepTheirSegmentBytes) {
     auto run_plain_row_store_case = [this](std::string_view case_name,
                                            const TabletSchemaSPtr& schema, DataWriteType write_type,
-                                           bool enable_vertical_writer,
+                                           bool use_flush_single_block,
                                            bool enable_mow) -> testing::AssertionResult {
         std::vector<Block> blocks;
         for (int segment_id = 0; segment_id < 2; ++segment_id) {
@@ -3991,7 +4002,7 @@ TEST_F(SegmentFlusherFormatTest, RowStoreAndSegmentCreatorPathsKeepTheirSegmentB
             }
             blocks.push_back(std::move(block));
         }
-        auto result = flush_twice(case_name, schema, std::move(blocks), enable_vertical_writer, 0,
+        auto result = flush_twice(case_name, schema, std::move(blocks), use_flush_single_block, 0,
                                   write_type, enable_mow);
         if (!result.has_value()) {
             return testing::AssertionFailure() << result.error();
@@ -4001,7 +4012,7 @@ TEST_F(SegmentFlusherFormatTest, RowStoreAndSegmentCreatorPathsKeepTheirSegmentB
 
     struct RowStoreWriteCase {
         DataWriteType write_type;
-        bool enable_vertical_writer;
+        bool use_flush_single_block;
     };
     constexpr std::array write_cases {
             RowStoreWriteCase {DataWriteType::TYPE_DEFAULT, false},
@@ -4013,9 +4024,9 @@ TEST_F(SegmentFlusherFormatTest, RowStoreAndSegmentCreatorPathsKeepTheirSegmentB
     for (const auto& write_case : write_cases) {
         const auto case_name =
                 fmt::format("row_store_dup_{}_{}", static_cast<int>(write_case.write_type),
-                            write_case.enable_vertical_writer ? "vertical" : "horizontal");
+                            write_case.use_flush_single_block ? "vertical" : "horizontal");
         ASSERT_TRUE(run_plain_row_store_case(case_name, schema, write_case.write_type,
-                                             write_case.enable_vertical_writer, false));
+                                             write_case.use_flush_single_block, false));
     }
     auto mor_schema = create_row_store_schema(UNIQUE_KEYS, false);
     ASSERT_TRUE(run_plain_row_store_case("row_store_unique_mor_1_horizontal", mor_schema,
@@ -4036,7 +4047,7 @@ TEST_F(SegmentFlusherFormatTest, RowStoreAndSegmentCreatorPathsKeepTheirSegmentB
     for (const auto& write_case : write_cases) {
         const auto case_name =
                 fmt::format("variant_row_store_{}_{}", static_cast<int>(write_case.write_type),
-                            write_case.enable_vertical_writer ? "vertical" : "horizontal");
+                            write_case.use_flush_single_block ? "vertical" : "horizontal");
         std::vector<Block> blocks;
         for (int segment_id = 0; segment_id < 2; ++segment_id) {
             auto variant_block =
@@ -4054,7 +4065,7 @@ TEST_F(SegmentFlusherFormatTest, RowStoreAndSegmentCreatorPathsKeepTheirSegmentB
             blocks.push_back(std::move(block));
         }
         auto result = flush_twice(case_name, variant_row_store_schema, std::move(blocks),
-                                  write_case.enable_vertical_writer, 0, write_case.write_type);
+                                  write_case.use_flush_single_block, 0, write_case.write_type);
         ASSERT_TRUE(result.has_value()) << result.error();
     }
 
@@ -4068,11 +4079,10 @@ TEST_F(SegmentFlusherFormatTest, RowStoreAndSegmentCreatorPathsKeepTheirSegmentB
 }
 
 TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepTheirSegmentBytes) {
-    // Both writers replay flexible partial update. The vertical baselines were
-    // recorded from the legacy in-writer fill; the horizontal ones pin the path
-    // the transform chain newly opened (the legacy horizontal writer rejected
-    // flexible, so no legacy baseline can exist for it).
-    constexpr std::array kFlexiblePartialWriterModes {false, true};
+    // Partial update and binlog loads only flush through write_block, so that
+    // is the feed these cases pin. The vertical baselines were recorded from
+    // the legacy in-writer fill.
+    constexpr std::array kFlexiblePartialFlushModes {true};
     auto record = [](Result<std::vector<SegmentFingerprint>> result) {
         if (!result.has_value()) {
             return testing::AssertionFailure() << result.error();
@@ -4094,7 +4104,7 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                                PartialUpdateNewRowPolicyPB::APPEND, fixed_update_columns, false, 0,
                                0, "UTC", "")
                         .ok());
-    for (const bool enable_vertical_writer : {false, true}) {
+    for (const bool use_flush_single_block : {true}) {
         std::vector<Block> blocks;
         for (int segment_id = 0; segment_id < 2; ++segment_id) {
             auto block_result = create_fixed_partial_update_block(
@@ -4103,9 +4113,9 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
             blocks.push_back(std::move(block_result).value());
         }
         const auto case_name =
-                fmt::format("fixed_partial_{}", enable_vertical_writer ? "vertical" : "horizontal");
+                fmt::format("fixed_partial_{}", use_flush_single_block ? "vertical" : "horizontal");
         ASSERT_TRUE(record(flush_twice(case_name, fixed_schema, std::move(blocks),
-                                       enable_vertical_writer, 0, DataWriteType::TYPE_DIRECT, true,
+                                       use_flush_single_block, 0, DataWriteType::TYPE_DIRECT, true,
                                        [this, fixed_tablet, fixed_partial_update,
                                         fixed_history](RowsetWriterContext& context) {
                                            configure_partial_update_context(context, fixed_tablet,
@@ -4125,7 +4135,7 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                                UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS,
                                PartialUpdateNewRowPolicyPB::APPEND, {}, false, 0, 0, "UTC", "")
                         .ok());
-    for (const bool enable_vertical_writer : kFlexiblePartialWriterModes) {
+    for (const bool use_flush_single_block : kFlexiblePartialFlushModes) {
         std::vector<Block> blocks;
         for (int segment_id = 0; segment_id < 2; ++segment_id) {
             auto block_result = create_flexible_partial_update_block(flexible_schema, segment_id);
@@ -4133,9 +4143,9 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
             blocks.push_back(std::move(block_result).value());
         }
         const auto case_name = fmt::format("flexible_partial_{}",
-                                           enable_vertical_writer ? "vertical" : "horizontal");
+                                           use_flush_single_block ? "vertical" : "horizontal");
         ASSERT_TRUE(record(flush_twice(case_name, flexible_schema, std::move(blocks),
-                                       enable_vertical_writer, 0, DataWriteType::TYPE_DIRECT, true,
+                                       use_flush_single_block, 0, DataWriteType::TYPE_DIRECT, true,
                                        [this, flexible_tablet, flexible_partial_update,
                                         flexible_history](RowsetWriterContext& context) {
                                            configure_partial_update_context(
@@ -4161,7 +4171,7 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
         if (!status.ok()) {
             return testing::AssertionFailure() << status;
         }
-        for (const bool enable_vertical_writer : {false, true}) {
+        for (const bool use_flush_single_block : {true}) {
             std::vector<Block> blocks;
             for (int segment_id = 0; segment_id < 2; ++segment_id) {
                 auto block_result = create_fixed_partial_update_block(sequence_fixed_schema,
@@ -4172,9 +4182,9 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                 blocks.push_back(std::move(block_result).value());
             }
             const auto case_name = fmt::format("{}_{}", sequence_case,
-                                               enable_vertical_writer ? "vertical" : "horizontal");
+                                               use_flush_single_block ? "vertical" : "horizontal");
             auto recorded = record(flush_twice(
-                    case_name, sequence_fixed_schema, std::move(blocks), enable_vertical_writer, 0,
+                    case_name, sequence_fixed_schema, std::move(blocks), use_flush_single_block, 0,
                     DataWriteType::TYPE_DIRECT, true,
                     [this, sequence_fixed_tablet, partial_update,
                      sequence_fixed_history](RowsetWriterContext& context) {
@@ -4207,7 +4217,7 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                                UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS,
                                PartialUpdateNewRowPolicyPB::APPEND, {}, false, 0, 0, "UTC", "")
                         .ok());
-    for (const bool enable_vertical_writer : kFlexiblePartialWriterModes) {
+    for (const bool use_flush_single_block : kFlexiblePartialFlushModes) {
         std::vector<Block> blocks;
         for (int segment_id = 0; segment_id < 2; ++segment_id) {
             auto block_result =
@@ -4216,10 +4226,10 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
             blocks.push_back(std::move(block_result).value());
         }
         const auto case_name = fmt::format("flexible_partial_sequence_row_store_{}",
-                                           enable_vertical_writer ? "vertical" : "horizontal");
+                                           use_flush_single_block ? "vertical" : "horizontal");
         ASSERT_TRUE(record(
                 flush_twice(case_name, sequence_flexible_schema, std::move(blocks),
-                            enable_vertical_writer, 0, DataWriteType::TYPE_DIRECT, true,
+                            use_flush_single_block, 0, DataWriteType::TYPE_DIRECT, true,
                             [this, sequence_flexible_tablet, sequence_flexible_partial_update,
                              sequence_flexible_history](RowsetWriterContext& context) {
                                 configure_partial_update_context(context, sequence_flexible_tablet,
@@ -4249,7 +4259,7 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                                PartialUpdateNewRowPolicyPB::APPEND, transform_fixed_update_columns,
                                false, 0, 0, "UTC", "")
                         .ok());
-    for (const bool enable_vertical_writer : {false, true}) {
+    for (const bool use_flush_single_block : {true}) {
         std::vector<Block> blocks;
         for (int segment_id = 0; segment_id < 2; ++segment_id) {
             auto block_result = create_fixed_partial_update_block(
@@ -4258,10 +4268,10 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
             blocks.push_back(std::move(block_result).value());
         }
         const auto case_name = fmt::format("fixed_partial_sequence_variant_row_store_{}",
-                                           enable_vertical_writer ? "vertical" : "horizontal");
+                                           use_flush_single_block ? "vertical" : "horizontal");
         ASSERT_TRUE(record(
                 flush_twice(case_name, transform_fixed_schema, std::move(blocks),
-                            enable_vertical_writer, 0, DataWriteType::TYPE_DIRECT, true,
+                            use_flush_single_block, 0, DataWriteType::TYPE_DIRECT, true,
                             [this, transform_fixed_tablet, transform_fixed_partial_update,
                              transform_fixed_history](RowsetWriterContext& context) {
                                 configure_partial_update_context(context, transform_fixed_tablet,
@@ -4275,24 +4285,8 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
     auto plain_binlog_tablet = plain_binlog_tablets.binlog_tablet;
     ASSERT_NE(plain_source_tablet, nullptr);
     ASSERT_NE(plain_binlog_tablet, nullptr);
-    std::vector<Block> plain_binlog_blocks;
-    for (int segment_id = 0; segment_id < 2; ++segment_id) {
-        auto block_result =
-                create_integer_tablet_block(plain_source_tablet->tablet_schema(), segment_id);
-        ASSERT_TRUE(block_result.has_value()) << block_result.error();
-        plain_binlog_blocks.push_back(std::move(block_result).value());
-    }
-    ASSERT_TRUE(record(flush_twice(
-            "plain_row_binlog_horizontal", plain_binlog_tablet->tablet_schema(),
-            std::move(plain_binlog_blocks), false, 0, DataWriteType::TYPE_DIRECT, false,
-            [this, plain_source_tablet, plain_binlog_tablet](RowsetWriterContext& context) {
-                configure_row_binlog_context(context, plain_source_tablet, plain_binlog_tablet);
-            })));
-
-    // The chain derives the binlog rows before any writer runs, so both writers
-    // can write them. The vertical one is the default now that the flusher no
-    // longer forces binlog onto the horizontal writer. These vertical baselines
-    // came out byte-identical to the horizontal ones recorded from the legacy
+    // The chain derives the binlog rows before any writer runs. These baselines
+    // came out byte-identical to the ones recorded from the legacy horizontal
     // writer, so they inherit that oracle instead of only pinning today.
     std::vector<Block> plain_binlog_blocks_vertical;
     for (int segment_id = 0; segment_id < 2; ++segment_id) {
@@ -4321,8 +4315,8 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
         plain_mow_binlog_blocks.push_back(std::move(block_result).value());
     }
     ASSERT_TRUE(record(flush_twice(
-            "plain_mow_row_binlog_horizontal", mow_binlog_tablet->tablet_schema(),
-            std::move(plain_mow_binlog_blocks), false, 0, DataWriteType::TYPE_DIRECT, false,
+            "plain_mow_row_binlog_vertical", mow_binlog_tablet->tablet_schema(),
+            std::move(plain_mow_binlog_blocks), true, 0, DataWriteType::TYPE_DIRECT, false,
             [this, mow_source_tablet, mow_binlog_tablet](RowsetWriterContext& context) {
                 configure_row_binlog_context(context, mow_source_tablet, mow_binlog_tablet);
             })));
@@ -4338,27 +4332,6 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                                PartialUpdateNewRowPolicyPB::APPEND, {"k1", "v1"}, false, 0, 0,
                                "UTC", "")
                         .ok());
-    std::vector<Block> mow_binlog_blocks;
-    for (int segment_id = 0; segment_id < 2; ++segment_id) {
-        auto block_result = create_binlog_partial_update_block(mow_source_tablet->tablet_schema(),
-                                                               *binlog_partial_update, segment_id);
-        ASSERT_TRUE(block_result.has_value()) << block_result.error();
-        mow_binlog_blocks.push_back(std::move(block_result).value());
-    }
-    ASSERT_TRUE(record(flush_twice(
-            "mow_row_binlog_horizontal", mow_binlog_tablet->tablet_schema(),
-            std::move(mow_binlog_blocks), false, 0, DataWriteType::TYPE_DIRECT, false,
-            [this, mow_source_tablet, mow_binlog_tablet, binlog_partial_update,
-             binlog_history](RowsetWriterContext& context) {
-                configure_row_binlog_context(context, mow_source_tablet, mow_binlog_tablet,
-                                             binlog_partial_update, binlog_history);
-            })));
-    for (uint32_t segment_id = 0; segment_id < 2; ++segment_id) {
-        const auto status = verify_row_binlog_partial_update_segment(
-                mow_binlog_tablet, "mow_row_binlog_horizontal", segment_id);
-        ASSERT_TRUE(status.ok()) << status;
-    }
-
     std::vector<Block> mow_binlog_blocks_vertical;
     for (int segment_id = 0; segment_id < 2; ++segment_id) {
         auto block_result = create_binlog_partial_update_block(mow_source_tablet->tablet_schema(),
@@ -4432,8 +4405,8 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                 },
                 &lookup_guard);
         ASSERT_TRUE(record(flush_twice(
-                "mow_sequence_row_binlog_horizontal", sequence_binlog_tablet->tablet_schema(),
-                std::move(sequence_binlog_blocks), false, 0, DataWriteType::TYPE_DIRECT, false,
+                "mow_sequence_row_binlog_vertical", sequence_binlog_tablet->tablet_schema(),
+                std::move(sequence_binlog_blocks), true, 0, DataWriteType::TYPE_DIRECT, false,
                 [this, sequence_source_tablet, sequence_binlog_tablet,
                  sequence_binlog_partial_update,
                  sequence_binlog_history](RowsetWriterContext& context) {
@@ -4455,7 +4428,7 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
     }
     for (uint32_t segment_id = 0; segment_id < 2; ++segment_id) {
         const auto status = verify_row_binlog_partial_update_segment(
-                sequence_binlog_tablet, "mow_sequence_row_binlog_horizontal", segment_id);
+                sequence_binlog_tablet, "mow_sequence_row_binlog_vertical", segment_id);
         ASSERT_TRUE(status.ok()) << status;
     }
 
@@ -4475,31 +4448,8 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                                UniqueKeyUpdateModePB::UPSERT, PartialUpdateNewRowPolicyPB::APPEND,
                                {}, false, 0, 0, "UTC", "")
                         .ok());
-    std::vector<Block> before_binlog_blocks;
-    for (int segment_id = 0; segment_id < 2; ++segment_id) {
-        auto block_result =
-                create_integer_tablet_block(before_source_tablet->tablet_schema(), segment_id,
-                                            {.include_existing_key_delete = true});
-        ASSERT_TRUE(block_result.has_value()) << block_result.error();
-        before_binlog_blocks.push_back(std::move(block_result).value());
-    }
-    auto before_result = flush_twice(
-            "mow_row_binlog_before", before_binlog_tablet->tablet_schema(), before_binlog_blocks,
-            false, 0, DataWriteType::TYPE_DIRECT, false,
-            [this, before_source_tablet, before_binlog_tablet, before_upsert_info,
-             before_binlog_history](RowsetWriterContext& context) {
-                configure_row_binlog_context(context, before_source_tablet, before_binlog_tablet,
-                                             before_upsert_info, before_binlog_history, true);
-            });
-    ASSERT_TRUE(before_result.has_value()) << before_result.error();
-    for (uint32_t segment_id = 0; segment_id < 2; ++segment_id) {
-        const auto status = verify_row_binlog_before_segment(
-                before_binlog_tablet, segment_id, {.case_name = "mow_row_binlog_before"});
-        ASSERT_TRUE(status.ok()) << status;
-    }
-
     // The BEFORE columns are the one group the derive builds itself instead of
-    // handing through as COW pointers, so they get the vertical writer too.
+    // handing through as COW pointers.
     std::vector<Block> before_binlog_blocks_vertical;
     for (int segment_id = 0; segment_id < 2; ++segment_id) {
         auto block_result =
@@ -4531,8 +4481,8 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
         compacted_binlog_blocks.push_back(std::move(block_result).value());
     }
     ASSERT_TRUE(record(flush_twice(
-            "compacted_row_binlog_horizontal", plain_binlog_tablet->tablet_schema(),
-            std::move(compacted_binlog_blocks), false, 0, DataWriteType::TYPE_COMPACTION, false,
+            "compacted_row_binlog_vertical", plain_binlog_tablet->tablet_schema(),
+            std::move(compacted_binlog_blocks), true, 0, DataWriteType::TYPE_COMPACTION, false,
             [this, plain_source_tablet, plain_binlog_tablet](RowsetWriterContext& context) {
                 configure_row_binlog_context(context, plain_source_tablet, plain_binlog_tablet);
             })));

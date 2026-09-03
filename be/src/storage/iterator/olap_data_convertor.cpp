@@ -333,7 +333,7 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorBase::clear_source_column() 
 }
 
 // Obtain the converted nullmap with an offset of _row_pos.
-// This should be called only in SegmentWriter and `get_data_at` in Convertor.
+// This should be called only in VerticalSegmentWriter and `get_data_at` in Convertor.
 // If you want to access origin nullmap without offset, use `_nullmap` directly.
 const UInt8* OlapBlockDataConvertor::OlapColumnDataConvertorBase::get_nullmap() const {
     assert(_typed_column.column);
@@ -957,17 +957,17 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
     ColumnPtr value_data = column_map->get_values_ptr();
 
     // NOTICE here are two situation:
-    // 1. Multi-SegmentWriter with different olap_convertor to convert same column_map(in memory which is from same block)
+    // 1. Multi-VerticalSegmentWriter with different olap_convertor to convert same column_map(in memory which is from same block)
     //   eg: Block(6 row): column_map offsets in memory: [10, 21, 33, 43, 54, 66]
-    //   After SegmentWriter1 with olap_convertor1 deal with first 3 rows:  _offsets(pre-disk)=[0, 10, 21], _base_offset=33
-    //   then SegmentWriter may flush data (see BetaRowsetWriter::_add_block(max_row_add < 1))
+    //   After VerticalSegmentWriter1 with olap_convertor1 deal with first 3 rows:  _offsets(pre-disk)=[0, 10, 21], _base_offset=33
+    //   then VerticalSegmentWriter may flush data (see BetaRowsetWriter::_add_block(max_row_add < 1))
     //   ColumnWriter will flush offset array to disk [0, 10, 21, 33]
     //                                                 ---------  ----
     //                                                 |--_offsets  |--set_next_array_item_ordinal(_kv_writers[0]->get_next_rowid())
-    //   new SegmentWriter2 with olap_convertor2 deal with next map offsets [43, 54, 66]
+    //   new VerticalSegmentWriter2 with olap_convertor2 deal with next map offsets [43, 54, 66]
     //   but in disk here is new segment file offset should start with 0, so after convert:
     //      _offsets(pre-disk)=[0, 10, 21], _base_row=33, After flush data finally in disk: [0, 10, 21, 33]
-    //2. One-SegmentWriter with olap_convertor to convertor different blocks into one page
+    //2. One-VerticalSegmentWriter with olap_convertor to convertor different blocks into one page
     //    eg: Two blocks -> block1 [10, 21, 33] and block2 [1, 3, 6]
     //      After first convert: _offsets_1(pre-disk)=[0, 10, 21], _base_row=33, without flush, just append to page,
     //      then deal with coming block2, after current convert:

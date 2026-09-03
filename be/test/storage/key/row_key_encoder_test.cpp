@@ -933,7 +933,7 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
                 EXPECT_EQ(primary_keys[row], canonical_full_keys[0][kAllKeyData.size() - 1 - row]);
             }
 
-            // SegmentWriter sorts these primary-index entries in memory because
+            // VerticalSegmentWriter sorts these primary-index entries in memory because
             // physical row order follows cluster keys, not primary keys.
             auto sorted_primary_index_keys = primary_index_keys;
             std::sort(sorted_primary_index_keys.begin(), sorted_primary_index_keys.end());
@@ -1172,7 +1172,7 @@ TEST_F(RowKeyEncoderTest, RowidSuffix) {
 
     auto schema = cluster_key_with_sequence_schema();
     build(schema, kRows.size(), [&](MutableColumns& columns) {
-        // Rowid is not a block column. SegmentWriter obtains it from the
+        // Rowid is not a block column. VerticalSegmentWriter obtains it from the
         // physical position and passes it separately to append_rowid_suffix().
         for (const auto& data : kRows) {
             fill_raw<int32_t>(columns, 0, data.primary_key);

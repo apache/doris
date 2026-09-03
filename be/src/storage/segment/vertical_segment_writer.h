@@ -45,6 +45,9 @@ class Block;
 class IOlapColumnDataAccessor;
 class OlapBlockDataConvertor;
 
+// TODO(lingbin): Should be a conf that can be dynamically adjusted, or a member in the context
+const uint32_t MAX_SEGMENT_SIZE = static_cast<uint32_t>(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE *
+                                                        OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE);
 class DataDir;
 class MemTracker;
 class ShortKeyIndexBuilder;
@@ -58,9 +61,16 @@ class FileSystem;
 } // namespace io
 namespace segment_v2 {
 class IndexFileWriter;
+class VariantStatsCaculator;
+
+class DerivedColumnGenerator;
+// Matches block_transform.h: at most one derived column (the row-store column)
+// for each flush, held as a {cid, generator} pair; null generator means none.
+using DerivedColumn = std::pair<uint32_t, std::shared_ptr<const DerivedColumnGenerator>>;
 
 struct VerticalSegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
+    uint32_t max_rows_per_segment = UINT32_MAX;
     bool enable_unique_key_merge_on_write = false;
     CompressionTypePB compression_type = UNKNOWN_COMPRESSION;
 
@@ -68,17 +78,27 @@ struct VerticalSegmentWriterOptions {
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
 };
 
-class DerivedColumnGenerator;
-// Matches block_transform.h: at most one derived column (the row-store column)
-// for each flush, held as a {cid, generator} pair; null generator means none.
-using DerivedColumn = std::pair<uint32_t, std::shared_ptr<const DerivedColumnGenerator>>;
-
-struct RowsInBlock {
-    const Block* block;
-    size_t row_pos;
-    size_t num_rows;
-};
-
+// A segment is written one column group at a time:
+//
+//      for (column_group : column_groups) {
+//          writer.init(column_group, has_key);
+//          writer.append_block(block, ...);   // any number of times
+//          writer.finalize_columns(&index_size);
+//      }
+//      writer.finalize_footer(&file_size);
+//
+// Vertical compaction and segcompaction write several groups; init() is
+// shorthand for one whole-schema group. finalize_columns() writes the
+// data pages the group still buffers, then its indexes, and closes the group.
+//
+// write_block() takes a whole-schema group's rows all at once and writes each
+// column's pages as soon as that column is done, so it opens the group itself
+// and needs no init():
+//
+//      writer.set_derived_column(derived_column);   // only if there is one
+//      writer.write_block(block, 0, num_rows);      // opens the group itself
+//      writer.finalize_columns(&index_size);
+//      writer.finalize_footer(&file_size);
 class VerticalSegmentWriter {
 public:
     explicit VerticalSegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
@@ -92,12 +112,22 @@ public:
 
     Status init();
 
-    // Add one block to batch, memory is owned by the caller.
-    // The batched blocks will be flushed in write_batch.
-    // Once write_batch is called, no more blocks shoud be added.
-    Status batch_block(const Block* block, size_t row_pos, size_t num_rows);
-    Status write_batch();
+    // Opens a column group; the footer keeps every group's column metas. Pass
+    // has_key=true for the group with the key columns, which comes first. A
+    // keyless schema has no such group, so its first value group takes it.
+    Status init(const std::vector<uint32_t>& col_ids, bool has_key);
 
+    // Feeds the open group. Its column writers buffer the data pages until
+    // finalize_columns(), so more rows can always follow.
+    Status append_block(const Block* block, size_t row_pos, size_t num_rows);
+
+    // Opens a whole-schema group and writes it in one call, one column at a time,
+    // so only one column's pages are in memory.
+    Status write_block(const Block* block, size_t row_pos, size_t num_rows);
+
+    // Sets the row-store column for the next write_block, which pumps it from its
+    // generator in batches instead of reading it from the block. append_block
+    // ignores it.
     void set_derived_column(DerivedColumn derived_column) {
         _derived_column = std::move(derived_column);
     }
@@ -106,15 +136,25 @@ public:
         return _data_dir == nullptr ? "" : _data_dir->path();
     }
 
+    // rows fed to the open group; zero again once the group is closed
     [[nodiscard]] uint32_t num_rows_written() const { return _num_rows_written; }
 
+    // the segment's row count, settled when the group holding the key columns is finalized
     [[nodiscard]] uint32_t row_count() const { return _row_count; }
     [[nodiscard]] uint32_t segment_id() const { return _segment_id; }
 
-    Status finalize(uint64_t* segment_file_size, uint64_t* index_size,
-                    SegmentIndexFileCacheInfo* index_file_cache_info = nullptr);
+    // Size readings the append_block feed rolls a segment on: how many more
+    // rows fit, what the segment holds right now, and the cluster key MOW
+    // primary keys still waiting for the finalize-time sort.
+    int64_t max_row_to_add(size_t row_avg_size_in_bytes);
+    uint64_t estimate_segment_size();
+    [[nodiscard]] uint64_t primary_keys_size() const { return _primary_keys_size; }
 
-    Status finalize_columns_index(uint64_t* index_size);
+    // Closes the open group: its buffered data pages (skipped after write_block),
+    // its index sections, and the key indexes if it holds the key columns. Ends
+    // with clear(), so the next init() can follow.
+    Status finalize_columns(uint64_t* index_size);
+    // Ends the segment, once every group is in.
     Status finalize_footer(uint64_t* segment_file_size,
                            SegmentIndexFileCacheInfo* index_file_cache_info = nullptr);
 
@@ -135,17 +175,30 @@ public:
     }
 
 private:
-    // Bodies of finalize()/finalize_columns_index(); the public wrappers add the
-    // abandon-on-failure step. See the .cpp.
-    Status _finalize_impl(uint64_t* segment_file_size, uint64_t* index_size,
-                          SegmentIndexFileCacheInfo* index_file_cache_info);
-    Status _finalize_columns_index_impl(uint64_t* index_size);
+    friend class TestVerticalSegmentWriter;
     void _abandon_index_staging();
     void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
                            const ColumnWriterOptions& opts);
-    Status _create_column_writer(uint32_t cid, const TabletColumn& column,
-                                 const TabletSchemaSPtr& schema);
-    uint64_t _estimated_remaining_size();
+    // pos is the column's place in the open group, which is what the column
+    // writers and the convertor are indexed by; cid is its schema column id,
+    // which only the footer meta records.
+    Status _create_column_writer(size_t pos, uint32_t cid, const TabletSchemaSPtr& tablet_schema);
+    // Opens a column group without its column writers: init() then creates
+    // them all at once, write_block() one at a time.
+    Status _open_group(const std::vector<uint32_t>& col_ids, bool has_key);
+    Status _create_writers(const TabletSchemaSPtr& tablet_schema,
+                           const std::vector<uint32_t>& col_ids);
+    std::vector<uint32_t> _all_column_ids() const;
+    // bytes the key index builders hold
+    uint64_t _key_index_size();
+    // cluster key MOW: sorts the collected primary keys into the index builder
+    // and lets them go
+    Status _flush_primary_keys();
+    Status _settle_row_count();
+    // Closes the open group's column writers and writes their data pages, after
+    // checking the data dir has room for them.
+    Status _finalize_columns_data();
+    Status _write_data();
     Status _write_ordinal_index();
     Status _write_zone_map();
     Status _write_inverted_index();
@@ -160,10 +213,15 @@ private:
     void _set_max_key(const Slice& key);
     Status _append_generated_column(const DerivedColumnGenerator& generator, const Block& block,
                                     size_t row_pos, size_t num_rows, uint32_t cid);
-    Status _generate_key_index(RowsInBlock& data,
-                               std::vector<IOlapColumnDataAccessor*>& key_columns,
-                               IOlapColumnDataAccessor* seq_column,
-                               std::map<uint32_t, IOlapColumnDataAccessor*>& cid_to_column);
+    // Remembers the accessor if this column is a cluster key. _generate_key_index
+    // needs them in cluster key order, which is not the group's order.
+    void _collect_cluster_key_column(
+            uint32_t cid, IOlapColumnDataAccessor* column,
+            std::map<uint32_t, IOlapColumnDataAccessor*>* cluster_key_columns);
+    Status _generate_key_index(
+            std::vector<IOlapColumnDataAccessor*>& key_columns, IOlapColumnDataAccessor* seq_column,
+            size_t num_rows,
+            const std::map<uint32_t, IOlapColumnDataAccessor*>& cluster_key_columns);
     Status _generate_primary_key_index(
             const std::vector<IOlapColumnDataAccessor*>& primary_key_columns,
             IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
@@ -186,7 +244,7 @@ private:
     DataDir* _data_dir = nullptr;
     VerticalSegmentWriterOptions _opts;
 
-    // Not owned. owned by RowsetWriter
+    // Not owned. owned by RowsetWriter or SegmentFlusher
     io::FileWriter* _file_writer = nullptr;
     // Not owned. owned by RowsetWriter or SegmentFlusher
     IndexFileWriter* _index_file_writer = nullptr;
@@ -207,6 +265,11 @@ private:
     RowKeyEncoder _key_encoder;
     size_t _short_key_row_pos = 0;
 
+    // The open column group: the columns it holds, and whether it is the one
+    // carrying the key columns. A whole-schema group (init() or write_block) is
+    // the degenerate case -- every column, has_key=true.
+    std::vector<uint32_t> _column_ids;
+    bool _has_key = true;
     // _num_rows_written means row count already written in this current column group
     uint32_t _num_rows_written = 0;
 
@@ -219,10 +282,21 @@ private:
     faststring _min_key;
     faststring _max_key;
 
-    std::vector<RowsInBlock> _batched_blocks;
+    // Cluster key MOW only: primary keys collected here until the group's rows are
+    // all in; _flush_primary_keys() sorts them into the index builder. The rowset
+    // writer rolls a segment on their byte count.
+    std::vector<std::string> _primary_keys;
+    uint64_t _primary_keys_size = 0;
+    // variant statistics calculator for efficient stats collection; only the
+    // compaction write type feeds it
+    std::unique_ptr<VariantStatsCaculator> _variant_stats_calculator;
 
-    // the derived column the transform chain hands off to this writer's bounded pump
+    // the derived column the transform chain hands off to write_block's bounded pump
     DerivedColumn _derived_column;
+
+    // true once write_block has written the open group's data pages, so
+    // finalize_columns() does not write them again; clear() resets it
+    bool _columns_data_flushed = false;
 };
 
 } // namespace segment_v2

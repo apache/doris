@@ -45,7 +45,6 @@
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset_writer.h" // SegmentStatistics
 #include "storage/segment/segment_index_file_cache_loader.h"
-#include "storage/segment/segment_writer.h"
 #include "storage/segment/vertical_segment_writer.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/transform/block_transform.h"
@@ -93,23 +92,16 @@ Status SegmentFlusher::flush_single_block(const Block* block, int32_t segment_id
     bool no_compression = flush_block.bytes() <= config::segment_compression_threshold_kb * 1024;
     segment_v2::DerivedColumn derived_column;
     RETURN_IF_ERROR(transform_block(&flush_block, segment_id, &derived_column));
-    bool use_vertical_segment_writer = config::enable_vertical_segment_writer;
-    if (use_vertical_segment_writer) {
-        std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
-        RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression));
-        // the vertical writer feeds the derived column in small fixed-size batches
-        writer->set_derived_column(std::move(derived_column));
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_add_rows(writer, &flush_block, 0, flush_block.rows()));
-        RETURN_IF_ERROR(_flush_segment_writer(writer, flush_size));
-    } else {
-        // the horizontal writer has no streaming feed, build it all up front
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
-                segment_v2::materialize_derived_columns(derived_column, &flush_block));
-        std::unique_ptr<segment_v2::SegmentWriter> writer;
-        RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression));
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_add_rows(writer, &flush_block, 0, flush_block.rows()));
-        RETURN_IF_ERROR(_flush_segment_writer(writer, flush_size));
+    std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
+    RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression));
+    // write_block pumps the derived column from its generator in small batches
+    writer->set_derived_column(std::move(derived_column));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(writer->write_block(&flush_block, 0, flush_block.rows()));
+    if (writer->num_rows_written() != 0) {
+        [[maybe_unused]] uint32_t flushed_segment_id = writer->segment_id();
+        TEST_SYNC_POINT_CALLBACK("SegmentFlusher::write_block_path", &flushed_segment_id);
     }
+    RETURN_IF_ERROR(_flush_segment_writer(writer, flush_size));
     // The caller's row accounting checks against what it fed in, so count the
     // input rows, not what survived the chain.
     _num_rows_written += input_rows;
@@ -154,54 +146,6 @@ Status SegmentFlusher::_preload_segment_indexes_to_file_cache() {
                                                                                           tasks);
 }
 
-Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
-                                 const Block* block, size_t row_pos, size_t num_rows) {
-    RETURN_IF_ERROR(segment_writer->append_block(block, row_pos, num_rows));
-    return Status::OK();
-}
-
-Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
-                                 const Block* block, size_t row_pos, size_t num_rows) {
-    RETURN_IF_ERROR(segment_writer->batch_block(block, row_pos, num_rows));
-    RETURN_IF_ERROR(segment_writer->write_batch());
-    return Status::OK();
-}
-
-Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
-                                              int32_t segment_id, bool no_compression) {
-    io::FileWriterPtr segment_file_writer;
-    RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, segment_file_writer));
-
-    IndexFileWriterPtr index_file_writer;
-    if (_context.tablet_schema->has_inverted_or_ann_index()) {
-        RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, &index_file_writer));
-    }
-
-    segment_v2::SegmentWriterOptions writer_options;
-    writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
-    writer_options.rowset_ctx = &_context;
-    writer_options.write_type = _context.write_type;
-    writer_options.max_rows_per_segment = _context.max_rows_per_segment;
-    if (no_compression) {
-        writer_options.compression_type = NO_COMPRESSION;
-    }
-
-    writer = std::make_unique<segment_v2::SegmentWriter>(
-            segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
-            _context.data_dir, writer_options, index_file_writer.get());
-    RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
-    if (_context.tablet_schema->has_inverted_or_ann_index()) {
-        RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(index_file_writer)));
-    }
-    auto s = writer->init();
-    if (!s.ok()) {
-        LOG(WARNING) << "failed to init segment writer: " << s.to_string();
-        writer.reset();
-        return s;
-    }
-    return Status::OK();
-}
-
 Status SegmentFlusher::_create_segment_writer(
         std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer, int32_t segment_id,
         bool no_compression) {
@@ -217,6 +161,7 @@ Status SegmentFlusher::_create_segment_writer(
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &_context;
     writer_options.write_type = _context.write_type;
+    writer_options.max_rows_per_segment = _context.max_rows_per_segment;
     if (no_compression) {
         writer_options.compression_type = NO_COMPRESSION;
     }
@@ -227,12 +172,6 @@ Status SegmentFlusher::_create_segment_writer(
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
     if (_context.tablet_schema->has_inverted_or_ann_index()) {
         RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(index_file_writer)));
-    }
-    auto s = writer->init();
-    if (!s.ok()) {
-        LOG(WARNING) << "failed to init segment writer: " << s.to_string();
-        writer.reset();
-        return s;
     }
 
     VLOG_DEBUG << "create new segment writer, tablet_id:" << _context.tablet_id
@@ -247,82 +186,6 @@ Status SegmentFlusher::_flush_segment_writer(
     total_timer.start();
 
     uint32_t row_num = writer->num_rows_written();
-    if (row_num == 0) {
-        return Status::OK();
-    }
-
-    MonotonicStopWatch finalize_timer;
-    finalize_timer.start();
-    uint64_t segment_file_size;
-    uint64_t common_index_size;
-    segment_v2::SegmentIndexFileCacheInfo index_file_cache_info;
-    Status s = writer->finalize(&segment_file_size, &common_index_size, &index_file_cache_info);
-    finalize_timer.stop();
-
-    if (!s.ok()) {
-        return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
-    }
-
-    DBUG_EXECUTE_IF("SegmentFlusher._flush_segment_writer.after_finalize.sleep",
-                    { std::this_thread::sleep_for(std::chrono::milliseconds(1000)); });
-
-    MonotonicStopWatch inverted_index_timer;
-    inverted_index_timer.start();
-    int64_t inverted_index_file_size = 0;
-    RETURN_IF_ERROR(writer->close_inverted_index(&inverted_index_file_size));
-    inverted_index_timer.stop();
-
-    VLOG_DEBUG << "tablet_id:" << _context.tablet_id
-               << " flushing filename: " << writer->data_dir_path()
-               << " rowset_id:" << _context.rowset_id;
-
-    KeyBoundsPB key_bounds;
-    Slice min_key = writer->min_encoded_key();
-    Slice max_key = writer->max_encoded_key();
-    DCHECK_LE(min_key.compare(max_key), 0);
-    key_bounds.set_min_key(min_key.to_string());
-    key_bounds.set_max_key(max_key.to_string());
-
-    uint32_t segment_id = writer->segment_id();
-    TEST_SYNC_POINT_CALLBACK("SegmentFlusher::flush_vertical_segment_writer", &segment_id);
-    SegmentStatistics segstat;
-    segstat.row_num = row_num;
-    segstat.data_size = segment_file_size;
-    segstat.index_size = inverted_index_file_size;
-    segstat.key_bounds = key_bounds;
-
-    writer.reset();
-    _record_segment_index_file_cache_preload(segment_id, index_file_cache_info);
-
-    MonotonicStopWatch collector_timer;
-    collector_timer.start();
-    RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat));
-    collector_timer.stop();
-
-    total_timer.stop();
-
-    LOG(INFO) << "tablet_id:" << _context.tablet_id
-              << ", flushing rowset_dir: " << _context.tablet_path
-              << ", rowset_id:" << _context.rowset_id
-              << ", data size:" << PrettyPrinter::print_bytes(segstat.data_size)
-              << ", index size:" << PrettyPrinter::print_bytes(segstat.index_size)
-              << ", timing breakdown: total=" << total_timer.elapsed_time_milliseconds() << "ms"
-              << ", finalize=" << finalize_timer.elapsed_time_milliseconds() << "ms"
-              << ", inverted_index=" << inverted_index_timer.elapsed_time_milliseconds() << "ms"
-              << ", collector=" << collector_timer.elapsed_time_milliseconds() << "ms";
-
-    if (flush_size) {
-        *flush_size = segment_file_size;
-    }
-    return Status::OK();
-}
-
-Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
-                                             int64_t* flush_size) {
-    MonotonicStopWatch total_timer;
-    total_timer.start();
-
-    uint32_t row_num = writer->num_rows_written();
 
     if (row_num == 0) {
         return Status::OK();
@@ -333,11 +196,13 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     uint64_t segment_file_size;
     uint64_t common_index_size;
     segment_v2::SegmentIndexFileCacheInfo index_file_cache_info;
-    Status s = writer->finalize(&segment_file_size, &common_index_size, &index_file_cache_info);
+    RETURN_IF_ERROR(writer->finalize_columns(&common_index_size));
+    RETURN_IF_ERROR(writer->finalize_footer(&segment_file_size, &index_file_cache_info));
     finalize_timer.stop();
 
-    if (!s.ok()) {
-        return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
+    if (finalize_timer.elapsed_time() > 5000000000L) {
+        LOG(INFO) << "segment flush consumes a lot time_ns " << finalize_timer.elapsed_time()
+                  << ", segmemt_size " << segment_file_size;
     }
 
     DBUG_EXECUTE_IF("SegmentFlusher._flush_segment_writer.after_finalize.sleep",
@@ -360,7 +225,7 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     key_bounds.set_min_key(min_key.to_string());
     key_bounds.set_max_key(max_key.to_string());
 
-    uint32_t segment_id = writer->get_segment_id();
+    uint32_t segment_id = writer->segment_id();
     SegmentStatistics segstat;
     segstat.row_num = row_num;
     segstat.data_size = segment_file_size;
@@ -395,18 +260,26 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
 
 Status SegmentFlusher::create_writer(std::unique_ptr<SegmentFlusher::Writer>& writer,
                                      uint32_t segment_id) {
-    std::unique_ptr<segment_v2::SegmentWriter> segment_writer;
+    std::unique_ptr<segment_v2::VerticalSegmentWriter> segment_writer;
     RETURN_IF_ERROR(_create_segment_writer(segment_writer, segment_id));
     DCHECK(segment_writer != nullptr);
+    RETURN_IF_ERROR(segment_writer->init());
     writer.reset(new SegmentFlusher::Writer(this, segment_writer));
     return Status::OK();
 }
 
 SegmentFlusher::Writer::Writer(SegmentFlusher* flusher,
-                               std::unique_ptr<segment_v2::SegmentWriter>& segment_writer)
+                               std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer)
         : _flusher(flusher), _writer(std::move(segment_writer)) {};
 
 SegmentFlusher::Writer::~Writer() = default;
+
+Status SegmentFlusher::Writer::add_rows(const Block* block, size_t row_offset,
+                                        size_t input_row_num) {
+    RETURN_IF_ERROR(_writer->append_block(block, row_offset, input_row_num));
+    _flusher->_num_rows_written += input_row_num;
+    return Status::OK();
+}
 
 Status SegmentFlusher::Writer::flush() {
     return _flusher->_flush_segment_writer(_writer);
@@ -429,8 +302,8 @@ Status SegmentCreator::add_block(const Block* block) {
     size_t block_row_num = block->rows();
     size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
     size_t row_offset = 0;
-    // This seam always feeds the horizontal writer, so the derived column is
-    // materialized up front, like flush_single_block's horizontal branch.
+    // This seam feeds append_block, which reads the derived column from the
+    // block, so materialize it up front. write_block pumps it from the generator.
     Block* shared_block = const_cast<Block*>(block);
     auto transform_block = [&]() -> Status {
         segment_v2::DerivedColumn derived_column;

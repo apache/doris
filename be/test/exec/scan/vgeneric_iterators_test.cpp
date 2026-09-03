@@ -136,10 +136,10 @@ TEST(VGenericIteratorsTest, StatisticsIteratorPreservesNullForNullableChar) {
 
     io::FileWriterPtr file_writer;
     ASSERT_TRUE(fs->create_file(segment_path, &file_writer).ok());
-    SegmentWriterOptions writer_options;
+    VerticalSegmentWriterOptions writer_options;
     writer_options.num_rows_per_block = 1024;
-    TestSegmentWriter writer(file_writer.get(), 0, tablet_schema, nullptr, nullptr, writer_options,
-                             nullptr);
+    TestVerticalSegmentWriter writer(file_writer.get(), 0, tablet_schema, nullptr, nullptr,
+                                     writer_options, nullptr);
     ASSERT_TRUE(writer.init().ok());
 
     RowCursor row;
@@ -151,7 +151,8 @@ TEST(VGenericIteratorsTest, StatisticsIteratorPreservesNullForNullableChar) {
     }
     uint64_t file_size = 0;
     uint64_t index_size = 0;
-    ASSERT_TRUE(writer.finalize(&file_size, &index_size).ok());
+    ASSERT_TRUE(writer.finalize_columns(&index_size).ok());
+    ASSERT_TRUE(writer.finalize_footer(&file_size).ok());
     ASSERT_TRUE(file_writer->close().ok());
 
     std::shared_ptr<segment_v2::Segment> segment;

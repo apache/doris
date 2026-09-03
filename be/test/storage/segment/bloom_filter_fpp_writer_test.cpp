@@ -31,7 +31,6 @@
 #include "storage/segment/column_writer.h"
 #include "storage/segment/encoding_info.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_writer.h"
 #include "storage/segment/vertical_segment_writer.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
@@ -139,7 +138,7 @@ std::vector<ScalarBloomFilterTypeCase> create_segment_writer_compatible_type_cas
     compatible_type_cases.reserve(kScalarBloomFilterTypeCases.size());
     for (const auto& type_case : kScalarBloomFilterTypeCases) {
         // BF itself supports UNSIGNED_INT, but the current block/convertor stack used by
-        // SegmentWriter/VerticalSegmentWriter still does not materialize that type end-to-end.
+        // VerticalSegmentWriter still does not materialize that type end-to-end.
         // Keep its coverage at direct ColumnWriter level instead of failing these integration tests
         // for an unrelated legacy limitation.
         if (type_case.type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT) {
@@ -150,7 +149,7 @@ std::vector<ScalarBloomFilterTypeCase> create_segment_writer_compatible_type_cas
     return compatible_type_cases;
 }
 
-const std::vector<ScalarBloomFilterTypeCase> kSegmentWriterCompatibleBloomFilterTypeCases =
+const std::vector<ScalarBloomFilterTypeCase> kVerticalSegmentWriterCompatibleBloomFilterTypeCases =
         create_segment_writer_compatible_type_cases();
 
 Block create_single_row_default_block(const TabletSchemaSPtr& schema) {
@@ -239,7 +238,7 @@ protected:
         value_column->set_is_key(false);
         value_column->set_is_nullable(true);
         value_column->set_length(type_case.length);
-        // Use an AGG_KEYS value column so SegmentWriter won't create a zone map for it.
+        // Use an AGG_KEYS value column so VerticalSegmentWriter won't create a zone map for it.
         // That keeps this test focused on BF creation/fpp propagation for the full BF type set.
         value_column->set_aggregation("REPLACE");
         // The tablet schema has already been materialized by FE before it reaches the writer.
@@ -293,7 +292,7 @@ class AllScalarBloomFilterFppWriterTest
         : public ScalarBloomFilterFppWriterTestBase,
           public testing::WithParamInterface<ScalarBloomFilterTypeCase> {};
 
-class SegmentWriterCompatibleBloomFilterFppWriterTest
+class VerticalSegmentWriterCompatibleBloomFilterFppWriterTest
         : public ScalarBloomFilterFppWriterTestBase,
           public testing::WithParamInterface<ScalarBloomFilterTypeCase> {};
 
@@ -321,23 +320,24 @@ TEST_P(AllScalarBloomFilterFppWriterTest, column_writer_uses_bloom_filter_fpp) {
     ASSERT_TRUE(st.ok()) << st;
 }
 
-// SegmentWriter uses the same per-column fpp lookup regardless of scalar type, so this suite
+// VerticalSegmentWriter uses the same per-column fpp lookup regardless of scalar type, so this suite
 // exercises the full integration path for every writer-compatible BF scalar type.
-TEST_P(SegmentWriterCompatibleBloomFilterFppWriterTest, segment_writer_uses_index_level_fpp) {
+TEST_P(VerticalSegmentWriterCompatibleBloomFilterFppWriterTest,
+       segment_writer_uses_index_level_fpp) {
     const auto& type_case = GetParam();
     constexpr double kExpectedFpp = 0.03;
 
     auto schema = create_schema_with_scalar_bloom_filter_index(type_case, kExpectedFpp);
     EXPECT_TRUE(schema->column_by_uid(1).is_bf_column());
 
-    SegmentWriterOptions opts;
+    VerticalSegmentWriterOptions opts;
     RowsetWriterContext rowset_ctx;
     rowset_ctx.write_type = DataWriteType::TYPE_DEFAULT;
     rowset_ctx.tablet_schema = schema;
     opts.rowset_ctx = &rowset_ctx;
     const std::string file_name = std::string("segment_writer_") + type_case.name + ".dat";
     auto file_writer = create_file_writer(file_name);
-    SegmentWriter writer(file_writer.get(), 0, schema, nullptr, nullptr, opts, nullptr);
+    VerticalSegmentWriter writer(file_writer.get(), 0, schema, nullptr, nullptr, opts, nullptr);
 
     ScopedBloomFilterFppDebugPoint debug_point(kExpectedFpp);
     ASSERT_TRUE(writer.init().ok());
@@ -345,14 +345,15 @@ TEST_P(SegmentWriterCompatibleBloomFilterFppWriterTest, segment_writer_uses_inde
     ASSERT_TRUE(writer.append_block(&block, 0, 1).ok());
     uint64_t segment_file_size = 0;
     uint64_t index_size = 0;
-    ASSERT_TRUE(writer.finalize(&segment_file_size, &index_size).ok());
+    ASSERT_TRUE(writer.finalize_columns(&index_size).ok());
+    ASSERT_TRUE(writer.finalize_footer(&segment_file_size).ok());
 
     bool has_bloom_filter = false;
     ASSERT_TRUE(has_bloom_filter_index(schema, file_name, has_bloom_filter).ok());
     EXPECT_TRUE(has_bloom_filter);
 }
 
-TEST_P(SegmentWriterCompatibleBloomFilterFppWriterTest,
+TEST_P(VerticalSegmentWriterCompatibleBloomFilterFppWriterTest,
        vertical_segment_writer_uses_index_level_fpp) {
     const auto& type_case = GetParam();
     constexpr double kExpectedFpp = 0.02;
@@ -370,16 +371,14 @@ TEST_P(SegmentWriterCompatibleBloomFilterFppWriterTest,
     auto file_writer = create_file_writer(file_name);
     VerticalSegmentWriter writer(file_writer.get(), 0, schema, nullptr, nullptr, opts, nullptr);
 
-    ASSERT_TRUE(writer.init().ok());
-    ASSERT_TRUE(writer.batch_block(&block, 0, 1).ok());
-
-    // VerticalSegmentWriter only creates ColumnWriter instances during write_batch(), so use a
-    // real one-row block here to exercise the BF fpp propagation path in _create_column_writer().
+    // write_block creates the ColumnWriter instances, so the debug point that
+    // checks the BF fpp propagation must already be active there.
     ScopedBloomFilterFppDebugPoint debug_point(kExpectedFpp);
-    ASSERT_TRUE(writer.write_batch().ok());
+    ASSERT_TRUE(writer.write_block(&block, 0, 1).ok());
     uint64_t segment_file_size = 0;
     uint64_t index_size = 0;
-    ASSERT_TRUE(writer.finalize(&segment_file_size, &index_size).ok());
+    ASSERT_TRUE(writer.finalize_columns(&index_size).ok());
+    ASSERT_TRUE(writer.finalize_footer(&segment_file_size).ok());
 
     bool has_bloom_filter = false;
     ASSERT_TRUE(has_bloom_filter_index(schema, file_name, has_bloom_filter).ok());
@@ -392,9 +391,9 @@ INSTANTIATE_TEST_SUITE_P(AllScalarBloomFilterTypes, AllScalarBloomFilterFppWrite
                              return info.param.name;
                          });
 
-INSTANTIATE_TEST_SUITE_P(SegmentWriterCompatibleBloomFilterTypes,
-                         SegmentWriterCompatibleBloomFilterFppWriterTest,
-                         testing::ValuesIn(kSegmentWriterCompatibleBloomFilterTypeCases),
+INSTANTIATE_TEST_SUITE_P(VerticalSegmentWriterCompatibleBloomFilterTypes,
+                         VerticalSegmentWriterCompatibleBloomFilterFppWriterTest,
+                         testing::ValuesIn(kVerticalSegmentWriterCompatibleBloomFilterTypeCases),
                          [](const testing::TestParamInfo<ScalarBloomFilterTypeCase>& info) {
                              return info.param.name;
                          });

@@ -35,7 +35,7 @@
 #include "storage/binlog.h"
 #include "storage/data_dir.h"
 #include "storage/rowset_builder.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"

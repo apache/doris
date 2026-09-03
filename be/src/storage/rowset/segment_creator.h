@@ -38,7 +38,6 @@ namespace doris {
 class Block;
 
 namespace segment_v2 {
-class SegmentWriter;
 class VerticalSegmentWriter;
 class DerivedColumnGenerator;
 // Matches block_transform.h: at most one derived column (the row-store column)
@@ -135,36 +134,25 @@ public:
     public:
         ~Writer();
 
-        Status add_rows(const Block* block, size_t row_offset, size_t input_row_num) {
-            RETURN_IF_ERROR(_flusher->_add_rows(_writer, block, row_offset, input_row_num));
-            _flusher->_num_rows_written += input_row_num;
-            return Status::OK();
-        }
+        Status add_rows(const Block* block, size_t row_offset, size_t input_row_num);
 
         Status flush();
 
         int64_t max_row_to_add(size_t row_avg_size_in_bytes);
 
     private:
-        Writer(SegmentFlusher* flusher, std::unique_ptr<segment_v2::SegmentWriter>& segment_writer);
+        Writer(SegmentFlusher* flusher,
+               std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer);
 
         SegmentFlusher* _flusher = nullptr;
-        std::unique_ptr<segment_v2::SegmentWriter> _writer;
+        std::unique_ptr<segment_v2::VerticalSegmentWriter> _writer;
     };
 
     Status create_writer(std::unique_ptr<SegmentFlusher::Writer>& writer, uint32_t segment_id);
 
 private:
-    Status _add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer, const Block* block,
-                     size_t row_offset, size_t row_num);
-    Status _add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
-                     const Block* block, size_t row_offset, size_t row_num);
-    Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
-                                  int32_t segment_id, bool no_compression = false);
     Status _create_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
                                   int32_t segment_id, bool no_compression = false);
-    Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
-                                 int64_t* flush_size = nullptr);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
                                  int64_t* flush_size = nullptr);
     void _record_segment_index_file_cache_preload(

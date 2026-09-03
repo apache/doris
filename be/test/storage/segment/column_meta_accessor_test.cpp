@@ -29,7 +29,7 @@
 #include "io/fs/local_file_system.h"
 #include "storage/segment/external_col_meta_util.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "util/coding.h"
 
 using namespace doris;
@@ -117,13 +117,14 @@ using Generator = std::function<void(size_t rid, int cid, Field& field)>;
 TabletSchemaSPtr create_schema(const std::vector<TabletColumnPtr>& columns,
                                KeysType keys_type = UNIQUE_KEYS);
 
-void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, size_t segment_id,
-                   TabletSchemaSPtr query_schema, size_t nrows, Generator generator,
-                   std::shared_ptr<Segment>* res, std::string segment_dir);
+void build_segment(VerticalSegmentWriterOptions opts, TabletSchemaSPtr build_schema,
+                   size_t segment_id, TabletSchemaSPtr query_schema, size_t nrows,
+                   Generator generator, std::shared_ptr<Segment>* res, std::string segment_dir);
 
-void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, size_t segment_id,
-                   TabletSchemaSPtr query_schema, size_t nrows, Generator generator,
-                   std::shared_ptr<Segment>* res, std::string segment_dir, std::string* out_path);
+void build_segment(VerticalSegmentWriterOptions opts, TabletSchemaSPtr build_schema,
+                   size_t segment_id, TabletSchemaSPtr query_schema, size_t nrows,
+                   Generator generator, std::shared_ptr<Segment>* res, std::string segment_dir,
+                   std::string* out_path);
 
 } // namespace doris
 
@@ -602,7 +603,7 @@ TEST(ColumnMetaAccessorTest, LargeNumberOfColumns) {
 }
 
 // Compare footer size with and without external ColumnMetaPB region under high column count
-// using real segments written by SegmentWriter.
+// using real segments written by VerticalSegmentWriter.
 // This test builds two real segments (inline V2 vs external V3 layout) on disk:
 // - schema has 10,00 INT columns
 // - each column has 1,000 rows of data
@@ -626,24 +627,24 @@ TEST(ColumnMetaAccessorTest, FooterSizeWithManyColumnsExternalVsInline) {
         col->set_unique_id(i);
         col->set_name(fmt::format("c{}", i));
         col->set_type(FieldType::OLAP_FIELD_TYPE_INT);
-        // Mark the first column as key so that SegmentWriter produces non-empty
+        // Mark the first column as key so that VerticalSegmentWriter produces non-empty
         // min/max encoded keys, which are asserted inside the shared build_segment helper.
         col->set_is_key(i == 0);
         col->set_is_nullable(true);
         col->set_length(4);
-        // Set index_length for key columns so SegmentWriter can build key index properly.
+        // Set index_length for key columns so VerticalSegmentWriter can build key index properly.
         col->set_index_length(4);
         columns.emplace_back(std::move(col));
     }
 
     TabletSchemaSPtr inline_schema = create_schema(columns, UNIQUE_KEYS);
     TabletSchemaSPtr external_schema = create_schema(columns, UNIQUE_KEYS);
-    // Enable external ColumnMetaPB for the second schema so that SegmentWriter
+    // Enable external ColumnMetaPB for the second schema so that VerticalSegmentWriter
     // produces a V3 footer with externalized column meta region.
     external_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
 
-    // 2. Common SegmentWriter options and row generator.
-    SegmentWriterOptions opts;
+    // 2. Common VerticalSegmentWriter options and row generator.
+    VerticalSegmentWriterOptions opts;
     opts.enable_unique_key_merge_on_write = false;
 
     auto generator = [](size_t rid, int cid, Field& field) {
@@ -715,7 +716,7 @@ TEST(ColumnMetaAccessorTest, RowStoreColumnDoesNotUseDictEncoding) {
     auto tablet_schema = create_schema(columns, UNIQUE_KEYS);
     tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
 
-    SegmentWriterOptions opts;
+    VerticalSegmentWriterOptions opts;
     opts.enable_unique_key_merge_on_write = false;
 
     auto generator = [](size_t rid, int cid, Field& field) {

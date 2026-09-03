@@ -61,9 +61,6 @@ suite("test_storage_page_size_fault", "nonConcurrent") {
       GetDebugPoint().enableDebugPointForAllBEs("VerticalSegmentWriter._create_column_writer.storage_page_size", ["table_id": tableId, "storage_page_size": 69632])
       sql """ INSERT INTO ${tableName} VALUES (893964617, '40.135.0.0', 'GET /images/hm_bg.jpg HTTP/1.0', 200, 24736); """
 
-      set_be_config.call("enable_vertical_segment_writer", "false")
-      sql """ INSERT INTO ${tableName} VALUES (893964617, '40.135.0.0', 'GET /images/hm_bg.jpg HTTP/1.0', 200, 24736); """
-      set_be_config.call("enable_vertical_segment_writer", "true")
 
     } finally {
       GetDebugPoint().disableDebugPointForAllBEs("VerticalSegmentWriter._create_column_writer.storage_page_size")

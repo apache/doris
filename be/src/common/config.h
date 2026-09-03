@@ -572,9 +572,6 @@ DECLARE_mDouble(sparse_column_compaction_threshold_percent);
 DECLARE_mBool(enable_rle_batch_put_optimization);
 DECLARE_Bool(enable_bmi2_optimizations);
 
-// If enabled, segments will be flushed column by column
-DECLARE_mBool(enable_vertical_segment_writer);
-
 // In ordered data compaction, min segment size for input rowset
 DECLARE_mInt32(ordered_data_compaction_min_segment_size);
 

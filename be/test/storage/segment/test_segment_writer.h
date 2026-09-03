@@ -28,17 +28,17 @@
 #include "storage/olap_common.h"
 #include "storage/row_cursor.h"
 #include "storage/segment/column_writer.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "util/slice.h"
 
 namespace doris::segment_v2 {
 
-// Test-only subclass that provides RowCursor-based append_row.
-// Production code should only use SegmentWriter::append_block.
-// SegmentWriter declares TestSegmentWriter as a friend so we can access private members.
-class TestSegmentWriter : public SegmentWriter {
+// Test-only subclass with a RowCursor-based append_row. Production code feeds
+// the writer through append_block or write_block. TestVerticalSegmentWriter is
+// a friend of VerticalSegmentWriter, so it can reach the private members.
+class TestVerticalSegmentWriter : public VerticalSegmentWriter {
 public:
-    using SegmentWriter::SegmentWriter;
+    using VerticalSegmentWriter::VerticalSegmentWriter;
 
     Status append_row(const RowCursor& row) {
         for (size_t cid = 0; cid < _column_writers.size(); ++cid) {
@@ -116,7 +116,8 @@ public:
 
         if (_is_mow_with_cluster_key()) {
             return Status::InternalError(
-                    "TestSegmentWriter::append_row does not support mow tables with cluster key");
+                    "TestVerticalSegmentWriter::append_row does not support mow tables with "
+                    "cluster key");
         } else if (_is_mow()) {
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(full_encoded_key));
         } else {
@@ -126,7 +127,7 @@ public:
                 row.encode_key(&encoded_key, _num_short_key_columns);
                 RETURN_IF_ERROR(_short_key_index_builder->add_item(encoded_key));
             }
-            set_min_max_key(full_encoded_key);
+            _set_min_max_key(full_encoded_key);
         }
         ++_num_rows_written;
         return Status::OK();

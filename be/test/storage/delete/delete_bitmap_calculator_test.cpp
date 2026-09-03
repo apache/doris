@@ -37,8 +37,8 @@
 #include "storage/index/primary_key_index.h"
 #include "storage/row_cursor.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_writer.h"
 #include "storage/segment/test_segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
@@ -67,9 +67,9 @@ TabletColumnPtr create_int_sequence_value(int32_t id, bool is_nullable = true,
     return column;
 }
 
-void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, size_t segment_id,
-                   TabletSchemaSPtr query_schema, size_t nrows, Generator generator,
-                   std::shared_ptr<Segment>* res, std::string segment_dir) {
+void build_segment(VerticalSegmentWriterOptions opts, TabletSchemaSPtr build_schema,
+                   size_t segment_id, TabletSchemaSPtr query_schema, size_t nrows,
+                   Generator generator, std::shared_ptr<Segment>* res, std::string segment_dir) {
     std::string filename = fmt::format("{}_{}.dat", rowset_id.to_string(), segment_id);
     std::string path = fmt::format("{}/{}", segment_dir, filename);
     auto fs = io::global_local_filesystem();
@@ -77,8 +77,8 @@ void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, siz
     io::FileWriterPtr file_writer;
     Status st = fs->create_file(path, &file_writer);
     EXPECT_TRUE(st.ok()) << st.to_string();
-    TestSegmentWriter writer(file_writer.get(), segment_id, build_schema, nullptr, nullptr, opts,
-                             nullptr);
+    TestVerticalSegmentWriter writer(file_writer.get(), segment_id, build_schema, nullptr, nullptr,
+                                     opts, nullptr);
     st = writer.init();
     EXPECT_TRUE(st.ok());
 
@@ -95,7 +95,9 @@ void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, siz
     }
 
     uint64_t file_size, index_size;
-    st = writer.finalize(&file_size, &index_size);
+    st = writer.finalize_columns(&index_size);
+    EXPECT_TRUE(st.ok());
+    st = writer.finalize_footer(&file_size);
     EXPECT_TRUE(st.ok());
     EXPECT_TRUE(file_writer->close().ok());
 
@@ -110,9 +112,10 @@ void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, siz
 }
 
 // Convenience overload that also returns the on-disk path of the built segment.
-void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, size_t segment_id,
-                   TabletSchemaSPtr query_schema, size_t nrows, Generator generator,
-                   std::shared_ptr<Segment>* res, std::string segment_dir, std::string* out_path) {
+void build_segment(VerticalSegmentWriterOptions opts, TabletSchemaSPtr build_schema,
+                   size_t segment_id, TabletSchemaSPtr query_schema, size_t nrows,
+                   Generator generator, std::shared_ptr<Segment>* res, std::string segment_dir,
+                   std::string* out_path) {
     std::string filename = fmt::format("{}_{}.dat", rowset_id.to_string(), segment_id);
     std::string path = fmt::format("{}/{}", segment_dir, filename);
     if (out_path != nullptr) {
@@ -151,7 +154,7 @@ public:
                   size_t const num_key_columns, bool has_sequence_col,
                   size_t const num_value_columns, int const random_seed, int const min_value,
                   int const max_value) {
-        SegmentWriterOptions opts;
+        VerticalSegmentWriterOptions opts;
         opts.enable_unique_key_merge_on_write = true;
 
         size_t const num_columns = num_key_columns + has_sequence_col + num_value_columns;
