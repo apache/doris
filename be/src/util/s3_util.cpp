@@ -22,7 +22,6 @@
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
 #include <aws/core/auth/STSCredentialsProvider.h>
 #include <aws/core/client/DefaultRetryStrategy.h>
-#include <aws/core/platform/Environment.h>
 #include <aws/core/utils/logging/LogLevel.h>
 #include <aws/core/utils/logging/LogSystemInterface.h>
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
@@ -356,8 +355,7 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3ClientFactory::_create_cred
     case CredProviderType::WebIdentity:
         return std::make_shared<Aws::Auth::STSAssumeRoleWebIdentityCredentialsProvider>();
     case CredProviderType::Container:
-        return std::make_shared<Aws::Auth::TaskRoleCredentialsProvider>(
-                Aws::Environment::GetEnv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI").c_str());
+        return create_container_credentials_provider();
     case CredProviderType::InstanceProfile:
         return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
     case CredProviderType::Anonymous:
