@@ -23,8 +23,10 @@ suite("test_paimon_file_metadata_columns", "p0,external") {
     }
 
     String catalogName = "test_paimon_file_metadata_columns"
+    String crossFileCatalogName = "test_paimon_file_metadata_columns_cross_file"
     String dbName = "paimon_file_metadata_columns_db"
     String hdfsPort = context.config.otherConfigs.get("hive2HdfsPort")
+    String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String crossFileTable = "file_metadata_cross_file_positions"
 
@@ -79,6 +81,16 @@ suite("test_paimon_file_metadata_columns", "p0,external") {
         "warehouse" = "hdfs://${externalEnvIp}:${hdfsPort}/user/doris/paimon1",
         "meta.cache.paimon.table.ttl-second" = "0"
     )"""
+    sql """drop catalog if exists ${crossFileCatalogName}"""
+    sql """create catalog ${crossFileCatalogName} properties (
+        "type" = "paimon",
+        "warehouse" = "s3://warehouse/wh",
+        "s3.endpoint" = "http://${externalEnvIp}:${minioPort}",
+        "s3.access_key" = "admin",
+        "s3.secret_key" = "password",
+        "s3.path.style.access" = "true",
+        "meta.cache.paimon.table.ttl-second" = "0"
+    )"""
 
     try {
         // Two independent append commits create two physical data files.  The selected rows omit
@@ -99,7 +111,6 @@ suite("test_paimon_file_metadata_columns", "p0,external") {
                 (4, 'second-1'), (5, 'second-2'), (6, 'second-3');
         """
 
-        sql """refresh catalog ${catalogName}"""
         sql """switch ${catalogName}"""
         sql """use db1"""
         sql """set enable_file_scanner_v2=true"""
@@ -110,9 +121,11 @@ suite("test_paimon_file_metadata_columns", "p0,external") {
         verifyMetadata("deletion_vector_orc")
         verifyMetadata("deletion_vector_parquet")
 
+        sql """switch ${crossFileCatalogName}"""
+        sql """use ${dbName}"""
         def crossFileRows = sql """
             select id, `__paimon_file_path`, `__paimon_row_index`
-            from ${dbName}.${crossFileTable}
+            from ${crossFileTable}
             where id in (2, 3, 5, 6)
             order by id
         """
@@ -126,6 +139,8 @@ suite("test_paimon_file_metadata_columns", "p0,external") {
         assertEquals(secondFile, crossFileRows[3][1].toString())
         assertTrue(firstFile != secondFile, "two append commits must retain distinct source-file paths")
 
+        sql """switch ${catalogName}"""
+        sql """use db1"""
         sql """set force_jni_scanner=true"""
         test {
             sql """select `__paimon_file_path` from deletion_vector_parquet"""
@@ -142,6 +157,7 @@ suite("test_paimon_file_metadata_columns", "p0,external") {
         sql """unset variable file_split_size"""
         sql """set force_jni_scanner=false"""
         sql """set enable_file_scanner_v2=true"""
+        sql """drop catalog if exists ${crossFileCatalogName}"""
         sql """drop catalog if exists ${catalogName}"""
     }
 }
