@@ -130,13 +130,13 @@ class QueryOrganizationBehaviorTest {
                         "SELECT 1 ORDER BY 1 UNION ALL SELECT 2", 9),
                 Arguments.of("order after limit", true, "SELECT 1 LIMIT 1 ORDER BY 1", 9),
                 Arguments.of("truncated order", false, "SELECT 1 ORDER BY", 9),
-                Arguments.of("truncated order", true, "SELECT 1 ORDER BY", 9),
+                Arguments.of("truncated order", true, "SELECT 1 ORDER BY", 17),
                 Arguments.of("truncated limit", false, "SELECT 1 LIMIT", 9),
-                Arguments.of("truncated limit", true, "SELECT 1 LIMIT", 9),
+                Arguments.of("truncated limit", true, "SELECT 1 LIMIT", 14),
                 Arguments.of("truncated trailing limit", false, "SELECT 1 ORDER BY 1 LIMIT", 20),
                 Arguments.of("truncated trailing limit", true, "SELECT 1 ORDER BY 1 LIMIT", 20),
                 Arguments.of("truncated VALUES limit", false, "VALUES (1) ORDER BY 1 LIMIT", 22),
                 Arguments.of("truncated VALUES limit", true, "VALUES (1) ORDER BY 1 LIMIT", 22),
-                Arguments.of("truncated legacy second clause", false, "SELECT 1 LIMIT 1 ORDER BY", 17));
+                Arguments.of("truncated legacy second clause", false, "SELECT 1 LIMIT 1 ORDER BY", 25));
     }
 }
