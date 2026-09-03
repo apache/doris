@@ -33,7 +33,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 
 public class MTMVRefreshContext {
     private MTMV mtmv;
@@ -47,16 +46,15 @@ public class MTMVRefreshContext {
     private final Map<MTMVRelatedTableIf, Set<String>> missingPartitionSnapshotCache = Maps.newHashMap();
     private final Map<MTMVRelatedTableIf, Map<String, AnalysisException>> partitionSnapshotFailureCache =
             Maps.newHashMap();
-    private final Function<MTMVRelatedTableIf, Optional<MvccSnapshot>> snapshotResolver;
+    private final Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots;
 
     public MTMVRefreshContext(MTMV mtmv) {
-        this(mtmv, MvccUtil::getSnapshotFromContext);
+        this(mtmv, null);
     }
 
-    private MTMVRefreshContext(MTMV mtmv,
-            Function<MTMVRelatedTableIf, Optional<MvccSnapshot>> snapshotResolver) {
+    private MTMVRefreshContext(MTMV mtmv, Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) {
         this.mtmv = mtmv;
-        this.snapshotResolver = snapshotResolver;
+        this.pinnedSnapshots = pinnedSnapshots;
     }
 
     public MTMV getMtmv() {
@@ -132,7 +130,7 @@ public class MTMVRefreshContext {
             return;
         }
         Map<String, MTMVSnapshotIf> loaded = table.getPartitionSnapshots(
-                missing, this, snapshotResolver.apply(table));
+                missing, this, resolveSnapshot(table));
         if (loaded == null || loaded.containsKey(null) || loaded.containsValue(null)
                 || !missing.containsAll(loaded.keySet())) {
             throw new AnalysisException("Invalid partition snapshot result for table " + table.getName()
@@ -152,23 +150,28 @@ public class MTMVRefreshContext {
 
     public static MTMVRefreshContext buildContext(MTMV mtmv, Map<List<String>, Set<String>> queryUsedPartitions)
             throws AnalysisException {
-        return buildContext(mtmv, queryUsedPartitions, MvccUtil::getSnapshotFromContext);
+        return buildContextInternal(mtmv, queryUsedPartitions, null);
     }
 
     public static MTMVRefreshContext buildContext(MTMV mtmv, Map<List<String>, Set<String>> queryUsedPartitions,
             Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) throws AnalysisException {
         Map<MvccTableInfo, MvccSnapshot> snapshotCopy = new LinkedHashMap<>(pinnedSnapshots);
-        return buildContext(mtmv, queryUsedPartitions,
-                table -> Optional.ofNullable(snapshotCopy.get(new MvccTableInfo(table))));
+        return buildContextInternal(mtmv, queryUsedPartitions, snapshotCopy);
     }
 
-    private static MTMVRefreshContext buildContext(MTMV mtmv,
+    private static MTMVRefreshContext buildContextInternal(MTMV mtmv,
             Map<List<String>, Set<String>> queryUsedPartitions,
-            Function<MTMVRelatedTableIf, Optional<MvccSnapshot>> snapshotResolver) throws AnalysisException {
-        MTMVRefreshContext context = new MTMVRefreshContext(mtmv, snapshotResolver);
-        context.partitionMappings = mtmv.calculatePartitionMappings(queryUsedPartitions, snapshotResolver);
+            Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) throws AnalysisException {
+        MTMVRefreshContext context = new MTMVRefreshContext(mtmv, pinnedSnapshots);
+        context.partitionMappings = mtmv.calculatePartitionMappings(queryUsedPartitions, pinnedSnapshots);
         context.baseVersions = MTMVPartitionUtil.getBaseVersions(mtmv, context.partitionMappings);
         return context;
+    }
+
+    private Optional<MvccSnapshot> resolveSnapshot(MTMVRelatedTableIf table) {
+        return pinnedSnapshots == null
+                ? MvccUtil.getSnapshotFromContext(table)
+                : Optional.ofNullable(pinnedSnapshots.get(new MvccTableInfo(table)));
     }
 
     /** Read-only access to partition snapshots that have already been loaded as one bulk operation. */

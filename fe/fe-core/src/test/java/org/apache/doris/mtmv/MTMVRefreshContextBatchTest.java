@@ -29,7 +29,6 @@ import org.apache.doris.mtmv.MTMVRefreshContext.PreparedPartitionSnapshots;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -41,7 +40,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 
 public class MTMVRefreshContextBatchTest {
 
@@ -222,11 +220,8 @@ public class MTMVRefreshContextBatchTest {
 
         PreparedPartitionSnapshots prepared = context.preparePartitionSnapshots(mappings.keySet());
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<Function<MTMVRelatedTableIf, Optional<MvccSnapshot>>> resolverCaptor =
-                ArgumentCaptor.forClass(Function.class);
-        Mockito.verify(mtmv).calculatePartitionMappings(Mockito.anyMap(), resolverCaptor.capture());
-        Assertions.assertEquals(Optional.of(pin), resolverCaptor.getValue().apply(table));
+        Mockito.verify(mtmv).calculatePartitionMappings(Mockito.anyMap(),
+                Mockito.eq(Collections.singletonMap(new MvccTableInfo(table), pin)));
         Mockito.verify(table).getPartitionSnapshots(Mockito.eq(new LinkedHashSet<>(Arrays.asList("p1", "p2"))),
                 Mockito.same(context),
                 Mockito.eq(Optional.of(pin)));
@@ -270,7 +265,8 @@ public class MTMVRefreshContextBatchTest {
             MTMVRefreshSnapshot refreshSnapshot,
             Map<String, Map<MTMVRelatedTableIf, Set<String>>> mappings) throws AnalysisException {
         MTMVPartitionInfo partitionInfo = Mockito.mock(MTMVPartitionInfo.class);
-        Mockito.when(mtmv.calculatePartitionMappings(Mockito.anyMap(), Mockito.any())).thenReturn(mappings);
+        Mockito.when(mtmv.calculatePartitionMappings(Mockito.anyMap(), Mockito.nullable(Map.class)))
+                .thenReturn(mappings);
         Mockito.when(mtmv.getRelation()).thenReturn(null);
         Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(partitionInfo);
         Mockito.when(mtmv.getRefreshSnapshot()).thenReturn(refreshSnapshot);

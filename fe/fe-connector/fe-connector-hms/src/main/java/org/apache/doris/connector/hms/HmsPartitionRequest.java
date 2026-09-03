@@ -31,14 +31,12 @@ final class HmsPartitionRequest {
     private final String tableName;
     private final List<HmsPartitionIdentity.ParsedPartitionName> partitions;
 
-    private HmsPartitionRequest(Builder builder) {
-        this.dbName = builder.dbName;
-        this.tableName = builder.tableName;
-        this.partitions = parsePartitions(builder.partitionNames);
-    }
-
-    static Builder builder() {
-        return new Builder();
+    HmsPartitionRequest(String dbName, String tableName, List<String> partitionNames) {
+        requireName(dbName, "database");
+        requireName(tableName, "table");
+        this.dbName = dbName;
+        this.tableName = tableName;
+        this.partitions = parsePartitions(Objects.requireNonNull(partitionNames, "partitionNames"));
     }
 
     String getDbName() {
@@ -53,54 +51,19 @@ final class HmsPartitionRequest {
         return partitions;
     }
 
-    static final class Builder {
-        private String dbName;
-        private String tableName;
-        private List<String> partitionNames;
-
-        private Builder() {
-        }
-
-        Builder database(String dbName) {
-            this.dbName = dbName;
-            return this;
-        }
-
-        Builder table(String tableName) {
-            this.tableName = tableName;
-            return this;
-        }
-
-        Builder partitionNames(List<String> partitionNames) {
-            this.partitionNames = partitionNames;
-            return this;
-        }
-
-        HmsPartitionRequest build() {
-            requireName(dbName, "database");
-            requireName(tableName, "table");
-            Objects.requireNonNull(partitionNames, "partitionNames");
-            return new HmsPartitionRequest(this);
-        }
-
-        private static void requireName(String value, String field) {
-            if (value == null || value.isEmpty()) {
-                throw new IllegalArgumentException(field + " must not be empty");
-            }
+    private static void requireName(String value, String field) {
+        if (value == null || value.isEmpty()) {
+            throw new IllegalArgumentException(field + " must not be empty");
         }
     }
 
     private static List<HmsPartitionIdentity.ParsedPartitionName> parsePartitions(List<String> names) {
         List<HmsPartitionIdentity.ParsedPartitionName> parsedPartitions = new ArrayList<>(names.size());
         Set<List<String>> identities = new HashSet<>();
-        List<String> partitionKeys = null;
+        List<String> partitionKeys = names.isEmpty()
+                ? Collections.emptyList() : HmsPartitionIdentity.keysFromName(names.get(0));
         for (String name : names) {
-            HmsPartitionIdentity.ParsedPartitionName parsed = HmsPartitionIdentity.parse(name);
-            if (partitionKeys == null) {
-                partitionKeys = parsed.getKeys();
-            } else if (!partitionKeys.equals(parsed.getKeys())) {
-                throw new IllegalArgumentException("inconsistent partition keys in request: " + name);
-            }
+            HmsPartitionIdentity.ParsedPartitionName parsed = HmsPartitionIdentity.parse(name, partitionKeys);
             if (!identities.add(parsed.getValues())) {
                 throw new IllegalArgumentException("duplicate partition identity in request: " + name);
             }

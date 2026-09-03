@@ -292,18 +292,11 @@ public class ThriftHmsClient implements HmsClient {
 
     private static HmsPartitionRequest partitionRequest(
             String dbName, String tableName, List<String> partNames) {
-        return HmsPartitionRequest.builder()
-                .database(dbName)
-                .table(tableName)
-                .partitionNames(partNames)
-                .build();
+        return new HmsPartitionRequest(dbName, tableName, partNames);
     }
 
     private HmsPartitionBatchExecutor newPartitionBatchExecutor(HmsPartitionTransport transport) {
-        return HmsPartitionBatchExecutor.builder()
-                .maxBatchSize(partitionBatchSize)
-                .transport(transport)
-                .build();
+        return new HmsPartitionBatchExecutor(partitionBatchSize, transport);
     }
 
     private List<HmsPartitionInfo> getPartitionsByNames(

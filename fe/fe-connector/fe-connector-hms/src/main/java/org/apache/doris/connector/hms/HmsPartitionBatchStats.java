@@ -85,21 +85,6 @@ public final class HmsPartitionBatchStats implements Serializable {
         return maxTransportElapsedNanos;
     }
 
-    /** Keeps transport-invocation statistics while replacing the outer logical-request dimensions. */
-    public HmsPartitionBatchStats forLogicalRequest(int logicalRequestedItems, long logicalElapsed) {
-        return builder()
-                .requestedItems(logicalRequestedItems)
-                .transportInvocations(transportInvocations)
-                .transportItems(transportItems)
-                .largestBatchSize(largestBatchSize)
-                .smallestBatchSize(smallestBatchSize)
-                .fallbackCount(fallbackCount)
-                .logicalElapsedNanos(logicalElapsed)
-                .transportElapsedNanos(transportElapsedNanos)
-                .maxTransportElapsedNanos(maxTransportElapsedNanos)
-                .build();
-    }
-
     public static final class Builder {
         private int requestedItems;
         private int transportInvocations;

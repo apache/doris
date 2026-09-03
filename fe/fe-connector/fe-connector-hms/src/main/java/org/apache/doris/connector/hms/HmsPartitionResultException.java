@@ -18,94 +18,30 @@
 package org.apache.doris.connector.hms;
 
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.EnumSet;
 import java.util.List;
-import java.util.Set;
 
-public class HmsPartitionResultException extends HmsClientException {
+final class HmsPartitionResultException extends HmsClientException {
 
     private static final int MAX_SAMPLES_PER_TYPE = 10;
     private static final int MAX_SAMPLE_LENGTH = 256;
 
-    public enum MismatchType {
-        MISSING_RESULT,
-        DUPLICATE_RESULT,
-        UNEXPECTED_RESULT,
-        INVALID_RESULT
-    }
-
-    private final Set<MismatchType> mismatchTypes;
-    private final int missingCount;
-    private final int duplicateCount;
-    private final int unexpectedCount;
-    private final int invalidCount;
-    private final List<String> missingSamples;
-    private final List<String> duplicateSamples;
-    private final List<String> unexpectedSamples;
-
     private HmsPartitionResultException(Builder builder) {
-        super("Invalid HMS partition result: mismatches=%s, requested=%d, returned=%d, "
+        super("Invalid HMS partition result: requested=%d, returned=%d, "
                         + "missing=%d, duplicate=%d, unexpected=%d, invalid=%d, "
                         + "missingSamples=%s, duplicateSamples=%s, unexpectedSamples=%s, invalidSamples=%s",
-                builder.mismatchTypes, builder.requestedCount, builder.returnedCount,
+                builder.requestedCount, builder.returnedCount,
                 builder.missingCount, builder.duplicateCount, builder.unexpectedCount, builder.invalidCount,
                 builder.missingSamples, builder.duplicateSamples,
                 builder.unexpectedSamples, builder.invalidSamples);
-        this.mismatchTypes = Collections.unmodifiableSet(EnumSet.copyOf(builder.mismatchTypes));
-        this.missingCount = builder.missingCount;
-        this.duplicateCount = builder.duplicateCount;
-        this.unexpectedCount = builder.unexpectedCount;
-        this.invalidCount = builder.invalidCount;
-        this.missingSamples = immutableCopy(builder.missingSamples);
-        this.duplicateSamples = immutableCopy(builder.duplicateSamples);
-        this.unexpectedSamples = immutableCopy(builder.unexpectedSamples);
     }
 
     static Builder builder(int requestedCount, int returnedCount) {
         return new Builder(requestedCount, returnedCount);
     }
 
-    public Set<MismatchType> getMismatchTypes() {
-        return mismatchTypes;
-    }
-
-    public int getMissingCount() {
-        return missingCount;
-    }
-
-    public int getDuplicateCount() {
-        return duplicateCount;
-    }
-
-    public int getUnexpectedCount() {
-        return unexpectedCount;
-    }
-
-    public int getInvalidCount() {
-        return invalidCount;
-    }
-
-    public List<String> getMissingSamples() {
-        return missingSamples;
-    }
-
-    public List<String> getDuplicateSamples() {
-        return duplicateSamples;
-    }
-
-    public List<String> getUnexpectedSamples() {
-        return unexpectedSamples;
-    }
-
-    private static List<String> immutableCopy(List<String> values) {
-        return Collections.unmodifiableList(new ArrayList<>(values));
-    }
-
     static final class Builder {
         private final int requestedCount;
         private final int returnedCount;
-        private final EnumSet<MismatchType> mismatchTypes = EnumSet.noneOf(MismatchType.class);
         private final List<String> missingSamples = new ArrayList<>();
         private final List<String> duplicateSamples = new ArrayList<>();
         private final List<String> unexpectedSamples = new ArrayList<>();
@@ -121,41 +57,34 @@ public class HmsPartitionResultException extends HmsClientException {
         }
 
         Builder missing(String sample) {
-            mismatchTypes.add(MismatchType.MISSING_RESULT);
             missingCount++;
             addSample(missingSamples, sample);
             return this;
         }
 
         Builder duplicate(String sample) {
-            mismatchTypes.add(MismatchType.DUPLICATE_RESULT);
             duplicateCount++;
             addSample(duplicateSamples, sample);
             return this;
         }
 
         Builder unexpected(String sample) {
-            mismatchTypes.add(MismatchType.UNEXPECTED_RESULT);
             unexpectedCount++;
             addSample(unexpectedSamples, sample);
             return this;
         }
 
         Builder invalid(String sample) {
-            mismatchTypes.add(MismatchType.INVALID_RESULT);
             invalidCount++;
             addSample(invalidSamples, sample);
             return this;
         }
 
         boolean hasMismatches() {
-            return !mismatchTypes.isEmpty();
+            return missingCount + duplicateCount + unexpectedCount + invalidCount > 0;
         }
 
         HmsPartitionResultException build() {
-            if (mismatchTypes.isEmpty()) {
-                throw new IllegalStateException("HMS partition result exception requires a mismatch");
-            }
             return new HmsPartitionResultException(this);
         }
 

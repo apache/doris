@@ -42,11 +42,12 @@ public class HmsPartitionBatchExecutorTest {
         });
 
         List<String> names = names(120_000);
-        List<HmsPartitionInfo> result = executor.execute(request(names));
+        List<HmsPartitionInfo> result = executor.executeWithStats(request(names)).getPartitions();
 
         Assertions.assertEquals(24, batchSizes.size());
         Assertions.assertTrue(batchSizes.stream().allMatch(size -> size == 5000));
-        Assertions.assertEquals(names.stream().map(HmsPartitionIdentity::fromName).collect(Collectors.toList()),
+        Assertions.assertEquals(names.stream().map(HmsPartitionBatchExecutorTest::values)
+                        .collect(Collectors.toList()),
                 result.stream().map(HmsPartitionInfo::getValues).collect(Collectors.toList()));
     }
 
@@ -58,9 +59,9 @@ public class HmsPartitionBatchExecutorTest {
             return infos(names);
         });
 
-        Assertions.assertTrue(executor.execute(request(Collections.emptyList())).isEmpty());
-        Assertions.assertEquals(6, executor.execute(request(names(6))).size());
-        Assertions.assertEquals(7, executor.execute(request(names(7))).size());
+        Assertions.assertTrue(executor.executeWithStats(request(Collections.emptyList())).getPartitions().isEmpty());
+        Assertions.assertEquals(6, executor.executeWithStats(request(names(6))).getPartitions().size());
+        Assertions.assertEquals(7, executor.executeWithStats(request(names(7))).getPartitions().size());
         Assertions.assertEquals(Arrays.asList(3, 3, 3, 3, 1), batchSizes);
     }
 
@@ -75,7 +76,7 @@ public class HmsPartitionBatchExecutorTest {
             return infos(names);
         });
 
-        Assertions.assertEquals(10, executor.execute(request(names(10))).size());
+        Assertions.assertEquals(10, executor.executeWithStats(request(names(10))).getPartitions().size());
         Assertions.assertEquals(Arrays.asList(8, 4, 2, 2, 2, 2, 2), attempts);
     }
 
@@ -111,7 +112,7 @@ public class HmsPartitionBatchExecutorTest {
         });
 
         HmsClientException failure = Assertions.assertThrows(
-                HmsClientException.class, () -> executor.execute(request(names(2))));
+                HmsClientException.class, () -> executor.executeWithStats(request(names(2))));
         Assertions.assertEquals(Arrays.asList(2, 1), attempts);
         Assertions.assertTrue(failure.getMessage().contains("failedBatchSize=1"));
         Assertions.assertTrue(failure.getMessage().contains("transportInvocations=2"));
@@ -135,7 +136,7 @@ public class HmsPartitionBatchExecutorTest {
         });
 
         HmsClientException failure = Assertions.assertThrows(
-                HmsClientException.class, () -> executor.execute(request(names(8))));
+                HmsClientException.class, () -> executor.executeWithStats(request(names(8))));
         Assertions.assertEquals(Collections.singletonList(8), attempts);
         HmsPartitionBatchStats stats = failure.getPartitionBatchStats();
         Assertions.assertNotNull(stats);
@@ -159,30 +160,24 @@ public class HmsPartitionBatchExecutorTest {
             return infos(names);
         });
 
-        Assertions.assertEquals(4, executor.execute(request(names(4))).size());
+        Assertions.assertEquals(4, executor.executeWithStats(request(names(4))).getPartitions().size());
         Assertions.assertEquals(Arrays.asList(4, 2, 2), attempts);
     }
 
     @Test
-    public void reportsAllResultMismatchTypesPrecisely() {
+    public void reportsAllResultMismatchCategoriesPrecisely() {
         HmsPartitionBatchExecutor executor = executor(10, (db, table, names) -> Arrays.asList(
                 info("a"), info("c"), info("c")));
 
         HmsPartitionResultException failure = Assertions.assertThrows(
                 HmsPartitionResultException.class,
-                () -> executor.execute(request(Arrays.asList("p=a", "p=b"))));
-        Assertions.assertEquals(
-                java.util.EnumSet.of(
-                        HmsPartitionResultException.MismatchType.MISSING_RESULT,
-                        HmsPartitionResultException.MismatchType.DUPLICATE_RESULT,
-                        HmsPartitionResultException.MismatchType.UNEXPECTED_RESULT),
-                failure.getMismatchTypes());
-        Assertions.assertEquals(1, failure.getMissingCount());
-        Assertions.assertEquals(1, failure.getUnexpectedCount());
-        Assertions.assertEquals(1, failure.getDuplicateCount());
-        Assertions.assertEquals(Collections.singletonList("p=b"), failure.getMissingSamples());
-        Assertions.assertEquals(Collections.singletonList("[c]"), failure.getUnexpectedSamples());
-        Assertions.assertEquals(Collections.singletonList("[c]"), failure.getDuplicateSamples());
+                () -> executor.executeWithStats(request(Arrays.asList("p=a", "p=b"))));
+        Assertions.assertTrue(failure.getMessage().contains("missing=1"));
+        Assertions.assertTrue(failure.getMessage().contains("duplicate=1"));
+        Assertions.assertTrue(failure.getMessage().contains("unexpected=1"));
+        Assertions.assertTrue(failure.getMessage().contains("missingSamples=[p=b]"));
+        Assertions.assertTrue(failure.getMessage().contains("duplicateSamples=[[c]]"));
+        Assertions.assertTrue(failure.getMessage().contains("unexpectedSamples=[[c]]"));
     }
 
     @Test
@@ -190,8 +185,8 @@ public class HmsPartitionBatchExecutorTest {
         HmsPartitionBatchExecutor executor = executor(10, (db, table, names) ->
                 Arrays.asList(info("c"), info("a")));
 
-        List<HmsPartitionInfo> existing = executor.executeExisting(
-                request(Arrays.asList("p=a", "p=b", "p=c")));
+        List<HmsPartitionInfo> existing = executor.executeExistingWithStats(
+                request(Arrays.asList("p=a", "p=b", "p=c"))).getPartitions();
 
         Assertions.assertEquals(Arrays.asList("a", "c"), existing.stream()
                 .map(partition -> partition.getValues().get(0)).collect(Collectors.toList()));
@@ -204,12 +199,11 @@ public class HmsPartitionBatchExecutorTest {
 
         HmsPartitionResultException failure = Assertions.assertThrows(
                 HmsPartitionResultException.class,
-                () -> executor.executeExisting(request(Arrays.asList("p=a", "p=missing"))));
+                () -> executor.executeExistingWithStats(request(Arrays.asList("p=a", "p=missing"))));
 
-        Assertions.assertEquals(java.util.EnumSet.of(
-                        HmsPartitionResultException.MismatchType.DUPLICATE_RESULT,
-                        HmsPartitionResultException.MismatchType.UNEXPECTED_RESULT),
-                failure.getMismatchTypes());
+        Assertions.assertTrue(failure.getMessage().contains("missing=0"));
+        Assertions.assertTrue(failure.getMessage().contains("duplicate=1"));
+        Assertions.assertTrue(failure.getMessage().contains("unexpected=1"));
     }
 
     @Test
@@ -217,24 +211,23 @@ public class HmsPartitionBatchExecutorTest {
         HmsPartitionBatchExecutor nullResponse = executor(10, (db, table, names) -> null);
         HmsPartitionResultException nullFailure = Assertions.assertThrows(
                 HmsPartitionResultException.class,
-                () -> nullResponse.execute(request(Collections.singletonList("p=a"))));
-        Assertions.assertTrue(nullFailure.getMismatchTypes().contains(
-                HmsPartitionResultException.MismatchType.INVALID_RESULT));
+                () -> nullResponse.executeWithStats(request(Collections.singletonList("p=a"))));
+        Assertions.assertTrue(nullFailure.getMessage().contains("invalid=1"));
 
         HmsPartitionBatchExecutor malformed = executor(10, (db, table, names) -> Collections.singletonList(
                 new HmsPartitionInfo(Arrays.asList("a", "extra"), null, null, null, null, null)));
         HmsPartitionResultException malformedFailure = Assertions.assertThrows(
                 HmsPartitionResultException.class,
-                () -> malformed.execute(request(Collections.singletonList("p=a"))));
-        Assertions.assertEquals(1, malformedFailure.getInvalidCount());
-        Assertions.assertEquals(1, malformedFailure.getMissingCount());
+                () -> malformed.executeWithStats(request(Collections.singletonList("p=a"))));
+        Assertions.assertTrue(malformedFailure.getMessage().contains("invalid=1"));
+        Assertions.assertTrue(malformedFailure.getMessage().contains("missing=1"));
     }
 
     @Test
     public void validatesLogicalRequest() {
-        Assertions.assertEquals(Collections.singletonList(""), HmsPartitionIdentity.fromName("p="));
+        Assertions.assertEquals(Collections.singletonList(""), values("p="));
         Assertions.assertEquals(Arrays.asList("a/b", "x=y"),
-                HmsPartitionIdentity.fromName("p=a%2Fb/q=x%3Dy"));
+                values("p=a%2Fb/q=x%3Dy"));
         Assertions.assertDoesNotThrow(() -> request(Arrays.asList("P=a", "p=b")));
         Assertions.assertThrows(IllegalArgumentException.class, () -> request(Arrays.asList("p=a", "q=b")));
         Assertions.assertThrows(IllegalArgumentException.class, () -> request(Collections.singletonList("p=a/")));
@@ -258,18 +251,15 @@ public class HmsPartitionBatchExecutorTest {
     }
 
     private static HmsPartitionBatchExecutor executor(int batchSize, HmsPartitionTransport transport) {
-        return HmsPartitionBatchExecutor.builder()
-                .maxBatchSize(batchSize)
-                .transport(transport)
-                .build();
+        return new HmsPartitionBatchExecutor(batchSize, transport);
     }
 
     private static HmsPartitionRequest request(List<String> names) {
-        return HmsPartitionRequest.builder()
-                .database("db")
-                .table("table")
-                .partitionNames(names)
-                .build();
+        return new HmsPartitionRequest("db", "table", names);
+    }
+
+    private static List<String> values(String name) {
+        return request(Collections.singletonList(name)).getPartitions().get(0).getValues();
     }
 
     private static HmsPartitionBatchExecutor.RemoteCallException remoteFailure(String message) {
@@ -282,7 +272,7 @@ public class HmsPartitionBatchExecutorTest {
     }
 
     private static List<HmsPartitionInfo> infos(List<String> names) {
-        return names.stream().map(HmsPartitionIdentity::fromName).map(HmsPartitionBatchExecutorTest::info)
+        return names.stream().map(HmsPartitionBatchExecutorTest::values).map(HmsPartitionBatchExecutorTest::info)
                 .collect(Collectors.toList());
     }
 

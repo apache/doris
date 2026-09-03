@@ -25,7 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
-import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.BaseTableInfo;
@@ -66,7 +66,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.Function;
 
 
 public class MTMV extends OlapTable {
@@ -540,20 +539,20 @@ public class MTMV extends OlapTable {
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
             Map<String, PartitionItem> mvPartitionItems) throws AnalysisException {
         return getEffectiveQueryUsedBaseTablePartitionMap(queryUsedBaseTablePartitionMap, mvPartitionItems,
-                MvccUtil::getSnapshotFromContext);
+                null);
     }
 
     private Map<List<String>, Set<String>> getEffectiveQueryUsedBaseTablePartitionMap(
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
             Map<String, PartitionItem> mvPartitionItems,
-            Function<MTMVRelatedTableIf, Optional<MvccSnapshot>> snapshotResolver) throws AnalysisException {
+            Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) throws AnalysisException {
         if (queryUsedBaseTablePartitionMap.isEmpty()
                 || mvPartitionInfo.getPartitionType() != MTMVPartitionType.EXPR) {
             return queryUsedBaseTablePartitionMap;
         }
         return MTMVPartitionExpander.expandToMvPartitionGranularity(queryUsedBaseTablePartitionMap,
                 mvPartitionItems != null ? mvPartitionItems : getAndCopyPartitionItems(),
-                mvPartitionInfo.getPctTables(), snapshotResolver);
+                mvPartitionInfo.getPctTables(), pinnedSnapshots);
     }
 
     /**
@@ -566,12 +565,12 @@ public class MTMV extends OlapTable {
      */
     public Map<String, Map<MTMVRelatedTableIf, Set<String>>> calculatePartitionMappings(
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap) throws AnalysisException {
-        return calculatePartitionMappings(queryUsedBaseTablePartitionMap, MvccUtil::getSnapshotFromContext);
+        return calculatePartitionMappings(queryUsedBaseTablePartitionMap, null);
     }
 
     public Map<String, Map<MTMVRelatedTableIf, Set<String>>> calculatePartitionMappings(
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
-            Function<MTMVRelatedTableIf, Optional<MvccSnapshot>> snapshotResolver) throws AnalysisException {
+            Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return Maps.newHashMap();
         }
@@ -585,11 +584,11 @@ public class MTMV extends OlapTable {
         Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
         Map<List<String>, Set<String>> effectiveFilter
                 = getEffectiveQueryUsedBaseTablePartitionMap(
-                        queryUsedBaseTablePartitionMap, mvPartitionItems, snapshotResolver);
+                        queryUsedBaseTablePartitionMap, mvPartitionItems, pinnedSnapshots);
         Map<String, Map<MTMVRelatedTableIf, Set<String>>> res = Maps.newHashMap();
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> pctPartitionDescs = MTMVPartitionUtil
                 .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, getPartitionColumns(),
-                        effectiveFilter, snapshotResolver);
+                        effectiveFilter, pinnedSnapshots);
         for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
             res.put(entry.getKey(),
                     pctPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Maps.newHashMap()));

@@ -29,11 +29,6 @@ import java.util.Map;
 /** Splits one logical partition request into bounded, validated HMS RPCs. */
 final class HmsPartitionBatchExecutor {
 
-    @FunctionalInterface
-    interface FailureClassifier {
-        boolean isDegradable(Throwable failure);
-    }
-
     static final class RemoteCallException extends HmsClientException {
         RemoteCallException(String message, Throwable cause) {
             super(message, cause);
@@ -41,27 +36,14 @@ final class HmsPartitionBatchExecutor {
     }
 
     private final int maxBatchSize;
-    private final int minBatchSize;
     private final HmsPartitionTransport transport;
-    private final FailureClassifier failureClassifier;
 
-    private HmsPartitionBatchExecutor(Builder builder) {
-        this.maxBatchSize = builder.maxBatchSize;
-        this.minBatchSize = builder.minBatchSize;
-        this.transport = builder.transport;
-        this.failureClassifier = builder.failureClassifier;
-    }
-
-    static Builder builder() {
-        return new Builder();
-    }
-
-    List<HmsPartitionInfo> execute(HmsPartitionRequest request) {
-        return executeWithStats(request).getPartitions();
-    }
-
-    List<HmsPartitionInfo> executeExisting(HmsPartitionRequest request) {
-        return executeExistingWithStats(request).getPartitions();
+    HmsPartitionBatchExecutor(int maxBatchSize, HmsPartitionTransport transport) {
+        if (maxBatchSize <= 0) {
+            throw new IllegalArgumentException("invalid HMS partition batch size");
+        }
+        this.maxBatchSize = maxBatchSize;
+        this.transport = java.util.Objects.requireNonNull(transport, "transport");
     }
 
     HmsPartitionBatchResult executeExistingWithStats(HmsPartitionRequest request) {
@@ -112,11 +94,11 @@ final class HmsPartitionBatchExecutor {
                 result.addAll(validateAndOrder(batch, returned, allowMissing));
                 offset += batchSize;
             } catch (RemoteCallException e) {
-                if (batchSize <= minBatchSize || !failureClassifier.isDegradable(e)) {
+                if (batchSize == 1 || !isDegradableRemoteFailure(e)) {
                     terminalFailure = finalBatchFailure(request, offset, batchSize, effectiveBatchSize,
                             transportInvocations, fallbackCount, e);
                 } else {
-                    effectiveBatchSize = Math.max(minBatchSize, batchSize / 2);
+                    effectiveBatchSize = Math.max(1, batchSize / 2);
                     fallbackCount++;
                 }
             } catch (HmsClientException e) {
@@ -161,12 +143,6 @@ final class HmsPartitionBatchExecutor {
                 .transportElapsedNanos(transportElapsedNanos)
                 .maxTransportElapsedNanos(maxTransportElapsedNanos)
                 .build();
-    }
-
-    static List<HmsPartitionInfo> validateAndOrder(
-            List<HmsPartitionIdentity.ParsedPartitionName> requested,
-            List<HmsPartitionInfo> returned) {
-        return validateAndOrder(requested, returned, false);
     }
 
     private static List<HmsPartitionInfo> validateAndOrder(
@@ -235,18 +211,15 @@ final class HmsPartitionBatchExecutor {
             RemoteCallException failure) {
         return new HmsClientException(String.format(
                 "HMS partition batch request failed: db=%s, table=%s, requested=%d, offset=%d, "
-                        + "failedBatchSize=%d, effectiveBatchSize=%d, minBatchSize=%d, "
+                        + "failedBatchSize=%d, effectiveBatchSize=%d, "
                         + "transportInvocations=%d, "
                         + "fallbacks=%d: %s",
                 request.getDbName(), request.getTableName(), request.getPartitions().size(), offset,
-                failedBatchSize, effectiveBatchSize, minBatchSize, transportInvocations, fallbackCount,
+                failedBatchSize, effectiveBatchSize, transportInvocations, fallbackCount,
                 failure.getMessage()), failure);
     }
 
-    static boolean isDegradableRemoteFailure(Throwable failure) {
-        if (!(failure instanceof RemoteCallException)) {
-            return false;
-        }
+    private static boolean isDegradableRemoteFailure(RemoteCallException failure) {
         boolean thriftFailure = false;
         boolean sizeFailure = false;
         for (Throwable current = failure.getCause(); current != null; current = current.getCause()) {
@@ -272,42 +245,4 @@ final class HmsPartitionBatchExecutor {
         return thriftFailure && sizeFailure;
     }
 
-    static final class Builder {
-        private int maxBatchSize;
-        private int minBatchSize = 1;
-        private HmsPartitionTransport transport;
-        private FailureClassifier failureClassifier = HmsPartitionBatchExecutor::isDegradableRemoteFailure;
-
-        private Builder() {
-        }
-
-        Builder maxBatchSize(int maxBatchSize) {
-            this.maxBatchSize = maxBatchSize;
-            return this;
-        }
-
-        Builder minBatchSize(int minBatchSize) {
-            this.minBatchSize = minBatchSize;
-            return this;
-        }
-
-        Builder transport(HmsPartitionTransport transport) {
-            this.transport = transport;
-            return this;
-        }
-
-        Builder failureClassifier(FailureClassifier failureClassifier) {
-            this.failureClassifier = failureClassifier;
-            return this;
-        }
-
-        HmsPartitionBatchExecutor build() {
-            if (maxBatchSize <= 0 || minBatchSize <= 0 || minBatchSize > maxBatchSize) {
-                throw new IllegalArgumentException("invalid HMS partition batch size range");
-            }
-            java.util.Objects.requireNonNull(transport, "transport");
-            java.util.Objects.requireNonNull(failureClassifier, "failureClassifier");
-            return new HmsPartitionBatchExecutor(this);
-        }
-    }
 }

@@ -377,9 +377,6 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     public BulkLoadHandle beginBulkLoad(ScopePath parentScope) {
         Objects.requireNonNull(parentScope, "parentScope can not be null");
         checkOpen();
-        if (!effectiveEnabled) {
-            return BulkLoadHandle.disabled(this, parentScope);
-        }
         ScopeLease scopeLease = registry.acquire(parentScope);
         BigInteger exactSequence = bulkInvalidationGate.write(() -> {
             if (closed.get()) {
@@ -425,9 +422,6 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         Objects.requireNonNull(key, "key can not be null");
         checkOpen();
         handle.checkOwner(this);
-        if (!effectiveEnabled) {
-            return false;
-        }
         return bulkInvalidationGate.readBoolean(() -> isBulkKeyCurrent(handle, key)
                 && handle.scopeLease.commitIfPublicationCurrent(handle.scopePublicationState, () -> true));
     }
@@ -716,20 +710,17 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             if (!handle.closed.compareAndSet(false, true)) {
                 return null;
             }
-            if (handle.scopeLease != null) {
-                Integer count = activeBulkStarts.get(handle.exactInvalidationSequence);
-                if (count == null) {
-                    throw new IllegalStateException("Bulk-load handle start sequence is not registered");
-                }
-                if (count == 1) {
-                    activeBulkStarts.remove(handle.exactInvalidationSequence);
-                } else {
-                    activeBulkStarts.put(handle.exactInvalidationSequence, count - 1);
-                }
-                pruneExactInvalidations();
-                return handle.scopeLease;
+            Integer count = activeBulkStarts.get(handle.exactInvalidationSequence);
+            if (count == null) {
+                throw new IllegalStateException("Bulk-load handle start sequence is not registered");
             }
-            return null;
+            if (count == 1) {
+                activeBulkStarts.remove(handle.exactInvalidationSequence);
+            } else {
+                activeBulkStarts.put(handle.exactInvalidationSequence, count - 1);
+            }
+            pruneExactInvalidations();
+            return handle.scopeLease;
         });
         if (leaseToClose != null) {
             leaseToClose.close();
@@ -923,11 +914,6 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             this.scopeLease = scopeLease;
             this.scopePublicationState = scopePublicationState;
             this.exactInvalidationSequence = exactInvalidationSequence;
-        }
-
-        private static BulkLoadHandle disabled(
-                ScopedMetaCache<?, ?> owner, ScopePath parentScope) {
-            return new BulkLoadHandle(owner, parentScope, null, null, BigInteger.ZERO);
         }
 
         private void checkOwner(ScopedMetaCache<?, ?> expectedOwner) {

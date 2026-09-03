@@ -29,17 +29,23 @@ final class HmsPartitionIdentity {
     private HmsPartitionIdentity() {
     }
 
-    static List<String> fromName(String partitionName) {
-        return parse(partitionName).getValues();
+    static List<String> keysFromName(String partitionName) {
+        return parseParts(partitionName, null, true);
     }
 
-    static ParsedPartitionName parse(String partitionName) {
+    static ParsedPartitionName parse(String partitionName, List<String> expectedKeys) {
+        return new ParsedPartitionName(partitionName,
+                Collections.unmodifiableList(parseParts(partitionName, expectedKeys, false)));
+    }
+
+    private static List<String> parseParts(
+            String partitionName, List<String> expectedKeys, boolean returnKeys) {
         if (partitionName == null || partitionName.isEmpty()) {
             throw new IllegalArgumentException("partition name must not be empty");
         }
-        List<String> keys = new ArrayList<>();
-        List<String> values = new ArrayList<>();
+        List<String> parts = new ArrayList<>();
         int segmentStart = 0;
+        int keyIndex = 0;
         while (segmentStart < partitionName.length()) {
             int segmentEnd = partitionName.indexOf('/', segmentStart);
             if (segmentEnd < 0) {
@@ -49,9 +55,15 @@ final class HmsPartitionIdentity {
             if (separator <= segmentStart || separator >= segmentEnd) {
                 throw new IllegalArgumentException("invalid partition name: " + partitionName);
             }
-            keys.add(FileUtils.unescapePathName(partitionName.substring(segmentStart, separator))
-                    .toLowerCase(Locale.ROOT));
-            values.add(FileUtils.unescapePathName(partitionName.substring(separator + 1, segmentEnd)));
+            String key = FileUtils.unescapePathName(partitionName.substring(segmentStart, separator))
+                    .toLowerCase(Locale.ROOT);
+            if (expectedKeys != null
+                    && (keyIndex >= expectedKeys.size() || !expectedKeys.get(keyIndex).equals(key))) {
+                throw new IllegalArgumentException("inconsistent partition keys in request: " + partitionName);
+            }
+            parts.add(returnKeys ? key
+                    : FileUtils.unescapePathName(partitionName.substring(separator + 1, segmentEnd)));
+            keyIndex++;
             if (segmentEnd == partitionName.length()) {
                 break;
             }
@@ -60,27 +72,23 @@ final class HmsPartitionIdentity {
                 throw new IllegalArgumentException("invalid partition name: " + partitionName);
             }
         }
-        return new ParsedPartitionName(
-                partitionName, Collections.unmodifiableList(keys), Collections.unmodifiableList(values));
+        if (expectedKeys != null && keyIndex != expectedKeys.size()) {
+            throw new IllegalArgumentException("inconsistent partition keys in request: " + partitionName);
+        }
+        return parts;
     }
 
     static final class ParsedPartitionName {
         private final String name;
-        private final List<String> keys;
         private final List<String> values;
 
-        private ParsedPartitionName(String name, List<String> keys, List<String> values) {
+        private ParsedPartitionName(String name, List<String> values) {
             this.name = name;
-            this.keys = keys;
             this.values = values;
         }
 
         String getName() {
             return name;
-        }
-
-        List<String> getKeys() {
-            return keys;
         }
 
         List<String> getValues() {

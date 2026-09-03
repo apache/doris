@@ -212,7 +212,7 @@ public class ThriftHmsClientWriteAcidTest {
             List<Partition> partitions = new ArrayList<>(names.size());
             for (String name : names) {
                 Partition partition = new Partition();
-                partition.setValues(HmsPartitionIdentity.fromName(name));
+                partition.setValues(partitionValues(name));
                 partitions.add(partition);
             }
             return partitions;
@@ -250,7 +250,7 @@ public class ThriftHmsClientWriteAcidTest {
             List<Partition> partitions = new ArrayList<>(names.size());
             for (String name : names) {
                 Partition partition = new Partition();
-                partition.setValues(HmsPartitionIdentity.fromName(name));
+                partition.setValues(partitionValues(name));
                 partitions.add(partition);
             }
             return partitions;
@@ -278,7 +278,7 @@ public class ThriftHmsClientWriteAcidTest {
             List<Partition> partitions = new ArrayList<>(names.size());
             for (String name : names) {
                 Partition partition = new Partition();
-                partition.setValues(HmsPartitionIdentity.fromName(name));
+                partition.setValues(partitionValues(name));
                 partitions.add(partition);
             }
             return partitions;
@@ -329,7 +329,7 @@ public class ThriftHmsClientWriteAcidTest {
             List<Partition> partitions = new ArrayList<>(partitionNames.size());
             for (String partitionName : partitionNames) {
                 Partition partition = new Partition();
-                partition.setValues(HmsPartitionIdentity.fromName(partitionName));
+                partition.setValues(partitionValues(partitionName));
                 partitions.add(partition);
             }
             return partitions;
@@ -348,6 +348,11 @@ public class ThriftHmsClientWriteAcidTest {
         Assertions.assertEquals(2, stats.getLargestBatchSize());
         Assertions.assertEquals(1, stats.getSmallestBatchSize());
         Assertions.assertEquals(0, stats.getFallbackCount());
+    }
+
+    private static List<String> partitionValues(String partitionName) {
+        return new HmsPartitionRequest("db", "table", Collections.singletonList(partitionName))
+                .getPartitions().get(0).getValues();
     }
 
     @Test

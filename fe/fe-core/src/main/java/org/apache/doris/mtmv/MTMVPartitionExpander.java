@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 
 import com.google.common.collect.Maps;
@@ -36,7 +37,6 @@ import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.function.Function;
 
 /**
  * Utility to expand query-used partition filters to MV partition granularity
@@ -60,14 +60,14 @@ public class MTMVPartitionExpander {
             Map<String, PartitionItem> mvPartitionItems,
             Set<MTMVRelatedTableIf> pctTables) throws AnalysisException {
         return expandToMvPartitionGranularity(queryUsedBaseTablePartitionMap, mvPartitionItems,
-                pctTables, MvccUtil::getSnapshotFromContext);
+                pctTables, null);
     }
 
     public static Map<List<String>, Set<String>> expandToMvPartitionGranularity(
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
             Map<String, PartitionItem> mvPartitionItems,
             Set<MTMVRelatedTableIf> pctTables,
-            Function<MTMVRelatedTableIf, Optional<MvccSnapshot>> snapshotResolver) throws AnalysisException {
+            Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) throws AnalysisException {
         NavigableMap<PartitionKey, Range<PartitionKey>> mvRanges = new TreeMap<>();
         for (PartitionItem item : mvPartitionItems.values()) {
             Range<PartitionKey> range = ((RangePartitionItem) item).getItems();
@@ -82,7 +82,9 @@ public class MTMVPartitionExpander {
                 continue;
             }
 
-            Optional<MvccSnapshot> snapshot = snapshotResolver.apply(pctTable);
+            Optional<MvccSnapshot> snapshot = pinnedSnapshots == null
+                    ? MvccUtil.getSnapshotFromContext(pctTable)
+                    : Optional.ofNullable(pinnedSnapshots.get(new MvccTableInfo(pctTable)));
             if (pctTable.getPartitionType(snapshot) != PartitionType.RANGE) {
                 expanded.put(qualifiers, queryUsedPartitions);
                 continue;

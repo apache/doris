@@ -95,7 +95,8 @@ public final class MetaCache<K, V> {
 
     /**
      * Starts a bulk remote load whose results all belong below {@code parentScope}. Publishing through the
-     * returned handle is fenced against concurrent scope and exact-key invalidation.
+     * returned handle is fenced against concurrent scope and exact-key invalidation. A disabled cache still
+     * returns a currentness fence, but {@link BulkLoad#publish(Object, Object)} retains no values.
      */
     public BulkLoad<K, V> beginBulkLoad(ScopePath parentScope) {
         return new BulkLoad<>(this, delegate.beginBulkLoad(parentScope));

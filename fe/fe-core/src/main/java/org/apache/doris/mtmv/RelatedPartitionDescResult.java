@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 
 import com.google.common.collect.Maps;
@@ -27,25 +28,19 @@ import com.google.common.collect.Maps;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 
 public class RelatedPartitionDescResult {
     // PartitionKeyDesc to relatedTable partition ids(Different partitions may have the same PartitionKeyDesc)
     private Map<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> descs;
     private Map<MTMVRelatedTableIf, Map<String, PartitionItem>> items;
     private Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> res;
-    private final Function<MTMVRelatedTableIf, Optional<MvccSnapshot>> snapshotResolver;
+    private final Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots;
 
-    public RelatedPartitionDescResult() {
-        this(MvccUtil::getSnapshotFromContext);
-    }
-
-    public RelatedPartitionDescResult(
-            Function<MTMVRelatedTableIf, Optional<MvccSnapshot>> snapshotResolver) {
+    RelatedPartitionDescResult(Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) {
         this.descs = Maps.newHashMap();
         this.items = Maps.newHashMap();
         this.res = Maps.newHashMap();
-        this.snapshotResolver = snapshotResolver;
+        this.pinnedSnapshots = pinnedSnapshots;
     }
 
     public Map<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> getDescs() {
@@ -76,6 +71,8 @@ public class RelatedPartitionDescResult {
     }
 
     public Optional<MvccSnapshot> resolveSnapshot(MTMVRelatedTableIf table) {
-        return snapshotResolver.apply(table);
+        return pinnedSnapshots == null
+                ? MvccUtil.getSnapshotFromContext(table)
+                : Optional.ofNullable(pinnedSnapshots.get(new MvccTableInfo(table)));
     }
 }
