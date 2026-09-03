@@ -37,10 +37,10 @@ suite("test_variant_typed_path_bloom_filter", "nonConcurrent") {
     """
     sql """
         INSERT INTO test_variant_typed_path_bloom_filter VALUES
-            (1, '{"int_1": 1}'),
-            (2, '{"int_1": 2}'),
-            (3, '{"int_1": 100}'),
-            (4, '{"int_1": 101}');
+            (1, parse_to_variant('{"int_1": 1}')),
+            (2, parse_to_variant('{"int_1": 2}')),
+            (3, parse_to_variant('{"int_1": 100}')),
+            (4, parse_to_variant('{"int_1": 101}'));
     """
     sql """sync"""
 
