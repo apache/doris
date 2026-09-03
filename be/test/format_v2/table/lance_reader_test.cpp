@@ -887,6 +887,24 @@ std::shared_ptr<arrow::Array> make_bfloat16_vector_array() {
     return array;
 }
 
+// Creates a scalar Lance BFloat16 array from raw 16-bit values.
+std::shared_ptr<arrow::FixedSizeBinaryArray> make_bfloat16_array(
+        const std::vector<std::optional<uint16_t>>& values) {
+    arrow::FixedSizeBinaryBuilder builder(arrow::fixed_size_binary(2));
+    for (const auto& value : values) {
+        if (!value.has_value()) {
+            EXPECT_TRUE(builder.AppendNull().ok());
+            continue;
+        }
+        std::array<uint8_t, sizeof(uint16_t)> bytes {};
+        LittleEndian::Store16(bytes.data(), *value);
+        EXPECT_TRUE(builder.Append(bytes.data()).ok());
+    }
+    std::shared_ptr<arrow::FixedSizeBinaryArray> array;
+    EXPECT_TRUE(builder.Finish(&array).ok());
+    return array;
+}
+
 std::pair<size_t, size_t> array_range(const ColumnArray& array, size_t row) {
     const auto& offsets = array.get_offsets();
     return {row == 0 ? 0 : static_cast<size_t>(offsets[row - 1]),
@@ -1112,6 +1130,127 @@ TEST(LanceTableReaderTypeTest, ReadsAdditionalArrowAndLanceTypes) {
     const auto& floats = assert_cast<const ColumnFloat32&>(bfloat16_values.get_nested_column());
     EXPECT_FLOAT_EQ(1.0F, floats.get_data()[0]);
     EXPECT_FLOAT_EQ(2.0F, floats.get_data()[1]);
+    EXPECT_TRUE(reader.close().ok());
+}
+
+// Verifies BFloat16 special values retain their exact Float32 bit patterns.
+TEST(LanceTableReaderTypeTest, ConvertsBFloat16SpecialValuesExactly) {
+    const auto metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto field = arrow::field("value", arrow::fixed_size_binary(2))->WithMetadata(metadata);
+    const std::vector<std::optional<uint16_t>> input_bits {0x0000, 0x8000, 0x3F80, 0xBF80,
+                                                           0x7F80, 0xFF80, 0x7FC1, std::nullopt};
+    const std::array<uint32_t, 7> expected_bits {0x00000000, 0x80000000, 0x3F800000, 0xBF800000,
+                                                 0x7F800000, 0xFF800000, 0x7FC10000};
+
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(field, make_bfloat16_array(input_bits),
+                                                             &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto floats = std::dynamic_pointer_cast<arrow::FloatArray>(normalized);
+    ASSERT_NE(nullptr, floats);
+    ASSERT_EQ(input_bits.size(), static_cast<size_t>(floats->length()));
+    for (size_t index = 0; index < expected_bits.size(); ++index) {
+        ASSERT_FALSE(floats->IsNull(index));
+        EXPECT_EQ(expected_bits[index], std::bit_cast<uint32_t>(floats->Value(index)));
+    }
+    EXPECT_TRUE(floats->IsNull(expected_bits.size()));
+}
+
+// Verifies nested BFloat16 fields are converted without rebuilding unaffected sibling data.
+TEST(LanceTableReaderTypeTest, ConvertsBFloat16NestedInStruct) {
+    const auto metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto value_field =
+            arrow::field("value", arrow::fixed_size_binary(2))->WithMetadata(metadata);
+    const auto id_field = arrow::field("id", arrow::int32());
+    const auto bfloat16_values = make_bfloat16_array(
+            {std::optional<uint16_t> {0x3F80}, std::optional<uint16_t> {0xC020}});
+    arrow::Int32Builder id_builder;
+    ASSERT_TRUE(id_builder.AppendValues({7, 8}).ok());
+    std::shared_ptr<arrow::Int32Array> ids;
+    ASSERT_TRUE(id_builder.Finish(&ids).ok());
+    auto struct_result = arrow::StructArray::Make({bfloat16_values, ids}, {value_field, id_field});
+    ASSERT_TRUE(struct_result.ok()) << struct_result.status().ToString();
+    const auto input = std::move(struct_result).ValueUnsafe();
+    const auto field = arrow::field("record", input->type());
+
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(field, input, &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(input.get(), normalized.get());
+    const auto normalized_struct = std::dynamic_pointer_cast<arrow::StructArray>(normalized);
+    ASSERT_NE(nullptr, normalized_struct);
+    const auto floats = std::dynamic_pointer_cast<arrow::FloatArray>(normalized_struct->field(0));
+    ASSERT_NE(nullptr, floats);
+    EXPECT_FLOAT_EQ(1.0F, floats->Value(0));
+    EXPECT_FLOAT_EQ(-2.5F, floats->Value(1));
+    EXPECT_EQ(ids->data().get(), normalized_struct->field(1)->data().get());
+}
+
+// Verifies the Lance JSON extension reads LargeBinary values and nulls through JSON SerDe.
+TEST(LanceTableReaderTypeTest, ReadsLanceJsonLargeBinaryValues) {
+    const auto metadata = arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.json"});
+    const auto schema = arrow::schema(
+            {arrow::field("json_value", arrow::large_binary())->WithMetadata(metadata)});
+    arrow::LargeBinaryBuilder builder;
+    ASSERT_TRUE(builder.Append(R"({"format":"lance","value":42})").ok());
+    ASSERT_TRUE(builder.AppendNull().ok());
+    std::shared_ptr<arrow::LargeBinaryArray> values;
+    ASSERT_TRUE(builder.Finish(&values).ok());
+    const auto record_batch = arrow::RecordBatch::Make(schema, 2, {values});
+
+    const Columns columns {projected_column("json_value", TYPE_JSONB, true)};
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_json_large_binary");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    size_t rows = 0;
+    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_EQ(2, rows);
+    const auto& json_values = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    EXPECT_EQ((ColumnUInt8::Container {0, 1}), json_values.get_null_map_data());
+    EXPECT_EQ(R"({"format":"lance","value":42})", columns[0].type->to_string(json_values, 0));
+    EXPECT_TRUE(reader.close().ok());
+}
+
+// Verifies Duration values preserve signed 64-bit boundaries and nullability.
+TEST(LanceTableReaderTypeTest, ReadsDurationBoundaryValues) {
+    const auto duration_type = arrow::duration(arrow::TimeUnit::NANO);
+    const auto schema = arrow::schema({arrow::field("duration", duration_type)});
+    arrow::DurationBuilder builder(duration_type, arrow::default_memory_pool());
+    const std::array<int64_t, 4> expected {std::numeric_limits<int64_t>::min(), -1, 0,
+                                           std::numeric_limits<int64_t>::max()};
+    ASSERT_TRUE(builder.AppendValues(expected.data(), expected.size()).ok());
+    ASSERT_TRUE(builder.AppendNull().ok());
+    std::shared_ptr<arrow::DurationArray> values;
+    ASSERT_TRUE(builder.Finish(&values).ok());
+    const auto record_batch = arrow::RecordBatch::Make(schema, 5, {values});
+
+    const Columns columns {projected_column("duration", TYPE_BIGINT, true)};
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_duration_boundaries");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    size_t rows = 0;
+    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_EQ(5, rows);
+    const auto& durations = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& duration_values = assert_cast<const ColumnInt64&>(durations.get_nested_column());
+    EXPECT_EQ((ColumnUInt8::Container {0, 0, 0, 0, 1}), durations.get_null_map_data());
+    for (size_t index = 0; index < expected.size(); ++index) {
+        EXPECT_EQ(expected[index], duration_values.get_data()[index]);
+    }
     EXPECT_TRUE(reader.close().ok());
 }
 
