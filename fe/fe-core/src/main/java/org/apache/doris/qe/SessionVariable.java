@@ -208,6 +208,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SKIP_PRUNE_PREDICATE = "skip_prune_predicate";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_HIVE_SQL_CACHE = "enable_hive_sql_cache";
+    public static final String ENABLE_EXTERNAL_SCAN_TASK_REUSE = "enable_external_scan_task_reuse";
     public static final String ENABLE_QUERY_CACHE = "enable_query_cache";
     public static final String ENABLE_QUERY_CACHE_INCREMENTAL = "enable_query_cache_incremental";
     public static final String QUERY_CACHE_FORCE_REFRESH = "query_cache_force_refresh";
@@ -1546,6 +1547,10 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_HIVE_SQL_CACHE, fuzzy = false)
     public boolean enableHiveSqlCache = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_EXTERNAL_SCAN_TASK_REUSE, needForward = true,
+            description = "Whether to reuse equivalent external table scan splits within one statement.")
+    public boolean enableExternalScanTaskReuse = true;
 
     // Forwarded because query cache normalization runs wherever the statement is
     // planned: a forwarded statement is planned by the master in a fresh

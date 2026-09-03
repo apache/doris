@@ -73,15 +73,16 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Write binding gained execution-capability methods in this surface revision. A plugin built against
-        // major 5 must be refused rather than run against a contract it did not compile against.
-        Assertions.assertEquals("6.0", version.getProperty("api.version"));
+        // ConnectorSession gained the external-scan-reuse policy method in this surface revision. A plugin
+        // built against major 7 must be refused by a major-6 FE rather than link against a missing method.
+        Assertions.assertEquals("7.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
             ConnectorProvider.class,
             ConnectorContext.class,
+            ConnectorSession.class,
             Connector.class,
             ConnectorColumnHandle.class,
             ConnectorTableSchema.class,
