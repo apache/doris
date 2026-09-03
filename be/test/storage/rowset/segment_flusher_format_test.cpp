@@ -3265,7 +3265,7 @@ protected:
 
     Status flush_blocks_without_golden(
             std::string_view case_name, const TabletSchemaSPtr& schema, std::vector<Block> blocks,
-            bool enable_vertical_writer, bool enable_unique_key_merge_on_write,
+            bool enable_unique_key_merge_on_write,
             const std::function<void(RowsetWriterContext&)>& configure_context,
             std::shared_ptr<TestSegmentCollector>* output_collector) const {
         const auto directory = fmt::format("{}/{}", kTestDir, case_name);
@@ -3285,7 +3285,6 @@ protected:
         context.segment_collector = segment_collector;
         configure_context(context);
 
-        config::enable_vertical_segment_writer = enable_vertical_writer;
         auto* sync_point = SyncPoint::get_instance();
         const bool sync_point_was_enabled = sync_point->get_enable();
         sync_point->enable_processing();
@@ -3297,7 +3296,7 @@ protected:
         std::vector<uint32_t> vertical_segment_ids;
         SyncPoint::CallbackGuard vertical_writer_guard;
         sync_point->set_call_back(
-                "SegmentFlusher::flush_vertical_segment_writer",
+                "SegmentFlusher::write_block_path",
                 [&vertical_segment_ids](auto&& args) {
                     vertical_segment_ids.push_back(*try_any_cast<uint32_t*>(args[0]));
                 },
@@ -3311,13 +3310,12 @@ protected:
                     flusher.flush_single_block(&blocks[segment_id], cast_set<int32_t>(segment_id)));
         }
         RETURN_IF_ERROR(flusher.close());
-        const auto expected_vertical_segment_ids =
-                enable_vertical_writer ? segment_collector->segment_ids : std::vector<uint32_t> {};
-        if (vertical_segment_ids != expected_vertical_segment_ids) {
+        // flush_single_block always feeds write_block, so every segment fires the sync point
+        if (vertical_segment_ids != segment_collector->segment_ids) {
             return Status::InternalError(
-                    "unexpected Segment writer path for {}: expected {} vertical flushes, "
+                    "unexpected Segment writer path for {}: expected {} write_block flushes, "
                     "observed {}",
-                    case_name, expected_vertical_segment_ids.size(), vertical_segment_ids.size());
+                    case_name, segment_collector->segment_ids.size(), vertical_segment_ids.size());
         }
         *output_collector = std::move(segment_collector);
         return Status::OK();
@@ -3547,7 +3545,7 @@ TEST_F(SegmentFlusherTransformFormatTest,
     std::shared_ptr<TestSegmentCollector> base_collector;
     auto base_flush_status = flush_blocks_without_golden(
             base_case_name, tablets.source_tablet->tablet_schema(),
-            {std::move(base_block_result).value()}, false, true,
+            {std::move(base_block_result).value()}, true,
             [this, tablets, partial_update_info, history,
              mow_context](RowsetWriterContext& context) {
                 configure_partial_update_context(context, tablets.source_tablet,
@@ -3593,7 +3591,7 @@ TEST_F(SegmentFlusherTransformFormatTest,
     std::shared_ptr<TestSegmentCollector> binlog_collector;
     auto binlog_flush_status = flush_blocks_without_golden(
             binlog_case_name, tablets.binlog_tablet->tablet_schema(),
-            {std::move(binlog_block_result).value()}, false, false,
+            {std::move(binlog_block_result).value()}, false,
             [this, tablets, partial_update_info, history,
              mow_context](RowsetWriterContext& context) {
                 configure_row_binlog_context(context, tablets.source_tablet, tablets.binlog_tablet,
