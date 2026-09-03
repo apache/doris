@@ -163,6 +163,22 @@ public class ExpressionAnalyzerTest {
     }
 
     @Test
+    public void testStructElementAtFunctionCanonicalizesUnicodeSelector() {
+        StructType structType = new StructType(ImmutableList.of(
+                new StructField("Σ", "Σ", IntegerType.INSTANCE, true, "", false)));
+        SlotReference payload = new SlotReference(
+                new ExprId(1), "payload", structType, true, ImmutableList.of());
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of()),
+                null, true, true);
+
+        Expression analyzed = analyzer.analyze(new UnboundFunction("element_at",
+                ImmutableList.of(payload, new StringLiteral("Σ"))));
+
+        Assertions.assertInstanceOf(ElementAt.class, analyzed);
+        Assertions.assertEquals("σ", ((StringLikeLiteral) analyzed.child(1)).getStringValue());
+    }
+
+    @Test
     public void testStructDereferenceCanonicalizesUnicodeSelector() {
         StructType structType = new StructType(ImmutableList.of(
                 new StructField("Σ", "Σ", IntegerType.INSTANCE, true, "", false)));

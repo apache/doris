@@ -297,15 +297,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }
         }
         Expression right = elementAt.right().accept(this, context);
-        if (left.getDataType() instanceof StructType && right instanceof StringLikeLiteral) {
-            String selector = ((StringLikeLiteral) right).getStringValue();
-            StructField field = ((StructType) left.getDataType()).getField(selector);
-            if (field != null && !field.getName().equals(selector)) {
-                // BE struct names use the normalized thrift identity and cannot Unicode-fold external spelling.
-                right = new StringLiteral(field.getName());
-            }
-        }
         elementAt = (ElementAt) elementAt.withChildren(left, right);
+        elementAt = canonicalizeStructSelector(elementAt);
         Expression coerced = TypeCoercionUtils.processBoundFunction(elementAt);
         if (isEnableVariantSchemaAutoCast(context)) {
             return wrapVariantElementAtWithCast(coerced);
@@ -616,7 +609,12 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             // we do type coercion in build function in alias function, so it's ok to return directly.
             return buildResult.first;
         } else {
-            Expression castFunction = TypeCoercionUtils.processBoundFunction((BoundFunction) buildResult.first);
+            BoundFunction boundFunction = (BoundFunction) buildResult.first;
+            if (boundFunction instanceof ElementAt) {
+                // SQL function syntax binds here directly and therefore does not visit visitElementAt above.
+                boundFunction = canonicalizeStructSelector((ElementAt) boundFunction);
+            }
+            Expression castFunction = TypeCoercionUtils.processBoundFunction(boundFunction);
             if (castFunction instanceof RewriteWhenAnalyze) {
                 castFunction = ((RewriteWhenAnalyze) castFunction).rewriteWhenAnalyze();
             }
@@ -628,6 +626,20 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
         boundFunction = (BoundFunction) super.visitBoundFunction(boundFunction, context);
         return TypeCoercionUtils.processBoundFunction(boundFunction);
+    }
+
+    private ElementAt canonicalizeStructSelector(ElementAt elementAt) {
+        Expression left = elementAt.left();
+        Expression right = elementAt.right();
+        if (left.getDataType() instanceof StructType && right instanceof StringLikeLiteral) {
+            String selector = ((StringLikeLiteral) right).getStringValue();
+            StructField field = ((StructType) left.getDataType()).getField(selector);
+            if (field != null && !field.getName().equals(selector)) {
+                // BE struct names use the normalized thrift identity and cannot Unicode-fold external spelling.
+                return (ElementAt) elementAt.withChildren(left, new StringLiteral(field.getName()));
+            }
+        }
+        return elementAt;
     }
 
     @Override
