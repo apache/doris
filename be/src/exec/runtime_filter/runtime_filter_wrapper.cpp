@@ -308,8 +308,7 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
         });
         break;
     }
-    case TYPE_DATETIME:
-    case TYPE_DATE: {
+    case TYPE_DATETIME: {
         batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
             const auto& string_val_ref = column.stringval();
             VecDateTimeValue datetime_val;
@@ -318,6 +317,17 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
                     {string_val_ref.c_str(), string_val_ref.length()}, datetime_val, nullptr,
                     params);
             set->insert(&datetime_val);
+        });
+        break;
+    }
+    case TYPE_DATE: {
+        batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
+            const auto& string_val_ref = column.stringval();
+            VecDateTimeValue date_val;
+            CastParameters params;
+            CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE>(
+                    {string_val_ref.c_str(), string_val_ref.length()}, date_val, nullptr, params);
+            set->insert(&date_val);
         });
         break;
     }

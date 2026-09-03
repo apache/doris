@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
@@ -53,7 +54,8 @@ import java.util.Set;
  * 1. the build column value range covers part of that of probe column, OR
  * 2. the build column ndv is less than that of probe column, OR
  * 3. the build column's ColumnStats.selectivity < 1, OR
- * 4. the build column is reduced by another RF, which satisfies above criterions.
+ * 4. the build column is reduced by another RF, which satisfies above criterions, OR
+ * 5. the RF can eliminate whole scan ranges.
  *
  * TODO: item 2 is not used since the estimation is not accurate now.
  */
@@ -152,10 +154,13 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         } else {
             List<ExprId> exprIds = rfContext.getTargetExprIdByFilterJoin(join);
             if (exprIds != null && !exprIds.isEmpty()) {
-                boolean isEffective = false;
-                for (Expression expr : join.getEqualToConjuncts()) {
-                    if (isEffectiveRuntimeFilter((EqualTo) expr, join)) {
-                        isEffective = true;
+                boolean isEffective = hasScanRangePruningFilter(join);
+                if (!isEffective) {
+                    for (Expression expr : join.getEqualToConjuncts()) {
+                        if (isEffectiveRuntimeFilter((EqualTo) expr, join)) {
+                            isEffective = true;
+                            break;
+                        }
                     }
                 }
                 if (!isEffective) {
@@ -305,5 +310,11 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
 
         double buildNdvInProbeRange = buildColumnStat.ndvIntersection(probeColumnStat);
         return probeColumnStat.ndv > buildNdvInProbeRange * (1 + ColumnStatistic.STATS_ERROR);
+    }
+
+    private boolean hasScanRangePruningFilter(PhysicalHashJoin join) {
+        // Row-level statistics cannot describe the benefit of eliminating whole partitions or
+        // buckets, so retain filters with that capability independently of row selectivity.
+        return join.getRuntimeFilters().stream().anyMatch(RuntimeFilter::canPruneScanRanges);
     }
 }
