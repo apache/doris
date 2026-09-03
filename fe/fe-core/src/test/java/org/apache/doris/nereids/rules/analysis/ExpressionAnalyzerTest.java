@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.DereferenceExpression;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsFalse;
@@ -199,5 +200,38 @@ public class ExpressionAnalyzerTest {
         } finally {
             ConnectContext.remove();
         }
+    }
+
+    @Test
+    public void testComputedStructDereferenceCanonicalizesUnicodeSelector() {
+        StructType structType = new StructType(ImmutableList.of(
+                new StructField("Σ", "Σ", IntegerType.INSTANCE, true, "", false)));
+        SlotReference payload = new SlotReference(
+                new ExprId(1), "payload", structType, true, ImmutableList.of());
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of()),
+                null, true, true);
+
+        Expression analyzed = analyzer.analyze(new DereferenceExpression(
+                new Cast(payload, structType), new StringLiteral("Σ")));
+
+        Assertions.assertInstanceOf(ElementAt.class, analyzed);
+        Assertions.assertEquals("σ", ((StringLikeLiteral) analyzed.child(1)).getStringValue());
+    }
+
+    @Test
+    public void testLegacyStructFieldCollisionRejectsAmbiguousSelector() {
+        org.apache.doris.catalog.StructType catalogType = new org.apache.doris.catalog.StructType(
+                new org.apache.doris.catalog.StructField(
+                        "ı", null, org.apache.doris.catalog.Type.INT, "", true, false),
+                new org.apache.doris.catalog.StructField(
+                        "i", null, org.apache.doris.catalog.Type.BIGINT, "", true, false));
+        StructType structType = (StructType) org.apache.doris.nereids.types.DataType.fromCatalogType(catalogType);
+        SlotReference payload = new SlotReference(
+                new ExprId(1), "payload", structType, true, ImmutableList.of());
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of()),
+                null, true, true);
+
+        Assertions.assertThrows(AnalysisException.class,
+                () -> analyzer.analyze(new ElementAt(payload, new StringLiteral("I"))));
     }
 }

@@ -161,6 +161,33 @@ public class ColumnGsonSerializationTest {
         Assert.assertNull(nereidsType.getField("I"));
     }
 
+    @Test
+    public void testReplayPreRootTurkishStructFieldCollisionIsAmbiguous() {
+        StructType structType = new StructType(
+                new StructField("ı", Type.INT), new StructField("i", Type.BIGINT));
+        JsonObject legacyJson = JsonParser.parseString(
+                GsonUtils.GSON.toJson(structType, Type.class)).getAsJsonObject();
+        legacyJson.getAsJsonObject("fieldMap").entrySet().forEach(
+                entry -> entry.getValue().getAsJsonObject().remove("originalName"));
+        legacyJson.getAsJsonArray("fields").forEach(
+                field -> field.getAsJsonObject().remove("originalName"));
+
+        StructType replayed = (StructType) GsonUtils.GSON.fromJson(legacyJson, Type.class);
+        Assert.assertNull(replayed.getField("I"));
+        Assert.assertEquals("ı", replayed.getField("ı").getName());
+        Assert.assertEquals("i", replayed.getField("i").getName());
+
+        org.apache.doris.nereids.types.StructType nereidsType =
+                (org.apache.doris.nereids.types.StructType)
+                        org.apache.doris.nereids.types.DataType.fromCatalogType(replayed);
+        Assert.assertNull(nereidsType.getField("I"));
+        Assert.assertEquals("ı", nereidsType.getField("ı").getName());
+        Assert.assertEquals("i", nereidsType.getField("i").getName());
+
+        StructType roundTrip = (StructType) nereidsType.toCatalogDataType();
+        Assert.assertNull(roundTrip.getField("I"));
+    }
+
     private static void setLegacyTurkishFieldName(JsonObject field) {
         field.addProperty("name", "ı");
         field.remove("originalName");

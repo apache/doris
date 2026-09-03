@@ -132,17 +132,22 @@ public class StructType extends Type {
 
     public StructField getField(String fieldName) {
         StructField field = fieldMap.get(fieldName.toLowerCase(Locale.ROOT));
-        if (field != null) {
+        if (field != null && (field.hasOriginalName() || field.getName().equals(fieldName))) {
             return field;
         }
+        StructField legacyMatch = null;
         for (int i = fields.size() - 1; i >= 0; i--) {
             StructField legacyField = fields.get(i);
             // Old images lack originalName and may contain keys normalized with the FE's default locale.
             if (!legacyField.hasOriginalName() && legacyField.getName().equalsIgnoreCase(fieldName)) {
-                return legacyField;
+                if (legacyMatch != null) {
+                    // The old locale was not persisted, so choosing either folded sibling could return wrong data.
+                    return null;
+                }
+                legacyMatch = legacyField;
             }
         }
-        return null;
+        return legacyMatch != null ? legacyMatch : field;
     }
 
     @Override

@@ -272,7 +272,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             StructType structType = (StructType) dataType;
             StructField field = structType.getField(dereferenceExpression.fieldName);
             if (field != null) {
-                return new ElementAt(expression, dereferenceExpression.child(1));
+                // This newly constructed node returns directly and will not be revisited by visitElementAt.
+                return canonicalizeStructSelector(
+                        new ElementAt(expression, dereferenceExpression.child(1)));
             }
         } else if (dataType.isMapType()) {
             return new ElementAt(expression, dereferenceExpression.child(1));
