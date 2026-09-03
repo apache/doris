@@ -1550,8 +1550,10 @@ public class StmtExecutor {
                 // need deferral (the BE buffers their result independently) but are captured by the
                 // same gate; the trade-off is their coordinator, query queue slot and query
                 // registration stay held until the next query / teardown instead of being released
-                // at the end of GetFlightInfo. Point queries use a different coordBase (not
-                // deferred). See #62259.
+                // at the end of GetFlightInfo. A short-circuit point query is the one case with a
+                // different coordBase, and it can no longer reach here: it has no Arrow result on
+                // either side, so LogicalResultSinkToShortCircuitPointQuery keeps Arrow Flight SQL
+                // on the normal execution path. See #62259 and #67368.
                 if (coordBase == coord) {
                     deferredForArrowFlight = true;
                     context.addFlightSqlDeferredExecutor(this);
