@@ -168,7 +168,7 @@ public class MTMVRefreshContext {
         return context;
     }
 
-    private Optional<MvccSnapshot> resolveSnapshot(MTMVRelatedTableIf table) {
+    Optional<MvccSnapshot> resolveSnapshot(MTMVRelatedTableIf table) {
         return pinnedSnapshots == null
                 ? MvccUtil.getSnapshotFromContext(table)
                 : Optional.ofNullable(pinnedSnapshots.get(new MvccTableInfo(table)));

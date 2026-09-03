@@ -230,6 +230,28 @@ public class MTMVRefreshContextBatchTest {
     }
 
     @Test
+    public void taskPinIsReusedForNonPctTableSnapshot() throws AnalysisException {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        MTMVRelatedTableIf pctTable = Mockito.mock(MTMVRelatedTableIf.class);
+        MTMVRelatedTableIf nonPctTable = Mockito.mock(MTMVRelatedTableIf.class);
+        MTMVRefreshSnapshot refreshSnapshot = Mockito.mock(MTMVRefreshSnapshot.class);
+        configureContext(mtmv, pctTable, refreshSnapshot, Collections.emptyMap());
+        configureTableIdentity(nonPctTable);
+        MvccSnapshot pin = Mockito.mock(MvccSnapshot.class);
+        MTMVSnapshotIf snapshot = Mockito.mock(MTMVSnapshotIf.class);
+        Mockito.when(nonPctTable.getTableSnapshot(Mockito.any(), Mockito.eq(Optional.of(pin))))
+                .thenReturn(snapshot);
+        MTMVRefreshContext context = MTMVRefreshContext.buildContext(mtmv, Collections.emptyMap(),
+                Collections.singletonMap(new MvccTableInfo(nonPctTable), pin));
+
+        Assertions.assertSame(snapshot,
+                MTMVPartitionUtil.getTableSnapshotFromContext(nonPctTable, context));
+        Mockito.verify(nonPctTable).getTableSnapshot(Mockito.same(context), Mockito.eq(Optional.of(pin)));
+        Mockito.verify(nonPctTable, Mockito.never())
+                .getTableSnapshot(Mockito.same(context), Mockito.eq(Optional.empty()));
+    }
+
+    @Test
     public void defaultBulkAdapterPreservesNonBulkImplementations() throws AnalysisException {
         MTMVRelatedTableIf table = Mockito.mock(MTMVRelatedTableIf.class, Mockito.CALLS_REAL_METHODS);
         MTMVRefreshContext context = Mockito.mock(MTMVRefreshContext.class);

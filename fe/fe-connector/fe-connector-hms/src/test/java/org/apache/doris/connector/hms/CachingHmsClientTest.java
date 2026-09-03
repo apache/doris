@@ -353,7 +353,10 @@ public class CachingHmsClientTest {
                 exactLoadEntered.countDown();
                 awaitLatch(releaseExactLoad);
                 HmsPartitionBatchResult result = super.getPartitionsWithStats(dbName, tableName, partNames);
-                throw new HmsClientException("missing exact result").withPartitionBatchStats(result.getStats());
+                throw HmsPartitionResultException.builder(partNames.size(), result.getPartitions().size())
+                        .missing("p=2")
+                        .build()
+                        .withPartitionBatchStats(result.getStats());
             }
 
             @Override
@@ -412,12 +415,15 @@ public class CachingHmsClientTest {
                 if (partNames.size() > 1) {
                     ownerLoadEntered.countDown();
                     awaitLatch(releaseOwnerLoad);
-                    throw new HmsClientException("owner request failed on p=2")
+                    throw HmsPartitionResultException.builder(partNames.size(), result.getPartitions().size())
+                            .missing("p=2")
+                            .build()
                             .withPartitionBatchStats(result.getStats());
                 }
                 return result;
             }
         };
+        delegate.absentPartitionNames.add("p=2");
         CachingHmsClient cache = new CachingHmsClient(new CatalogMetaCache(), delegate,
                 Collections.emptyMap()) {
             @Override
@@ -443,6 +449,65 @@ public class CachingHmsClientTest {
             Assertions.assertEquals(Arrays.asList(
                     Arrays.asList("p=1", "p=2"), Collections.singletonList("p=1")),
                     delegate.getPartitionsArgs);
+        } finally {
+            releaseOwnerLoad.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void partialWaitersShareRequestIndependentOwnerFailure() throws Exception {
+        int waiterCount = 3;
+        CountDownLatch ownerLoadEntered = new CountDownLatch(1);
+        CountDownLatch releaseOwnerLoad = new CountDownLatch(1);
+        CountDownLatch waitersRegistered = new CountDownLatch(waiterCount);
+        AtomicInteger registrations = new AtomicInteger();
+        AtomicInteger delegateAttempts = new AtomicInteger();
+        RecordingHmsClient delegate = new RecordingHmsClient() {
+            @Override
+            public HmsPartitionBatchResult getPartitionsWithStats(
+                    String dbName, String tableName, List<String> partNames) {
+                if (delegateAttempts.incrementAndGet() == 1) {
+                    ownerLoadEntered.countDown();
+                    awaitLatch(releaseOwnerLoad);
+                }
+                throw new HmsClientException("HMS unavailable");
+            }
+        };
+        CachingHmsClient cache = new CachingHmsClient(new CatalogMetaCache(), delegate,
+                Collections.emptyMap()) {
+            @Override
+            void afterPartitionLoadRegistrationForTest() {
+                if (registrations.incrementAndGet() > 1) {
+                    waitersRegistered.countDown();
+                }
+            }
+        };
+        ExecutorService executor = Executors.newFixedThreadPool(waiterCount + 1);
+        try {
+            Future<List<HmsPartitionInfo>> owner = executor.submit(
+                    () -> cache.getPartitions("db", "t", Arrays.asList("p=1", "p=2", "p=3")));
+            Assertions.assertTrue(ownerLoadEntered.await(10, TimeUnit.SECONDS));
+            List<Future<List<HmsPartitionInfo>>> waiters = new ArrayList<>();
+            for (int i = 1; i <= waiterCount; i++) {
+                String partitionName = "p=" + i;
+                waiters.add(executor.submit(() -> cache.getPartitions(
+                        "db", "t", Collections.singletonList(partitionName))));
+            }
+            Assertions.assertTrue(waitersRegistered.await(10, TimeUnit.SECONDS));
+
+            releaseOwnerLoad.countDown();
+
+            Assertions.assertTrue(Assertions.assertThrows(
+                    ExecutionException.class, () -> owner.get(10, TimeUnit.SECONDS)).getCause()
+                    instanceof HmsClientException);
+            for (Future<List<HmsPartitionInfo>> waiter : waiters) {
+                Assertions.assertTrue(Assertions.assertThrows(
+                        ExecutionException.class, () -> waiter.get(10, TimeUnit.SECONDS)).getCause()
+                        instanceof HmsClientException);
+            }
+            Assertions.assertEquals(1, delegateAttempts.get(),
+                    "request-independent failures must not release partial waiters into separate retries");
         } finally {
             releaseOwnerLoad.countDown();
             executor.shutdownNow();

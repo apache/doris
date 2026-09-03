@@ -603,8 +603,8 @@ public class MTMVPartitionUtil {
         if (baseTableSnapshotCache.containsKey(baseTableInfo)) {
             return baseTableSnapshotCache.get(baseTableInfo);
         }
-        MTMVSnapshotIf baseTableCurrentSnapshot = mtmvRelatedTableIf.getTableSnapshot(context,
-                MvccUtil.getSnapshotFromContext(mtmvRelatedTableIf));
+        MTMVSnapshotIf baseTableCurrentSnapshot = mtmvRelatedTableIf.getTableSnapshot(
+                context, context.resolveSnapshot(mtmvRelatedTableIf));
         baseTableSnapshotCache.put(baseTableInfo, baseTableCurrentSnapshot);
         return baseTableCurrentSnapshot;
     }
