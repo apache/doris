@@ -32,6 +32,7 @@ public class DLFTableOperations extends HiveTableOperations {
                               String catalogName,
                               String database,
                               String table) {
-        super(conf, metaClients, fileIO, catalogName, database, table);
+        // DLF does not configure an Iceberg KMS client; null preserves the existing unencrypted behavior.
+        super(conf, metaClients, fileIO, null, catalogName, database, table);
     }
 }
