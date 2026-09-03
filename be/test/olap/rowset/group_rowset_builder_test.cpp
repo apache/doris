@@ -22,6 +22,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include <array>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -39,6 +41,7 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
+#include "storage/tablet/tablet_meta_manager.h"
 #include "storage/tablet_info.h"
 #include "testutil/creators.h"
 
@@ -47,14 +50,7 @@ namespace doris {
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* engine_ref = nullptr;
 
-static void set_up() {
-    char buffer[MAX_PATH_LEN];
-    EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
-    config::storage_root_path = std::string(buffer) + "/data_test";
-    auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
-    ASSERT_TRUE(st.ok()) << st;
-    st = io::global_local_filesystem()->create_directory(config::storage_root_path);
-    ASSERT_TRUE(st.ok()) << st;
+static void open_engine() {
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
 
@@ -64,10 +60,26 @@ static void set_up() {
     engine_ref = engine.get();
     Status s = engine->open();
     ASSERT_TRUE(s.ok()) << s;
+    ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
+}
 
+static void set_up() {
+    char buffer[MAX_PATH_LEN];
+    EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
+    config::storage_root_path = std::string(buffer) + "/data_test";
+    auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+    ASSERT_TRUE(st.ok()) << st;
+    st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+    ASSERT_TRUE(st.ok()) << st;
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
-    exec_env->set_storage_engine(std::move(engine));
+    open_engine();
+}
+
+static void restart_engine() {
+    engine_ref = nullptr;
+    ExecEnv::GetInstance()->set_storage_engine(nullptr);
+    open_engine();
 }
 
 static void tear_down() {
@@ -165,6 +177,107 @@ TEST_F(GroupRowsetBuilderTest, buildWithRowBinlogMeta) {
     res = engine_ref->tablet_manager()->drop_tablet(row_binlog_request.tablet_id,
                                                     row_binlog_request.replica_id, false);
     ASSERT_TRUE(res.ok());
+}
+
+TEST_F(GroupRowsetBuilderTest, recoverMultipleRowBinlogPairsInOneTxn) {
+    constexpr int64_t partition_id = 10100;
+    constexpr int64_t txn_id = 20100;
+    constexpr int64_t index_id = 30100;
+    constexpr int64_t row_binlog_index_id = 30101;
+    constexpr int32_t schema_hash = 40100;
+    constexpr int32_t row_binlog_schema_hash = 40101;
+    constexpr std::array<std::pair<int64_t, int64_t>, 2> tablet_pairs = {std::pair {10100, 10101},
+                                                                         std::pair {10200, 10201}};
+
+    auto base_request = testutil::create_tablet_request(
+            0, schema_hash, partition_id, 1, TKeysType::UNIQUE_KEYS,
+            {{"k1", TPrimitiveType::INT, true}, {"v1", TPrimitiveType::INT, false}});
+    base_request.__set_enable_unique_key_merge_on_write(true);
+    testutil::enable_row_binlog(&base_request);
+    auto row_binlog_schema = testutil::create_row_binlog_tablet_schema(base_request.tablet_schema,
+                                                                       row_binlog_schema_hash);
+
+    RuntimeProfile profile("CreateTablet");
+    for (const auto& [base_tablet_id, row_binlog_tablet_id] : tablet_pairs) {
+        base_request.tablet_id = base_tablet_id;
+        ASSERT_TRUE(engine_ref->create_tablet(base_request, &profile).ok());
+
+        auto row_binlog_request = base_request;
+        row_binlog_request.tablet_id = row_binlog_tablet_id;
+        row_binlog_request.tablet_schema = row_binlog_schema;
+        row_binlog_request.__set_base_tablet_id(base_tablet_id);
+        row_binlog_request.__set_tablet_role(TTabletRole::TABLET_ROLE_ROW_BINLOG);
+        ASSERT_TRUE(engine_ref->create_tablet(row_binlog_request, &profile).ok());
+
+        auto base_tablet = engine_ref->tablet_manager()->get_tablet(base_tablet_id);
+        ASSERT_NE(base_tablet, nullptr);
+        TabletMetaPB in_memory_meta_pb;
+        base_tablet->tablet_meta()->to_meta_pb(&in_memory_meta_pb, false);
+        EXPECT_EQ(in_memory_meta_pb.binlog_tablet_id(), row_binlog_tablet_id);
+
+        TabletMetaSharedPtr persisted_meta = std::make_shared<TabletMeta>();
+        ASSERT_TRUE(TabletMetaManager::get_meta(base_tablet->data_dir(), base_tablet_id,
+                                                schema_hash, persisted_meta)
+                            .ok());
+        TabletMetaPB persisted_meta_pb;
+        persisted_meta->to_meta_pb(&persisted_meta_pb, false);
+        EXPECT_EQ(persisted_meta_pb.binlog_tablet_id(), row_binlog_tablet_id);
+    }
+
+    TDescriptorTable tdesc_tbl =
+            testutil::create_descriptor_table({{TYPE_INT, "k1", false}, {TYPE_INT, "v1", false}});
+    auto schema_param = testutil::create_table_schema_param(
+            tdesc_tbl, index_id, schema_hash, base_request.tablet_schema.columns,
+            row_binlog_index_id, row_binlog_schema_hash, &row_binlog_schema.columns);
+    ASSERT_NE(schema_param, nullptr);
+
+    PUniqueId load_id;
+    load_id.set_hi(0);
+    load_id.set_lo(1);
+    for (const auto& [base_tablet_id, row_binlog_tablet_id] : tablet_pairs) {
+        WriteRequest data_req;
+        data_req.tablet_id = base_tablet_id;
+        data_req.schema_hash = schema_hash;
+        data_req.txn_id = txn_id;
+        data_req.partition_id = partition_id;
+        data_req.index_id = index_id;
+        data_req.load_id = load_id;
+        data_req.table_schema_param = schema_param;
+        data_req.write_req_type = WriteRequestType::DATA;
+
+        WriteRequest row_binlog_req = data_req;
+        row_binlog_req.tablet_id = row_binlog_tablet_id;
+        row_binlog_req.index_id = row_binlog_index_id;
+        row_binlog_req.schema_hash = row_binlog_schema_hash;
+        row_binlog_req.write_req_type = WriteRequestType::ROW_BINLOG;
+
+        WriteRequest group_req = data_req;
+        group_req.write_req_type = WriteRequestType::GROUP;
+
+        GroupRowsetBuilder builder(*engine_ref, group_req, data_req, row_binlog_req, &profile);
+        ASSERT_TRUE(builder.init().ok());
+        ASSERT_TRUE(builder.rowset_writer()->flush().ok());
+        ASSERT_TRUE(builder.build_rowset().ok());
+        ASSERT_TRUE(builder.commit_txn().ok());
+    }
+
+    restart_engine();
+
+    std::map<TabletInfo, RowsetSharedPtr> rowsets;
+    std::map<TabletInfo, std::shared_ptr<TabletTxnInfo>> txn_infos;
+    engine_ref->txn_manager()->get_txn_related_tablets(txn_id, partition_id, &rowsets, &txn_infos);
+    ASSERT_EQ(txn_infos.size(), tablet_pairs.size());
+    for (const auto& [base_tablet_id, row_binlog_tablet_id] : tablet_pairs) {
+        auto base_tablet = engine_ref->tablet_manager()->get_tablet(base_tablet_id);
+        ASSERT_NE(base_tablet, nullptr);
+        auto txn_info = txn_infos.find(base_tablet->get_tablet_info());
+        ASSERT_NE(txn_info, txn_infos.end());
+        ASSERT_NE(txn_info->second->attach_row_binlog.tablet, nullptr);
+        ASSERT_NE(txn_info->second->attach_row_binlog.rowset, nullptr);
+        EXPECT_EQ(txn_info->second->attach_row_binlog.tablet->tablet_id(), row_binlog_tablet_id);
+        EXPECT_EQ(txn_info->second->attach_row_binlog.rowset->rowset_meta()->tablet_id(),
+                  row_binlog_tablet_id);
+    }
 }
 
 } // namespace doris
