@@ -53,6 +53,10 @@ public:
                                  std::vector<RowwiseIteratorUPtr>* out_iters,
                                  bool use_cache = false) override;
     void reset_read_options() override;
+    void set_preferred_file_cache_peer(const std::string& host, int32_t port) override {
+        _read_options.io_ctx.preferred_peer_host = host;
+        _read_options.io_ctx.preferred_peer_port = port;
+    }
     Status next_batch(Block* block) override { return _next_batch(block); }
     Status next_batch(BlockView* block_view) override { return _next_batch(block_view); }
     Status next_batch(BlockWithSameBit* block_with_same_bit) override {

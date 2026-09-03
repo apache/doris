@@ -551,7 +551,7 @@ private:
 
 } // namespace
 
-TEST_F(CachedRemoteFileReaderPeerTest, read_at_uses_peer_cache_when_available) {
+TEST_F(CachedRemoteFileReaderPeerTest, read_at_uses_preferred_peer_when_global_peer_read_disabled) {
     const std::string content = "abcdefghijklmnop";
     const fs::path file_path =
             create_peer_test_file("cached_remote_reader_peer_success.dat", content);
@@ -574,9 +574,7 @@ TEST_F(CachedRemoteFileReaderPeerTest, read_at_uses_peer_cache_when_available) {
     auto addr = start_peer_test_server(&server, &service);
     Defer stop_server {[&]() { stop_peer_test_server(&server); }};
 
-    DebugPoints::instance()->add_with_params(
-            "PeerFileCacheReader::_fetch_from_peer_cache_blocks",
-            {{"host", "127.0.0.1"}, {"port", std::to_string(addr.port)}});
+    config::enable_cache_read_from_peer = false;
 
     FileReaderSPtr local_reader;
     ASSERT_TRUE(global_local_filesystem()->open_file(file_path.string(), &local_reader).ok());
@@ -591,6 +589,8 @@ TEST_F(CachedRemoteFileReaderPeerTest, read_at_uses_peer_cache_when_available) {
     std::string buffer(10, '#');
     size_t bytes_read = 0;
     IOContext io_ctx;
+    io_ctx.preferred_peer_host = "127.0.0.1";
+    io_ctx.preferred_peer_port = addr.port;
     FileCacheStatistics cache_stats;
     io_ctx.file_cache_stats = &cache_stats;
 
@@ -605,8 +605,10 @@ TEST_F(CachedRemoteFileReaderPeerTest, read_at_uses_peer_cache_when_available) {
     EXPECT_EQ(cache_stats.bytes_read_from_local, 0);
     EXPECT_EQ(cache_stats.num_peer_io_total, 1);
     EXPECT_EQ(cache_stats.bytes_read_from_peer, 10);
+    EXPECT_EQ(cache_stats.peer_hosts.count("127.0.0.1"), 1);
     EXPECT_EQ(cache_stats.num_remote_io_total, 0);
     EXPECT_EQ(cache_stats.bytes_read_from_remote, 0);
+    EXPECT_EQ(cache_stats.bytes_write_into_cache, 0);
 }
 
 TEST_F(CachedRemoteFileReaderPeerTest, read_at_peer_dryrun_downloads_cache_without_copying_result) {
@@ -2118,6 +2120,64 @@ TEST_F(CachedRemoteFileReaderPeerTest, read_at_falls_back_to_remote_when_peer_re
     EXPECT_EQ(cache_stats.bytes_read_from_peer, 0);
     EXPECT_EQ(cache_stats.num_remote_io_total, 1);
     EXPECT_EQ(cache_stats.bytes_read_from_remote, 10);
+}
+
+TEST_F(CachedRemoteFileReaderPeerTest,
+       read_at_falls_back_to_remote_when_preferred_peer_read_fails) {
+    const std::string content = "abcdefghijklmnop";
+    const fs::path file_path =
+            create_peer_test_file("cached_remote_reader_preferred_peer_fallback.dat", content);
+    Defer cleanup_file {[&]() {
+        std::error_code ec;
+        fs::remove(file_path, ec);
+    }};
+
+    const fs::path cache_path = caches_dir / "cached_remote_reader_preferred_peer_fallback_cache";
+    Defer cleanup_cache {[&]() {
+        std::error_code ec;
+        fs::remove_all(cache_path, ec);
+    }};
+
+    clear_cached_remote_reader_factory();
+    create_peer_test_cache(cache_path, kPeerTestBlockSize);
+
+    MockPeerCacheServiceOptions options;
+    options.fail_status = true;
+    MockPeerCacheService service(content, options);
+    brpc::Server server;
+    auto addr = start_peer_test_server(&server, &service);
+    Defer stop_server {[&]() { stop_peer_test_server(&server); }};
+
+    config::enable_cache_read_from_peer = false;
+
+    FileReaderSPtr local_reader;
+    ASSERT_TRUE(global_local_filesystem()->open_file(file_path.string(), &local_reader).ok());
+
+    FileReaderOptions opts;
+    opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
+    opts.is_doris_table = true;
+    opts.mtime = 1;
+    opts.tablet_id = kPeerTestTabletId;
+    CachedRemoteFileReader reader(local_reader, opts);
+
+    std::string buffer(10, '#');
+    size_t bytes_read = 0;
+    IOContext io_ctx;
+    io_ctx.preferred_peer_host = "127.0.0.1";
+    io_ctx.preferred_peer_port = addr.port;
+    FileCacheStatistics cache_stats;
+    io_ctx.file_cache_stats = &cache_stats;
+
+    ASSERT_TRUE(reader.read_at(1, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+
+    EXPECT_EQ(buffer, content.substr(1, 10));
+    EXPECT_EQ(bytes_read, 10);
+    EXPECT_EQ(service.rpc_count.load(), 1);
+    EXPECT_EQ(cache_stats.num_peer_io_total, 0);
+    EXPECT_EQ(cache_stats.bytes_read_from_peer, 0);
+    EXPECT_EQ(cache_stats.num_remote_io_total, 1);
+    EXPECT_EQ(cache_stats.bytes_read_from_remote, 10);
+    EXPECT_EQ(cache_stats.bytes_write_into_cache, 0);
 }
 
 } // namespace doris::io
