@@ -47,6 +47,18 @@ class DataSketchesHllUnionAggTest {
     }
 
     @Test
+    void testDistinctIsIgnored() {
+        DataSketchesHllUnionAgg oneArgument = new DataSketchesHllUnionAgg(true, SKETCH);
+        DataSketchesHllUnionAgg twoArguments =
+                new DataSketchesHllUnionAgg(true, SKETCH, new IntegerLiteral(8));
+
+        Assertions.assertFalse(oneArgument.isDistinct());
+        Assertions.assertFalse(twoArguments.isDistinct());
+        Assertions.assertTrue(oneArgument.getDistinctArguments().isEmpty());
+        Assertions.assertTrue(twoArguments.getDistinctArguments().isEmpty());
+    }
+
+    @Test
     void testLgMaxKBoundaries() {
         for (int value : new int[] {7, 21}) {
             DataSketchesHllUnionAgg function =

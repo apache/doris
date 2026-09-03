@@ -15,6 +15,12 @@
 -- !distinct --
 17	17
 
+-- !distinct_two_arguments_with_rollup --
+\N	17	17	2
+1	7	7	1
+2	10	10	1
+5	7	7	1
+
 -- !basic_union_varchar --
 17
 

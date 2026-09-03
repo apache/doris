@@ -564,20 +564,20 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testDefaultLgMaxKIsOrderInd
     auto sparse = create_sketch(8, 0, 7);
     auto dense = create_sketch(16, 1000, 10000);
 
-    EXPECT_EQ(Data::DEFAULT_UNION_LOG_K, 12);
+    EXPECT_EQ(Data::DEFAULT_UNION_LOG_K, datasketches::hll_constants::MAX_LOG_K);
 
     Data sparse_first;
     sparse_first.merge(sparse, Data::DEFAULT_UNION_LOG_K);
     ASSERT_TRUE(sparse_first.hll_union_data.has_value());
     EXPECT_EQ(sparse_first.hll_union_data->get_lg_config_k(), Data::DEFAULT_UNION_LOG_K);
     sparse_first.merge(dense, Data::DEFAULT_UNION_LOG_K);
-    EXPECT_EQ(sparse_first.hll_union_data->get_lg_config_k(), Data::DEFAULT_UNION_LOG_K);
+    EXPECT_EQ(sparse_first.hll_union_data->get_lg_config_k(), 16);
 
     Data dense_first;
     dense_first.merge(dense, Data::DEFAULT_UNION_LOG_K);
     dense_first.merge(sparse, Data::DEFAULT_UNION_LOG_K);
     ASSERT_TRUE(dense_first.hll_union_data.has_value());
-    EXPECT_EQ(dense_first.hll_union_data->get_lg_config_k(), Data::DEFAULT_UNION_LOG_K);
+    EXPECT_EQ(dense_first.hll_union_data->get_lg_config_k(), 16);
 }
 
 TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testEmptySketchDoesNotInitializeUnion) {
@@ -623,6 +623,28 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
 
     restored.merge(create_sketch(12, 1000, 10000), Data::DEFAULT_UNION_LOG_K);
     EXPECT_EQ(restored.hll_union_data->get_lg_config_k(), 12);
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testDeserializeLegacyDenseMaxLgKState) {
+    Sketch legacy_state(Data::DEFAULT_UNION_LOG_K, datasketches::HLL_8, true, Data::Alloc());
+    for (uint64_t value = 0; value < 10000; ++value) {
+        legacy_state.update(value);
+    }
+
+    auto buffer = ColumnString::create();
+    BufferWritable writer(*buffer);
+    const auto serialized = legacy_state.serialize_compact();
+    writer.write_binary(
+            StringRef(reinterpret_cast<const char*>(serialized.data()), serialized.size()));
+    writer.commit();
+
+    Data restored;
+    BufferReadable reader(buffer->get_data_at(0));
+    restored.read(reader);
+
+    ASSERT_TRUE(restored.hll_union_data.has_value());
+    EXPECT_EQ(restored.hll_union_data->get_lg_config_k(), Data::DEFAULT_UNION_LOG_K);
+    EXPECT_DOUBLE_EQ(restored.get_result(), legacy_state.get_estimate());
 }
 
 TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testExplicitLgMaxK) {

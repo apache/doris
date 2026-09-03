@@ -81,6 +81,16 @@ suite("test_datasketches_hll_union_agg") {
         FROM ${tableName}
     """
 
+    order_qt_distinct_two_arguments_with_rollup """SELECT
+            id,
+            CAST(ROUND(datasketches_hll_union_agg(DISTINCT sk, 8)) AS BIGINT),
+            CAST(ROUND(datasketches_hll_union_agg(sk, 8)) AS BIGINT),
+            COUNT(DISTINCT sk)
+        FROM ${tableName}
+        WHERE id IN (1, 2, 5)
+        GROUP BY ROLLUP(id)
+    """
+
     // 4.1) Input type coverage: VARCHAR
     sql "DROP TABLE IF EXISTS ${varcharTableName}"
     sql """

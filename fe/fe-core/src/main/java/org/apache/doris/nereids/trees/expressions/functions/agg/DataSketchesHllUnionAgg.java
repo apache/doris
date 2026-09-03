@@ -74,7 +74,7 @@ public class DataSketchesHllUnionAgg extends NotNullableAggregateFunction
 
     /** constructor with 2 arguments. */
     public DataSketchesHllUnionAgg(boolean distinct, Expression arg0, Expression arg1) {
-        super("datasketches_hll_union_agg", distinct, arg0, arg1);
+        this(arg0, arg1);
     }
 
     /** constructor for withChildren and reuse signature */

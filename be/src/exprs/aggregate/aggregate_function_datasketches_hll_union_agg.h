@@ -55,7 +55,7 @@ template <PrimitiveType T>
 struct AggregateFunctionHllSketchData {
     static constexpr uint8_t EMPTY_STATE_LOG_K = 12;
     static constexpr uint8_t MIN_UNION_LOG_K = 7;
-    static constexpr uint8_t DEFAULT_UNION_LOG_K = 12;
+    static constexpr uint8_t DEFAULT_UNION_LOG_K = datasketches::hll_constants::MAX_LOG_K;
     using Alloc = CustomStdAllocator<uint8_t>;
     using Sketch = datasketches::hll_sketch_alloc<Alloc>;
     using Union = datasketches::hll_union_alloc<Alloc>;
