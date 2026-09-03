@@ -98,6 +98,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -421,13 +422,16 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             for (int i = 0; i < typeNodes.get(start).getStructFieldsCount(); ++i) {
                 Pair<Type, Integer> fieldType = getColumnType(typeNodes, start + parsedNodes);
                 PStructField structField = typeNodes.get(start).getStructFields(i);
-                String fieldName = structField.getName().toLowerCase();
+                String originalFieldName = structField.getName();
+                String fieldName = originalFieldName.toLowerCase(Locale.ROOT);
                 if (fieldLowerNames.contains(fieldName)) {
                     throw new NotSupportedException("Repeated lowercase field names: " + fieldName);
                 } else {
                     fieldLowerNames.add(fieldName);
-                    fields.add(new StructField(fieldName, fieldType.key(), structField.getComment(),
-                            structField.getContainsNull()));
+                    // File readers return the external schema spelling, which must survive CTAS metadata writes;
+                    // only the runtime lookup key and duplicate detection are normalized.
+                    fields.add(new StructField(fieldName, originalFieldName, fieldType.key(), structField.getComment(),
+                            structField.getContainsNull(), !structField.getComment().isEmpty()));
                 }
                 parsedNodes += fieldType.value();
             }

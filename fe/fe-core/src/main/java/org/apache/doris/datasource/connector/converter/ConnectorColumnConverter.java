@@ -238,7 +238,7 @@ public final class ConnectorColumnConverter {
             // isCommentSpecified() so the diff can tell an omitted COMMENT (preserve the current doc) from
             // COMMENT '' (clear it) — the comment string is "" for both (#65329 omit-preserves-metadata).
             for (StructField f : struct.getFields()) {
-                names.add(f.getName());
+                names.add(f.getOriginalName());
                 types.add(toConnectorType(f.getType()));
                 nullables.add(f.getContainsNull());
                 comments.add(f.getComment());
