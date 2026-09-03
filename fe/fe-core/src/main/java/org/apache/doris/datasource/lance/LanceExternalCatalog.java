@@ -79,6 +79,9 @@ public class LanceExternalCatalog extends ExternalCatalog {
     private static final int MAX_PROVIDER_MESSAGE_BYTES = 1024;
     private static final String[] RUNTIME_SENSITIVE_OPTION_KEYS = {
             "aws_access_key_id", "aws_secret_access_key", "aws_session_token",
+            // This PR is what lets OSS credentials reach these options in the first place, so
+            // they have to be recognized here or the change would introduce a way for them to
+            // surface in an error. Both spellings: a namespace may vend either.
             "oss_access_key_id", "oss_secret_access_key", "oss_security_token",
             "access_key_id", "access_key_secret", "security_token"
     };
@@ -144,11 +147,8 @@ public class LanceExternalCatalog extends ExternalCatalog {
                 closeNamespace(testNamespace);
             }
         } catch (Exception e) {
-            // No dataset URI: the warehouse came from this very DDL, and redacting it would hide
-            // the mistyped bucket the operator needs to see.
-            String sanitizedMessage = sanitizedRootCauseMessage(e, null, storageOptions);
             throw new DdlException("Lance " + type + " catalog connectivity test failed: "
-                    + sanitizedMessage, sanitizedCause(e, sanitizedMessage));
+                    + sanitizedRootCauseMessage(e), safeCause(e));
         }
     }
 
@@ -333,10 +333,8 @@ public class LanceExternalCatalog extends ExternalCatalog {
                     : LanceMetadataLoader.loadLatest(
                             tableAccess.datasetUri, tableAccess.storageOptions, allocator);
         } catch (Exception e) {
-            String sanitizedMessage = sanitizedRootCauseMessage(
-                    e, tableAccess.datasetUri, tableAccess.storageOptions);
             throw new RuntimeException("Failed to load Lance table metadata for " + dbName + "." + tableName
-                    + ": " + sanitizedMessage, sanitizedCause(e, sanitizedMessage));
+                    + ": " + sanitizedRootCauseMessage(e), safeCause(e));
         }
     }
 
@@ -420,8 +418,11 @@ public class LanceExternalCatalog extends ExternalCatalog {
             Throwable throwable, String datasetUri, Map<String, String> runtimeStorageOptions) {
         String sanitizedMessage = sanitizedRootCauseMessage(
                 throwable, datasetUri, runtimeStorageOptions);
+        Throwable sanitizedCause = throwable instanceof IllegalArgumentException
+                ? new IllegalArgumentException(sanitizedMessage)
+                : new RuntimeException(sanitizedMessage);
         return new RuntimeException("Failed to load Lance index metadata for " + dbName + "." + tableName
-                + ": " + sanitizedMessage, sanitizedCause(throwable, sanitizedMessage));
+                + ": " + sanitizedMessage, sanitizedCause);
     }
 
     private ResolvedTableAccess resolveTableAccess(String dbName, String tableName) {
@@ -509,7 +510,14 @@ public class LanceExternalCatalog extends ExternalCatalog {
     }
 
     private String sanitizedRootCauseMessage(Throwable throwable) {
-        return sanitizedRootCauseMessage(throwable, null, namespaceStorageOptions);
+        String message = ExceptionUtils.getRootCauseMessage(throwable);
+        for (String sensitiveKey : new String[] {REST_BEARER_TOKEN, REST_API_KEY}) {
+            String sensitiveValue = catalogProperty.getOrDefault(sensitiveKey, "");
+            if (StringUtils.isNotEmpty(sensitiveValue)) {
+                message = message.replace(sensitiveValue, "***");
+            }
+        }
+        return message;
     }
 
     @VisibleForTesting
@@ -521,19 +529,9 @@ public class LanceExternalCatalog extends ExternalCatalog {
         List<String> sensitiveValues = new ArrayList<>();
         sensitiveValues.add(catalogProperty.getOrDefault(REST_BEARER_TOKEN, ""));
         sensitiveValues.add(catalogProperty.getOrDefault(REST_API_KEY, ""));
-        // Suffix match as well as exact: defensive, so a namespace scoping an option to one store
-        // cannot print a secret this list would otherwise have recognized.
-        nonNullStorageOptions.forEach((key, value) -> {
-            if (key == null) {
-                return;
-            }
-            for (String sensitiveKey : RUNTIME_SENSITIVE_OPTION_KEYS) {
-                if (key.equals(sensitiveKey) || key.endsWith("." + sensitiveKey)) {
-                    sensitiveValues.add(value);
-                    return;
-                }
-            }
-        });
+        for (String sensitiveKey : RUNTIME_SENSITIVE_OPTION_KEYS) {
+            sensitiveValues.add(nonNullStorageOptions.getOrDefault(sensitiveKey, ""));
+        }
         sensitiveValues.add(datasetUri);
         sensitiveValues.removeIf(StringUtils::isEmpty);
         sensitiveValues.sort((left, right) -> Integer.compare(right.length(), left.length()));
@@ -544,19 +542,11 @@ public class LanceExternalCatalog extends ExternalCatalog {
     }
 
     private Throwable safeCause(Throwable throwable) {
-        return sanitizedCause(throwable, sanitizedRootCauseMessage(throwable));
-    }
-
-    private static Throwable sanitizedCause(Throwable throwable, String sanitizedMessage) {
-        Throwable sanitized = throwable instanceof IllegalArgumentException
-                ? new IllegalArgumentException(sanitizedMessage)
-                : new RuntimeException(sanitizedMessage);
-        // The message comes from the root cause, so the stack must too - the wrapper's frames
-        // would point somewhere the message never describes. A stack holds only class, method,
-        // file and line, so unlike the message it cannot carry a credential.
-        Throwable rootCause = ExceptionUtils.getRootCause(throwable);
-        sanitized.setStackTrace((rootCause == null ? throwable : rootCause).getStackTrace());
-        return sanitized;
+        if (StringUtils.isNotEmpty(catalogProperty.getOrDefault(REST_BEARER_TOKEN, ""))
+                || StringUtils.isNotEmpty(catalogProperty.getOrDefault(REST_API_KEY, ""))) {
+            return new RuntimeException(sanitizedRootCauseMessage(throwable));
+        }
+        return throwable;
     }
 
     private static String removeControlCharacters(String value) {

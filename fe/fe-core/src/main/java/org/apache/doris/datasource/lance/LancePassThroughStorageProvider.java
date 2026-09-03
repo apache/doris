@@ -59,12 +59,6 @@ final class LancePassThroughStorageProvider implements LanceStorageProvider {
     }
 
     @Override
-    public void reconcileVendedStorageOptions(Map<String, String> merged,
-            Map<String, String> normalizedVended) {
-        // No vocabulary of its own, so no way to tell which keys form a credential.
-    }
-
-    @Override
     public Map<String, String> inferStorageOptions(Map<String, String> effectiveOptions) {
         return Collections.emptyMap();
     }
