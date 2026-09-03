@@ -43,6 +43,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.common.util.SqlStatementMasker;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.storage.S3ResourceCompat;
@@ -92,6 +93,9 @@ public class BrokerLoadJob extends BulkLoadJob {
     protected Profile jobProfile;
     // If set to true, the profile of load job with be pushed to ProfileManager
     protected boolean enableProfile = false;
+
+    // Runtime-only masked copy. The original statement remains available for execution and replay.
+    private transient String maskedProfileSql;
 
     // Runtime-only selection result recorded by a loading task's coordinator.
     private transient volatile String loadBackendSelectionSummary;
@@ -556,11 +560,23 @@ public class BrokerLoadJob extends BulkLoadJob {
         builder.user(getUserInfo() != null ? getUserInfo().getQualifiedUser() : "N/A");
         builder.defaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
         builder.defaultDb(getDefaultDb());
-        builder.sqlStatement(getOriginStmt().originStmt);
+        builder.sqlStatement(getSqlForProfile());
         if (loadBackendSelectionSummary != null) {
             builder.loadBackendSelection(loadBackendSelectionSummary);
         }
         return builder.build();
+    }
+
+    void setMaskedProfileSql(String maskedProfileSql) {
+        this.maskedProfileSql = maskedProfileSql;
+    }
+
+    private String getSqlForProfile() {
+        if (getJobType() != EtlJobType.BROKER) {
+            return getOriginStmt().originStmt;
+        }
+        return StringUtils.isEmpty(maskedProfileSql)
+                ? SqlStatementMasker.MASKED_STATEMENT : maskedProfileSql;
     }
 
     private String getDefaultDb() {

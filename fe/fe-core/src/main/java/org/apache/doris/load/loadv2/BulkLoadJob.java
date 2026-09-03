@@ -30,6 +30,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.SqlStatementMasker;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.EtlJobType;
@@ -127,7 +128,7 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         // create job
-        BulkLoadJob bulkLoadJob;
+        BrokerLoadJob bulkLoadJob;
         try {
             switch (command.getEtlJobType()) {
                 case BROKER:
@@ -140,6 +141,10 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
                     throw new DdlException("LoadManager only support create broker load job from stmt.");
                 default:
                     throw new DdlException("Unknown load job type.");
+            }
+            if (ctx.getSessionVariable().enableProfile()) {
+                bulkLoadJob.setMaskedProfileSql(
+                        SqlStatementMasker.mask(executor.getOriginStmt().originStmt, command));
             }
             bulkLoadJob.setComment(command.getComment());
             bulkLoadJob.setJobProperties(command.getProperties());

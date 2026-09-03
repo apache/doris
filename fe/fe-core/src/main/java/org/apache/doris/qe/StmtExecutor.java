@@ -61,6 +61,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.common.util.SqlStatementMasker;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.UniqueIdUtils;
 import org.apache.doris.common.util.Util;
@@ -99,8 +100,6 @@ import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.EmptyCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
-import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
-import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.commands.Redirect;
 import org.apache.doris.nereids.trees.plans.commands.SupportProfile;
@@ -183,7 +182,6 @@ public class StmtExecutor {
     private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
 
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
-    private static final String MASKED_STMT_FALLBACK = "/* masked statement unavailable */";
     public static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
     private static Set<String> blockSqlAstNames = Sets.newHashSet();
 
@@ -360,7 +358,7 @@ public class StmtExecutor {
         if (loadBackendSelection != null) {
             builder.loadBackendSelection(loadBackendSelection);
         }
-        builder.sqlStatement(originStmt == null ? "" : originStmt.originStmt);
+        builder.sqlStatement(originStmt == null ? "" : getStmtForLogging(originStmt.originStmt));
         builder.isCached(isCached ? "Yes" : "No");
 
         Map<String, Integer> beToInstancesNum = coord == null ? Maps.newTreeMap() : coord.getBeToInstancesNum();
@@ -1250,16 +1248,15 @@ public class StmtExecutor {
 
         // Generate profile for:
         // 1. CreateTableCommand(mainly for create as select).
-        // 2. LoadCommand.
-        // 3. InsertOverwriteTableCommand.
-        // 4. MergeIntoCommand (merge into ... using ...).
-        if ((plan instanceof Command) && !(plan instanceof LoadCommand)
-                && !(plan instanceof CreateTableCommand) && !(plan instanceof InsertOverwriteTableCommand)
+        // 2. InsertOverwriteTableCommand.
+        // 3. MergeIntoCommand (merge into ... using ...).
+        if ((plan instanceof Command) && !(plan instanceof CreateTableCommand)
+                && !(plan instanceof InsertOverwriteTableCommand)
                 && !(plan instanceof MergeIntoCommand)) {
             // Commands like SHOW QUERY PROFILE will not have profile.
             return false;
         } else {
-            // 4. For all the other statements.
+            // Generate profiles for all the other statements.
             return true;
         }
     }
@@ -2440,27 +2437,11 @@ public class StmtExecutor {
     }
 
     private String getStmtForLogging(String stmt) {
-        if (stmt == null) {
-            return stmt;
-        }
         if (!(parsedStmt instanceof LogicalPlanAdapter)) {
             return getStmtForLoggingBeforeParse(stmt);
         }
-        // Internal export outfile tasks use an empty origin SQL, so audit masking must skip reparsing here.
-        if (stmt.isEmpty()) {
-            return stmt;
-        }
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-        if (!(logicalPlan instanceof NeedAuditEncryption)) {
-            return stmt;
-        }
-        try {
-            return ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(stmt);
-        } catch (Exception e) {
-            // Logging must not leak plaintext or change command behavior when masking fails.
-            LOG.warn("failed to mask statement for FE logging", e);
-            return MASKED_STMT_FALLBACK;
-        }
+        return SqlStatementMasker.mask(stmt, logicalPlan);
     }
 
     private String getStmtForLoggingBeforeParse() {
@@ -2468,24 +2449,7 @@ public class StmtExecutor {
     }
 
     private String getStmtForLoggingBeforeParse(String stmt) {
-        if (stmt == null) {
-            return null;
-        }
-        // Empty SQL cannot produce a valid parse tree for audit masking, so keep the original text.
-        if (stmt.isEmpty()) {
-            return stmt;
-        }
-        try {
-            LogicalPlan logicalPlan = new NereidsParser().parseSingle(stmt);
-            if (!(logicalPlan instanceof NeedAuditEncryption)) {
-                return stmt;
-            }
-            return ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(stmt);
-        } catch (Exception e) {
-            // Logging must fail closed before parsing so secrets never fall back to plaintext.
-            LOG.warn("failed to prepare masked statement for FE logging", e);
-            return MASKED_STMT_FALLBACK;
-        }
+        return SqlStatementMasker.mask(stmt);
     }
 
     public List<ByteBuffer> getProxyQueryResultBufList() {
