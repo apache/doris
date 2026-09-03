@@ -140,6 +140,7 @@ PMultiGetRequest RowIDFetcher::_init_fetch_request(const ColumnString& row_locs)
     query_id.set_lo(_fetch_option.runtime_state->query_id().lo);
     mget_req.set_be_exec_version(_fetch_option.runtime_state->be_exec_version());
     mget_req.set_fetch_row_store(_fetch_option.t_fetch_opt.fetch_row_store);
+    mget_req.set_cluster_id(ExecEnv::GetInstance()->cluster_info()->cluster_id);
     return mget_req;
 }
 

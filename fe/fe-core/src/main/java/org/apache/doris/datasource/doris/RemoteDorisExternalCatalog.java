@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.doris;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
@@ -32,8 +34,11 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class RemoteDorisExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(RemoteDorisExternalCatalog.class);
@@ -166,6 +171,42 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
     public boolean useArrowFlight() {
         return Boolean.parseBoolean(catalogProperty.getOrDefault(RemoteDorisProperties.USE_ARROW_FLIGHT,
                 "true"));
+    }
+
+    /**
+     * Returns the remote olap table behind the given table, or null if the table does not
+     * belong to a remote doris cluster. Covers both access modes: the virtual cluster mode
+     * binds a RemoteOlapTable directly, and the arrow flight mode binds a
+     * RemoteDorisExternalTable wrapping one.
+     */
+    public static RemoteOlapTable getRemoteOlapTable(TableIf table) {
+        if (table instanceof RemoteOlapTable) {
+            return (RemoteOlapTable) table;
+        }
+        if (table instanceof RemoteDorisExternalTable) {
+            return (RemoteOlapTable) ((RemoteDorisExternalTable) table).getOlapTable();
+        }
+        return null;
+    }
+
+    /**
+     * Whether any remote backend id collides with a local backend id, or two remote tables
+     * (e.g. from different remote catalogs) collide with each other. Backend ids of clusters
+     * are independently allocated; on collision the second phase fetch cannot distinguish the
+     * id spaces and would route rows to a wrong backend, so topn lazy materialization must
+     * be skipped.
+     */
+    public static boolean hasRemoteBackendIdConflict(Collection<RemoteOlapTable> remoteTables) {
+        Set<Long> localBackendIds = new HashSet<>(Env.getCurrentSystemInfo().getAllBackendIds());
+        Set<Long> seenRemoteBackendIds = new HashSet<>();
+        for (RemoteOlapTable remoteTable : remoteTables) {
+            for (Long backendId : remoteTable.getAllBackendsByAllCluster().keySet()) {
+                if (localBackendIds.contains(backendId) || !seenRemoteBackendIds.add(backendId)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     @Override
