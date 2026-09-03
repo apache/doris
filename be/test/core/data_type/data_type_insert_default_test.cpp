@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <string_view>
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
@@ -288,8 +289,10 @@ TEST(DataTypeInsertDefaultTest, AllTypeFamilies) {
     {
         SCOPED_TRACE("variant");
         auto actual = get_default_field(std::make_shared<DataTypeVariant>());
-        ASSERT_EQ(actual.get_type(), TYPE_NULL);
-        EXPECT_TRUE(actual.is_null());
+        ASSERT_EQ(actual.get_type(), TYPE_VARIANT);
+        const auto encoded_value = actual.get<TYPE_VARIANT>().value();
+        EXPECT_EQ(std::string_view(encoded_value.data, encoded_value.size),
+                  std::string_view("\x02\x00\x00", 3));
     }
 
     {
