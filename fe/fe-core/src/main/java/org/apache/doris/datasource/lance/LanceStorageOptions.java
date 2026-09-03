@@ -83,7 +83,6 @@ public final class LanceStorageOptions {
             normalizedVended = provider.normalizeVendedStorageOptions(vendedOptions);
         }
         result.putAll(normalizedVended);
-        provider.reconcileVendedStorageOptions(result, normalizedVended);
         provider.inferStorageOptions(result).forEach(result::putIfAbsent);
         result.forEach((key, value) -> rejectUntransportable(key, value,
                 "Lance storage configuration"));

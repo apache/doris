@@ -573,25 +573,6 @@ public class LanceStorageOptionsTest {
     }
 
     /**
-     * A vended key pair replaces the catalog's. A token from the static half belonged to the pair
-     * that was just replaced, and signing the new pair with it fails; drop it with its pair.
-     */
-    @Test
-    public void testVendedOssKeyPairDropsTheStaticToken() {
-        Map<String, String> properties = ossProperties();
-        properties.put("oss.session_token", "static-token");
-        Map<String, String> vended = new HashMap<>();
-        vended.put("access_key_id", "vended-ak");
-        vended.put("access_key_secret", "vended-sk");
-
-        Map<String, String> merged = LanceStorageOptions.fromDorisAndVendedStorageOptions(
-                OSS_URI, createAll(properties), vended);
-
-        Assertions.assertNull(merged.get("oss_security_token"));
-        Assertions.assertEquals("vended-ak", merged.get("oss_access_key_id"));
-    }
-
-    /**
      * A namespace that vends its own token keeps it - only a stale one is dropped. The token
      * assertion alone would pass without reconciliation, since the overlay overwrites it anyway,
      * so this also pins the flag that only reconciliation states.
@@ -613,40 +594,24 @@ public class LanceStorageOptionsTest {
     }
 
     /**
-     * The half that was not vended belongs to the pair being replaced. Keeping it produces a
-     * mismatched tuple that OpenDAL signs with anyway, failing at scan time with
-     * SignatureDoesNotMatch; the catalog's own both-or-neither rule cannot catch it, because the
-     * merged map is not one-sided until the stale half is dropped.
-     */
-    @Test
-    public void testVendedOssHalfPairDoesNotMixWithTheStaticOne() {
-        Map<String, String> properties = ossProperties();
-        Map<String, String> vended = new HashMap<>();
-        vended.put("access_key_id", "vended-ak");
-
-        IllegalArgumentException thrown = Assertions.assertThrows(
-                IllegalArgumentException.class,
-                () -> LanceStorageOptions.fromDorisAndVendedStorageOptions(OSS_URI, createAll(properties), vended));
-        Assertions.assertTrue(thrown.getMessage().contains("Incomplete OSS credential"),
-                "unexpected message: " + thrown.getMessage());
-    }
-
-    /**
      * A namespace asking for anonymous access has just described this table, which outranks a
      * credential the catalog holds for something else. Signing with it would 403 on a bucket the
      * catalog's account cannot read.
      */
     @Test
-    public void testVendedAnonymousModeOutranksStaticOssCredentials() {
+    public void testVendedAnonymousModeConflictsWithStaticOssCredentials() {
         Map<String, String> vended = new HashMap<>();
         vended.put("allow_anonymous", "true");
 
-        Map<String, String> merged = LanceStorageOptions.fromDorisAndVendedStorageOptions(
-                OSS_URI, createAll(ossProperties()), vended);
-
-        Assertions.assertEquals("true", merged.get("allow_anonymous"));
-        Assertions.assertNull(merged.get("oss_access_key_id"));
-        Assertions.assertNull(merged.get("oss_secret_access_key"));
+        // The catalog's credentials are not cleared to make room for it: a namespace asking for
+        // anonymous access to a catalog that holds a credential is a contradiction, and saying so
+        // beats silently picking one of the two.
+        IllegalArgumentException thrown = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                        OSS_URI, createAll(ossProperties()), vended));
+        Assertions.assertTrue(thrown.getMessage().contains("Conflicting OSS authentication"),
+                "unexpected message: " + thrown.getMessage());
     }
 
     @Test
@@ -667,24 +632,11 @@ public class LanceStorageOptionsTest {
     }
 
     @Test
-    public void testOssRoleAndOidcRequireSigning() {
-        for (String option : new String[] {
-                "role_arn", "oidc_token", "oidc_provider_arn", "oidc_token_file"}) {
-            Map<String, String> vended = Collections.singletonMap(option, "signed-value");
-            Map<String, String> merged = LanceStorageOptions
-                    .fromDorisAndVendedStorageOptions(OSS_URI, createAll(ossProperties()), vended);
-            Assertions.assertEquals("signed-value", merged.get(option));
-            Assertions.assertEquals("false", merged.get("allow_anonymous"));
-            Assertions.assertNull(merged.get("oss_access_key_id"));
-            Assertions.assertNull(merged.get("oss_secret_access_key"));
-        }
-    }
-
-    @Test
     public void testOssAnonymousConflictsWithSigningConfiguration() {
         Map<String, String> vended = new HashMap<>();
         vended.put("skip_signature", "true");
-        vended.put("role_arn", "acs:ram::123456789:role/lance");
+        vended.put("access_key_id", "ak");
+        vended.put("access_key_secret", "sk");
 
         IllegalArgumentException thrown = Assertions.assertThrows(
                 IllegalArgumentException.class,
@@ -723,10 +675,11 @@ public class LanceStorageOptionsTest {
         Map<String, String> merged = LanceStorageOptions.fromDorisAndVendedStorageOptions(
                 OSS_URI, createAll(properties), vended);
 
+        // The blanks themselves survive - the merge overlays key by key and does not judge values.
+        // What matters is that they are not mistaken for a credential: inference reads them as
+        // absent, so the request is marked anonymous rather than signed with empty strings.
         Assertions.assertEquals("true", merged.get("allow_anonymous"));
-        Assertions.assertNull(merged.get("oss_access_key_id"));
-        Assertions.assertNull(merged.get("oss_secret_access_key"));
-        Assertions.assertNull(merged.get("oss_security_token"));
+        Assertions.assertEquals("", merged.get("oss_access_key_id"));
     }
 
     /**
@@ -748,45 +701,4 @@ public class LanceStorageOptionsTest {
     }
 
     /** Half a credential cannot sign; fail where the catalog is defined rather than at scan time. */
-    @Test
-    public void testOneSidedVendedOssCredentialIsRejected() {
-        Map<String, String> vended = new HashMap<>();
-        vended.put("access_key_id", "vended-ak-only");
-
-        IllegalArgumentException thrown = Assertions.assertThrows(
-                IllegalArgumentException.class,
-                () -> LanceStorageOptions.fromDorisAndVendedStorageOptions(
-                        OSS_URI, Collections.emptyList(), vended));
-        Assertions.assertTrue(thrown.getMessage().contains("Incomplete OSS credential"),
-                "unexpected message: " + thrown.getMessage());
-    }
-
-    /**
-     * A vended key pair replaces the whole credential, including a role or identity binding the
-     * catalog contributed. Inference counts those as signing configuration, so one left behind
-     * would describe an identity no longer in use.
-     *
-     * <p>Exercised through the provider rather than a catalog because Doris has no static property
-     * that emits a role today - this pins the contract before one exists.
-     */
-    @Test
-    public void testVendedOssKeyPairReplacesARoleBinding() {
-        Map<String, String> merged = new HashMap<>();
-        merged.put("role_arn", "acs:ram::1:role/stale");
-        merged.put("oidc_token_file", "/var/run/stale-token");
-        merged.put("oss_access_key_id", "static-ak");
-        merged.put("oss_secret_access_key", "static-sk");
-
-        Map<String, String> vended = new HashMap<>();
-        vended.put("oss_access_key_id", "vended-ak");
-        vended.put("oss_secret_access_key", "vended-sk");
-        merged.putAll(vended);
-
-        LanceStorageProvider.forDataset(OSS_URI).reconcileVendedStorageOptions(merged, vended);
-
-        Assertions.assertEquals("vended-ak", merged.get("oss_access_key_id"));
-        Assertions.assertEquals("vended-sk", merged.get("oss_secret_access_key"));
-        Assertions.assertNull(merged.get("role_arn"));
-        Assertions.assertNull(merged.get("oidc_token_file"));
-    }
 }

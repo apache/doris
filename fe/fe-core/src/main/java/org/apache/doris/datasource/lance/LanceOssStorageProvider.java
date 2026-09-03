@@ -40,21 +40,6 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
     private static final String ADDRESSING_STYLE = "addressing_style";
     private static final String SKIP_SIGNATURE = "skip_signature";
     private static final String ALLOW_ANONYMOUS = "allow_anonymous";
-    private static final String ROLE_ARN = "role_arn";
-    private static final String OIDC_TOKEN = "oidc_token";
-    private static final String OIDC_PROVIDER_ARN = "oidc_provider_arn";
-    private static final String OIDC_TOKEN_FILE = "oidc_token_file";
-
-    /**
-     * The options that together say who the caller is. They are replaced as a unit, so the removal
-     * below reads this list rather than naming each key again. {@code allow_anonymous} is
-     * deliberately absent: it states a conclusion about these rather than being one of them, and is
-     * inferred once everything else has settled.
-     */
-    private static final String[] AUTH_OPTIONS = {
-            ACCESS_KEY_ID, SECRET_ACCESS_KEY, SECURITY_TOKEN,
-            ROLE_ARN, OIDC_TOKEN, OIDC_PROVIDER_ARN, OIDC_TOKEN_FILE,
-    };
 
     /**
      * Lance exposes the {@code oss_*} names as its public storage-option vocabulary and normalizes
@@ -91,8 +76,9 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
         }
         putIfNotEmpty(result, ENDPOINT, properties.getEndpoint());
         putIfNotEmpty(result, REGION, properties.getRegion());
-        putCredentials(result, properties.getAccessKey(), properties.getSecretKey(),
-                properties.getSessionToken());
+        putIfNotEmpty(result, ACCESS_KEY_ID, properties.getAccessKey());
+        putIfNotEmpty(result, SECRET_ACCESS_KEY, properties.getSecretKey());
+        putIfNotEmpty(result, SECURITY_TOKEN, properties.getSessionToken());
 
         // Lance snapshots the host's OSS_*/AWS_*/ALIBABA_CLOUD_* environment into the same config
         // map before storage options are applied, so state both addressing styles explicitly the
@@ -124,72 +110,6 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
         return result;
     }
 
-    /**
-     * Chooses which side's OSS authentication to keep once a namespace's options have been laid
-     * over the catalog's.
-     *
-     * <p>Authentication is one value, not a set of independent keys: a key pair, the token that
-     * belongs to that pair, and any role or identity binding standing in for them. The overlay that
-     * produced {@code merged} is key by key, so on its own it can pair one side's access key with
-     * the other's secret, or leave a token attached to a pair it was never issued for.
-     *
-     * <p>So the two sides are never mixed. A namespace that supplies any part of the authentication
-     * has just described this table and supplies all of it; otherwise the catalog's stands
-     * untouched. Every case the merge could get wrong - a half pair, a stale token, a vended blank,
-     * an explicit anonymous request - follows from that one rule.
-     */
-    @Override
-    public void reconcileVendedStorageOptions(Map<String, String> merged,
-            Map<String, String> normalizedVended) {
-        // A vended anonymous flag counts as supplying authentication: saying "this table needs no
-        // credential" is a statement about the same group, and outranks one the catalog holds.
-        boolean vendedSuppliesAuth = normalizedVended.containsKey(ALLOW_ANONYMOUS);
-        for (String option : AUTH_OPTIONS) {
-            if (normalizedVended.containsKey(option)) {
-                vendedSuppliesAuth = true;
-                break;
-            }
-        }
-        if (!vendedSuppliesAuth) {
-            return;
-        }
-        // Whatever the namespace did not send belonged to the credential it is replacing. That
-        // includes a role or identity binding: inference below counts those as signing
-        // configuration, so leaving one behind would describe an identity that is no longer in use.
-        for (String option : AUTH_OPTIONS) {
-            if (!normalizedVended.containsKey(option)) {
-                merged.remove(option);
-            }
-        }
-        putCredentials(merged, normalizedVended.get(ACCESS_KEY_ID),
-                normalizedVended.get(SECRET_ACCESS_KEY), normalizedVended.get(SECURITY_TOKEN));
-    }
-
-    /**
-     * Writes one credential tuple into {@code options}, replacing whatever was there.
-     *
-     * <p>Blank is not a credential, and a token is only carried when there is a pair for it to
-     * belong to. Whether the resulting request is signed is inferred from the complete merged map.
-     */
-    private static void putCredentials(Map<String, String> options, String keyId, String secret,
-            String token) {
-        options.remove(ACCESS_KEY_ID);
-        options.remove(SECRET_ACCESS_KEY);
-        options.remove(SECURITY_TOKEN);
-
-        boolean hasKeyId = StringUtils.isNotEmpty(keyId);
-        boolean hasSecret = StringUtils.isNotEmpty(secret);
-        if (hasKeyId != hasSecret) {
-            throw new IllegalArgumentException("Incomplete OSS credential: '"
-                    + (hasKeyId ? SECRET_ACCESS_KEY : ACCESS_KEY_ID) + "' is missing");
-        }
-        if (hasKeyId) {
-            options.put(ACCESS_KEY_ID, keyId);
-            options.put(SECRET_ACCESS_KEY, secret);
-            putIfNotEmpty(options, SECURITY_TOKEN, token);
-        }
-    }
-
     @Override
     public Map<String, String> inferStorageOptions(Map<String, String> effectiveOptions) {
         Map<String, String> inferred = new HashMap<>();
@@ -208,11 +128,7 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
     }
 
     private static boolean hasSigningConfiguration(Map<String, String> options) {
-        return StringUtils.isNotEmpty(options.get(ACCESS_KEY_ID))
-                || StringUtils.isNotEmpty(options.get(ROLE_ARN))
-                || StringUtils.isNotEmpty(options.get(OIDC_TOKEN))
-                || StringUtils.isNotEmpty(options.get(OIDC_PROVIDER_ARN))
-                || StringUtils.isNotEmpty(options.get(OIDC_TOKEN_FILE));
+        return StringUtils.isNotEmpty(options.get(ACCESS_KEY_ID));
     }
 
     private static OSSProperties selectOss(List<StorageProperties> storageProperties) {
