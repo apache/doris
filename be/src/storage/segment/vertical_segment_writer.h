@@ -70,6 +70,8 @@ using DerivedColumn = std::pair<uint32_t, std::shared_ptr<const DerivedColumnGen
 
 struct VerticalSegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
+    // Caps the rows in one segment. Only unit tests set it, to control how many
+    // segments a write produces; production leaves it unlimited.
     uint32_t max_rows_per_segment = UINT32_MAX;
     bool enable_unique_key_merge_on_write = false;
     CompressionTypePB compression_type = UNKNOWN_COMPRESSION;
@@ -194,7 +196,7 @@ private:
     // cluster key MOW: sorts the collected primary keys into the index builder
     // and lets them go
     Status _flush_primary_keys();
-    Status _settle_row_count();
+    Status _set_row_count();
     // Closes the open group's column writers and writes their data pages, after
     // checking the data dir has room for them.
     Status _finalize_columns_data();

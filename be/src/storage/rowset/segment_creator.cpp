@@ -97,10 +97,8 @@ Status SegmentFlusher::flush_single_block(const Block* block, int32_t segment_id
     // write_block pumps the derived column from its generator in small batches
     writer->set_derived_column(std::move(derived_column));
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(writer->write_block(&flush_block, 0, flush_block.rows()));
-    if (writer->num_rows_written() != 0) {
-        [[maybe_unused]] uint32_t flushed_segment_id = writer->segment_id();
-        TEST_SYNC_POINT_CALLBACK("SegmentFlusher::write_block_path", &flushed_segment_id);
-    }
+    [[maybe_unused]] uint32_t flushed_segment_id = writer->segment_id();
+    TEST_SYNC_POINT_CALLBACK("SegmentFlusher::write_block_path", &flushed_segment_id);
     RETURN_IF_ERROR(_flush_segment_writer(writer, flush_size));
     // The caller's row accounting checks against what it fed in, so count the
     // input rows, not what survived the chain.

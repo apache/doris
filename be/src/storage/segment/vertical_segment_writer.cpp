@@ -665,6 +665,10 @@ uint64_t VerticalSegmentWriter::estimate_segment_size() {
 }
 
 uint64_t VerticalSegmentWriter::_key_index_size() {
+    // a value group's key indexes belong to the key group, which already wrote them
+    if (!_has_key) {
+        return 0;
+    }
     if (_is_mow_with_cluster_key()) {
         return _primary_key_index_builder->size() + _short_key_index_builder->size();
     }
@@ -698,9 +702,9 @@ Status VerticalSegmentWriter::_finalize_columns_data() {
     return _write_data();
 }
 
-// The group that holds the key columns settles how many rows the segment has.
-// Every later group has to bring the same number, or its columns end short.
-Status VerticalSegmentWriter::_settle_row_count() {
+// The key group decides how many rows the segment has. Every later group has to
+// bring the same number, or its columns end short.
+Status VerticalSegmentWriter::_set_row_count() {
     if (_has_key) {
         _row_count = _num_rows_written;
     } else {
@@ -741,7 +745,7 @@ Status VerticalSegmentWriter::finalize_columns(uint64_t* index_size) {
             _abandon_index_staging();
         }
     }};
-    RETURN_IF_ERROR(_settle_row_count());
+    RETURN_IF_ERROR(_set_row_count());
     // write the group's data pages unless write_block already did
     if (!_columns_data_flushed) {
         RETURN_IF_ERROR(_finalize_columns_data());
