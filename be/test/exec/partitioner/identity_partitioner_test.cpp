@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -24,8 +25,10 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/value/decimalv2_value.h"
 #include "core/value/ipv4_value.h"
 #include "core/value/ipv6_value.h"
+#include "core/value/vdatetime_value.h"
 #include "exec/partitioner/partitioner.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
@@ -181,6 +184,47 @@ TEST_F(IdentityPartitionerTest, Crc32DiffersFromIdentity) {
         }
     }
     EXPECT_TRUE(differs);
+}
+
+TEST(IdentityHashTest, FixedWidthAndLegacyTypes) {
+    constexpr uint32_t n = 257;
+    auto hash_bytes = [](const void* value, size_t size, uint32_t seed = 0) {
+        const auto* bytes = reinterpret_cast<const uint8_t*>(value);
+        uint64_t remainder = seed;
+        for (size_t i = size; i > 0; --i) {
+            remainder = (remainder * 256 + bytes[i - 1]) % n;
+        }
+        return static_cast<uint32_t>(remainder);
+    };
+
+    std::array<uint8_t, 32> bytes {};
+    bytes[0] = 0x34;
+    bytes[1] = 0x12;
+    EXPECT_EQ(hash_bytes(bytes.data(), 2),
+              RawValue::identity_hash(bytes.data(), 2, TYPE_VARCHAR, 0, n));
+    EXPECT_EQ(hash_bytes(bytes.data(), 1),
+              RawValue::identity_hash(bytes.data(), bytes.size(), TYPE_BOOLEAN, 0, n));
+    EXPECT_EQ(hash_bytes(bytes.data(), 2),
+              RawValue::identity_hash(bytes.data(), bytes.size(), TYPE_SMALLINT, 0, n));
+    EXPECT_EQ(hash_bytes(bytes.data(), 8),
+              RawValue::identity_hash(bytes.data(), bytes.size(), TYPE_BIGINT, 0, n));
+    EXPECT_EQ(hash_bytes(bytes.data(), 16),
+              RawValue::identity_hash(bytes.data(), bytes.size(), TYPE_LARGEINT, 0, n));
+    EXPECT_EQ(hash_bytes(bytes.data(), bytes.size()),
+              RawValue::identity_hash(bytes.data(), bytes.size(), TYPE_DECIMAL256, 0, n));
+
+    auto date = VecDateTimeValue::create_from_olap_date(20260102);
+    char date_buffer[64];
+    const int date_length = date.to_buffer(date_buffer);
+    EXPECT_EQ(hash_bytes(date_buffer, date_length),
+              RawValue::identity_hash(&date, sizeof(date), TYPE_DATE, 0, n));
+
+    const DecimalV2Value decimal(123, 456000000);
+    const int32_t fraction = decimal.frac_value();
+    const int64_t integer = decimal.int_value();
+    const uint32_t fraction_hash = hash_bytes(&fraction, sizeof(fraction));
+    EXPECT_EQ(hash_bytes(&integer, sizeof(integer), fraction_hash),
+              RawValue::identity_hash(&decimal, sizeof(decimal), TYPE_DECIMALV2, 0, n));
 }
 
 TEST(IdentityHashTest, IpCanonicalBytes) {

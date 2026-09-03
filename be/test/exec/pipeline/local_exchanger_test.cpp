@@ -18,7 +18,11 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <limits>
+#include <map>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -68,6 +72,32 @@ private:
     const std::string LOCALHOST = BackendOptions::get_localhost();
     const int DUMMY_PORT = config::brpc_port;
 };
+
+TEST_F(LocalExchangerTest, BucketShufflePartitionerHashType) {
+    const std::vector<TExpr> exprs;
+    const std::map<int, int> bucket_seq_to_instance_idx {{0, 0}};
+
+    LocalExchangeSinkOperatorX crc32_op(0, 0, 1, exprs, bucket_seq_to_instance_idx,
+                                        TDistributionHashType::CRC32);
+    EXPECT_TRUE(crc32_op.init(_runtime_state.get(), TLocalPartitionType::BUCKET_HASH_SHUFFLE, 1,
+                              bucket_seq_to_instance_idx)
+                        .ok());
+
+    LocalExchangeSinkOperatorX identity_op(1, 0, 1, exprs, bucket_seq_to_instance_idx,
+                                           TDistributionHashType::IDENTITY);
+    EXPECT_TRUE(identity_op
+                        .init(_runtime_state.get(), TLocalPartitionType::BUCKET_HASH_SHUFFLE, 1,
+                              bucket_seq_to_instance_idx)
+                        .ok());
+
+    LocalExchangeSinkOperatorX invalid_op(
+            2, 0, 1, exprs, bucket_seq_to_instance_idx,
+            static_cast<TDistributionHashType::type>(std::numeric_limits<int>::max()));
+    auto status = invalid_op.init(_runtime_state.get(), TLocalPartitionType::BUCKET_HASH_SHUFFLE, 1,
+                                  bucket_seq_to_instance_idx);
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>());
+    EXPECT_NE(status.to_string().find("unsupported distribution_hash_type"), std::string::npos);
+}
 
 TEST_F(LocalExchangerTest, ShuffleExchanger) {
     int num_sink = 4;
