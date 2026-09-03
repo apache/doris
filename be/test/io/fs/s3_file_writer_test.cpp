@@ -1191,8 +1191,27 @@ public:
         return default_response;
     }
 
+    ObjStorageResponse abort_multipart_upload(const ObjStoragePath& opts,
+                                              const std::string& upload_id) override {
+        std::lock_guard lock(_mutex);
+        abort_multipart_count++;
+        last_opts = opts;
+        last_upload_id = upload_id;
+        abort_upload_ids.emplace_back(upload_id);
+        if (abort_failures_remaining > 0) {
+            --abort_failures_remaining;
+            return {.status = ObjStorageStatus {ObjStorageStatus::IO_ERROR,
+                                                "injected abort failure"}};
+        }
+        parts.clear();
+        return default_response;
+    }
+
     ObjStorageHeadResult head_object(const ObjStoragePath& opts) override {
         std::lock_guard lock(_mutex);
+        if (on_head) {
+            on_head();
+        }
         return {.resp = ObjStorageResponse::OK(),
                 .file_size = static_cast<int64_t>(objects[opts.path.native()].size())};
     }
@@ -1255,6 +1274,10 @@ public:
     int put_object_count = 0;
     int upload_part_count = 0;
     int complete_multipart_count = 0;
+    int abort_multipart_count = 0;
+    int abort_failures_remaining = 0;
+    std::function<void()> on_head;
+    std::vector<std::string> abort_upload_ids;
 
     // Structures to store input parameters for each call
     struct UploadPartParams {
@@ -1294,6 +1317,10 @@ public:
         put_object_count = 0;
         upload_part_count = 0;
         complete_multipart_count = 0;
+        abort_multipart_count = 0;
+        abort_failures_remaining = 0;
+        on_head = nullptr;
+        abort_upload_ids.clear();
 
         create_multipart_params.clear();
         put_object_params.clear();
@@ -1333,6 +1360,51 @@ create_s3_client(const std::string& path) {
     holder->_client = mock_client;
     s3_file_writer->_obj_client = holder;
     return {mock_client, s3_file_writer};
+}
+
+TEST_F(S3FileWriterTest, AbortCancelsMultipartUpload) {
+    auto [mock_client, writer] = create_s3_client("abort-multipart");
+    std::string content(config::s3_write_buffer_size, 'a');
+
+    ASSERT_TRUE(writer->append(content).ok());
+    ASSERT_TRUE(writer->abort().ok());
+
+    EXPECT_EQ(mock_client->create_multipart_count, 1);
+    EXPECT_EQ(mock_client->abort_multipart_count, 1);
+    EXPECT_EQ(mock_client->complete_multipart_count, 0);
+}
+
+TEST_F(S3FileWriterTest, AbortRetryReusesMultipartUploadId) {
+    auto [mock_client, writer] = create_s3_client("abort-multipart-retry");
+    std::string content(config::s3_write_buffer_size, 'a');
+    mock_client->abort_failures_remaining = 1;
+
+    ASSERT_TRUE(writer->append(content).ok());
+    ASSERT_FALSE(writer->abort().ok());
+    ASSERT_TRUE(writer->abort().ok());
+
+    ASSERT_EQ(mock_client->abort_upload_ids.size(), 2);
+    EXPECT_EQ(mock_client->abort_upload_ids[0], mock_client->abort_upload_ids[1]);
+    EXPECT_EQ(mock_client->complete_multipart_count, 0);
+}
+
+TEST_F(S3FileWriterTest, MarksMultipartCompletedBeforePostUploadCheck) {
+    auto [mock_client, writer] = create_s3_client("complete-before-post-upload-check");
+    std::string content(config::s3_write_buffer_size, 'a');
+    const bool original_check_after_upload = config::enable_s3_object_check_after_upload;
+    Defer restore_config {
+            [&] { config::enable_s3_object_check_after_upload = original_check_after_upload; }};
+    config::enable_s3_object_check_after_upload = true;
+    bool completion_flag_during_head = false;
+    mock_client->on_head = [&] {
+        completion_flag_during_head = writer->_multipart_upload_completed;
+    };
+
+    ASSERT_TRUE(writer->append(content).ok());
+    ASSERT_TRUE(writer->close().ok());
+
+    EXPECT_EQ(mock_client->complete_multipart_count, 1);
+    EXPECT_TRUE(completion_flag_during_head);
 }
 
 /**

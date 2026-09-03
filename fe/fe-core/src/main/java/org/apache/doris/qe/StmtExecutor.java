@@ -171,6 +171,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -180,6 +181,7 @@ import java.util.stream.Collectors;
 // first: Parse receive byte array to statement struct.
 // second: Do handle function for statement.
 public class StmtExecutor {
+    private static final long OUTFILE_CLEANUP_TIMEOUT_MS = 5000;
     private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
 
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
@@ -1090,10 +1092,22 @@ public class StmtExecutor {
         }
     }
 
+    @FunctionalInterface
+    interface QueryAttempt {
+        void execute() throws Exception;
+    }
+
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
+        handleQueryWithRetry(queryId, this::handleQueryStmt);
+    }
+
+    void handleQueryWithRetry(TUniqueId queryId, QueryAttempt queryAttempt) throws Exception {
         // queue query here
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
+        OutFileClause retryOutfileClause = parsedStmt instanceof Queriable
+                ? ((Queriable) parsedStmt).getOutFileClause() : null;
+        boolean atomicOutfile = retryOutfileClause != null && retryOutfileClause.isAtomicOutfileEnabled();
         for (int i = 0; i < retryTime; i++) {
             try {
                 // reset query id for each retry
@@ -1131,7 +1145,7 @@ public class StmtExecutor {
                 if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
                     context.setReturnResultFromLocal(false);
                 }
-                handleQueryStmt();
+                queryAttempt.execute();
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 break;
             } catch (RpcException | UserException e) {
@@ -1142,6 +1156,10 @@ public class StmtExecutor {
                 }
                 // If the previous try is timeout or cancelled, then do not need try again.
                 if (this.coord != null && (this.coord.isQueryCancelled() || this.coord.isTimeout())) {
+                    throw e;
+                }
+                // A failed atomic attempt may still own late files, so it must not overlap a retry.
+                if (atomicOutfile) {
                     throw e;
                 }
                 LOG.warn("retry due to exception {}. retried {} times. is rpc error: {}, is user error: {}.",
@@ -1494,6 +1512,15 @@ public class StmtExecutor {
         //          Query OK, 10 rows affected (0.01 sec)
         //
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
+        OutFileClause outFileClause = null;
+        if (isOutfileQuery) {
+            outFileClause = queryStmt.getOutFileClause();
+            Preconditions.checkState(outFileClause != null, "OUTFILE query must have OutFileClause");
+        }
+        boolean atomicOutfile = outFileClause != null && outFileClause.isAtomicOutfileEnabled();
+        // Reject before coordinator construction because registration is outside the cleanup try/finally.
+        validateAtomicOutfileConnectType(atomicOutfile, context.getConnectType());
+
         RowBatch batch;
         CoordInterface coordBase = null;
         if (statementContext.isShortCircuitQuery()) {
@@ -1522,13 +1549,15 @@ public class StmtExecutor {
             coordBase = coord;
         }
 
-        coordBase.setIsProfileSafeStmt(this.isProfileSafeStmt());
-        OutFileClause outFileClause = null;
-        if (isOutfileQuery) {
-            outFileClause = queryStmt.getOutFileClause();
-            Preconditions.checkState(outFileClause != null, "OUTFILE query must have OutFileClause");
+        if (outFileClause != null && coordBase instanceof Coordinator) {
+            // Keep the BE query option aligned with the sink option captured while planning this query.
+            ((Coordinator) coordBase).getQueryOptions().setBeExecVersion(outFileClause.getBeExecVersion());
         }
-
+        coordBase.setIsProfileSafeStmt(this.isProfileSafeStmt());
+        boolean outfileCommitted = false;
+        boolean outfileMarkerMayExist = false;
+        TNetworkAddress outfileMarkerBackend = null;
+        List<ByteBuffer> deferredOutfileRows = new ArrayList<>();
         try {
             if (outFileClause != null) {
                 deleteExistingOutfileFilesInFe(outFileClause);
@@ -1577,20 +1606,25 @@ public class StmtExecutor {
                     // For some language driver, getting error packet after fields packet
                     // will be recognized as a success result
                     // so We need to send fields after first batch arrived
-                    if (!isSendFields) {
+                    if (!isSendFields && !atomicOutfile) {
                         if (!isOutfileQuery) {
                             sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
                                     getReturnTypes(queryStmt));
                         } else {
                             if (!Strings.isNullOrEmpty(outFileClause.getSuccessFileName())) {
-                                outfileWriteSuccess(outFileClause);
+                                outfileWriteSuccess(outFileClause, selectOutfileSuccessBackend(),
+                                        InternalService.POutfileSuccessOperation.OUTFILE_MARKER_CREATE);
                             }
                             sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
                         }
                         isSendFields = true;
                     }
-                    for (ByteBuffer row : batch.getBatch().getRows()) {
-                        channel.sendOnePacket(row);
+                    if (atomicOutfile) {
+                        deferredOutfileRows.addAll(batch.getBatch().getRows());
+                    } else {
+                        for (ByteBuffer row : batch.getBatch().getRows()) {
+                            channel.sendOnePacket(row);
+                        }
                     }
                     profile.getSummaryProfile().freshWriteResultConsumeTime();
                     context.updateReturnRows(batch.getBatch().getRows().size());
@@ -1598,6 +1632,37 @@ public class StmtExecutor {
                 }
                 if (batch.isEos()) {
                     break;
+                }
+            }
+            if (isOutfileQuery) {
+                if (atomicOutfile) {
+                    if (!Strings.isNullOrEmpty(outFileClause.getSuccessFileName())) {
+                        outfileMarkerBackend = selectOutfileSuccessBackend();
+                        // Establish rollback intent before entering the fallible finalization sequence:
+                        // a lost marker response must still trigger a conservative marker deletion.
+                        outfileMarkerMayExist = true;
+                    }
+                }
+                OutFileClause finalOutFileClause = outFileClause;
+                TNetworkAddress finalMarkerBackend = outfileMarkerBackend;
+                long outfileDeadlineMs = atomicOutfile ? coordBase.getOutfileTimeoutDeadline() : Long.MAX_VALUE;
+                finishOutfileTransaction(atomicOutfile, coordBase, () -> {
+                    if (finalMarkerBackend != null) {
+                        outfileWriteSuccess(finalOutFileClause, finalMarkerBackend,
+                                InternalService.POutfileSuccessOperation.OUTFILE_MARKER_CREATE,
+                                outfileDeadlineMs);
+                    }
+                });
+                if (atomicOutfile) {
+                    outfileCommitted = true;
+                    outfileMarkerMayExist = false;
+                    if (!isSendFields) {
+                        sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
+                        isSendFields = true;
+                    }
+                    for (ByteBuffer row : deferredOutfileRows) {
+                        channel.sendOnePacket(row);
+                    }
                 }
             }
             if (cacheAnalyzer != null && !isDryRun) {
@@ -1650,6 +1715,12 @@ public class StmtExecutor {
                     "cancel fragment query_id:{} cause query timeout",
                     DebugUtil.printId(context.queryId()));
             LOG.warn(internalErrorSt.getErrorMsg());
+            if (isOutfileQuery && !outfileCommitted) {
+                abortOutfile(coordBase, atomicOutfile);
+                if (outfileMarkerMayExist) {
+                    deleteOutfileMarker(outFileClause, outfileMarkerBackend);
+                }
+            }
             coordBase.cancel(internalErrorSt);
             throw e;
         } catch (Exception e) {
@@ -1660,6 +1731,12 @@ public class StmtExecutor {
                     "cancel fragment query_id:{} cause {}",
                     DebugUtil.printId(context.queryId()), e.getMessage());
             LOG.warn(internalErrorSt.getErrorMsg());
+            if (isOutfileQuery && !outfileCommitted) {
+                abortOutfile(coordBase, atomicOutfile);
+                if (outfileMarkerMayExist) {
+                    deleteOutfileMarker(outFileClause, outfileMarkerBackend);
+                }
+            }
             coordBase.cancel(internalErrorSt);
             // set to null so that the retry logic will generate a new coordinator
             this.coord = null;
@@ -1674,7 +1751,84 @@ public class StmtExecutor {
         }
     }
 
-    private void outfileWriteSuccess(OutFileClause outFileClause) throws Exception {
+    @FunctionalInterface
+    interface OutfileMarkerPublisher {
+        void publish() throws Exception;
+    }
+
+    static void validateAtomicOutfileConnectType(boolean atomicOutfile, ConnectType connectType)
+            throws UserException {
+        if (atomicOutfile && ConnectType.ARROW_FLIGHT_SQL.equals(connectType)) {
+            throw new UserException("Atomic OUTFILE is not supported over Arrow Flight SQL");
+        }
+    }
+
+    static long calculateOutfileCreateTimeoutMs(long deadlineMs, long nowMs, long maxTimeoutMs)
+            throws QueryTimeoutException {
+        long remainingMs = deadlineMs - nowMs;
+        if (remainingMs <= 0) {
+            throw new QueryTimeoutException();
+        }
+        return Math.min(remainingMs, maxTimeoutMs);
+    }
+
+    static void finishOutfileTransaction(boolean atomicOutfile, CoordInterface coordBase,
+            OutfileMarkerPublisher markerPublisher) throws Exception {
+        if (!atomicOutfile) {
+            return;
+        }
+        coordBase.finishOutfile(InternalService.POutfileWriteOperation.OUTFILE_PREPARE);
+        // COMMIT acknowledgements remain compensatable until the marker is published, so any
+        // receiver or marker failure can still roll the distributed OUTFILE back as one unit.
+        coordBase.finishOutfile(InternalService.POutfileWriteOperation.OUTFILE_COMMIT);
+        markerPublisher.publish();
+    }
+
+    private void abortOutfile(CoordInterface coordBase, boolean atomicOutfile) {
+        if (!atomicOutfile) {
+            return;
+        }
+        try {
+            coordBase.finishOutfile(InternalService.POutfileWriteOperation.OUTFILE_ABORT);
+        } catch (Exception cleanupError) {
+            // Cleanup diagnostics must not hide the execution error that caused the rollback.
+            LOG.warn("Failed to clean up files from aborted OUTFILE query", cleanupError);
+        }
+    }
+
+    private TNetworkAddress selectOutfileSuccessBackend() throws AnalysisException {
+        for (Backend be : Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values()) {
+            if (be.isAlive()) {
+                return new TNetworkAddress(be.getHost(), be.getBrpcPort());
+            }
+        }
+        String computeGroupHints = "";
+        if (Config.isCloudMode()) {
+            computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(null);
+        }
+        throw new AnalysisException("No Alive backends" + computeGroupHints);
+    }
+
+    private void deleteOutfileMarker(OutFileClause outFileClause, TNetworkAddress address) {
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            try {
+                outfileWriteSuccess(outFileClause, address,
+                        InternalService.POutfileSuccessOperation.OUTFILE_MARKER_DELETE);
+                return;
+            } catch (Exception cleanupError) {
+                LOG.warn("Failed to remove OUTFILE success marker during rollback, attempt {}",
+                        attempt + 1, cleanupError);
+            }
+        }
+    }
+
+    private void outfileWriteSuccess(OutFileClause outFileClause, TNetworkAddress address,
+            InternalService.POutfileSuccessOperation operation) throws Exception {
+        outfileWriteSuccess(outFileClause, address, operation, Long.MAX_VALUE);
+    }
+
+    private void outfileWriteSuccess(OutFileClause outFileClause, TNetworkAddress address,
+            InternalService.POutfileSuccessOperation operation, long deadlineMs) throws Exception {
         // 1. set TResultFileSinkOptions
         TResultFileSinkOptions sinkOptions = outFileClause.toSinkOptions();
 
@@ -1694,28 +1848,23 @@ public class StmtExecutor {
         sink.setStorageBackendType(storageType.toThrift());
 
         // 4. get BE
-        TNetworkAddress address = null;
-        for (Backend be : Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values()) {
-            if (be.isAlive()) {
-                address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
-                break;
-            }
-        }
-        if (address == null) {
-            String computeGroupHints = "";
-            if (Config.isCloudMode()) {
-                // null: computeGroupNotFoundPromptMsg select cluster for hint msg
-                computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(null);
-            }
-            throw new AnalysisException("No Alive backends" + computeGroupHints);
-        }
-
         // 5. send rpc to BE
         POutfileWriteSuccessRequest request = POutfileWriteSuccessRequest.newBuilder()
-                .setResultFileSink(ByteString.copyFrom(new TSerializer().serialize(sink))).build();
+                .setResultFileSink(ByteString.copyFrom(new TSerializer().serialize(sink)))
+                .setOperation(operation)
+                .setMarkerToken(DebugUtil.printId(context.queryId())).build();
+        long timeoutMs;
+        if (operation == InternalService.POutfileSuccessOperation.OUTFILE_MARKER_DELETE) {
+            timeoutMs = Math.max(1, Math.min(Config.remote_fragment_exec_timeout_ms, OUTFILE_CLEANUP_TIMEOUT_MS));
+        } else if (deadlineMs == Long.MAX_VALUE) {
+            timeoutMs = Math.max(1, Config.remote_fragment_exec_timeout_ms);
+        } else {
+            timeoutMs = calculateOutfileCreateTimeoutMs(deadlineMs, System.currentTimeMillis(),
+                    Math.max(1, Config.remote_fragment_exec_timeout_ms));
+        }
         Future<POutfileWriteSuccessResult> future = BackendServiceProxy.getInstance()
-                .outfileWriteSuccessAsync(address, request);
-        POutfileWriteSuccessResult result = future.get();
+                .outfileWriteSuccessAsync(address, request, timeoutMs);
+        POutfileWriteSuccessResult result = future.get(timeoutMs, TimeUnit.MILLISECONDS);
         TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
         String errMsg;
         if (code != TStatusCode.OK) {

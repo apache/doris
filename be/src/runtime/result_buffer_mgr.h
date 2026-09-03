@@ -46,6 +46,7 @@ class PUniqueId;
 class RuntimeState;
 class MemTrackerLimiter;
 class Thread;
+class PendingOutfileCleanupRegistry;
 class GetArrowResultBatchCtx;
 class GetResultBatchCtx;
 class Block;
@@ -69,7 +70,8 @@ public:
     template <typename ResultBlockBufferType>
     Status find_buffer(const TUniqueId& unique_id, std::shared_ptr<ResultBlockBufferType>& buffer);
     // cancel
-    bool cancel(const TUniqueId& unique_id, const Status& reason);
+    bool cancel(const TUniqueId& unique_id, const Status& reason, bool cleanup_async = false);
+    Status finish_outfile(const TUniqueId& unique_id, OutfileOperation operation);
 
     // cancel one query at a future time.
     void cancel_at_time(time_t cancel_time, const TUniqueId& unique_id);
@@ -89,6 +91,7 @@ private:
     std::shared_mutex _buffer_map_lock;
     // buffer block map
     BufferMap _buffer_map;
+    bool _stopping = false;
 
     // lock for timeout map
     std::mutex _timeout_lock;
@@ -99,6 +102,7 @@ private:
 
     CountDownLatch _stop_background_threads_latch;
     std::shared_ptr<Thread> _clean_thread;
+    std::shared_ptr<PendingOutfileCleanupRegistry> _pending_outfile_cleanup_registry;
 };
 
 } // namespace doris

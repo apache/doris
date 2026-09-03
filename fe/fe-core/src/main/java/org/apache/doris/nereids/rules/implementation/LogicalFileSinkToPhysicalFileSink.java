@@ -38,6 +38,7 @@ public class LogicalFileSinkToPhysicalFileSink extends OneImplementationRuleFact
                     sink.getFilePath(),
                     sink.getFormat(),
                     sink.getProperties(),
+                    sink.getBeExecVersion(),
                     Optional.empty(),
                     sink.getLogicalProperties(),
                     sink.child());

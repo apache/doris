@@ -772,11 +772,35 @@ message PFetchTableSchemaResult {
   repeated PTypeDesc column_types = 4;
 }
 
+enum POutfileSuccessOperation {
+    OUTFILE_MARKER_CREATE = 0;
+    OUTFILE_MARKER_DELETE = 1;
+}
+
 message POutfileWriteSuccessRequest {
     optional bytes result_file_sink = 1;
+    optional POutfileSuccessOperation operation = 2;
+    optional string marker_token = 3;
 }
 
 message POutfileWriteSuccessResult {
+    optional PStatus status = 1;
+}
+
+enum POutfileWriteOperation {
+    OUTFILE_PREPARE = 0;
+    OUTFILE_COMMIT = 1;
+    OUTFILE_ABORT = 2;
+}
+
+message POutfileWriteFinishedRequest {
+    repeated PUniqueId buffer_ids = 1;
+    // Kept for rolling upgrades: old BEs use this field and ignore operation.
+    optional bool success = 2;
+    optional POutfileWriteOperation operation = 3;
+}
+
+message POutfileWriteFinishedResult {
     optional PStatus status = 1;
 }
 
@@ -1260,6 +1284,7 @@ service PBackendService {
     rpc request_slave_tablet_pull_rowset(PTabletWriteSlaveRequest) returns (PTabletWriteSlaveResult);
     rpc response_slave_tablet_pull_rowset(PTabletWriteSlaveDoneRequest) returns (PTabletWriteSlaveDoneResult);
     rpc outfile_write_success(POutfileWriteSuccessRequest) returns (POutfileWriteSuccessResult);
+    rpc outfile_write_finished(POutfileWriteFinishedRequest) returns (POutfileWriteFinishedResult);
     rpc fetch_table_schema(PFetchTableSchemaRequest) returns (PFetchTableSchemaResult);
     rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse) {
         option deprecated = true;

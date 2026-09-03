@@ -25,8 +25,10 @@
 
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <condition_variable>
 #include <memory>
 #include <ostream>
+#include <unordered_set>
 #include <utility>
 
 #include "arrow/type_fwd.h"
@@ -35,15 +37,53 @@
 #include "common/status.h"
 #include "exec/sink/writer/varrow_flight_result_writer.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
+#include "runtime/exec_env.h"
 #include "runtime/result_block_buffer.h"
 #include "util/thread.h"
+#include "util/threadpool.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
+class PendingOutfileCleanup {
+public:
+    explicit PendingOutfileCleanup(std::shared_ptr<ResultBlockBufferBase> buffer)
+            : _buffer(std::move(buffer)) {}
+
+    void mark_ready() {
+        std::lock_guard lock(_lock);
+        _ready = true;
+        _ready_condition.notify_all();
+    }
+
+    void run() {
+        std::unique_lock lock(_lock);
+        _ready_condition.wait(lock, [this] { return _ready; });
+        if (_buffer == nullptr) {
+            return;
+        }
+        _buffer->release_outfile_cleanup();
+        _buffer.reset();
+    }
+
+private:
+    std::mutex _lock;
+    std::condition_variable _ready_condition;
+    bool _ready = false;
+    std::shared_ptr<ResultBlockBufferBase> _buffer;
+};
+
+class PendingOutfileCleanupRegistry {
+public:
+    std::mutex lock;
+    std::unordered_set<std::shared_ptr<PendingOutfileCleanup>> cleanups;
+};
+
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(result_buffer_block_count, MetricUnit::NOUNIT);
 
-ResultBufferMgr::ResultBufferMgr() : _stop_background_threads_latch(1) {
+ResultBufferMgr::ResultBufferMgr()
+        : _stop_background_threads_latch(1),
+          _pending_outfile_cleanup_registry(std::make_shared<PendingOutfileCleanupRegistry>()) {
     // Each ResultBlockBufferBase has a limited queue size of 1024, it's not needed to count the
     // actual size of all ResultBlockBufferBase.
     REGISTER_HOOK_METRIC(result_buffer_block_count, [this]() {
@@ -57,6 +97,35 @@ void ResultBufferMgr::stop() {
     _stop_background_threads_latch.count_down();
     if (_clean_thread) {
         _clean_thread->join();
+    }
+    std::vector<TUniqueId> remaining_ids;
+    {
+        std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
+        // Closing the registration gate under the map lock keeps the shutdown snapshot complete.
+        _stopping = true;
+        remaining_ids.reserve(_buffer_map.size());
+        for (const auto& item : _buffer_map) {
+            remaining_ids.emplace_back(item.first);
+        }
+    }
+    for (const auto& id : remaining_ids) {
+        // Shutdown must retain cleanup ownership until rollback finishes; the lazy-release pool may
+        // already be stopping and cannot provide that guarantee.
+        cancel(id, Status::Cancelled("ResultBufferMgr is stopping"));
+    }
+
+    std::vector<std::shared_ptr<PendingOutfileCleanup>> pending_cleanups;
+    {
+        std::lock_guard lock(_pending_outfile_cleanup_registry->lock);
+        pending_cleanups.assign(_pending_outfile_cleanup_registry->cleanups.begin(),
+                                _pending_outfile_cleanup_registry->cleanups.end());
+    }
+    for (const auto& cleanup : pending_cleanups) {
+        cleanup->run();
+    }
+    {
+        std::lock_guard lock(_pending_outfile_cleanup_registry->lock);
+        _pending_outfile_cleanup_registry->cleanups.clear();
     }
 }
 
@@ -73,6 +142,9 @@ Status ResultBufferMgr::create_sender(const TUniqueId& unique_id, int buffer_siz
                                       std::shared_ptr<arrow::Schema> schema) {
     {
         std::shared_lock<std::shared_mutex> rlock(_buffer_map_lock);
+        if (_stopping) {
+            return Status::Cancelled("ResultBufferMgr is stopping");
+        }
         auto iter = _buffer_map.find(unique_id);
 
         if (_buffer_map.end() != iter) {
@@ -92,6 +164,9 @@ Status ResultBufferMgr::create_sender(const TUniqueId& unique_id, int buffer_siz
 
     {
         std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
+        if (_stopping) {
+            return Status::Cancelled("ResultBufferMgr is stopping");
+        }
         _buffer_map.insert(std::make_pair(unique_id, control_block));
         // ResultBlockBufferBase should destroy after max_timeout
         // for exceed max_timeout FE will return timeout to client
@@ -129,16 +204,61 @@ Status ResultBufferMgr::find_buffer(const TUniqueId& finst_id,
                              : Status::OK();
 }
 
-bool ResultBufferMgr::cancel(const TUniqueId& unique_id, const Status& reason) {
-    std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
-    auto iter = _buffer_map.find(unique_id);
-
-    auto exist = _buffer_map.end() != iter;
-    if (exist) {
-        iter->second->cancel(reason);
+bool ResultBufferMgr::cancel(const TUniqueId& unique_id, const Status& reason, bool cleanup_async) {
+    std::shared_ptr<ResultBlockBufferBase> buffer;
+    std::shared_ptr<PendingOutfileCleanup> pending_cleanup;
+    {
+        std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
+        auto iter = _buffer_map.find(unique_id);
+        if (iter == _buffer_map.end()) {
+            return false;
+        }
+        buffer = std::move(iter->second);
+        cleanup_async = cleanup_async && !_stopping;
+        if (cleanup_async) {
+            // Register ownership before removing the buffer so shutdown cannot miss a cleanup
+            // that has not reached the lazy-release worker yet.
+            pending_cleanup = std::make_shared<PendingOutfileCleanup>(buffer);
+            std::lock_guard cleanup_lock(_pending_outfile_cleanup_registry->lock);
+            _pending_outfile_cleanup_registry->cleanups.emplace(pending_cleanup);
+        }
         _buffer_map.erase(iter);
     }
-    return exist;
+    buffer->cancel(reason, false);
+    if (!cleanup_async) {
+        buffer->release_outfile_cleanup();
+        return true;
+    }
+
+    pending_cleanup->mark_ready();
+    std::weak_ptr<PendingOutfileCleanupRegistry> weak_registry = _pending_outfile_cleanup_registry;
+    auto cleanup = [pending_cleanup, weak_registry] {
+        pending_cleanup->run();
+        if (auto registry = weak_registry.lock()) {
+            std::lock_guard lock(registry->lock);
+            registry->cleanups.erase(pending_cleanup);
+        }
+    };
+    ThreadPool* pool = ExecEnv::GetInstance()->lazy_release_obj_pool();
+    if (cleanup_async && pool != nullptr) {
+        Status submit_status = pool->submit_func(cleanup);
+        if (!submit_status.ok()) {
+            // submit_func may retain a runnable while returning an error; the guard keeps fallback
+            // cleanup single-shot and ensures ownership is not silently discarded.
+            cleanup();
+        }
+    } else {
+        cleanup();
+    }
+    return true;
+}
+
+Status ResultBufferMgr::finish_outfile(const TUniqueId& unique_id, OutfileOperation operation) {
+    auto buffer = _find_control_block<ResultBlockBufferBase>(unique_id);
+    if (buffer == nullptr) {
+        return Status::NotFound("outfile result buffer no longer exists");
+    }
+    return buffer->finish_outfile(operation);
 }
 
 void ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& unique_id) {
@@ -176,8 +296,10 @@ void ResultBufferMgr::cancel_thread() {
 
         // cancel query
         for (const auto& id : query_to_cancel) {
-            cancel(id, Status::Cancelled("Clean up expired ResultBlockBuffer, queryId: {}",
-                                         print_id(id)));
+            cancel(id,
+                   Status::Cancelled("Clean up expired ResultBlockBuffer, queryId: {}",
+                                     print_id(id)),
+                   true);
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
 

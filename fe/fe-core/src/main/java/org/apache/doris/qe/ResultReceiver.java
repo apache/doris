@@ -79,6 +79,10 @@ public class ResultReceiver {
         return instanceId;
     }
 
+    TNetworkAddress getAddress() {
+        return address;
+    }
+
     public void createFuture(
             FutureCallback<InternalService.PFetchDataResult> callback) throws RpcException {
         InternalService.PFetchDataRequest request = InternalService.PFetchDataRequest.newBuilder()

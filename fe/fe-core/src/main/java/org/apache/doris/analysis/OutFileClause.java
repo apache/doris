@@ -68,6 +68,7 @@ public class OutFileClause {
     public static final String URL = "URL";
     public static final String WRITE_TIME_SEC = "WriteTimeSec";
     public static final String WRITE_SPEED_KB = "WriteSpeedKB";
+    public static final int SUPPORT_ATOMIC_OUTFILE_VERSION = 14;
 
     static {
         RESULT_COL_NAMES.add(FILE_NUMBER);
@@ -144,11 +145,19 @@ public class OutFileClause {
     private boolean isAnalyzed = false;
 
     private FileFormatProperties fileFormatProperties;
+    private final int beExecVersion;
 
     public OutFileClause(String filePath, String format, Map<String, String> properties) {
+        // One statement must keep the same capability decision even if the mutable cluster
+        // protocol version changes while the statement is being planned.
+        this(filePath, format, properties, Config.be_exec_version);
+    }
+
+    public OutFileClause(String filePath, String format, Map<String, String> properties, int beExecVersion) {
         this.filePath = filePath;
         this.properties = properties;
         this.isAnalyzed = false;
+        this.beExecVersion = beExecVersion;
         if (Strings.isNullOrEmpty(format)) {
             fileFormatProperties = FileFormatProperties.createFileFormatProperties("csv");
         } else {
@@ -161,6 +170,7 @@ public class OutFileClause {
         this.fileFormatProperties = other.fileFormatProperties;
         this.properties = other.properties == null ? null : Maps.newHashMap(other.properties);
         this.isAnalyzed = other.isAnalyzed;
+        this.beExecVersion = other.beExecVersion;
     }
 
     public String getColumnSeparator() {
@@ -189,6 +199,14 @@ public class OutFileClause {
 
     public BrokerDesc getBrokerDesc() {
         return brokerDesc;
+    }
+
+    public int getBeExecVersion() {
+        return beExecVersion;
+    }
+
+    public boolean isAtomicOutfileEnabled() {
+        return getBeExecVersion() >= SUPPORT_ATOMIC_OUTFILE_VERSION;
     }
 
     public void analyze(List<Expr> resultExprs, List<String> colLabels, boolean needFormat) throws UserException {
@@ -756,6 +774,7 @@ public class OutFileClause {
         sinkOptions.setDeleteExistingFiles(deleteExistingFiles);
         sinkOptions.setFileSuffix(fileSuffix);
         sinkOptions.setWithBom(withBom);
+        sinkOptions.setEnableAtomicOutfile(isAtomicOutfileEnabled());
 
         if (brokerDesc != null) {
             sinkOptions.setBrokerProperties(brokerDesc.getBackendConfigProperties());

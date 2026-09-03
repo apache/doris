@@ -72,8 +72,10 @@ private:
 
     std::string error_msg(const std::string& err) const;
 
-    const TNetworkAddress& _broker_addr;
-    const std::map<std::string, std::string>& _broker_prop;
+    // File-system instances can outlive their caller during deferred cleanup, so broker routing
+    // and credentials must remain owned by the instance instead of aliasing operator state.
+    const TNetworkAddress _broker_addr;
+    const std::map<std::string, std::string> _broker_prop;
 
     std::shared_ptr<BrokerServiceConnection> _connection;
 };

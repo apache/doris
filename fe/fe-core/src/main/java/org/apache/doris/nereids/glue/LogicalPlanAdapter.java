@@ -78,7 +78,8 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
             OutFileClause outFile = new OutFileClause(
                     fileSink.getFilePath(),
                     fileSink.getFormat(),
-                    fileSink.getProperties()
+                    fileSink.getProperties(),
+                    fileSink.getBeExecVersion()
             );
             try {
                 outFile.analyze(Lists.newArrayList(), Lists.newArrayList(), false);

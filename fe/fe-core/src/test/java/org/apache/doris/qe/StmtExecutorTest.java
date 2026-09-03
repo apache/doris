@@ -17,6 +17,8 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.OutFileClause;
+import org.apache.doris.analysis.Queriable;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
@@ -24,14 +26,19 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.QueryTimeoutException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
+import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
@@ -48,7 +55,10 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class StmtExecutorTest extends TestWithFeService {
@@ -110,6 +120,143 @@ public class StmtExecutorTest extends TestWithFeService {
         Mockito.verify(coord).close();
         // ... and despite it failing, the query registration was still released (no leak).
         Assert.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
+    }
+
+    @Test
+    public void testLegacyOutfileSkipsAtomicFinalizationRpc() throws Exception {
+        CoordInterface coordinator = Mockito.mock(CoordInterface.class);
+
+        StmtExecutor.finishOutfileTransaction(false, coordinator, () -> Assert.fail("unexpected marker"));
+
+        Mockito.verifyNoInteractions(coordinator);
+    }
+
+    @Test
+    public void testAtomicOutfilePublishesMarkerAfterAllCommits() throws Exception {
+        CoordInterface coordinator = Mockito.mock(CoordInterface.class);
+        List<String> operations = new ArrayList<>();
+        Mockito.doAnswer(invocation -> {
+            operations.add(((InternalService.POutfileWriteOperation) invocation.getArgument(0)).name());
+            return null;
+        }).when(coordinator).finishOutfile(Mockito.any());
+
+        StmtExecutor.finishOutfileTransaction(true, coordinator, () -> operations.add("MARKER"));
+
+        Assertions.assertEquals(List.of("OUTFILE_PREPARE", "OUTFILE_COMMIT", "MARKER"), operations);
+    }
+
+    @Test
+    public void testAtomicOutfileDoesNotPublishMarkerAfterCommitFailure() throws Exception {
+        CoordInterface coordinator = Mockito.mock(CoordInterface.class);
+        Mockito.doThrow(new UserException("injected commit failure")).when(coordinator)
+                .finishOutfile(InternalService.POutfileWriteOperation.OUTFILE_COMMIT);
+        AtomicBoolean markerPublished = new AtomicBoolean(false);
+
+        Assertions.assertThrows(UserException.class,
+                () -> StmtExecutor.finishOutfileTransaction(true, coordinator,
+                        () -> markerPublished.set(true)));
+
+        Assertions.assertFalse(markerPublished.get());
+    }
+
+    @Test
+    public void testOutfileCapabilityIsStableWhenExecVersionChanges() {
+        int originalVersion = Config.be_exec_version;
+        try {
+            Config.be_exec_version = OutFileClause.SUPPORT_ATOMIC_OUTFILE_VERSION;
+            OutFileClause atomicClause = new OutFileClause("file:///tmp/atomic-outfile/", "csv",
+                    Collections.emptyMap());
+            Assertions.assertTrue(atomicClause.toSinkOptions().isEnableAtomicOutfile());
+
+            Config.be_exec_version = OutFileClause.SUPPORT_ATOMIC_OUTFILE_VERSION - 1;
+            Assertions.assertTrue(atomicClause.toSinkOptions().isEnableAtomicOutfile());
+
+            OutFileClause legacyClause = new OutFileClause("file:///tmp/legacy-outfile/", "csv",
+                    Collections.emptyMap());
+            Assertions.assertFalse(legacyClause.toSinkOptions().isEnableAtomicOutfile());
+            Config.be_exec_version = OutFileClause.SUPPORT_ATOMIC_OUTFILE_VERSION;
+            Assertions.assertFalse(legacyClause.toSinkOptions().isEnableAtomicOutfile());
+        } finally {
+            Config.be_exec_version = originalVersion;
+        }
+    }
+
+    @Test
+    public void testAtomicOutfileArrowFlightRejectionDoesNotRegisterQuery() throws Exception {
+        int originalVersion = Config.be_exec_version;
+        TUniqueId queryId = new TUniqueId(0x67328L, 0x28298L);
+        ConnectContext flightContext = Mockito.spy(connectContext);
+        Mockito.doReturn(ConnectType.MYSQL).when(flightContext).getConnectType();
+        StmtExecutor stmtExecutor = new StmtExecutor(flightContext, "");
+        try {
+            Config.be_exec_version = OutFileClause.SUPPORT_ATOMIC_OUTFILE_VERSION;
+            OutFileClause outFileClause = new OutFileClause("file:///tmp/flight-outfile/", "csv",
+                    Collections.emptyMap());
+            outFileClause.toSinkOptions();
+            Queriable query = Mockito.mock(Queriable.class);
+            Mockito.when(query.getOutFileClause()).thenReturn(outFileClause);
+            flightContext.setQueryId(queryId);
+            Mockito.doReturn(ConnectType.ARROW_FLIGHT_SQL).when(flightContext).getConnectType();
+
+            Assertions.assertThrows(UserException.class,
+                    () -> stmtExecutor.executeAndSendResult(true, false, query, null, null, null));
+            Assertions.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
+        } finally {
+            QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+            Config.be_exec_version = originalVersion;
+        }
+    }
+
+    @Test
+    public void testAtomicOutfileMarkerUsesRemainingQueryDeadline() throws Exception {
+        Assertions.assertEquals(25L, StmtExecutor.calculateOutfileCreateTimeoutMs(1025L, 1000L, 100L));
+        Assertions.assertEquals(100L, StmtExecutor.calculateOutfileCreateTimeoutMs(1200L, 1000L, 100L));
+        Assertions.assertThrows(QueryTimeoutException.class,
+                () -> StmtExecutor.calculateOutfileCreateTimeoutMs(1000L, 1000L, 100L));
+    }
+
+    @Test
+    public void testAtomicOutfileRpcFailureDoesNotRetry() throws Exception {
+        int originalVersion = Config.be_exec_version;
+        int originalRetryTime = Config.max_query_retry_time;
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        String originalDeployMode = Config.deploy_mode;
+        TUniqueId originalQueryId = connectContext.queryId();
+        org.apache.doris.nereids.StatementContext originalStatementContext = connectContext.getStatementContext();
+        try {
+            Config.be_exec_version = OutFileClause.SUPPORT_ATOMIC_OUTFILE_VERSION;
+            Config.max_query_retry_time = 1;
+            Config.cloud_unique_id = "";
+            Config.deploy_mode = "";
+            OutFileClause outFileClause = new OutFileClause("file:///tmp/retry-outfile/", "csv",
+                    Collections.emptyMap());
+            outFileClause.toSinkOptions();
+            LogicalPlanAdapter query = Mockito.mock(LogicalPlanAdapter.class);
+            Mockito.when(query.hasOutFileClause()).thenReturn(true);
+            Mockito.when(query.getOutFileClause()).thenReturn(outFileClause);
+            Mockito.when(query.getOrigStmt()).thenReturn(new OriginStatement("select 1 into outfile", 0));
+            Mockito.when(query.getStatementContext()).thenReturn(new org.apache.doris.nereids.StatementContext());
+            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, query);
+            TUniqueId queryId = new TUniqueId(1, 2);
+            connectContext.setQueryId(queryId);
+            AtomicInteger attempts = new AtomicInteger();
+            RpcException injectedFailure = new RpcException("test-host", "injected finalization failure");
+
+            Assertions.assertThrows(RpcException.class,
+                    () -> stmtExecutor.handleQueryWithRetry(queryId, () -> {
+                        attempts.incrementAndGet();
+                        throw injectedFailure;
+                    }));
+
+            Assertions.assertEquals(1, attempts.get());
+        } finally {
+            Config.be_exec_version = originalVersion;
+            Config.max_query_retry_time = originalRetryTime;
+            Config.cloud_unique_id = originalCloudUniqueId;
+            Config.deploy_mode = originalDeployMode;
+            connectContext.setQueryId(originalQueryId);
+            connectContext.setStatementContext(originalStatementContext);
+        }
     }
 
     @Test

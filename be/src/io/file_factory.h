@@ -25,6 +25,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "common/factory_creator.h"
 #include "common/status.h"
@@ -86,6 +87,8 @@ struct FileDescription {
 class ExecEnv;
 class RuntimeProfile;
 class RuntimeState;
+
+int32_t get_broker_index(const std::vector<TNetworkAddress>& brokers, const std::string& path);
 
 class FileFactory {
     ENABLE_FACTORY_CREATOR(FileFactory);

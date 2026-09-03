@@ -73,6 +73,10 @@ public:
     // If there is no data appended, an empty file will be persisted.
     virtual Status close(bool non_block = false) = 0;
 
+    // Abort releases writer resources without making partially written data part of a successful
+    // operation. Callers that own the path must still remove any already published object.
+    virtual Status abort() { return state() == State::CLOSED ? Status::OK() : close(); }
+
     // Non-blocking probe for a previous close(true).
     // OK means close finished successfully. NeedSendAgain means close is still running.
     // Other errors mean close finished with error or the writer does not support this API.

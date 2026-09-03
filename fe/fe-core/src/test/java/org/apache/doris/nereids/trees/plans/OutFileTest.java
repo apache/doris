@@ -17,13 +17,17 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.analysis.OutFileClause;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
@@ -95,6 +99,38 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
         field.setAccessible(true);
         TResultFileSinkOptions sinkOptions = (TResultFileSinkOptions) field.get(fragment.getSink());
         Assertions.assertEquals("hdfs://127.0.0.1:8020", sinkOptions.getBrokerProperties().get("fs.defaultFS"));
+    }
+
+    @Test
+    public void testOutfileCapabilitySurvivesConfigChangeAfterPlanning() throws Exception {
+        int originalVersion = Config.be_exec_version;
+        boolean originalEnableOutfileToLocal = Config.enable_outfile_to_local;
+        try {
+            Config.enable_outfile_to_local = true;
+            Config.be_exec_version = OutFileClause.SUPPORT_ATOMIC_OUTFILE_VERSION;
+            String sql = "select * from T1 into outfile 'file:///tmp/outfile-snapshot/' format as csv";
+            StatementScopeIdGenerator.clear();
+            StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
+            LogicalPlan parsedPlan = parser.parseSingle(sql);
+            LogicalPlanAdapter adapter = new LogicalPlanAdapter(parsedPlan, statementContext);
+            Assertions.assertTrue(adapter.getOutFileClause().isAtomicOutfileEnabled());
+
+            NereidsPlanner planner = new NereidsPlanner(statementContext);
+            PhysicalPlan physicalPlan = planner.planWithLock(parsedPlan, PhysicalProperties.ANY);
+
+            Config.be_exec_version = OutFileClause.SUPPORT_ATOMIC_OUTFILE_VERSION - 1;
+            PlanFragment fragment = new PhysicalPlanTranslator(
+                    new PlanTranslatorContext(planner.getCascadesContext())).translatePlan(physicalPlan);
+            Field field = ResultFileSink.class.getDeclaredField("fileSinkOptions");
+            field.setAccessible(true);
+            TResultFileSinkOptions sinkOptions = (TResultFileSinkOptions) field.get(fragment.getSink());
+
+            Assertions.assertTrue(sinkOptions.isEnableAtomicOutfile());
+            Assertions.assertTrue(adapter.getOutFileClause().isAtomicOutfileEnabled());
+        } finally {
+            Config.be_exec_version = originalVersion;
+            Config.enable_outfile_to_local = originalEnableOutfileToLocal;
+        }
     }
 
     private PlanFragment getOutputFragment(String sql) throws Exception {

@@ -50,6 +50,7 @@ public:
     virtual Status open() = 0;
     virtual Status write(const Block& block) = 0;
     virtual Status close() = 0;
+    virtual Status abort() { return Status::OK(); }
     virtual int64_t written_len() = 0;
 
 protected:

@@ -109,8 +109,13 @@ public class BackendServiceClient {
     }
 
     public Future<InternalService.POutfileWriteSuccessResult> outfileWriteSuccessAsync(
-            InternalService.POutfileWriteSuccessRequest request) {
-        return stub.outfileWriteSuccess(request);
+            InternalService.POutfileWriteSuccessRequest request, long timeoutMs) {
+        return stub.withDeadlineAfter(timeoutMs, TimeUnit.MILLISECONDS).outfileWriteSuccess(request);
+    }
+
+    public Future<InternalService.POutfileWriteFinishedResult> outfileWriteFinishedAsync(
+            InternalService.POutfileWriteFinishedRequest request, long timeoutMs) {
+        return stub.withDeadlineAfter(timeoutMs, TimeUnit.MILLISECONDS).outfileWriteFinished(request);
     }
 
     public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(

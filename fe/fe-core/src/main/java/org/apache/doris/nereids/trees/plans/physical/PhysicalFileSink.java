@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -47,6 +48,7 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHIL
     private final String filePath;
     private final String format;
     private final Map<String, String> properties;
+    private final int beExecVersion;
 
     public PhysicalFileSink(List<NamedExpression> outputExprs, String filePath, String format,
             Map<String, String> properties,
@@ -63,7 +65,23 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHIL
     }
 
     public PhysicalFileSink(List<NamedExpression> outputExprs, String filePath, String format,
+            Map<String, String> properties, int beExecVersion,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            CHILD_TYPE child) {
+        this(outputExprs, filePath, format, properties, beExecVersion,
+                groupExpression, logicalProperties, PhysicalProperties.GATHER, null, child);
+    }
+
+    public PhysicalFileSink(List<NamedExpression> outputExprs, String filePath, String format,
             Map<String, String> properties,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child) {
+        this(outputExprs, filePath, format, properties, Config.be_exec_version,
+                groupExpression, logicalProperties, physicalProperties, statistics, child);
+    }
+
+    private PhysicalFileSink(List<NamedExpression> outputExprs, String filePath, String format,
+            Map<String, String> properties, int beExecVersion,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_FILE_SINK, outputExprs,
@@ -71,6 +89,7 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHIL
         this.filePath = filePath;
         this.format = format;
         this.properties = properties;
+        this.beExecVersion = beExecVersion;
     }
 
     public String getFilePath() {
@@ -85,6 +104,10 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHIL
         return properties;
     }
 
+    public int getBeExecVersion() {
+        return beExecVersion;
+    }
+
     public PhysicalProperties requestProperties(ConnectContext ctx) {
         if (!ctx.getSessionVariable().enableParallelOutfile) {
             return PhysicalProperties.GATHER;
@@ -97,7 +120,7 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHIL
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "PhysicalFileSink only accepts one child");
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalFileSink<>(outputExprs, filePath, format,
-                properties, getLogicalProperties(), children.get(0)));
+                properties, beExecVersion, Optional.empty(), getLogicalProperties(), children.get(0)));
     }
 
     @Override
@@ -121,12 +144,13 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHIL
         PhysicalFileSink<?> that = (PhysicalFileSink<?>) o;
         return Objects.equals(filePath, that.filePath)
                 && Objects.equals(format, that.format)
-                && Objects.equals(properties, that.properties);
+                && Objects.equals(properties, that.properties)
+                && beExecVersion == that.beExecVersion;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(filePath, format, properties);
+        return Objects.hash(filePath, format, properties, beExecVersion);
     }
 
     @Override
@@ -141,25 +165,26 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHIL
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalFileSink<>(outputExprs, filePath, format,
-                properties, groupExpression, getLogicalProperties(), child()));
+                properties, beExecVersion, groupExpression, getLogicalProperties(), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalFileSink<>(outputExprs, filePath, format,
-                properties, groupExpression, logicalProperties.get(), children.get(0)));
+                properties, beExecVersion, groupExpression, logicalProperties.get(), children.get(0)));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalFileSink<>(outputExprs, filePath, format,
-                properties, groupExpression, getLogicalProperties(), physicalProperties, statistics, child()));
+                properties, beExecVersion, groupExpression, getLogicalProperties(), physicalProperties,
+                statistics, child()));
     }
 
     @Override
     public PhysicalFileSink<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalFileSink<>(outputExprs, filePath, format, properties, groupExpression, null,
+        return new PhysicalFileSink<>(outputExprs, filePath, format, properties, beExecVersion, groupExpression, null,
                 physicalProperties, statistics, child());
     }
 }

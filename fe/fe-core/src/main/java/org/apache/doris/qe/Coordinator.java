@@ -186,6 +186,7 @@ import java.util.stream.Collectors;
 
 public class Coordinator implements CoordInterface {
     private static final Logger LOG = LogManager.getLogger(Coordinator.class);
+    private static final long OUTFILE_CLEANUP_TIMEOUT_MS = 5000;
 
     public static final String localIP = FrontendOptions.getLocalHostAddress();
 
@@ -1457,6 +1458,69 @@ public class Coordinator implements CoordInterface {
         }
         cancelRemoteFragmentsAsync(cancelReason);
         cancelLatch();
+    }
+
+    protected List<ResultReceiver> getOutfileResultReceivers() {
+        return receivers;
+    }
+
+    @Override
+    public long getOutfileTimeoutDeadline() {
+        return timeoutDeadline;
+    }
+
+    @Override
+    public void finishOutfile(InternalService.POutfileWriteOperation operation) throws Exception {
+        Map<TNetworkAddress, InternalService.POutfileWriteFinishedRequest.Builder> requests = new HashMap<>();
+        for (ResultReceiver receiver : getOutfileResultReceivers()) {
+            InternalService.POutfileWriteFinishedRequest.Builder request = requests.computeIfAbsent(
+                    receiver.getAddress(), address -> InternalService.POutfileWriteFinishedRequest.newBuilder()
+                            // Old BEs ignore operation, so preserve their success field during upgrades.
+                            .setSuccess(operation == InternalService.POutfileWriteOperation.OUTFILE_COMMIT));
+            // This method is reached only when the query's snapshotted protocol supports it.
+            request.setOperation(operation);
+            request.addBufferIds(receiver.getRealFinstId());
+        }
+        if (requests.isEmpty()) {
+            throw new UserException("No OUTFILE result receiver participates in finalization");
+        }
+        long timeoutMs = operation == InternalService.POutfileWriteOperation.OUTFILE_ABORT
+                ? Math.max(1, Math.min(Config.remote_fragment_exec_timeout_ms, OUTFILE_CLEANUP_TIMEOUT_MS))
+                : Math.max(1, Math.min(Config.remote_fragment_exec_timeout_ms,
+                        getOutfileTimeoutDeadline() - System.currentTimeMillis()));
+        Map<TNetworkAddress, Future<InternalService.POutfileWriteFinishedResult>> futures = new HashMap<>();
+        Exception firstFailure = null;
+        for (Entry<TNetworkAddress, InternalService.POutfileWriteFinishedRequest.Builder> entry
+                : requests.entrySet()) {
+            try {
+                futures.put(entry.getKey(), BackendServiceProxy.getInstance()
+                        .outfileWriteFinishedAsync(entry.getKey(), entry.getValue().build(), timeoutMs));
+            } catch (Exception e) {
+                // One unavailable backend must not prevent rollback from reaching other receivers.
+                if (firstFailure == null) {
+                    firstFailure = e;
+                }
+            }
+        }
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        for (Entry<TNetworkAddress, Future<InternalService.POutfileWriteFinishedResult>> entry
+                : futures.entrySet()) {
+            try {
+                InternalService.POutfileWriteFinishedResult result = entry.getValue()
+                        .get(Math.max(1, deadline - System.currentTimeMillis()), TimeUnit.MILLISECONDS);
+                Status status = new Status(result.getStatus());
+                if (!status.ok()) {
+                    throw new UserException(status.getErrorMsg());
+                }
+            } catch (Exception e) {
+                if (firstFailure == null) {
+                    firstFailure = e;
+                }
+            }
+        }
+        if (firstFailure != null) {
+            throw firstFailure;
+        }
     }
 
     private void cancelRemoteFragmentsAsync(Status cancelReason) {

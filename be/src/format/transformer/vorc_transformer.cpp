@@ -414,6 +414,16 @@ Status VOrcTransformer::close() {
     return Status::OK();
 }
 
+Status VOrcTransformer::abort() {
+    if (_output_stream != nullptr) {
+        // ORC's writer destructor may flush buffered stripes, which must not finalize cancellation.
+        _output_stream->abort();
+    }
+    _writer.reset();
+    _output_stream.reset();
+    return Status::OK();
+}
+
 Status VOrcTransformer::collect_file_statistics_after_close(TIcebergColumnStats* stats) {
     if (stats == nullptr || _iceberg_schema == nullptr || _fs == nullptr) {
         return Status::OK();
