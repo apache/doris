@@ -20,13 +20,20 @@ package org.apache.doris.httpv2.rest.manager;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.InternalHttpsUtils;
 
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.lang.reflect.Field;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 
 public class HttpUtilsTest {
 
@@ -36,6 +43,7 @@ public class HttpUtilsTest {
 
     private boolean originalEnableHttps;
     private String originalKeyStorePath;
+    private HttpServer httpServer;
 
     @Before
     public void setUp() throws Exception {
@@ -49,6 +57,21 @@ public class HttpUtilsTest {
         Config.enable_https = originalEnableHttps;
         Config.key_store_path = originalKeyStorePath;
         resetCachedSslContext();
+        if (httpServer != null) {
+            httpServer.stop(0);
+        }
+    }
+
+    private String startServer(HttpHandler handler) throws IOException {
+        httpServer = HttpServer.create(new InetSocketAddress(0), 0);
+        httpServer.createContext("/file.txt", handler);
+        httpServer.start();
+        return "http://127.0.0.1:" + httpServer.getAddress().getPort() + "/file.txt";
+    }
+
+    private static void sendEmpty(HttpExchange exchange, int code) throws IOException {
+        exchange.sendResponseHeaders(code, -1);
+        exchange.close();
     }
 
     private void resetCachedSslContext() throws Exception {
@@ -89,6 +112,158 @@ public class HttpUtilsTest {
         } catch (IOException e) {
             Assert.fail("Expected the HTTPS client's keystore failure, not a network-level error: "
                     + e.getMessage());
+        }
+    }
+
+    @Test
+    public void testHeadSuccess() throws IOException {
+        final long totalSize = 12345L;
+        String url = startServer(exchange -> {
+            Assert.assertEquals("HEAD", exchange.getRequestMethod());
+            exchange.getResponseHeaders().add("Content-Length", String.valueOf(totalSize));
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+
+        long size = HttpUtils.getHttpFileSize(url, Collections.emptyMap());
+        Assert.assertEquals(totalSize, size);
+    }
+
+    @Test
+    public void testHeadForbiddenGetRangeReturns206() throws IOException {
+        byte[] data = "abcdefghij".getBytes(StandardCharsets.UTF_8);
+        String url = startServer(exchange -> {
+            if ("HEAD".equals(exchange.getRequestMethod())) {
+                sendEmpty(exchange, 403);
+                return;
+            }
+            Assert.assertEquals("bytes=0-0", exchange.getRequestHeaders().getFirst("Range"));
+            exchange.getResponseHeaders().add("Content-Range", "bytes 0-0/" + data.length);
+            exchange.sendResponseHeaders(206, 1);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(data, 0, 1);
+            }
+        });
+
+        long size = HttpUtils.getHttpFileSize(url, Collections.emptyMap());
+        Assert.assertEquals(data.length, size);
+    }
+
+    @Test
+    public void testHeadForbiddenGetRangeIgnoredReturns200() throws IOException {
+        byte[] data = "hello world, this is a test file".getBytes(StandardCharsets.UTF_8);
+        String url = startServer(exchange -> {
+            if ("HEAD".equals(exchange.getRequestMethod())) {
+                sendEmpty(exchange, 403);
+                return;
+            }
+            exchange.getResponseHeaders().add("Content-Length", String.valueOf(data.length));
+            exchange.sendResponseHeaders(200, data.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(data);
+            }
+        });
+
+        long size = HttpUtils.getHttpFileSize(url, Collections.emptyMap());
+        Assert.assertEquals(data.length, size);
+    }
+
+    @Test
+    public void testHeadAndGetBothForbidden() throws IOException {
+        String url = startServer(exchange -> sendEmpty(exchange, 403));
+
+        try {
+            HttpUtils.getHttpFileSize(url, Collections.emptyMap());
+            Assert.fail("Expected IOException");
+        } catch (IOException e) {
+            Assert.assertTrue(e.getMessage().contains("Failed to get file size"));
+        }
+    }
+
+    @Test
+    public void testHeadOkNoContentLengthFallsBackToGet() throws IOException {
+        final long totalSize = 37L;
+        String url = startServer(exchange -> {
+            if ("HEAD".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(200, -1);
+                exchange.close();
+                return;
+            }
+            exchange.getResponseHeaders().add("Content-Range", "bytes 0-0/" + totalSize);
+            exchange.sendResponseHeaders(206, 1);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(new byte[] { 0 });
+            }
+        });
+
+        Assert.assertEquals(totalSize, HttpUtils.getHttpFileSize(url, Collections.emptyMap()));
+    }
+
+    @Test
+    public void testGetRangeMissingContentRangeRejected() throws IOException {
+        assertInvalidContentRange(null);
+    }
+
+    @Test
+    public void testGetRangeMalformedContentRangeRejected() throws IOException {
+        assertInvalidContentRange("not-a-content-range");
+    }
+
+    @Test
+    public void testGetRangeUnknownContentRangeTotalRejected() throws IOException {
+        assertInvalidContentRange("bytes 0-0/*");
+    }
+
+    @Test
+    public void testEmptyResourceReturnsZero() throws IOException {
+        String url = startServer(exchange -> {
+            if ("HEAD".equals(exchange.getRequestMethod())) {
+                sendEmpty(exchange, 403);
+                return;
+            }
+            exchange.getResponseHeaders().add("Content-Range", "bytes */0");
+            sendEmpty(exchange, 416);
+        });
+
+        Assert.assertEquals(0, HttpUtils.getHttpFileSize(url, Collections.emptyMap()));
+    }
+
+    private void assertInvalidContentRange(String contentRange) throws IOException {
+        String url = startServer(exchange -> {
+            if ("HEAD".equals(exchange.getRequestMethod())) {
+                sendEmpty(exchange, 403);
+                return;
+            }
+            if (contentRange != null) {
+                exchange.getResponseHeaders().add("Content-Range", contentRange);
+            }
+            exchange.sendResponseHeaders(206, 1);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(new byte[] { 0 });
+            }
+        });
+
+        try {
+            HttpUtils.getHttpFileSize(url, Collections.emptyMap());
+            Assert.fail("Expected IOException");
+        } catch (IOException e) {
+            Assert.assertTrue(e.getMessage().contains("Content-Range"));
+        }
+    }
+
+    @Test
+    public void testNullOrEmptyUriRejected() {
+        try {
+            HttpUtils.getHttpFileSize(null, Collections.emptyMap());
+            Assert.fail("Expected IllegalArgumentException for null uri");
+        } catch (IllegalArgumentException | IOException e) {
+            Assert.assertTrue(e instanceof IllegalArgumentException);
+        }
+        try {
+            HttpUtils.getHttpFileSize("   ", Collections.emptyMap());
+            Assert.fail("Expected IllegalArgumentException for blank uri");
+        } catch (IllegalArgumentException | IOException e) {
+            Assert.assertTrue(e instanceof IllegalArgumentException);
         }
     }
 }

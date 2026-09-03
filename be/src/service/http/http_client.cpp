@@ -23,6 +23,7 @@
 
 #include <memory>
 #include <ostream>
+#include <string_view>
 
 #include "common/cast_set.h"
 #include "common/config.h"
@@ -446,7 +447,8 @@ Status HttpClient::execute_delete_request(const std::string& payload, std::strin
 
 Status HttpClient::execute(const std::function<bool(const void* data, size_t length)>& callback) {
     if (VLOG_DEBUG_IS_ON) {
-        VLOG_DEBUG << "execute http " << to_method_desc(_method) << " request, url " << _get_url();
+        VLOG_DEBUG << "execute http " << to_method_desc(_method) << " request, url "
+                   << mask_token(_get_url());
     }
     _callback = &callback;
     auto code = curl_easy_perform(_curl);
@@ -458,8 +460,8 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
         return Status::HttpError(std::move(errmsg));
     }
     if (VLOG_DEBUG_IS_ON) {
-        VLOG_DEBUG << "execute http " << to_method_desc(_method) << " request, url " << _get_url()
-                   << " done";
+        VLOG_DEBUG << "execute http " << to_method_desc(_method) << " request, url "
+                   << mask_token(_get_url()) << " done";
     }
     return Status::OK();
 }
@@ -479,6 +481,74 @@ Status HttpClient::get_content_md5(std::string* md5) const {
     }
 
     *md5 = header_ptr->value;
+    return Status::OK();
+}
+
+Status HttpClient::get_content_range_total(uint64_t* total, bool expect_unsatisfied) const {
+    struct curl_header* header_ptr;
+    auto code =
+            curl_easy_header(_curl, HttpHeaders::CONTENT_RANGE, 0, CURLH_HEADER, 0, &header_ptr);
+    if (code == CURLHE_MISSING || code == CURLHE_NOHEADERS) {
+        return Status::NotFound("no Content-Range header in response");
+    } else if (code != CURLHE_OK) {
+        return Status::HttpError("failed to get http header {}: {} ({})",
+                                 HttpHeaders::CONTENT_RANGE, header_error_msg(code), code);
+    }
+
+    std::string_view value = trim(header_ptr->value);
+    constexpr std::string_view prefix = "bytes ";
+    if (!value.starts_with(prefix)) {
+        return Status::HttpError("malformed Content-Range header: {}", header_ptr->value);
+    }
+    value.remove_prefix(prefix.size());
+
+    size_t slash_pos = value.find('/');
+    if (slash_pos == std::string_view::npos || slash_pos + 1 >= value.size() ||
+        value.find('/', slash_pos + 1) != std::string_view::npos) {
+        return Status::HttpError("malformed Content-Range header: {}", header_ptr->value);
+    }
+
+    std::string_view range_view = value.substr(0, slash_pos);
+    std::string_view total_view = value.substr(slash_pos + 1);
+    uint64_t parsed_total = 0;
+    auto total_result =
+            std::from_chars(total_view.data(), total_view.data() + total_view.size(), parsed_total);
+    if (total_result.ec != std::errc() ||
+        total_result.ptr != total_view.data() + total_view.size()) {
+        return Status::HttpError("invalid or unknown total size in Content-Range header: {}",
+                                 header_ptr->value);
+    }
+
+    if (expect_unsatisfied) {
+        if (range_view != "*") {
+            return Status::HttpError("expected unsatisfied Content-Range header, got: {}",
+                                     header_ptr->value);
+        }
+    } else {
+        size_t dash_pos = range_view.find('-');
+        if (dash_pos == std::string_view::npos || dash_pos == 0 ||
+            dash_pos + 1 >= range_view.size() ||
+            range_view.find('-', dash_pos + 1) != std::string_view::npos) {
+            return Status::HttpError("malformed Content-Range header: {}", header_ptr->value);
+        }
+
+        uint64_t start = 0;
+        uint64_t end = 0;
+        std::string_view start_view = range_view.substr(0, dash_pos);
+        std::string_view end_view = range_view.substr(dash_pos + 1);
+        auto start_result =
+                std::from_chars(start_view.data(), start_view.data() + start_view.size(), start);
+        auto end_result = std::from_chars(end_view.data(), end_view.data() + end_view.size(), end);
+        if (start_result.ec != std::errc() ||
+            start_result.ptr != start_view.data() + start_view.size() ||
+            end_result.ec != std::errc() || end_result.ptr != end_view.data() + end_view.size() ||
+            start != 0 || end != 0 || parsed_total == 0) {
+            return Status::HttpError("invalid byte range in Content-Range header: {}",
+                                     header_ptr->value);
+        }
+    }
+
+    *total = parsed_total;
     return Status::OK();
 }
 
