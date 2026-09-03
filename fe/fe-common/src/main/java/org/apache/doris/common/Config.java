@@ -2644,6 +2644,15 @@ public class Config extends ConfigBase {
     @ConfField(description = "Maximum number of connections for the Arrow Flight Server per FE.")
     public static int arrow_flight_max_connections = 4096;
 
+    @ConfField(mutable = true, masterOnly = false, description = "Idle timeout for Arrow Flight SQL sessions, "
+            + "in seconds. A Flight session that has been sleeping longer than this is killed by the "
+            + "connection timeout checker, exactly as a MySQL connection is killed after wait_timeout, but "
+            + "with its own, shorter bound: a Flight query keeps its coordinator and its workload-group "
+            + "queue slot alive until the session's next query or its close, so an abandoned session holds "
+            + "a slot for as long as it lives. The effective idle bound is min(wait_timeout, this value). "
+            + "0 disables the Flight-specific bound (wait_timeout alone applies).")
+    public static int arrow_flight_session_idle_timeout_second = 3600;
+
     @ConfField(mutable = true, masterOnly = true, description = "In auto bucketing, the number of buckets is "
             + "estimated based on the partition size. For storage "
             + "and computing integration, a partition size of 5GB " + "is estimated as one bucket, but for cloud, a "
