@@ -38,7 +38,8 @@ public class TrashProcNode implements ProcNodeInterface {
     private static final Logger LOG = LogManager.getLogger(TrashProcNode.class);
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("RootPath")
-            .add("State").add("TrashUsedCapacity").build();
+            .add("State").add("TrashUsedCapacity").add("TrashFileNum")
+            .add("DiskCapacity").add("AvailableCapacity").build();
 
     private Backend backend;
 
@@ -98,7 +99,28 @@ public class TrashProcNode implements ProcNodeInterface {
             long trashUsedCapacityB = diskTrashInfo.getTrashUsedCapacity();
             Pair<Double, String> trashUsedCapacity = DebugUtil.getByteUint(trashUsedCapacityB);
             diskInfo.add(
-                    DebugUtil.DECIMAL_FORMAT_SCALE_3.format(trashUsedCapacity.first) + " " + trashUsedCapacity.second);
+                    DebugUtil.DECIMAL_FORMAT_SCALE_3.format(trashUsedCapacity.first) + " "
+                            + trashUsedCapacity.second);
+
+            diskInfo.add(diskTrashInfo.isSetTrashFileNum()
+                    ? String.valueOf(diskTrashInfo.getTrashFileNum()) : "");
+
+            if (diskTrashInfo.isSetDiskCapacity()) {
+                Pair<Double, String> diskCapacity = DebugUtil.getByteUint(diskTrashInfo.getDiskCapacity());
+                diskInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(diskCapacity.first) + " "
+                        + diskCapacity.second);
+            } else {
+                diskInfo.add("");
+            }
+
+            if (diskTrashInfo.isSetAvailableCapacity()) {
+                Pair<Double, String> availableCapacity =
+                        DebugUtil.getByteUint(diskTrashInfo.getAvailableCapacity());
+                diskInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(availableCapacity.first) + " "
+                        + availableCapacity.second);
+            } else {
+                diskInfo.add("");
+            }
 
             infos.add(diskInfo);
         }
