@@ -2,7 +2,7 @@
 -- !sql_1 --
 bfloat16_vector_col	array<float>	Yes	false	\N	
 binary_col	varbinary(2147483647)	Yes	false	\N	
-blob_col	struct<kind:smallint,position:largeint,size:largeint,blob_id:bigint,blob_uri:text>	Yes	false	\N	
+blob_col	unknown type: UNSUPPORTED_TYPE	Yes	false	\N	
 bool_col	boolean	Yes	false	\N	
 date32_col	date	Yes	false	\N	
 date64_col	date	Yes	false	\N	
@@ -56,5 +56,4 @@ utf8_col	text	Yes	false	\N
 true	-8	8	-16	16	-32	32	-64	64	1.5	2.5	3.5	1234567890.1234567890	12345678901234567890123456789012345678.12345678901234567890123456789012345678	Doris and Lance	large string	0001FF	6C617267652062696E617279	30313233343536373839616263646566	2026-07-28	2026-07-28	12:34:56	12:34:56.123	12:34:56.123456	12:34:56.123456	2026-07-28T12:34:56	2026-07-28T12:34:56.123	2026-07-28T12:34:56.123456	2026-07-28T12:34:56.123456	2026-07-28 20:34:56.123456+08:00	{"name":"doris", "score":1}	[1, 2, 3]	[{"name":"lance", "value":7}]	[1, 2]	[{"name":"doris", "value":8}]	[-1, 0, 1, 2]	[0, 1, 2, 3]	[0.099975586, 0.19995117, 0.30004883, 0.39990234]	[0.1, 0.2, 0.3, 0.4]	[0.1, 0.2, 0.3, 0.4]	{"doris":1, "lance":2}
 
 -- !additional_lance_types --
-true	1	1000	1000000	1000000000	0	12	{"engine":"doris","format":"lance"}	[1, 2, 3, 4]
-
+true	1	1000	1000000	1000000000	{"engine":"doris","format":"lance"}	[1, 2, 3, 4]

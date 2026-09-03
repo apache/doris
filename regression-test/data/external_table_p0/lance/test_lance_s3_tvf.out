@@ -2,7 +2,7 @@
 -- !desc --
 bfloat16_vector_col	array<float>	Yes	false	\N	NONE
 binary_col	varbinary(2147483647)	Yes	false	\N	NONE
-blob_col	struct<kind:smallint,position:largeint,size:largeint,blob_id:bigint,blob_uri:text>	Yes	false	\N	NONE
+blob_col	unknown type: UNSUPPORTED_TYPE	Yes	false	\N	NONE
 bool_col	boolean	Yes	false	\N	NONE
 date32_col	date	Yes	false	\N	NONE
 date64_col	date	Yes	false	\N	NONE
@@ -66,5 +66,4 @@ utf8_col	text	Yes	false	\N	NONE
 true	1.5	12345678901234567890123456789012345678.12345678901234567890123456789012345678	0001FF	12:34:56.123	12:34:56.123456	2026-07-28T12:34:56.123456	2026-07-28 20:34:56.123456+08:00	[0, 1, 2, 3]	{"doris":1, "lance":2}
 
 -- !additional_types --
-true	1	1000	1000000	1000000000	0	12	{"engine":"doris","format":"lance"}	[1, 2, 3, 4]
-
+true	1	1000	1000000	1000000000	{"engine":"doris","format":"lance"}	[1, 2, 3, 4]

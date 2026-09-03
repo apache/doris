@@ -187,8 +187,8 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     @Override
     public Optional<MaterializeSource> visitPhysicalTVFRelation(
             PhysicalTVFRelation tvfRelation, ProbeContext context) {
-        // Lance row-ID fetch cannot materialize nested sub-column paths. Blob v2 is exposed as a
-        // descriptor STRUCT, so it is already covered by the hasSubColPath() guard below.
+        // The first Lance implementation fetches top-level columns by row ID. Keep nested
+        // sub-column projections in the search phase until take_rows supports access paths.
         if (isVectorSearch(tvfRelation) && context.slot.hasSubColPath()) {
             return Optional.empty();
         }

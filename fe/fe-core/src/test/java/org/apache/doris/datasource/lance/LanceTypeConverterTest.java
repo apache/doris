@@ -30,7 +30,6 @@ import org.apache.arrow.vector.types.pojo.FieldType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Arrays;
 import java.util.Collections;
 
 public class LanceTypeConverterTest {
@@ -149,30 +148,11 @@ public class LanceTypeConverterTest {
         Assertions.assertEquals("array<float>",
                 LanceTypeConverter.toDorisType(bfloat16Vector).toSql());
 
-        Field blobField = new Field(
-                "blob_col",
-                new FieldType(
-                        true,
-                        ArrowType.Struct.INSTANCE,
-                        null,
-                        Collections.singletonMap("ARROW:extension:name", "lance.blob.v2")),
-                Arrays.asList(
-                        Field.nullable("data", ArrowType.LargeBinary.INSTANCE),
-                        Field.nullable("uri", ArrowType.Utf8.INSTANCE),
-                        Field.nullable("position", new ArrowType.Int(64, false)),
-                        Field.nullable("size", new ArrowType.Int(64, false))));
-        Assertions.assertEquals(
-                "struct<kind:smallint,position:largeint,size:largeint,"
-                        + "blob_id:bigint,blob_uri:text>",
-                LanceTypeConverter.toDorisType(blobField).toSql());
-
         Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(
                 extensionField("invalid_json", ArrowType.Binary.INSTANCE, "arrow.json")));
         Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(
                 extensionField("invalid_bfloat16", new ArrowType.FixedSizeBinary(4),
                         "lance.bfloat16")));
-        Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(
-                extensionField("invalid_blob", ArrowType.Struct.INSTANCE, "lance.blob.v2")));
     }
 
     /** Verifies unknown extensions and dictionary fields remain unsupported. */
@@ -190,6 +170,16 @@ public class LanceTypeConverterTest {
                         new DictionaryEncoding(1, false, new ArrowType.Int(16, true))),
                 Collections.emptyList());
         Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(dictionaryField));
+
+        Field blobField = new Field(
+                "blob_col",
+                new FieldType(
+                        true,
+                        ArrowType.Struct.INSTANCE,
+                        null,
+                        Collections.singletonMap("ARROW:extension:name", "lance.blob.v2")),
+                Collections.emptyList());
+        Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(blobField));
     }
 
     /** Creates a field with Arrow extension metadata. */

@@ -45,7 +45,9 @@ suite("test_lance_s3_tvf", "p0,external") {
         sql """SET enable_file_scanner_v2 = true"""
         sql """SET time_zone = '+08:00'"""
 
-        // S3 TVF should expose the same schema and values as the Lance Catalog.
+        // all_types deliberately contains both supported and unsupported Arrow
+        // types. S3 TVF should expose the same schema as the Lance Catalog and
+        // allow a query to project only supported columns.
         order_qt_desc """DESC FUNCTION ${lanceTvf}"""
 
         // FE pins one Lance version and creates one split per fragment. These
@@ -85,8 +87,6 @@ suite("test_lance_s3_tvf", "p0,external") {
                 duration_ms_col,
                 duration_us_col,
                 duration_ns_col,
-                blob_col.kind AS blob_kind,
-                blob_col.size AS blob_size,
                 CAST(json_col AS STRING) AS json_col,
                 bfloat16_vector_col
             FROM ${lanceTvf}

@@ -40,7 +40,6 @@ public final class LanceTypeConverter {
     private static final String ARROW_JSON_EXTENSION = "arrow.json";
     private static final String LANCE_JSON_EXTENSION = "lance.json";
     private static final String LANCE_BFLOAT16_EXTENSION = "lance.bfloat16";
-    private static final String LANCE_BLOB_V2_EXTENSION = "lance.blob.v2";
 
     private LanceTypeConverter() {
     }
@@ -160,58 +159,9 @@ public final class LanceTypeConverter {
                 return storageType.getTypeID() == ArrowType.ArrowTypeID.FixedSizeBinary
                                 && ((ArrowType.FixedSizeBinary) storageType).getByteWidth() == 2
                         ? Type.FLOAT : Type.UNSUPPORTED;
-            case LANCE_BLOB_V2_EXTENSION:
-                return isBlobV2Storage(field) ? blobV2DescriptorType() : Type.UNSUPPORTED;
             default:
                 return Type.UNSUPPORTED;
         }
-    }
-
-    /** Validates the minimal and ranged Blob v2 storage layouts. */
-    private static boolean isBlobV2Storage(Field field) {
-        if (field.getType().getTypeID() != ArrowType.ArrowTypeID.Struct) {
-            return false;
-        }
-        List<Field> children = field.getChildren();
-        if (children.size() != 2 && children.size() != 4) {
-            return false;
-        }
-        if (!isField(children.get(0), "data", ArrowType.ArrowTypeID.LargeBinary)
-                || !isField(children.get(1), "uri", ArrowType.ArrowTypeID.Utf8)) {
-            return false;
-        }
-        return children.size() == 2
-                || (isUnsignedIntegerField(children.get(2), "position", 64)
-                        && isUnsignedIntegerField(children.get(3), "size", 64));
-    }
-
-    /**
-     * Maps Lance Blob v2 to the descriptor Struct that lance-c returns by default, exposing where a
-     * Blob lives without materializing its payload (a single value can reach gigabytes).
-     */
-    private static Type blobV2DescriptorType() {
-        ArrayList<StructField> fields = new ArrayList<>();
-        fields.add(new StructField("kind", Type.SMALLINT));
-        fields.add(new StructField("position", Type.LARGEINT));
-        fields.add(new StructField("size", Type.LARGEINT));
-        fields.add(new StructField("blob_id", Type.BIGINT));
-        fields.add(new StructField("blob_uri", Type.STRING));
-        return new StructType(fields);
-    }
-
-    /** Checks a field's name and Arrow type. */
-    private static boolean isField(Field field, String name, ArrowType.ArrowTypeID typeId) {
-        return name.equals(field.getName()) && field.getType().getTypeID() == typeId;
-    }
-
-    /** Checks an unsigned integer field's name and width. */
-    private static boolean isUnsignedIntegerField(Field field, String name, int bitWidth) {
-        if (!name.equals(field.getName())
-                || field.getType().getTypeID() != ArrowType.ArrowTypeID.Int) {
-            return false;
-        }
-        ArrowType.Int integer = (ArrowType.Int) field.getType();
-        return !integer.getIsSigned() && integer.getBitWidth() == bitWidth;
     }
 
     /** Maps an Arrow integer to the narrowest lossless Doris type. */

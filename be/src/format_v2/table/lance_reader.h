@@ -52,9 +52,8 @@ Status normalize_lance_arrow_array_for_test(const std::shared_ptr<arrow::Field>&
                                             std::shared_ptr<arrow::Array>* normalized);
 #endif
 
-// Converts a Lance dataset schema without discarding unsupported columns. Blob logical fields are
-// advertised as the descriptor struct returned by scans. Malformed schemas still return an error
-// and leave both output vectors unchanged; DataTypeNothing marks unsupported logical types.
+// Converts a Lance dataset schema without discarding unsupported columns. Malformed schemas return
+// an error and leave both output vectors unchanged; DataTypeNothing marks unsupported logical types.
 Status convert_arrow_schema_to_doris(const std::shared_ptr<arrow::Schema>& arrow_schema,
                                      std::vector<std::string>* column_names,
                                      std::vector<DataTypePtr>* column_types);
