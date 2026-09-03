@@ -1446,8 +1446,10 @@ size_t ColumnVariant::Subcolumn::serialize_text_json(size_t n, BufferWritable& o
             // the column-level least common type, so the check above stops covering the rows that
             // still sit in an untyped part. Render those rows as an empty JSON object here too,
             // instead of letting the Nothing serde emit an empty string. See #67367.
-            if (get_base_type_of_array(data_types[i])->get_primitive_type() ==
-                PrimitiveType::INVALID_TYPE) {
+            // This has to be the part's own type rather than the base type of its arrays: an empty
+            // array is typed Array(Nothing), and it does hold a value - `[]` - that the array serde
+            // renders correctly on its own.
+            if (data_types[i]->get_primitive_type() == PrimitiveType::INVALID_TYPE) {
                 output.write(EMPTY_JSON.data(), EMPTY_JSON.size());
                 return EMPTY_JSON.size();
             }

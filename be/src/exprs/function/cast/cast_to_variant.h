@@ -88,11 +88,28 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
         // paths. When no row's root holds a value there is nothing for the root conversion to
         // convert, so serialize the tree instead. Rows whose root does hold a value keep the root
         // conversion, which is what unwraps a JSON string into its text. See #67367.
+        // Only the rows this call actually converts get a say. prepare_remove_nullable hands the
+        // outer null map over as a separate argument and leaves the masked rows' payloads in
+        // place, so a masked row whose root does carry a value would otherwise keep every visible
+        // row on the root conversion.
         const auto* nullable_root = check_and_get_column<ColumnNullable>(*variant->get_root());
         if (nullable_root != nullptr) {
             const auto& root_null_map = nullable_root->get_null_map_data();
-            is_root_valuable = std::any_of(root_null_map.begin(), root_null_map.end(),
-                                           [](UInt8 is_null) { return is_null == 0; });
+            const NullMap::value_type* outer_null_map = null_map;
+            if (outer_null_map == nullptr && nullable != nullptr) {
+                outer_null_map = nullable->get_null_map_data().data();
+            }
+            const size_t rows_to_scan = std::min(input_rows_count, root_null_map.size());
+            is_root_valuable = false;
+            for (size_t row = 0; row < rows_to_scan; ++row) {
+                if (outer_null_map != nullptr && outer_null_map[row] != 0) {
+                    continue;
+                }
+                if (root_null_map[row] == 0) {
+                    is_root_valuable = true;
+                    break;
+                }
+            }
         }
     }
 

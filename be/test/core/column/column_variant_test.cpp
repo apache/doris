@@ -3706,6 +3706,16 @@ std::string serialize_variant_row(const ColumnVariant& column, size_t row) {
     return serialized;
 }
 
+std::string serialize_subcolumn_row(const ColumnVariant::Subcolumn& subcolumn, size_t row) {
+    auto tmp_col = ColumnString::create();
+    VectorBufferWriter write_buffer(*tmp_col.get());
+    DataTypeSerDe::FormatOptions options;
+    subcolumn.serialize_text_json(row, write_buffer, options);
+    write_buffer.commit();
+    auto str_ref = tmp_col->get_data_at(0);
+    return std::string(str_ref.data, str_ref.size);
+}
+
 std::string describe_variant(const ColumnVariant& column) {
     return fmt::format("rows={} scalar={} null_root={} root_type={} subcolumns={}", column.size(),
                        column.is_scalar_variant(), column.is_null_root(),
@@ -3830,6 +3840,36 @@ TEST(ColumnVariantEmptyObjectTest, empty_object_survives_copy_of_mixed_type_part
     auto& finalized_copy_variant = assert_cast<ColumnVariant&>(*finalized_copy);
     finalized_copy_variant.finalize();
     expect_all_empty_objects(finalized_copy_variant, "finalized copy of mixed-type parts");
+}
+
+// An empty array is typed Array(Nothing), whose base type is also Nothing. It is not an absent
+// value the way an untyped part is - it is the value `[]`, and the array serde renders it. So the
+// per-part empty-object rule above has to key off the part's own type, not the base type of its
+// arrays, or a `[]` sitting in an unpromoted part comes back as `{}`.
+TEST(ColumnVariantEmptyObjectTest, empty_array_part_is_not_an_empty_object) {
+    ColumnVariant::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
+
+    // An empty array carries no element type, so its part is typed Array(Nothing).
+    subcolumn.insert(Field::create_field<TYPE_ARRAY>(Array()));
+    ASSERT_EQ(subcolumn.data_types.size(), 1);
+    EXPECT_EQ(get_base_type_of_array(subcolumn.data_types[0])->get_primitive_type(),
+              PrimitiveType::INVALID_TYPE)
+            << subcolumn.data_types[0]->get_name();
+
+    // A later typed value promotes the column-level least common type past Array(Nothing) and
+    // opens a second part, which is what stops the column-level rule at the top of
+    // serialize_text_json from covering row 0 - the same shape as the empty-object case above.
+    Field typed_array = Field::create_field<TYPE_ARRAY>(Array());
+    typed_array.get<TYPE_ARRAY>().emplace_back(Field::create_field<TYPE_TINYINT>(1));
+    subcolumn.insert(typed_array);
+    ASSERT_EQ(subcolumn.data_types.size(), 2) << subcolumn.get_least_common_type()->get_name();
+    ASSERT_EQ(subcolumn.size(), 2);
+
+    // Row 0 is still served by the Array(Nothing) part, and it is an empty array, not `{}`.
+    EXPECT_EQ(serialize_subcolumn_row(subcolumn, 0), "[]")
+            << "part type " << subcolumn.data_types[0]->get_name() << ", column type "
+            << subcolumn.get_least_common_type()->get_name();
+    EXPECT_EQ(serialize_subcolumn_row(subcolumn, 1), "[1]");
 }
 
 } // namespace doris
