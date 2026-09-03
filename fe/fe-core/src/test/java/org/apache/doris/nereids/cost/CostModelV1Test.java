@@ -19,8 +19,11 @@ package org.apache.doris.nereids.cost;
 
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -52,6 +55,56 @@ class CostModelV1Test extends SqlTestBase {
                 .optimize()
                 .getBestPlanTree();
         p.anyMatch(j -> j instanceof PhysicalHashJoin && ((PhysicalHashJoin<?, ?>) j).getJoinType().isRightJoin());
+    }
+
+    @Test
+    void testBucketedAggregateDiscountRequiresFullyFinalizedOnePhase() {
+        int originBeNumberForTest = connectContext.getSessionVariable().getBeNumberForTest();
+        boolean originEnableBucketedHashAgg = connectContext.getSessionVariable().enableBucketedHashAgg;
+        connectContext.getSessionVariable().setBeNumberForTest(1);
+        try {
+            Plan child = PlanConstructor.newLogicalOlapScan(102, "distinct_global_agg_t", 0);
+            Slot key = child.getOutput().get(0);
+            Alias finalAvg = new Alias(new AggregateExpression(
+                    new Avg(key), new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT)));
+            PhysicalHashAggregate<Plan> globalAggregate = new PhysicalHashAggregate<>(
+                    ImmutableList.of(key), ImmutableList.of(key, finalAvg), Optional.empty(),
+                    new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT), false, null, false, child);
+            Alias distinctFinalAvg = new Alias(new AggregateExpression(
+                    new Avg(key), new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.INPUT_TO_RESULT)));
+            PhysicalHashAggregate<Plan> distinctGlobalAggregate = new PhysicalHashAggregate<>(
+                    ImmutableList.of(key), ImmutableList.of(key, distinctFinalAvg), Optional.empty(),
+                    new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.INPUT_TO_RESULT),
+                    false, null, false, child);
+            Alias partialAvg = new Alias(new AggregateExpression(
+                    new Avg(key), new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_BUFFER)));
+            PhysicalHashAggregate<Plan> mixedModeGlobalAggregate = new PhysicalHashAggregate<>(
+                    ImmutableList.of(key), ImmutableList.of(key, partialAvg), Optional.empty(),
+                    new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT),
+                    false, null, false, child);
+            Statistics childStats = new StatisticsBuilder().setRowCount(1000).build();
+            PlanContext context = Mockito.mock(PlanContext.class);
+            Mockito.when(context.getChildStatistics(0)).thenReturn(childStats);
+            Mockito.when(context.getSessionVariable()).thenReturn(connectContext.getSessionVariable());
+            CostModel costModel = new CostModel(connectContext);
+
+            connectContext.getSessionVariable().enableBucketedHashAgg = false;
+            Cost globalBaseline = costModel.visitPhysicalHashAggregate(globalAggregate, context);
+            Cost distinctGlobalBaseline = costModel.visitPhysicalHashAggregate(distinctGlobalAggregate, context);
+            Cost mixedModeGlobalBaseline = costModel.visitPhysicalHashAggregate(mixedModeGlobalAggregate, context);
+
+            connectContext.getSessionVariable().enableBucketedHashAgg = true;
+            Cost globalCost = costModel.visitPhysicalHashAggregate(globalAggregate, context);
+            Cost distinctGlobalCost = costModel.visitPhysicalHashAggregate(distinctGlobalAggregate, context);
+            Cost mixedModeGlobalCost = costModel.visitPhysicalHashAggregate(mixedModeGlobalAggregate, context);
+
+            Assertions.assertTrue(globalCost.getCpuCost() < globalBaseline.getCpuCost());
+            Assertions.assertEquals(distinctGlobalBaseline.getCpuCost(), distinctGlobalCost.getCpuCost(), 1e-9);
+            Assertions.assertEquals(mixedModeGlobalBaseline.getCpuCost(), mixedModeGlobalCost.getCpuCost(), 1e-9);
+        } finally {
+            connectContext.getSessionVariable().setBeNumberForTest(originBeNumberForTest);
+            connectContext.getSessionVariable().enableBucketedHashAgg = originEnableBucketedHashAgg;
+        }
     }
 
     @Test

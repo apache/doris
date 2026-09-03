@@ -16,6 +16,8 @@
 // under the License.
 
 suite("hash_shuffle_key_prune") {
+    // Keep this suite focused on shuffle-key pruning rather than
+    // single-BE bucketed-aggregation fusion.
     multi_sql """
         drop table if exists t1;
         create table t1(a int, b int, c int, d int, e int, f int, g int, h int, i int, j int) properties("replication_num"="1");
@@ -61,6 +63,8 @@ suite("hash_shuffle_key_prune") {
         set detail_shape_nodes='PhysicalDistribute';
         set runtime_filter_mode=OFF;
         set global enable_auto_analyze=false;
+        set be_number_for_test=1;
+        set enable_bucketed_hash_agg=false;
         set parallel_pipeline_task_num=4;
     """
     sql """

@@ -140,7 +140,7 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
         //
         // A substring check on explain text could not distinguish this from a
         // plan that only has the LOCAL_HASH LE — DSL pins the structure.
-        setupLocalShuffleSession(null);
+        setupLocalShuffleSession(sv -> sv.aggPhase = 1);
         assertPlanShape("select k1, k2, count(*) from test.t1 group by k1, k2",
                 anyTree(
                         agg(
@@ -544,7 +544,7 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
         // Same scan→agg plan as testAggFromScanShapeDsl, but with a predicate that
         // checks the inserted LE(LOCAL_HASH) carries non-empty distribute expressions
         // (without which the BE would not know which columns to hash on).
-        setupLocalShuffleSession(null);
+        setupLocalShuffleSession(sv -> sv.aggPhase = 1);
         assertPlanShape("select k1, k2, count(*) from test.t1 group by k1, k2",
                 anyTree(
                         agg(
@@ -692,7 +692,7 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
         // the buggy one (buggy forwarded the require, so the LE landed below the
         // Repeat, hashing the pre-repeat rows by the child's single upstream key and
         // collapsing them onto one instance).
-        setupLocalShuffleSession(null);
+        setupLocalShuffleSession(sv -> sv.aggPhase = 1);
         assertPlanShape(
                 "select k1, k2, count(*) from test.t1 group by grouping sets((k1), (k1, k2))",
                 anyTree(
@@ -748,7 +748,7 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
         //   Agg → HashJoin
         //           ← Agg → LE(LOCAL_HASH) → LE(PASSTHROUGH) → Repeat → scan(t1)
         //           ← LE(PASS_TO_ONE) → Exchange → scan(t2)
-        setupLocalShuffleSession(null);
+        setupLocalShuffleSession(sv -> sv.aggPhase = 1);
         assertPlanShape(
                 "select u.k1, count(*) from (select k1, k2 from test.t1 group by grouping sets((k1), (k1, k2))) u "
                         + "join test.t2 b on u.k1 = b.k1 group by u.k1",
