@@ -1742,9 +1742,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         // set filter
         List<Expression> expressions = new ArrayList<>();
         for (Expr conjunct : conjuncts) {
-            // Ref/snapshot selection can change field IDs and names, so every pruning expression
-            // must be bound against the schema selected by this scan rather than the current table.
-            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, scanSchema);
+            Expression expression = convertToIcebergPruningExpression(conjunct, scanSchema);
             if (expression != null) {
                 expressions.add(expression);
             }
@@ -1757,6 +1755,27 @@ public class IcebergScanNode extends FileQueryScanNode {
         icebergTableScan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
 
         return icebergTableScan;
+    }
+
+    @VisibleForTesting
+    protected Expression convertToIcebergPruningExpression(Expr conjunct, Schema scanSchema) {
+        Expression scanExpression = IcebergUtils.convertToIcebergExpr(conjunct, scanSchema);
+        Schema currentSchema = icebergTable.schema();
+        if (scanExpression == null || scanSchema.sameSchema(currentSchema)) {
+            return scanExpression;
+        }
+
+        Expression currentExpression = IcebergUtils.convertToIcebergExpr(conjunct, currentSchema);
+        if (currentExpression == null) {
+            return null;
+        }
+        Set<Integer> scanFieldIds = Binder.boundReferences(
+                scanSchema.asStruct(), Collections.singletonList(scanExpression), true);
+        Set<Integer> currentFieldIds = Binder.boundReferences(
+                currentSchema.asStruct(), Collections.singletonList(currentExpression), true);
+        // Iceberg 1.10 plans manifests with current partition specs, so only push an
+        // historical predicate when its names still resolve to the same field IDs.
+        return scanFieldIds.equals(currentFieldIds) ? scanExpression : null;
     }
 
     private Table useFrozenTableGeneration(Table currentTable) {
@@ -2208,7 +2227,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         // Convert query conjuncts to Iceberg filter expression
         // This combines all predicates with AND logic for partition/file pruning
         Expression filterExpr = conjuncts.stream()
-                .map(conjunct -> IcebergUtils.convertToIcebergExpr(conjunct, scanSchema))
+                .map(conjunct -> convertToIcebergPruningExpression(conjunct, scanSchema))
                 .filter(Objects::nonNull)
                 .reduce(Expressions.alwaysTrue(), Expressions::and);
 
@@ -2690,7 +2709,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
         List<Expression> expressions = new ArrayList<>();
         for (Expr conjunct : conjuncts) {
-            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, scanSchema);
+            Expression expression = convertToIcebergPruningExpression(conjunct, scanSchema);
             if (expression != null) {
                 expressions.add(expression);
             }

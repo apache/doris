@@ -2903,11 +2903,14 @@ public class IcebergScanNodeTest {
     }
 
     @Test
-    public void testHistoricalPredicateUsesSelectedScanSchema() throws Exception {
+    public void testHistoricalPredicateSkipsPushdownAfterColumnChange() throws Exception {
         Schema historicalSchema = new Schema(
-                Types.NestedField.optional(7, "old_name", Types.IntegerType.get()));
+                Types.NestedField.optional(7, "old_name", Types.IntegerType.get()),
+                Types.NestedField.optional(9, "stable_name", Types.IntegerType.get()));
         Schema currentSchema = new Schema(
-                Types.NestedField.optional(8, "new_name", Types.IntegerType.get()));
+                Types.NestedField.optional(7, "new_name", Types.IntegerType.get()),
+                Types.NestedField.optional(8, "old_name", Types.IntegerType.get()),
+                Types.NestedField.optional(9, "stable_name", Types.IntegerType.get()));
         Table table = Mockito.mock(Table.class);
         Mockito.when(table.schema()).thenReturn(currentSchema);
         Mockito.when(table.schemas()).thenReturn(Collections.singletonMap(
@@ -2932,10 +2935,77 @@ public class IcebergScanNodeTest {
                 .when(node).getSpecifiedSnapshot();
         node.addConjunct(new BinaryPredicate(BinaryPredicate.Operator.EQ,
                 new SlotRef(new TableName(), "old_name"), new IntLiteral(1, Type.INT)));
+        node.addConjunct(new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new SlotRef(new TableName(), "stable_name"), new IntLiteral(2, Type.INT)));
 
         node.createRealTableScan();
 
-        Mockito.verify(scan).filter(Mockito.argThat(expression -> expression.toString().contains("old_name")));
+        Mockito.verify(scan).filter(Mockito.argThat(expression -> expression.toString().contains("stable_name")));
+        Mockito.verify(scan, Mockito.never())
+                .filter(Mockito.argThat(expression -> expression.toString().contains("old_name")));
+    }
+
+    @Test
+    public void testHistoricalPredicatePlansAfterColumnRename() throws Exception {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(false);
+    }
+
+    @Test
+    public void testHistoricalPredicatePlansAfterColumnDrop() throws Exception {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(true);
+    }
+
+    private void assertHistoricalPredicatePlansAfterSchemaEvolution(boolean dropColumn) throws Exception {
+        Schema historicalSchema = new Schema(
+                Types.NestedField.optional(1, "x", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "y", Types.IntegerType.get()),
+                Types.NestedField.optional(3, "part", Types.IntegerType.get()));
+        HadoopTables tables = new HadoopTables(new Configuration());
+        String tableLocation = temporaryFolder.getRoot().toPath()
+                .resolve("historical_predicate_after_" + (dropColumn ? "drop" : "rename")).toUri().toString();
+        Table table = tables.create(
+                historicalSchema, PartitionSpec.unpartitioned(), SortOrder.unsorted(),
+                ImmutableMap.of(TableProperties.FORMAT_VERSION, "2"), tableLocation);
+        DataFile dataFile = DataFiles.builder(table.spec())
+                .withPath(tableLocation + "/data/data.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(10)
+                .withRecordCount(2)
+                .build();
+        table.newFastAppend().appendFile(dataFile).commit();
+        long historicalSnapshotId = table.currentSnapshot().snapshotId();
+        int historicalSchemaId = table.currentSnapshot().schemaId();
+        if (dropColumn) {
+            table.updateSchema().deleteColumn("x").commit();
+        } else {
+            table.updateSchema().renameColumn("x", "renamed_x").commit();
+        }
+        DataFile currentDataFile = DataFiles.builder(table.spec())
+                .withPath(tableLocation + "/data/current.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(10)
+                .withRecordCount(1)
+                .build();
+        // A newer snapshot makes Iceberg resolve historical partition specs during time travel.
+        table.newFastAppend().appendFile(currentDataFile).commit();
+
+        TableScan scan = table.newScan()
+                .useSnapshot(historicalSnapshotId)
+                .project(table.schemas().get(historicalSchemaId));
+        BinaryPredicate conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new SlotRef(new TableName(), "x"), new IntLiteral(1, Type.INT));
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, table);
+        org.apache.iceberg.expressions.Expression predicate =
+                node.convertToIcebergPruningExpression(conjunct, scan.schema());
+        Assert.assertNull(predicate);
+
+        try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
+            Iterator<FileScanTask> iterator = tasks.iterator();
+            Assert.assertTrue(iterator.hasNext());
+            iterator.next();
+            Assert.assertFalse(iterator.hasNext());
+        }
     }
 
     @Test
