@@ -23,6 +23,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.thrift.TBrokerFileStatus;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -61,6 +63,20 @@ public class ExternalFileTableValuedFunctionTest {
                 AnalysisException.class, () -> tvf.parseCommonProperties(properties));
 
         Assert.assertTrue(exception.getMessage().contains("short timezone aliases are not supported"));
+    }
+
+    @Test
+    public void testAutoInferredEmptyContentOnlySkipsGzip() throws AnalysisException {
+        ExternalFileTableValuedFunction tvf = Mockito.mock(
+                ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        tvf.fileFormatProperties = FileFormatProperties.createFileFormatProperties(
+                FileFormatConstants.FORMAT_CSV);
+        tvf.fileFormatProperties.analyzeFileFormatProperties(Maps.newHashMap(), true);
+
+        Assert.assertTrue(tvf.isFileContentEmpty(
+                new TBrokerFileStatus("empty.csv.gz", false, 20, true)));
+        Assert.assertFalse(tvf.isFileContentEmpty(
+                new TBrokerFileStatus("empty.csv.lzo", false, 42, true)));
     }
 
     @Test
