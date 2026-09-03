@@ -20,7 +20,6 @@ package org.apache.doris.sqlparser;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.LimitClauseContext;
 import org.apache.doris.nereids.parser.ParseErrorListener;
-import org.apache.doris.nereids.parser.PostProcessor;
 
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.Token;
@@ -39,7 +38,6 @@ class LimitClausePrefixTest {
     @MethodSource("limitClauses")
     void preservesLimitAndOffsetLabels(String sql, String expectedLimit, String expectedOffset) {
         DorisParser parser = new DorisParser(new CommonTokenStream(facade.newLexer(sql)));
-        parser.addParseListener(new PostProcessor());
         parser.removeErrorListeners();
         parser.addErrorListener(new ParseErrorListener());
         parser.getInterpreter().setPredictionMode(PredictionMode.SLL);
