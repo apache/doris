@@ -182,6 +182,14 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
     }
 
     @Override
+    public void reconcileVendedStorageOptions(Map<String, String> merged,
+            Map<String, String> normalizedVended) {
+        // S3 authentication has the same coupling as OSS - a vended pair should replace the
+        // catalog's whole, rather than half-merging with it - but that predates OSS support and is
+        // tracked with the rest of #66805, so this stays a no-op until it can be tested against.
+    }
+
+    @Override
     public Map<String, String> inferStorageOptions(Map<String, String> effectiveOptions) {
         Map<String, String> inferred = new HashMap<>();
         if (effectiveOptions.containsKey(ALLOW_HTTP)) {

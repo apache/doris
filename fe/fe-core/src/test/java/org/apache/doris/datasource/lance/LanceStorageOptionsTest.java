@@ -760,4 +760,33 @@ public class LanceStorageOptionsTest {
         Assertions.assertTrue(thrown.getMessage().contains("Incomplete OSS credential"),
                 "unexpected message: " + thrown.getMessage());
     }
+
+    /**
+     * A vended key pair replaces the whole credential, including a role or identity binding the
+     * catalog contributed. Inference counts those as signing configuration, so one left behind
+     * would describe an identity no longer in use.
+     *
+     * <p>Exercised through the provider rather than a catalog because Doris has no static property
+     * that emits a role today - this pins the contract before one exists.
+     */
+    @Test
+    public void testVendedOssKeyPairReplacesARoleBinding() {
+        Map<String, String> merged = new HashMap<>();
+        merged.put("role_arn", "acs:ram::1:role/stale");
+        merged.put("oidc_token_file", "/var/run/stale-token");
+        merged.put("oss_access_key_id", "static-ak");
+        merged.put("oss_secret_access_key", "static-sk");
+
+        Map<String, String> vended = new HashMap<>();
+        vended.put("oss_access_key_id", "vended-ak");
+        vended.put("oss_secret_access_key", "vended-sk");
+        merged.putAll(vended);
+
+        LanceStorageProvider.forDataset(OSS_URI).reconcileVendedStorageOptions(merged, vended);
+
+        Assertions.assertEquals("vended-ak", merged.get("oss_access_key_id"));
+        Assertions.assertEquals("vended-sk", merged.get("oss_secret_access_key"));
+        Assertions.assertNull(merged.get("role_arn"));
+        Assertions.assertNull(merged.get("oidc_token_file"));
+    }
 }
