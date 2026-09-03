@@ -1368,6 +1368,8 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "jaro")
     public static Expression jaro(StringLikeLiteral first, StringLikeLiteral second) {
+        checkSimilarityInputLength(first.getValue());
+        checkSimilarityInputLength(second.getValue());
         int[] left = first.getValue().codePoints().toArray();
         int[] right = second.getValue().codePoints().toArray();
         return new DoubleLiteral(jaroSimilarity(left, right, null));
@@ -1378,6 +1380,8 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "jaro_winkler")
     public static Expression jaroWinkler(StringLikeLiteral first, StringLikeLiteral second) {
+        checkSimilarityInputLength(first.getValue());
+        checkSimilarityInputLength(second.getValue());
         int[] left = first.getValue().codePoints().toArray();
         int[] right = second.getValue().codePoints().toArray();
         int[] prefix = new int[1];
@@ -1389,6 +1393,8 @@ public class StringArithmetic {
     // Core Jaro similarity algorithm. When outPrefix is non-null, outPrefix[0] receives the
     // length of the common leading run (capped at JARO_WINKLER_MAX_PREFIX characters) so
     // jaroWinkler can reuse this instead of duplicating the matching/transposition logic.
+    // Callers are expected to have already applied checkSimilarityInputLength to the source
+    // strings before decoding them into code points.
     private static double jaroSimilarity(int[] left, int[] right, int[] outPrefix) {
         int m = left.length;
         int n = right.length;
@@ -1401,8 +1407,6 @@ public class StringArithmetic {
         if (m == 0 || n == 0) {
             return 0.0;
         }
-        checkSimilarityInputLength(m);
-        checkSimilarityInputLength(n);
 
         // Two characters can only be matched to each other if they are no farther apart than
         // this many positions; this is the standard Jaro "matching window" definition.
@@ -1468,10 +1472,10 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "jaccard_similarity")
     public static Expression jaccardSimilarity(StringLikeLiteral first, StringLikeLiteral second) {
+        checkSimilarityInputLength(first.getValue());
+        checkSimilarityInputLength(second.getValue());
         int[] left = first.getValue().codePoints().toArray();
         int[] right = second.getValue().codePoints().toArray();
-        checkSimilarityInputLength(left.length);
-        checkSimilarityInputLength(right.length);
 
         if (left.length == 0 && right.length == 0) {
             return new DoubleLiteral(1.0);
@@ -1498,10 +1502,15 @@ public class StringArithmetic {
         return new DoubleLiteral((double) intersection / union);
     }
 
-    private static void checkSimilarityInputLength(int length) {
-        if (length > MAX_SIMILARITY_INPUT_LEN) {
+    // Checked in UTF-8 bytes, not code points, to match the guard in
+    // be/src/exprs/function/function_string_similarity.cpp exactly -- otherwise a literal made
+    // of multi-byte characters could fold successfully on FE while the same input would be
+    // rejected by BE when it isn't a literal (e.g. read from a column).
+    private static void checkSimilarityInputLength(String value) {
+        int byteLength = value.getBytes(StandardCharsets.UTF_8).length;
+        if (byteLength > MAX_SIMILARITY_INPUT_LEN) {
             throw new AnalysisException(
-                    "Input string too long, max " + MAX_SIMILARITY_INPUT_LEN + " characters");
+                    "Input string too long, max " + MAX_SIMILARITY_INPUT_LEN + " bytes");
         }
     }
 

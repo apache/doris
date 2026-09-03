@@ -993,6 +993,10 @@ suite("string_functions_all") {
     testFoldConst("SELECT jaro('abc', 'abc'), jaro(NULL, 'abc'), jaro('abc', NULL);")
     qt_jaro_489 "SELECT jaro('你好', '你们'), jaro('数据库', '数库据');"
     testFoldConst("SELECT jaro('你好', '你们'), jaro('数据库', '数库据');")
+    // astral-plane (surrogate-pair in UTF-16 / 4-byte in UTF-8) characters must be treated as a
+    // single character on both the FE fold-const path and BE execution.
+    qt_jaro_499 "SELECT jaro('😀a', '😀a');"
+    testFoldConst("SELECT jaro('😀a', '😀a');")
 
     qt_jaro_winkler_490 "SELECT jaro_winkler('', ''), jaro_winkler('abc', 'abc'), jaro_winkler('', 'abc'), jaro_winkler('a', 'b'), jaro_winkler('MARTHA', 'MARHTA'), jaro_winkler('DWAYNE', 'DUANE');"
     testFoldConst("SELECT jaro_winkler('', ''), jaro_winkler('abc', 'abc'), jaro_winkler('', 'abc'), jaro_winkler('a', 'b'), jaro_winkler('MARTHA', 'MARHTA'), jaro_winkler('DWAYNE', 'DUANE');")
@@ -1000,6 +1004,8 @@ suite("string_functions_all") {
     testFoldConst("SELECT jaro_winkler('abc', 'abc'), jaro_winkler(NULL, 'abc'), jaro_winkler('abc', NULL);")
     qt_jaro_winkler_492 "SELECT jaro_winkler('abcd', 'abdc'), jaro_winkler('你好世界', '你好世间'), jaro_winkler('a你b', 'a们b');"
     testFoldConst("SELECT jaro_winkler('abcd', 'abdc'), jaro_winkler('你好世界', '你好世间'), jaro_winkler('a你b', 'a们b');")
+    qt_jaro_winkler_500 "SELECT jaro_winkler('😀a', '😀b');"
+    testFoldConst("SELECT jaro_winkler('😀a', '😀b');")
 
     qt_jaccard_similarity_493 "SELECT jaccard_similarity('', ''), jaccard_similarity('abc', 'abc'), jaccard_similarity('a', 'b'), jaccard_similarity('ab', 'ba'), jaccard_similarity('ab', 'cd');"
     testFoldConst("SELECT jaccard_similarity('', ''), jaccard_similarity('abc', 'abc'), jaccard_similarity('a', 'b'), jaccard_similarity('ab', 'ba'), jaccard_similarity('ab', 'cd');")
@@ -1007,6 +1013,8 @@ suite("string_functions_all") {
     testFoldConst("SELECT jaccard_similarity('abc', 'abc'), jaccard_similarity(NULL, 'abc'), jaccard_similarity('abc', NULL);")
     qt_jaccard_similarity_495 "SELECT jaccard_similarity('abcd', 'abce'), jaccard_similarity('你好', '你们'), jaccard_similarity('数据库', '数库据');"
     testFoldConst("SELECT jaccard_similarity('abcd', 'abce'), jaccard_similarity('你好', '你们'), jaccard_similarity('数据库', '数库据');")
+    qt_jaccard_similarity_501 "SELECT jaccard_similarity('😀a', '😀b'), jaccard_similarity('😀a', 'a😀');"
+    testFoldConst("SELECT jaccard_similarity('😀a', '😀b'), jaccard_similarity('😀a', 'a😀');")
 
     // column args, column-constant combinations and UTF-8, reusing the tables created above.
     qt_jaro_nn_vector_vector "SELECT id, jaro(s1, s2) FROM string_distance_nn_test ORDER BY id"
