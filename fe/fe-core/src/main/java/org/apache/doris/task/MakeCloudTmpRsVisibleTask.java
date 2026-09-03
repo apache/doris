@@ -33,17 +33,23 @@ public class MakeCloudTmpRsVisibleTask extends AgentTask {
     private final List<Long> tabletIds; // tablets on this BE involved in the transaction
     private final Map<Long, Long> partitionVersionMap; // partition_id -> version
     private final long updateVersionVisibleTime;
+    private final String loadClusterId;
+    private final List<Long> lastActiveTabletIds;
 
     public MakeCloudTmpRsVisibleTask(long backendId, long txnId,
                                      List<Long> tabletIds,
                                      Map<Long, Long> partitionVersionMap,
-                                     long updateVersionVisibleTime) {
+                                     long updateVersionVisibleTime,
+                                     String loadClusterId,
+                                     List<Long> lastActiveTabletIds) {
         super(null, backendId, TTaskType.MAKE_CLOUD_COMMITTED_RS_VISIBLE,
                 -1L, -1L, -1L, -1L, -1L, txnId, System.currentTimeMillis());
         this.txnId = txnId;
         this.tabletIds = tabletIds;
         this.partitionVersionMap = partitionVersionMap;
         this.updateVersionVisibleTime = updateVersionVisibleTime;
+        this.loadClusterId = loadClusterId;
+        this.lastActiveTabletIds = lastActiveTabletIds;
     }
 
     public long getTxnId() {
@@ -68,6 +74,12 @@ public class MakeCloudTmpRsVisibleTask extends AgentTask {
         request.setTabletIds(tabletIds);
         request.setPartitionVersionMap(partitionVersionMap);
         request.setVersionUpdateTimeMs(updateVersionVisibleTime);
+        if (loadClusterId != null && !loadClusterId.isEmpty()) {
+            request.setLoadClusterId(loadClusterId);
+        }
+        if (lastActiveTabletIds != null && !lastActiveTabletIds.isEmpty()) {
+            request.setLastActiveTabletIds(lastActiveTabletIds);
+        }
         return request;
     }
 }

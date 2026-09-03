@@ -285,6 +285,15 @@ public:
         _last_active_cluster_id = cluster_id;
         _last_active_time_ms = time_ms;
     }
+    bool update_last_active_cluster_info(const std::string& cluster_id, int64_t time_ms) {
+        std::unique_lock lock(_cluster_info_mutex);
+        if (time_ms < _last_active_time_ms) {
+            return false;
+        }
+        _last_active_cluster_id = cluster_id;
+        _last_active_time_ms = time_ms;
+        return true;
+    }
 
     // MUST hold SHARED `_meta_lock`.
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction_unlocked();
