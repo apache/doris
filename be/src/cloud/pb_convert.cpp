@@ -520,6 +520,15 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB
     if (in.has_binlog_op_col_idx()) {
         out->set_binlog_op_col_idx(in.binlog_op_col_idx());
     }
+    if (in.has_ttl_col_idx()) {
+        out->set_ttl_col_idx(in.ttl_col_idx());
+    }
+    if (in.has_row_ttl_duration_us()) {
+        out->set_row_ttl_duration_us(in.row_ttl_duration_us());
+    }
+    if (in.has_row_ttl_time_zone_offset_seconds()) {
+        out->set_row_ttl_time_zone_offset_seconds(in.row_ttl_time_zone_offset_seconds());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -583,6 +592,15 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in)
     }
     if (in.has_binlog_op_col_idx()) {
         out->set_binlog_op_col_idx(in.binlog_op_col_idx());
+    }
+    if (in.has_ttl_col_idx()) {
+        out->set_ttl_col_idx(in.ttl_col_idx());
+    }
+    if (in.has_row_ttl_duration_us()) {
+        out->set_row_ttl_duration_us(in.row_ttl_duration_us());
+    }
+    if (in.has_row_ttl_time_zone_offset_seconds()) {
+        out->set_row_ttl_time_zone_offset_seconds(in.row_ttl_time_zone_offset_seconds());
     }
 
     if (in.has___split_schema()) {
@@ -661,6 +679,15 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB
     if (in.has_binlog_op_col_idx()) {
         out->set_binlog_op_col_idx(in.binlog_op_col_idx());
     }
+    if (in.has_ttl_col_idx()) {
+        out->set_ttl_col_idx(in.ttl_col_idx());
+    }
+    if (in.has_row_ttl_duration_us()) {
+        out->set_row_ttl_duration_us(in.row_ttl_duration_us());
+    }
+    if (in.has_row_ttl_time_zone_offset_seconds()) {
+        out->set_row_ttl_time_zone_offset_seconds(in.row_ttl_time_zone_offset_seconds());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -725,6 +752,15 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in)
     }
     if (in.has_binlog_op_col_idx()) {
         out->set_binlog_op_col_idx(in.binlog_op_col_idx());
+    }
+    if (in.has_ttl_col_idx()) {
+        out->set_ttl_col_idx(in.ttl_col_idx());
+    }
+    if (in.has_row_ttl_duration_us()) {
+        out->set_row_ttl_duration_us(in.row_ttl_duration_us());
+    }
+    if (in.has_row_ttl_time_zone_offset_seconds()) {
+        out->set_row_ttl_time_zone_offset_seconds(in.row_ttl_time_zone_offset_seconds());
     }
 
     if (in.has___split_schema()) {
@@ -800,6 +836,7 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, const TabletMetaPB& in) 
     if (in.has_binlog_tablet_id()) {
         out->set_binlog_tablet_id(in.binlog_tablet_id());
     }
+    out->set_row_binlog_ttl_reference_tso(in.row_binlog_ttl_reference_tso());
     out->set_compaction_policy(in.compaction_policy());
     out->set_time_series_compaction_goal_size_mbytes(in.time_series_compaction_goal_size_mbytes());
     out->set_time_series_compaction_file_count_threshold(
@@ -888,6 +925,7 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
     if (in.has_binlog_tablet_id()) {
         out->set_binlog_tablet_id(in.binlog_tablet_id());
     }
+    out->set_row_binlog_ttl_reference_tso(in.row_binlog_ttl_reference_tso());
     out->set_compaction_policy(in.compaction_policy());
     out->set_time_series_compaction_goal_size_mbytes(in.time_series_compaction_goal_size_mbytes());
     out->set_time_series_compaction_file_count_threshold(
@@ -983,6 +1021,7 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
     if (in.has_binlog_tablet_id()) {
         out->set_binlog_tablet_id(in.binlog_tablet_id());
     }
+    out->set_row_binlog_ttl_reference_tso(in.row_binlog_ttl_reference_tso());
     out->set_compaction_policy(in.compaction_policy());
     out->set_time_series_compaction_goal_size_mbytes(in.time_series_compaction_goal_size_mbytes());
     out->set_time_series_compaction_file_count_threshold(
@@ -1071,6 +1110,7 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
     if (in.has_binlog_tablet_id()) {
         out->set_binlog_tablet_id(in.binlog_tablet_id());
     }
+    out->set_row_binlog_ttl_reference_tso(in.row_binlog_ttl_reference_tso());
     out->set_compaction_policy(in.compaction_policy());
     out->set_time_series_compaction_goal_size_mbytes(in.time_series_compaction_goal_size_mbytes());
     out->set_time_series_compaction_file_count_threshold(

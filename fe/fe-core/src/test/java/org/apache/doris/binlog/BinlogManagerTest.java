@@ -166,6 +166,18 @@ public class BinlogManagerTest {
         Assertions.assertEquals(c1, c2);
         Assertions.assertNotEquals(c1, c3);
         Assertions.assertNotEquals(c1, "not_binlog");
+
+        c1.setRowTtlEnabled(true);
+        Assertions.assertNotEquals(c1, c2);
+        Assertions.assertTrue(c1.isRowTtlEnabled());
+        c1.setTtlSeconds(BinlogConfig.NO_TTL);
+        // Normalized ROW TTL is independent of the generic/legacy binlog value.
+        Assertions.assertEquals(10L, c1.getEffectiveRowTtlSeconds());
+        Assertions.assertTrue(c1.isRowTtlEnabled());
+        Assertions.assertTrue(c1.hasRowTtl());
+        c1.setEffectiveRowTtlSeconds(BinlogConfig.NO_TTL);
+        Assertions.assertFalse(c1.isRowTtlEnabled());
+        Assertions.assertFalse(c1.hasRowTtl());
     }
 
     @Test
@@ -173,6 +185,7 @@ public class BinlogManagerTest {
         mockedBinlogConfigConstruction.close();
         mockedBinlogConfigConstruction = null;
         BinlogConfig rowCfg = new BinlogConfig(true, 11L, 22L, 33L, BinlogConfig.BinlogFormat.ROW, true);
+        rowCfg.setRowTtlEnabled(true);
         StringBuilder sb = new StringBuilder();
         rowCfg.appendToShowCreateTable(sb);
         String out = sb.toString();
@@ -183,6 +196,11 @@ public class BinlogManagerTest {
                 + "\" = \"33\""));
         Assertions.assertTrue(out.contains("\"" + PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT + "\" = \"ROW\""));
         Assertions.assertTrue(out.contains(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE));
+
+        rowCfg.setRowTtlEnabled(false);
+        sb.setLength(0);
+        rowCfg.appendToShowCreateTable(sb);
+        Assertions.assertTrue(sb.toString().contains("\"binlog.ttl_seconds\" = \"-1\""));
 
         BinlogConfig stmtCfg = new BinlogConfig(true, 11L, 22L, 33L,
                 BinlogConfig.BinlogFormat.STATEMENT_AND_SNAPSHOT, true);

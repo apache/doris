@@ -27,15 +27,24 @@ public class DirMoveTask extends AgentTask {
     private String src;
     private int schemaHash;
     private boolean overwrite;
+    private final boolean rowTtlTask;
 
     public DirMoveTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId,
             long tableId, long partitionId, long indexId, long tabletId, String src, int schemaHash,
             boolean overwrite) {
+        this(resourceInfo, backendId, signature, jobId, dbId, tableId, partitionId, indexId,
+                tabletId, src, schemaHash, overwrite, false);
+    }
+
+    public DirMoveTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId,
+            long tableId, long partitionId, long indexId, long tabletId, String src, int schemaHash,
+            boolean overwrite, boolean rowTtlTask) {
         super(resourceInfo, backendId, TTaskType.MOVE, dbId, tableId, partitionId, indexId, tabletId, signature);
         this.jobId = jobId;
         this.src = src;
         this.schemaHash = schemaHash;
         this.overwrite = overwrite;
+        this.rowTtlTask = rowTtlTask;
     }
 
     public long getJobId() {
@@ -52,6 +61,11 @@ public class DirMoveTask extends AgentTask {
 
     public boolean isOverwrite() {
         return overwrite;
+    }
+
+    @Override
+    public boolean isRowTtlTask() {
+        return rowTtlTask;
     }
 
     public TMoveDirReq toThrift() {

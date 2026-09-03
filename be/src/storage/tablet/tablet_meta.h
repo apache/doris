@@ -282,6 +282,14 @@ public:
     void set_tablet_role(TabletRolePB tablet_role) { _tablet_role = tablet_role; }
     int64_t binlog_tablet_id() const { return _binlog_tablet_id; }
     void set_binlog_tablet_id(int64_t binlog_tablet_id) { _binlog_tablet_id = binlog_tablet_id; }
+    int64_t row_binlog_ttl_reference_tso() const { return _row_binlog_ttl_reference_tso; }
+    void set_row_binlog_ttl_reference_tso(int64_t tso) {
+        DCHECK_GT(tso, 0);
+        if (tso > _row_binlog_ttl_reference_tso) {
+            _row_binlog_ttl_reference_tso = tso;
+        }
+    }
+    void reset_row_binlog_ttl_reference_tso() { _row_binlog_ttl_reference_tso = 0; }
 
     void set_compaction_policy(std::string compaction_policy) {
         _compaction_policy = compaction_policy;
@@ -396,6 +404,7 @@ private:
 
     // binlog config
     BinlogConfig _binlog_config {};
+    int64_t _row_binlog_ttl_reference_tso {0};
     TabletRolePB _tablet_role = TabletRolePB::TABLET_ROLE_DATA;
     int64_t _binlog_tablet_id = 0;
 

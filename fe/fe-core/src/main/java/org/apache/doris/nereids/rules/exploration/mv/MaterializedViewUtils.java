@@ -332,7 +332,7 @@ public class MaterializedViewUtils {
                 ImmutableList.of(),
                 Optional.empty(),
                 ImmutableList.of());
-        return BindRelation.checkAndAddDeleteSignFilter(olapScan, cascadesContext.getConnectContext(),
+        return BindRelation.addRowVisibilityFilters(olapScan, cascadesContext.getConnectContext(),
                 olapScan.getTable());
     }
 

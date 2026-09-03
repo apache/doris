@@ -81,6 +81,34 @@ TEST(TabletMetaTest, SaveAsBufferAndParse) {
     }
 }
 
+TEST(TabletMetaTest, RowBinlogTtlMetadataRoundTripAndMonotonicReference) {
+    TabletMeta tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                           TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    tablet_meta.set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
+    BinlogConfig binlog_config(true, 60, 1024, 10, BinlogFormatPB::ROW, false);
+    binlog_config.set_row_ttl_enabled(true);
+    tablet_meta.set_binlog_config(std::move(binlog_config));
+    tablet_meta.set_row_binlog_ttl_reference_tso(200);
+    tablet_meta.set_row_binlog_ttl_reference_tso(100);
+    EXPECT_EQ(tablet_meta.row_binlog_ttl_reference_tso(), 200);
+    tablet_meta.reset_row_binlog_ttl_reference_tso();
+    EXPECT_EQ(tablet_meta.row_binlog_ttl_reference_tso(), 0);
+    tablet_meta.set_row_binlog_ttl_reference_tso(200);
+
+    TabletMetaPB tablet_meta_pb;
+    tablet_meta.to_meta_pb(&tablet_meta_pb, false);
+    ASSERT_TRUE(tablet_meta_pb.has_row_binlog_ttl_reference_tso());
+    EXPECT_EQ(tablet_meta_pb.row_binlog_ttl_reference_tso(), 200);
+    ASSERT_TRUE(tablet_meta_pb.has_binlog_config());
+    EXPECT_TRUE(tablet_meta_pb.binlog_config().row_ttl_enabled());
+
+    TabletMeta restored;
+    restored.init_from_pb(tablet_meta_pb);
+    EXPECT_EQ(restored.row_binlog_ttl_reference_tso(), 200);
+    EXPECT_TRUE(restored.binlog_config().row_ttl_enabled());
+    EXPECT_EQ(restored.binlog_config().ttl_seconds(), 60);
+}
+
 TEST(TabletMetaTest, TopLevelInvertedIndexFormatOverridesSharedSchemaFormat) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(1);

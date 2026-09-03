@@ -27,6 +27,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <random>
 #include <string>
 
@@ -181,7 +182,8 @@ void finish_rowset_compaction_job(
         TabletCompactionJobPB::CompactionType type, const doris::RowsetMetaCloudPB& output_rowset,
         int num_input_rowsets, int64_t output_cumulative_point, FinishTabletJobResponse& res,
         int64_t proposal_base_compaction_cnt = 0, int64_t proposal_cumulative_compaction_cnt = 0,
-        bool include_proposal_snapshot = true) {
+        bool include_proposal_snapshot = true,
+        std::optional<int64_t> row_binlog_ttl_seconds = std::nullopt) {
     brpc::Controller cntl;
     FinishTabletJobRequest req;
     req.set_action(FinishTabletJobRequest::COMMIT);
@@ -190,6 +192,9 @@ void finish_rowset_compaction_job(
     compaction->set_id(job_id);
     compaction->set_initiator("BE1");
     compaction->set_type(type);
+    if (row_binlog_ttl_seconds.has_value()) {
+        compaction->set_row_binlog_ttl_seconds(*row_binlog_ttl_seconds);
+    }
     if (include_proposal_snapshot) {
         compaction->set_base_compaction_cnt(proposal_base_compaction_cnt);
         compaction->set_cumulative_compaction_cnt(proposal_cumulative_compaction_cnt);
@@ -4758,6 +4763,80 @@ TEST(MetaServiceJobTest, LegacyParallelCumuFinishValidatesCurrentInputRange) {
     run_case(40001, false, 5, 8);
     run_case(40004, true, 5, 5);
     run_case(40005, true, 6, 2);
+}
+
+TEST(MetaServiceJobTest, RowBinlogTtlCommitChecksCurrentConfiguration) {
+    for (bool versioned : {false, true}) {
+        auto meta_service = get_meta_service(!versioned);
+        const std::string ttl_instance = "row_binlog_ttl_commit";
+        MOCK_GET_INSTANCE_ID(ttl_instance);
+        if (versioned) {
+            create_and_refresh_instance(meta_service.get(), ttl_instance);
+        }
+        constexpr int64_t table_id = 1, index_id = 2, partition_id = 3, tablet_id = 4;
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
+                                              tablet_id, false));
+        ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), 1, "ttl_input_1", table_id,
+                                              partition_id, tablet_id));
+        ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), 1, "ttl_input_2", table_id,
+                                              partition_id, tablet_id));
+
+        auto update_ttl = [&](int64_t seconds, bool normalized) {
+            brpc::Controller cntl;
+            UpdateTabletRequest request;
+            auto* meta = request.add_tablet_meta_infos();
+            meta->set_tablet_id(tablet_id);
+            auto* config = meta->mutable_binlog_config();
+            config->set_enable(true);
+            config->set_binlog_format(doris::BinlogFormatPB::ROW);
+            config->set_ttl_seconds(60);
+            config->set_max_bytes(1024);
+            config->set_max_history_nums(10);
+            config->set_row_ttl_enabled(true);
+            if (normalized) {
+                config->set_effective_row_ttl_seconds(seconds);
+            }
+            UpdateTabletResponse response;
+            meta_service->update_tablet(&cntl, &request, &response, nullptr);
+            ASSERT_EQ(response.status().code(), MetaServiceCode::OK) << response.DebugString();
+        };
+        ASSERT_NO_FATAL_FAILURE(update_ttl(60, true));
+        StartTabletJobResponse start;
+        start_compaction_job(meta_service.get(), tablet_id, "ttl", "BE1", 0, 0,
+                             TabletCompactionJobPB::CUMULATIVE, start, {2, 3});
+        ASSERT_EQ(start.status().code(), MetaServiceCode::OK) << start.DebugString();
+        auto output = create_rowset(tablet_id, 2, 3, 0);
+        CreateRowsetResponse rowset_response;
+        prepare_rowset(meta_service.get(), output, rowset_response);
+        ASSERT_EQ(rowset_response.status().code(), MetaServiceCode::OK);
+        commit_rowset(meta_service.get(), output, rowset_response);
+        ASSERT_EQ(rowset_response.status().code(), MetaServiceCode::OK);
+
+        // Normalized metadata must override the legacy enabled marker. Neither changing
+        // nor disabling TTL may publish output built with the old expiration policy.
+        for (int64_t seconds : {61, -1}) {
+            ASSERT_NO_FATAL_FAILURE(update_ttl(seconds, true));
+            FinishTabletJobResponse finish;
+            finish_rowset_compaction_job(meta_service.get(), tablet_id, "ttl",
+                                         TabletCompactionJobPB::CUMULATIVE, output, 2, 4, finish, 0,
+                                         0, true, 60);
+            EXPECT_EQ(finish.status().code(), MetaServiceCode::INVALID_ARGUMENT)
+                    << finish.DebugString();
+            EXPECT_NE(finish.status().msg().find("TTL changed during compaction"),
+                      std::string::npos);
+            TabletStatsPB stats;
+            get_tablet_stats(meta_service.get(), tablet_id, stats);
+            EXPECT_EQ(stats.cumulative_compaction_cnt(), 0);
+        }
+        // A compatible historical representation permits the same pending job to commit.
+        ASSERT_NO_FATAL_FAILURE(update_ttl(60, false));
+        FinishTabletJobResponse finish;
+        finish_rowset_compaction_job(meta_service.get(), tablet_id, "ttl",
+                                     TabletCompactionJobPB::CUMULATIVE, output, 2, 4, finish, 0, 0,
+                                     true, 60);
+        ASSERT_EQ(finish.status().code(), MetaServiceCode::OK) << finish.DebugString();
+        EXPECT_EQ(finish.stats().cumulative_compaction_cnt(), 1);
+    }
 }
 
 TEST(MetaServiceJobTest, ParallelCumuCompactionUsesPointProposalSnapshot) {

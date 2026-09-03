@@ -20,9 +20,40 @@
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
+#include <string>
+#include <string_view>
+
 namespace doris::cloud {
 class Transaction;
 struct ValueBuf;
+
+// Compares only the row TTL policy carried by two tablet schemas. Schema versions and ordinary
+// column/index evolution are intentionally ignored so callers can fence metadata replacement
+// against the currently active TTL policy.
+bool check_row_ttl_policy_compatible(const doris::TabletSchemaCloudPB& schema,
+                                     const doris::TabletSchemaCloudPB& saved_schema,
+                                     std::string* reason);
+
+bool check_tablet_schema_compatible(const doris::TabletSchemaCloudPB& schema,
+                                    const doris::TabletSchemaCloudPB& saved_schema,
+                                    std::string* reason);
+
+// Returns the stable schema stored in schema KV after variant extension columns, indexes and
+// sparse children have been externalized by write_schema_dict().
+doris::TabletSchemaCloudPB normalize_tablet_schema_for_schema_kv(
+        const doris::TabletSchemaCloudPB& schema);
+
+// Normalizes legacy FE type spellings before a tablet-level schema is detached into schema KV.
+void normalize_tablet_schema_column_types(doris::TabletSchemaCloudPB* schema);
+
+// Read-only compatibility checks. A missing key is compatible because the subsequent write will
+// create it; an existing key must contain the same schema and row TTL policy.
+void check_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
+                     std::string_view schema_key, const doris::TabletSchemaCloudPB& schema);
+
+void check_versioned_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
+                               std::string_view schema_key,
+                               const doris::TabletSchemaCloudPB& schema);
 
 void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
                    std::string_view schema_key, const doris::TabletSchemaCloudPB& schema);

@@ -103,9 +103,13 @@ public final class FeMetaVersion {
 
     public static final int VERSION_140 = 140;
 
-    // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_140;
+    // Row TTL is an opt-in, irreversible metadata feature. Ordinary clusters continue writing
+    // VERSION_CURRENT until the feature is first activated.
+    public static final int VERSION_ROW_TTL_ACTIVATION = 141;
 
+    // VERSION_CURRENT is the default version for a cluster which has not activated an optional barrier.
+    public static final int VERSION_CURRENT = VERSION_140;
+    public static final int VERSION_MAX_SUPPORTED = VERSION_ROW_TTL_ACTIVATION;
 
     // all logs meta version should >= the minimum version, so that we could remove many if clause, for example
     // if (FE_METAVERSION < VERSION_94) ...

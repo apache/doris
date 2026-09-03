@@ -258,6 +258,7 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
                                                         set_tablet_access_time_ms(tablet_ptr);
                                                         _cache->release(insert_handle);
                                                     });
+            _engine.register_row_binlog_tablet(tablet);
             _tablet_map->put(std::move(tablet));
             return ret;
         };
