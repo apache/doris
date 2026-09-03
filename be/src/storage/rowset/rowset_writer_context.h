@@ -129,6 +129,8 @@ struct RowsetWriterContext {
 
     /// begin file cache opts
     bool write_file_cache = false;
+    // Disable all file-cache writes.
+    bool disable_file_cache = false;
     bool is_hot_data = false;
     // Absolute timestamp (seconds since epoch) after which the cache blocks written by
     // this rowset stop being TTL protected; 0 means no TTL. Always set it from
@@ -146,6 +148,9 @@ struct RowsetWriterContext {
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
 
     bool is_transient_rowset_writer = false;
+
+    // Preserve assigned segment IDs and skip local segment compaction for a distributed shard.
+    bool is_partial_output_writer = false;
 
     segment_v2::HistoricalRowRetrieverContext make_historical_row_retriever_context();
 
@@ -305,6 +310,13 @@ struct RowsetWriterContext {
                                     .is_cold_data = is_hot_data,
                                     .file_cache_expiration_time = file_cache_expiration_time,
                                     .approximate_bytes_to_write = approximate_bytes_to_write};
+
+        if (disable_file_cache) {
+            opts.write_file_cache = false;
+            opts.allow_adaptive_file_cache_write = false;
+            opts.approximate_bytes_to_write = 0;
+            return opts;
+        }
 
         if (config::enable_file_cache_write_index_file_only) {
             opts.allow_adaptive_file_cache_write = false;

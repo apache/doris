@@ -347,6 +347,26 @@ TEST_F(CompactionFileCacheTest, GlobalIndexFileOnlyTakesPrecedenceOverCompaction
     EXPECT_EQ(index_opts.approximate_bytes_to_write, 0);
 }
 
+TEST_F(CompactionFileCacheTest, DisableFileCacheOverridesAllWritePolicies) {
+    config::enable_file_cache_write_index_file_only = true;
+
+    RowsetWriterContext ctx;
+    ctx.write_file_cache = true;
+    ctx.disable_file_cache = true;
+    ctx.compaction_output_write_index_only = true;
+    ctx.approximate_bytes_to_write = 12345;
+
+    auto segment_opts = ctx.get_file_writer_options(FileType::SEGMENT_FILE);
+    EXPECT_FALSE(segment_opts.write_file_cache);
+    EXPECT_FALSE(segment_opts.allow_adaptive_file_cache_write);
+    EXPECT_EQ(segment_opts.approximate_bytes_to_write, 0);
+
+    auto index_opts = ctx.get_file_writer_options(FileType::INVERTED_INDEX_FILE);
+    EXPECT_FALSE(index_opts.write_file_cache);
+    EXPECT_FALSE(index_opts.allow_adaptive_file_cache_write);
+    EXPECT_EQ(index_opts.approximate_bytes_to_write, 0);
+}
+
 // ============================================================================
 // Tests for should_enable_compaction_cache_index_only function
 // ============================================================================

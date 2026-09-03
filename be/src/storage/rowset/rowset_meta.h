@@ -467,9 +467,11 @@ public:
     }
 
     // If `aggregate_into_single` is true, collapse per-segment bounds into a single
-    // [rowset_min, rowset_max] entry and mark this rowset as aggregated.
+    // [rowset_min, rowset_max] entry and mark this rowset as aggregated. Partial distributed
+    // compaction outputs can disable truncation so the coordinator can validate adjacent bounds.
     void set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds,
-                                 bool aggregate_into_single = false);
+                                 bool aggregate_into_single = false,
+                                 bool truncate_key_bounds = true);
 
     void add_segment_key_bounds(KeyBoundsPB segments_key_bounds) {
         *_rowset_meta_pb.add_segments_key_bounds() = std::move(segments_key_bounds);

@@ -403,7 +403,7 @@ int64_t RowsetMeta::segment_file_size_by_pos(size_t pos) const {
 }
 
 void RowsetMeta::set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds,
-                                         bool aggregate_into_single) {
+                                         bool aggregate_into_single, bool truncate_key_bounds) {
     _rowset_meta_pb.clear_segments_key_bounds();
     bool did_aggregate = aggregate_into_single && !segments_key_bounds.empty();
     if (did_aggregate) {
@@ -428,8 +428,9 @@ void RowsetMeta::set_segments_key_bounds(const std::vector<KeyBoundsPB>& segment
     }
     set_segments_key_bounds_aggregated(did_aggregate);
 
-    int32_t truncation_threshold = config::segments_key_bounds_truncation_threshold;
-    if (config::random_segments_key_bounds_truncation) {
+    int32_t truncation_threshold =
+            truncate_key_bounds ? config::segments_key_bounds_truncation_threshold : 0;
+    if (truncate_key_bounds && config::random_segments_key_bounds_truncation) {
         std::mt19937 generator(std::random_device {}());
         std::uniform_int_distribution<int> distribution(-10, 40);
         truncation_threshold = distribution(generator);
