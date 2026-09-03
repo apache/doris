@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.Rule;
@@ -26,7 +27,9 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -38,6 +41,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -54,8 +58,11 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
     }
 
     private boolean filterMatchShortCircuitCondition(LogicalFilter<LogicalOlapScan> filter) {
+        StatementContext statementContext = ConnectContext.get().getStatementContext();
+        if (!statementContext.getPointQueryInPlaceholderIds().isEmpty()) {
+            return filterMatchMultiKeyCondition(filter, statementContext);
+        }
         return filter.getConjuncts().stream().allMatch(
-                // all conjuncts match with pattern `key = ?`
                 expression -> (expression instanceof EqualTo)
                         && (removeCast(expression.child(0)).isKeyColumnFromTable()
                         || (expression.child(0) instanceof SlotReference
@@ -100,18 +107,78 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
                         && olapTable.storeRowColumn();
     }
 
+    private boolean filterMatchMultiKeyCondition(LogicalFilter<LogicalOlapScan> filter,
+            StatementContext statementContext) {
+        int inValueCount = statementContext.getPointQueryInPlaceholderIds().size();
+        int keyCount = filter.child().getTable().getBaseSchemaKeyColumns().size();
+        if (Config.isCloudMode()
+                || !Config.enable_point_query_multi_get
+                // Multi-get routes each key tuple separately, but TABLESAMPLE must be applied once.
+                || filter.child().getTableSample().isPresent()
+                || inValueCount > ConnectContext.get().getSessionVariable().getMaxPointQueryInValues()
+                || statementContext.getIdToComparisonSlot().size() != statementContext.getPlaceholders().size()
+                // Reject extra parameters, including a second IN folded to equality by duplicate values.
+                || statementContext.getIdToComparisonSlot().size() != inValueCount + keyCount - 1) {
+            return false;
+        }
+
+        Set<String> colNames = Sets.newHashSet();
+        SlotReference inSlot = null;
+        for (Expression expr : filter.getConjuncts()) {
+            // A cast on a key can change equality semantics: CAST(int_key AS STRING) IN ('01').
+            if (!(expr instanceof EqualTo || expr instanceof InPredicate)
+                    || !(expr.child(0) instanceof SlotReference)) {
+                return false;
+            }
+            SlotReference slot = (SlotReference) expr.child(0);
+            if (expr instanceof EqualTo) {
+                if (!(removeCast(expr.child(1)) instanceof Literal)
+                        || (!slot.isKeyColumnFromTable() && !slot.getName().equals(Column.DELETE_SIGN))) {
+                    return false;
+                }
+            } else if (inSlot == null && slot.isKeyColumnFromTable()) {
+                inSlot = slot;
+            } else {
+                return false;
+            }
+            if (slot.isKeyColumnFromTable() && !colNames.add(slot.getName().toLowerCase(Locale.ROOT))) {
+                return false;
+            }
+        }
+        // An IN folded entirely to equality must not cache the narrower plan. The remaining IN
+        // must also be the one whose original placeholders were recorded during binding.
+        if (inSlot == null || keyCount != colNames.size()
+                || !inSlot.equals(statementContext.getIdToComparisonSlot()
+                        .get(statementContext.getPointQueryInPlaceholderIds().get(0)))) {
+            return false;
+        }
+        Set<String> placeholderColumnNames = Sets.newHashSet();
+        for (SlotReference slot : statementContext.getIdToComparisonSlot().values()) {
+            if (!slot.getOriginalColumn().isPresent()) {
+                return false;
+            }
+            placeholderColumnNames.add(slot.getOriginalColumn().get().getName().toLowerCase(Locale.ROOT));
+        }
+        return colNames.equals(placeholderColumnNames);
+    }
+
     // set short circuit flag and return the original plan
     private Plan shortCircuit(Plan root, OlapTable olapTable,
                 Set<Expression> conjuncts, StatementContext statementContext) {
-        // All key columns in conjuncts
+        if (!statementContext.getPointQueryInPlaceholderIds().isEmpty()) {
+            // Multi-get eligibility has already been checked by the filter pattern.
+            statementContext.setShortCircuitQuery(true);
+            return root;
+        }
+
+        // Keep the established equality point-query path unchanged.
         Set<String> colNames = Sets.newHashSet();
         for (Expression expr : conjuncts) {
-            SlotReference slot = ((SlotReference) removeCast((expr.child(0))));
+            SlotReference slot = (SlotReference) removeCast(expr.child(0));
             if (slot.isKeyColumnFromTable()) {
                 colNames.add(slot.getName());
             }
         }
-        // set short circuit flag and modify nothing to the plan
         if (olapTable.getBaseSchemaKeyColumns().size() <= colNames.size()) {
             statementContext.setShortCircuitQuery(true);
         }

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.MysqlColType;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.PointQueryExecutor;
+import org.apache.doris.qe.PointQueryMultiExecutor;
 import org.apache.doris.qe.PreparedStatementContext;
 import org.apache.doris.qe.ShortCircuitQueryContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -149,15 +151,21 @@ public class ExecuteCommand extends Command {
         executor.setStatementContext(statementContext);
         executor.setParsedStmt(planAdapter);
         boolean hasShortCircuitContext = preparedStmtCtx.shortCircuitQueryContext.isPresent();
+        boolean multiKeyPointQuery = statementContext.isMultiKeyPointQuery();
         boolean shortCircuitContextReusable = hasShortCircuitContext
-                && preparedStmtCtx.shortCircuitQueryContext.get().isReusable(ctx);
+                && preparedStmtCtx.shortCircuitQueryContext.get().isReusable(ctx)
+                && (!multiKeyPointQuery || Config.enable_point_query_multi_get);
         // Reuse the cached short-circuit plan only when table metadata is unchanged and the statement
         // has no nondeterministic functions. Otherwise fall back to the normal execution path below.
         if (statementContext.isShortCircuitQuery()
                 && hasShortCircuitContext
                 && shortCircuitContextReusable
                 && !statementContext.hasNondeterministic()) {
-            PointQueryExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx, statementContext);
+            if (multiKeyPointQuery) {
+                PointQueryMultiExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx);
+            } else {
+                PointQueryExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx, statementContext);
+            }
             return;
         }
         if (ctx.getSessionVariable().enableGroupCommitFullPrepare) {
@@ -171,10 +179,14 @@ public class ExecuteCommand extends Command {
                 return;
             }
         }
-        // execute real statement
-        if (statementContext.isShortCircuitQuery() && hasShortCircuitContext && !shortCircuitContextReusable) {
+        // A failed multi-get may already have cleared the short-circuit flag; still refresh stale metadata.
+        if (hasShortCircuitContext && !shortCircuitContextReusable) {
             statementContext = refreshPreparedPlan(preparedStmtCtx, executor, prepareCommand, statementContext);
         } else {
+            if (multiKeyPointQuery) {
+                // Replanning must decide eligibility again, including IN folded to equality/empty.
+                statementContext.setShortCircuitQuery(false);
+            }
             statementContext.setShortCircuitQueryContext(null);
         }
         // Drop the previously cached short-circuit context: either it was reusable and returned

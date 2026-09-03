@@ -21,13 +21,20 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
+import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
@@ -80,6 +87,10 @@ class ShortCircuitPointQueryTest extends TestWithFeService
                 + "  \"light_schema_change\" = \"true\",\n"
                 + "  \"store_row_column\" = \"true\"\n"
                 + ");");
+        createTable("CREATE TABLE tbl_multi_point_query (k1 INT, k2 INT, v INT) "
+                + "UNIQUE KEY(k1, k2) DISTRIBUTED BY HASH(k1, k2) BUCKETS 3 PROPERTIES ("
+                + "\"replication_num\" = \"1\", \"enable_unique_key_merge_on_write\" = \"true\", "
+                + "\"light_schema_change\" = \"true\", \"store_row_column\" = \"true\")");
     }
 
     @Test
@@ -202,6 +213,97 @@ class ShortCircuitPointQueryTest extends TestWithFeService
                     .rewrite()
                     .getPlan();
         } finally {
+            FeConstants.runningUnitTest = originRunningUnitTest;
+        }
+    }
+
+    @Test
+    void testEqualityKeepsOriginalPointQueryPath() {
+        rewrite("select * from tbl_point_query where `key` = 1");
+        Assertions.assertTrue(connectContext.getStatementContext().isShortCircuitQuery());
+        Assertions.assertFalse(connectContext.getStatementContext().isMultiKeyPointQuery());
+    }
+
+    @Test
+    void testLiteralInDoesNotUseMultiKeyPointQueryPath() {
+        rewrite("select * from tbl_point_query where `key` in (1, 2, 2, null)");
+        Assertions.assertFalse(connectContext.getStatementContext().isShortCircuitQuery());
+        Assertions.assertFalse(connectContext.getStatementContext().isMultiKeyPointQuery());
+    }
+
+    @Test
+    void testPreparedMultiKeyEligibility() {
+        boolean original = Config.enable_point_query_multi_get;
+        Config.enable_point_query_multi_get = true;
+        try {
+            assertPreparedMultiKey(true, "k1 IN (?, ?, ?) AND k2 = ?", 1, 2, 2, 10);
+            assertPreparedMultiKey(true, "? = k2 AND k1 IN (?, ?)", 10, 1, 2);
+            assertPreparedMultiKey(false, "k1 IN (?, ?, ?) AND k2 = ?", 1, 1, 1, 10);
+            // Either IN may fold to equality, but neither binding may be mistaken for k = ?.
+            assertPreparedMultiKey(false, "k1 IN (?, ?) AND k2 IN (?, ?)", 1, 1, 10, 20);
+            assertPreparedMultiKey(false, "k1 IN (?, ?) AND k2 IN (?, ?)", 1, 2, 10, 10);
+            assertPreparedMultiKey(false, "k1 IN (?, ?) AND k2 IN (?, ?)", 1, 2, 10, 20);
+            assertPreparedMultiKey(false, "k1 IN (?, ?) AND k2 = ? AND v = ?", 1, 2, 10, 3);
+            assertPreparedMultiKey(false, "k1 IN (?, ?) AND k2 = ? AND k2 = ?", 1, 2, 10, 10);
+            assertPreparedMultiKey(false, "CAST(k1 AS STRING) IN (?, ?) AND k2 = ?", 1, 2, 10);
+        } finally {
+            Config.enable_point_query_multi_get = original;
+        }
+    }
+
+    @Test
+    void testPreparedMultiKeyDisabledByConfig() {
+        boolean original = Config.enable_point_query_multi_get;
+        Config.enable_point_query_multi_get = false;
+        try {
+            assertPreparedMultiKey(false, "k1 IN (?, ?) AND k2 = ?", 1, 2, 10);
+        } finally {
+            Config.enable_point_query_multi_get = original;
+        }
+    }
+
+    @Test
+    void testPreparedMultiKeyWithTableSampleUsesNormalPath() {
+        boolean original = Config.enable_point_query_multi_get;
+        Config.enable_point_query_multi_get = true;
+        try {
+            assertPreparedMultiKey(false, "TABLESAMPLE(1 ROWS)",
+                    "k1 IN (?, ?) AND k2 = ?", 1, 2, 10);
+            assertPreparedMultiKey(false, "TABLESAMPLE(1 ROWS) REPEATABLE 7",
+                    "k1 IN (?, ?) AND k2 = ?", 1, 2, 10);
+        } finally {
+            Config.enable_point_query_multi_get = original;
+        }
+    }
+
+    private void assertPreparedMultiKey(boolean expected, String predicate, int... values) {
+        assertPreparedMultiKey(expected, "", predicate, values);
+    }
+
+    private void assertPreparedMultiKey(boolean expected, String tableModifier,
+            String predicate, int... values) {
+        boolean originRunningUnitTest = FeConstants.runningUnitTest;
+        MysqlCommand originCommand = connectContext.getCommand();
+        FeConstants.runningUnitTest = false;
+        connectContext.setCommand(MysqlCommand.COM_STMT_EXECUTE);
+        try {
+            LogicalPlanAdapter adapter = (LogicalPlanAdapter) new NereidsParser().parseSQL(
+                    "SELECT k1, v FROM tbl_multi_point_query " + tableModifier
+                            + " WHERE " + predicate).get(0);
+            StatementContext statementContext = adapter.getStatementContext();
+            statementContext.setConnectContext(connectContext);
+            connectContext.setStatementContext(statementContext);
+            Assertions.assertEquals(values.length, statementContext.getPlaceholders().size());
+            for (int i = 0; i < values.length; i++) {
+                statementContext.getIdToPlaceholderRealExpr().put(
+                        statementContext.getPlaceholders().get(i).getPlaceholderId(), new IntegerLiteral(values[i]));
+            }
+            PlanChecker.from(MemoTestUtils.createCascadesContext(statementContext, adapter.getLogicalPlan()))
+                    .analyze().rewrite();
+            Assertions.assertEquals(expected, statementContext.isMultiKeyPointQuery(), predicate);
+            Assertions.assertEquals(expected, statementContext.isShortCircuitQuery(), predicate);
+        } finally {
+            connectContext.setCommand(originCommand);
             FeConstants.runningUnitTest = originRunningUnitTest;
         }
     }

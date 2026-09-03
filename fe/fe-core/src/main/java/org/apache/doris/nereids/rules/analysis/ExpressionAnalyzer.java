@@ -92,6 +92,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.ArrayType;
@@ -919,8 +920,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     // Used to replace expression in ShortCircuit plan
     private void registerPlaceholderIdToSlot(ComparisonPredicate cp,
                     ExpressionRewriteContext context, Expression left, Expression right) {
-        if (ConnectContext.get() != null
-                    && ConnectContext.get().getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
+        if (isPreparedFilter(context)) {
             // Used to replace expression in ShortCircuit plan
             if (cp.right() instanceof Placeholder && left instanceof SlotReference) {
                 PlaceholderId id = ((Placeholder) cp.right()).getPlaceholderId();
@@ -930,6 +930,13 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 context.cascadesContext.getStatementContext().getIdToComparisonSlot().put(id, (SlotReference) right);
             }
         }
+    }
+
+    private boolean isPreparedFilter(ExpressionRewriteContext context) {
+        ConnectContext connectContext = ConnectContext.get();
+        return context != null && context.plan.filter(LogicalFilter.class::isInstance).isPresent()
+                && connectContext != null
+                && connectContext.getCommand() == MysqlCommand.COM_STMT_EXECUTE;
     }
 
     @Override
@@ -1008,8 +1015,28 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitInPredicate(InPredicate inPredicate, ExpressionRewriteContext context) {
         List<Expression> rewrittenChildren = inPredicate.children().stream()
                 .map(e -> e.accept(this, context)).collect(Collectors.toList());
+        registerInPlaceholderIdsToSlot(inPredicate, rewrittenChildren.get(0), context);
         InPredicate newInPredicate = inPredicate.withChildren(rewrittenChildren);
         return TypeCoercionUtils.processInPredicate(newInPredicate);
+    }
+
+    private void registerInPlaceholderIdsToSlot(InPredicate predicate, Expression rewrittenCompare,
+            ExpressionRewriteContext context) {
+        if (!isPreparedFilter(context) || !(rewrittenCompare instanceof SlotReference)) {
+            return;
+        }
+        List<Expression> options = predicate.getOptions();
+        List<PlaceholderId> placeholderIds = new ArrayList<>(options.size());
+        for (Expression option : options) {
+            if (!(option instanceof Placeholder)) {
+                return;
+            }
+            placeholderIds.add(((Placeholder) option).getPlaceholderId());
+        }
+        StatementContext statementContext = context.cascadesContext.getStatementContext();
+        SlotReference slot = (SlotReference) rewrittenCompare;
+        placeholderIds.forEach(id -> statementContext.getIdToComparisonSlot().put(id, slot));
+        statementContext.setPointQueryInPlaceholderIds(placeholderIds);
     }
 
     @Override

@@ -644,7 +644,18 @@ Status PointQueryExecutor::_lookup_row_data() {
         if (filtered == total) {
             _result_block->clear_column_data();
         } else if (filtered > 0) {
-            return Status::NotSupported("Not implemented since only single row at present");
+            IColumn::Filter keep_filter(total);
+            {
+                ColumnPtr delete_filter_columns =
+                        _result_block->get_columns()[_reusable->delete_sign_idx()];
+                const auto& filter =
+                        assert_cast<const ColumnInt8*>(delete_filter_columns.get())->get_data();
+                for (size_t i = 0; i < total; ++i) {
+                    keep_filter[i] = filter[i] == 0;
+                }
+            }
+            RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(_result_block.get(), keep_filter,
+                                                                   _result_block->columns()));
         }
     }
     return Status::OK();
