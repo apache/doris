@@ -513,11 +513,10 @@ Status VerticalSegmentWriter::write_block(const Block* block, size_t row_pos, si
     RETURN_IF_ERROR(_generate_key_index(key_columns, seq_column, num_rows, cluster_key_columns));
     _olap_data_convertor->clear_source_content();
     _num_rows_written += num_rows;
-    // the group's rows are all in, so the cluster key primary keys can go into the index now
-    RETURN_IF_ERROR(_flush_primary_keys());
 
     // Each column was checked against the disk before it was written; what is
-    // left is the key indexes. Check there is room for those too.
+    // left is the key indexes and the primary keys waiting for their sort.
+    // Check there is room for those too.
     if (_data_dir != nullptr && _data_dir->reach_capacity_limit((int64_t)estimate_segment_size())) {
         _abandon_index_staging();
         return Status::Error<DISK_REACH_CAPACITY_LIMIT>("disk {} exceed capacity limit, path: {}",
@@ -720,7 +719,7 @@ Status VerticalSegmentWriter::_set_row_count() {
     return Status::OK();
 }
 
-Status VerticalSegmentWriter::_flush_primary_keys() {
+Status VerticalSegmentWriter::_sort_primary_keys_into_index() {
     if (!_is_mow_with_cluster_key()) {
         return Status::OK();
     }
@@ -763,8 +762,8 @@ Status VerticalSegmentWriter::finalize_columns(uint64_t* index_size) {
     *index_size = _file_writer->bytes_appended() - index_start;
     if (_has_key) {
         if (_is_mow_with_cluster_key()) {
-            // the append_block feed still holds its primary keys; write_block fed them
-            RETURN_IF_ERROR(_flush_primary_keys());
+            // the group's rows are all in, so its primary keys can go in now
+            RETURN_IF_ERROR(_sort_primary_keys_into_index());
 
             RETURN_IF_ERROR(_write_short_key_index());
             *index_size = _file_writer->bytes_appended() - index_start;

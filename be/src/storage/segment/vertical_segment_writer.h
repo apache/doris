@@ -193,9 +193,9 @@ private:
     std::vector<uint32_t> _all_column_ids() const;
     // bytes the key index builders hold
     uint64_t _key_index_size();
-    // cluster key MOW: sorts the collected primary keys into the index builder
-    // and lets them go
-    Status _flush_primary_keys();
+    // cluster key MOW: sorts the collected primary keys, hands them to the index
+    // builder and releases them. The builder decides what reaches the file.
+    Status _sort_primary_keys_into_index();
     Status _set_row_count();
     // Closes the open group's column writers and writes their data pages, after
     // checking the data dir has room for them.
@@ -284,9 +284,9 @@ private:
     faststring _min_key;
     faststring _max_key;
 
-    // Cluster key MOW only: primary keys collected here until the group's rows are
-    // all in; _flush_primary_keys() sorts them into the index builder. The rowset
-    // writer rolls a segment on their byte count.
+    // Cluster key MOW only: primary keys collected here until the group's rows
+    // are all in, then _sort_primary_keys_into_index() hands them over. The
+    // rowset writer rolls a segment on their byte count.
     std::vector<std::string> _primary_keys;
     uint64_t _primary_keys_size = 0;
     // variant statistics calculator for efficient stats collection; only the
