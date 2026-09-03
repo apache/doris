@@ -28,6 +28,7 @@
 #include "common/status.h"
 #include "exec/spill/spill_file.h"
 #include "storage/options.h"
+#include "util/stopwatch.hpp"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -83,6 +84,7 @@ public:
 
 private:
     bool _reach_disk_capacity_limit(int64_t incoming_data_size);
+    void _update_inode_usage();
     double _get_disk_usage(int64_t incoming_data_size) const {
         return _disk_capacity_bytes == 0
                        ? 0
@@ -108,6 +110,12 @@ private:
     IntGauge* spill_disk_limit = nullptr;
     IntGauge* spill_disk_avail_capacity = nullptr;
     IntGauge* spill_disk_data_size = nullptr;
+    // inode statistics of the disk of this data dir, refreshed by update_capacity(). Spill creates
+    // one directory per query and per operator plus one file per part, so inodes may be exhausted
+    // long before bytes are. The gauges are the only storage of these values; the total is 0 when
+    // the file system does not report a fixed inode count.
+    IntGauge* spill_disk_inode_total = nullptr;
+    IntGauge* spill_disk_inode_available = nullptr;
     // for test
     IntGauge* spill_disk_has_spill_data = nullptr;
     IntGauge* spill_disk_has_spill_gc_data = nullptr;
@@ -149,11 +157,24 @@ private:
         std::string query_dir;
     };
 
+    // Per-store statistics of one gc round, logged in the gc summary.
+    struct SpillGcStats {
+        bool has_work = false;
+        // Query directories still under the gc root after this round, i.e. the gc backlog.
+        size_t backlog_dirs = 0;
+        size_t deleted_dirs = 0;
+        size_t deleted_files = 0;
+        size_t failed_deletes = 0;
+    };
+
     void _init_metrics();
     Status _init_spill_store_map();
     void _spill_gc_thread_callback();
     Status _try_delete_query_spill_directory(const PendingQuerySpillDirectory& pending_directory);
     void _retry_pending_query_spill_directories();
+    // Delete the gc backlog of one spill store until `max_work_time_ns` of `watch` has elapsed.
+    void _gc_spill_store(SpillDataDir* store_dir, const MonotonicStopWatch& watch,
+                         int64_t max_work_time_ns, SpillGcStats* stats);
     std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
 
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> _spill_store_map;
