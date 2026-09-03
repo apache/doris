@@ -15,19 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+package org.apache.doris.statistics.model;
 
-/**
- * Used to abstract a common expression interface for statistics deduction to fit both optimizers.
- */
-public interface ExprStats {
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
-    boolean hasSelectivity();
+public class SlotStatsDeriveResult {
 
-    double getSelectivity();
+    // number of distinct value
+    private long ndv;
+    private Literal max;
+    private Literal min;
 
-    void setSelectivity();
+    public long getNdv() {
+        return ndv;
+    }
 
-    long getNumDistinctValues();
+    public void setNdv(long ndv) {
+        this.ndv = ndv;
+    }
 
+    public Literal getMax() {
+        return max;
+    }
+
+    public void setMax(Literal max) {
+        this.max = max;
+    }
+
+    public Literal getMin() {
+        return min;
+    }
+
+    public void setMin(Literal min) {
+        this.min = min;
+    }
 }

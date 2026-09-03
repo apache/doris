@@ -27,9 +27,9 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.Histogram;
-import org.apache.doris.statistics.PartitionColumnStatistic;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.Histogram;
+import org.apache.doris.statistics.model.PartitionColumnStatistic;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.junit.jupiter.api.Assertions;

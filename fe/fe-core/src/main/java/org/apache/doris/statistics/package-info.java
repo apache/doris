@@ -16,9 +16,9 @@
 // under the License.
 
 /**
- * Optimizer-facing statistics values and their builders.
+ * Cross-cutting statistics definitions shared by the statistics subpackages.
  *
- * <p>Statistics collection, caching, and persistence live in the {@code analysis}, {@code cache},
- * and {@code repository} subpackages respectively.</p>
+ * <p>Statistics values, collection, caching, and persistence live in the {@code model},
+ * {@code analysis}, {@code cache}, and {@code repository} subpackages respectively.</p>
  */
 package org.apache.doris.statistics;

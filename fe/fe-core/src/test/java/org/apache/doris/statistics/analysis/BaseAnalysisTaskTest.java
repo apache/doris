@@ -20,7 +20,7 @@ package org.apache.doris.statistics.analysis;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.repository.ColStatsData;
 import org.apache.doris.statistics.repository.ResultRow;
 

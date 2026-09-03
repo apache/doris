@@ -41,12 +41,12 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.PartitionColumnStatistic;
 import org.apache.doris.statistics.analysis.AnalysisManager;
 import org.apache.doris.statistics.analysis.ColStatsMeta;
 import org.apache.doris.statistics.analysis.TableStatsMeta;
 import org.apache.doris.statistics.cache.PartitionColumnStatisticCacheKey;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.PartitionColumnStatistic;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.repository.StatisticsRepository;
 

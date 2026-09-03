@@ -15,38 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+package org.apache.doris.statistics.model;
 
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
+public enum StatsType {
+    ROW_COUNT("row_count"),
+    DATA_SIZE("data_size"),
+    NDV("ndv"),
+    AVG_SIZE("avg_size"),
+    MAX_SIZE("max_size"),
+    NUM_NULLS("num_nulls"),
+    MIN_VALUE("min_value"),
+    MAX_VALUE("max_value"),
+    HISTOGRAM("histogram"),
+    HOT_VALUES("hot_values"),
+    // only for test
+    UNKNOWN("unknown");
 
-public class SlotStatsDeriveResult {
+    private final String value;
 
-    // number of distinct value
-    private long ndv;
-    private Literal max;
-    private Literal min;
-
-    public long getNdv() {
-        return ndv;
+    StatsType(String value) {
+        this.value = value;
     }
 
-    public void setNdv(long ndv) {
-        this.ndv = ndv;
+    public String getValue() {
+        return value;
     }
 
-    public Literal getMax() {
-        return max;
-    }
-
-    public void setMax(Literal max) {
-        this.max = max;
-    }
-
-    public Literal getMin() {
-        return min;
-    }
-
-    public void setMin(Literal min) {
-        this.min = min;
+    public static StatsType fromString(String value) {
+        for (StatsType type : StatsType.values()) {
+            if (type.value.equalsIgnoreCase(value)) {
+                return type;
+            }
+        }
+        throw new IllegalArgumentException("Invalid StatsType: " + value);
     }
 }

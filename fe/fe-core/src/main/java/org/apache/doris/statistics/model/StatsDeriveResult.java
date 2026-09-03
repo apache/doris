@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+package org.apache.doris.statistics.model;
 
 import org.apache.doris.common.Id;
 import org.apache.doris.nereids.trees.expressions.Slot;

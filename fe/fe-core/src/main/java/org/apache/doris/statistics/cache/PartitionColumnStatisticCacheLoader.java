@@ -17,7 +17,7 @@
 
 package org.apache.doris.statistics.cache;
 
-import org.apache.doris.statistics.PartitionColumnStatistic;
+import org.apache.doris.statistics.model.PartitionColumnStatistic;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.repository.StatisticsRepository;
 import org.apache.doris.statistics.util.StatisticsUtil;

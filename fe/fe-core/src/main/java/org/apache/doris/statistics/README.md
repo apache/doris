@@ -42,9 +42,10 @@ There may be compatibility issues if there are changes to the schema of the stat
 
 |Package|Purpose|
 |---|---|
-|`statistics`|Optimizer-facing statistics values, builders, ranges, and shared constants.|
+|`statistics`|Cross-cutting definitions shared by the statistics subpackages.|
 |`statistics.analysis`|Statistics collection jobs and tasks, automatic collection, scheduling, metadata, and update events.|
 |`statistics.cache`|Cache keys and loaders, cached lookup, refresh, invalidation, and FE synchronization targets.|
+|`statistics.model`|Statistics values, histograms, builders, ranges, and metric types used by the optimizer and other statistics components.|
 |`statistics.repository`|Internal statistics table access, persisted result-row models, and expired-data cleanup.|
 |`statistics.hbo`|History-based optimizer statistics.|
 |`statistics.query`|Query usage statistics and recording.|

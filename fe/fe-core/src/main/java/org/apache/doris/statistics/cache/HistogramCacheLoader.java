@@ -18,8 +18,8 @@
 package org.apache.doris.statistics.cache;
 
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.statistics.model.Histogram;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 

@@ -15,23 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.physical;
-
-import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.statistics.model.Statistics;
+package org.apache.doris.statistics.model;
 
 /**
- * interface for all physical plan.
+ * Used to abstract a common expression interface for statistics deduction to fit both optimizers.
  */
-public interface PhysicalPlan extends Plan {
+public interface ExprStats {
 
-    PhysicalProperties getPhysicalProperties();
+    boolean hasSelectivity();
 
-    PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-            Statistics statistics);
+    double getSelectivity();
 
-    default PhysicalPlan resetLogicalProperties() {
-        return this;
-    }
+    void setSelectivity();
+
+    long getNumDistinctValues();
+
 }

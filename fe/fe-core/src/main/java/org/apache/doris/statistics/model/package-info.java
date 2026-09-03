@@ -15,23 +15,5 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.physical;
-
-import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.statistics.model.Statistics;
-
-/**
- * interface for all physical plan.
- */
-public interface PhysicalPlan extends Plan {
-
-    PhysicalProperties getPhysicalProperties();
-
-    PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-            Statistics statistics);
-
-    default PhysicalPlan resetLogicalProperties() {
-        return this;
-    }
-}
+/** Statistics value objects and builders shared by collection, caching, persistence, and optimization. */
+package org.apache.doris.statistics.model;

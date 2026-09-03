@@ -18,7 +18,7 @@
 package org.apache.doris.statistics.cache;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.repository.StatisticsRepository;
 import org.apache.doris.statistics.util.StatisticsUtil;
