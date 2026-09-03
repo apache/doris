@@ -553,14 +553,24 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
     }
 
-    private boolean isFileContentEmpty(TBrokerFileStatus fileStatus) {
+    boolean isFileContentEmpty(TBrokerFileStatus fileStatus) {
         if (fileStatus.isIsDir() || fileStatus.size == 0) {
             return true;
         }
         if (Util.isCsvFormat(fileFormatProperties.getFileFormatType())
                 || fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_JSON) {
             int magicNumberBytes = 0;
-            switch (fileFormatProperties.getCompressionType()) {
+            TFileCompressType compressType = fileFormatProperties.getCompressionType();
+            if (compressType == TFileCompressType.UNKNOWN) {
+                TFileCompressType inferredCompressType = Util.getOrInferCompressType(
+                        compressType, fileStatus.getPath());
+                // Preserve the established reader error for auto-inferred empty LZO and other formats.
+                // This path-based empty-file shortcut is currently supported only for gzip.
+                if (inferredCompressType == TFileCompressType.GZ) {
+                    compressType = inferredCompressType;
+                }
+            }
+            switch (compressType) {
                 case GZ:
                     magicNumberBytes = 20;
                     break;
