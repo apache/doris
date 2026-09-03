@@ -22,6 +22,7 @@ import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
@@ -305,6 +306,11 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
 
     @Override
     public String getHeaderType() {
+        String format = getFormat();
+        if (format.equals(FileFormatProperties.FORMAT_CSV_WITH_NAMES)
+                || format.equals(FileFormatProperties.FORMAT_CSV_WITH_NAMES_AND_TYPES)) {
+            return format;
+        }
         return "";
     }
 

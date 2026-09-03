@@ -32,6 +32,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
@@ -40,11 +41,14 @@ import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
 import org.apache.doris.mysql.privilege.MockedAuth;
+import org.apache.doris.nereids.load.NereidsDataDescription;
+import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TRoutineLoadTask;
 
@@ -637,33 +641,48 @@ public class KafkaRoutineLoadJobTest {
                         return pairList;
                     });
 
-            CreateRoutineLoadInfo createRoutineLoadInfo = initCreateRoutineLoadInfo();
-            createRoutineLoadInfo.validate(connectContext);
-            RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null, null, null, partitionNames, null,
-                    LoadTask.MergeType.APPEND, sequenceColumnName);
-            Deencapsulation.setField(createRoutineLoadInfo, "routineLoadDesc", routineLoadDesc);
-            List<Pair<Integer, Long>> partitionIdToOffset = Lists.newArrayList();
-            List<PartitionInfo> kafkaPartitionInfoList = Lists.newArrayList();
-            for (String s : kafkaPartitionString.split(",")) {
-                partitionIdToOffset.add(Pair.of(Integer.valueOf(s), 0L));
-                PartitionInfo partitionInfo = new PartitionInfo(topicName, Integer.valueOf(s), null, null, null);
-                kafkaPartitionInfoList.add(partitionInfo);
-            }
-            KafkaDataSourceProperties dsProperties = new KafkaDataSourceProperties(null);
-            dsProperties.setKafkaPartitionOffsets(partitionIdToOffset);
-            Deencapsulation.setField(dsProperties, "brokerList", serverAddress);
-            Deencapsulation.setField(dsProperties, "topic", topicName);
-            Deencapsulation.setField(createRoutineLoadInfo, "dataSourceProperties", dsProperties);
+            for (String csvFormat : Arrays.asList(FileFormatProperties.FORMAT_CSV,
+                    FileFormatProperties.FORMAT_CSV_WITH_NAMES,
+                    FileFormatProperties.FORMAT_CSV_WITH_NAMES_AND_TYPES)) {
+                CreateRoutineLoadInfo createRoutineLoadInfo = initCreateRoutineLoadInfo();
+                createRoutineLoadInfo.getJobProperties().put(FileFormatProperties.PROP_FORMAT, csvFormat);
+                createRoutineLoadInfo.validate(connectContext);
+                RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null, null, null,
+                        partitionNames, null, LoadTask.MergeType.APPEND, sequenceColumnName);
+                Deencapsulation.setField(createRoutineLoadInfo, "routineLoadDesc", routineLoadDesc);
+                List<Pair<Integer, Long>> partitionIdToOffset = Lists.newArrayList();
+                List<PartitionInfo> kafkaPartitionInfoList = Lists.newArrayList();
+                for (String s : kafkaPartitionString.split(",")) {
+                    partitionIdToOffset.add(Pair.of(Integer.valueOf(s), 0L));
+                    PartitionInfo partitionInfo = new PartitionInfo(topicName, Integer.valueOf(s), null, null, null);
+                    kafkaPartitionInfoList.add(partitionInfo);
+                }
+                KafkaDataSourceProperties dsProperties = new KafkaDataSourceProperties(null);
+                dsProperties.setKafkaPartitionOffsets(partitionIdToOffset);
+                Deencapsulation.setField(dsProperties, "brokerList", serverAddress);
+                Deencapsulation.setField(dsProperties, "topic", topicName);
+                Deencapsulation.setField(createRoutineLoadInfo, "dataSourceProperties", dsProperties);
 
-            KafkaRoutineLoadJob kafkaRoutineLoadJob = KafkaRoutineLoadJob.fromCreateInfo(createRoutineLoadInfo, connectContext);
-            Assert.assertEquals(jobName, kafkaRoutineLoadJob.getName());
-            Assert.assertEquals(dbId, kafkaRoutineLoadJob.getDbId());
-            Assert.assertEquals(tableId, kafkaRoutineLoadJob.getTableId());
-            Assert.assertEquals(serverAddress, Deencapsulation.getField(kafkaRoutineLoadJob, "brokerList"));
-            Assert.assertEquals(topicName, Deencapsulation.getField(kafkaRoutineLoadJob, "topic"));
-            List<Integer> kafkaPartitionResult = Deencapsulation.getField(kafkaRoutineLoadJob, "customKafkaPartitions");
-            Assert.assertEquals(kafkaPartitionString, Joiner.on(",").join(kafkaPartitionResult));
-            Assert.assertEquals(sequenceColumnName, kafkaRoutineLoadJob.getSequenceCol());
+                KafkaRoutineLoadJob kafkaRoutineLoadJob =
+                        KafkaRoutineLoadJob.fromCreateInfo(createRoutineLoadInfo, connectContext);
+                Assert.assertEquals(jobName, kafkaRoutineLoadJob.getName());
+                Assert.assertEquals(dbId, kafkaRoutineLoadJob.getDbId());
+                Assert.assertEquals(tableId, kafkaRoutineLoadJob.getTableId());
+                Assert.assertEquals(serverAddress, Deencapsulation.getField(kafkaRoutineLoadJob, "brokerList"));
+                Assert.assertEquals(topicName, Deencapsulation.getField(kafkaRoutineLoadJob, "topic"));
+                List<Integer> kafkaPartitionResult =
+                        Deencapsulation.getField(kafkaRoutineLoadJob, "customKafkaPartitions");
+                Assert.assertEquals(kafkaPartitionString, Joiner.on(",").join(kafkaPartitionResult));
+                Assert.assertEquals(sequenceColumnName, kafkaRoutineLoadJob.getSequenceCol());
+                Assert.assertEquals(csvFormat, kafkaRoutineLoadJob.getFormat());
+
+                NereidsRoutineLoadTaskInfo taskInfo = kafkaRoutineLoadJob.toNereidsRoutineLoadTaskInfo();
+                String expectedHeaderType = csvFormat.equals(FileFormatProperties.FORMAT_CSV) ? "" : csvFormat;
+                Assert.assertEquals(TFileFormatType.FORMAT_CSV_PLAIN, taskInfo.getFormatType());
+                Assert.assertEquals(expectedHeaderType, taskInfo.getHeaderType());
+                Assert.assertTrue(new NereidsDataDescription(tableNameString, taskInfo).toSql()
+                        .contains("FORMAT AS '" + csvFormat + "'"));
+            }
         }
     }
 
