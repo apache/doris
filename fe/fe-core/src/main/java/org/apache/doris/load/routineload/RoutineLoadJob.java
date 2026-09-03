@@ -408,7 +408,9 @@ public abstract class RoutineLoadJob
         FileFormatProperties fileFormatProperties = info.getFileFormatProperties();
         if (fileFormatProperties instanceof CsvFileFormatProperties) {
             CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
-            jobProperties.put(FileFormatProperties.PROP_FORMAT, "csv");
+            String headerType = csvFileFormatProperties.getHeaderType();
+            jobProperties.put(FileFormatProperties.PROP_FORMAT, headerType.isEmpty()
+                    ? FileFormatProperties.FORMAT_CSV : headerType);
             jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE,
                     new String(new byte[]{csvFileFormatProperties.getEnclose()}));
             jobProperties.put(CsvFileFormatProperties.PROP_ESCAPE,
