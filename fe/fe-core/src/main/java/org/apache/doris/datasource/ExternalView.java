@@ -22,9 +22,9 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIndexes;
 import org.apache.doris.catalog.ViewIf;
 import org.apache.doris.common.Pair;
-import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
+import org.apache.doris.statistics.analysis.BaseAnalysisTask;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import java.io.DataOutput;

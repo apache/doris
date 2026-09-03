@@ -33,7 +33,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AliasInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.ResultRow;
+import org.apache.doris.statistics.repository.ResultRow;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;

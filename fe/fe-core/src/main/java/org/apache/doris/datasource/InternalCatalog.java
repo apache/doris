@@ -139,7 +139,7 @@ import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.analysis.TableStatsMeta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Hll;
+import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.Hll128;
 import org.apache.doris.statistics.util.StatisticsUtil;
 

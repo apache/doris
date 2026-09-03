@@ -47,7 +47,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
-import org.apache.doris.statistics.StatisticsCacheKey;
+import org.apache.doris.statistics.cache.StatisticsCacheKey;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
