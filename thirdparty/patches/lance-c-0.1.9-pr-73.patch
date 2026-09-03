@@ -1,0 +1,2051 @@
+From a39bc8b08cd1367b7445cb9acf3309faa1f3d610 Mon Sep 17 00:00:00 2001
+From: zhangstar333 <zhangsida@selectdb.com>
+Date: Thu, 3 Sep 2026 13:00:43 +0800
+Subject: [PATCH] foyer
+
+---
+ Cargo.lock                 | 205 ++++++++
+ Cargo.toml                 |   4 +
+ README.md                  |  22 +
+ include/lance/lance.h      |  62 +++
+ include/lance/lance.hpp    |  29 ++
+ src/data_cache.rs          |  68 +++
+ src/dataset.rs             |  11 +
+ src/foyer_data_cache.rs    | 950 +++++++++++++++++++++++++++++++++++++
+ src/lib.rs                 |   4 +
+ src/restore.rs             |   8 +
+ src/session.rs             |  13 +-
+ src/writer.rs              |   1 +
+ tests/c_api_test.rs        | 221 +++++++++
+ tests/cpp/test_c_api.c     |  32 ++
+ tests/cpp/test_cpp_api.cpp |  23 +
+ 15 files changed, 1652 insertions(+), 1 deletion(-)
+ create mode 100644 src/data_cache.rs
+ create mode 100644 src/foyer_data_cache.rs
+
+diff --git a/Cargo.lock b/Cargo.lock
+index 60c1caf..85536f5 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -434,6 +434,16 @@ dependencies = [
+  "loom",
+ ]
+ 
++[[package]]
++name = "asyncband"
++version = "0.6.7"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "94a214ba60d6231afd0e805e3c27c45a1626d9debaa5a5061c45a1ea1b2f1ed0"
++dependencies = [
++ "hashbrown 0.17.1",
++ "slab",
++]
++
+ [[package]]
+ name = "atoi"
+ version = "2.0.0"
+@@ -1267,6 +1277,17 @@ version = "0.8.7"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
+ 
++[[package]]
++name = "core_affinity"
++version = "0.8.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "a034b3a7b624016c6e13f5df875747cc25f884156aad2abd12b6c46797971342"
++dependencies = [
++ "libc",
++ "num_cpus",
++ "winapi",
++]
++
+ [[package]]
+ name = "countio"
+ version = "0.3.0"
+@@ -2112,6 +2133,12 @@ dependencies = [
+  "url",
+ ]
+ 
++[[package]]
++name = "datasketches"
++version = "0.3.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "46c4cf71a36b46dcfc00e5014c0c20ccad2b1b6a008304d7d57d2749b2d41b3d"
++
+ [[package]]
+ name = "der"
+ version = "0.7.10"
+@@ -2298,6 +2325,16 @@ version = "0.2.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "f8eb564c5c7423d25c886fb561d1e4ee69f72354d16918afa32c08811f6b6a55"
+ 
++[[package]]
++name = "fastant"
++version = "0.1.11"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "2e825441bfb2d831c47c97d05821552db8832479f44c571b97fededbf0099c07"
++dependencies = [
++ "small_ctor",
++ "web-time",
++]
++
+ [[package]]
+ name = "fastrand"
+ version = "2.3.0"
+@@ -2369,6 +2406,127 @@ dependencies = [
+  "percent-encoding",
+ ]
+ 
++[[package]]
++name = "foyer"
++version = "0.22.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "cab5c4bac30455a0dbc4c858436fb440d51bc6543daafbdf35c5e6ca94c0afd7"
++dependencies = [
++ "anyhow",
++ "asyncband",
++ "equivalent",
++ "foyer-common",
++ "foyer-memory",
++ "foyer-storage",
++ "foyer-tokio",
++ "futures-util",
++ "mixtrics",
++ "pin-project",
++ "serde",
++ "tracing",
++]
++
++[[package]]
++name = "foyer-common"
++version = "0.22.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e3634c6f3da978b6cae98d54367a2342041d3a4786b20c0384164cc7fce94787"
++dependencies = [
++ "anyhow",
++ "bytes",
++ "cfg-if 1.0.4",
++ "foyer-tokio",
++ "mixtrics",
++ "parking_lot",
++ "pin-project",
++ "twox-hash",
++]
++
++[[package]]
++name = "foyer-intrusive-collections"
++version = "0.10.0-dev"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6e4fee46bea69e0596130e3210e65d3424e0ac1e6df3bde6636304bdf1ca4a3b"
++dependencies = [
++ "memoffset",
++]
++
++[[package]]
++name = "foyer-memory"
++version = "0.22.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "5349a61af676b3275bfef7a5fceceeadf6b0a7dd9ec14ba0edd78e1ff771d101"
++dependencies = [
++ "anyhow",
++ "asyncband",
++ "bitflags",
++ "datasketches",
++ "equivalent",
++ "foyer-common",
++ "foyer-intrusive-collections",
++ "foyer-tokio",
++ "futures-util",
++ "hashbrown 0.17.1",
++ "itertools 0.15.0",
++ "mixtrics",
++ "parking_lot",
++ "paste",
++ "pin-project",
++ "serde",
++ "tracing",
++]
++
++[[package]]
++name = "foyer-storage"
++version = "0.22.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "49cfcce3c10a1f2ac65bfcf0bd85501462d454c594c8a16a4a27cce773599381"
++dependencies = [
++ "allocator-api2",
++ "anyhow",
++ "asyncband",
++ "bytes",
++ "core_affinity",
++ "equivalent",
++ "fastant",
++ "foyer-common",
++ "foyer-memory",
++ "foyer-tokio",
++ "fs4",
++ "futures-core",
++ "futures-util",
++ "hashbrown 0.17.1",
++ "io-uring",
++ "itertools 0.15.0",
++ "libc",
++ "lz4",
++ "parking_lot",
++ "pin-project",
++ "rand 0.10.1",
++ "tracing",
++ "twox-hash",
++ "zstd",
++]
++
++[[package]]
++name = "foyer-tokio"
++version = "0.22.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6b7315103199f3415a010befd6dd5a1c8e7082fbc49c0194931e65629995d9d1"
++dependencies = [
++ "tokio",
++]
++
++[[package]]
++name = "fs4"
++version = "0.13.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8640e34b88f7652208ce9e88b1a37a2ae95227d84abec377ccd3c5cfeb141ed4"
++dependencies = [
++ "rustix",
++ "windows-sys 0.59.0",
++]
++
+ [[package]]
+ name = "fs_extra"
+ version = "1.3.0"
+@@ -3392,6 +3550,15 @@ dependencies = [
+  "either",
+ ]
+ 
++[[package]]
++name = "itertools"
++version = "0.15.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8b4baf93f58d4425749ca49a51c50ebab072c5df6994d08fed93541c331481dc"
++dependencies = [
++ "either",
++]
++
+ [[package]]
+ name = "itoa"
+ version = "1.0.18"
+@@ -3703,8 +3870,11 @@ dependencies = [
+  "arrow",
+  "arrow-array",
+  "arrow-schema",
++ "async-trait",
++ "bytes",
+  "chrono",
+  "datafusion",
++ "foyer",
+  "futures",
+  "half",
+  "lance",
+@@ -3718,6 +3888,7 @@ dependencies = [
+  "lance-table",
+  "libc",
+  "log",
++ "object_store",
+  "pin-project",
+  "prost",
+  "snafu",
+@@ -4399,6 +4570,15 @@ version = "2.8.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
+ 
++[[package]]
++name = "memoffset"
++version = "0.9.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
++dependencies = [
++ "autocfg",
++]
++
+ [[package]]
+ name = "mime"
+ version = "0.3.17"
+@@ -4436,6 +4616,16 @@ dependencies = [
+  "windows-sys 0.61.2",
+ ]
+ 
++[[package]]
++name = "mixtrics"
++version = "0.2.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "2c46b5adfb7a3ae4996d327a5bdc90e78fec025806dd312bdbe6f07a755e0ec9"
++dependencies = [
++ "itertools 0.15.0",
++ "parking_lot",
++]
++
+ [[package]]
+ name = "moka"
+ version = "0.12.15"
+@@ -6547,6 +6737,12 @@ version = "0.4.12"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
+ 
++[[package]]
++name = "small_ctor"
++version = "0.1.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "88414a5ca1f85d82cc34471e975f0f74f6aa54c40f062efa42c0080e7f763f81"
++
+ [[package]]
+ name = "smallvec"
+ version = "1.15.1"
+@@ -7831,6 +8027,15 @@ dependencies = [
+  "windows-targets 0.52.6",
+ ]
+ 
++[[package]]
++name = "windows-sys"
++version = "0.59.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
++dependencies = [
++ "windows-targets 0.52.6",
++]
++
+ [[package]]
+ name = "windows-sys"
+ version = "0.60.2"
+diff --git a/Cargo.toml b/Cargo.toml
+index d072a5d..342928c 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -30,6 +30,8 @@ datafusion = { version = "54.0.0", default-features = false }
+ arrow = { version = "58.0.0", features = ["prettyprint", "ffi"] }
+ arrow-array = "58.0.0"
+ arrow-schema = "58.0.0"
++async-trait = "0.1"
++bytes = "1"
+ # Direct to name `chrono::TimeDelta` (the field type of lance's public
+ # `AutoCleanupParams`) and `chrono::DateTime`/`Utc` (index metadata
+ # timestamps); already in the graph transitively via lance.
+@@ -37,8 +39,10 @@ chrono = { version = "0.4", default-features = false }
+ half = "2"
+ tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+ futures = "0.3"
++foyer = "=0.22.4"
+ log = "0.4"
+ libc = "0.2"
++object_store = "0.13.2"
+ pin-project = "1.0"
+ prost = "0.14"
+ snafu = "0.9"
+diff --git a/README.md b/README.md
+index 2056671..99502d9 100644
+--- a/README.md
++++ b/README.md
+@@ -68,6 +68,7 @@ Based on the [liblance RFC](https://github.com/lance-format/lance/discussions/60
+ | [x] | Async scan | Callback-based `lance_scanner_scan_async()` for non-blocking scans |
+ | [x] | Dataset metadata | `lance_dataset_version()`, `lance_dataset_count_rows()`, `lance_dataset_latest_version()` |
+ | [x] | Filter pushdown | `lance_scanner_set_substrait_filter()` accepts a serialized Substrait `ExtendedExpression`; `lance_scanner_additional_sql_filter()` adds SQL predicates with AND before scanning starts |
++| [x] | Data-file cache | Optional Foyer memory/disk cache for immutable `data/*.lance` batched range reads |
+ 
+ ## Building
+ 
+@@ -197,6 +198,27 @@ auto ds = lance::Dataset::open_with_session(session, "data.lance");
+ auto stats = session.cache_stats();
+ ```
+ 
++To add a process-local memory/disk cache for remote Lance data-file reads,
++create the session with Foyer configuration. The cache is deliberately narrow:
++only batched range reads of direct `data/*.lance` children are cached. Single
++range reads, manifests, deletion files, and index files keep using Lance's
++normal paths. Use one shared session for datasets that share the cache
++directory.
++
++```cpp
++lance::DataCacheOptions data_cache{
++    "/var/cache/my-service/lance",
++    512ULL * 1024 * 1024,       // memory tier
++    100ULL * 1024 * 1024 * 1024, // disk tier
++    1ULL * 1024 * 1024,         // range-cache block
++};
++lance::Session session(
++    6ULL * 1024 * 1024 * 1024,
++    1ULL * 1024 * 1024 * 1024,
++    data_cache);
++auto ds = lance::Dataset::open_with_session(session, "s3://bucket/data.lance");
++```
++
+ ### Open at a specific version
+ 
+ `lance_dataset_open` takes a `version` argument — `0` means the latest, any
+diff --git a/include/lance/lance.h b/include/lance/lance.h
+index 3bf291f..2cd5be0 100644
+--- a/include/lance/lance.h
++++ b/include/lance/lance.h
+@@ -206,6 +206,35 @@ typedef struct LanceSessionCacheStats {
+     uint64_t metadata_cache_size_bytes;
+ } LanceSessionCacheStats;
+ 
++/**
++ * Configuration for the optional Foyer cache of immutable Lance data files.
++ *
++ * Only batched range reads of direct `data/<file>.lance` children are cached.
++ * Single-range reads, metadata, deletion files, and index files continue to
++ * use Lance's normal paths.
++ */
++typedef struct LanceDataCacheOptions {
++    const char* directory;
++    /** Maximum raw data bytes retained by Foyer's in-memory tier. */
++    uint64_t memory_capacity_bytes;
++    /** Maximum bytes allocated to Foyer's disk tier. */
++    uint64_t disk_capacity_bytes;
++    /** Data-file range cache unit, in bytes. */
++    uint64_t read_block_size_bytes;
++} LanceDataCacheOptions;
++
++/**
++ * Cumulative Foyer data-cache statistics for one opened dataset handle.
++ *
++ * Successful reads are accumulated. Both fields measure bytes returned to the
++ * dataset reader. Their sum is the logical data-file range bytes observed by
++ * the Foyer wrapper; block-aligned origin read amplification is not included.
++ */
++typedef struct LanceDataCacheStatistics {
++    uint64_t bytes_read_from_cache;
++    uint64_t bytes_read_from_remote;
++} LanceDataCacheStatistics;
++
+ /**
+  * Create a session that can share metadata and index caches across datasets.
+  *
+@@ -217,6 +246,25 @@ LanceSession* lance_session_new(
+     uint64_t metadata_cache_size_bytes
+ );
+ 
++/**
++ * Create a shared Lance session with a Foyer data-file cache.
++ *
++ * `data_cache_options` and its `directory` field must not be NULL. The cache
++ * directory and all capacities are process configuration and remain owned by
++ * the caller; their values are copied during this call.
++ *
++ * `read_block_size_bytes` must be a non-zero multiple of 4096. The memory
++ * capacity must hold at least one read block. The disk capacity must be a
++ * multiple of 4096 and hold at least two read blocks.
++ *
++ * @return Session handle, or NULL on error
++ */
++LanceSession* lance_session_new_with_data_cache(
++    uint64_t index_cache_size_bytes,
++    uint64_t metadata_cache_size_bytes,
++    const LanceDataCacheOptions* data_cache_options
++);
++
+ /**
+  * Close a session handle. Safe to call with NULL. Datasets previously opened
+  * with the session remain valid and retain the shared cache state.
+@@ -273,6 +321,20 @@ LanceDataset* lance_dataset_open_with_session(
+     const LanceSession* session
+ );
+ 
++/**
++ * Copy this dataset handle's cumulative data-cache statistics.
++ *
++ * A dataset not opened with a data cache reports all-zero statistics. The
++ * snapshot belongs only to this dataset handle; the underlying cache may
++ * still be shared by other datasets through a session.
++ *
++ * @return 0 on success, -1 on error
++ */
++int32_t lance_dataset_get_data_cache_statistics(
++    const LanceDataset* dataset,
++    LanceDataCacheStatistics* out_statistics
++);
++
+ /** Close and free a dataset handle. Safe to call with NULL. */
+ void lance_dataset_close(LanceDataset* dataset);
+ 
+diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
+index 6cf245f..c1102e4 100644
+--- a/include/lance/lance.hpp
++++ b/include/lance/lance.hpp
+@@ -171,6 +171,13 @@ struct SqlColumn {
+ 
+ // ─── Shared Session ──────────────────────────────────────────────────────────
+ 
++struct DataCacheOptions {
++    std::string directory;
++    uint64_t memory_capacity_bytes;
++    uint64_t disk_capacity_bytes;
++    uint64_t read_block_size_bytes;
++};
++
+ class Session {
+     Handle<LanceSession, lance_session_close> handle_;
+ 
+@@ -180,6 +187,21 @@ class Session {
+         if (!handle_) check_error();
+     }
+ 
++    Session(uint64_t index_cache_size_bytes,
++            uint64_t metadata_cache_size_bytes,
++            const DataCacheOptions& data_cache_options) {
++        LanceDataCacheOptions options{
++            data_cache_options.directory.c_str(),
++            data_cache_options.memory_capacity_bytes,
++            data_cache_options.disk_capacity_bytes,
++            data_cache_options.read_block_size_bytes,
++        };
++        handle_ = Handle<LanceSession, lance_session_close>(
++            lance_session_new_with_data_cache(
++                index_cache_size_bytes, metadata_cache_size_bytes, &options));
++        if (!handle_) check_error();
++    }
++
+     LanceSessionCacheStats cache_stats() const {
+         LanceSessionCacheStats stats{};
+         if (lance_session_get_cache_stats(handle_.get(), &stats) != 0)
+@@ -260,6 +282,13 @@ class Dataset {
+         return Dataset(ds);
+     }
+ 
++    LanceDataCacheStatistics data_cache_statistics() const {
++        LanceDataCacheStatistics statistics{};
++        if (lance_dataset_get_data_cache_statistics(handle_.get(), &statistics) != 0)
++            check_error();
++        return statistics;
++    }
++
+     /// Write an Arrow record batch stream to a Lance dataset and return the
+     /// open dataset at the committed version.
+     ///
+diff --git a/src/data_cache.rs b/src/data_cache.rs
+new file mode 100644
+index 0000000..430b4c8
+--- /dev/null
++++ b/src/data_cache.rs
+@@ -0,0 +1,68 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++//! Private bridge between a shared data-cache backend and dataset handles.
++
++use std::fmt::Debug;
++use std::sync::Arc;
++
++use lance::Dataset;
++use lance_core::Result;
++
++use crate::dataset::LanceDataset;
++use crate::error::ffi_try;
++
++/// Data-cache statistics owned by one opened dataset.
++#[repr(C)]
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub struct LanceDataCacheStatistics {
++    /// Requested bytes returned from usable data-cache entries.
++    pub bytes_read_from_cache: u64,
++    /// Requested bytes returned after a data-cache miss or fallback.
++    pub bytes_read_from_remote: u64,
++}
++
++pub(crate) trait DatasetDataCache: Debug + Send + Sync {
++    fn snapshot(&self) -> LanceDataCacheStatistics;
++
++    fn attach_fresh(&self, dataset: Dataset) -> (Dataset, Arc<dyn DatasetDataCache>);
++}
++
++pub(crate) trait DataCacheFactory: Debug + Send + Sync {
++    fn attach(&self, dataset: Dataset) -> (Dataset, Arc<dyn DatasetDataCache>);
++}
++
++/// Copy this dataset handle's cumulative data-cache statistics into
++/// `out_statistics`.
++///
++/// A dataset not opened with a data cache reports all-zero statistics.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_dataset_get_data_cache_statistics(
++    dataset: *const LanceDataset,
++    out_statistics: *mut LanceDataCacheStatistics,
++) -> i32 {
++    ffi_try!(
++        unsafe { dataset_get_data_cache_statistics_inner(dataset, out_statistics) },
++        neg
++    )
++}
++
++unsafe fn dataset_get_data_cache_statistics_inner(
++    dataset: *const LanceDataset,
++    out_statistics: *mut LanceDataCacheStatistics,
++) -> Result<i32> {
++    if dataset.is_null() || out_statistics.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "dataset and out_statistics must not be NULL".into(),
++        ));
++    }
++    let dataset = unsafe { &*dataset };
++    let statistics = dataset
++        .data_cache
++        .as_ref()
++        .map_or_else(LanceDataCacheStatistics::default, |cache| cache.snapshot());
++    unsafe {
++        std::ptr::write_unaligned(out_statistics, statistics);
++    }
++    Ok(0)
++}
+diff --git a/src/dataset.rs b/src/dataset.rs
+index cc1f87c..76fd39e 100644
+--- a/src/dataset.rs
++++ b/src/dataset.rs
+@@ -14,6 +14,7 @@ use lance::Dataset;
+ use lance::dataset::builder::DatasetBuilder;
+ use lance_core::Result;
+ 
++use crate::data_cache::DatasetDataCache;
+ use crate::error::{ffi_try, swallow_unwind};
+ use crate::helpers;
+ use crate::runtime::block_on;
+@@ -23,6 +24,7 @@ use crate::stream_guard::guarded_ffi_stream_from_reader;
+ /// Opaque handle representing an opened Lance dataset.
+ pub struct LanceDataset {
+     pub(crate) inner: RwLock<Arc<Dataset>>,
++    pub(crate) data_cache: Option<Arc<dyn DatasetDataCache>>,
+ }
+ 
+ impl LanceDataset {
+@@ -182,8 +184,16 @@ unsafe fn open_dataset_inner(
+     }
+ 
+     let dataset = block_on(builder.load())?;
++    let (dataset, data_cache) =
++        if let Some(factory) = session.and_then(|session| session.data_cache_factory.clone()) {
++            let (dataset, data_cache) = factory.attach(dataset);
++            (dataset, Some(data_cache))
++        } else {
++            (dataset, None)
++        };
+     let handle = LanceDataset {
+         inner: RwLock::new(Arc::new(dataset)),
++        data_cache,
+     };
+     Ok(Box::into_raw(Box::new(handle)))
+ }
+@@ -519,6 +529,7 @@ mod tests {
+         .unwrap();
+         let handle = LanceDataset {
+             inner: RwLock::new(Arc::new(dataset)),
++            data_cache: None,
+         };
+         (tmp, handle)
+     }
+diff --git a/src/foyer_data_cache.rs b/src/foyer_data_cache.rs
+new file mode 100644
+index 0000000..32cc241
+--- /dev/null
++++ b/src/foyer_data_cache.rs
+@@ -0,0 +1,950 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++//! Foyer-backed cache for immutable Lance data-file batched range reads.
++
++use std::collections::{BTreeMap, HashMap};
++use std::ffi::c_char;
++use std::fmt::{Debug, Display, Formatter};
++use std::ops::Range;
++use std::path::Path as FsPath;
++use std::sync::atomic::{AtomicU64, Ordering};
++use std::sync::{Arc, Mutex, Weak};
++
++use async_trait::async_trait;
++use bytes::{Bytes, BytesMut};
++use foyer::{
++    BlockEngineConfig, DeviceBuilder, FsDeviceBuilder, HybridCache, HybridCacheBuilder,
++    HybridCachePolicy, PsyncIoEngineConfig,
++};
++use futures::stream::BoxStream;
++use lance_io::object_store::WrappingObjectStore;
++use object_store::path::Path;
++use object_store::{
++    CopyOptions, GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta, ObjectStore,
++    ObjectStoreExt, PutMultipartOptions, PutOptions, PutPayload, PutResult, RenameOptions, Result,
++};
++
++use crate::data_cache::{DataCacheFactory, DatasetDataCache, LanceDataCacheStatistics};
++use crate::error::ffi_try;
++use crate::helpers;
++use crate::runtime::block_on;
++use crate::session::{LanceSession, session_new_with_data_cache_factory};
++
++const CACHE_KEY_VERSION: &str = "lance-data-v1";
++const FOYER_PAGE_SIZE: usize = 4096;
++
++/// Configuration for the optional Foyer data-file cache.
++#[repr(C)]
++#[derive(Clone, Copy, Debug)]
++pub struct LanceDataCacheOptions {
++    /// UTF-8 directory used by Foyer for persistent cache storage.
++    pub directory: *const c_char,
++    /// Maximum data bytes retained by Foyer's in-memory tier.
++    pub memory_capacity_bytes: u64,
++    /// Maximum bytes retained by Foyer's disk tier.
++    pub disk_capacity_bytes: u64,
++    /// Read/cache unit. Must be a non-zero multiple of 4096.
++    pub read_block_size_bytes: u64,
++}
++
++/// Create a shared Lance session with a Foyer cache for immutable data-file
++/// batched range reads.
++///
++/// `data_cache_options` and its `directory` field must not be NULL. The
++/// pointed-to values are copied before this function returns.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_session_new_with_data_cache(
++    index_cache_size_bytes: u64,
++    metadata_cache_size_bytes: u64,
++    data_cache_options: *const LanceDataCacheOptions,
++) -> *mut LanceSession {
++    ffi_try!(
++        unsafe {
++            session_new_with_data_cache_inner(
++                index_cache_size_bytes,
++                metadata_cache_size_bytes,
++                data_cache_options,
++            )
++        },
++        null
++    )
++}
++
++unsafe fn session_new_with_data_cache_inner(
++    index_cache_size_bytes: u64,
++    metadata_cache_size_bytes: u64,
++    data_cache_options: *const LanceDataCacheOptions,
++) -> lance_core::Result<*mut LanceSession> {
++    if data_cache_options.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "data_cache_options must not be NULL".into(),
++        ));
++    }
++    let options = unsafe { &*data_cache_options };
++    let directory = unsafe { helpers::parse_c_string(options.directory)? }.ok_or_else(|| {
++        lance_core::Error::invalid_input_source(
++            "data_cache_options.directory must not be NULL".into(),
++        )
++    })?;
++    if directory.is_empty() {
++        return Err(lance_core::Error::invalid_input_source(
++            "data_cache_options.directory must not be empty".into(),
++        ));
++    }
++
++    let memory_capacity = u64_to_usize(options.memory_capacity_bytes, "memory_capacity_bytes")?;
++    let disk_capacity = u64_to_usize(options.disk_capacity_bytes, "disk_capacity_bytes")?;
++    let read_block_size = u64_to_usize(options.read_block_size_bytes, "read_block_size_bytes")?;
++    validate_data_cache_sizes(memory_capacity, disk_capacity, read_block_size)?;
++
++    let data_cache = block_on(FoyerDataCache::try_new(
++        FsPath::new(&directory),
++        memory_capacity,
++        disk_capacity,
++        read_block_size,
++    ))
++    .map_err(|error| {
++        lance_core::Error::io(format!(
++            "failed to initialize Foyer data cache at {directory:?}: {error}"
++        ))
++    })?;
++    session_new_with_data_cache_factory(
++        index_cache_size_bytes,
++        metadata_cache_size_bytes,
++        Some(Arc::new(data_cache)),
++    )
++}
++
++fn validate_data_cache_sizes(
++    memory_capacity: usize,
++    disk_capacity: usize,
++    read_block_size: usize,
++) -> lance_core::Result<()> {
++    if read_block_size == 0 || !read_block_size.is_multiple_of(FOYER_PAGE_SIZE) {
++        return Err(lance_core::Error::invalid_input_source(
++            format!(
++                "read_block_size_bytes={read_block_size} must be a non-zero multiple of {FOYER_PAGE_SIZE}"
++            )
++            .into(),
++        ));
++    }
++    if memory_capacity < read_block_size {
++        return Err(lance_core::Error::invalid_input_source(
++            format!(
++                "memory_capacity_bytes={memory_capacity} must be at least read_block_size_bytes={read_block_size}"
++            )
++            .into(),
++        ));
++    }
++    let minimum_disk_capacity = read_block_size.checked_mul(2).ok_or_else(|| {
++        lance_core::Error::invalid_input_source(
++            format!("read_block_size_bytes={read_block_size} is too large").into(),
++        )
++    })?;
++    if !disk_capacity.is_multiple_of(FOYER_PAGE_SIZE) || disk_capacity < minimum_disk_capacity {
++        return Err(lance_core::Error::invalid_input_source(
++            format!(
++                "disk_capacity_bytes={disk_capacity} must be a multiple of {FOYER_PAGE_SIZE} and at least twice read_block_size_bytes={read_block_size}"
++            )
++            .into(),
++        ));
++    }
++    Ok(())
++}
++
++fn u64_to_usize(value: u64, field: &'static str) -> lance_core::Result<usize> {
++    usize::try_from(value).map_err(|_| {
++        lance_core::Error::invalid_input_source(
++            format!("{field}={value} exceeds usize::MAX on this target").into(),
++        )
++    })
++}
++
++/// Process-local owner of a Foyer hybrid cache.
++#[derive(Clone)]
++pub(crate) struct FoyerDataCache {
++    cache: HybridCache<String, Bytes>,
++    read_block_size: usize,
++    wrapped_stores: Arc<Mutex<HashMap<usize, WrappedStore>>>,
++}
++
++struct WrappedStore {
++    wrapper: Weak<dyn ObjectStore>,
++    origin: Weak<dyn ObjectStore>,
++}
++
++impl Debug for FoyerDataCache {
++    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
++        f.debug_struct("FoyerDataCache")
++            .field("read_block_size", &self.read_block_size)
++            .finish_non_exhaustive()
++    }
++}
++
++impl FoyerDataCache {
++    pub(crate) async fn try_new(
++        directory: &FsPath,
++        memory_capacity: usize,
++        disk_capacity: usize,
++        read_block_size: usize,
++    ) -> std::result::Result<Self, foyer::Error> {
++        let engine_block_size = read_block_size
++            .checked_mul(2)
++            .ok_or_else(|| foyer::Error::new(foyer::ErrorKind::Config, "read block size overflow"))?
++            .max(FOYER_PAGE_SIZE);
++        let memory_shards = (memory_capacity / read_block_size).clamp(1, 8);
++        let device = FsDeviceBuilder::new(directory)
++            .with_capacity(disk_capacity)
++            .build()?;
++        let engine = BlockEngineConfig::new(device).with_block_size(engine_block_size);
++        let cache = HybridCacheBuilder::new()
++            .with_name("lance_data")
++            .with_policy(HybridCachePolicy::WriteOnInsertion)
++            // Entries are already sent to storage on insertion. Avoid making
++            // the last Dataset drop wait for a final full-memory flush.
++            .with_flush_on_close(false)
++            .memory(memory_capacity)
++            .with_shards(memory_shards)
++            .with_weighter(|_key: &String, value: &Bytes| value.len().max(1))
++            .storage()
++            .with_io_engine_config(PsyncIoEngineConfig::new())
++            .with_engine_config(engine)
++            .build()
++            .await?;
++        Ok(Self {
++            cache,
++            read_block_size,
++            wrapped_stores: Arc::new(Mutex::new(HashMap::new())),
++        })
++    }
++
++    fn is_cacheable_data_file(location: &Path) -> bool {
++        let mut parts = location.as_ref().rsplit('/');
++        matches!(
++            (parts.next(), parts.next()),
++            (Some(file), Some("data")) if file.ends_with(".lance")
++        )
++    }
++
++    fn key(&self, store_prefix: &str, location: &Path, block_index: u64) -> String {
++        format!(
++            "{CACHE_KEY_VERSION}\0{}\0{store_prefix}\0{}\0{block_index}",
++            self.read_block_size,
++            location.as_ref()
++        )
++    }
++
++    fn size_key(&self, store_prefix: &str, location: &Path) -> String {
++        format!(
++            "{CACHE_KEY_VERSION}\0{}\0{store_prefix}\0{}\0size",
++            self.read_block_size,
++            location.as_ref()
++        )
++    }
++
++    fn create_scope(&self) -> Arc<DatasetFoyerDataCache> {
++        Arc::new(DatasetFoyerDataCache {
++            cache: self.clone(),
++            statistics: Arc::new(FoyerDataCacheStatistics::default()),
++        })
++    }
++
++    fn unwrap_store(&self, store: Arc<dyn ObjectStore>) -> Arc<dyn ObjectStore> {
++        let identity = Arc::as_ptr(&store) as *const () as usize;
++        let origin = {
++            let mut wrapped_stores = self
++                .wrapped_stores
++                .lock()
++                .unwrap_or_else(|error| error.into_inner());
++            let origin = wrapped_stores.get(&identity).and_then(|entry| {
++                let wrapper = entry.wrapper.upgrade()?;
++                if Arc::ptr_eq(&wrapper, &store) {
++                    entry.origin.upgrade()
++                } else {
++                    None
++                }
++            });
++            if origin.is_none() {
++                wrapped_stores.remove(&identity);
++            }
++            origin
++        };
++        match origin {
++            Some(origin) => origin,
++            None => store,
++        }
++    }
++
++    fn remember_wrapper(&self, wrapper: &Arc<dyn ObjectStore>, origin: &Arc<dyn ObjectStore>) {
++        let identity = Arc::as_ptr(wrapper) as *const () as usize;
++        self.wrapped_stores
++            .lock()
++            .unwrap_or_else(|error| error.into_inner())
++            .insert(
++                identity,
++                WrappedStore {
++                    wrapper: Arc::downgrade(wrapper),
++                    origin: Arc::downgrade(origin),
++                },
++            );
++    }
++
++    fn forget_wrapper(&self, identity: usize) {
++        self.wrapped_stores
++            .lock()
++            .unwrap_or_else(|error| error.into_inner())
++            .remove(&identity);
++    }
++}
++
++#[derive(Debug, Default)]
++struct FoyerDataCacheStatistics {
++    bytes_read_from_cache: AtomicU64,
++    bytes_read_from_remote: AtomicU64,
++}
++
++impl FoyerDataCacheStatistics {
++    fn record(&self, bytes_read_from_cache: u64, bytes_read_from_remote: u64) {
++        self.bytes_read_from_cache
++            .fetch_add(bytes_read_from_cache, Ordering::Relaxed);
++        self.bytes_read_from_remote
++            .fetch_add(bytes_read_from_remote, Ordering::Relaxed);
++    }
++
++    fn snapshot(&self) -> LanceDataCacheStatistics {
++        LanceDataCacheStatistics {
++            bytes_read_from_cache: self.bytes_read_from_cache.load(Ordering::Relaxed),
++            bytes_read_from_remote: self.bytes_read_from_remote.load(Ordering::Relaxed),
++        }
++    }
++}
++
++impl DataCacheFactory for FoyerDataCache {
++    fn attach(&self, dataset: lance::Dataset) -> (lance::Dataset, Arc<dyn DatasetDataCache>) {
++        let scope = self.create_scope();
++        let wrapper: Arc<dyn WrappingObjectStore> = scope.clone();
++        let dataset = dataset.with_object_store_wrappers([wrapper]);
++        (dataset, scope)
++    }
++}
++
++#[derive(Debug)]
++struct DatasetFoyerDataCache {
++    cache: FoyerDataCache,
++    statistics: Arc<FoyerDataCacheStatistics>,
++}
++
++impl DatasetDataCache for DatasetFoyerDataCache {
++    fn snapshot(&self) -> LanceDataCacheStatistics {
++        self.statistics.snapshot()
++    }
++
++    fn attach_fresh(&self, dataset: lance::Dataset) -> (lance::Dataset, Arc<dyn DatasetDataCache>) {
++        self.cache.attach(dataset)
++    }
++}
++
++impl WrappingObjectStore for DatasetFoyerDataCache {
++    fn wrap(&self, store_prefix: &str, original: Arc<dyn ObjectStore>) -> Arc<dyn ObjectStore> {
++        // A derived Dataset can already contain this cache wrapper. Resolve
++        // that exact wrapper back to its origin before attaching fresh
++        // dataset-scoped counters.
++        let original = self.cache.unwrap_store(original);
++        let cached_store =
++            Arc::new_cyclic(|weak: &Weak<DataCacheObjectStore>| DataCacheObjectStore {
++                cache: self.cache.clone(),
++                store_prefix: store_prefix.to_owned(),
++                original: original.clone(),
++                statistics: self.statistics.clone(),
++                identity: weak.as_ptr() as usize,
++            });
++        let wrapped: Arc<dyn ObjectStore> = cached_store.clone();
++        self.cache.remember_wrapper(&wrapped, &original);
++        wrapped
++    }
++}
++
++#[derive(Debug)]
++struct DataCacheObjectStore {
++    cache: FoyerDataCache,
++    store_prefix: String,
++    original: Arc<dyn ObjectStore>,
++    statistics: Arc<FoyerDataCacheStatistics>,
++    identity: usize,
++}
++
++impl Drop for DataCacheObjectStore {
++    fn drop(&mut self) {
++        self.cache.forget_wrapper(self.identity);
++    }
++}
++
++impl Display for DataCacheObjectStore {
++    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
++        write!(f, "FoyerDataCache({})", self.original)
++    }
++}
++
++impl DataCacheObjectStore {
++    async fn read_origin_ranges(
++        &self,
++        location: &Path,
++        ranges: &[Range<u64>],
++    ) -> Result<Vec<Bytes>> {
++        let bytes = self.original.get_ranges(location, ranges).await?;
++        self.statistics.record(0, total_bytes(&bytes));
++        Ok(bytes)
++    }
++
++    async fn object_size(&self, location: &Path) -> Result<u64> {
++        let key = self.cache.size_key(&self.store_prefix, location);
++        match self.cache.cache.get(&key).await {
++            Ok(Some(entry)) => match entry.value().as_ref().try_into() {
++                Ok(bytes) => return Ok(u64::from_le_bytes(bytes)),
++                Err(_) => log::warn!(
++                    "Foyer data-cache size entry was malformed for {location}; refreshing it"
++                ),
++            },
++            Ok(None) => {}
++            Err(error) => {
++                log::warn!("Foyer data-cache size lookup failed for {location}: {error}");
++            }
++        }
++
++        let size = self.original.head(location).await?.size;
++        self.cache
++            .cache
++            .insert(key, Bytes::copy_from_slice(&size.to_le_bytes()));
++        Ok(size)
++    }
++
++    async fn cached_ranges(&self, location: &Path, ranges: &[Range<u64>]) -> Result<Vec<Bytes>> {
++        if ranges.is_empty() {
++            return Ok(Vec::new());
++        }
++        if ranges.iter().any(|range| range.start >= range.end) {
++            return self.read_origin_ranges(location, ranges).await;
++        }
++
++        let object_size = self.object_size(location).await?;
++        if ranges.iter().any(|range| range.start >= object_size) {
++            // Preserve the origin's exact error for ranges that start at or
++            // beyond EOF.
++            return self.read_origin_ranges(location, ranges).await;
++        }
++        let readable_ranges = ranges
++            .iter()
++            .map(|range| range.start..range.end.min(object_size))
++            .collect::<Vec<_>>();
++
++        let block_size = self.cache.read_block_size as u64;
++        let mut blocks = BTreeMap::<u64, Option<Bytes>>::new();
++        for range in &readable_ranges {
++            let first = range.start / block_size;
++            let last = (range.end - 1) / block_size;
++            for block_index in first..=last {
++                blocks.entry(block_index).or_default();
++            }
++        }
++
++        for (block_index, block) in &mut blocks {
++            let key = self.cache.key(&self.store_prefix, location, *block_index);
++            match self.cache.cache.get(&key).await {
++                Ok(Some(entry)) => *block = Some(entry.value().clone()),
++                Ok(None) => {}
++                Err(error) => {
++                    // Cache availability must not affect query correctness.
++                    log::warn!("Foyer data-cache lookup failed for {location}: {error}");
++                }
++            }
++        }
++
++        let (bytes_read_from_cache, bytes_read_from_remote) =
++            requested_bytes_by_cache_status(&readable_ranges, block_size, &blocks);
++        let missing: Vec<u64> = blocks
++            .iter()
++            .filter_map(|(block_index, value)| value.is_none().then_some(*block_index))
++            .collect();
++        let mut runs = Vec::<Range<u64>>::new();
++        for block_index in missing {
++            let start = block_index
++                .checked_mul(block_size)
++                .ok_or_else(|| cache_error("data-cache block offset overflow"))?;
++            let end = start
++                .checked_add(block_size)
++                .ok_or_else(|| cache_error("data-cache block end overflow"))?
++                .min(object_size);
++            match runs.last_mut() {
++                Some(run) if run.end == start => run.end = end,
++                _ => runs.push(start..end),
++            }
++        }
++
++        if !runs.is_empty() {
++            // Fetch all contiguous miss runs together so a large Lance read is
++            // not expanded into one remote request per cache block.
++            let fetched = self.original.get_ranges(location, &runs).await?;
++            for (run, bytes) in runs.into_iter().zip(fetched) {
++                let first_block = run.start / block_size;
++                for (offset, chunk) in bytes.chunks(self.cache.read_block_size).enumerate() {
++                    let block_index = first_block + offset as u64;
++                    let value = Bytes::copy_from_slice(chunk);
++                    let key = self.cache.key(&self.store_prefix, location, block_index);
++                    self.cache.cache.insert(key, value.clone());
++                    if let Some(block) = blocks.get_mut(&block_index) {
++                        *block = Some(value);
++                    }
++                }
++            }
++        }
++
++        let assembled = readable_ranges
++            .iter()
++            .map(|range| assemble_range(location, range, block_size, &blocks))
++            .collect::<Result<Vec<_>>>();
++        match assembled {
++            Ok(bytes) => {
++                self.statistics
++                    .record(bytes_read_from_cache, bytes_read_from_remote);
++                Ok(bytes)
++            }
++            Err(error) => {
++                // A malformed or incomplete cached entry must never turn a
++                // valid source read into a query failure.
++                log::warn!(
++                    "Foyer data-cache entry was unusable for {location}; bypassing cache: {error}"
++                );
++                let bytes = self.original.get_ranges(location, ranges).await?;
++                self.statistics.record(0, total_bytes(&bytes));
++                Ok(bytes)
++            }
++        }
++    }
++}
++
++fn total_bytes(ranges: &[Bytes]) -> u64 {
++    ranges.iter().fold(0_u64, |total, bytes| {
++        total.saturating_add(bytes.len() as u64)
++    })
++}
++
++fn requested_bytes_by_cache_status(
++    ranges: &[Range<u64>],
++    block_size: u64,
++    blocks: &BTreeMap<u64, Option<Bytes>>,
++) -> (u64, u64) {
++    let mut hit_bytes = 0_u64;
++    let mut miss_bytes = 0_u64;
++    for range in ranges {
++        let mut start = range.start;
++        while start < range.end {
++            let block_index = start / block_size;
++            let block_start = block_index * block_size;
++            let end = range.end.min(block_start.saturating_add(block_size));
++            let bytes = end - start;
++            if blocks
++                .get(&block_index)
++                .is_some_and(|block| block.is_some())
++            {
++                hit_bytes = hit_bytes.saturating_add(bytes);
++            } else {
++                miss_bytes = miss_bytes.saturating_add(bytes);
++            }
++            start = end;
++        }
++    }
++    (hit_bytes, miss_bytes)
++}
++
++fn assemble_range(
++    location: &Path,
++    range: &Range<u64>,
++    block_size: u64,
++    blocks: &BTreeMap<u64, Option<Bytes>>,
++) -> Result<Bytes> {
++    if range.is_empty() {
++        return Ok(Bytes::new());
++    }
++    let first = range.start / block_size;
++    let last = (range.end - 1) / block_size;
++    if first == last {
++        let block = blocks
++            .get(&first)
++            .and_then(Option::as_ref)
++            .ok_or_else(|| cache_error(format!("missing block {first} for {location}")))?;
++        let block_start = first * block_size;
++        let start = usize::try_from(range.start - block_start)
++            .map_err(|_| cache_error("data-cache slice start exceeds usize::MAX"))?;
++        let end = usize::try_from((range.end - block_start).min(block_size))
++            .map_err(|_| cache_error("data-cache slice end exceeds usize::MAX"))?
++            .min(block.len());
++        if start >= block.len() {
++            return Err(cache_error(format!(
++                "short data-cache block {first} for {location}: need {start}..{end}, got {} bytes",
++                block.len()
++            )));
++        }
++        return Ok(block.slice(start..end));
++    }
++
++    let requested_len = usize::try_from(range.end - range.start)
++        .map_err(|_| cache_error(format!("range {range:?} for {location} exceeds usize::MAX")))?;
++    let mut output = BytesMut::with_capacity(requested_len);
++    for block_index in first..=last {
++        let block = blocks
++            .get(&block_index)
++            .and_then(Option::as_ref)
++            .ok_or_else(|| cache_error(format!("missing block {block_index} for {location}")))?;
++        let block_start = block_index * block_size;
++        let start = usize::try_from(range.start.saturating_sub(block_start))
++            .map_err(|_| cache_error("data-cache slice start exceeds usize::MAX"))?;
++        let end_in_block = range.end.saturating_sub(block_start).min(block_size);
++        let end = usize::try_from(end_in_block)
++            .map_err(|_| cache_error("data-cache slice end exceeds usize::MAX"))?;
++        if start >= block.len() {
++            if !output.is_empty() {
++                break;
++            }
++            return Err(cache_error(format!(
++                "short data-cache block {block_index} for {location}: need {start}..{end}, got {} bytes",
++                block.len()
++            )));
++        }
++        let actual_end = end.min(block.len());
++        output.extend_from_slice(&block[start..actual_end]);
++        if actual_end < end {
++            break;
++        }
++    }
++    Ok(output.freeze())
++}
++
++fn cache_error(message: impl Into<String>) -> object_store::Error {
++    object_store::Error::Generic {
++        store: "foyer_data_cache",
++        source: Box::new(std::io::Error::other(message.into())),
++    }
++}
++
++#[async_trait]
++#[deny(clippy::missing_trait_methods)]
++impl ObjectStore for DataCacheObjectStore {
++    async fn put_opts(
++        &self,
++        location: &Path,
++        payload: PutPayload,
++        opts: PutOptions,
++    ) -> Result<PutResult> {
++        self.original.put_opts(location, payload, opts).await
++    }
++
++    async fn put_multipart_opts(
++        &self,
++        location: &Path,
++        opts: PutMultipartOptions,
++    ) -> Result<Box<dyn MultipartUpload>> {
++        self.original.put_multipart_opts(location, opts).await
++    }
++
++    async fn get_opts(&self, location: &Path, options: GetOptions) -> Result<GetResult> {
++        self.original.get_opts(location, options).await
++    }
++
++    async fn get_ranges(&self, location: &Path, ranges: &[Range<u64>]) -> Result<Vec<Bytes>> {
++        if FoyerDataCache::is_cacheable_data_file(location) {
++            self.cached_ranges(location, ranges).await
++        } else {
++            self.original.get_ranges(location, ranges).await
++        }
++    }
++
++    fn delete_stream(
++        &self,
++        locations: BoxStream<'static, Result<Path>>,
++    ) -> BoxStream<'static, Result<Path>> {
++        self.original.delete_stream(locations)
++    }
++
++    fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, Result<ObjectMeta>> {
++        self.original.list(prefix)
++    }
++
++    fn list_with_offset(
++        &self,
++        prefix: Option<&Path>,
++        offset: &Path,
++    ) -> BoxStream<'static, Result<ObjectMeta>> {
++        self.original.list_with_offset(prefix, offset)
++    }
++
++    async fn list_with_delimiter(&self, prefix: Option<&Path>) -> Result<ListResult> {
++        self.original.list_with_delimiter(prefix).await
++    }
++
++    async fn copy_opts(&self, from: &Path, to: &Path, options: CopyOptions) -> Result<()> {
++        self.original.copy_opts(from, to, options).await
++    }
++
++    async fn rename_opts(&self, from: &Path, to: &Path, options: RenameOptions) -> Result<()> {
++        self.original.rename_opts(from, to, options).await
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use std::sync::mpsc;
++    use std::time::Duration;
++
++    use lance_io::object_store::ChainedWrappingObjectStore;
++    use object_store::memory::InMemory;
++
++    use super::*;
++
++    fn wrap_for_test(
++        cache: &FoyerDataCache,
++        original: Arc<dyn ObjectStore>,
++    ) -> (Arc<dyn ObjectStore>, Arc<DatasetFoyerDataCache>) {
++        let scope = cache.create_scope();
++        (scope.wrap("memory://test", original), scope)
++    }
++
++    #[tokio::test]
++    async fn caches_only_immutable_data_file_ranges() {
++        let directory = tempfile::tempdir().unwrap();
++        let cache = FoyerDataCache::try_new(directory.path(), 256 * 1024, 1024 * 1024, 64 * 1024)
++            .await
++            .unwrap();
++        let original = Arc::new(InMemory::new());
++        let data_path = Path::from("table.lance/data/part-0.lance");
++        let second_data_path = Path::from("table.lance/data/part-1.lance");
++        let manifest_path = Path::from("table.lance/_versions/1.manifest");
++        let data = Bytes::from((0..200_000).map(|value| value as u8).collect::<Vec<_>>());
++        let second_data = Bytes::from_static(b"second fragment");
++        original.put(&data_path, data.clone().into()).await.unwrap();
++        original
++            .put(&second_data_path, second_data.clone().into())
++            .await
++            .unwrap();
++        original
++            .put(&manifest_path, Bytes::from_static(b"manifest").into())
++            .await
++            .unwrap();
++
++        let (wrapped, statistics) = wrap_for_test(&cache, original.clone());
++        let ranges = vec![10..90_000, 65_000..140_000, 190_000..220_000];
++        let second_data_range = 0..15;
++        let first = wrapped.get_ranges(&data_path, &ranges).await.unwrap();
++        assert_eq!(first[0], data.slice(10..90_000));
++        assert_eq!(first[1], data.slice(65_000..140_000));
++        assert_eq!(first[2], data.slice(190_000..200_000));
++        assert_eq!(
++            wrapped
++                .get_ranges(&second_data_path, std::slice::from_ref(&second_data_range))
++                .await
++                .unwrap(),
++            vec![second_data.clone()]
++        );
++
++        assert_eq!(
++            statistics.snapshot(),
++            LanceDataCacheStatistics {
++                bytes_read_from_cache: 0,
++                bytes_read_from_remote: 175_005,
++            }
++        );
++
++        original.delete(&data_path).await.unwrap();
++        original.delete(&second_data_path).await.unwrap();
++        let second = wrapped.get_ranges(&data_path, &ranges).await.unwrap();
++        assert_eq!(second, first);
++        assert_eq!(
++            wrapped
++                .get_ranges(&second_data_path, std::slice::from_ref(&second_data_range))
++                .await
++                .unwrap(),
++            vec![second_data]
++        );
++
++        assert_eq!(
++            statistics.snapshot(),
++            LanceDataCacheStatistics {
++                bytes_read_from_cache: 175_005,
++                bytes_read_from_remote: 175_005,
++            }
++        );
++
++        assert_eq!(
++            wrapped.get_range(&manifest_path, 0..8).await.unwrap(),
++            Bytes::from_static(b"manifest")
++        );
++        original.delete(&manifest_path).await.unwrap();
++        assert!(wrapped.get_range(&manifest_path, 0..8).await.is_err());
++    }
++
++    #[tokio::test]
++    async fn recovers_cached_data_from_disk() {
++        let directory = tempfile::tempdir().unwrap();
++        let original = Arc::new(InMemory::new());
++        let data_path = Path::from("table.lance/data/part-0.lance");
++        let data = Bytes::from((0..100_000).map(|value| value as u8).collect::<Vec<_>>());
++        original.put(&data_path, data.clone().into()).await.unwrap();
++
++        let cache = FoyerDataCache::try_new(directory.path(), 128 * 1024, 1024 * 1024, 64 * 1024)
++            .await
++            .unwrap();
++        let (wrapped, _) = wrap_for_test(&cache, original.clone());
++        let requested_range = 10..90_000;
++        assert_eq!(
++            wrapped
++                .get_ranges(&data_path, std::slice::from_ref(&requested_range))
++                .await
++                .unwrap(),
++            vec![data.slice(10..90_000)]
++        );
++        drop(wrapped);
++        cache.cache.close().await.unwrap();
++        drop(cache);
++
++        original.delete(&data_path).await.unwrap();
++        let recovered =
++            FoyerDataCache::try_new(directory.path(), 128 * 1024, 1024 * 1024, 64 * 1024)
++                .await
++                .unwrap();
++        let (wrapped, statistics) = wrap_for_test(&recovered, original);
++        assert_eq!(
++            wrapped
++                .get_ranges(&data_path, std::slice::from_ref(&requested_range))
++                .await
++                .unwrap(),
++            vec![data.slice(10..90_000)]
++        );
++        assert_eq!(statistics.snapshot().bytes_read_from_cache, 89_990);
++        assert_eq!(statistics.snapshot().bytes_read_from_remote, 0);
++    }
++
++    #[tokio::test]
++    async fn dataset_scopes_share_cache_without_sharing_statistics() {
++        let directory = tempfile::tempdir().unwrap();
++        let cache = FoyerDataCache::try_new(directory.path(), 128 * 1024, 1024 * 1024, 64 * 1024)
++            .await
++            .unwrap();
++        let original = Arc::new(InMemory::new());
++        let data_path = Path::from("table.lance/data/part-0.lance");
++        let data = Bytes::from((0..100_000).map(|value| value as u8).collect::<Vec<_>>());
++        original.put(&data_path, data.clone().into()).await.unwrap();
++
++        let source_scope = cache.create_scope();
++        let source_store = source_scope.wrap("memory://test", original.clone());
++
++        // A restored Dataset is derived from an already-wrapped source
++        // Dataset. The fresh scope must unwrap to the registered origin rather
++        // than nesting over the source scope.
++        let restored_scope = cache.create_scope();
++        let restored_store = restored_scope.wrap("memory://test", source_store.clone());
++        let requested_range = 10..90_000;
++        assert_eq!(
++            restored_store
++                .get_ranges(&data_path, std::slice::from_ref(&requested_range))
++                .await
++                .unwrap(),
++            vec![data.slice(10..90_000)]
++        );
++        assert_eq!(source_scope.snapshot(), LanceDataCacheStatistics::default());
++        assert_eq!(restored_scope.snapshot().bytes_read_from_remote, 89_990);
++
++        original.delete(&data_path).await.unwrap();
++        assert_eq!(
++            source_store
++                .get_ranges(&data_path, std::slice::from_ref(&requested_range))
++                .await
++                .unwrap(),
++            vec![data.slice(10..90_000)]
++        );
++        assert_eq!(source_scope.snapshot().bytes_read_from_cache, 89_990);
++        assert_eq!(restored_scope.snapshot().bytes_read_from_remote, 89_990);
++
++        drop(restored_store);
++        drop(source_store);
++        assert!(cache.wrapped_stores.lock().unwrap().is_empty());
++    }
++
++    #[tokio::test]
++    async fn chained_scopes_drop_intermediate_store_without_deadlocking() {
++        let directory = tempfile::tempdir().unwrap();
++        let cache = FoyerDataCache::try_new(directory.path(), 128 * 1024, 1024 * 1024, 64 * 1024)
++            .await
++            .unwrap();
++        let first: Arc<dyn WrappingObjectStore> = cache.create_scope();
++        let second: Arc<dyn WrappingObjectStore> = cache.create_scope();
++        let chained = ChainedWrappingObjectStore::new(vec![first, second]);
++        let original: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
++        let (sender, receiver) = mpsc::channel();
++
++        let thread = std::thread::spawn(move || {
++            sender
++                .send(chained.wrap("memory://test", original))
++                .unwrap();
++        });
++        let wrapped = receiver
++            .recv_timeout(Duration::from_secs(2))
++            .expect("chained cache wrappers deadlocked while dropping the intermediate store");
++        thread.join().unwrap();
++
++        assert_eq!(cache.wrapped_stores.lock().unwrap().len(), 1);
++        drop(wrapped);
++        assert!(cache.wrapped_stores.lock().unwrap().is_empty());
++    }
++
++    #[tokio::test]
++    async fn truncates_ranges_at_eof_before_enumerating_cache_blocks() {
++        let directory = tempfile::tempdir().unwrap();
++        let cache = FoyerDataCache::try_new(directory.path(), 128 * 1024, 1024 * 1024, 64 * 1024)
++            .await
++            .unwrap();
++        let original = Arc::new(InMemory::new());
++        let data_path = Path::from("table.lance/data/part-0.lance");
++        let data = Bytes::from((0..100_000).map(|value| value as u8).collect::<Vec<_>>());
++        original.put(&data_path, data.into()).await.unwrap();
++
++        let requested_range = 99_990..300_000;
++        let expected = original
++            .get_ranges(&data_path, std::slice::from_ref(&requested_range))
++            .await
++            .unwrap();
++        let (wrapped, statistics) = wrap_for_test(&cache, original.clone());
++        let actual = wrapped
++            .get_ranges(&data_path, std::slice::from_ref(&requested_range))
++            .await
++            .unwrap();
++        assert_eq!(actual, expected);
++        assert_eq!(statistics.snapshot().bytes_read_from_remote, 10);
++
++        original.delete(&data_path).await.unwrap();
++        assert_eq!(
++            wrapped
++                .get_ranges(&data_path, std::slice::from_ref(&requested_range))
++                .await
++                .unwrap(),
++            expected
++        );
++        assert_eq!(statistics.snapshot().bytes_read_from_cache, 10);
++        assert_eq!(statistics.snapshot().bytes_read_from_remote, 10);
++    }
++
++    #[test]
++    fn recognizes_only_direct_data_children() {
++        assert!(FoyerDataCache::is_cacheable_data_file(&Path::from(
++            "dataset/data/part.lance"
++        )));
++        assert!(!FoyerDataCache::is_cacheable_data_file(&Path::from(
++            "dataset/data/nested/part.lance"
++        )));
++        assert!(!FoyerDataCache::is_cacheable_data_file(&Path::from(
++            "dataset/indices/index.lance"
++        )));
++        assert!(!FoyerDataCache::is_cacheable_data_file(&Path::from(
++            "dataset/_versions/1.manifest"
++        )));
++    }
++}
+diff --git a/src/lib.rs b/src/lib.rs
+index 8b212f5..923528a 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -25,11 +25,13 @@ mod alter_columns;
+ mod async_dispatcher;
+ mod batch;
+ mod compact;
++mod data_cache;
+ mod data_statistics;
+ mod dataset;
+ mod delete;
+ mod drop_columns;
+ mod error;
++mod foyer_data_cache;
+ mod fragment_writer;
+ mod fts_query;
+ mod helpers;
+@@ -51,6 +53,7 @@ pub use add_columns::*;
+ pub use alter_columns::*;
+ pub use batch::*;
+ pub use compact::*;
++pub use data_cache::{LanceDataCacheStatistics, lance_dataset_get_data_cache_statistics};
+ pub use data_statistics::*;
+ pub use dataset::*;
+ pub use delete::*;
+@@ -58,6 +61,7 @@ pub use drop_columns::*;
+ pub use error::{
+     LanceErrorCode, lance_free_string, lance_last_error_code, lance_last_error_message,
+ };
++pub use foyer_data_cache::{LanceDataCacheOptions, lance_session_new_with_data_cache};
+ pub use fragment_writer::*;
+ pub use fts_query::*;
+ pub use index::*;
+diff --git a/src/restore.rs b/src/restore.rs
+index 7804b55..fa2d26d 100644
+--- a/src/restore.rs
++++ b/src/restore.rs
+@@ -65,8 +65,16 @@ unsafe fn restore_inner(dataset: *const LanceDataset, version: u64) -> Result<*m
+         Ok::<_, lance_core::Error>(checked_out)
+     })?;
+ 
++    let (restored, data_cache) = if let Some(data_cache) = &ds.data_cache {
++        let (restored, data_cache) = data_cache.attach_fresh(restored);
++        (restored, Some(data_cache))
++    } else {
++        (restored, None)
++    };
++
+     let handle = LanceDataset {
+         inner: RwLock::new(Arc::new(restored)),
++        data_cache,
+     };
+     Ok(Box::into_raw(Box::new(handle)))
+ }
+diff --git a/src/session.rs b/src/session.rs
+index 60a1623..9ed8cfe 100644
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -8,12 +8,14 @@ use std::sync::Arc;
+ use lance::session::Session;
+ use lance_core::Result;
+ 
++use crate::data_cache::DataCacheFactory;
+ use crate::error::{ffi_try, swallow_unwind};
+ use crate::runtime::block_on;
+ 
+-/// Opaque handle for sharing Lance metadata and index caches across datasets.
++/// Opaque handle for shared Lance caches across datasets.
+ pub struct LanceSession {
+     pub(crate) inner: Arc<Session>,
++    pub(crate) data_cache_factory: Option<Arc<dyn DataCacheFactory>>,
+ }
+ 
+ /// Snapshot of a session's metadata and index cache statistics.
+@@ -47,6 +49,14 @@ pub extern "C" fn lance_session_new(
+ fn session_new_inner(
+     index_cache_size_bytes: u64,
+     metadata_cache_size_bytes: u64,
++) -> Result<*mut LanceSession> {
++    session_new_with_data_cache_factory(index_cache_size_bytes, metadata_cache_size_bytes, None)
++}
++
++pub(crate) fn session_new_with_data_cache_factory(
++    index_cache_size_bytes: u64,
++    metadata_cache_size_bytes: u64,
++    data_cache_factory: Option<Arc<dyn DataCacheFactory>>,
+ ) -> Result<*mut LanceSession> {
+     let index_cache_size_bytes = u64_to_usize(index_cache_size_bytes, "index_cache_size_bytes")?;
+     let metadata_cache_size_bytes =
+@@ -58,6 +68,7 @@ fn session_new_inner(
+     );
+     Ok(Box::into_raw(Box::new(LanceSession {
+         inner: Arc::new(session),
++        data_cache_factory,
+     })))
+ }
+ 
+diff --git a/src/writer.rs b/src/writer.rs
+index 1971510..ba51c87 100644
+--- a/src/writer.rs
++++ b/src/writer.rs
+@@ -282,6 +282,7 @@ unsafe fn write_dataset_inner(
+     if !out_dataset.is_null() {
+         let handle = LanceDataset {
+             inner: RwLock::new(Arc::new(dataset)),
++            data_cache: None,
+         };
+         // SAFETY: `out_dataset` is non-NULL (checked above) and the caller
+         // guarantees it points to caller-owned, writable storage of size
+diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
+index 8805764..b4313f4 100644
+--- a/tests/c_api_test.rs
++++ b/tests/c_api_test.rs
+@@ -96,10 +96,83 @@ fn create_large_dataset(num_rows: i32) -> (tempfile::TempDir, String) {
+     (tmp, uri)
+ }
+ 
++/// Helper: create two fragments large enough for Lance's batched range-read
++/// path, which is the path wrapped by the Foyer data cache.
++fn create_large_multi_fragment_dataset(num_rows_per_fragment: i32) -> (tempfile::TempDir, String) {
++    let (tmp, uri) = create_large_dataset(num_rows_per_fragment);
++    let schema = Arc::new(Schema::new(vec![
++        Field::new("id", DataType::Int32, false),
++        Field::new("value", DataType::Float32, true),
++        Field::new("label", DataType::Utf8, true),
++    ]));
++    let ids: Vec<i32> = (num_rows_per_fragment..2 * num_rows_per_fragment).collect();
++    let values: Vec<f32> = ids.iter().map(|id| *id as f32 * 0.5).collect();
++    let labels: Vec<String> = ids.iter().map(|id| format!("row_{id}")).collect();
++    let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
++    let batch = RecordBatch::try_new(
++        schema.clone(),
++        vec![
++            Arc::new(Int32Array::from(ids)),
++            Arc::new(Float32Array::from(values)),
++            Arc::new(StringArray::from(label_refs)),
++        ],
++    )
++    .unwrap();
++
++    lance_c::runtime::block_on(async {
++        let mut dataset = Dataset::open(&uri).await.unwrap();
++        dataset
++            .append(
++                arrow::record_batch::RecordBatchIterator::new(vec![Ok(batch)], schema),
++                None,
++            )
++            .await
++            .unwrap();
++    });
++
++    (tmp, uri)
++}
++
+ fn c_str(s: &str) -> CString {
+     CString::new(s).unwrap()
+ }
+ 
++fn file_object_store_uri(path: &str) -> CString {
++    let path = path.replace('\\', "/");
++    let leading_slash = if path.starts_with('/') { "" } else { "/" };
++    c_str(&format!("file-object-store://{leading_slash}{path}"))
++}
++
++fn create_data_cache_session() -> (tempfile::TempDir, *mut LanceSession) {
++    let directory = tempfile::tempdir().unwrap();
++    let c_directory = c_str(directory.path().to_str().unwrap());
++    let options = LanceDataCacheOptions {
++        directory: c_directory.as_ptr(),
++        memory_capacity_bytes: 8 * 1024 * 1024,
++        disk_capacity_bytes: 32 * 1024 * 1024,
++        read_block_size_bytes: 64 * 1024,
++    };
++    let session = unsafe { lance_session_new_with_data_cache(0, 16 * 1024 * 1024, &options) };
++    assert!(!session.is_null(), "data-cache session should be created");
++    (directory, session)
++}
++
++fn data_cache_statistics(dataset: *const LanceDataset) -> LanceDataCacheStatistics {
++    let mut statistics = LanceDataCacheStatistics::default();
++    assert_eq!(
++        unsafe { lance_dataset_get_data_cache_statistics(dataset, &mut statistics) },
++        0
++    );
++    statistics
++}
++
++fn scanned_row_count(dataset: *const LanceDataset) -> usize {
++    scan_all_rows(dataset)
++        .iter()
++        .map(RecordBatch::num_rows)
++        .sum()
++}
++
+ #[derive(Default)]
+ struct CapturedScanStatistics {
+     calls: usize,
+@@ -313,6 +386,120 @@ fn test_shared_session_rejects_null_inputs() {
+     }
+ }
+ 
++#[test]
++fn test_session_with_data_cache_serves_repeated_scan() {
++    let (tmp, uri) = create_large_multi_fragment_dataset(10_000);
++    let c_uri = file_object_store_uri(&uri);
++    let (_cache_directory, session) = create_data_cache_session();
++
++    let dataset =
++        unsafe { lance_dataset_open_with_session(c_uri.as_ptr(), ptr::null(), 0, session) };
++    assert!(!dataset.is_null(), "dataset open should succeed");
++
++    assert_eq!(data_cache_statistics(dataset), Default::default());
++    assert_eq!(scanned_row_count(dataset), 20_000);
++    let first_statistics = data_cache_statistics(dataset);
++    assert!(first_statistics.bytes_read_from_remote > 0);
++
++    let cached_dataset =
++        unsafe { lance_dataset_open_with_session(c_uri.as_ptr(), ptr::null(), 0, session) };
++    assert!(
++        !cached_dataset.is_null(),
++        "second dataset open should succeed"
++    );
++    unsafe { lance_session_close(session) };
++
++    for entry in std::fs::read_dir(tmp.path().join("large_ds/data")).unwrap() {
++        std::fs::remove_file(entry.unwrap().path()).unwrap();
++    }
++    assert_eq!(scanned_row_count(cached_dataset), 20_000);
++    let cached_statistics = data_cache_statistics(cached_dataset);
++    assert!(cached_statistics.bytes_read_from_cache > 0);
++    assert_eq!(cached_statistics.bytes_read_from_remote, 0);
++
++    assert_eq!(data_cache_statistics(dataset), first_statistics);
++
++    unsafe { lance_dataset_close(cached_dataset) };
++    unsafe { lance_dataset_close(dataset) };
++}
++
++#[test]
++fn test_dataset_data_cache_statistics_validates_inputs_and_defaults_to_zero() {
++    let (_tmp, uri) = create_test_dataset();
++    let c_uri = c_str(&uri);
++    let dataset = unsafe { lance_dataset_open(c_uri.as_ptr(), ptr::null(), 0) };
++    assert!(!dataset.is_null());
++
++    let mut statistics = LanceDataCacheStatistics::default();
++    assert_eq!(
++        unsafe { lance_dataset_get_data_cache_statistics(dataset, &mut statistics) },
++        0
++    );
++    assert_eq!(statistics, LanceDataCacheStatistics::default());
++    assert_eq!(
++        unsafe { lance_dataset_get_data_cache_statistics(ptr::null(), &mut statistics) },
++        -1
++    );
++    assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++    assert_eq!(
++        unsafe { lance_dataset_get_data_cache_statistics(dataset, ptr::null_mut()) },
++        -1
++    );
++    assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++
++    unsafe { lance_dataset_close(dataset) };
++}
++
++#[test]
++fn test_session_with_data_cache_rejects_invalid_options() {
++    let session = unsafe { lance_session_new_with_data_cache(0, 0, ptr::null()) };
++    assert!(session.is_null());
++    assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++
++    let null_directory = LanceDataCacheOptions {
++        directory: ptr::null(),
++        memory_capacity_bytes: 128 * 1024,
++        disk_capacity_bytes: 1024 * 1024,
++        read_block_size_bytes: 64 * 1024,
++    };
++    let session = unsafe { lance_session_new_with_data_cache(0, 0, &null_directory) };
++    assert!(session.is_null());
++    assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++
++    let empty_directory = c_str("");
++    let empty_directory_options = LanceDataCacheOptions {
++        directory: empty_directory.as_ptr(),
++        memory_capacity_bytes: 128 * 1024,
++        disk_capacity_bytes: 1024 * 1024,
++        read_block_size_bytes: 64 * 1024,
++    };
++    let session = unsafe { lance_session_new_with_data_cache(0, 0, &empty_directory_options) };
++    assert!(session.is_null());
++    assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++
++    let cache_directory = tempfile::tempdir().unwrap();
++    let c_cache_directory = c_str(cache_directory.path().to_str().unwrap());
++    let unaligned_block = LanceDataCacheOptions {
++        directory: c_cache_directory.as_ptr(),
++        memory_capacity_bytes: 128 * 1024,
++        disk_capacity_bytes: 1024 * 1024,
++        read_block_size_bytes: 65_535,
++    };
++    let session = unsafe { lance_session_new_with_data_cache(0, 0, &unaligned_block) };
++    assert!(session.is_null());
++    assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++
++    let zero_capacity = LanceDataCacheOptions {
++        directory: c_cache_directory.as_ptr(),
++        memory_capacity_bytes: 0,
++        disk_capacity_bytes: 0,
++        read_block_size_bytes: 64 * 1024,
++    };
++    let session = unsafe { lance_session_new_with_data_cache(0, 0, &zero_capacity) };
++    assert!(session.is_null());
++    assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++}
++
+ #[test]
+ fn test_open_nonexistent() {
+     let c_uri = c_str("memory://nonexistent_dataset_xyz");
+@@ -2787,6 +2974,40 @@ fn test_dataset_restore_to_prior_version() {
+     unsafe { lance_dataset_close(ds) };
+ }
+ 
++#[test]
++fn test_restored_handle_has_independent_data_cache_statistics() {
++    let (_tmp, uri) = create_large_multi_fragment_dataset(10_000);
++    let c_uri = file_object_store_uri(&uri);
++    let (_cache_directory, session) = create_data_cache_session();
++    let source =
++        unsafe { lance_dataset_open_with_session(c_uri.as_ptr(), ptr::null(), 0, session) };
++    assert!(!source.is_null());
++
++    assert_eq!(scanned_row_count(source), 20_000);
++    let source_statistics = data_cache_statistics(source);
++    assert!(source_statistics.bytes_read_from_remote > 0);
++
++    let restored = unsafe { lance_dataset_restore(source, 1) };
++    assert!(!restored.is_null());
++    assert_eq!(data_cache_statistics(restored), Default::default());
++    let source_statistics_after_restore = data_cache_statistics(source);
++
++    assert_eq!(scanned_row_count(restored), 10_000);
++    let restored_statistics = data_cache_statistics(restored);
++    assert!(restored_statistics.bytes_read_from_cache > 0);
++
++    assert_eq!(
++        data_cache_statistics(source),
++        source_statistics_after_restore
++    );
++
++    unsafe {
++        lance_session_close(session);
++        lance_dataset_close(restored);
++        lance_dataset_close(source);
++    }
++}
++
+ #[test]
+ fn test_dataset_restore_to_current_latest_writes_new_manifest() {
+     // Restoring to the current latest still writes a new manifest. The
+diff --git a/tests/cpp/test_c_api.c b/tests/cpp/test_c_api.c
+index c49ecfa..dd674eb 100644
+--- a/tests/cpp/test_c_api.c
++++ b/tests/cpp/test_c_api.c
+@@ -126,6 +126,37 @@ static void test_shared_session(const char *uri) {
+            (unsigned long long)stats.metadata_cache_entries);
+ }
+ 
++static void test_data_cache_session(const char *uri, const char *write_uri) {
++    printf("  test_data_cache_session... ");
++
++    char cache_directory[4096];
++    int path_len = snprintf(cache_directory, sizeof(cache_directory),
++                            "%s_foyer_cache", write_uri);
++    ASSERT(path_len > 0 && (size_t)path_len < sizeof(cache_directory),
++           "cache directory path is too long");
++    LanceDataCacheOptions options = {
++        .directory = cache_directory,
++        .memory_capacity_bytes = 128 * 1024,
++        .disk_capacity_bytes = 1024 * 1024,
++        .read_block_size_bytes = 64 * 1024,
++    };
++    LanceSession *session =
++        lance_session_new_with_data_cache(0, 16 * 1024 * 1024, &options);
++    ASSERT(session != NULL, "data-cache session creation failed");
++
++    LanceDataset *ds = lance_dataset_open_with_session(uri, NULL, 0, session);
++    ASSERT(ds != NULL, "data-cache session dataset open failed");
++    LanceDataCacheStatistics statistics;
++    memset(&statistics, 0, sizeof(statistics));
++    ASSERT(lance_dataset_get_data_cache_statistics(ds, &statistics) == 0,
++           "data-cache dataset statistics failed");
++    lance_session_close(session);
++    ASSERT(lance_dataset_count_rows(ds) > 0,
++           "dataset should remain valid after data-cache session close");
++    lance_dataset_close(ds);
++    printf("OK\n");
++}
++
+ static void test_scan(const char *uri) {
+     printf("  test_scan... ");
+ 
+@@ -973,6 +1004,7 @@ int main(int argc, char **argv) {
+ 
+     test_open_and_metadata(uri);
+     test_shared_session(uri);
++    test_data_cache_session(uri, write_uri);
+     test_scan(uri);
+     test_scan_with_limit(uri);
+     test_versions(uri);
+diff --git a/tests/cpp/test_cpp_api.cpp b/tests/cpp/test_cpp_api.cpp
+index 17b1ab6..e1aadbd 100644
+--- a/tests/cpp/test_cpp_api.cpp
++++ b/tests/cpp/test_cpp_api.cpp
+@@ -99,6 +99,28 @@ static void test_shared_session(const std::string& uri) {
+     PASS();
+ }
+ 
++static void test_data_cache_session(const std::string& uri,
++                                    const std::string& write_uri) {
++    TEST(test_data_cache_session);
++
++    lance::DataCacheOptions options{
++        write_uri + "_foyer_cache",
++        128 * 1024,
++        1024 * 1024,
++        64 * 1024,
++    };
++    auto session = std::make_unique<lance::Session>(
++        0, 16 * 1024 * 1024, options);
++    auto ds = lance::Dataset::open_with_session(*session, uri);
++    auto statistics = ds.data_cache_statistics();
++    assert(statistics.bytes_read_from_cache == 0);
++    assert(statistics.bytes_read_from_remote == 0);
++    session.reset();
++    assert(ds.count_rows() > 0);
++
++    PASS();
++}
++
+ static void test_dataset_schema(const std::string& uri) {
+     TEST(test_dataset_schema);
+ 
+@@ -922,6 +944,7 @@ int main(int argc, char** argv) {
+ 
+     test_dataset_open(uri);
+     test_shared_session(uri);
++    test_data_cache_session(uri, write_uri);
+     test_dataset_schema(uri);
+     test_scanner_fluent(uri);
+     test_scanner_async_stream_ownership(uri);
