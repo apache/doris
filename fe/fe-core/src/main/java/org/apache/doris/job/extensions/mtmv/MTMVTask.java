@@ -92,6 +92,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class MTMVTask extends AbstractTask {
     private static final Logger LOG = LogManager.getLogger(MTMVTask.class);
@@ -642,7 +643,21 @@ public class MTMVTask extends AbstractTask {
                 return Lists.newArrayList(mtmv.getPartitionNames());
             } else if (!CollectionUtils
                     .isEmpty(taskContext.getPartitions())) {
-                return taskContext.getPartitions();
+                // The manual partition set may have been invalidated by alignMvPartition: a base partition
+                // may have been dropped / re-partitioned between command analysis and this async task, and
+                // alignMvPartition removes the corresponding MV partition. An explicit refresh target that
+                // still has no physical partition after alignment must fail the task (not silently complete
+                // as NOT_REFRESH), so snapshot generation / the overwrite sink never dereference a removed
+                // partition and the user learns their requested partition was not refreshed.
+                Set<String> currentPartitionNames = mtmv.getPartitionNames();
+                List<String> invalidPartitions = taskContext.getPartitions().stream()
+                        .filter(partition -> !currentPartitionNames.contains(partition))
+                        .collect(Collectors.toList());
+                if (!invalidPartitions.isEmpty()) {
+                    throw new AnalysisException("partition not exist or was dropped by partition alignment: "
+                            + invalidPartitions);
+                }
+                return Lists.newArrayList(taskContext.getPartitions());
             }
         }
         // if refreshMethod is COMPLETE, we must FULL refresh, avoid external table MTMV always not refresh

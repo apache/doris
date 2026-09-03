@@ -113,6 +113,21 @@ public class MTMVTaskTest {
     }
 
     @Test
+    public void testCalculateNeedRefreshPartitionsManualPartitionMissingFails() throws AnalysisException {
+        // An explicit manual refresh target that has no physical partition after alignment must fail the
+        // task instead of silently completing as NOT_REFRESH without refreshing anything.
+        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL,
+                Lists.newArrayList("p_missing"), false, null);
+        MTMVTask task = new MTMVTask(mtmv, relation, context);
+        try {
+            task.calculateNeedRefreshPartitions(null);
+            Assert.fail("expected AnalysisException for missing manual partition");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("partition not exist"));
+        }
+    }
+
+    @Test
     public void testCalculateNeedRefreshPartitionsSystem() throws AnalysisException {
         Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);

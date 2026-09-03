@@ -32,6 +32,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVAnalyzeQueryInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
@@ -56,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.PlanSlotF
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -85,7 +87,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
     private final MTMVRefreshInfo refreshInfo;
     private MTMVRelation relation;
     private MTMVPartitionInfo mvPartitionInfo;
-    private final Map<String, String> sessionVariables;
+    private Map<String, String> sessionVariables;
 
     /**
      * constructor for create MTMV
@@ -146,6 +148,17 @@ public class CreateMTMVInfo extends CreateTableInfo {
         }
         analyzeProperties();
         analyzeQuery(ctx);
+        // For a TIMESTAMPTZ-partitioned MTMV (date_trunc on a timestamptz column) the derived partition
+        // boundaries are UTC-aligned (see MTMVPartitionExprDateTrunc). Persist time_zone=UTC as the effective
+        // creation zone so the background refresh evaluates the partition key in UTC (matching the UTC
+        // boundaries) and the rewrite guard compares queries against the same UTC semantics. Without this,
+        // content expressions would be materialized in a zone different from the persisted one, and queries
+        // in the persisted (non-UTC) zone could rewrite against a cache built with different semantics.
+        if (usesUtcTimeZonePartition()) {
+            Map<String, String> effectiveSessionVariables = Maps.newHashMap(sessionVariables);
+            effectiveSessionVariables.put(SessionVariable.TIME_ZONE, TimeUtils.getUTCTimeZone().getID());
+            this.sessionVariables = effectiveSessionVariables;
+        }
         this.partitionDesc = generatePartitionDesc(ctx);
         if (distribution == null) {
             throw new AnalysisException("Create async materialized view should contain distribution desc");
@@ -229,6 +242,27 @@ public class CreateMTMVInfo extends CreateTableInfo {
             }
         }
         throw new AnalysisException("can not find partition column");
+    }
+
+    /**
+     * Whether the MTMV partitions by a time-zone converting expression on a TIMESTAMPTZ column
+     * (date_trunc on a timestamptz column). For such MTMVs the derived partition boundaries are
+     * UTC-aligned (see MTMVPartitionExprDateTrunc), so the effective session zone is UTC: both the
+     * background refresh and the rewrite cache must be built in UTC, and the persisted time zone must be
+     * UTC so the rewrite guard compares queries against the same UTC semantics. MTMVs partitioned by a raw
+     * TIMESTAMPTZ slot (no zone conversion) are not affected: the stored instant is zone independent.
+     */
+    private boolean usesUtcTimeZonePartition() {
+        if (mvPartitionInfo == null || mvPartitionInfo.getPartitionType() != MTMVPartitionType.EXPR) {
+            return false;
+        }
+        String partitionCol = mvPartitionInfo.getPartitionCol();
+        for (ColumnDefinition columnDefinition : columns) {
+            if (columnDefinition.getName().equalsIgnoreCase(partitionCol)) {
+                return columnDefinition.translateToCatalogStyle().getType().isTimeStampTz();
+            }
+        }
+        return false;
     }
 
     private PartitionDesc generatePartitionDesc(ConnectContext ctx) {
