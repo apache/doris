@@ -133,17 +133,20 @@ public class OlapTableStream extends BaseTableStream {
         if (baseTable == null) {
             return;
         }
+        // TSO water marks use next-point semantics: the stored offset is the next tso to read
+        // (real commit_tso + 1), so the scan range stays a unified half-open interval
+        // [offset, end). set offset according to baseTable
         if (!showInitialRows) {
             // set partition offset
             baseTable.getPartitions()
-                    .forEach(p -> partitionOffset.put(p.getId(), p.getTso()));
+                    .forEach(p -> partitionOffset.put(p.getId(), p.getTso() + 1));
         } else {
             baseTable.getPartitions()
                     .stream()
                     .filter(p -> p.getVisibleVersion() > Partition.PARTITION_INIT_VERSION)
                     .forEach(p -> {
-                                historicalPartitionTSO.put(p.getId(), p.getTso());
-                                }
+                                historicalPartitionTSO.put(p.getId(), p.getTso() + 1);
+                                    }
                     );
         }
     }
@@ -182,14 +185,16 @@ public class OlapTableStream extends BaseTableStream {
                     // UNIT
                     trow.addToColumnValue(new TCell().setStringVal(entry.getValue().getName()));
                     if (partitionOffset.containsKey(entry.getKey())) {
+                        // partitionOffset stores a next-point (real last-consumed tso + 1);
+                        // subtract 1 to expose the last-consumed tso to users unchanged.
+                        long lastConsumedTso = partitionOffset.get(entry.getKey()) - 1;
                         // CONSUMPTION_STATUS
                         trow.addToColumnValue(new TCell()
-                                .setStringVal(String.valueOf(partitionOffset.get(entry.getKey()))));
+                                .setStringVal(String.valueOf(lastConsumedTso)));
                         // LAG
                         trow.addToColumnValue(new TCell()
                                 .setStringVal(String.valueOf(
-                                        entry.getValue().getTso()
-                                                - partitionOffset.get(entry.getKey()))));
+                                        entry.getValue().getTso() - lastConsumedTso)));
                         // LAST_CONSUMPTION_TIME
                         if (partitionConsumptionTime.containsKey(entry.getKey())) {
                             trow.addToColumnValue(new TCell()
@@ -219,9 +224,11 @@ public class OlapTableStream extends BaseTableStream {
     }
 
     public boolean hasData(Partition partition) {
+        // partitionOffset stores a next-point (real last-consumed tso + 1); all visible data has
+        // been consumed once it reaches the partition's latest commit tso + 1.
         // if all available visible data has been consumed, return false
         return  (!partitionOffset.containsKey(partition.getId())
-                || !partitionOffset.get(partition.getId()).equals(partition.getTso()))
+                || !partitionOffset.get(partition.getId()).equals(partition.getTso() + 1))
                 && partition.hasData();
     }
 
@@ -234,13 +241,16 @@ public class OlapTableStream extends BaseTableStream {
     }
 
     public Pair<Long, Long> getStreamUpdate(Long partitionId) {
+        // Both bounds use next-point semantics (real commit_tso + 1). The left bound (start) is
+        // already stored as a next-point in partitionOffset/historicalPartitionTSO, so only the
+        // right bound (end), derived from the partition's latest commit tso, needs +1.
         // if partition has historical data, return <historical tso, current tso>
         // otherwise, return <current consumed tso, current tso>
         Long left = partitionOffset.get(partitionId);
         if (historicalPartitionTSO.containsKey(partitionId)) {
             left = historicalPartitionTSO.get(partitionId);
         }
-        return Pair.of(left, getBaseTableNullable().getPartition(partitionId).getTso());
+        return Pair.of(left, getBaseTableNullable().getPartition(partitionId).getTso() + 1);
     }
 
     @Override

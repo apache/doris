@@ -516,7 +516,10 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
                     if (!state.hasOffsetTso()) {
                         throw new UserException("MetaService returned a Cloud Table Stream state without Offset TSO");
                     }
-                    row.addToColumnValue(new TCell().setStringVal(String.valueOf(state.getOffsetTso())));
+                    // offset_tso stores a next-point (real last-consumed tso + 1); subtract 1 to
+                    // expose the last-consumed tso. LAG uses end - offset where both are next-point,
+                    // so the difference already equals the real lag.
+                    row.addToColumnValue(new TCell().setStringVal(String.valueOf(state.getOffsetTso() - 1)));
                     row.addToColumnValue(new TCell().setStringVal(
                             String.valueOf(state.getEndTso() - state.getOffsetTso())));
                     row.addToColumnValue(new TCell().setLongVal(

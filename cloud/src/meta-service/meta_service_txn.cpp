@@ -262,7 +262,9 @@ private:
                                update.partition_id());
             return false;
         }
-        if (update.next_offset_tso() <= source_version.commit_tso()) {
+        // Water marks use next-point semantics (real commit_tso + 1), so the next offset may
+        // legally reach source commit_tso + 1 (meaning all committed rows have been consumed).
+        if (update.next_offset_tso() <= source_version.commit_tso() + 1) {
             return true;
         }
         code_ = MetaServiceCode::INVALID_ARGUMENT;

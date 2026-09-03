@@ -390,7 +390,8 @@ public class CloudInternalCatalogTableStreamTest {
             Assertions.assertEquals(-1, offsets.get(0).getOffsetTso());
             Assertions.assertEquals(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING,
                     offsets.get(1).getState());
-            Assertions.assertEquals(101, offsets.get(1).getOffsetTso());
+            // Water marks use next-point semantics: source commit_tso 101 -> next tso to read 102.
+            Assertions.assertEquals(102, offsets.get(1).getOffsetTso());
         }
     }
 

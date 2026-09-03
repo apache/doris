@@ -581,16 +581,13 @@ public class OlapScanNode extends ScanNode {
                         parseBinlogScanType(scanParams, ((OlapTableWrapper) olapTable).getOriginTable());
                 Pair<Long, Long> update = getPartitionOffset(partition.getId());
                 if (update != null) {
-                    // The BE evaluates the TSO scan range as left-closed right-open
-                    // [startTso, endTso). Shift the recorded bounds by +1 here so the scanned
-                    // row set stays identical to the previous (startTso, endTso] semantics.
-                    // table stream, @incr and snapshot reads all funnel through here, so this
-                    // single point keeps their interval semantics unified.
+                    // TSO bounds already use next-point semantics (real commit_tso + 1), forming a
+                    // half-open scan range [startTso, endTso) at the BE. Pass them through as-is.
                     if (update.first != null) {
-                        paloRange.setStartTso(update.first + 1);
+                        paloRange.setStartTso(update.first);
                     }
                     if (update.second != null) {
-                        paloRange.setEndTso(update.second + 1);
+                        paloRange.setEndTso(update.second);
                     } else {
                         paloRange.setEndTso(partition.getTso() + 1);
                     }

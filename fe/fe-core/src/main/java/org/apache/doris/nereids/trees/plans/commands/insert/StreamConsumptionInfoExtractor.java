@@ -120,7 +120,8 @@ public class StreamConsumptionInfoExtractor {
             if (update.second != null) {
                 next.put(entry.getKey(), update.second);
             } else {
-                next.put(entry.getKey(), wrapper.getPartition(entry.getKey()).getTso());
+                // Water marks use next-point semantics (real commit_tso + 1); align the fallback.
+                next.put(entry.getKey(), wrapper.getPartition(entry.getKey()).getTso() + 1);
             }
         }
         return new OlapTableStreamUpdate(prev, next);

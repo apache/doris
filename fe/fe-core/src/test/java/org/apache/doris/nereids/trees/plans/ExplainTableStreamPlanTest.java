@@ -359,12 +359,13 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 TPaloScanRange range = loc.getScanRange().getPaloScanRange();
                 long tabletId = range.getTabletId();
                 long pid = tabletIdToPartitionId.get(tabletId);
-                // BE reads [startTso, endTso), so OlapScanNode shifts the recorded offset by +1.
-                long expectedStart = stream.getStreamUpdate(pid).first + 1;
+                // Water marks use next-point semantics: getStreamUpdate already returns the next
+                // tso to read, and OlapScanNode passes it through as the half-open range start.
+                long expectedStart = stream.getStreamUpdate(pid).first;
                 Assertions.assertEquals(expectedScanType, range.getBinlogScanType(),
                         "binlog scan type should match stream consume type");
                 Assertions.assertEquals(expectedStart, range.getStartTso(),
-                        "startTSO should equal stream partitionOffset (last committed binlog TSO) + 1");
+                        "startTSO should equal stream partitionOffset (next tso to read)");
                 assertedAtLeastOne = true;
             }
         }
@@ -405,7 +406,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             if (off.first != null) {
                 prevOffsets.put(pid, off.first);
             }
-            nextOffsets.put(pid, off.second != null ? off.second : baseTable.getPartition(pid).getTso());
+            nextOffsets.put(pid, off.second != null ? off.second : baseTable.getPartition(pid).getTso() + 1);
         }
         OlapTableStreamUpdate update = new OlapTableStreamUpdate(prevOffsets, nextOffsets);
         Assertions.assertFalse(nextOffsets.isEmpty());
@@ -441,9 +442,10 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             for (TScanRangeLocations loc : locations) {
                 TPaloScanRange range = loc.getScanRange().getPaloScanRange();
                 long pid = tabletIdToPartitionId.get(range.getTabletId());
-                // BE reads [startTso, endTso), so OlapScanNode shifts the recorded offset by +1.
-                Assertions.assertEquals(nextOffsets.get(pid) + 1, range.getStartTso(),
-                        "after offset commit, new startTSO must equal the previously committed next TSO + 1");
+                // Water marks use next-point semantics: the committed next TSO is passed through
+                // as the half-open range start without any further shift.
+                Assertions.assertEquals(nextOffsets.get(pid), range.getStartTso(),
+                        "after offset commit, new startTSO must equal the previously committed next TSO");
                 assertedAtLeastOne = true;
             }
         }
@@ -588,9 +590,10 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         // asserting every incremental scan range carries the composed start/end TSO for its partition.
         String startTs = "2026-05-25 20:51:28";
         String endTs = "2026-05-25 21:51:28";
-        // BE reads [startTso, endTso), so OlapScanNode shifts the composed bounds by +1.
-        long expectedStartTso = TSOTimestamp.composeFullTimestamp(OlapScanNode.parseChangeTimestamp(startTs)) + 1;
-        long expectedEndTso = TSOTimestamp.composeFullTimestamp(OlapScanNode.parseChangeTimestamp(endTs)) + 1;
+        // @incr bounds come straight from the user-provided timestamps and are passed through as a
+        // half-open [start, end) scan range without any shift.
+        long expectedStartTso = TSOTimestamp.composeFullTimestamp(OlapScanNode.parseChangeTimestamp(startTs));
+        long expectedEndTso = TSOTimestamp.composeFullTimestamp(OlapScanNode.parseChangeTimestamp(endTs));
 
         ConnectContext ctx = createDefaultCtx();
         ctx.setDatabase("test_stream");

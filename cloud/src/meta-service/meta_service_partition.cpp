@@ -1214,7 +1214,9 @@ void MetaServiceImpl::commit_table_stream_partition_internal(
         auto source_version_it = stream_versions.find(partition_id);
         DCHECK(source_version_it != stream_versions.end());
         const VersionPB& source_version = source_version_it->second;
-        if (offset.offset_tso() > source_version.commit_tso()) {
+        // Water marks use next-point semantics (real commit_tso + 1); the initial offset may
+        // legally reach source commit_tso + 1. The empty-partition sentinel (-1) always passes.
+        if (offset.offset_tso() > source_version.commit_tso() + 1) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = fmt::format("initial offset exceeds source commit TSO for partition {}",
                               partition_id);

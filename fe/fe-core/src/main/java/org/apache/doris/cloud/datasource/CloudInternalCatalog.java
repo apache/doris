@@ -210,10 +210,14 @@ public class CloudInternalCatalog extends InternalCatalog {
             Cloud.TableStreamOffsetStatePB state = stream.isShowInitialRows() && !emptyPartition
                     ? Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING
                     : Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED;
+            // Water marks use next-point semantics: store the next tso to read (real commit_tso
+            // + 1) so the scan range is a unified half-open interval [offset, end). The empty
+            // partition keeps its -1 sentinel.
+            long offsetTso = emptyPartition ? commitTso : commitTso + 1;
             offsets.add(Cloud.TableStreamOffsetPB.newBuilder()
                     .setPartitionId(partitionId)
                     .setState(state)
-                    .setOffsetTso(commitTso)
+                    .setOffsetTso(offsetTso)
                     .build());
         }
         return offsets;

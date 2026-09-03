@@ -121,7 +121,9 @@ public class CloudTableStreamConsumptionTest extends TestWithFeService {
             rows.sort(Comparator.comparing(row -> row.getColumnValue().get(3).getStringVal()));
             Assertions.assertEquals(2, rows.size());
             Assertions.assertEquals("p1", rows.get(0).getColumnValue().get(3).getStringVal());
-            Assertions.assertEquals("100", rows.get(0).getColumnValue().get(4).getStringVal());
+            // offset_tso 100 is a next-point; the displayed last-consumed tso is 100 - 1 = 99,
+            // while LAG stays end(130) - offset(100) = 30.
+            Assertions.assertEquals("99", rows.get(0).getColumnValue().get(4).getStringVal());
             Assertions.assertEquals("30", rows.get(0).getColumnValue().get(5).getStringVal());
             Assertions.assertEquals(999, rows.get(0).getColumnValue().get(6).getLongVal());
             Assertions.assertEquals("p2", rows.get(1).getColumnValue().get(3).getStringVal());

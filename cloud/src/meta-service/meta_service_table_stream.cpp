@@ -96,7 +96,10 @@ TableStreamReadResult fill_partition_read_state(const TableStreamIdentityPB& ide
                                                 TableStreamPartitionReadStatePB* state) {
     state->set_partition_id(partition_id);
     state->set_visible_version(version.version());
-    state->set_end_tso(version.commit_tso());
+    // TSO water marks are stored as the next tso to read (real commit_tso + 1) so that the
+    // scan range is a unified half-open interval [offset_tso, end_tso). Expose the source's
+    // upper bound in the same next-point semantics.
+    state->set_end_tso(version.commit_tso() + 1);
     if (!offset) {
         state->set_offset_state(TableStreamOffsetStatePB::TABLE_STREAM_OFFSET_UNKNOWN);
         return {};
