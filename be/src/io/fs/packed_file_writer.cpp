@@ -176,8 +176,8 @@ Status PackedFileWriter::_close_sync() {
 Status PackedFileWriter::_wait_packed_upload() {
     DCHECK(!_is_direct_write);
     // Only wait if we have data that was sent to packed manager
-    if (_bytes_appended > 0 && _packed_file_manager != nullptr) {
-        return _packed_file_manager->wait_upload_done(_file_path);
+    if (_bytes_appended > 0 && _packed_file_manager != nullptr && _packed_slice_handle != nullptr) {
+        return _packed_file_manager->wait_upload_done(_packed_slice_handle);
     }
     return Status::OK();
 }
@@ -217,7 +217,8 @@ Status PackedFileWriter::_send_to_packed_manager() {
     }
 
     Slice data_slice(_buffer.data(), _buffer.size());
-    RETURN_IF_ERROR(_packed_file_manager->append_small_file(_file_path, data_slice, _append_info));
+    RETURN_IF_ERROR(_packed_file_manager->append_small_file(_file_path, data_slice, _append_info,
+                                                            &_packed_slice_handle));
     _release_buffer();
     return Status::OK();
 }
@@ -225,11 +226,11 @@ Status PackedFileWriter::_send_to_packed_manager() {
 Status PackedFileWriter::get_packed_slice_location(PackedSliceLocation* location) const {
     DCHECK(_state == State::CLOSED)
             << " file_path: " << _file_path << " bytes_appended: " << _bytes_appended;
-    if (_is_direct_write) {
+    if (_is_direct_write || _packed_slice_handle == nullptr) {
         *location = PackedSliceLocation {};
         return Status::OK();
     }
-    RETURN_IF_ERROR(_packed_file_manager->get_packed_slice_location(_file_path, location));
+    *location = _packed_slice_handle->location();
     LOG(INFO) << "get_packed_slice_location: " << _file_path
               << " packed_path: " << location->packed_file_path << " " << location->offset << " "
               << location->size;

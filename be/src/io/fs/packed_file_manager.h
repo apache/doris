@@ -53,6 +53,53 @@ struct PackedSliceLocation {
     int64_t packed_file_size = -1; // Total size of the packed file, -1 means not set
 };
 
+// Upload state of the packed file a slice belongs to
+enum class PackedSliceUploadState : uint8_t {
+    PENDING = 0,
+    UPLOADED,
+    FAILED,
+};
+
+// A slice of a packed file, shared by PackedFileManager and the PackedFileWriter that
+// produced it. The writer holds its handle for as long as it lives, so it can wait for the
+// upload and read the location back at the end of the load, whatever the manager recycled
+// from its by-path index in the meantime.
+class PackedSliceHandle {
+public:
+    explicit PackedSliceHandle(PackedSliceLocation location) : _location(std::move(location)) {}
+
+    const std::string& packed_file_path() const { return _location.packed_file_path; }
+
+    int64_t create_time() const { return _location.create_time; }
+
+    PackedSliceUploadState upload_state() const {
+        return _upload_state.load(std::memory_order_acquire);
+    }
+
+    // Called once the packed file this slice belongs to reaches a terminal state
+    void set_upload_result(PackedSliceUploadState state, int64_t packed_file_size) {
+        if (state == PackedSliceUploadState::UPLOADED) {
+            _packed_file_size.store(packed_file_size, std::memory_order_relaxed);
+        }
+        _upload_state.store(state, std::memory_order_release);
+    }
+
+    PackedSliceLocation location() const {
+        PackedSliceLocation location = _location;
+        if (upload_state() == PackedSliceUploadState::UPLOADED) {
+            location.packed_file_size = _packed_file_size.load(std::memory_order_relaxed);
+        }
+        return location;
+    }
+
+private:
+    const PackedSliceLocation _location; // Immutable once the slice has been appended
+    std::atomic<int64_t> _packed_file_size {-1};
+    std::atomic<PackedSliceUploadState> _upload_state {PackedSliceUploadState::PENDING};
+};
+
+using PackedSliceHandlePtr = std::shared_ptr<PackedSliceHandle>;
+
 struct PackedAppendContext {
     std::string resource_id;
     int64_t tablet_id = 0;
@@ -73,14 +120,17 @@ public:
     // Initialize manager state; file system will be resolved lazily
     Status init();
 
-    // Write a small file to the current packed file
+    // Write a small file to the current packed file. On success `handle` receives a handle
+    // to the new slice, or nullptr if `data` was too large to be packed.
     Status append_small_file(const std::string& path, const Slice& data,
-                             const PackedAppendContext& info);
+                             const PackedAppendContext& info, PackedSliceHandlePtr* handle);
 
-    // Block until the small file's packed file is uploaded to S3
-    Status wait_upload_done(const std::string& path);
+    // Block until the packed file holding `handle` is uploaded to S3
+    Status wait_upload_done(const PackedSliceHandlePtr& handle);
 
-    // Get packed file index information for a small file
+    // Look a slice location up by small file path, for readers that have no handle to the
+    // slice. The entry is subject to the retention based cleanup, so this can fail for a
+    // file written long ago.
     Status get_packed_slice_location(const std::string& path, PackedSliceLocation* location);
 
     // Start the background management thread
@@ -121,6 +171,10 @@ private:
     // Clean up expired data
     void cleanup_expired_data();
 
+    // Record the terminal upload state of `packed_file` on the slices it contains
+    void mark_slices_upload_result(const PackedFileContext& packed_file,
+                                   PackedSliceUploadState state);
+
     // Internal structure to track packed file state
     enum class PackedFileState {
         INIT,            // Initial state, no files written yet
@@ -134,7 +188,7 @@ private:
     struct PackedFileContext {
         std::string packed_file_path;
         std::unique_ptr<FileWriter> writer;
-        std::unordered_map<std::string, PackedSliceLocation> slice_locations;
+        std::unordered_map<std::string, PackedSliceHandlePtr> slice_locations;
         int64_t current_offset = 0;
         int64_t total_size = 0;
         int64_t create_time;
@@ -180,8 +234,10 @@ private:
     std::unordered_map<std::string, std::shared_ptr<PackedFileContext>> _uploaded_packed_files;
     std::mutex _packed_files_mutex;
 
-    // Global index mapping small file path to packed file index
-    std::unordered_map<std::string, PackedSliceLocation> _global_slice_locations;
+    // Global index mapping small file path to packed file index. It only serves readers
+    // that look a file up by path; writers hold their own handle to the slice, so
+    // recycling an entry here never invalidates a writer.
+    std::unordered_map<std::string, PackedSliceHandlePtr> _global_slice_locations;
     std::mutex _global_index_mutex;
 
 #ifdef BE_TEST
