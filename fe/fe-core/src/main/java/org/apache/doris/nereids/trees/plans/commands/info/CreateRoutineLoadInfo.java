@@ -130,6 +130,7 @@ public class CreateRoutineLoadInfo {
             .add(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY)
             .add(JsonFileFormatProperties.PROP_NUM_AS_STRING)
             .add(JsonFileFormatProperties.PROP_FUZZY_PARSE)
+            .add(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS)
             .add(JsonFileFormatProperties.PROP_JSON_ROOT)
             .add(CsvFileFormatProperties.PROP_ENCLOSE)
             .add(CsvFileFormatProperties.PROP_ESCAPE)
@@ -641,6 +642,25 @@ public class CreateRoutineLoadInfo {
         }
 
         String format = jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
+        // fill_missing_columns is a JSON-only property. If the format is not JSON, the value
+        // would otherwise be silently ignored (including typos), so reject it explicitly here
+        // before the format dispatch to keep behavior consistent with ALTER ROUTINE LOAD.
+        if (jobProperties.containsKey(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS)
+                && !"json".equalsIgnoreCase(format)) {
+            throw new AnalysisException(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS
+                    + " is only supported for JSON format, but found format: " + format);
+        }
+        // fill_missing_columns auto-fills every omitted table column into the scan/output tuple as
+        // a full-row upsert. Fixed partial update only writes the explicitly listed columns, so the
+        // auto-filled non-null columns would be null-checked on the FE side yet dropped by the BE
+        // writer's index slots, which can wrongly filter a valid partial row. The two semantics are
+        // mutually exclusive, so reject the combination up front.
+        if (jobProperties.containsKey(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS)
+                && Boolean.parseBoolean(jobProperties.get(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS))
+                && uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
+            throw new AnalysisException(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS
+                    + " is not supported with fixed partial columns update");
+        }
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(format);
         fileFormatProperties.analyzeFileFormatProperties(jobProperties, false);
     }

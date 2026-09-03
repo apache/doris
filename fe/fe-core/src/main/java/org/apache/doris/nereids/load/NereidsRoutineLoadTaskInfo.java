@@ -22,6 +22,7 @@ import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
@@ -220,6 +221,11 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
     @Override
     public boolean isNumAsString() {
         return Boolean.parseBoolean(jobProperties.get(PROPS_NUM_AS_STRING));
+    }
+
+    @Override
+    public boolean isFillMissingColumns() {
+        return Boolean.parseBoolean(jobProperties.get(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS));
     }
 
     @Override
