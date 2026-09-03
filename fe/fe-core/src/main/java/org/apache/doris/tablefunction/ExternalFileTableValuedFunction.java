@@ -288,7 +288,20 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
         if (!csvSchema.isEmpty()) {
-            return csvSchema;
+            List<Column> schema = Lists.newArrayList(csvSchema);
+            Set<String> columnLowerNames = new HashSet<>();
+            for (Column column : csvSchema) {
+                columnLowerNames.add(column.getName().toLowerCase());
+            }
+            for (String colName : pathPartitionKeys) {
+                if (!columnLowerNames.add(colName.toLowerCase())) {
+                    throw new NotSupportedException(
+                            "Path partition column conflicts with an existing column: " + colName);
+                }
+                schema.add(new Column(colName,
+                        ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH), false));
+            }
+            return schema;
         }
         // if (FeConstants.runningUnitTest) {
         //     Object mockedUtObj = FeConstants.unitTestConstant;
