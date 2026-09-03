@@ -3677,4 +3677,159 @@ TEST_F(ColumnVariantTest, deserialize_mixed_array_elements) {
             << subcolumn.get_least_common_type()->get_name();
 }
 
+// A VARIANT row that holds an empty JSON object carries no payload at all: it is kept as an
+// implicit prefix of defaults on the root subcolumn, or as a root whose least common type was
+// never established. Both states render as `{}`. The result pipeline copies blocks around
+// (the sort merges runs with insert_indices_from, the Arrow Flight result writer re-materializes
+// the whole block through MutableBlock), and every such copy has to keep rendering `{}`.
+// See https://github.com/apache/doris/issues/67367.
+namespace {
+
+MutableColumnPtr make_empty_object_variant(
+        size_t rows, ColumnVariant::FinalizeMode mode = ColumnVariant::FinalizeMode::READ_MODE) {
+    auto column = ColumnVariant::create(0, false);
+    ParseConfig parse_config;
+    for (size_t i = 0; i < rows; ++i) {
+        StringRef json {"{}", 2};
+        variant_util::parse_json_to_variant(*column, json, nullptr, parse_config);
+    }
+    // WRITE_MODE is what the load path uses, and it is what gives the root the JSONB type it
+    // carries once the value has been through storage.
+    column->finalize(mode);
+    return column;
+}
+
+std::string serialize_variant_row(const ColumnVariant& column, size_t row) {
+    DataTypeSerDe::FormatOptions options;
+    std::string serialized;
+    column.serialize_one_row_to_string(static_cast<int64_t>(row), &serialized, options);
+    return serialized;
+}
+
+std::string describe_variant(const ColumnVariant& column) {
+    return fmt::format("rows={} scalar={} null_root={} root_type={} subcolumns={}", column.size(),
+                       column.is_scalar_variant(), column.is_null_root(),
+                       column.get_root_type()->get_name(), column.get_subcolumns().size());
+}
+
+void expect_all_empty_objects(const ColumnVariant& column, const std::string& what) {
+    for (size_t row = 0; row < column.size(); ++row) {
+        EXPECT_EQ(serialize_variant_row(column, row), "{}")
+                << what << " row " << row << ", " << describe_variant(column);
+    }
+}
+
+} // namespace
+
+TEST(ColumnVariantEmptyObjectTest, empty_object_survives_range_copy) {
+    auto source = make_empty_object_variant(3);
+    const auto& source_variant = assert_cast<const ColumnVariant&>(*source);
+    expect_all_empty_objects(source_variant, "source");
+
+    // MutableBlock::merge - which is what the Arrow Flight result writer does to every block -
+    // copies through insert_range_from and does not finalize afterwards, so the copy has to
+    // serialize correctly in both states.
+    auto copy = source->clone_empty();
+    copy->insert_range_from(*source, 0, source->size());
+    expect_all_empty_objects(assert_cast<const ColumnVariant&>(*copy), "insert_range_from copy");
+
+    auto finalized_copy = source->clone_empty();
+    finalized_copy->insert_range_from(*source, 0, source->size());
+    auto& finalized_copy_variant = assert_cast<ColumnVariant&>(*finalized_copy);
+    finalized_copy_variant.finalize();
+    expect_all_empty_objects(finalized_copy_variant, "finalized insert_range_from copy");
+}
+
+TEST(ColumnVariantEmptyObjectTest, empty_object_survives_indices_copy) {
+    auto source = make_empty_object_variant(3);
+    const std::vector<uint32_t> indices {0, 1, 2};
+
+    auto copy = source->clone_empty();
+    copy->insert_indices_from(*source, indices.data(), indices.data() + indices.size());
+    auto& copy_variant = assert_cast<ColumnVariant&>(*copy);
+    expect_all_empty_objects(copy_variant, "insert_indices_from copy");
+}
+
+// The shape the Arrow Flight result path produces for `select ... from t order by k` when the
+// rows come from more than one source block: the sort merges two runs into one column with
+// insert_indices_from, and the result writer copies that column once more.
+TEST(ColumnVariantEmptyObjectTest, empty_object_survives_merged_run_copy) {
+    auto first_run = make_empty_object_variant(3);
+    auto second_run = make_empty_object_variant(2);
+    const std::vector<uint32_t> first_indices {0, 1, 2};
+    const std::vector<uint32_t> second_indices {0, 1};
+
+    auto merged = first_run->clone_empty();
+    merged->insert_indices_from(*first_run, first_indices.data(),
+                                first_indices.data() + first_indices.size());
+    merged->insert_indices_from(*second_run, second_indices.data(),
+                                second_indices.data() + second_indices.size());
+    auto& merged_variant = assert_cast<ColumnVariant&>(*merged);
+    ASSERT_EQ(merged_variant.size(), 5);
+    expect_all_empty_objects(merged_variant, "merged runs");
+
+    auto result_copy = merged->clone_empty();
+    result_copy->insert_range_from(*merged, 0, merged->size());
+    expect_all_empty_objects(assert_cast<const ColumnVariant&>(*result_copy),
+                             "result writer copy of merged runs");
+}
+
+// The shape a persisted empty object actually has: the load path finalizes the root in
+// WRITE_MODE, which gives it the JSONB type, so the rows are materialized defaults rather than an
+// untyped root. Copying such a column with insert_range_from - what MutableBlock::merge, and
+// therefore the Arrow Flight result writer, does to every result block - leaves the copy
+// unfinalized, and it still has to serialize as `{}`.
+TEST(ColumnVariantEmptyObjectTest, empty_object_survives_copy_of_written_root) {
+    auto source = make_empty_object_variant(3, ColumnVariant::FinalizeMode::WRITE_MODE);
+    const auto& source_variant = assert_cast<const ColumnVariant&>(*source);
+    expect_all_empty_objects(source_variant, "written source");
+
+    auto copy = source->clone_empty();
+    copy->insert_range_from(*source, 0, source->size());
+    expect_all_empty_objects(assert_cast<const ColumnVariant&>(*copy),
+                             "unfinalized insert_range_from copy of written root");
+
+    auto finalized_copy = source->clone_empty();
+    finalized_copy->insert_range_from(*source, 0, source->size());
+    auto& finalized_copy_variant = assert_cast<ColumnVariant&>(*finalized_copy);
+    finalized_copy_variant.finalize();
+    expect_all_empty_objects(finalized_copy_variant,
+                             "finalized insert_range_from copy of written root");
+
+    const std::vector<uint32_t> indices {0, 1, 2};
+    auto indices_copy = source->clone_empty();
+    indices_copy->insert_indices_from(*source, indices.data(), indices.data() + indices.size());
+    expect_all_empty_objects(assert_cast<const ColumnVariant&>(*indices_copy),
+                             "insert_indices_from copy of written root");
+}
+
+// The shape the Arrow Flight result path actually produces. The rows come from more than one
+// source block, and the blocks do not agree on the root's type: a block that has been through
+// storage carries a JSONB root, one that has not carries an untyped one. Copying them into one
+// column with insert_range_from - what MutableBlock::merge, and therefore the Arrow Flight result
+// writer, does to every result block - keeps one part per source range and promotes only the
+// column-level least common type, so the rows in the untyped part have to be recognized as empty
+// objects by the part's own type. See https://github.com/apache/doris/issues/67367.
+TEST(ColumnVariantEmptyObjectTest, empty_object_survives_copy_of_mixed_type_parts) {
+    auto untyped_run = make_empty_object_variant(3, ColumnVariant::FinalizeMode::READ_MODE);
+    auto written_run = make_empty_object_variant(2, ColumnVariant::FinalizeMode::WRITE_MODE);
+    expect_all_empty_objects(assert_cast<const ColumnVariant&>(*untyped_run), "untyped run");
+    expect_all_empty_objects(assert_cast<const ColumnVariant&>(*written_run), "written run");
+
+    auto copy = untyped_run->clone_empty();
+    copy->insert_range_from(*untyped_run, 0, untyped_run->size());
+    copy->insert_range_from(*written_run, 0, written_run->size());
+    const auto& copy_variant = assert_cast<const ColumnVariant&>(*copy);
+    ASSERT_EQ(copy_variant.size(), untyped_run->size() + written_run->size());
+    // Not finalized on purpose: the result writer does not finalize what it copies.
+    expect_all_empty_objects(copy_variant, "unfinalized copy of mixed-type parts");
+
+    auto finalized_copy = untyped_run->clone_empty();
+    finalized_copy->insert_range_from(*untyped_run, 0, untyped_run->size());
+    finalized_copy->insert_range_from(*written_run, 0, written_run->size());
+    auto& finalized_copy_variant = assert_cast<ColumnVariant&>(*finalized_copy);
+    finalized_copy_variant.finalize();
+    expect_all_empty_objects(finalized_copy_variant, "finalized copy of mixed-type parts");
+}
+
 } // namespace doris

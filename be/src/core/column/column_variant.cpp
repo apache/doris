@@ -1439,6 +1439,18 @@ size_t ColumnVariant::Subcolumn::serialize_text_json(size_t n, BufferWritable& o
         const auto& part_type_serde = data_serdes[i];
 
         if (ind < part.size()) {
+            // A part whose own type is Nothing holds no value, exactly like the untyped root
+            // handled at the top of this function. The two are not the same check: an unfinalized
+            // subcolumn keeps one part per source range (Subcolumn::insert_range_from appends a
+            // new part rather than rewriting the earlier ones), and a later typed part promotes
+            // the column-level least common type, so the check above stops covering the rows that
+            // still sit in an untyped part. Render those rows as an empty JSON object here too,
+            // instead of letting the Nothing serde emit an empty string. See #67367.
+            if (get_base_type_of_array(data_types[i])->get_primitive_type() ==
+                PrimitiveType::INVALID_TYPE) {
+                output.write(EMPTY_JSON.data(), EMPTY_JSON.size());
+                return EMPTY_JSON.size();
+            }
             // special case when null flag is true, but the value is empty string in JSON type,
             // other wise will serialize to '\N'
             const auto* nullable_col = check_and_get_column<ColumnNullable>(*data[i]);

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <algorithm>
+
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_variant.h"
 #include "exprs/function/cast/cast_base.h"
@@ -67,11 +69,32 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
     // if the root of this variant column is a number column, converting it to a number column
     // is acceptable. However, if the destination type is a string and root is none scalar root, then
     // we should convert the entire tree to a string.
-    bool is_root_valuable = variant->is_scalar_variant() ||
-                            (!variant->is_null_root() &&
-                             variant->get_root_type()->get_primitive_type() != INVALID_TYPE &&
-                             !is_string_type(data_type_to->get_primitive_type()) &&
-                             data_type_to->get_primitive_type() != TYPE_JSONB);
+    // A scalar variant is only worth converting through its root when the root actually carries a
+    // value. A column whose rows are all empty JSON objects is still "scalar" - it simply has no
+    // path, so its root never got a type - and routing it through the root conversion leaves
+    // nothing to convert and turns every row into NULL, instead of the `{}` that serializing the
+    // whole tree produces for the very same value in a column that does hold paths. See #67367.
+    const bool root_carries_value = !variant->is_null_root() &&
+                                    variant->get_root_type()->get_primitive_type() != INVALID_TYPE;
+    const bool to_string_or_jsonb = is_string_type(data_type_to->get_primitive_type()) ||
+                                    data_type_to->get_primitive_type() == TYPE_JSONB;
+    bool is_root_valuable =
+            root_carries_value && (variant->is_scalar_variant() || !to_string_or_jsonb);
+    if (is_root_valuable && to_string_or_jsonb) {
+        // Once the root is typed, a row that holds an empty JSON object shows up as a NULL root
+        // inside a variant row that is not itself NULL. Converting such a root to STRING/JSONB
+        // yields NULL, while serializing the tree renders it as `{}` - which is what `SELECT
+        // <variant>` returns, and what the same value returns from a column that also holds
+        // paths. When no row's root holds a value there is nothing for the root conversion to
+        // convert, so serialize the tree instead. Rows whose root does hold a value keep the root
+        // conversion, which is what unwraps a JSON string into its text. See #67367.
+        const auto* nullable_root = check_and_get_column<ColumnNullable>(*variant->get_root());
+        if (nullable_root != nullptr) {
+            const auto& root_null_map = nullable_root->get_null_map_data();
+            is_root_valuable = std::any_of(root_null_map.begin(), root_null_map.end(),
+                                           [](UInt8 is_null) { return is_null == 0; });
+        }
+    }
 
     if (is_root_valuable) {
         ColumnPtr nested = variant->get_root();
@@ -110,10 +133,10 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
                                       {0, 1}, input_rows_count);
         }
     } else {
-        if (variant->only_have_default_values()) {
-            col_to->assert_mutable()->insert_many_defaults(input_rows_count);
-            col_to = make_nullable(col_to, true);
-        } else if (is_string_type(data_type_to->get_primitive_type())) {
+        // A variant that only holds default values still has a JSON rendering - every such row is
+        // the empty object - so a STRING/JSONB target has to serialize the tree rather than fall
+        // into the all-NULL branch below, which stays the right answer for scalar targets.
+        if (is_string_type(data_type_to->get_primitive_type())) {
             // serialize to string
             return execute_on_finalized_input([&](Block& finalized_block) {
                 return CastToStringFunction::execute_impl(context, finalized_block, arguments,
@@ -125,6 +148,9 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
                 return cast_from_generic_to_jsonb(context, finalized_block, arguments, result,
                                                   input_rows_count);
             });
+        } else if (variant->only_have_default_values()) {
+            col_to->assert_mutable()->insert_many_defaults(input_rows_count);
+            col_to = make_nullable(col_to, true);
         } else if (!data_type_to->is_nullable() &&
                    !is_string_type(data_type_to->get_primitive_type())) {
             // other types
