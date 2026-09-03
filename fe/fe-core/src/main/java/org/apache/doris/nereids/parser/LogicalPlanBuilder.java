@@ -4012,8 +4012,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.REPLACE() != null && ctx.EXISTS() != null) {
             throw new AnalysisException("[OR REPLACE] and [IF NOT EXISTS] cannot used at the same time");
         }
-        String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
-                ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
+        String comment = ctx.STRING_LITERAL() == null ? ""
+                : SqlLiteralUtils.parseStringLiteral(ctx.STRING_LITERAL().getText());
         Map<String, String> properties = ctx.properties != null
                 // NOTICE: we should not generate immutable map here, because it will be modified when analyzing.
                 ? Maps.newHashMap(visitPropertyClause(ctx.properties))
@@ -7272,7 +7272,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitAlterStreamComment(DorisParser.AlterStreamCommentContext ctx) {
         TableNameInfo streamName = new TableNameInfo(visitMultipartIdentifier(ctx.name));
-        String comment = stripQuotes(ctx.comment.getText());
+        String comment = SqlLiteralUtils.parseStringLiteral(ctx.comment.getText());
         return AlterStreamCommand.forSetComment(streamName, comment);
     }
 

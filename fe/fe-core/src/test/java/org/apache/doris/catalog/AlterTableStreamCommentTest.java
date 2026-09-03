@@ -21,6 +21,7 @@ import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -75,5 +76,45 @@ public class AlterTableStreamCommentTest extends TestWithFeService {
                 () -> executeSql("alter stream test_alter_stream_comment.not_exist set comment 'no such stream'"));
 
         dropDatabase("test_alter_stream_comment");
+    }
+
+    @Test
+    public void testAlterStreamCommentStringLiteral() throws Exception {
+        createDatabase("test_alter_stream_comment_literal");
+        createTable("create table test_alter_stream_comment_literal.base_tbl (k1 int, v1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW');");
+        // CREATE STREAM and ALTER STREAM must decode the string literal in the same way:
+        // a doubled quote is one quote and, unless NO_BACKSLASH_ESCAPES is set, backslash escapes are decoded
+        createTable("create stream test_alter_stream_comment_literal.s1"
+                + " on table test_alter_stream_comment_literal.base_tbl\n"
+                + "comment 'a''b\\nc'\n"
+                + "properties('type' = 'append_only');");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test_alter_stream_comment_literal");
+        BaseTableStream stream = (BaseTableStream) db.getTableOrDdlException("s1");
+        Assertions.assertEquals("a'b\nc", stream.getComment());
+
+        executeSql("alter stream test_alter_stream_comment_literal.s1 set comment 'x''y\\tz'");
+        Assertions.assertEquals("x'y\tz", stream.getComment());
+
+        // a double quoted literal doubles the double quote instead
+        executeSql("alter stream test_alter_stream_comment_literal.s1 set comment \"p\"\"q\"");
+        Assertions.assertEquals("p\"q", stream.getComment());
+
+        // under NO_BACKSLASH_ESCAPES a backslash is an ordinary character. Both the lexer and
+        // SqlLiteralUtils read the sql mode from the thread local ConnectContext, so bind it first.
+        connectContext.setThreadLocalInfo();
+        long originalSqlMode = connectContext.getSessionVariable().getSqlMode();
+        try {
+            connectContext.getSessionVariable().setSqlMode(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+            executeSql("alter stream test_alter_stream_comment_literal.s1 set comment 'a\\nb'");
+            Assertions.assertEquals("a\\nb", stream.getComment());
+        } finally {
+            connectContext.getSessionVariable().setSqlMode(originalSqlMode);
+        }
+
+        dropDatabase("test_alter_stream_comment_literal");
     }
 }

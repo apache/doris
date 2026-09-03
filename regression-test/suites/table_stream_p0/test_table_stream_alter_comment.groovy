@@ -22,23 +22,11 @@ suite("test_table_stream_alter_comment") {
         return
     }
 
-    def baseTable = "test_stream_alter_comment_base"
-    def streamName = "test_stream_alter_comment_stream"
-
-    def streamComment = { name ->
-        def rows = sql """
-            SELECT STREAM_COMMENT FROM information_schema.table_streams
-            WHERE DB_NAME = DATABASE() AND STREAM_NAME = '${name}'
-        """
-        assertEquals(1, rows.size())
-        return rows[0][0].toString()
-    }
-
-    sql "DROP STREAM IF EXISTS ${streamName}"
-    sql "DROP TABLE IF EXISTS ${baseTable} FORCE"
+    sql "DROP STREAM IF EXISTS test_stream_alter_comment_stream"
+    sql "DROP TABLE IF EXISTS test_stream_alter_comment_base FORCE"
 
     sql """
-        CREATE TABLE ${baseTable} (
+        CREATE TABLE test_stream_alter_comment_base (
             k1 INT NOT NULL,
             v1 INT
         )
@@ -52,34 +40,60 @@ suite("test_table_stream_alter_comment") {
     """
 
     sql """
-        CREATE STREAM ${streamName} ON TABLE ${baseTable}
+        CREATE STREAM test_stream_alter_comment_stream ON TABLE test_stream_alter_comment_base
         COMMENT 'initial comment'
         PROPERTIES ("type" = "append_only")
     """
-    assertEquals("initial comment", streamComment(streamName))
+
+    order_qt_comment_after_create """
+        SELECT STREAM_COMMENT FROM information_schema.table_streams
+        WHERE DB_NAME = DATABASE() AND STREAM_NAME = 'test_stream_alter_comment_stream'
+    """
 
     // SET COMMENT
-    sql """ALTER STREAM ${streamName} SET COMMENT 'updated comment'"""
-    assertEquals("updated comment", streamComment(streamName))
-    def createStmt = sql("SHOW CREATE STREAM ${streamName}")[0][1].toString()
+    sql """ALTER STREAM test_stream_alter_comment_stream SET COMMENT 'updated comment'"""
+    order_qt_comment_after_set """
+        SELECT STREAM_COMMENT FROM information_schema.table_streams
+        WHERE DB_NAME = DATABASE() AND STREAM_NAME = 'test_stream_alter_comment_stream'
+    """
+
+    // the new comment is part of SHOW CREATE STREAM as well. The whole DDL is not used as the
+    // expected output on purpose: its PROPERTIES section changes as the stream feature evolves.
+    def createStmt = sql("SHOW CREATE STREAM test_stream_alter_comment_stream")[0][1].toString()
     assertTrue(createStmt.contains("COMMENT 'updated comment'"), createStmt)
 
     // MODIFY COMMENT is accepted as well, to stay consistent with ALTER TABLE
-    sql """ALTER STREAM ${streamName} MODIFY COMMENT 'modified comment'"""
-    assertEquals("modified comment", streamComment(streamName))
+    sql """ALTER STREAM test_stream_alter_comment_stream MODIFY COMMENT 'modified comment'"""
+    order_qt_comment_after_modify """
+        SELECT STREAM_COMMENT FROM information_schema.table_streams
+        WHERE DB_NAME = DATABASE() AND STREAM_NAME = 'test_stream_alter_comment_stream'
+    """
+
+    // the literal is decoded the same way CREATE STREAM decodes it: a doubled quote is one quote
+    sql """ALTER STREAM test_stream_alter_comment_stream SET COMMENT 'a''b'"""
+    order_qt_comment_doubled_quote """
+        SELECT STREAM_COMMENT, LENGTH(STREAM_COMMENT) FROM information_schema.table_streams
+        WHERE DB_NAME = DATABASE() AND STREAM_NAME = 'test_stream_alter_comment_stream'
+    """
 
     // an empty comment clears the comment
-    sql """ALTER STREAM ${streamName} SET COMMENT ''"""
-    assertEquals("", streamComment(streamName))
-    createStmt = sql("SHOW CREATE STREAM ${streamName}")[0][1].toString()
+    sql """ALTER STREAM test_stream_alter_comment_stream SET COMMENT ''"""
+    order_qt_comment_after_clear """
+        SELECT STREAM_COMMENT FROM information_schema.table_streams
+        WHERE DB_NAME = DATABASE() AND STREAM_NAME = 'test_stream_alter_comment_stream'
+    """
+    createStmt = sql("SHOW CREATE STREAM test_stream_alter_comment_stream")[0][1].toString()
     assertFalse(createStmt.contains("COMMENT '"), createStmt)
 
-    sql """ALTER STREAM ${streamName} SET COMMENT 'final comment'"""
-    assertEquals("final comment", streamComment(streamName))
+    sql """ALTER STREAM test_stream_alter_comment_stream SET COMMENT 'final comment'"""
+    order_qt_comment_final """
+        SELECT STREAM_COMMENT FROM information_schema.table_streams
+        WHERE DB_NAME = DATABASE() AND STREAM_NAME = 'test_stream_alter_comment_stream'
+    """
 
     // altering a normal table through ALTER STREAM is rejected
     test {
-        sql """ALTER STREAM ${baseTable} SET COMMENT 'not a stream'"""
+        sql """ALTER STREAM test_stream_alter_comment_base SET COMMENT 'not a stream'"""
         exception "is not STREAM"
     }
 
@@ -88,7 +102,4 @@ suite("test_table_stream_alter_comment") {
         sql """ALTER STREAM test_stream_alter_comment_not_exist SET COMMENT 'no such stream'"""
         exception "Unknown table"
     }
-
-    sql "DROP STREAM IF EXISTS ${streamName}"
-    sql "DROP TABLE IF EXISTS ${baseTable} FORCE"
 }
