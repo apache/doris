@@ -1514,11 +1514,34 @@ public abstract class RoutineLoadJob
 
         if (!isReplay && jobState != JobState.RUNNING) {
             if (jobState == JobState.PAUSED) {
-                Env.getCurrentEnv().getEditLog().logOpRoutineLoadJob(new RoutineLoadOperation(id, jobState, reason));
+                Env.getCurrentEnv().getEditLog().logOpRoutineLoadJob(createPauseOperation(reason));
             } else {
                 Env.getCurrentEnv().getEditLog().logOpRoutineLoadJob(new RoutineLoadOperation(id, jobState));
             }
         }
+    }
+
+    protected RoutineLoadOperation createPauseOperation(ErrorReason reason) {
+        return new RoutineLoadOperation(id, JobState.PAUSED, reason);
+    }
+
+    public void replayRestoreOperatorMetadata(RoutineLoadOperation operation) {
+        if (operation.getProgress() == null) {
+            // Pause operations written before operator metadata was persisted do not contain a snapshot.
+            return;
+        }
+        Preconditions.checkNotNull(operation.getStatistic());
+        writeLock();
+        try {
+            progress = operation.getProgress();
+            jobStatistic = operation.getStatistic();
+            replayRestoreDataSourceOperatorMetadata(operation);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    protected void replayRestoreDataSourceOperatorMetadata(RoutineLoadOperation operation) {
     }
 
     private void executeRunning() {

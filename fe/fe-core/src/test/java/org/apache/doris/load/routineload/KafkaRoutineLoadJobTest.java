@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -44,6 +45,9 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.RoutineLoadOperation;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TRoutineLoadTask;
@@ -58,9 +62,14 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -246,6 +255,110 @@ public class KafkaRoutineLoadJobTest {
                     Mockito.argThat(partitions -> partitions.size() == 1 && partitions.contains(1)),
                     Mockito.nullable(String.class)));
         }
+    }
+
+    @Test
+    public void testReplayPausedJobPreservesOperatorMetadata() throws Exception {
+        long jobId = 1L;
+        KafkaRoutineLoadJob sourceJob = new KafkaRoutineLoadJob(jobId, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+
+        Map<Integer, Long> partitionOffsets = Maps.newHashMap();
+        partitionOffsets.put(1, 11L);
+        partitionOffsets.put(2, 21L);
+        Deencapsulation.setField(sourceJob, "progress", new KafkaProgress(partitionOffsets));
+
+        RoutineLoadStatistic statistic = sourceJob.getRoutineLoadStatistic();
+        statistic.totalRows = 100L;
+        statistic.errorRows = 2L;
+        statistic.receivedBytes = 1024L;
+
+        List<Integer> currentKafkaPartitions = Lists.newArrayList(1, 2);
+        Map<Integer, Long> latestOffsets = Maps.newHashMap();
+        latestOffsets.put(1, 15L);
+        latestOffsets.put(2, 30L);
+        Deencapsulation.setField(sourceJob, "currentKafkaPartitions", currentKafkaPartitions);
+        Deencapsulation.setField(sourceJob, "cachedPartitionWithLatestOffsets", latestOffsets);
+
+        ErrorReason pauseReason = new ErrorReason(InternalErrorCode.MANUAL_PAUSE_ERR, "pause for replay");
+        RoutineLoadOperation pauseOperation;
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            sourceJob.updateState(RoutineLoadJob.JobState.PAUSED, pauseReason, false);
+            ArgumentCaptor<RoutineLoadOperation> operationCaptor =
+                    ArgumentCaptor.forClass(RoutineLoadOperation.class);
+            Mockito.verify(editLog).logOpRoutineLoadJob(operationCaptor.capture());
+            pauseOperation = operationCaptor.getValue();
+        }
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            pauseOperation.write(out);
+        }
+
+        RoutineLoadOperation replayedOperation;
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            replayedOperation = RoutineLoadOperation.read(in);
+        }
+
+        KafkaRoutineLoadJob replayedJob = new KafkaRoutineLoadJob(jobId, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+        Map<Long, RoutineLoadJob> jobs = Deencapsulation.getField(routineLoadManager, "idToRoutineLoadJob");
+        jobs.put(jobId, replayedJob);
+        routineLoadManager.replayChangeRoutineLoadJob(replayedOperation);
+
+        Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, replayedJob.getState());
+        Assert.assertEquals(pauseReason.toString(), replayedJob.getPauseReason().toString());
+        Assert.assertEquals(partitionOffsets,
+                ((KafkaProgress) replayedJob.getProgress()).getOffsetByPartition());
+        Assert.assertEquals(100L, replayedJob.getRoutineLoadStatistic().totalRows);
+        Assert.assertEquals(2L, replayedJob.getRoutineLoadStatistic().errorRows);
+        Assert.assertEquals(1024L, replayedJob.getRoutineLoadStatistic().receivedBytes);
+        Assert.assertEquals(currentKafkaPartitions,
+                Deencapsulation.getField(replayedJob, "currentKafkaPartitions"));
+        Assert.assertEquals(latestOffsets,
+                Deencapsulation.getField(replayedJob, "cachedPartitionWithLatestOffsets"));
+        Assert.assertEquals(13L, replayedJob.totalLag().longValue());
+        Assert.assertTrue(replayedJob.dataSourcePropertiesJsonToString()
+                .contains("\"currentKafkaPartitions\":\"1,2\""));
+        String imageJson = GsonUtils.GSON.toJson(replayedJob);
+        Assert.assertTrue(imageJson.contains("\"pg\":"));
+        Assert.assertTrue(imageJson.contains("\"js\":"));
+        Assert.assertTrue(imageJson.contains("\"ckp\":[1,2]"));
+        Assert.assertTrue(imageJson.contains("\"cplo\":{"));
+    }
+
+    @Test
+    public void testReplayLegacyPauseKeepsReconstructedOperatorMetadata() {
+        long jobId = 1L;
+        KafkaRoutineLoadJob replayedJob = new KafkaRoutineLoadJob(jobId, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Map<Integer, Long> partitionOffsets = Maps.newHashMap();
+        partitionOffsets.put(1, 11L);
+        Deencapsulation.setField(replayedJob, "progress", new KafkaProgress(partitionOffsets));
+        replayedJob.getRoutineLoadStatistic().totalRows = 100L;
+        Deencapsulation.setField(replayedJob, "currentKafkaPartitions", Lists.newArrayList(1));
+        Map<Integer, Long> latestOffsets = Maps.newHashMap();
+        latestOffsets.put(1, 15L);
+        Deencapsulation.setField(replayedJob, "cachedPartitionWithLatestOffsets", latestOffsets);
+
+        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+        Map<Long, RoutineLoadJob> jobs = Deencapsulation.getField(routineLoadManager, "idToRoutineLoadJob");
+        jobs.put(jobId, replayedJob);
+        ErrorReason pauseReason = new ErrorReason(InternalErrorCode.MANUAL_PAUSE_ERR, "legacy pause");
+        routineLoadManager.replayChangeRoutineLoadJob(
+                new RoutineLoadOperation(jobId, RoutineLoadJob.JobState.PAUSED, pauseReason));
+
+        Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, replayedJob.getState());
+        Assert.assertEquals(partitionOffsets,
+                ((KafkaProgress) replayedJob.getProgress()).getOffsetByPartition());
+        Assert.assertEquals(100L, replayedJob.getRoutineLoadStatistic().totalRows);
+        Assert.assertEquals(Lists.newArrayList(1),
+                Deencapsulation.getField(replayedJob, "currentKafkaPartitions"));
+        Assert.assertEquals(4L, replayedJob.totalLag().longValue());
     }
 
     @Test

@@ -21,6 +21,8 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.routineload.ErrorReason;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
+import org.apache.doris.load.routineload.RoutineLoadProgress;
+import org.apache.doris.load.routineload.RoutineLoadStatistic;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -28,6 +30,10 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class RoutineLoadOperation implements Writable {
     @SerializedName("id")
@@ -36,6 +42,14 @@ public class RoutineLoadOperation implements Writable {
     private JobState jobState;
     @SerializedName("rs")
     private ErrorReason reason;
+    @SerializedName("opg")
+    private RoutineLoadProgress progress;
+    @SerializedName("ost")
+    private RoutineLoadStatistic statistic;
+    @SerializedName("ckp")
+    private List<Integer> currentKafkaPartitions;
+    @SerializedName("cplo")
+    private Map<Integer, Long> cachedPartitionWithLatestOffsets;
 
     private RoutineLoadOperation() {
     }
@@ -51,6 +65,16 @@ public class RoutineLoadOperation implements Writable {
         this.reason = reason;
     }
 
+    public RoutineLoadOperation(long id, JobState jobState, ErrorReason reason,
+            RoutineLoadProgress progress, RoutineLoadStatistic statistic,
+            List<Integer> currentKafkaPartitions, Map<Integer, Long> cachedPartitionWithLatestOffsets) {
+        this(id, jobState, reason);
+        this.progress = progress;
+        this.statistic = statistic;
+        this.currentKafkaPartitions = new ArrayList<>(currentKafkaPartitions);
+        this.cachedPartitionWithLatestOffsets = new HashMap<>(cachedPartitionWithLatestOffsets);
+    }
+
     public long getId() {
         return id;
     }
@@ -61,6 +85,22 @@ public class RoutineLoadOperation implements Writable {
 
     public ErrorReason getErrorReason() {
         return reason;
+    }
+
+    public RoutineLoadProgress getProgress() {
+        return progress;
+    }
+
+    public RoutineLoadStatistic getStatistic() {
+        return statistic;
+    }
+
+    public List<Integer> getCurrentKafkaPartitions() {
+        return currentKafkaPartitions;
+    }
+
+    public Map<Integer, Long> getCachedPartitionWithLatestOffsets() {
+        return cachedPartitionWithLatestOffsets;
     }
 
     public static RoutineLoadOperation read(DataInput in) throws IOException {
