@@ -70,6 +70,21 @@ public interface LanceStorageProvider {
     Map<String, String> normalizeVendedStorageOptions(Map<String, String> vendedOptions);
 
     /**
+     * Settles options that only mean anything together, once the vended half has been laid over
+     * the catalog's.
+     *
+     * <p>That overlay is key by key, which is wrong for a group like a credential: a key pair, the
+     * token issued for that pair, and any role or identity binding standing in for them. Merged
+     * independently they can pair one side's access key with the other's secret, or leave a token
+     * attached to a pair it was never issued for, and the stores below second-guess neither.
+     *
+     * <p>Empty for a provider whose options carry no such coupling, or which has no vocabulary of
+     * its own to recognize one by.
+     */
+    void reconcileVendedStorageOptions(Map<String, String> merged,
+            Map<String, String> normalizedVended);
+
+    /**
      * Derives provider options from the fully normalized and merged option map.
      *
      * <p>The returned entries are defaults: an explicitly supplied option always wins. Inference

@@ -46,6 +46,17 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
     private static final String OIDC_TOKEN_FILE = "oidc_token_file";
 
     /**
+     * The options that together say who the caller is. They are replaced as a unit, so the removal
+     * below reads this list rather than naming each key again. {@code allow_anonymous} is
+     * deliberately absent: it states a conclusion about these rather than being one of them, and is
+     * inferred once everything else has settled.
+     */
+    private static final String[] AUTH_OPTIONS = {
+            ACCESS_KEY_ID, SECRET_ACCESS_KEY, SECURITY_TOKEN,
+            ROLE_ARN, OIDC_TOKEN, OIDC_PROVIDER_ARN, OIDC_TOKEN_FILE,
+    };
+
+    /**
      * Lance exposes the {@code oss_*} names as its public storage-option vocabulary and normalizes
      * them to OpenDAL's field names before constructing the operator. Both spellings are accepted,
      * so collapse only these known pairs before merging static and namespace-vended options.
@@ -118,30 +129,37 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
      * over the catalog's.
      *
      * <p>Authentication is one value, not a set of independent keys: a key pair, the token that
-     * belongs to that pair, and an explicit choice to skip signing. The overlay that produced
-     * {@code merged} is key by key, so on its own it can pair one side's access key with the
-     * other's secret, or leave a token attached to a pair it was never issued for.
+     * belongs to that pair, and any role or identity binding standing in for them. The overlay that
+     * produced {@code merged} is key by key, so on its own it can pair one side's access key with
+     * the other's secret, or leave a token attached to a pair it was never issued for.
      *
      * <p>So the two sides are never mixed. A namespace that supplies any part of the authentication
      * has just described this table and supplies all of it; otherwise the catalog's stands
-     * untouched. Every case the merge could previously get wrong - a half pair, a stale token, a
-     * vended blank, an explicit anonymous request - follows from that one rule.
-     *
-     * <p>This lives here rather than on {@link LanceStorageProvider} because OSS is the only
-     * provider whose options carry the coupling. The S3 adapter has a comparable overlay but
-     * predates this work, and a hook only one implementation honoured would read as an oversight.
+     * untouched. Every case the merge could get wrong - a half pair, a stale token, a vended blank,
+     * an explicit anonymous request - follows from that one rule.
      */
-    static void reconcileAuth(Map<String, String> merged, Map<String, String> normalizedVended) {
-        boolean vendedSuppliesAuth = normalizedVended.containsKey(ACCESS_KEY_ID)
-                || normalizedVended.containsKey(SECRET_ACCESS_KEY)
-                || normalizedVended.containsKey(SECURITY_TOKEN)
-                || normalizedVended.containsKey(ALLOW_ANONYMOUS)
-                || normalizedVended.containsKey(ROLE_ARN)
-                || normalizedVended.containsKey(OIDC_TOKEN)
-                || normalizedVended.containsKey(OIDC_PROVIDER_ARN)
-                || normalizedVended.containsKey(OIDC_TOKEN_FILE);
+    @Override
+    public void reconcileVendedStorageOptions(Map<String, String> merged,
+            Map<String, String> normalizedVended) {
+        // A vended anonymous flag counts as supplying authentication: saying "this table needs no
+        // credential" is a statement about the same group, and outranks one the catalog holds.
+        boolean vendedSuppliesAuth = normalizedVended.containsKey(ALLOW_ANONYMOUS);
+        for (String option : AUTH_OPTIONS) {
+            if (normalizedVended.containsKey(option)) {
+                vendedSuppliesAuth = true;
+                break;
+            }
+        }
         if (!vendedSuppliesAuth) {
             return;
+        }
+        // Whatever the namespace did not send belonged to the credential it is replacing. That
+        // includes a role or identity binding: inference below counts those as signing
+        // configuration, so leaving one behind would describe an identity that is no longer in use.
+        for (String option : AUTH_OPTIONS) {
+            if (!normalizedVended.containsKey(option)) {
+                merged.remove(option);
+            }
         }
         putCredentials(merged, normalizedVended.get(ACCESS_KEY_ID),
                 normalizedVended.get(SECRET_ACCESS_KEY), normalizedVended.get(SECURITY_TOKEN));

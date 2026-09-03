@@ -83,13 +83,7 @@ public final class LanceStorageOptions {
             normalizedVended = provider.normalizeVendedStorageOptions(vendedOptions);
         }
         result.putAll(normalizedVended);
-        // The overlay above is key by key, which can leave OSS's authentication options - a key
-        // pair, its token, and the signing choice - disagreeing with one another.
-        // Only OSS couples its options this way, so this is a direct call rather than a hook on
-        // LanceStorageProvider that one implementation would honour and the others ignore.
-        if (provider instanceof LanceOssStorageProvider) {
-            LanceOssStorageProvider.reconcileAuth(result, normalizedVended);
-        }
+        provider.reconcileVendedStorageOptions(result, normalizedVended);
         provider.inferStorageOptions(result).forEach(result::putIfAbsent);
         result.forEach((key, value) -> rejectUntransportable(key, value,
                 "Lance storage configuration"));
