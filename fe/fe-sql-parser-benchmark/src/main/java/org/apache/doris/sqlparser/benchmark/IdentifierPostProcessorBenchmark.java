@@ -43,15 +43,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-/** Measures the grammar change both in isolation and through the public parser facade. */
+/** Measures identifier post-processing through the public facade and with pre-tokenized input. */
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
 @Fork(value = 3, jvmArgsAppend = {"-Xms1g", "-Xmx1g"})
 @Warmup(iterations = 4, time = 300, timeUnit = TimeUnit.MILLISECONDS)
 @Measurement(iterations = 7, time = 400, timeUnit = TimeUnit.MILLISECONDS)
 @State(Scope.Thread)
-public class PrimaryExpressionBenchmark {
-    @Param({"control", "typical", "specialForms", "postfixChain", "wideProjection"})
+public class IdentifierPostProcessorBenchmark {
+    @Param({"control", "typical", "wide", "nonReserved", "quoted"})
     public String workload;
 
     private final DorisSqlParser facade = new DorisSqlParser();
@@ -62,33 +62,7 @@ public class PrimaryExpressionBenchmark {
 
     @Setup(Level.Trial)
     public void setUp() {
-        switch (workload) {
-            case "control":
-                sql = "SELECT 1";
-                break;
-            case "typical":
-                sql = "SELECT a + b * c FROM t "
-                        + "WHERE (d = 1 OR e[2].f > 3) AND g IS NOT NULL";
-                break;
-            case "specialForms":
-                sql = "SELECT CASE a WHEN 1 THEN CONVERT(b USING utf8) "
-                        + "WHEN 2 THEN CAST(c AS BIGINT) ELSE d + 1 END FROM t "
-                        + "WHERE CASE WHEN e > 0 THEN TRUE ELSE FALSE END";
-                break;
-            case "postfixChain":
-                sql = "SELECT fn(a)[1:2][3].field[4].nested[5:6].leaf "
-                        + "COLLATE utf8_general_ci FROM t";
-                break;
-            case "wideProjection":
-                sql = "SELECT " + IntStream.range(0, 64)
-                        .mapToObj(i -> "c" + i + " + " + i)
-                        .collect(Collectors.joining(", "))
-                        + " FROM t WHERE key_col[1].field > 0";
-                break;
-            default:
-                throw new IllegalArgumentException("Unknown workload: " + workload);
-        }
-
+        sql = statement(workload);
         CommonTokenStream stream = new CommonTokenStream(facade.newLexer(sql));
         stream.fill();
         tokens = List.copyOf(stream.getTokens());
@@ -107,5 +81,28 @@ public class PrimaryExpressionBenchmark {
         parser.addErrorListener(errorListener);
         parser.getInterpreter().setPredictionMode(PredictionMode.SLL);
         return parser.singleStatement();
+    }
+
+    private static String statement(String workload) {
+        switch (workload) {
+            case "control":
+                return "SELECT 1";
+            case "typical":
+                return "SELECT customer_id, sum(amount) AS total FROM sales AS s "
+                        + "WHERE region = 'east' GROUP BY customer_id ORDER BY total DESC LIMIT 10";
+            case "wide":
+                return "SELECT " + IntStream.range(0, 64)
+                        .mapToObj(index -> "c" + index + " AS alias" + index)
+                        .collect(Collectors.joining(", "))
+                        + " FROM catalog.db.fact_table";
+            case "nonReserved":
+                return "SELECT action, branch, cache, catalog, connection, engine, format, global, name "
+                        + "FROM aggregate AS alias WHERE action = 1";
+            case "quoted":
+                return "SELECT `AD``D`, `Mixed Name`, `select` FROM `db``name`.`table name` AS `t``1` "
+                        + "WHERE `t``1`.`AD``D` > 0";
+            default:
+                throw new IllegalArgumentException("Unknown workload: " + workload);
+        }
     }
 }
