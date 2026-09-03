@@ -867,6 +867,11 @@ bool can_evaluate_native_page_index(const VExprSPtr& expr) {
     if (expr == nullptr || !expr->can_evaluate_zonemap_filter()) {
         return false;
     }
+    if (const auto impl = expr->get_impl(); impl != nullptr) {
+        // RuntimeFilterExpr keeps its predicate outside the inherited child list. Unwrap only for
+        // shape classification; pruning still evaluates the original wrapper and its semantics.
+        return can_evaluate_native_page_index(impl);
+    }
     if (expr->op() == TExprOpcode::COMPOUND_AND) {
         return std::ranges::any_of(expr->children(), can_evaluate_native_page_index);
     }

@@ -36,12 +36,14 @@
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
+#include "core/call_on_type_index.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_agg_state.h"
+#include "core/data_type/data_type_array.h"
 #include "core/types.h"
 #include "exec/common/util.hpp"
 #include "exec/pipeline/pipeline_task.h"
@@ -683,15 +685,36 @@ bool VectorizedFnCall::is_safe_to_execute_on_selected_rows() const {
                                                                     "is_null_pred",
                                                                     "is_not_null_pred",
                                                                     "element_at",
-                                                                    "struct_element",
-                                                                    "array_contains"};
+                                                                    "struct_element"};
+    bool function_is_total = TOTAL_PREDICATE_FUNCTIONS.contains(_function_name);
+    if (_function_name == "array_contains" && get_num_children() == 2) {
+        const auto& left_child_type = get_child(0)->data_type();
+        const auto& right_child_type = get_child(1)->data_type();
+        if (left_child_type != nullptr && right_child_type != nullptr) {
+            const auto array_type = remove_nullable(left_child_type);
+            const auto right_type = remove_nullable(right_child_type);
+            if (array_type->get_primitive_type() == TYPE_ARRAY) {
+                const auto element_type = remove_nullable(
+                        assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
+                const auto element_primitive_type = element_type->get_primitive_type();
+                const auto right_primitive_type = right_type->get_primitive_type();
+                const bool types_match = element_primitive_type == right_primitive_type ||
+                                         (is_string_type(element_primitive_type) &&
+                                          is_string_type(right_primitive_type));
+                // Match the executable dispatch domain so metadata pruning cannot hide an
+                // unsupported-signature error from a row rejected by a later predicate.
+                function_is_total =
+                        types_match && dispatch_switch_all(element_primitive_type,
+                                                           [](const auto&) { return true; });
+            }
+        }
+    }
     // Selected-row execution may hide data-dependent errors in rows rejected by an earlier
     // predicate. Keep function calls unsafe by default and opt in only operations that are total
-    // for their input domain. Accessors return NULL for absent elements and membership is total for
-    // valid arrays, so admitting them keeps nested metadata predicates reachable without crossing
-    // an error-producing child such as gt(mod(x, -1), 0).
-    return TOTAL_PREDICATE_FUNCTIONS.contains(_function_name) &&
-           VExpr::is_safe_to_execute_on_selected_rows();
+    // for their input domain. Accessors return NULL for absent elements, and supported membership
+    // signatures are total, so admitting them keeps nested metadata predicates reachable without
+    // crossing an error-producing child such as gt(mod(x, -1), 0).
+    return function_is_total && VExpr::is_safe_to_execute_on_selected_rows();
 }
 
 bool VectorizedFnCall::equals(const VExpr& other) {

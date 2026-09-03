@@ -1703,6 +1703,23 @@ TEST(TableReaderTest, ArrayContainsReachesMetadataPruningSafeRequestPrefix) {
     ASSERT_TRUE(reader.close().ok());
 }
 
+TEST(TableReaderTest, ComplexArrayContainsIsUnsafeForMetadataPruning) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto inner_array_type = std::make_shared<DataTypeArray>(int_type);
+    const auto outer_array_type = std::make_shared<DataTypeArray>(inner_array_type);
+    auto expr = table_function_expr("array_contains", std::make_shared<DataTypeUInt8>(),
+                                    {outer_array_type, inner_array_type});
+    expr->add_child(VSlotRef::create_shared(0, 0, 0, outer_array_type, "nested_items"));
+    expr->add_child(VLiteral::create_shared(
+            inner_array_type,
+            Field::create_field<TYPE_ARRAY>(Array {Field::create_field<TYPE_INT>(1)})));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto conjunct = prepared_conjunct(&state, expr);
+    EXPECT_FALSE(conjunct->root()->is_safe_to_execute_on_selected_rows());
+    conjunct->close();
+}
+
 TEST(TableReaderTest, ConstantPruningStopsAtUnsafeSlotlessPredicate) {
     std::vector<ColumnDefinition> projected_columns;
     auto partition_column = make_table_column(0, "part", std::make_shared<DataTypeInt32>());

@@ -47,6 +47,7 @@
 #include "exprs/function/functions_comparison.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/hybrid_set_min_max.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vcompound_pred.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -375,7 +376,12 @@ private:
 class MetadataInt32GreaterThanExpr final : public VExpr {
 public:
     explicit MetadataInt32GreaterThanExpr(int32_t value)
-            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value) {}
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value) {
+        _fn.name.function_name = "gt";
+        add_child(VSlotRef::create_shared(0, 0, -1, std::make_shared<DataTypeInt32>(), "c0"));
+        add_child(VLiteral::create_shared(std::make_shared<DataTypeInt32>(),
+                                          Field::create_field<TYPE_INT>(value)));
+    }
 
     const std::string& expr_name() const override { return _expr_name; }
     Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
@@ -1846,6 +1852,70 @@ TEST(NativeParquetStatisticsTest, TypeDefinedBoundsRequireSupportedColumnOrder) 
                                                                &selected_row_groups, false, nullptr)
                         .ok());
     EXPECT_TRUE(selected_row_groups.empty());
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                        metadata, metadata.row_groups[0], page_indexes, schema, request, 1,
+                        &selected_ranges, &skip_plans, nullptr)
+                        .ok());
+    EXPECT_TRUE(selected_ranges.empty());
+}
+
+TEST(NativeParquetStatisticsTest, RuntimeFilterWrapperKeepsScalarPageIndexPruning) {
+    auto encode_int32 = [](int32_t value) {
+        std::string bytes(sizeof(value), '\0');
+        memcpy(bytes.data(), &value, sizeof(value));
+        return bytes;
+    };
+
+    auto column_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+    column_schema->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+    column_schema->local_id = 0;
+    column_schema->leaf_column_id = 0;
+    column_schema->type = std::make_shared<DataTypeInt32>();
+    column_schema->type_descriptor.doris_type = column_schema->type;
+    column_schema->type_descriptor.physical_type = tparquet::Type::INT32;
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    schema.push_back(std::move(column_schema));
+
+    tparquet::ColumnChunk chunk;
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.__set_type(tparquet::Type::INT32);
+    column_metadata.__set_num_values(1);
+    chunk.__set_meta_data(column_metadata);
+    tparquet::RowGroup row_group;
+    row_group.__set_columns({chunk});
+    row_group.__set_num_rows(1);
+    tparquet::ColumnOrder order;
+    order.__set_TYPE_ORDER(tparquet::TypeDefinedOrder());
+    tparquet::FileMetaData metadata;
+    metadata.__set_column_orders({order});
+    metadata.__set_row_groups({row_group});
+
+    TExprNode runtime_filter_node;
+    runtime_filter_node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    runtime_filter_node.__set_is_nullable(false);
+    auto runtime_filter = RuntimeFilterExpr::create_shared(
+            runtime_filter_node, std::make_shared<MetadataInt32GreaterThanExpr>(100), 0.0, false,
+            7);
+    format::FileScanRequest request;
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.predicate_columns = {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+    request.conjuncts = {VExprContext::create_shared(std::move(runtime_filter))};
+    EXPECT_TRUE(format::parquet::can_use_parquet_page_index(request, nullptr));
+
+    format::parquet::NativeParquetPageIndex page_index;
+    page_index.column_index.__set_min_values({encode_int32(1)});
+    page_index.column_index.__set_max_values({encode_int32(2)});
+    page_index.column_index.__set_null_pages({false});
+    page_index.column_index.__set_null_counts({0});
+    tparquet::PageLocation location;
+    location.__set_offset(0);
+    location.__set_compressed_page_size(10);
+    location.__set_first_row_index(0);
+    page_index.offset_index.__set_page_locations({location});
+    std::unordered_map<int, format::parquet::NativeParquetPageIndex> page_indexes;
+    page_indexes.emplace(0, std::move(page_index));
+    std::vector<format::parquet::RowRange> selected_ranges;
+    std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
     ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
                         metadata, metadata.row_groups[0], page_indexes, schema, request, 1,
                         &selected_ranges, &skip_plans, nullptr)
