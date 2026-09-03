@@ -50,6 +50,7 @@ import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
@@ -65,6 +66,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -1070,8 +1072,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         // For non-splitting operators (shouldReset=false, e.g. streaming AGG):
         //   Inherit parent's serial flag + this node's own.
         boolean startsNewPipeline = shouldResetSerialFlagForChild(childIndex);
+        Supplier<Boolean> currentNodeSerialOnBe = Suppliers.memoize(
+                () -> isSerialOperatorOnBe(translatorContext.getConnectContext()));
         boolean currentPipelineSerial = translatorContext.hasSerialAncestorInPipeline(this)
-                || isSerialOperatorOnBe(translatorContext.getConnectContext());
+                || currentNodeSerialOnBe.get();
         boolean inheritedSerial = startsNewPipeline
                 ? false : translatorContext.hasSerialAncestorInPipeline(this);
         // Use isSerialOperatorOnBe (= isSerialNode && fragment.useSerialSource) instead of the
@@ -1081,7 +1085,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         // Using isSerialNode here would set the child's serial-ancestor flag wider than BE's
         // view and over-skip required LocalExchanges downstream.
         boolean childHasSerialAncestor = inheritedSerial
-                || isSerialOperatorOnBe(translatorContext.getConnectContext());
+                || currentNodeSerialOnBe.get();
         translatorContext.setHasSerialAncestorInPipeline(child, childHasSerialAncestor);
         translatorContext.setHasSerialParentPipeline(child, startsNewPipeline
                 ? currentPipelineSerial : translatorContext.hasSerialParentPipeline(this));
