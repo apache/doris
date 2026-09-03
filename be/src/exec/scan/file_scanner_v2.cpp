@@ -145,12 +145,8 @@ bool is_supported_jni_table_format(const TFileRangeDesc& range) {
         }
         const auto& params = range.table_format_params.paimon_params;
         if (params.__isset.reader_type) {
-            if (params.reader_type == TPaimonReaderType::PAIMON_JNI) {
-                return params.__isset.paimon_split;
-            }
-            // V2 cannot pass a logical DataSplit through a raw native child without silently
-            // dropping its multi-file semantics, so PAIMON_CPP must remain on the V1 fallback.
-            return false;
+            return params.reader_type == TPaimonReaderType::PAIMON_JNI &&
+                   params.__isset.paimon_split;
         }
         if (params.__isset.paimon_split) {
             // Before reader_type was added, an encoded split unambiguously selected the Java
