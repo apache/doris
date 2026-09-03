@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
@@ -51,6 +52,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
 import org.apache.doris.nereids.trees.plans.commands.info.BuildIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
@@ -85,6 +87,12 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class CloudIndexTest {
     private static final Logger LOG = LogManager.getLogger(CloudIndexTest.class);
@@ -816,6 +824,96 @@ public class CloudIndexTest {
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
         Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+    }
+
+    @Test
+    public void testCloudSchemaChangeReservesWatershedBeforeShadowIndexIsVisible() throws Exception {
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        DataSortInfo dataSortInfo = new DataSortInfo();
+        dataSortInfo.setSortType(TSortType.LEXICAL);
+        table.setDataSortInfo(dataSortInfo);
+        table.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V2);
+
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("parser", "english");
+        IndexDefinition indexDefinition = new IndexDefinition("watershed_inverted_index", false,
+                Lists.newArrayList(table.getBaseSchema().get(2).getName()),
+                "INVERTED", properties, "test watershed ordering");
+        TableNameInfo tableNameInfo = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                table.getName());
+        CreateIndexOp watershedIndexOp = new CreateIndexOp(tableNameInfo, indexDefinition, false);
+        watershedIndexOp.validate(ctx);
+        ctx.getSessionVariable().setEnableAddIndexForNewData(false);
+        schemaChangeHandler.process(Lists.newArrayList(watershedIndexOp), db, table);
+
+        AlterJobV2 alterJob = schemaChangeHandler.getAlterJobsV2().values().stream().findAny().orElseThrow();
+        Assert.assertTrue(alterJob instanceof CloudSchemaChangeJobV2);
+        assertWatershedReservedUnderTableWriteLock(alterJob, table);
+        Assert.assertEquals(1, table.getPartition(CatalogTestUtil.testPartitionId2)
+                .getMaterializedIndices(IndexExtState.SHADOW).size());
+    }
+
+    @Test
+    public void testCloudRollupReservesWatershedBeforeIndexIsVisible() throws Exception {
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        DataSortInfo dataSortInfo = new DataSortInfo();
+        dataSortInfo.setSortType(TSortType.LEXICAL);
+        table.setDataSortInfo(dataSortInfo);
+        AddRollupOp addRollupOp = new AddRollupOp("watershed_rollup",
+                Lists.newArrayList("k1", "v1", "v2"), null, CatalogTestUtil.testIndex2, null);
+        addRollupOp.validate(ctx);
+
+        MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
+        materializedViewHandler.process(Lists.newArrayList(addRollupOp), db, table);
+        AlterJobV2 alterJob = materializedViewHandler.getAlterJobsV2().values().stream()
+                .findAny().orElseThrow();
+        Assert.assertTrue(alterJob instanceof CloudRollupJobV2);
+        assertWatershedReservedUnderTableWriteLock(alterJob, table);
+        Assert.assertEquals(1, table.getPartition(CatalogTestUtil.testPartitionId2)
+                .getMaterializedIndices(IndexExtState.SHADOW).size());
+    }
+
+    private void assertWatershedReservedUnderTableWriteLock(AlterJobV2 alterJob, OlapTable table) throws Exception {
+        long watershedTxnId = 2000L;
+        CountDownLatch allocatingTxnId = new CountDownLatch(1);
+        CountDownLatch tableLockChecked = new CountDownLatch(1);
+        AtomicBoolean readLockAcquired = new AtomicBoolean();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> tableReader = executor.submit(() -> {
+                Assert.assertTrue(allocatingTxnId.await(10, TimeUnit.SECONDS));
+                boolean acquired = table.tryReadLock(0, TimeUnit.MILLISECONDS);
+                if (acquired) {
+                    table.readUnlock();
+                }
+                readLockAcquired.set(acquired);
+                tableLockChecked.countDown();
+                return null;
+            });
+            Mockito.doAnswer(invocation -> {
+                allocatingTxnId.countDown();
+                Assert.assertTrue(tableLockChecked.await(10, TimeUnit.SECONDS));
+                Assert.assertFalse("table must stay write locked while reserving the watershed",
+                        readLockAcquired.get());
+                Assert.assertEquals(-1L, alterJob.getWatershedTxnId());
+                return Cloud.GetCurrentMaxTxnResponse.newBuilder()
+                        .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                .setCode(MetaServiceCode.OK).setMsg("OK"))
+                        .setCurrentMaxTxnId(watershedTxnId)
+                        .build();
+            }).when(mockProxy).getCurrentMaxTxnId(Mockito.any());
+
+            alterJob.runPendingJob();
+            tableReader.get(10, TimeUnit.SECONDS);
+        } finally {
+            allocatingTxnId.countDown();
+            executor.shutdownNow();
+        }
+
+        Assert.assertEquals(watershedTxnId, alterJob.getWatershedTxnId());
+        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, alterJob.getJobState());
     }
 
     @Test

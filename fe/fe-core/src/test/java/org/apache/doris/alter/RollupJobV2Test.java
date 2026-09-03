@@ -75,6 +75,12 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class RollupJobV2Test {
     private static String fileName = "./RollupJobV2Test";
@@ -409,6 +415,63 @@ public class RollupJobV2Test {
 
         materializedViewHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.FINISHED, rollupJob.getJobState());
+    }
+
+    @Test
+    public void testWatershedReservedBeforeRollupIndexIsVisible() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+
+        MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        Partition partition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        materializedViewHandler.process(Lists.newArrayList(op), db, olapTable);
+        RollupJobV2 rollupJob = (RollupJobV2) materializedViewHandler.getAlterJobsV2()
+                .values().stream().findAny().orElseThrow();
+
+        long watershedTxnId = 2000L;
+        CountDownLatch allocatingTxnId = new CountDownLatch(1);
+        CountDownLatch tableLockChecked = new CountDownLatch(1);
+        AtomicBoolean readLockAcquired = new AtomicBoolean();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> tableReader = executor.submit(() -> {
+                Assert.assertTrue(allocatingTxnId.await(10, TimeUnit.SECONDS));
+                boolean acquired = olapTable.tryReadLock(0, TimeUnit.MILLISECONDS);
+                if (acquired) {
+                    olapTable.readUnlock();
+                }
+                readLockAcquired.set(acquired);
+                tableLockChecked.countDown();
+                return null;
+            });
+            Mockito.doAnswer(invocation -> {
+                allocatingTxnId.countDown();
+                Assert.assertTrue(tableLockChecked.await(10, TimeUnit.SECONDS));
+                Assert.assertFalse("table must stay write locked while reserving the watershed",
+                        readLockAcquired.get());
+                Assert.assertEquals(-1L, rollupJob.getWatershedTxnId());
+                return watershedTxnId;
+            }).when(masterTransMgr.getTransactionIDGenerator()).getNextTransactionId();
+
+            rollupJob.runPendingJob();
+            tableReader.get(10, TimeUnit.SECONDS);
+        } finally {
+            allocatingTxnId.countDown();
+            executor.shutdownNow();
+        }
+
+        Assert.assertEquals(watershedTxnId, rollupJob.getWatershedTxnId());
+        Assert.assertEquals(JobState.WAITING_TXN, rollupJob.getJobState());
+        Assert.assertEquals(1, partition.getMaterializedIndices(IndexExtState.SHADOW).size());
     }
 
 

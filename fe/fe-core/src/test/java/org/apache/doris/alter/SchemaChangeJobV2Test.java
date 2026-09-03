@@ -97,6 +97,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class SchemaChangeJobV2Test {
 
@@ -619,6 +625,63 @@ public class SchemaChangeJobV2Test {
         expectedEx.expectMessage("errCode = 2, detailMessage = Cannot change "
                 + "distribution type of aggregate keys table which has value columns with REPLACE type.");
         Env.getCurrentEnv().convertDistributionType(db, table);
+    }
+
+    @Test
+    public void testWatershedReservedBeforeShadowIndexIsVisible() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        Partition partition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        schemaChangeHandler.process(Lists.newArrayList(addColumnOp), db, olapTable);
+        SchemaChangeJobV2 schemaChangeJob = (SchemaChangeJobV2) schemaChangeHandler.getAlterJobsV2()
+                .values().stream().findAny().orElseThrow();
+
+        long watershedTxnId = 2000L;
+        CountDownLatch allocatingTxnId = new CountDownLatch(1);
+        CountDownLatch tableLockChecked = new CountDownLatch(1);
+        AtomicBoolean readLockAcquired = new AtomicBoolean();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> tableReader = executor.submit(() -> {
+                Assert.assertTrue(allocatingTxnId.await(10, TimeUnit.SECONDS));
+                boolean acquired = olapTable.tryReadLock(0, TimeUnit.MILLISECONDS);
+                if (acquired) {
+                    olapTable.readUnlock();
+                }
+                readLockAcquired.set(acquired);
+                tableLockChecked.countDown();
+                return null;
+            });
+            Mockito.doAnswer(invocation -> {
+                allocatingTxnId.countDown();
+                Assert.assertTrue(tableLockChecked.await(10, TimeUnit.SECONDS));
+                Assert.assertFalse("table must stay write locked while reserving the watershed",
+                        readLockAcquired.get());
+                Assert.assertEquals(-1L, schemaChangeJob.getWatershedTxnId());
+                return watershedTxnId;
+            }).when(masterTransMgr.getTransactionIDGenerator()).getNextTransactionId();
+
+            schemaChangeJob.runPendingJob();
+            tableReader.get(10, TimeUnit.SECONDS);
+        } finally {
+            allocatingTxnId.countDown();
+            executor.shutdownNow();
+        }
+
+        Assert.assertEquals(watershedTxnId, schemaChangeJob.getWatershedTxnId());
+        Assert.assertEquals(JobState.WAITING_TXN, schemaChangeJob.getJobState());
+        Assert.assertEquals(1, partition.getMaterializedIndices(IndexExtState.SHADOW).size());
     }
 
     @Test
