@@ -20,12 +20,15 @@ package org.apache.doris.nereids.trees.plans.algebra;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 
 /** CatalogRelation */
 public interface CatalogRelation extends Relation {
@@ -42,5 +45,9 @@ public interface CatalogRelation extends Relation {
 
     default List<Slot> getOperativeSlots() {
         return ImmutableList.of();
+    }
+
+    default Set<Expression> getRelationImpliedPredicates() {
+        return ImmutableSet.of();
     }
 }

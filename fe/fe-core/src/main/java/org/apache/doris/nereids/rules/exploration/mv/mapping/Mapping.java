@@ -17,15 +17,14 @@
 
 package org.apache.doris.nereids.rules.exploration.mv.mapping;
 
+import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 
-import com.google.common.collect.ImmutableList;
-
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,8 +44,8 @@ public abstract class Mapping {
 
         public final RelationId relationId;
         public final CatalogRelation belongedRelation;
-        // Generate eagerly, will be used to generate slot mapping
-        private final Map<List<String>, Slot> slotNameToSlotMap = new HashMap<>();
+        // Generate eagerly, will be used to generate slot mapping.
+        private final Map<RelationSemanticSlotKey, SlotReference> slotBySemanticKey = new HashMap<>();
 
         /**
          * Construct relation and slot map
@@ -56,13 +55,13 @@ public abstract class Mapping {
             this.belongedRelation = belongedRelation;
             for (Slot slot : belongedRelation.getOutput()) {
                 if (slot instanceof SlotReference) {
-                    // variant slot
-                    List<String> slotNames = new ArrayList<>();
-                    slotNames.add(slot.getName());
-                    slotNames.addAll(((SlotReference) slot).getSubPath());
-                    slotNameToSlotMap.put(slotNames, slot);
-                } else {
-                    slotNameToSlotMap.put(ImmutableList.of(slot.getName()), slot);
+                    putSlotBySemanticKey((SlotReference) slot);
+                }
+            }
+            for (Expression predicate : belongedRelation.getRelationImpliedPredicates()) {
+                List<SlotReference> slots = predicate.collectToList(SlotReference.class::isInstance);
+                for (SlotReference slot : slots) {
+                    putSlotBySemanticKey(slot);
                 }
             }
         }
@@ -79,8 +78,14 @@ public abstract class Mapping {
             return belongedRelation;
         }
 
-        public Map<List<String>, Slot> getSlotNameToSlotMap() {
-            return slotNameToSlotMap;
+        Map<RelationSemanticSlotKey, SlotReference> getSlotBySemanticKey() {
+            return slotBySemanticKey;
+        }
+
+        private void putSlotBySemanticKey(SlotReference slot) {
+            if (slot.getOriginalTable().isPresent() && slot.getOriginalColumn().isPresent()) {
+                slotBySemanticKey.putIfAbsent(RelationSemanticSlotKey.of(slot), slot);
+            }
         }
 
         @Override
@@ -104,7 +109,45 @@ public abstract class Mapping {
         public String toString() {
             String relationTableName = belongedRelation.getTable().getNameWithFullQualifiers();
             return "MappedRelation{" + "relationId=" + relationId + ", relationTableName="
-                    + relationTableName + ", slotNameToSlotMap=" + slotNameToSlotMap + '}';
+                    + relationTableName + ", slotBySemanticKey=" + slotBySemanticKey + '}';
+        }
+    }
+
+    static final class RelationSemanticSlotKey {
+        private final TableIdentifier tableIdentifier;
+        private final String columnName;
+        private final List<String> subPath;
+
+        private RelationSemanticSlotKey(TableIdentifier tableIdentifier, String columnName, List<String> subPath) {
+            this.tableIdentifier = tableIdentifier;
+            this.columnName = columnName;
+            this.subPath = subPath;
+        }
+
+        private static RelationSemanticSlotKey of(SlotReference slot) {
+            return new RelationSemanticSlotKey(
+                    new TableIdentifier(slot.getOriginalTable().get()),
+                    slot.getOriginalColumn().get().getName(),
+                    slot.getSubPath());
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (!(o instanceof RelationSemanticSlotKey)) {
+                return false;
+            }
+            RelationSemanticSlotKey that = (RelationSemanticSlotKey) o;
+            return Objects.equals(tableIdentifier, that.tableIdentifier)
+                    && Objects.equals(columnName, that.columnName)
+                    && Objects.equals(subPath, that.subPath);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(tableIdentifier, columnName, subPath);
         }
     }
 

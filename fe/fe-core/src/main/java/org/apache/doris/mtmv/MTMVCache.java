@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -34,6 +35,7 @@ import org.apache.doris.nereids.rules.rewrite.EliminateSort;
 import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
@@ -129,7 +131,8 @@ public class MTMVCache {
                 planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
             }
             CascadesContext cascadesContext = planner.getCascadesContext();
-            Plan rewritePlan = cascadesContext.getRewritePlan();
+            Plan rewritePlan = attachNestedMTMVScanPredicates(
+                    cascadesContext.getRewritePlan(), cascadesContext.getConnectContext());
 
             // Only add SessionVarGuardExpr if requested
             Optional<SessionVarGuardRewriter> exprRewriter = addSessionVarGuard
@@ -144,9 +147,11 @@ public class MTMVCache {
                     addGuardRewritePlan, cascadesContext);
             List<Pair<Plan, StructInfo>> tmpPlanUsedForRewrite = new ArrayList<>();
             for (Plan plan : cascadesContext.getStatementContext().getTmpPlanForMvRewrite()) {
+                Plan planWithScanPredicates = attachNestedMTMVScanPredicates(
+                        plan, cascadesContext.getConnectContext());
                 Plan addGuardplan = exprRewriter
-                        .map(rewriter -> SessionVarGuardRewriter.rewritePlanTree(rewriter, plan))
-                        .orElse(plan);
+                        .map(rewriter -> SessionVarGuardRewriter.rewritePlanTree(rewriter, planWithScanPredicates))
+                        .orElse(planWithScanPredicates);
                 tmpPlanUsedForRewrite.add(constructPlanAndStructInfo(addGuardplan, cascadesContext));
             }
             return new MTMVCache(finalPlanStructInfoPair, addGuardRewritePlan, needCost
@@ -159,6 +164,25 @@ public class MTMVCache {
                 currentContext.setThreadLocalInfo();
             }
         }
+    }
+
+    private static Plan attachNestedMTMVScanPredicates(Plan plan, ConnectContext connectContext) {
+        return plan.accept(new DefaultPlanRewriter<ConnectContext>() {
+            @Override
+            public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, ConnectContext context) {
+                if (!(olapScan.getTable() instanceof MTMV)) {
+                    return olapScan;
+                }
+                MTMV mtmv = (MTMV) olapScan.getTable();
+                if (olapScan.getSelectedIndexId() != mtmv.getBaseIndexId()) {
+                    return olapScan;
+                }
+                MTMVCache nestedCache = mtmv.getOrGenerateCache(context);
+                StructInfo structInfo = nestedCache.getAllRulesRewrittenPlanAndStructInfo().value();
+                return MaterializedViewUtils.withImpliedPredicates(
+                        olapScan, structInfo, structInfo.getPlanOutputShuttledExpressions());
+            }
+        }, connectContext);
     }
 
     // Eliminate result sink because sink operator is useless in query rewrite by materialized view
