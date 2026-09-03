@@ -49,15 +49,11 @@ public class AlterStreamCommand extends AlterCommand {
     private final AlterType alterType;
     private final String comment;
 
-    private AlterStreamCommand(TableNameInfo streamName, AlterType alterType, String comment) {
+    public AlterStreamCommand(TableNameInfo streamName, AlterType alterType, String comment) {
         super(PlanType.ALTER_STREAM_COMMAND);
         this.streamName = streamName;
         this.alterType = alterType;
         this.comment = comment;
-    }
-
-    public static AlterStreamCommand forSetComment(TableNameInfo streamName, String comment) {
-        return new AlterStreamCommand(streamName, AlterType.SET_COMMENT, comment);
     }
 
     @Override

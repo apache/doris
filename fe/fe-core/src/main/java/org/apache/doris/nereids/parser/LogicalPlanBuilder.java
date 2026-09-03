@@ -7273,7 +7273,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitAlterStreamComment(DorisParser.AlterStreamCommentContext ctx) {
         TableNameInfo streamName = new TableNameInfo(visitMultipartIdentifier(ctx.name));
         String comment = SqlLiteralUtils.parseStringLiteral(ctx.comment.getText());
-        return AlterStreamCommand.forSetComment(streamName, comment);
+        return new AlterStreamCommand(streamName, AlterStreamCommand.AlterType.SET_COMMENT, comment);
     }
 
     @Override
